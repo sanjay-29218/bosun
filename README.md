@@ -31,14 +31,19 @@ and it ships under its own name, identity, and branding.
 An agentic software factory — a system for running _organizations_ of agents rather
 than single conversations.
 
-- **Captain** — the single point of contact. It talks to you, asks each Manager what
-  their project is doing and which feature is in flight, and asks on your behalf.
-- **Managers** — one per project. A Manager plans the work and drives its crew.
-- **Bots** — Planner, Designer, Execution, Reviewer, and others. Each bot has a place
-  in a hierarchy and its own rules, context, skills, models, and MCP tools.
-- **Projects** — a set of tasks. Not necessarily coding: a project can be another
-  codebase, a stock portfolio, or anything else you can describe.
-- **Features** — the unit of work a project's crew delivers, feature by feature.
+- **Captain** — a bot, and the single source you talk to. It asks each project's
+  Manager what they're doing and which feature is in flight, and relays your wishes.
+  Managers can also ask the Captain to ask you on their behalf.
+- **Manager** — one per project, and a bot itself. It plans the work and drives the
+  project's crew.
+- **Bots** — the crew: **Planner** (Linear / GitHub issues), **Designer** (Figma MCP /
+  paper), **Execution**, and **Reviewer**. Each bot has a hierarchy, rules, context,
+  skills, models, and MCP tools, and usually one job it does well. Bots can ask each
+  other for context — a Designer asks the Planner; a Planner asks its Manager.
+- **Projects** — a container (its own worktree and branch). A set of tasks, not
+  necessarily coding: another codebase, a stock portfolio, anything you can describe.
+  A project's crew turns features into branches that converge into a PR.
+- **Features** — the units a project's crew delivers.
 
 Bots negotiate with each other: a Designer that is unsure asks the Planner for
 confirmation; a Planner that lacks context asks its Manager. Every request has one
@@ -46,23 +51,49 @@ clear home.
 
 ```mermaid
 flowchart LR
-  U["You"] <--> C["Captain"]
-  C <--> M1["Manager · Project 1"]
-  C <--> M2["Manager · Project 2"]
+  Captain["Captain (bot)"]
 
-  subgraph P1 ["Project 1"]
-    M1 --> PL1["Planner"]
-    M1 --> D1["Designer"]
-    M1 --> E1["Execution"]
-    M1 --> R1["Reviewer"]
+  subgraph P1["Project 1 — worktree, branch"]
+    Manager1["Manager (bot)"]
+    Planner1["Planner — linear / github issue"]
+    Designer1["Designer — figma mcp / paper"]
+    Execution1["Execution — cc / co"]
+    Reviewer1["Reviewer"]
+    W1["W1, B1"]
+    W2["W2, B2"]
+    Wn["Wn, Bn"]
+    PR1["PR"]
+
+    Manager1 --> Planner1
+    Manager1 --> Designer1
+    Manager1 --> Execution1
+    Manager1 --> Reviewer1
+    Planner1 --> W1
+    Designer1 --> W2
+    Execution1 --> W1
+    Reviewer1 --> Wn
+    W1 --> PR1
+    W2 --> PR1
+    Wn --> PR1
   end
 
-  subgraph P2 ["Project 2"]
-    M2 --> PL2["Planner"]
-    M2 --> D2["Designer"]
-    M2 --> E2["Execution"]
-    M2 --> R2["Reviewer"]
+  subgraph P2["Project 2 — worktree, branch"]
+    Manager2["Manager (bot)"]
+    Bots2["Planner · Designer · Execution · Reviewer"]
+    PR2["PR"]
+    Manager2 --> Bots2 --> PR2
   end
+
+  subgraph Pn["Project n — worktree, branch"]
+    ManagerN["Manager (bot)"]
+    BotsN["Planner · Designer · Execution · Reviewer"]
+    PRN["PR"]
+    ManagerN --> BotsN --> PRN
+  end
+
+  Captain <-->|exchange message| Manager1
+  Captain <-->|exchange message| Manager2
+  Captain <-->|exchange message| ManagerN
 ```
 
 That is the direction, not a finished product.
