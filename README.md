@@ -53,7 +53,24 @@ clear home.
 flowchart LR
   Captain["Captain (bot)"]
 
+  subgraph Pn["Project n — worktree, branch"]
+    direction LR
+    ManagerN["Manager (bot)"]
+    BotsN["Planner · Designer · Execution · Reviewer"]
+    PRN["PR"]
+    ManagerN --> BotsN --> PRN
+  end
+
+  subgraph P2["Project 2 — worktree, branch"]
+    direction LR
+    Manager2["Manager (bot)"]
+    Bots2["Planner · Designer · Execution · Reviewer"]
+    PR2["PR"]
+    Manager2 --> Bots2 --> PR2
+  end
+
   subgraph P1["Project 1 — worktree, branch"]
+    direction LR
     Manager1["Manager (bot)"]
     Planner1["Planner — linear / github issue"]
     Designer1["Designer — figma mcp / paper"]
@@ -75,20 +92,6 @@ flowchart LR
     W1 --> PR1
     W2 --> PR1
     Wn --> PR1
-  end
-
-  subgraph P2["Project 2 — worktree, branch"]
-    Manager2["Manager (bot)"]
-    Bots2["Planner · Designer · Execution · Reviewer"]
-    PR2["PR"]
-    Manager2 --> Bots2 --> PR2
-  end
-
-  subgraph Pn["Project n — worktree, branch"]
-    ManagerN["Manager (bot)"]
-    BotsN["Planner · Designer · Execution · Reviewer"]
-    PRN["PR"]
-    ManagerN --> BotsN --> PRN
   end
 
   Captain <-->|exchange message| Manager1
