@@ -46,22 +46,22 @@ clear home.
 
 ```mermaid
 flowchart LR
-  U[You] <--> C[Captain]
-  C <--> M1[Manager · Project 1]
-  C <--> M2[Manager · Project 2]
+  U["You"] <--> C["Captain"]
+  C <--> M1["Manager · Project 1"]
+  C <--> M2["Manager · Project 2"]
 
-  subgraph P1[Project 1]
-    M1 --> PL1[Planner]
-    M1 --> D1[Designer]
-    M1 --> E1[Execution]
-    M1 --> R1[Reviewer]
+  subgraph P1 ["Project 1"]
+    M1 --> PL1["Planner"]
+    M1 --> D1["Designer"]
+    M1 --> E1["Execution"]
+    M1 --> R1["Reviewer"]
   end
 
-  subgraph P2[Project 2]
-    M2 --> PL2[Planner]
-    M2 --> D2[Designer]
-    M2 --> E2[Execution]
-    M2 --> R2[Reviewer]
+  subgraph P2 ["Project 2"]
+    M2 --> PL2["Planner"]
+    M2 --> D2["Designer"]
+    M2 --> E2["Execution"]
+    M2 --> R2["Reviewer"]
   end
 ```
 
