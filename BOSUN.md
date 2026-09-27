@@ -18,34 +18,23 @@ the captain.
 
 The T3 Code remote is deliberately **not** named `upstream`. T3 Code's repository
 identity resolver prefers a remote named `upstream` over `origin`, so naming it that
-makes Bosun — a fork — resolve to the T3 Code project and collide with it in the app.
+makes Bosun resolve to the T3 Code project and collide with it in the app.
 
 ## Branches
 
-- **`bosun`** — the product and default branch. All Bosun work and PRs land here.
-- **`main`** — a pristine mirror of `upstream/main`. Never commit to it; it exists only
-  so "what is new upstream" stays a clean fast-forward.
+- **`main`** — the product and default branch. All Bosun work and PRs land here.
+
+Upstream T3 Code is pulled from the `t3code` remote; there is no separate mirror branch.
 
 ## Syncing upstream
 
-Keep `main` current, then fold it into the product:
-
 ```bash
 git fetch t3code
-git checkout main && git merge --ff-only t3code/main && git push origin main
-git checkout bosun && git merge main
+git checkout main && git merge t3code/main
 ```
 
-Or merge upstream directly into the product branch:
-
-```bash
-git fetch t3code && git checkout bosun && git merge t3code/main
-```
-
-Two rules keep this clean:
-
-- Never commit to `main`.
-- Keep Bosun-only edits localized, so `git merge main` stays a trivial merge.
+One rule keeps it clean: keep Bosun-only edits localized, so `git merge t3code/main`
+stays a trivial merge.
 
 ## Branding scope
 
@@ -62,10 +51,11 @@ Intentionally still T3 Code internally, to keep upstream merges cheap:
 - `t3code://` protocol scheme, user-data directory, Linux WM class
 - the `t3` CLI
 
-Before any public release, replace the T3 Code brand assets and logos, use your own
-mobile bundle ids / EAS / Clerk / signing team, and remove references to T3 Code's
-domains (`t3.codes`, `app.t3.codes`). Do not ship under T3 Code's identifiers or
-credentials.
+The desktop and web icons are already replaced with the Bosun mark (`assets/bosun/`).
+Still to do before a public release: replace the Apple Icon Composer projects
+(`assets/*/app-icon.icon`) and marketing artwork, use your own mobile bundle ids / EAS
+/ Clerk / signing team, and remove references to T3 Code's domains (`t3.codes`,
+`app.t3.codes`). Do not ship under T3 Code's identifiers or credentials.
 
 ## License
 
