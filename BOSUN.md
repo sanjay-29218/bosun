@@ -9,12 +9,16 @@ the captain.
 
 ## Remotes
 
-| Remote     | URL                                   | Role                                 |
-| ---------- | ------------------------------------- | ------------------------------------ |
-| `origin`   | https://github.com/sanjay-29218/bosun | This repo. Pull and push here.       |
-| `upstream` | https://github.com/pingdotgg/t3code   | T3 Code. Pull from here; never push. |
+| Remote   | URL                                   | Role                                 |
+| -------- | ------------------------------------- | ------------------------------------ |
+| `origin` | https://github.com/sanjay-29218/bosun | This repo. Pull and push here.       |
+| `t3code` | https://github.com/pingdotgg/t3code   | T3 Code. Pull from here; never push. |
 
 `origin` is git's default name for the remote a clone was created from.
+
+The T3 Code remote is deliberately **not** named `upstream`. T3 Code's repository
+identity resolver prefers a remote named `upstream` over `origin`, so naming it that
+makes Bosun — a fork — resolve to the T3 Code project and collide with it in the app.
 
 ## Branches
 
@@ -27,15 +31,15 @@ the captain.
 Keep `main` current, then fold it into the product:
 
 ```bash
-git fetch upstream
-git checkout main && git merge --ff-only upstream/main && git push origin main
+git fetch t3code
+git checkout main && git merge --ff-only t3code/main && git push origin main
 git checkout bosun && git merge main
 ```
 
 Or merge upstream directly into the product branch:
 
 ```bash
-git fetch upstream && git checkout bosun && git merge upstream/main
+git fetch t3code && git checkout bosun && git merge t3code/main
 ```
 
 Two rules keep this clean:
