@@ -1,19 +1,97 @@
-# T3 Code
+# Bosun
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+Bosun is an open-source **agentic software factory**. Instead of driving one coding
+agent at a time, you direct a crew: a **Captain** coordinates **Managers**, and each
+Manager runs a team of bots — **Planner**, **Designer**, **Execution**, **Reviewer** —
+across **Projects** and the **Features** they deliver.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+Bosun is a downstream fork of [T3 Code](#the-t3-code-harness) and uses it as its agent
+harness and control surface. The name comes from _boatswain_ ("bosun") — the officer
+who runs the deck crew under the captain.
 
-## "Wait, what are you selling me?"
+## Credit where it's due
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+Bosun stands entirely on [T3 Code](https://github.com/pingdotgg/t3code), built by
+[T3 Tools](https://t3.codes) — Theo Browne, Julius Marminge, and the T3 Code
+contributors.
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+- **All credit for the underlying harness goes to the T3 Code team.** The agent
+  subprocesses, provider adapters, orchestration engine, desktop/web/mobile clients,
+  and everything that makes agents actually run are their work, not ours.
+- Bosun would not exist without T3 Code, and we intend to keep merging upstream in as
+  they ship it (see [`BOSUN.md`](./BOSUN.md)).
+- T3 Code is MIT-licensed (`LICENSE`, © T3 Tools Inc.). We keep their copyright and
+  permission notice intact.
 
-## Installation
+Bosun is an independent project. It is **not affiliated with or endorsed by T3 Tools**,
+and it ships under its own name, identity, and branding.
+
+## What is Bosun?
+
+An agentic software factory — a system for running _organizations_ of agents rather
+than single conversations.
+
+- **Captain** — the single point of contact. It talks to you, asks each Manager what
+  their project is doing and which feature is in flight, and asks on your behalf.
+- **Managers** — one per project. A Manager plans the work and drives its crew.
+- **Bots** — Planner, Designer, Execution, Reviewer, and others. Each bot has a place
+  in a hierarchy and its own rules, context, skills, models, and MCP tools.
+- **Projects** — a set of tasks. Not necessarily coding: a project can be another
+  codebase, a stock portfolio, or anything else you can describe.
+- **Features** — the unit of work a project's crew delivers, feature by feature.
+
+Bots negotiate with each other: a Designer that is unsure asks the Planner for
+confirmation; a Planner that lacks context asks its Manager. Every request has one
+clear home.
+
+```mermaid
+flowchart LR
+  U[You] <--> C[Captain]
+  C <--> M1[Manager · Project 1]
+  C <--> M2[Manager · Project 2]
+
+  subgraph P1[Project 1]
+    M1 --> PL1[Planner]
+    M1 --> D1[Designer]
+    M1 --> E1[Execution]
+    M1 --> R1[Reviewer]
+  end
+
+  subgraph P2[Project 2]
+    M2 --> PL2[Planner]
+    M2 --> D2[Designer]
+    M2 --> E2[Execution]
+    M2 --> R2[Reviewer]
+  end
+```
+
+That is the direction, not a finished product.
+
+## Status
+
+Very early. Today Bosun is the T3 Code harness with the Bosun identity applied; the
+factory layer above it — the Captain, the Manager/bot hierarchy, and cross-bot
+messaging — is under active construction. Expect rough edges.
+
+## The T3 Code harness
+
+Everything below describes the upstream harness Bosun is built on. Bosun does not
+publish its own builds yet; until it does, you can run the upstream T3 Code it is
+based on.
+
+T3 Code is an "agent harness control surface". It enables control of the agents on
+your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824),
+[Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)),
+[web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+
+Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and
+Google Antigravity. If they're set up on your computer, T3 Code can control them.
+
+### Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
+> The harness currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and
+> Antigravity. Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
 > - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
@@ -34,13 +112,17 @@ On Windows, in PowerShell:
 irm https://t3.codes/install.ps1 | iex
 ```
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+Then run `t3` to start the server and open the local web app. `t3 service install`
+keeps it running in the background, `t3 update` moves to a newer release, and
+`t3 --help` has the full reference.
 
 To try it once without installing, run `npx t3@latest` instead.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+Install the latest T3 Code desktop app from
+[GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite
+package registry:
 
 #### Windows (`winget`)
 
@@ -56,7 +138,8 @@ brew install --cask t3-code
 
 #### Debian, Ubuntu (`.deb`)
 
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
+Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
+then:
 
 ```bash
 sudo apt install ./T3-Code-*.deb
@@ -76,17 +159,12 @@ Nightly:
 yay -S t3code-nightly-bin
 ```
 
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+The AUR packaging is maintained in the upstream repository under
+[`packaging/aur`](./packaging/aur).
 
 ## Documentation
 
-Full docs live in [docs/](./docs). There's no docs site yet.
+Full docs live in [docs/](./docs).
 
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
@@ -98,13 +176,12 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
 - [Run T3 Code as a background service](./docs/user/background-service.md)
 
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
+Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md)
+and read [`BOSUN.md`](./BOSUN.md) for Bosun's branch model and upstream sync.
 
 ### Install `vp`
 
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
+Bosun (like T3 Code) uses Vite+, so you'll need the global `vp` command-line tool.
 
 #### macOS / Linux
 
@@ -114,20 +191,28 @@ curl -fsSL https://vite.plus | bash
 
 #### Windows
 
-```bash
+```powershell
 irm https://vite.plus/ps1 | iex
 ```
 
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
+Then install dependencies:
 
 ```bash
 vp i
 ```
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
+## Contributing
 
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
+Bosun is open source and contributions are welcome. See
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) before reporting a bug or opening a PR, and
+[`BOSUN.md`](./BOSUN.md) for the branch model.
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+Because Bosun builds on T3 Code, fixes that belong upstream are best sent to
+[T3 Code](https://github.com/pingdotgg/t3code) directly; Bosun-specific work goes here.
+
+## License
+
+MIT. Bosun is a fork of T3 Code and inherits its license: see [`LICENSE`](./LICENSE),
+© T3 Tools Inc. Keep that copyright and permission notice, along with the third-party
+notices. MIT does not grant trademark rights in the "T3 Code" or "T3 Tools" names or
+logos, which remain the property of their owners.
