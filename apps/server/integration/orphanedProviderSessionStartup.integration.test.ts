@@ -24,6 +24,7 @@ import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
 
 import * as EnvironmentAuth from "../src/auth/EnvironmentAuth.ts";
+import { BotService } from "../src/bots/BotService.ts";
 import * as ServiceLauncherClient from "../src/cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../src/config.ts";
 import * as ServerEnvironment from "../src/environment/ServerEnvironment.ts";
@@ -70,6 +71,7 @@ const makePersistedRuntimeLayer = (dbPath: string) => {
 };
 
 const startupDependencies = Layer.mergeAll(
+  Layer.mock(BotService)({ reconcileRuns: () => Effect.void }),
   Layer.mock(Keybindings.Keybindings)({
     start: Effect.void,
   }),
