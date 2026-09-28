@@ -38,6 +38,17 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## Bots
+
+For a connected project, open **Settings → Project → Bots** to give the Captain a task. An
+available project or inherited default model is required. The Captain coordinates its Manager and Execution bot;
+each run has a linked thread you can open to inspect its work. The Bots section shows the
+current requests and questions. Answer a question there, cancel a request that should stop,
+or retry a failed or cancelled request. Bot threads remain visible in the normal thread list.
+
+The project checkout and provider account belong to the connected environment shown in Settings.
+If that environment is offline, reconnect it to see current bot status or send an action.
+
 ## Defaults and inheritance
 
 General contains the model and workspace for new threads. Integrations controls agent browser

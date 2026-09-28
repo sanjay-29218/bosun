@@ -67,9 +67,10 @@ the current `OrchestrationEngineService` and projection query. The bot store kee
 IDs and lifecycle, so a later v2 implementation can replace this adapter without migrating
 bot identity or handoff state. Allocate the T3 thread ID and deterministic command IDs before
 dispatch; replay the same commands after a crash so T3's command receipts prevent duplicate
-threads and turns. If the accepted turn-start event was never consumed, replay its message ID
-with a persisted recovery attempt and a fresh command ID; this re-enqueues the provider intent
-without adding another user message. Do not depend on v2-only run or node IDs in bot records.
+threads and turns. If the accepted turn-start event was never consumed, replay the pending
+projected message ID with a persisted recovery attempt and a fresh command ID; this re-enqueues
+the provider intent without adding another user message. The pending message may be a handoff
+notice, not the original task. Do not depend on v2-only run or node IDs in bot records.
 Replay queued bot runs only after the provider reactor has subscribed to domain events: the
 reactor does not replay earlier turn-start events. Server startup owns that ordering.
 
@@ -77,8 +78,9 @@ The first slice uses [`BotThreadRuntime`](../../apps/server/src/bots/BotThreadRu
 this boundary and [`BotService`](../../apps/server/src/bots/BotService.ts) for persistence and
 recovery. Its `started` state means T3 accepted the turn-start command; it does not mean the
 provider finished the task. The linked T3 thread remains the source for current turn state.
-The current turn command still uses T3's `user` message role, so the first slice must remain an
-internal foundation until bot-origin attribution is added to the thread timeline.
+The current turn command still uses T3's `user` message role for provider input. Bosun attaches
+bot-origin context to that message; clients must label it as bot-authored instead of relying on
+the T3 role alone. A run's `started` state is not a structured bot result.
 
 | Area                                                                                                 | First change                                                                                                                                                                                                                   |
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -146,9 +148,9 @@ simply continue to show ordinary threads.
    threads. A person may inspect or interrupt any run, reassign work, and retry a failed handoff.
 
 Use a **server-side dispatcher/reactor** for this flow. The decider records intent; the reactor
-starts provider turns and records results through commands. Avoid sending a synthetic `user`
-message to impersonate the person: bot-originated requests need their own actor metadata in the
-event and timeline. The provider can still receive a clear task prompt assembled from the
+starts provider turns and records results through commands. Bot-originated requests carry actor
+metadata in the message context and timeline, even though the current provider input is a T3
+`user` message. The provider can still receive a clear task prompt assembled from the
 persisted handoff. A provider's prose is not a reliable status protocol, so a dedicated tool or
 explicit command reports a structured outcome. Do not advance a feature to `done` merely because
 a turn ended.

@@ -109,6 +109,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
+import { MobileBotRunStatusStrip } from "./MobileBotRunStatusStrip";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
@@ -883,6 +884,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
+      {props.selectedThread.id.startsWith("bosun-run:") ? (
+        <MobileBotRunStatusStrip
+          environmentId={props.environmentId}
+          projectId={props.selectedThread.projectId}
+          threadId={props.selectedThread.id}
+        />
+      ) : null}
       {showContent ? (
         <View
           style={{ flex: 1 }}

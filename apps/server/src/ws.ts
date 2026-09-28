@@ -20,6 +20,7 @@ import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
+  BosunOperationError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -86,6 +87,10 @@ import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/uns
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
+import { BotService } from "./bots/BotService.ts";
+import { BotStore } from "./bots/BotStore.ts";
+import { BotHandoffService } from "./bots/BotHandoffService.ts";
+import { BotHandoffStore } from "./bots/BotHandoffStore.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -179,6 +184,7 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isBosunOperationError = Schema.is(BosunOperationError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -499,6 +505,12 @@ const makeWsRpcLayer = (
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  botServices: {
+    readonly bots: BotService["Service"];
+    readonly botStore: BotStore["Service"];
+    readonly botHandoffs: BotHandoffService["Service"];
+    readonly botHandoffStore: BotHandoffStore["Service"];
+  },
 ) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -660,6 +672,7 @@ const makeWsRpcLayer = (
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
+      const { bots, botStore, botHandoffs, botHandoffStore } = botServices;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1793,13 +1806,40 @@ const makeWsRpcLayer = (
                 ),
               );
 
-        return startup
-          .enqueueCommand(dispatchEffect)
-          .pipe(
-            Effect.mapError((cause) =>
-              toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
-            ),
-          );
+        return Effect.gen(function* () {
+          if (normalizedCommand.type === "thread.turn.start") {
+            const runId = yield* botHandoffStore
+              .getRunByThread(normalizedCommand.threadId)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toDispatchCommandError(cause, "Failed to check bot policy"),
+                ),
+              );
+            if (runId) {
+              const run = yield* botStore
+                .getRun(runId)
+                .pipe(
+                  Effect.mapError((cause) =>
+                    toDispatchCommandError(cause, "Failed to check bot policy"),
+                  ),
+                );
+              if (run && normalizedCommand.runtimeMode !== run.runtimeMode) {
+                return yield* Effect.fail(
+                  new OrchestrationDispatchCommandError({
+                    message: "Bot thread permission mode cannot be changed by a client turn.",
+                  }),
+                );
+              }
+            }
+          }
+          return yield* startup
+            .enqueueCommand(dispatchEffect)
+            .pipe(
+              Effect.mapError((cause) =>
+                toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
+              ),
+            );
+        });
       };
 
       // Only clients that answer /usage-limits themselves see it in the catalogs;
@@ -1873,6 +1913,102 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.botsSnapshot]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsSnapshot,
+            Effect.gen(function* () {
+              yield* botHandoffs.refreshProject(input.projectId);
+              const project = yield* projectionSnapshotQuery.getProjectShellById(input.projectId);
+              if (Option.isNone(project)) {
+                return yield* new BosunOperationError({ reason: "Project not found" });
+              }
+              const [definitions, runs, handoffs] = yield* Effect.all([
+                botStore.listDefinitionsForProject(input.projectId),
+                bots.listRunSummaries(input.projectId, 50),
+                botHandoffStore.listByProject(input.projectId, 100),
+              ]);
+              return { definitions, runs, handoffs };
+            }).pipe(
+              Effect.mapError((error) =>
+                isBosunOperationError(error)
+                  ? error
+                  : new BosunOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsStart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsStart,
+            Effect.gen(function* () {
+              yield* bots.ensureCrew(input.projectId, input.modelSelection);
+              const run = yield* bots.createRun({
+                id: input.id,
+                botId: "bosun-captain",
+                projectId: input.projectId,
+                taskText: `Project: ${input.projectId}. Manager bot: bosun-manager:${input.projectId}. Person's request: ${input.taskText}`,
+                modelSelection: input.modelSelection,
+              });
+              return { runId: run.id, threadId: run.threadId };
+            }).pipe(Effect.mapError((error) => new BosunOperationError({ reason: String(error) }))),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsAnswer]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsAnswer,
+            Effect.gen(function* () {
+              const handoff = yield* botHandoffs.get(input.requestId);
+              if (handoff?.projectId !== input.projectId) {
+                return yield* new BosunOperationError({ reason: "Handoff not found in project" });
+              }
+              if (!input.text)
+                return yield* new BosunOperationError({ reason: "Answer is required" });
+              return yield* botHandoffs.answer(input.requestId, input.text);
+            }).pipe(
+              Effect.mapError((error) =>
+                isBosunOperationError(error)
+                  ? error
+                  : new BosunOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsCancel]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsCancel,
+            Effect.gen(function* () {
+              const handoff = yield* botHandoffs.get(input.requestId);
+              if (handoff?.projectId !== input.projectId) {
+                return yield* new BosunOperationError({ reason: "Handoff not found in project" });
+              }
+              return yield* botHandoffs.cancel(input.requestId);
+            }).pipe(
+              Effect.mapError((error) =>
+                isBosunOperationError(error)
+                  ? error
+                  : new BosunOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsRetry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsRetry,
+            Effect.gen(function* () {
+              const handoff = yield* botHandoffs.get(input.requestId);
+              if (handoff?.projectId !== input.projectId) {
+                return yield* new BosunOperationError({ reason: "Handoff not found in project" });
+              }
+              return yield* botHandoffs.retry(input.requestId);
+            }).pipe(
+              Effect.mapError((error) =>
+                isBosunOperationError(error)
+                  ? error
+                  : new BosunOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -3816,6 +3952,12 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         ),
     });
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const botServices = {
+      bots: yield* BotService,
+      botStore: yield* BotStore,
+      botHandoffs: yield* BotHandoffService,
+      botHandoffStore: yield* BotHandoffStore,
+    };
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3855,6 +3997,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               clientOrigin,
               clientAnalyticsProps,
               previewAutomationBroker,
+              botServices,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),

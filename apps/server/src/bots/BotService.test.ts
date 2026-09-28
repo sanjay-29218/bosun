@@ -100,6 +100,8 @@ describe("Bosun bot foundation", () => {
           ),
         getTurnState: () => Effect.succeed("pending" as const),
         replayPending: () => Effect.void,
+        notify: () => Effect.void,
+        interrupt: () => Effect.void,
         listPendingStartedRunIds: () => Effect.succeed([]),
       });
       const layer = BotServiceLive.pipe(

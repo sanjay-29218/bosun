@@ -17,6 +17,7 @@ import type {
   TurnId,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import { botMessageOrigin } from "@t3tools/client-runtime/bot-message-origin";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import {
   parseComposerContextHref,
@@ -1537,6 +1538,7 @@ function renderFeedEntry(
       !message.streaming;
 
     if (isUser) {
+      const botOrigin = botMessageOrigin(message.context);
       const referenceIds = new Set(
         collectComposerContextReferences(message.text).map((reference) => reference.contextId),
       );
@@ -1564,6 +1566,11 @@ function renderFeedEntry(
                   : null),
             }}
           >
+            {botOrigin ? (
+              <Text className="font-t3-medium text-xs text-foreground-secondary">
+                Bot · {botOrigin.botId}
+              </Text>
+            ) : null}
             {entry.pendingMessage?.attachments.map((attachment) =>
               attachment.type === "image" && attachment.uploadedAttachmentId ? (
                 <MessageAttachmentImage

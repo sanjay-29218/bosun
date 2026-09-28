@@ -3,6 +3,15 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  BosunHandoff,
+  BosunHandoffActionInput,
+  BosunOperationError,
+  BosunProjectSnapshot,
+  BosunProjectSnapshotInput,
+  BosunStartInput,
+  BosunStartResult,
+} from "./bots.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -275,6 +284,11 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  botsSnapshot: "bots.snapshot",
+  botsStart: "bots.start",
+  botsAnswer: "bots.answer",
+  botsCancel: "bots.cancel",
+  botsRetry: "bots.retry",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -700,6 +714,33 @@ const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
   payload: PullRequestListInput,
   success: PullRequestListResult,
   error: PullRequestRpcError,
+});
+
+const BosunRpcError = Schema.Union([BosunOperationError, EnvironmentAuthorizationError]);
+const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
+  payload: BosunProjectSnapshotInput,
+  success: BosunProjectSnapshot,
+  error: BosunRpcError,
+});
+const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
+  payload: BosunStartInput,
+  success: BosunStartResult,
+  error: BosunRpcError,
+});
+const WsBotsAnswerRpc = Rpc.make(WS_METHODS.botsAnswer, {
+  payload: BosunHandoffActionInput,
+  success: BosunHandoff,
+  error: BosunRpcError,
+});
+const WsBotsCancelRpc = Rpc.make(WS_METHODS.botsCancel, {
+  payload: BosunHandoffActionInput,
+  success: BosunHandoff,
+  error: BosunRpcError,
+});
+const WsBotsRetryRpc = Rpc.make(WS_METHODS.botsRetry, {
+  payload: BosunHandoffActionInput,
+  success: BosunHandoff,
+  error: BosunRpcError,
 });
 
 /**
@@ -1392,6 +1433,11 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsBotsSnapshotRpc,
+  WsBotsStartRpc,
+  WsBotsAnswerRpc,
+  WsBotsCancelRpc,
+  WsBotsRetryRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

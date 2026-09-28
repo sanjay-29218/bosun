@@ -52,6 +52,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { appendUserInputAttachmentPaths } from "../userInputAttachments.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -914,6 +915,41 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const agentAccessCapabilities = Effect.fn("ProviderService.agentAccessCapabilities")(function* (
     threadId: ThreadId,
   ) {
+    const sqlOption = yield* Effect.serviceOption(SqlClient.SqlClient);
+    if (Option.isSome(sqlOption)) {
+      const botRows = yield* sqlOption.value<{
+        readonly allowedToolsJson: string;
+      }>`
+        SELECT allowed_tools_json AS allowedToolsJson
+        FROM bosun_bot_runs WHERE thread_id = ${threadId}
+      `.pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not resolve bot tool grants; withholding MCP tools", {
+            threadId,
+            cause,
+          }).pipe(Effect.as([{ allowedToolsJson: "[]" }])),
+        ),
+      );
+      if (botRows.length > 0) {
+        const parsedGrants = yield* Schema.decodeUnknownEffect(
+          Schema.fromJsonString(Schema.Array(Schema.String)),
+        )(botRows[0]!.allowedToolsJson).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Invalid bot tool grants; withholding MCP tools", {
+              threadId,
+              cause,
+            }).pipe(Effect.as([] as ReadonlyArray<string>)),
+          ),
+        );
+        const grants = new Set<string>(parsedGrants);
+        const capabilities = new Set<McpInvocationContext.McpCapability>();
+        if ([...grants].some((grant) => grant.startsWith("bots."))) capabilities.add("bots");
+        if (grants.has("pull-requests")) capabilities.add("pull-requests");
+        if (grants.has("preview")) capabilities.add("preview");
+        if (grants.has("device")) capabilities.add("device");
+        return capabilities;
+      }
+    }
     const capabilities = new Set<McpInvocationContext.McpCapability>(["pull-requests"]);
     const access = yield* agentAccessSettings(threadId);
     if (access.browser) capabilities.add("preview");

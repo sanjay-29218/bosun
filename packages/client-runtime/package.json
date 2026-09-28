@@ -3,6 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./bot-message-origin": {
+      "types": "./src/botMessageOrigin.ts",
+      "default": "./src/botMessageOrigin.ts"
+    },
+    "./state/bots": {
+      "types": "./src/state/bots.ts",
+      "default": "./src/state/bots.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

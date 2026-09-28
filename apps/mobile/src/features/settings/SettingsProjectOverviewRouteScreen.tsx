@@ -11,6 +11,7 @@ import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { MobileBotsProjectSection } from "./MobileBotsProjectSection";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
@@ -138,6 +139,18 @@ function ProjectOverviewContent(props: {
           </View>
         </View>
       </SettingsSection>
+      {props.members.map((member) => {
+        const environment = props.environments.find(
+          (entry) => entry.environmentId === member.environmentId,
+        );
+        return environment?.serverConfig.environment.capabilities.bots === true ? (
+          <MobileBotsProjectSection
+            key={`bots:${member.environmentId}:${member.id}`}
+            project={member}
+            environmentLabel={environment.label}
+          />
+        ) : null;
+      })}
 
       <SettingsSection title="Checkouts">
         {props.members.map((member, index) => {

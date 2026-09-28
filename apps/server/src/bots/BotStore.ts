@@ -59,6 +59,7 @@ export interface BotRunSummary {
   readonly dispatchState: "queued" | "started";
   readonly lastError: string | null;
   readonly createdAt: string;
+  readonly turnState: "missing" | "pending" | "running" | "completed" | "interrupted" | "error";
 }
 
 interface BotDefinitionRow {
@@ -141,6 +142,9 @@ export interface BotStoreShape {
     definition: BotDefinition,
   ) => Effect.Effect<void, PersistenceSqlError>;
   readonly getDefinition: (id: string) => Effect.Effect<BotDefinition | null, PersistenceSqlError>;
+  readonly listDefinitionsForProject: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<BotDefinition>, PersistenceSqlError>;
   readonly insertRun: (run: BotRun) => Effect.Effect<void, PersistenceSqlError>;
   readonly getRun: (id: string) => Effect.Effect<BotRun | null, PersistenceSqlError>;
   readonly listQueuedRuns: () => Effect.Effect<ReadonlyArray<BotRun>, PersistenceSqlError>;
@@ -217,6 +221,21 @@ export const BotStoreLive = Layer.effect(
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
       getDefinition,
+      listDefinitionsForProject: (projectId) =>
+        sql<BotDefinitionRow>`
+          SELECT id, project_id AS projectId, role, name, instructions,
+            allowed_tools_json AS allowedToolsJson,
+            model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
+            enabled, revision, created_at AS createdAt, updated_at AS updatedAt
+          FROM bosun_bot_definitions
+          WHERE project_id = ${projectId} OR project_id IS NULL
+          ORDER BY role, id
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) =>
+            Effect.try({ try: () => rows.map(decodeDefinition), catch: decodeError }),
+          ),
+        ),
       insertRun: (run) =>
         sql`
           INSERT OR IGNORE INTO bosun_bot_runs (
@@ -242,7 +261,11 @@ export const BotStoreLive = Layer.effect(
             dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
             last_error AS lastError,
             created_at AS createdAt, dispatched_at AS dispatchedAt
-          FROM bosun_bot_runs WHERE dispatch_state = 'queued'
+          FROM bosun_bot_runs AS r WHERE dispatch_state = 'queued'
+            AND NOT EXISTS (
+              SELECT 1 FROM bosun_bot_handoffs AS h
+              WHERE h.target_run_id = r.id AND h.status IN ('cancelled', 'failed')
+            )
           ORDER BY created_at, id
         `.pipe(
           Effect.mapError(queryError),
@@ -259,10 +282,15 @@ export const BotStoreLive = Layer.effect(
           readonly dispatchState: "queued" | "started";
           readonly lastError: string | null;
           readonly createdAt: string;
+          readonly turnState: BotRunSummary["turnState"];
         }>`
           SELECT id, bot_id AS botId, project_id AS projectId, thread_id AS threadId,
-            dispatch_state AS dispatchState, last_error AS lastError, created_at AS createdAt
-          FROM bosun_bot_runs WHERE project_id = ${projectId}
+            dispatch_state AS dispatchState, last_error AS lastError, created_at AS createdAt,
+            COALESCE((
+              SELECT state FROM projection_turns AS t
+              WHERE t.thread_id = r.thread_id ORDER BY t.row_id DESC LIMIT 1
+            ), 'missing') AS turnState
+          FROM bosun_bot_runs AS r WHERE project_id = ${projectId}
           ORDER BY created_at DESC, id DESC LIMIT ${limit}
         `.pipe(
           Effect.mapError(queryError),

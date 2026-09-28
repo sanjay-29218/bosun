@@ -40,6 +40,7 @@ export interface CreateBotRunInput {
   readonly botId: string;
   readonly projectId: ProjectId;
   readonly taskText: string;
+  readonly modelSelection?: ModelSelection;
 }
 
 export interface BotRunView {
@@ -49,6 +50,10 @@ export interface BotRunView {
 }
 
 export interface BotServiceShape {
+  readonly ensureCrew: (
+    projectId: ProjectId,
+    modelSelection: ModelSelection,
+  ) => Effect.Effect<ReadonlyArray<BotDefinition>, BotServiceError>;
   readonly createDefinition: (
     input: CreateBotDefinitionInput,
   ) => Effect.Effect<BotDefinition, BotServiceError>;
@@ -83,7 +88,11 @@ const nonEmpty = (value: string, field: string, limit: number) => {
 };
 
 const sameRunRequest = (run: BotRun, input: CreateBotRunInput) =>
-  run.botId === input.botId && run.projectId === input.projectId && run.taskText === input.taskText;
+  run.botId === input.botId &&
+  run.projectId === input.projectId &&
+  run.taskText === input.taskText &&
+  (input.modelSelection === undefined ||
+    JSON.stringify(run.modelSelection) === JSON.stringify(input.modelSelection));
 
 export const BotServiceLive = Layer.effect(
   BotService,
@@ -93,6 +102,7 @@ export const BotServiceLive = Layer.effect(
 
     const threadInput = (run: BotRun) => ({
       runId: run.id,
+      botId: run.botId,
       threadId: run.threadId,
       projectId: run.projectId,
       title: run.title,
@@ -102,7 +112,10 @@ export const BotServiceLive = Layer.effect(
       createdAt: run.createdAt,
     });
 
-    const markDispatched = (run: BotRun, effect: Effect.Effect<void, OrchestrationDispatchError>) =>
+    const markDispatched = (
+      run: BotRun,
+      effect: Effect.Effect<void, OrchestrationDispatchError | PersistenceSqlError>,
+    ) =>
       effect.pipe(
         Effect.flatMap(() =>
           DateTime.now.pipe(
@@ -213,7 +226,7 @@ export const BotServiceLive = Layer.effect(
           instructions: bot.instructions,
           allowedTools: bot.allowedTools,
           botRevision: bot.revision,
-          modelSelection: bot.modelSelection,
+          modelSelection: input.modelSelection ?? bot.modelSelection,
           runtimeMode: bot.runtimeMode,
           dispatchState: "queued",
           recoveryAttempt: 0,
@@ -231,6 +244,69 @@ export const BotServiceLive = Layer.effect(
       });
 
     return {
+      ensureCrew: (projectId, modelSelection) =>
+        Effect.gen(function* () {
+          if (!(yield* runtime.projectExists(projectId))) {
+            return yield* Effect.fail(new BotValidationError("Project does not exist"));
+          }
+          const managerId = `bosun-manager:${projectId}`;
+          const executionId = `bosun-execution:${projectId}`;
+          const defaults = [
+            {
+              id: "bosun-captain",
+              projectId: null,
+              role: "captain" as const,
+              name: "Captain",
+              instructions:
+                "You are Bosun Captain. Coordinate the person's project request. The task names its project Manager bot. Delegate using bots_delegate with a stable request ID. Use bots_wait_handoff until the Manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use bots_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.",
+              allowedTools: ["bots.delegate", "bots.status"],
+            },
+            {
+              id: managerId,
+              projectId,
+              role: "manager" as const,
+              name: "Manager",
+              instructions: `You manage project ${projectId}. Delegate implementation to bot ${executionId} using bots_delegate and a stable request ID. Use bots_wait_handoff for its structured outcome. Report the outcome to Captain through bots_respond. If Execution needs a person's answer, use bots_ask; when the answer arrives, pass it to the child request using bots_answer. Keep the task and context bounded.`,
+              allowedTools: [
+                "bots.delegate",
+                "bots.respond",
+                "bots.ask",
+                "bots.status",
+                "bots.answer",
+              ],
+            },
+            {
+              id: executionId,
+              projectId,
+              role: "execution" as const,
+              name: "Execution",
+              instructions: `You execute a bounded task for project ${projectId}. Work in the linked T3 thread. Call bots_respond with completed or failed and a concise summary when finished. If information is missing, call bots_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`,
+              allowedTools: ["bots.respond", "bots.ask"],
+            },
+          ];
+          const definitions: Array<BotDefinition> = [];
+          for (const definition of defaults) {
+            const existing = yield* store.getDefinition(definition.id);
+            if (existing) {
+              if (
+                existing.projectId !== definition.projectId ||
+                existing.role !== definition.role
+              ) {
+                return yield* Effect.fail(new BotValidationError("Default bot ID is in use"));
+              }
+              definitions.push(existing);
+            } else {
+              definitions.push(
+                yield* createDefinition({
+                  ...definition,
+                  modelSelection,
+                  runtimeMode: "approval-required",
+                }),
+              );
+            }
+          }
+          return definitions;
+        }),
       createDefinition,
       getDefinition: store.getDefinition,
       createRun,
