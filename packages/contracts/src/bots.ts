@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./orchestration.ts";
 
-export const BosunBotRole = Schema.Literals([
+export const BotRole = Schema.Literals([
   "captain",
   "manager",
   "planner",
@@ -12,15 +12,15 @@ export const BosunBotRole = Schema.Literals([
   "reviewer",
 ]);
 
-export const BosunBotDefinitionSummary = Schema.Struct({
+export const BotDefinitionSummary = Schema.Struct({
   id: Schema.String,
   projectId: Schema.NullOr(ProjectId),
-  role: BosunBotRole,
+  role: BotRole,
   name: Schema.String,
   enabled: Schema.Boolean,
 });
 
-export const BosunBotRunSummary = Schema.Struct({
+export const BotRunSummary = Schema.Struct({
   id: Schema.String,
   botId: Schema.String,
   projectId: ProjectId,
@@ -38,7 +38,7 @@ export const BosunBotRunSummary = Schema.Struct({
   createdAt: Schema.String,
 });
 
-export const BosunHandoff = Schema.Struct({
+export const BotHandoff = Schema.Struct({
   id: Schema.String,
   parentId: Schema.NullOr(Schema.String),
   sourceRunId: Schema.String,
@@ -55,34 +55,34 @@ export const BosunHandoff = Schema.Struct({
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
-export type BosunHandoff = typeof BosunHandoff.Type;
+export type BotHandoff = typeof BotHandoff.Type;
 
-export const BosunProjectSnapshotInput = Schema.Struct({ projectId: ProjectId });
-export const BosunProjectSnapshot = Schema.Struct({
-  definitions: Schema.Array(BosunBotDefinitionSummary),
-  runs: Schema.Array(BosunBotRunSummary),
-  handoffs: Schema.Array(BosunHandoff),
+export const BotProjectSnapshotInput = Schema.Struct({ projectId: ProjectId });
+export const BotProjectSnapshot = Schema.Struct({
+  definitions: Schema.Array(BotDefinitionSummary),
+  runs: Schema.Array(BotRunSummary),
+  handoffs: Schema.Array(BotHandoff),
 });
-export type BosunProjectSnapshot = typeof BosunProjectSnapshot.Type;
+export type BotProjectSnapshot = typeof BotProjectSnapshot.Type;
 
-export const BosunStartInput = Schema.Struct({
+export const BotStartInput = Schema.Struct({
   id: Schema.String,
   projectId: ProjectId,
   modelSelection: ModelSelection,
   taskText: Schema.String,
 });
-export const BosunStartResult = Schema.Struct({
+export const BotStartResult = Schema.Struct({
   runId: Schema.String,
   threadId: ThreadId,
 });
-export const BosunHandoffActionInput = Schema.Struct({
+export const BotHandoffActionInput = Schema.Struct({
   projectId: ProjectId,
   requestId: Schema.String,
   text: Schema.optional(Schema.String),
 });
 
-export class BosunOperationError extends Schema.TaggedError<BosunOperationError>()(
-  "BosunOperationError",
+export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
+  "BotOperationError",
   { reason: Schema.String },
 ) {
   override get message(): string {

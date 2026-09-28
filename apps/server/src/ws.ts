@@ -20,7 +20,7 @@ import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
-  BosunOperationError,
+  BotOperationError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -184,7 +184,7 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
-const isBosunOperationError = Schema.is(BosunOperationError);
+const isBotOperationError = Schema.is(BotOperationError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -1920,7 +1920,7 @@ const makeWsRpcLayer = (
               yield* botHandoffs.refreshProject(input.projectId);
               const project = yield* projectionSnapshotQuery.getProjectShellById(input.projectId);
               if (Option.isNone(project)) {
-                return yield* new BosunOperationError({ reason: "Project not found" });
+                return yield* new BotOperationError({ reason: "Project not found" });
               }
               const [definitions, runs, handoffs] = yield* Effect.all([
                 botStore.listDefinitionsForProject(input.projectId),
@@ -1930,9 +1930,9 @@ const makeWsRpcLayer = (
               return { definitions, runs, handoffs };
             }).pipe(
               Effect.mapError((error) =>
-                isBosunOperationError(error)
+                isBotOperationError(error)
                   ? error
-                  : new BosunOperationError({ reason: String(error) }),
+                  : new BotOperationError({ reason: String(error) }),
               ),
             ),
             { "rpc.aggregate": "bots" },
@@ -1950,7 +1950,7 @@ const makeWsRpcLayer = (
                 modelSelection: input.modelSelection,
               });
               return { runId: run.id, threadId: run.threadId };
-            }).pipe(Effect.mapError((error) => new BosunOperationError({ reason: String(error) }))),
+            }).pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
             { "rpc.aggregate": "bots" },
           ),
         [WS_METHODS.botsAnswer]: (input) =>
@@ -1959,16 +1959,16 @@ const makeWsRpcLayer = (
             Effect.gen(function* () {
               const handoff = yield* botHandoffs.get(input.requestId);
               if (handoff?.projectId !== input.projectId) {
-                return yield* new BosunOperationError({ reason: "Handoff not found in project" });
+                return yield* new BotOperationError({ reason: "Handoff not found in project" });
               }
               if (!input.text)
-                return yield* new BosunOperationError({ reason: "Answer is required" });
+                return yield* new BotOperationError({ reason: "Answer is required" });
               return yield* botHandoffs.answer(input.requestId, input.text);
             }).pipe(
               Effect.mapError((error) =>
-                isBosunOperationError(error)
+                isBotOperationError(error)
                   ? error
-                  : new BosunOperationError({ reason: String(error) }),
+                  : new BotOperationError({ reason: String(error) }),
               ),
             ),
             { "rpc.aggregate": "bots" },
@@ -1979,14 +1979,14 @@ const makeWsRpcLayer = (
             Effect.gen(function* () {
               const handoff = yield* botHandoffs.get(input.requestId);
               if (handoff?.projectId !== input.projectId) {
-                return yield* new BosunOperationError({ reason: "Handoff not found in project" });
+                return yield* new BotOperationError({ reason: "Handoff not found in project" });
               }
               return yield* botHandoffs.cancel(input.requestId);
             }).pipe(
               Effect.mapError((error) =>
-                isBosunOperationError(error)
+                isBotOperationError(error)
                   ? error
-                  : new BosunOperationError({ reason: String(error) }),
+                  : new BotOperationError({ reason: String(error) }),
               ),
             ),
             { "rpc.aggregate": "bots" },
@@ -1997,14 +1997,14 @@ const makeWsRpcLayer = (
             Effect.gen(function* () {
               const handoff = yield* botHandoffs.get(input.requestId);
               if (handoff?.projectId !== input.projectId) {
-                return yield* new BosunOperationError({ reason: "Handoff not found in project" });
+                return yield* new BotOperationError({ reason: "Handoff not found in project" });
               }
               return yield* botHandoffs.retry(input.requestId);
             }).pipe(
               Effect.mapError((error) =>
-                isBosunOperationError(error)
+                isBotOperationError(error)
                   ? error
-                  : new BosunOperationError({ reason: String(error) }),
+                  : new BotOperationError({ reason: String(error) }),
               ),
             ),
             { "rpc.aggregate": "bots" },

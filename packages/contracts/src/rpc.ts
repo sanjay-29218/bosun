@@ -3,13 +3,13 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
-  BosunHandoff,
-  BosunHandoffActionInput,
-  BosunOperationError,
-  BosunProjectSnapshot,
-  BosunProjectSnapshotInput,
-  BosunStartInput,
-  BosunStartResult,
+  BotHandoff,
+  BotHandoffActionInput,
+  BotOperationError,
+  BotProjectSnapshot,
+  BotProjectSnapshotInput,
+  BotStartInput,
+  BotStartResult,
 } from "./bots.ts";
 import {
   ProviderAuthCancelInput,
@@ -716,31 +716,31 @@ const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
   error: PullRequestRpcError,
 });
 
-const BosunRpcError = Schema.Union([BosunOperationError, EnvironmentAuthorizationError]);
+const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
-  payload: BosunProjectSnapshotInput,
-  success: BosunProjectSnapshot,
-  error: BosunRpcError,
+  payload: BotProjectSnapshotInput,
+  success: BotProjectSnapshot,
+  error: BotRpcError,
 });
 const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
-  payload: BosunStartInput,
-  success: BosunStartResult,
-  error: BosunRpcError,
+  payload: BotStartInput,
+  success: BotStartResult,
+  error: BotRpcError,
 });
 const WsBotsAnswerRpc = Rpc.make(WS_METHODS.botsAnswer, {
-  payload: BosunHandoffActionInput,
-  success: BosunHandoff,
-  error: BosunRpcError,
+  payload: BotHandoffActionInput,
+  success: BotHandoff,
+  error: BotRpcError,
 });
 const WsBotsCancelRpc = Rpc.make(WS_METHODS.botsCancel, {
-  payload: BosunHandoffActionInput,
-  success: BosunHandoff,
-  error: BosunRpcError,
+  payload: BotHandoffActionInput,
+  success: BotHandoff,
+  error: BotRpcError,
 });
 const WsBotsRetryRpc = Rpc.make(WS_METHODS.botsRetry, {
-  payload: BosunHandoffActionInput,
-  success: BosunHandoff,
-  error: BosunRpcError,
+  payload: BotHandoffActionInput,
+  success: BotHandoff,
+  error: BotRpcError,
 });
 
 /**
