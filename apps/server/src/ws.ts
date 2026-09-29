@@ -21,6 +21,7 @@ import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
   BotOperationError,
+  FeatureOperationError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -91,6 +92,7 @@ import { BotService } from "./bots/BotService.ts";
 import { BotStore } from "./bots/BotStore.ts";
 import { BotHandoffService } from "./bots/BotHandoffService.ts";
 import { BotHandoffStore } from "./bots/BotHandoffStore.ts";
+import { FeatureService } from "./features/FeatureService.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -510,6 +512,7 @@ const makeWsRpcLayer = (
     readonly botStore: BotStore["Service"];
     readonly botHandoffs: BotHandoffService["Service"];
     readonly botHandoffStore: BotHandoffStore["Service"];
+    readonly features: FeatureService["Service"];
   },
 ) =>
   WsRpcGroup.toLayer(
@@ -672,7 +675,7 @@ const makeWsRpcLayer = (
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
-      const { bots, botStore, botHandoffs, botHandoffStore } = botServices;
+      const { bots, botStore, botHandoffs, botHandoffStore, features } = botServices;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1913,6 +1916,37 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.featuresCreate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.featuresCreate,
+            features
+              .create(input)
+              .pipe(
+                Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "features" },
+          ),
+        [WS_METHODS.featuresList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.featuresList,
+            features
+              .listByProject(input.projectId)
+              .pipe(
+                Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "features" },
+          ),
+        [WS_METHODS.featuresGet]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.featuresGet,
+            Effect.gen(function* () {
+              const feature = yield* features.get(input.featureId);
+              return feature?.projectId === input.projectId ? feature : null;
+            }).pipe(
+              Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+            ),
+            { "rpc.aggregate": "features" },
+          ),
         [WS_METHODS.botsSnapshot]: (input) =>
           observeRpcEffect(
             WS_METHODS.botsSnapshot,
@@ -4053,6 +4087,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       botStore: yield* BotStore,
       botHandoffs: yield* BotHandoffService,
       botHandoffStore: yield* BotHandoffStore,
+      features: yield* FeatureService,
     };
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(

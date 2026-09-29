@@ -21,6 +21,13 @@ import {
   BotStartResult,
 } from "./bots.ts";
 import {
+  FeatureCreateInput,
+  FeatureGetInput,
+  FeatureOperationError,
+  FeatureProjectInput,
+  FeatureRecord,
+} from "./features.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -293,6 +300,9 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  featuresCreate: "features.create",
+  featuresList: "features.list",
+  featuresGet: "features.get",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -733,6 +743,22 @@ const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
 });
 
 const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
+const FeatureRpcError = Schema.Union([FeatureOperationError, EnvironmentAuthorizationError]);
+const WsFeaturesCreateRpc = Rpc.make(WS_METHODS.featuresCreate, {
+  payload: FeatureCreateInput,
+  success: FeatureRecord,
+  error: FeatureRpcError,
+});
+const WsFeaturesListRpc = Rpc.make(WS_METHODS.featuresList, {
+  payload: FeatureProjectInput,
+  success: Schema.Array(FeatureRecord),
+  error: FeatureRpcError,
+});
+const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
+  payload: FeatureGetInput,
+  success: Schema.NullOr(FeatureRecord),
+  error: FeatureRpcError,
+});
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
   payload: BotProjectSnapshotInput,
   success: BotProjectSnapshot,
@@ -1484,6 +1510,9 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsFeaturesCreateRpc,
+  WsFeaturesListRpc,
+  WsFeaturesGetRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,
