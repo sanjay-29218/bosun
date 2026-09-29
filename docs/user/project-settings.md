@@ -41,10 +41,17 @@ and other phone-only settings ignore the filter.
 ## Bots
 
 For a connected project, open **Settings → Project → Bots** to give the Captain a task. An
-available project or inherited default model is required. The Captain coordinates its Manager and Execution bot;
+available project or inherited default model is required. The Captain coordinates its Manager and Builder bots;
 each run has a linked thread you can open to inspect its work. The Bots section shows the
 current requests and questions. Answer a question there, cancel a request that should stop,
 or retry a failed or cancelled request. Bot threads remain visible in the normal thread list.
+
+Use **Templates and permissions** in the same section to add or edit a bot template, choose its
+provider and instructions, and create a bot from it. Template edits affect future bots; existing
+bots and runs keep their saved settings. Set a bot's parent to place it in the hierarchy, then
+grant delegation separately for each source and target pair. A parent relationship alone does not
+permit delegation. The feature-default option records which templates should be copied when
+feature crews become available; it does not start a workflow.
 
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current bot status or send an action.

@@ -1937,6 +1937,102 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "bots" },
           ),
+        [WS_METHODS.botsConfiguration]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsConfiguration,
+            Effect.gen(function* () {
+              const project = yield* projectionSnapshotQuery.getProjectShellById(input.projectId);
+              if (Option.isNone(project)) {
+                return yield* new BotOperationError({ reason: "Project not found" });
+              }
+              const [templates, hierarchy, delegationGrants] = yield* Effect.all([
+                bots.listTemplatesForProject(input.projectId),
+                bots.listHierarchyForProject(input.projectId),
+                bots.listDelegationGrantsForProject(input.projectId),
+              ]);
+              return { templates, hierarchy, delegationGrants };
+            }).pipe(
+              Effect.mapError((error) =>
+                isBotOperationError(error)
+                  ? error
+                  : new BotOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsInitialize]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsInitialize,
+            bots.ensureCrew(input.projectId, input.modelSelection).pipe(
+              Effect.asVoid,
+              Effect.mapError((error) => new BotOperationError({ reason: String(error) })),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsCreateTemplate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsCreateTemplate,
+            bots
+              .createTemplate(input)
+              .pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsUpdateTemplate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsUpdateTemplate,
+            bots
+              .updateTemplate(input)
+              .pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsInstantiate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsInstantiate,
+            bots
+              .instantiate(input.id, input.projectId, input.templateId)
+              .pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsSetHierarchy]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsSetHierarchy,
+            Effect.gen(function* () {
+              const child = yield* bots.getDefinition(input.botId);
+              if (child?.projectId !== input.projectId) {
+                return yield* new BotOperationError({ reason: "Bot not found in project" });
+              }
+              yield* bots.setHierarchyParent(input.botId, input.parentBotId, input.position);
+            }).pipe(
+              Effect.mapError((error) =>
+                isBotOperationError(error)
+                  ? error
+                  : new BotOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botsSetDelegation]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botsSetDelegation,
+            Effect.gen(function* () {
+              const target = yield* bots.getDefinition(input.targetBotId);
+              if (target?.projectId !== input.projectId) {
+                return yield* new BotOperationError({ reason: "Bot not found in project" });
+              }
+              if (input.allowed) {
+                yield* bots.allowDelegation(input.sourceBotId, input.targetBotId);
+              } else {
+                yield* bots.revokeDelegation(input.sourceBotId, input.targetBotId);
+              }
+            }).pipe(
+              Effect.mapError((error) =>
+                isBotOperationError(error)
+                  ? error
+                  : new BotOperationError({ reason: String(error) }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
         [WS_METHODS.botsStart]: (input) =>
           observeRpcEffect(
             WS_METHODS.botsStart,
@@ -1944,9 +2040,9 @@ const makeWsRpcLayer = (
               yield* bots.ensureCrew(input.projectId, input.modelSelection);
               const run = yield* bots.createRun({
                 id: input.id,
-                botId: "bosun-captain",
+                botId: "bot-captain",
                 projectId: input.projectId,
-                taskText: `Project: ${input.projectId}. Manager bot: bosun-manager:${input.projectId}. Person's request: ${input.taskText}`,
+                taskText: `Project: ${input.projectId}. Manager bot: bot-manager:${input.projectId}. Person's request: ${input.taskText}`,
                 modelSelection: input.modelSelection,
               });
               return { runId: run.id, threadId: run.threadId };

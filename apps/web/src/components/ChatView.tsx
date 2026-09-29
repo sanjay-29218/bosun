@@ -9,6 +9,7 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
+import { isBotThreadId } from "@t3tools/client-runtime/bot-message-origin";
 import {
   questionAttachmentDraftId,
   questionAttachmentDraftPrefix,
@@ -9775,7 +9776,7 @@ export default function ChatView(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
           />
         </WorkspacePageHeader>
-        {isServerThread && activeProject && activeThread.id.startsWith("bosun-run:") ? (
+        {isServerThread && activeProject && isBotThreadId(activeThread.id) ? (
           <BotRunStatusStrip
             environmentId={activeThread.environmentId}
             projectId={activeProject.id}

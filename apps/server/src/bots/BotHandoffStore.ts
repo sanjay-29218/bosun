@@ -107,14 +107,14 @@ export const BotHandoffStoreLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const error = toPersistenceSqlError("BotHandoffStore.query");
     const get = (id: string) =>
-      sql<HandoffRow>`SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs WHERE id = ${id}`.pipe(
+      sql<HandoffRow>`SELECT ${sql.unsafe(columns)} FROM bot_handoffs WHERE id = ${id}`.pipe(
         Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
         Effect.mapError(error),
       );
     return {
       insert: (handoff) =>
         sql`
-          INSERT OR IGNORE INTO bosun_bot_handoffs (
+          INSERT OR IGNORE INTO bot_handoffs (
             id, parent_id, source_run_id, target_bot_id, target_run_id, project_id,
             task_text, context_text, depth, status, response_text, question_text,
             last_error, notification_state, notice_version, attempt, created_at, updated_at
@@ -130,7 +130,7 @@ export const BotHandoffStoreLive = Layer.effect(
       get,
       getForTargetRun: (runId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE target_run_id = ${runId}
         `.pipe(
           Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
@@ -138,7 +138,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listBySourceRun: (runId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE source_run_id = ${runId} ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -146,10 +146,10 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listByProject: (projectId, limit) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE project_id = ${projectId} AND (
             status IN ('queued', 'running', 'needs-input') OR id IN (
-              SELECT id FROM bosun_bot_handoffs
+              SELECT id FROM bot_handoffs
               WHERE project_id = ${projectId}
               ORDER BY created_at DESC, id DESC LIMIT ${limit}
             )
@@ -161,7 +161,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listPending: () =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE status = 'queued' ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -169,7 +169,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listUndelivered: () =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE notification_state = 'queued' ORDER BY updated_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -177,7 +177,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listUndeliveredByProject: (projectId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE project_id = ${projectId} AND notification_state = 'queued'
           ORDER BY updated_at, id
         `.pipe(
@@ -186,7 +186,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listRunning: () =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE status = 'running' ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -194,7 +194,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listRunningByProject: (projectId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE project_id = ${projectId} AND status = 'running' ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -203,12 +203,12 @@ export const BotHandoffStoreLive = Layer.effect(
       listAncestors: (id) =>
         sql<HandoffRow>`
           WITH RECURSIVE lineage(id, parent_id) AS (
-            SELECT id, parent_id FROM bosun_bot_handoffs WHERE id = ${id}
+            SELECT id, parent_id FROM bot_handoffs WHERE id = ${id}
             UNION ALL
-            SELECT h.id, h.parent_id FROM bosun_bot_handoffs AS h
+            SELECT h.id, h.parent_id FROM bot_handoffs AS h
             JOIN lineage AS l ON h.id = l.parent_id
           )
-          SELECT ${sql.unsafe(columns)} FROM bosun_bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
           WHERE id IN (SELECT id FROM lineage)
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -216,7 +216,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       transition: (id, from, to, at, fields, notify = false) =>
         sql<{ readonly id: string }>`
-          UPDATE bosun_bot_handoffs SET
+          UPDATE bot_handoffs SET
             status = ${to}, updated_at = ${at},
             response_text = ${fields?.responseText ?? null},
             question_text = ${fields?.questionText ?? null},
@@ -230,14 +230,14 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       markDelivered: (id, version) =>
         sql`
-          UPDATE bosun_bot_handoffs SET notification_state = 'delivered'
+          UPDATE bot_handoffs SET notification_state = 'delivered'
           WHERE id = ${id} AND notice_version = ${version} AND notification_state = 'queued'
         `.pipe(Effect.asVoid, Effect.mapError(error)),
       retry: (id, at) =>
         sql<{ readonly id: string }>`
-          UPDATE bosun_bot_handoffs SET
+          UPDATE bot_handoffs SET
             status = 'queued', attempt = attempt + 1,
-            target_run_id = 'bosun-handoff:' || id || ':attempt:' || (attempt + 1),
+            target_run_id = 'bot-handoff:' || id || ':attempt:' || (attempt + 1),
             response_text = NULL, question_text = NULL, last_error = NULL,
             notification_state = 'none', updated_at = ${at}
           WHERE id = ${id} AND status IN ('failed', 'cancelled') AND attempt < 10
@@ -248,7 +248,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       getRunByThread: (threadId) =>
         sql<{ readonly id: string }>`
-          SELECT id FROM bosun_bot_runs WHERE thread_id = ${threadId}
+          SELECT id FROM bot_runs WHERE thread_id = ${threadId}
         `.pipe(
           Effect.map((rows) => rows[0]?.id ?? null),
           Effect.mapError(error),

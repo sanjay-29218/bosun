@@ -1,4 +1,6 @@
 import {
+  BOT_DISPATCH_STATE,
+  BOT_TURN_STATE,
   CommandId,
   ComposerContextId,
   MessageId,
@@ -6,6 +8,7 @@ import {
   type ModelSelection,
   type ProjectId,
   type RuntimeMode,
+  type BotTurnState,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -63,15 +66,18 @@ export interface BotThreadRuntimeShape {
   ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
   readonly getTurnState: (
     threadId: ThreadId,
-  ) => Effect.Effect<
-    "missing" | "pending" | "running" | "completed" | "interrupted" | "error",
-    ProjectionRepositoryError
-  >;
+  ) => Effect.Effect<BotTurnState, ProjectionRepositoryError>;
 }
 
 export class BotThreadRuntime extends Context.Service<BotThreadRuntime, BotThreadRuntimeShape>()(
   "t3/bots/BotThreadRuntime",
 ) {}
+
+// Existing bot threads keep their original command namespace so restart replay finds receipts.
+const runCommandPrefix = (threadId: ThreadId) =>
+  threadId.startsWith("bosun-run:") ? "bosun-run" : "bot-run";
+const handoffCommandPrefix = (threadId: ThreadId) =>
+  threadId.startsWith("bosun-run:") ? "bosun-handoff" : "bot-handoff";
 
 export const BotThreadRuntimeV1 = Layer.effect(
   BotThreadRuntime,
@@ -95,7 +101,9 @@ export const BotThreadRuntimeV1 = Layer.effect(
           commandId: CommandId.make(commandId),
           threadId: input.threadId,
           message: {
-            messageId: MessageId.make(pending?.messageId ?? `bosun-run:${input.runId}:message`),
+            messageId: MessageId.make(
+              pending?.messageId ?? `${runCommandPrefix(input.threadId)}:${input.runId}:message`,
+            ),
             role: "user",
             text: pending?.text ?? input.prompt,
             attachments: [],
@@ -104,9 +112,9 @@ export const BotThreadRuntimeV1 = Layer.effect(
               records: [
                 {
                   version: 1,
-                  contextId: ComposerContextId.make("bosun-origin"),
+                  contextId: ComposerContextId.make("bot-origin"),
                   label: input.botId,
-                  kind: "bosun-bot",
+                  kind: "bot",
                   payload: { botId: input.botId, runId: input.runId },
                 },
               ],
@@ -126,7 +134,7 @@ export const BotThreadRuntimeV1 = Layer.effect(
           // Command receipts make these fixed IDs safe to replay after either dispatch.
           yield* engine.dispatch({
             type: "thread.create",
-            commandId: CommandId.make(`bosun-run:${input.runId}:create`),
+            commandId: CommandId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:create`),
             threadId: input.threadId,
             projectId: input.projectId,
             title: input.title,
@@ -137,7 +145,7 @@ export const BotThreadRuntimeV1 = Layer.effect(
             worktreePath: null,
             createdAt: input.createdAt,
           });
-          yield* submitTurn(input, `bosun-run:${input.runId}:start`);
+          yield* submitTurn(input, `${runCommandPrefix(input.threadId)}:${input.runId}:start`);
         }),
       replayPending: (input, recoveryAttempt) =>
         sql<{
@@ -154,7 +162,11 @@ export const BotThreadRuntimeV1 = Layer.effect(
           Effect.mapError(toPersistenceSqlError("BotThreadRuntime.replayPending")),
           Effect.flatMap((rows) =>
             rows[0]
-              ? submitTurn(input, `bosun-run:${input.runId}:replay:${recoveryAttempt}`, rows[0])
+              ? submitTurn(
+                  input,
+                  `${runCommandPrefix(input.threadId)}:${input.runId}:replay:${recoveryAttempt}`,
+                  rows[0],
+                )
               : Effect.void,
           ),
         ),
@@ -162,10 +174,14 @@ export const BotThreadRuntimeV1 = Layer.effect(
         engine
           .dispatch({
             type: "thread.turn.start",
-            commandId: CommandId.make(`bosun-handoff:${handoffId}:notice:${version}`),
+            commandId: CommandId.make(
+              `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
+            ),
             threadId,
             message: {
-              messageId: MessageId.make(`bosun-handoff:${handoffId}:notice:${version}`),
+              messageId: MessageId.make(
+                `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
+              ),
               role: "user",
               text: prompt,
               attachments: [],
@@ -174,10 +190,10 @@ export const BotThreadRuntimeV1 = Layer.effect(
                 records: [
                   {
                     version: 1,
-                    contextId: ComposerContextId.make("bosun-origin"),
-                    label: "Bosun",
-                    kind: "bosun-bot",
-                    payload: { botId: "Bosun", runId: recipientRunId, handoffId },
+                    contextId: ComposerContextId.make("bot-origin"),
+                    label: "Bot",
+                    kind: "bot",
+                    payload: { botId: "Bot", runId: recipientRunId, handoffId },
                   },
                 ],
               },
@@ -191,17 +207,18 @@ export const BotThreadRuntimeV1 = Layer.effect(
         engine
           .dispatch({
             type: "thread.turn.interrupt",
-            commandId: CommandId.make(`bosun-handoff:${handoffId}:interrupt`),
+            commandId: CommandId.make(`${handoffCommandPrefix(threadId)}:${handoffId}:interrupt`),
             threadId,
             createdAt,
           })
           .pipe(Effect.asVoid),
       listPendingStartedRunIds: (afterId, limit) =>
         sql<{ readonly id: string }>`
-          SELECT DISTINCT r.id FROM bosun_bot_runs AS r
+          SELECT DISTINCT r.id FROM bot_runs AS r
           JOIN projection_turns AS t ON t.thread_id = r.thread_id AND t.state = 'pending'
           LEFT JOIN projection_thread_sessions AS s ON s.thread_id = r.thread_id
-          WHERE r.dispatch_state = 'started' AND s.thread_id IS NULL AND r.id > ${afterId}
+          WHERE r.dispatch_state = ${BOT_DISPATCH_STATE.STARTED}
+            AND s.thread_id IS NULL AND r.id > ${afterId}
           ORDER BY r.id LIMIT ${limit}
         `.pipe(
           Effect.mapError(toPersistenceSqlError("BotThreadRuntime.listPendingStartedRunIds")),
@@ -210,9 +227,9 @@ export const BotThreadRuntimeV1 = Layer.effect(
       getTurnState: (threadId) =>
         query.getThreadShellById(threadId).pipe(
           Effect.map((thread) => {
-            if (Option.isNone(thread)) return "missing";
+            if (Option.isNone(thread)) return BOT_TURN_STATE.MISSING;
             const state = thread.value.latestTurn?.state;
-            return state ?? "pending";
+            return state ?? BOT_TURN_STATE.PENDING;
           }),
         ),
     } satisfies BotThreadRuntimeShape;

@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { BOT_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import { useMemo, useState } from "react";
@@ -18,6 +18,7 @@ import {
   resolveNewTaskModelSelection,
 } from "../../lib/modelOptions";
 import { SettingsSection } from "./components/SettingsSection";
+import { MobileBotConfigurationPanel } from "./MobileBotConfigurationPanel";
 
 export function MobileBotsProjectSection(props: {
   readonly project: EnvironmentProject;
@@ -77,7 +78,7 @@ export function MobileBotsProjectSection(props: {
       const result = await start({
         environmentId: project.environmentId,
         input: {
-          id: `bosun-captain:${uuidv4()}`,
+          id: `bot-captain:${uuidv4()}`,
           projectId: project.id,
           modelSelection,
           taskText: task,
@@ -152,7 +153,7 @@ export function MobileBotsProjectSection(props: {
       <View className="gap-3 p-4">
         <Text className="text-xs text-foreground-muted">{project.workspaceRoot}</Text>
         <Text className="text-sm text-foreground-muted">
-          Ask Captain to coordinate this project. Manager and Execution runs appear below.
+          Ask Captain to coordinate this project. Manager and Builder runs appear below.
         </Text>
         {!modelSelection ? (
           <Text className="text-sm text-foreground-muted">No available model.</Text>
@@ -236,7 +237,9 @@ export function MobileBotsProjectSection(props: {
               ) : null}
             </View>
             <Text className="text-xs text-foreground-muted">
-              {run.dispatchState === "queued" ? "queued" : run.turnState}
+              {run.dispatchState === BOT_DISPATCH_STATE.QUEUED
+                ? BOT_DISPATCH_STATE.QUEUED
+                : run.turnState}
             </Text>
           </Pressable>
         ))}
@@ -275,6 +278,12 @@ export function MobileBotsProjectSection(props: {
             ) : null}
           </View>
         ))}
+        <MobileBotConfigurationPanel
+          environmentId={project.environmentId}
+          projectId={project.id}
+          modelSelection={modelSelection}
+          bots={snapshot.data?.definitions ?? []}
+        />
       </View>
     </SettingsSection>
   );

@@ -25,7 +25,7 @@ import { BotStore, BotStoreLive } from "./BotStore.ts";
 import { BotThreadRuntime } from "./BotThreadRuntime.ts";
 import { BotRuntimeLive } from "./runtimeLayer.ts";
 
-const projectId = ProjectId.make("bosun-bot-test-project");
+const projectId = ProjectId.make("bot-test-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
 
 const withSystem = <A, E>(
@@ -43,7 +43,7 @@ const withSystem = <A, E>(
     BotRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
     Layer.provide(makeSqlitePersistenceLive(databasePath)),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bosun-bot-test-" })),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-test-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -60,10 +60,10 @@ const withSystem = <A, E>(
 const createProject = (engine: OrchestrationEngineService["Service"]) =>
   engine.dispatch({
     type: "project.create",
-    commandId: CommandId.make("bosun-bot-test-project-create"),
+    commandId: CommandId.make("bot-test-project-create"),
     projectId,
     title: "Bot test project",
-    workspaceRoot: "/tmp/bosun-bot-test-project",
+    workspaceRoot: "/tmp/bot-test-project",
     createdAt: "2026-01-01T00:00:00.000Z",
   });
 
@@ -71,15 +71,91 @@ const createBot = (bots: BotService["Service"]) =>
   bots.createDefinition({
     id: "execution-1",
     projectId,
-    role: "execution",
-    name: "Execution",
+    name: "Builder",
     instructions: "Implement the assigned change.",
     allowedTools: ["bots.delegate"],
     modelSelection,
     runtimeMode: "approval-required",
   });
 
-describe("Bosun bot foundation", () => {
+describe("Bot foundation", () => {
+  effectIt.effect("keeps custom templates, bot instances, and hierarchy distinct", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-custom-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine }) =>
+        Effect.gen(function* () {
+          yield* createProject(engine);
+          const crews = yield* Effect.all(
+            [
+              bots.ensureCrew(projectId, modelSelection),
+              bots.ensureCrew(projectId, modelSelection),
+            ],
+            { concurrency: 2 },
+          );
+          expect(crews[0].map((bot) => bot.id)).toEqual(crews[1].map((bot) => bot.id));
+          const template = yield* bots.createTemplate({
+            id: "template:custom",
+            projectId,
+            name: "Researcher",
+            instructions: "Research the assigned question.",
+            modelSelection,
+            runtimeMode: "approval-required",
+            autoCreateForFeature: true,
+          });
+          const bot = yield* bots.instantiate("bot:researcher", projectId, template.id);
+          expect(bot.templateId).toBe(template.id);
+          expect(bot.templateRevision).toBe(1);
+          expect((yield* bots.getTemplate(template.id))?.autoCreateForFeature).toBe(true);
+          const updatedTemplate = yield* bots.updateTemplate({
+            ...template,
+            name: "Investigator",
+            instructions: "Investigate a question.",
+            expectedRevision: template.revision,
+            enabled: false,
+          });
+          expect(updatedTemplate.revision).toBe(2);
+          expect((yield* bots.getDefinition(bot.id))?.name).toBe("Researcher");
+          expect(
+            (yield* bots.instantiate("bot:second", projectId, template.id).pipe(Effect.result))
+              ._tag,
+          ).toBe("Failure");
+          yield* bots.setHierarchyParent(bot.id, `bot-manager:${projectId}`, 2);
+          const hierarchy = yield* bots.listHierarchyForProject(projectId);
+          expect(hierarchy.find((node) => node.botId === bot.id)).toMatchObject({
+            parentBotId: `bot-manager:${projectId}`,
+            position: 2,
+          });
+          expect(
+            hierarchy.find((node) => node.botId === `bot-manager:${projectId}`)?.parentBotId,
+          ).toBe("bot-captain");
+          expect(
+            (yield* bots.setHierarchyParent(`bot-manager:${projectId}`, bot.id).pipe(Effect.result))
+              ._tag,
+          ).toBe("Failure");
+          expect(
+            (yield* bots
+              .createDefinition({
+                id: "bot:wrong-scope",
+                projectId: null,
+                templateId: template.id,
+                name: "Wrong scope",
+                instructions: "Invalid.",
+                modelSelection,
+                runtimeMode: "approval-required",
+              })
+              .pipe(Effect.result))._tag,
+          ).toBe("Failure");
+        }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
   effectIt.effect("retains a failed dispatch and retries it without a new run", () =>
     Effect.gen(function* () {
       let attempts = 0;
@@ -114,7 +190,6 @@ describe("Bosun bot foundation", () => {
         const bot = yield* bots.createDefinition({
           id: "retry-bot",
           projectId,
-          role: "execution",
           name: "Retry bot",
           instructions: "Try this task.",
           modelSelection,
@@ -144,7 +219,7 @@ describe("Bosun bot foundation", () => {
   effectIt.effect("links a bot run to one T3 thread and replays without a second turn", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bosun-bot-run-")),
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-run-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
       yield* withSystem(databasePath, ({ bots, engine, query }) =>
@@ -176,7 +251,7 @@ describe("Bosun bot foundation", () => {
             expect(detail.value.messages[0]?.text).toContain("Implement the assigned change.");
           }
           const view = yield* bots.getRun("run-1");
-          expect(view?.run.threadId).toBe(ThreadId.make("bosun-run:run-1"));
+          expect(view?.run.threadId).toBe(ThreadId.make("bot-run:run-1"));
           const summaries = yield* bots.listRunSummaries(projectId, 1);
           expect(summaries).toHaveLength(1);
           expect(summaries[0]).not.toHaveProperty("taskText");
@@ -193,7 +268,7 @@ describe("Bosun bot foundation", () => {
   effectIt.effect("recovers a persisted queued run after restart", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bosun-bot-restart-")),
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-restart-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
       yield* Effect.gen(function* () {
@@ -205,9 +280,9 @@ describe("Bosun bot foundation", () => {
               id: "queued-1",
               botId: bot.id,
               projectId,
-              threadId: ThreadId.make("bosun-run:queued-1"),
+              threadId: ThreadId.make("bot-run:queued-1"),
               taskText: "Recover this task",
-              title: "Execution: Recover this task",
+              title: "Builder: Recover this task",
               instructions: bot.instructions,
               allowedTools: bot.allowedTools,
               botRevision: bot.revision,
@@ -222,10 +297,10 @@ describe("Bosun bot foundation", () => {
             // Simulate a crash after T3 accepted thread creation but before turn start.
             yield* engine.dispatch({
               type: "thread.create",
-              commandId: CommandId.make("bosun-run:queued-1:create"),
-              threadId: ThreadId.make("bosun-run:queued-1"),
+              commandId: CommandId.make("bot-run:queued-1:create"),
+              threadId: ThreadId.make("bot-run:queued-1"),
               projectId,
-              title: "Execution: Recover this task",
+              title: "Builder: Recover this task",
               modelSelection: bot.modelSelection,
               runtimeMode: bot.runtimeMode,
               interactionMode: "default",
@@ -239,7 +314,7 @@ describe("Bosun bot foundation", () => {
           Effect.gen(function* () {
             yield* bots.reconcileRuns();
             const recovered = yield* bots.getRun("queued-1");
-            const detail = yield* query.getThreadDetailById(ThreadId.make("bosun-run:queued-1"));
+            const detail = yield* query.getThreadDetailById(ThreadId.make("bot-run:queued-1"));
             expect(recovered?.run.dispatchState).toBe("started");
             expect(detail._tag).toBe("Some");
             if (detail._tag === "Some") {
@@ -253,7 +328,7 @@ describe("Bosun bot foundation", () => {
           Effect.gen(function* () {
             yield* bots.reconcileRuns();
             const replayed = yield* bots.getRun("queued-1");
-            const detail = yield* query.getThreadDetailById(ThreadId.make("bosun-run:queued-1"));
+            const detail = yield* query.getThreadDetailById(ThreadId.make("bot-run:queued-1"));
             expect(replayed?.run.recoveryAttempt).toBe(1);
             expect(detail._tag).toBe("Some");
             if (detail._tag === "Some") {

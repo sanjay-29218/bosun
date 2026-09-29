@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { BOT_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import { useMemo, useState } from "react";
@@ -13,7 +13,9 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { BotConfigurationPanel } from "./BotConfigurationPanel";
 
 export function BotsProjectSection(props: { readonly project: SidebarProjectGroupMember }) {
   const navigate = useNavigate();
@@ -63,7 +65,7 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
       const result = await start({
         environmentId,
         input: {
-          id: `bosun-captain:${randomUUID()}`,
+          id: `bot-captain:${randomUUID()}`,
           projectId,
           modelSelection: defaultModelSelection,
           taskText: task,
@@ -145,15 +147,15 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
 
   return (
     <SettingsSection title={`Bots · ${environmentLabel}`}>
-      <p
-        className="truncate px-3 pb-2 text-xs text-muted-foreground"
-        title={props.project.workspaceRoot}
-      >
-        {props.project.workspaceRoot}
-      </p>
+      <Tooltip>
+        <TooltipTrigger render={<p className="truncate px-3 pb-2 text-xs text-muted-foreground" />}>
+          {props.project.workspaceRoot}
+        </TooltipTrigger>
+        <TooltipPopup variant="code">{props.project.workspaceRoot}</TooltipPopup>
+      </Tooltip>
       <SettingsRow
         title="Captain"
-        description="Give the Captain a project task. Its Manager and Execution runs stay linked below."
+        description="Give the Captain a project task. Its Manager and Builder runs stay linked below."
         control={
           <span className="text-xs text-muted-foreground">
             {defaultModelSelection ? "Ready" : "No available model"}
@@ -237,7 +239,9 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
                 ) : null}
               </span>
               <span className="shrink-0 text-xs text-muted-foreground">
-                {run.dispatchState === "queued" ? "queued" : run.turnState}
+                {run.dispatchState === BOT_DISPATCH_STATE.QUEUED
+                  ? BOT_DISPATCH_STATE.QUEUED
+                  : run.turnState}
               </span>
             </button>
           ))}
@@ -285,6 +289,12 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
           ))}
         </div>
       ) : null}
+      <BotConfigurationPanel
+        environmentId={environmentId}
+        projectId={projectId}
+        defaultModelSelection={defaultModelSelection}
+        bots={snapshot.data?.definitions ?? []}
+      />
     </SettingsSection>
   );
 }

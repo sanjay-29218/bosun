@@ -1,6 +1,7 @@
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { isBotThreadId } from "@t3tools/client-runtime/bot-message-origin";
 import {
   appendCodexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
@@ -884,7 +885,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
-      {props.selectedThread.id.startsWith("bosun-run:") ? (
+      {isBotThreadId(props.selectedThread.id) ? (
         <MobileBotRunStatusStrip
           environmentId={props.environmentId}
           projectId={props.selectedThread.projectId}

@@ -23,6 +23,13 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  */
 export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.botsSnapshot]: AuthOrchestrationReadScope,
+  [WS_METHODS.botsConfiguration]: AuthOrchestrationReadScope,
+  [WS_METHODS.botsInitialize]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsCreateTemplate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsUpdateTemplate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsInstantiate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsSetHierarchy]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsSetDelegation]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsAnswer]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsCancel]: AuthOrchestrationOperateScope,

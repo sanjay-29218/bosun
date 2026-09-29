@@ -21,7 +21,7 @@ import { BotHandoffService } from "./BotHandoffService.ts";
 import { BotHandoffStore } from "./BotHandoffStore.ts";
 import { BotRuntimeLive } from "./runtimeLayer.ts";
 
-const projectId = ProjectId.make("bosun-handoff-test-project");
+const projectId = ProjectId.make("bot-handoff-test-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6-sol" };
 
 const withSystem = <A, E>(
@@ -40,7 +40,7 @@ const withSystem = <A, E>(
     BotRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
     Layer.provideMerge(makeSqlitePersistenceLive(path)),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bosun-handoff-test-" })),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-handoff-test-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -55,11 +55,11 @@ const withSystem = <A, E>(
   }).pipe(Effect.provide(layer));
 };
 
-describe("Bosun handoffs", () => {
+describe("Bot handoffs", () => {
   effectIt.effect("routes questions and answers while rejecting unauthorized delegation", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bosun-handoff-question-")),
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-question-")),
       );
       yield* withSystem(
         NodePath.join(directory, "state.sqlite"),
@@ -76,22 +76,22 @@ describe("Bosun handoffs", () => {
             yield* bots.ensureCrew(projectId, modelSelection);
             const captain = yield* bots.createRun({
               id: "captain-question",
-              botId: "bosun-captain",
+              botId: "bot-captain",
               projectId,
               taskText: "Coordinate a question",
             });
             const managerRequest = yield* handoffs.delegate({
               id: "manager-question",
               sourceThreadId: captain.threadId,
-              targetBotId: `bosun-manager:${projectId}`,
+              targetBotId: `bot-manager:${projectId}`,
               projectId,
               taskText: "Clarify and execute",
             });
             const manager = (yield* bots.getRun(managerRequest.targetRunId))!.run;
             const executionRequest = yield* handoffs.delegate({
-              id: "execution-question",
+              id: "builder-question",
               sourceThreadId: manager.threadId,
-              targetBotId: `bosun-execution:${projectId}`,
+              targetBotId: `bot-builder:${projectId}`,
               projectId,
               taskText: "Implement after clarification",
             });
@@ -101,7 +101,7 @@ describe("Bosun handoffs", () => {
                 .delegate({
                   id: "forbidden",
                   sourceThreadId: execution.threadId,
-                  targetBotId: `bosun-manager:${projectId}`,
+                  targetBotId: `bot-manager:${projectId}`,
                   projectId,
                   taskText: "Escalate improperly",
                 })
@@ -110,9 +110,9 @@ describe("Bosun handoffs", () => {
             expect(
               (yield* handoffs
                 .delegate({
-                  id: "execution-question",
+                  id: "builder-question",
                   sourceThreadId: manager.threadId,
-                  targetBotId: `bosun-execution:${projectId}`,
+                  targetBotId: `bot-builder:${projectId}`,
                   projectId,
                   taskText: "Different task",
                 })
@@ -123,7 +123,7 @@ describe("Bosun handoffs", () => {
                 .delegate({
                   id: "oversized",
                   sourceThreadId: manager.threadId,
-                  targetBotId: `bosun-execution:${projectId}`,
+                  targetBotId: `bot-builder:${projectId}`,
                   projectId,
                   taskText: "x".repeat(8_001),
                 })
@@ -154,6 +154,11 @@ describe("Bosun handoffs", () => {
             );
             const cancelled = yield* handoffs.cancel(managerRequest.id);
             expect(cancelled.status).toBe("cancelled");
+            yield* bots.revokeDelegation("bot-captain", `bot-manager:${projectId}`);
+            expect((yield* handoffs.retry(managerRequest.id).pipe(Effect.result))._tag).toBe(
+              "Failure",
+            );
+            yield* bots.allowDelegation("bot-captain", `bot-manager:${projectId}`);
             const retry = yield* handoffs.retry(managerRequest.id);
             expect(retry.status).toBe("running");
             expect(retry.targetRunId).not.toBe(managerRequest.targetRunId);
@@ -169,10 +174,10 @@ describe("Bosun handoffs", () => {
     }),
   );
 
-  effectIt.effect("persists Captain to Manager to Execution and structured outcomes", () =>
+  effectIt.effect("persists Captain to Manager to Builder and structured outcomes", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bosun-handoff-")),
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
       yield* withSystem(databasePath, ({ bots, handoffs, engine }) =>
@@ -188,7 +193,6 @@ describe("Bosun handoffs", () => {
           yield* bots.createDefinition({
             id: "captain",
             projectId: null,
-            role: "captain",
             name: "Captain",
             instructions: "Coordinate.",
             allowedTools: ["bots.delegate"],
@@ -198,7 +202,6 @@ describe("Bosun handoffs", () => {
           yield* bots.createDefinition({
             id: "manager",
             projectId,
-            role: "manager",
             name: "Manager",
             instructions: "Manage.",
             allowedTools: ["bots.delegate", "bots.respond", "bots.ask"],
@@ -208,13 +211,14 @@ describe("Bosun handoffs", () => {
           yield* bots.createDefinition({
             id: "execution",
             projectId,
-            role: "execution",
-            name: "Execution",
+            name: "Builder",
             instructions: "Execute.",
             allowedTools: ["bots.respond", "bots.ask"],
             modelSelection,
             runtimeMode: "approval-required",
           });
+          yield* bots.allowDelegation("captain", "manager");
+          yield* bots.allowDelegation("manager", "execution");
           const captain = yield* bots.createRun({
             id: "captain-run",
             botId: "captain",
@@ -261,6 +265,18 @@ describe("Bosun handoffs", () => {
           expect(
             (yield* handoffs.respond(managerRun.threadId, "completed", "Reviewed patch")).status,
           ).toBe("completed");
+          yield* bots.revokeDelegation("manager", "execution");
+          expect(
+            (yield* handoffs
+              .delegate({
+                id: "revoked-delegation",
+                sourceThreadId: managerRun.threadId,
+                targetBotId: "execution",
+                projectId,
+                taskText: "Another change",
+              })
+              .pipe(Effect.result))._tag,
+          ).toBe("Failure");
         }),
       );
       yield* withSystem(databasePath, ({ bots, handoffs, sql }) =>
@@ -271,13 +287,13 @@ describe("Bosun handoffs", () => {
           expect((yield* handoffs.get("captain-to-manager"))?.status).toBe("completed");
           const noticesBefore = yield* sql<{ readonly text: string }>`
             SELECT text FROM projection_thread_messages
-            WHERE message_id = 'bosun-handoff:captain-to-manager:notice:1'
+            WHERE message_id = 'bot-handoff:captain-to-manager:notice:1'
           `;
           expect(noticesBefore[0]?.text).toContain("Reviewed patch");
           yield* bots.reconcileRuns();
           const noticesAfter = yield* sql<{ readonly text: string }>`
             SELECT text FROM projection_thread_messages
-            WHERE message_id = 'bosun-handoff:captain-to-manager:notice:1'
+            WHERE message_id = 'bot-handoff:captain-to-manager:notice:1'
           `;
           expect(noticesAfter).toEqual(noticesBefore);
         }),

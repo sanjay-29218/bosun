@@ -66,8 +66,11 @@ import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
 import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
 import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
 import Migration0054 from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
-import Migration0055 from "./Migrations/055_BosunBots.ts";
-import Migration0056 from "./Migrations/056_BosunHandoffs.ts";
+import Migration0055 from "./Migrations/055_Bots.ts";
+import Migration0056 from "./Migrations/056_BotHandoffs.ts";
+import Migration0057 from "./Migrations/057_BotStorageNames.ts";
+import Migration0058 from "./Migrations/058_BotTemplates.ts";
+import Migration0059 from "./Migrations/059_BotHierarchy.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -134,8 +137,11 @@ const migrationEntries = [
   [52, "ProjectionThreadTitleState", Migration0052],
   [53, "PullRequestFilesViewed", Migration0053],
   [54, "ProjectionThreadsAutoSettleDisabledAt", Migration0054],
-  [55, "BosunBots", Migration0055],
-  [56, "BosunHandoffs", Migration0056],
+  [55, "Bots", Migration0055],
+  [56, "BotHandoffs", Migration0056],
+  [57, "BotStorageNames", Migration0057],
+  [58, "BotTemplates", Migration0058],
+  [59, "BotHierarchy", Migration0059],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -95,10 +95,10 @@ export const BotHandoffServiceLive = Layer.effect(
         if (!recipient) return;
         const prompt =
           handoff.status === "running"
-            ? `Bosun answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
+            ? `Bot answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
             : handoff.status === "needs-input"
-              ? `Bosun handoff ${handoff.id} needs input from you: ${handoff.questionText ?? ""}`
-              : `Bosun handoff ${handoff.id} is ${handoff.status}. ${handoff.responseText ?? ""}`;
+              ? `Bot handoff ${handoff.id} needs input from you: ${handoff.questionText ?? ""}`
+              : `Bot handoff ${handoff.id} is ${handoff.status}. ${handoff.responseText ?? ""}`;
         yield* runtime.notify(
           recipient.threadId,
           handoff.id,
@@ -135,6 +135,28 @@ export const BotHandoffServiceLive = Layer.effect(
     const startQueued = (handoff: BotHandoff) =>
       Effect.gen(function* () {
         if (handoff.status !== "queued") return handoff;
+        const sourceRun = yield* runs.getRun(handoff.sourceRunId);
+        const sourceBot = sourceRun ? yield* runs.getDefinition(sourceRun.botId) : null;
+        const targetBot = yield* runs.getDefinition(handoff.targetBotId);
+        if (
+          !sourceBot?.enabled ||
+          !targetBot?.enabled ||
+          !(yield* runs.canDelegate(sourceBot.id, targetBot.id))
+        ) {
+          const now = DateTime.formatIso(yield* DateTime.now);
+          yield* handoffs.transition(
+            handoff.id,
+            ["queued"],
+            "failed",
+            now,
+            { lastError: "Delegation permission is unavailable" },
+            true,
+          );
+          const updated = (yield* handoffs.get(handoff.id))!;
+          yield* PubSub.publish(changes, updated.id);
+          yield* deliver(updated).pipe(Effect.result);
+          return updated;
+        }
         yield* bots.createRun({
           id: handoff.targetRunId,
           botId: handoff.targetBotId,
@@ -178,12 +200,8 @@ export const BotHandoffServiceLive = Layer.effect(
             new BotHandoffError("Target bot is unavailable for this project"),
           );
         }
-        if (
-          (sourceBot.role === "captain" && targetBot.role !== "manager") ||
-          (sourceBot.role === "manager" && targetBot.role !== "execution") ||
-          (sourceBot.role !== "captain" && sourceBot.role !== "manager")
-        ) {
-          return yield* Effect.fail(new BotHandoffError("This role cannot delegate to that role"));
+        if (!(yield* runs.canDelegate(sourceBot.id, targetBot.id))) {
+          return yield* Effect.fail(new BotHandoffError("Delegation is not permitted"));
         }
         const parent = yield* handoffs.getForTargetRun(source.id);
         const depth = (parent?.depth ?? 0) + 1;
@@ -202,7 +220,7 @@ export const BotHandoffServiceLive = Layer.effect(
           parentId: parent?.id ?? null,
           sourceRunId: source.id,
           targetBotId: targetBot.id,
-          targetRunId: `bosun-handoff:${id}`,
+          targetRunId: `bot-handoff:${id}`,
           projectId: input.projectId,
           taskText,
           contextText,
@@ -364,6 +382,16 @@ export const BotHandoffServiceLive = Layer.effect(
             return yield* Effect.fail(
               new BotHandoffError("Only failed or cancelled handoffs can retry"),
             );
+          }
+          const sourceRun = yield* runs.getRun(handoff.sourceRunId);
+          const sourceBot = sourceRun ? yield* runs.getDefinition(sourceRun.botId) : null;
+          const targetBot = yield* runs.getDefinition(handoff.targetBotId);
+          if (
+            !sourceBot?.enabled ||
+            !targetBot?.enabled ||
+            !(yield* runs.canDelegate(sourceBot.id, targetBot.id))
+          ) {
+            return yield* Effect.fail(new BotHandoffError("Delegation permission is unavailable"));
           }
           const now = DateTime.formatIso(yield* DateTime.now);
           const changed = yield* handoffs.retry(id, now);

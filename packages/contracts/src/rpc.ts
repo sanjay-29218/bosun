@@ -5,6 +5,15 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   BotHandoff,
   BotHandoffActionInput,
+  BotConfigurationSnapshot,
+  BotCreateTemplateInput,
+  BotUpdateTemplateInput,
+  BotInstantiateInput,
+  BotInitializeInput,
+  BotSetHierarchyInput,
+  BotSetDelegationInput,
+  BotTemplateConfig,
+  BotDefinitionSummary,
   BotOperationError,
   BotProjectSnapshot,
   BotProjectSnapshotInput,
@@ -285,6 +294,13 @@ import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
   botsSnapshot: "bots.snapshot",
+  botsConfiguration: "bots.configuration",
+  botsInitialize: "bots.initialize",
+  botsCreateTemplate: "bots.createTemplate",
+  botsUpdateTemplate: "bots.updateTemplate",
+  botsInstantiate: "bots.instantiate",
+  botsSetHierarchy: "bots.setHierarchy",
+  botsSetDelegation: "bots.setDelegation",
   botsStart: "bots.start",
   botsAnswer: "bots.answer",
   botsCancel: "bots.cancel",
@@ -720,6 +736,41 @@ const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationErr
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
   payload: BotProjectSnapshotInput,
   success: BotProjectSnapshot,
+  error: BotRpcError,
+});
+const WsBotsConfigurationRpc = Rpc.make(WS_METHODS.botsConfiguration, {
+  payload: BotProjectSnapshotInput,
+  success: BotConfigurationSnapshot,
+  error: BotRpcError,
+});
+const WsBotsInitializeRpc = Rpc.make(WS_METHODS.botsInitialize, {
+  payload: BotInitializeInput,
+  success: Schema.Void,
+  error: BotRpcError,
+});
+const WsBotsCreateTemplateRpc = Rpc.make(WS_METHODS.botsCreateTemplate, {
+  payload: BotCreateTemplateInput,
+  success: BotTemplateConfig,
+  error: BotRpcError,
+});
+const WsBotsUpdateTemplateRpc = Rpc.make(WS_METHODS.botsUpdateTemplate, {
+  payload: BotUpdateTemplateInput,
+  success: BotTemplateConfig,
+  error: BotRpcError,
+});
+const WsBotsInstantiateRpc = Rpc.make(WS_METHODS.botsInstantiate, {
+  payload: BotInstantiateInput,
+  success: BotDefinitionSummary,
+  error: BotRpcError,
+});
+const WsBotsSetHierarchyRpc = Rpc.make(WS_METHODS.botsSetHierarchy, {
+  payload: BotSetHierarchyInput,
+  success: Schema.Void,
+  error: BotRpcError,
+});
+const WsBotsSetDelegationRpc = Rpc.make(WS_METHODS.botsSetDelegation, {
+  payload: BotSetDelegationInput,
+  success: Schema.Void,
   error: BotRpcError,
 });
 const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
@@ -1434,6 +1485,13 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 
 export const WsRpcGroup = RpcGroup.make(
   WsBotsSnapshotRpc,
+  WsBotsConfigurationRpc,
+  WsBotsInitializeRpc,
+  WsBotsCreateTemplateRpc,
+  WsBotsUpdateTemplateRpc,
+  WsBotsInstantiateRpc,
+  WsBotsSetHierarchyRpc,
+  WsBotsSetDelegationRpc,
   WsBotsStartRpc,
   WsBotsAnswerRpc,
   WsBotsCancelRpc,

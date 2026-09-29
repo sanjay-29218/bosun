@@ -921,7 +921,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         readonly allowedToolsJson: string;
       }>`
         SELECT allowed_tools_json AS allowedToolsJson
-        FROM bosun_bot_runs WHERE thread_id = ${threadId}
+        FROM bot_runs WHERE thread_id = ${threadId}
       `.pipe(
         Effect.catch((cause) =>
           Effect.logWarning("Could not resolve bot tool grants; withholding MCP tools", {

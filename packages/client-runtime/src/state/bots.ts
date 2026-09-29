@@ -14,6 +14,12 @@ export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
     idleTtlMs: 60_000,
     refreshIntervalMs: 10_000,
   });
+  const configuration = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:bots:configuration",
+    tag: WS_METHODS.botsConfiguration,
+    staleTimeMs: 5_000,
+    idleTtlMs: 60_000,
+  });
   const refresh = (
     target: {
       readonly environmentId: EnvironmentId;
@@ -21,8 +27,74 @@ export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
     },
     registry: AtomRegistry.AtomRegistry,
   ) => Effect.sync(() => registry.refresh(snapshot(target)));
+  const refreshConfiguration = (
+    target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly projectId: ProjectId };
+    },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() => {
+      registry.refresh(configuration(target));
+      registry.refresh(snapshot(target));
+    });
   return {
     snapshot,
+    configuration,
+    initialize: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:initialize",
+      tag: WS_METHODS.botsInitialize,
+      onSuccess: (target, registry) =>
+        refreshConfiguration(
+          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
+    createTemplate: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:create-template",
+      tag: WS_METHODS.botsCreateTemplate,
+      onSuccess: (target, registry) =>
+        refreshConfiguration(
+          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
+    updateTemplate: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:update-template",
+      tag: WS_METHODS.botsUpdateTemplate,
+      onSuccess: (target, registry) =>
+        refreshConfiguration(
+          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
+    instantiate: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:instantiate",
+      tag: WS_METHODS.botsInstantiate,
+      onSuccess: (target, registry) =>
+        refreshConfiguration(
+          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
+    setHierarchy: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:set-hierarchy",
+      tag: WS_METHODS.botsSetHierarchy,
+      onSuccess: (target, registry) =>
+        refreshConfiguration(
+          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
+    setDelegation: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:set-delegation",
+      tag: WS_METHODS.botsSetDelegation,
+      onSuccess: (target, registry) =>
+        refreshConfiguration(
+          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
     start: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:bots:start",
       tag: WS_METHODS.botsStart,

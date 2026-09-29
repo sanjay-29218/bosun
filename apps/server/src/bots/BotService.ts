@@ -1,5 +1,8 @@
 import {
+  BOT_DISPATCH_STATE,
+  BOT_TURN_STATE,
   ThreadId,
+  type BotTurnState,
   type ModelSelection,
   type ProjectId,
   type RuntimeMode,
@@ -14,7 +17,8 @@ import type { PersistenceSqlError, ProjectionRepositoryError } from "../persiste
 import {
   BotStore,
   type BotDefinition,
-  type BotRole,
+  type BotHierarchyNode,
+  type BotTemplate,
   type BotRun,
   type BotRunSummary,
 } from "./BotStore.ts";
@@ -27,12 +31,29 @@ export class BotValidationError extends Error {
 export interface CreateBotDefinitionInput {
   readonly id: string;
   readonly projectId: ProjectId | null;
-  readonly role: BotRole;
+  readonly featureId?: string | null;
+  readonly templateId?: string | null;
   readonly name: string;
   readonly instructions: string;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
+}
+
+export interface CreateBotTemplateInput {
+  readonly id: string;
+  readonly projectId: ProjectId | null;
+  readonly name: string;
+  readonly instructions: string;
+  readonly allowedTools?: ReadonlyArray<string>;
+  readonly modelSelection: ModelSelection;
+  readonly runtimeMode: RuntimeMode;
+  readonly autoCreateForFeature?: boolean;
+}
+
+export interface UpdateBotTemplateInput extends CreateBotTemplateInput {
+  readonly expectedRevision: number;
+  readonly enabled: boolean;
 }
 
 export interface CreateBotRunInput {
@@ -45,7 +66,7 @@ export interface CreateBotRunInput {
 
 export interface BotRunView {
   readonly run: BotRun;
-  readonly turnState: "missing" | "pending" | "running" | "completed" | "interrupted" | "error";
+  readonly turnState: BotTurnState;
   readonly status: "queued" | "running" | "completed" | "failed" | "interrupted";
 }
 
@@ -57,7 +78,39 @@ export interface BotServiceShape {
   readonly createDefinition: (
     input: CreateBotDefinitionInput,
   ) => Effect.Effect<BotDefinition, BotServiceError>;
+  readonly createTemplate: (
+    input: CreateBotTemplateInput,
+  ) => Effect.Effect<BotTemplate, BotServiceError>;
+  readonly updateTemplate: (
+    input: UpdateBotTemplateInput,
+  ) => Effect.Effect<BotTemplate, BotServiceError>;
   readonly getDefinition: (id: string) => Effect.Effect<BotDefinition | null, PersistenceSqlError>;
+  readonly getTemplate: (id: string) => Effect.Effect<BotTemplate | null, PersistenceSqlError>;
+  readonly listTemplatesForProject: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<BotTemplate>, PersistenceSqlError>;
+  readonly instantiate: (
+    id: string,
+    projectId: ProjectId,
+    templateId: string,
+  ) => Effect.Effect<BotDefinition, BotServiceError>;
+  readonly allowDelegation: (
+    sourceBotId: string,
+    targetBotId: string,
+  ) => Effect.Effect<void, BotServiceError>;
+  readonly revokeDelegation: (
+    sourceBotId: string,
+    targetBotId: string,
+  ) => Effect.Effect<void, PersistenceSqlError>;
+  readonly listDelegationGrantsForProject: BotStore["Service"]["listDelegationGrantsForProject"];
+  readonly listHierarchyForProject: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<BotHierarchyNode>, PersistenceSqlError>;
+  readonly setHierarchyParent: (
+    botId: string,
+    parentBotId: string | null,
+    position?: number,
+  ) => Effect.Effect<void, BotServiceError>;
   readonly createRun: (input: CreateBotRunInput) => Effect.Effect<BotRun, BotServiceError>;
   readonly getRun: (
     id: string,
@@ -162,10 +215,17 @@ export const BotServiceLive = Layer.effect(
           },
           catch: () => new BotValidationError("Invalid tool grants"),
         });
-        if ((input.role === "captain") !== (input.projectId === null)) {
-          return yield* Effect.fail(
-            new BotValidationError("Captain is environment-wide; other roles need a project"),
-          );
+        const featureId = input.featureId ?? null;
+        const templateId = input.templateId ?? null;
+        if (featureId !== null && input.projectId === null) {
+          return yield* Effect.fail(new BotValidationError("A feature bot needs a project"));
+        }
+        const template = templateId === null ? null : yield* store.getTemplate(templateId);
+        if (templateId !== null && (!template || !template.enabled)) {
+          return yield* Effect.fail(new BotValidationError("Source template is unavailable"));
+        }
+        if (template && template.projectId !== null && template.projectId !== input.projectId) {
+          return yield* Effect.fail(new BotValidationError("Template belongs to another project"));
         }
         if (input.projectId !== null && !(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new BotValidationError("Project does not exist"));
@@ -174,6 +234,9 @@ export const BotServiceLive = Layer.effect(
         const definition: BotDefinition = {
           ...input,
           id,
+          featureId,
+          templateId,
+          templateRevision: template?.revision ?? null,
           name,
           instructions,
           allowedTools,
@@ -184,6 +247,94 @@ export const BotServiceLive = Layer.effect(
         };
         yield* store.insertDefinition(definition);
         return definition;
+      });
+
+    const createTemplate: BotServiceShape["createTemplate"] = (input) =>
+      Effect.gen(function* () {
+        const id = yield* Effect.try({
+          try: () => nonEmpty(input.id, "Template ID", 128),
+          catch: () => new BotValidationError("Invalid template ID"),
+        });
+        const name = yield* Effect.try({
+          try: () => nonEmpty(input.name, "Template name", 200),
+          catch: () => new BotValidationError("Invalid template name"),
+        });
+        const instructions = yield* Effect.try({
+          try: () => nonEmpty(input.instructions, "Template instructions", 16_000),
+          catch: () => new BotValidationError("Invalid template instructions"),
+        });
+        const allowedTools = yield* Effect.try({
+          try: () => {
+            const tools = input.allowedTools ?? [];
+            if (tools.length > 32) throw new BotValidationError("Too many tools");
+            return [...new Set(tools.map((tool) => nonEmpty(tool, "Tool", 100)))];
+          },
+          catch: () => new BotValidationError("Invalid tool grants"),
+        });
+        if (input.projectId !== null && !(yield* runtime.projectExists(input.projectId))) {
+          return yield* Effect.fail(new BotValidationError("Project does not exist"));
+        }
+        const now = DateTime.formatIso(yield* DateTime.now);
+        const template: BotTemplate = {
+          ...input,
+          id,
+          name,
+          instructions,
+          allowedTools,
+          autoCreateForFeature: input.autoCreateForFeature ?? false,
+          enabled: true,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        };
+        yield* store.insertTemplate(template);
+        return template;
+      });
+
+    const updateTemplate: BotServiceShape["updateTemplate"] = (input) =>
+      Effect.gen(function* () {
+        const previous = yield* store.getTemplate(input.id);
+        if (
+          !previous ||
+          previous.projectId !== input.projectId ||
+          previous.revision !== input.expectedRevision ||
+          !Number.isSafeInteger(input.expectedRevision)
+        ) {
+          return yield* Effect.fail(new BotValidationError("Template changed or is unavailable"));
+        }
+        const name = yield* Effect.try({
+          try: () => nonEmpty(input.name, "Template name", 200),
+          catch: () => new BotValidationError("Invalid template name"),
+        });
+        const instructions = yield* Effect.try({
+          try: () => nonEmpty(input.instructions, "Template instructions", 16_000),
+          catch: () => new BotValidationError("Invalid template instructions"),
+        });
+        const allowedTools = yield* Effect.try({
+          try: () => {
+            if ((input.allowedTools?.length ?? 0) > 32) throw new Error("Too many tools");
+            return [
+              ...new Set((input.allowedTools ?? []).map((tool) => nonEmpty(tool, "Tool", 100))),
+            ];
+          },
+          catch: () => new BotValidationError("Invalid tool grants"),
+        });
+        const updated: BotTemplate = {
+          ...previous,
+          name,
+          instructions,
+          allowedTools,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          enabled: input.enabled,
+          autoCreateForFeature: input.autoCreateForFeature ?? false,
+          revision: previous.revision + 1,
+          updatedAt: DateTime.formatIso(yield* DateTime.now),
+        };
+        if (!(yield* store.updateTemplate(updated, previous.revision))) {
+          return yield* Effect.fail(new BotValidationError("Template changed; reload and retry"));
+        }
+        return updated;
       });
 
     const createRun: BotServiceShape["createRun"] = (input) =>
@@ -202,7 +353,7 @@ export const BotServiceLive = Layer.effect(
           if (!sameRunRequest(existing, request)) {
             return yield* Effect.fail(new BotValidationError("Run ID belongs to another request"));
           }
-          if (existing.dispatchState === "queued") yield* dispatch(existing);
+          if (existing.dispatchState === BOT_DISPATCH_STATE.QUEUED) yield* dispatch(existing);
           return (yield* store.getRun(id))!;
         }
         const bot = yield* store.getDefinition(input.botId);
@@ -220,7 +371,7 @@ export const BotServiceLive = Layer.effect(
           id,
           botId: bot.id,
           projectId: input.projectId,
-          threadId: ThreadId.make(`bosun-run:${id}`),
+          threadId: ThreadId.make(`bot-run:${id}`),
           taskText,
           title: `${bot.name}: ${taskText.slice(0, 80)}`,
           instructions: bot.instructions,
@@ -228,7 +379,7 @@ export const BotServiceLive = Layer.effect(
           botRevision: bot.revision,
           modelSelection: input.modelSelection ?? bot.modelSelection,
           runtimeMode: bot.runtimeMode,
-          dispatchState: "queued",
+          dispatchState: BOT_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
           lastError: null,
           createdAt,
@@ -239,7 +390,7 @@ export const BotServiceLive = Layer.effect(
         if (persisted === null || !sameRunRequest(persisted, request)) {
           return yield* Effect.fail(new BotValidationError("Run ID belongs to another request"));
         }
-        if (persisted.dispatchState === "queued") yield* dispatch(persisted);
+        if (persisted.dispatchState === BOT_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
         return (yield* store.getRun(id))!;
       });
 
@@ -249,24 +400,91 @@ export const BotServiceLive = Layer.effect(
           if (!(yield* runtime.projectExists(projectId))) {
             return yield* Effect.fail(new BotValidationError("Project does not exist"));
           }
-          const managerId = `bosun-manager:${projectId}`;
-          const executionId = `bosun-execution:${projectId}`;
+          const managerId = `bot-manager:${projectId}`;
+          const builderId = `bot-builder:${projectId}`;
+          const templates = [
+            {
+              id: "template:captain",
+              projectId: null,
+              name: "Captain",
+              autoCreateForFeature: false,
+            },
+            {
+              id: `template:manager:${projectId}`,
+              projectId,
+              name: "Manager",
+              autoCreateForFeature: false,
+            },
+            {
+              id: `template:planner:${projectId}`,
+              projectId,
+              name: "Planner",
+              autoCreateForFeature: true,
+            },
+            {
+              id: `template:designer:${projectId}`,
+              projectId,
+              name: "Designer",
+              autoCreateForFeature: true,
+            },
+            {
+              id: `template:builder:${projectId}`,
+              projectId,
+              name: "Builder",
+              autoCreateForFeature: true,
+            },
+            {
+              id: `template:qa-tester:${projectId}`,
+              projectId,
+              name: "QA Tester",
+              autoCreateForFeature: true,
+            },
+            {
+              id: `template:reviewer:${projectId}`,
+              projectId,
+              name: "Reviewer",
+              autoCreateForFeature: true,
+            },
+          ];
+          for (const template of templates) {
+            if (!(yield* store.getTemplate(template.id))) {
+              yield* createTemplate({
+                ...template,
+                instructions: `You are the ${template.name} bot. Follow the assigned feature task and report a structured result.`,
+                allowedTools: [],
+                modelSelection,
+                runtimeMode: "approval-required",
+              }).pipe(
+                Effect.catch((error) =>
+                  store
+                    .getTemplate(template.id)
+                    .pipe(
+                      Effect.flatMap((persisted) =>
+                        persisted?.projectId === template.projectId
+                          ? Effect.succeed(persisted)
+                          : Effect.fail(error),
+                      ),
+                    ),
+                ),
+              );
+            }
+          }
           const defaults = [
             {
-              id: "bosun-captain",
+              id: "bot-captain",
               projectId: null,
-              role: "captain" as const,
+              templateId: "template:captain",
               name: "Captain",
               instructions:
-                "You are Bosun Captain. Coordinate the person's project request. The task names its project Manager bot. Delegate using bots_delegate with a stable request ID. Use bots_wait_handoff until the Manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use bots_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.",
+                "You are Captain. Coordinate the person's project request. The task names its project Manager bot. Delegate using bots_delegate with a stable request ID. Use bots_wait_handoff until the Manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use bots_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.",
               allowedTools: ["bots.delegate", "bots.status"],
             },
             {
               id: managerId,
               projectId,
-              role: "manager" as const,
+              templateId: `template:manager:${projectId}`,
               name: "Manager",
-              instructions: `You manage project ${projectId}. Delegate implementation to bot ${executionId} using bots_delegate and a stable request ID. Use bots_wait_handoff for its structured outcome. Report the outcome to Captain through bots_respond. If Execution needs a person's answer, use bots_ask; when the answer arrives, pass it to the child request using bots_answer. Keep the task and context bounded.`,
+              instructions: `You manage project ${projectId}. Delegate implementation to bot ${builderId} using bots_delegate and a stable request ID. Use bots_wait_handoff for its structured outcome. Report the outcome to Captain through bots_respond. If Builder needs a person's answer, use bots_ask; when the answer arrives, pass it to the child request using bots_answer. Keep the task and context bounded.`,
               allowedTools: [
                 "bots.delegate",
                 "bots.respond",
@@ -276,39 +494,123 @@ export const BotServiceLive = Layer.effect(
               ],
             },
             {
-              id: executionId,
+              id: builderId,
               projectId,
-              role: "execution" as const,
-              name: "Execution",
-              instructions: `You execute a bounded task for project ${projectId}. Work in the linked T3 thread. Call bots_respond with completed or failed and a concise summary when finished. If information is missing, call bots_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`,
+              templateId: `template:builder:${projectId}`,
+              name: "Builder",
+              instructions: `You build a bounded task for project ${projectId}. Work in the linked T3 thread. Call bots_respond with completed or failed and a concise summary when finished. If information is missing, call bots_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`,
               allowedTools: ["bots.respond", "bots.ask"],
             },
           ];
           const definitions: Array<BotDefinition> = [];
+          const created = new Set<string>();
           for (const definition of defaults) {
             const existing = yield* store.getDefinition(definition.id);
             if (existing) {
-              if (
-                existing.projectId !== definition.projectId ||
-                existing.role !== definition.role
-              ) {
+              if (existing.projectId !== definition.projectId) {
                 return yield* Effect.fail(new BotValidationError("Default bot ID is in use"));
               }
               definitions.push(existing);
             } else {
+              created.add(definition.id);
               definitions.push(
                 yield* createDefinition({
                   ...definition,
                   modelSelection,
                   runtimeMode: "approval-required",
-                }),
+                }).pipe(
+                  Effect.catch((error) =>
+                    store
+                      .getDefinition(definition.id)
+                      .pipe(
+                        Effect.flatMap((persisted) =>
+                          persisted?.projectId === definition.projectId
+                            ? Effect.succeed(persisted)
+                            : Effect.fail(error),
+                        ),
+                      ),
+                  ),
+                ),
               );
             }
           }
+          if (created.has("bot-captain") || created.has(managerId)) {
+            yield* store.grantDelegation("bot-captain", managerId);
+          }
+          if (created.has(managerId) || created.has(builderId)) {
+            yield* store.grantDelegation(managerId, builderId);
+          }
+          if (created.has(managerId)) yield* store.setParent(managerId, "bot-captain", 0);
+          if (created.has(builderId)) yield* store.setParent(builderId, managerId, 0);
           return definitions;
         }),
       createDefinition,
+      createTemplate,
+      updateTemplate,
       getDefinition: store.getDefinition,
+      getTemplate: store.getTemplate,
+      listTemplatesForProject: store.listTemplatesForProject,
+      instantiate: (id, projectId, templateId) =>
+        Effect.gen(function* () {
+          const template = yield* store.getTemplate(templateId);
+          if (
+            !template?.enabled ||
+            (template.projectId !== null && template.projectId !== projectId)
+          ) {
+            return yield* Effect.fail(new BotValidationError("Source template is unavailable"));
+          }
+          return yield* createDefinition({
+            id,
+            projectId,
+            templateId,
+            name: template.name,
+            instructions: template.instructions,
+            allowedTools: template.allowedTools,
+            modelSelection: template.modelSelection,
+            runtimeMode: template.runtimeMode,
+          });
+        }),
+      listDelegationGrantsForProject: store.listDelegationGrantsForProject,
+      revokeDelegation: store.revokeDelegation,
+      listHierarchyForProject: store.listHierarchyForProject,
+      setHierarchyParent: (botId, parentBotId, position = 0) =>
+        Effect.gen(function* () {
+          const child = yield* store.getDefinition(botId);
+          const parent = parentBotId === null ? null : yield* store.getDefinition(parentBotId);
+          if (!child?.enabled || (parentBotId !== null && !parent?.enabled)) {
+            return yield* Effect.fail(new BotValidationError("Bot is unavailable"));
+          }
+          if (
+            !Number.isSafeInteger(position) ||
+            position < 0 ||
+            position > 10_000 ||
+            (parent &&
+              ((child.projectId === null && parent.projectId !== null) ||
+                (parent.projectId !== null && parent.projectId !== child.projectId) ||
+                (parent.featureId !== null && parent.featureId !== child.featureId)))
+          ) {
+            return yield* Effect.fail(new BotValidationError("Invalid hierarchy placement"));
+          }
+          if (!(yield* store.setParent(botId, parentBotId, position))) {
+            return yield* Effect.fail(new BotValidationError("Hierarchy cycle rejected"));
+          }
+        }),
+      allowDelegation: (sourceBotId, targetBotId) =>
+        Effect.gen(function* () {
+          const source = yield* store.getDefinition(sourceBotId);
+          const target = yield* store.getDefinition(targetBotId);
+          if (
+            !source ||
+            !target ||
+            !source.enabled ||
+            !target.enabled ||
+            sourceBotId === targetBotId ||
+            (source.projectId !== null && target.projectId !== source.projectId)
+          ) {
+            return yield* Effect.fail(new BotValidationError("Invalid delegation grant"));
+          }
+          yield* store.grantDelegation(sourceBotId, targetBotId);
+        }),
       createRun,
       getRun: (id) =>
         store.getRun(id).pipe(
@@ -320,13 +622,14 @@ export const BotServiceLive = Layer.effect(
                     run,
                     turnState,
                     status:
-                      run.dispatchState === "queued"
+                      run.dispatchState === BOT_DISPATCH_STATE.QUEUED
                         ? ("queued" as const)
-                        : turnState === "completed"
+                        : turnState === BOT_TURN_STATE.COMPLETED
                           ? ("completed" as const)
-                          : turnState === "error" || turnState === "missing"
+                          : turnState === BOT_TURN_STATE.ERROR ||
+                              turnState === BOT_TURN_STATE.MISSING
                             ? ("failed" as const)
-                            : turnState === "interrupted"
+                            : turnState === BOT_TURN_STATE.INTERRUPTED
                               ? ("interrupted" as const)
                               : ("running" as const),
                   })),
