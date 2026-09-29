@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
 import { BotService } from "../bots/BotService.ts";
+import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
 import { BotRuntimeLive } from "../bots/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
 import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
@@ -90,6 +91,7 @@ describe("Workflow service", () => {
       const exercise = Effect.gen(function* () {
         const engine = yield* OrchestrationEngineService;
         const botService = yield* BotService;
+        const handoffs = yield* BotHandoffStore;
         const workflow = yield* WorkflowService;
         yield* createProject(engine, projectId);
         yield* createProject(engine, otherProjectId);
@@ -118,6 +120,32 @@ describe("Workflow service", () => {
           (yield* workflow.copyForFeature("feature-two", projectId, definition.id)).definition,
         ).toEqual(revised);
 
+        const template = yield* botService.getTemplate(templateId);
+        if (template === null) throw new Error("Starter template was not created");
+        const planner = yield* botService.createDefinition({
+          id: "feature-one-planner",
+          projectId,
+          featureId: "feature-one",
+          templateId,
+          name: template.name,
+          instructions: template.instructions,
+          allowedTools: template.allowedTools,
+          modelSelection: template.modelSelection,
+          runtimeMode: template.runtimeMode,
+        });
+        const managerRun = yield* botService.createRun({
+          id: "manager-run",
+          botId: `bot-manager:${projectId}`,
+          projectId,
+          taskText: "Supervise feature one",
+        });
+        const plannerRun = yield* botService.createRun({
+          id: "run-plan-1",
+          botId: planner.id,
+          projectId,
+          taskText: "Plan feature one",
+        });
+
         const premature = yield* workflow
           .recordTrustedEvent(
             "feature-one",
@@ -129,6 +157,10 @@ describe("Workflow service", () => {
           .pipe(Effect.result);
         expect(premature._tag).toBe("Failure");
         const start = stepEvent("start-plan", "started", { botRunId: "run-plan-1" });
+        const wrongFeatureRun = yield* workflow
+          .recordTrustedEvent("feature-two", start)
+          .pipe(Effect.result);
+        expect(wrongFeatureRun._tag).toBe("Failure");
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
         ).toBe("running");
@@ -143,13 +175,60 @@ describe("Workflow service", () => {
           "feature-one",
           stepEvent("answer-plan", "answered", { detail: "Use the current API" }),
         );
-        yield* workflow.recordTrustedEvent(
-          "feature-one",
-          stepEvent("complete-plan", "completed", {
-            sourceKind: "handoff",
-            sourceId: "handoff-1",
-          }),
+        const completion = stepEvent("complete-plan", "completed", {
+          sourceKind: "handoff",
+          sourceId: "handoff-1",
+        });
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        yield* handoffs.insert({
+          id: "handoff-1",
+          parentId: null,
+          sourceRunId: managerRun.id,
+          targetBotId: planner.id,
+          targetRunId: plannerRun.id,
+          projectId,
+          taskText: "Plan feature one",
+          contextText: "",
+          depth: 1,
+          status: "running",
+          responseText: null,
+          questionText: null,
+          lastError: null,
+          notificationState: "none",
+          noticeVersion: 0,
+          attempt: 1,
+          createdAt: "2026-09-29T00:00:00.000Z",
+          updatedAt: "2026-09-29T00:00:00.000Z",
+        });
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        yield* handoffs.insert({
+          ...(yield* handoffs.get("handoff-1"))!,
+          id: "unrelated-handoff",
+          targetRunId: "different-run",
+          status: "completed",
+          responseText: "Different task finished",
+        });
+        expect(
+          (yield* workflow
+            .recordTrustedEvent("feature-one", {
+              ...completion,
+              id: "unrelated-completion",
+              sourceId: "unrelated-handoff",
+            })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        yield* handoffs.transition(
+          "handoff-1",
+          ["running"],
+          "completed",
+          "2026-09-29T00:00:01.000Z",
+          { responseText: "Plan ready" },
         );
+        yield* workflow.recordTrustedEvent("feature-one", completion);
         expect((yield* workflow.getFeatureState("feature-one"))?.readyStepIds).toEqual(["end"]);
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
@@ -159,8 +238,6 @@ describe("Workflow service", () => {
           .pipe(Effect.result);
         expect(reusedId._tag).toBe("Failure");
 
-        const template = yield* botService.getTemplate(templateId);
-        if (template === null) throw new Error("Starter template was not created");
         yield* botService.updateTemplate({
           ...template,
           expectedRevision: template.revision,

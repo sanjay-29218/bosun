@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { BotStore } from "../bots/BotStore.ts";
+import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
 import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { validateWorkflowDefinition, WorkflowValidationError } from "./WorkflowGraph.ts";
@@ -65,6 +66,7 @@ export const WorkflowServiceLive = Layer.effect(
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
     const bots = yield* BotStore;
+    const handoffs = yield* BotHandoffStore;
     const runtime = yield* BotThreadRuntime;
 
     const checkDefinition = (projectId: ProjectId, definition: WorkflowDefinition) =>
@@ -230,6 +232,55 @@ export const WorkflowServiceLive = Layer.effect(
             return yield* projectState(copy.definition, events);
           }
           const next = yield* projectState(copy.definition, [...events, event]);
+          const step = copy.definition.steps.find((item) => item.id === event.stepId);
+          if (
+            event.kind === "started" &&
+            step &&
+            (step.kind === "bot" || (step.kind === "decision" && step.approver.kind === "bot"))
+          ) {
+            const run = event.botRunId ? yield* bots.getRun(event.botRunId) : null;
+            const bot = run ? yield* bots.getDefinition(run.botId) : null;
+            const templateId =
+              step.kind === "bot"
+                ? step.templateId
+                : step.approver.kind === "bot"
+                  ? step.approver.templateId
+                  : null;
+            if (
+              !run ||
+              !bot ||
+              run.projectId !== copy.projectId ||
+              bot.projectId !== copy.projectId ||
+              bot.featureId !== featureId ||
+              bot.templateId !== templateId
+            ) {
+              return yield* Effect.fail(
+                new WorkflowTransitionError(
+                  "Step run does not belong to this feature and template",
+                ),
+              );
+            }
+          }
+          if (event.kind === "completed" && step?.kind === "bot") {
+            const runId = (yield* projectState(copy.definition, events)).steps.get(
+              step.id,
+            )?.botRunId;
+            const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
+            const run = runId ? yield* bots.getRun(runId) : null;
+            if (
+              !handoff ||
+              !run ||
+              handoff.status !== "completed" ||
+              !handoff.responseText?.trim() ||
+              handoff.projectId !== copy.projectId ||
+              handoff.targetRunId !== runId ||
+              handoff.targetBotId !== run.botId
+            ) {
+              return yield* Effect.fail(
+                new WorkflowTransitionError("Step completion needs its completed bot handoff"),
+              );
+            }
+          }
           const result = yield* store.appendEvent(featureId, copy.eventVersion, event);
           if (result.kind === "conflict") {
             return yield* Effect.fail(
