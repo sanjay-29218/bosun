@@ -117,6 +117,7 @@ describe("Workflow service", () => {
           "build",
           "qa",
           "review",
+          "change_review",
           "end",
         ]);
         expect(yield* workflow.ensureStarterDefinition(projectId)).toEqual(starter);

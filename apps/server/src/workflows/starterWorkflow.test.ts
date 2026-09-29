@@ -14,10 +14,17 @@ describe("starter workflow", () => {
       supervisor: "manager",
     });
     expect(definition.steps.qa).toMatchObject({
-      next: { passed: "review", changes_requested: "build" },
+      next: { passed: "review", changes_requested: "change_review" },
     });
     expect(definition.steps.review).toMatchObject({
-      next: { approved: "end", changes_requested: "build" },
+      next: { approved: "end", changes_requested: "change_review" },
+    });
+    expect(definition.steps.build).toMatchObject({
+      next: { built: "qa", design_change_requested: "change_review" },
+    });
+    expect(definition.steps.change_review).toMatchObject({
+      bot: "manager",
+      next: { revise_design: "design", revise_build: "build" },
     });
   });
 });
