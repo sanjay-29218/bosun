@@ -192,14 +192,16 @@ describe("Workflow service", () => {
         const start = stepEvent("start-plan", "started", {
           executionId: "execution-1",
           botRunId: "run-plan-1",
+          sourceKind: "handoff",
+          sourceId: "handoff-1",
         });
         const wrongFeatureRun = yield* workflow
           .recordTrustedEvent("feature-two", start)
           .pipe(Effect.result);
         expect(wrongFeatureRun._tag).toBe("Failure");
         expect(
-          (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
-        ).toBe("running");
+          (yield* workflow.recordTrustedEvent("feature-one", start).pipe(Effect.result))._tag,
+        ).toBe("Failure");
         yield* handoffs.insert({
           id: "handoff-1",
           parentId: null,
@@ -210,9 +212,9 @@ describe("Workflow service", () => {
           taskText: "Plan feature one",
           contextText: "",
           depth: 1,
-          status: "needs-input",
+          status: "running",
           responseText: null,
-          questionText: "Which API?",
+          questionText: null,
           lastError: null,
           notificationState: "none",
           noticeVersion: 0,
@@ -220,6 +222,16 @@ describe("Workflow service", () => {
           createdAt: "2026-09-29T00:00:00.000Z",
           updatedAt: "2026-09-29T00:00:00.000Z",
         });
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
+        ).toBe("running");
+        yield* handoffs.transition(
+          "handoff-1",
+          ["running"],
+          "needs-input",
+          "2026-09-29T00:00:00.250Z",
+          { questionText: "Which API?" },
+        );
         yield* workflow.recordTrustedEvent(
           "feature-one",
           stepEvent("question-plan", "question", {
@@ -309,6 +321,9 @@ describe("Workflow service", () => {
           "answer-plan",
           "complete-plan",
         ]);
+        expect(snapshot?.steps.find((step) => step.id === "plan")?.threadId).toBe(
+          plannerRun.threadId,
+        );
         expect(
           (yield* workflow.getFeatureSnapshot("feature-one", otherProjectId).pipe(Effect.result))
             ._tag,

@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { ProjectId } from "./baseSchemas.ts";
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
 
 export const WorkflowBot = Schema.Struct({
   template: Schema.Union([
@@ -81,6 +81,7 @@ export const WorkflowStepSnapshot = Schema.Struct({
   executionId: Schema.NullOr(Schema.String),
   attempt: Schema.Int,
   botRunId: Schema.NullOr(Schema.String),
+  threadId: Schema.NullOr(ThreadId),
   outcome: Schema.NullOr(Schema.String),
 });
 export type WorkflowStepSnapshot = typeof WorkflowStepSnapshot.Type;
@@ -115,6 +116,14 @@ export const WorkflowProjectInput = Schema.Struct({ projectId: ProjectId });
 export const WorkflowFeatureGetInput = Schema.Struct({
   projectId: ProjectId,
   featureId: Schema.String,
+});
+export const WorkflowActionInput = Schema.Struct({
+  ...WorkflowFeatureGetInput.fields,
+  requestId: Schema.String,
+});
+export const WorkflowAnswerInput = Schema.Struct({
+  ...WorkflowActionInput.fields,
+  text: Schema.String,
 });
 export const WorkflowCreateInput = Schema.Struct({
   projectId: ProjectId,

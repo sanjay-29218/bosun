@@ -12,6 +12,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { MobileBotsProjectSection } from "./MobileBotsProjectSection";
+import { MobileWorkflowProjectSection } from "./MobileWorkflowProjectSection";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
@@ -146,6 +147,18 @@ function ProjectOverviewContent(props: {
         return environment?.serverConfig.environment.capabilities.bots === true ? (
           <MobileBotsProjectSection
             key={`bots:${member.environmentId}:${member.id}`}
+            project={member}
+            environmentLabel={environment.label}
+          />
+        ) : null;
+      })}
+      {props.members.map((member) => {
+        const environment = props.environments.find(
+          (entry) => entry.environmentId === member.environmentId,
+        );
+        return environment?.serverConfig.environment.capabilities.workflows === true ? (
+          <MobileWorkflowProjectSection
+            key={`workflows:${member.environmentId}:${member.id}`}
             project={member}
             environmentLabel={environment.label}
           />

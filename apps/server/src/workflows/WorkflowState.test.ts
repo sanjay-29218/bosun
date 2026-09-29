@@ -49,7 +49,12 @@ const event = (
   ...fields,
 });
 const start = (id: string, stepId: string, executionId: string, botRunId: string) =>
-  event(id, stepId, "started", { executionId, botRunId });
+  event(id, stepId, "started", {
+    executionId,
+    botRunId,
+    sourceKind: "handoff",
+    sourceId: `handoff-${id}`,
+  });
 const complete = (id: string, stepId: string, executionId: string, outcome: string) =>
   event(id, stepId, "completed", {
     executionId,

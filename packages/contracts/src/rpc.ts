@@ -22,6 +22,8 @@ import {
 } from "./bots.ts";
 import {
   WorkflowCreateInput,
+  WorkflowActionInput,
+  WorkflowAnswerInput,
   WorkflowDefinition,
   WorkflowFeatureGetInput,
   WorkflowFeatureSnapshot,
@@ -308,6 +310,9 @@ export const WS_METHODS = {
   workflowsCreate: "workflows.create",
   workflowsRevise: "workflows.revise",
   workflowsGetFeature: "workflows.getFeature",
+  workflowsAnswer: "workflows.answer",
+  workflowsRetry: "workflows.retry",
+  workflowsCancel: "workflows.cancel",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -777,6 +782,21 @@ const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
 const WsWorkflowsGetFeatureRpc = Rpc.make(WS_METHODS.workflowsGetFeature, {
   payload: WorkflowFeatureGetInput,
   success: Schema.NullOr(WorkflowFeatureSnapshot),
+  error: WorkflowRpcError,
+});
+const WsWorkflowsAnswerRpc = Rpc.make(WS_METHODS.workflowsAnswer, {
+  payload: WorkflowAnswerInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsRetryRpc = Rpc.make(WS_METHODS.workflowsRetry, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsCancelRpc = Rpc.make(WS_METHODS.workflowsCancel, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
   error: WorkflowRpcError,
 });
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
@@ -1536,6 +1556,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkflowsCreateRpc,
   WsWorkflowsReviseRpc,
   WsWorkflowsGetFeatureRpc,
+  WsWorkflowsAnswerRpc,
+  WsWorkflowsRetryRpc,
+  WsWorkflowsCancelRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,

@@ -47,6 +47,10 @@ export interface WorkflowServiceShape {
     workflowId: string,
   ) => Effect.Effect<FeatureWorkflowCopy, WorkflowServiceError>;
   readonly getFeatureCopy: WorkflowStore["Service"]["getFeatureCopy"];
+  readonly findRecordedEvent: (
+    featureId: string,
+    eventId: string,
+  ) => Effect.Effect<WorkflowStepEvent | null, WorkflowServiceError>;
   readonly getLatestDefinition: WorkflowStore["Service"]["getLatestDefinition"];
   readonly listLatestDefinitions: WorkflowStore["Service"]["listLatestDefinitions"];
   readonly getFeatureState: (
@@ -231,6 +235,10 @@ export const WorkflowServiceLive = Layer.effect(
           return copy;
         }),
       getFeatureCopy: store.getFeatureCopy,
+      findRecordedEvent: (featureId, eventId) =>
+        store
+          .listEvents(featureId)
+          .pipe(Effect.map((events) => events.find((event) => event.id === eventId) ?? null)),
       getLatestDefinition: store.getLatestDefinition,
       listLatestDefinitions: store.listLatestDefinitions,
       getFeatureState: (featureId) =>
@@ -251,13 +259,23 @@ export const WorkflowServiceLive = Layer.effect(
           }
           const events = yield* store.listEvents(featureId);
           const state = yield* projectState(copy.definition, events);
+          const steps = yield* Effect.forEach(
+            [...state.steps.values()],
+            (step) =>
+              step.botRunId === null
+                ? Effect.succeed({ ...step, threadId: null })
+                : bots
+                    .getRun(step.botRunId)
+                    .pipe(Effect.map((run) => ({ ...step, threadId: run?.threadId ?? null }))),
+            { concurrency: 8 },
+          );
           return {
             featureId,
             projectId,
             definition: copy.definition,
             eventVersion: copy.eventVersion,
             createdAt: copy.createdAt,
-            steps: [...state.steps.values()],
+            steps,
             activeStepId: state.activeStepId,
             readyStepIds: [...state.readyStepIds],
             executionCount: state.executionCount,
@@ -293,13 +311,19 @@ export const WorkflowServiceLive = Layer.effect(
           if (event.kind === "started" && step?.type === "task") {
             const run = event.botRunId ? yield* bots.getRun(event.botRunId) : null;
             const bot = run ? yield* bots.getDefinition(run.botId) : null;
+            const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
             const source = copy.definition.bots[step.bot]?.template;
             if (
               !run ||
               !bot ||
+              !handoff ||
               !source ||
               run.projectId !== copy.projectId ||
               bot.projectId !== copy.projectId ||
+              handoff.projectId !== copy.projectId ||
+              handoff.targetRunId !== run.id ||
+              handoff.targetBotId !== bot.id ||
+              handoff.status === "cancelled" ||
               (source.kind === "template"
                 ? bot.featureId !== featureId ||
                   bot.templateId !== source.id ||

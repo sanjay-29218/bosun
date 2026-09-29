@@ -100,7 +100,7 @@ export const projectWorkflowState = (
     let current: WorkflowStepState;
     switch (event.kind) {
       case "started": {
-        noSource();
+        handoffSource();
         if (
           previous.status !== "pending" ||
           !nonEmpty(event.botRunId, 128) ||

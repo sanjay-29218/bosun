@@ -11,6 +11,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { SettingsSection } from "./settingsLayout";
+import { WorkflowFeatureInspector } from "./WorkflowFeatureInspector";
 
 const idPattern = /^[a-z][a-z0-9_-]{0,79}$/;
 
@@ -657,6 +658,7 @@ export function WorkflowsProjectSection({
             </p>
           )}
         </div>
+        <WorkflowFeatureInspector environmentId={environmentId} projectId={projectId} />
       </div>
     </SettingsSection>
   );

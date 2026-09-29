@@ -26,6 +26,13 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
     },
     registry: AtomRegistry.AtomRegistry,
   ) => Effect.sync(() => registry.refresh(definitions(target)));
+  const refreshFeature = (
+    target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly projectId: ProjectId; readonly featureId: string };
+    },
+    registry: AtomRegistry.AtomRegistry,
+  ) => Effect.sync(() => registry.refresh(feature(target)));
   return {
     definitions,
     feature,
@@ -53,6 +60,42 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
       onSuccess: (target, registry) =>
         refreshDefinitions(
           { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
+          registry,
+        ),
+    }),
+    answer: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:answer",
+      tag: WS_METHODS.workflowsAnswer,
+      onSuccess: (target, registry) =>
+        refreshFeature(
+          {
+            environmentId: target.environmentId,
+            input: { projectId: target.input.projectId, featureId: target.input.featureId },
+          },
+          registry,
+        ),
+    }),
+    retry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:retry",
+      tag: WS_METHODS.workflowsRetry,
+      onSuccess: (target, registry) =>
+        refreshFeature(
+          {
+            environmentId: target.environmentId,
+            input: { projectId: target.input.projectId, featureId: target.input.featureId },
+          },
+          registry,
+        ),
+    }),
+    cancel: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:cancel",
+      tag: WS_METHODS.workflowsCancel,
+      onSuccess: (target, registry) =>
+        refreshFeature(
+          {
+            environmentId: target.environmentId,
+            input: { projectId: target.input.projectId, featureId: target.input.featureId },
+          },
           registry,
         ),
     }),

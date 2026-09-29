@@ -22,6 +22,8 @@ import {
   AuthAccessStreamError,
   BotOperationError,
   WorkflowOperationError,
+  type WorkflowFeatureSnapshot,
+  type WorkflowStepEvent,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -1915,6 +1917,55 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const requireWorkflowSnapshot = (featureId: string, projectId: ProjectId) =>
+        workflows
+          .getFeatureSnapshot(featureId, projectId)
+          .pipe(
+            Effect.flatMap((snapshot) =>
+              snapshot === null
+                ? Effect.fail(
+                    new WorkflowOperationError({ reason: "Feature workflow was not found" }),
+                  )
+                : Effect.succeed(snapshot),
+            ),
+          );
+      const recordWorkflowControl = (
+        snapshot: WorkflowFeatureSnapshot,
+        requestId: string,
+        kind: "answered" | "retry" | "cancelled",
+        detail: string | null = null,
+        sourceId: string | null = null,
+      ) =>
+        Effect.gen(function* () {
+          const prior = yield* workflows.findRecordedEvent(snapshot.featureId, requestId);
+          if (prior) {
+            if (prior.kind !== kind)
+              return yield* new WorkflowOperationError({
+                reason: "Request ID belongs to another action",
+              });
+            return snapshot;
+          }
+          const stepId = snapshot.activeStepId;
+          const step = snapshot.steps.find((item) => item.id === stepId);
+          if (!stepId || !step)
+            return yield* new WorkflowOperationError({ reason: "No active workflow step" });
+          const event: WorkflowStepEvent = {
+            id: requestId,
+            stepId,
+            executionId: step.executionId,
+            kind,
+            botRunId: null,
+            outcome: null,
+            sourceKind: sourceId === null ? null : "handoff",
+            sourceId,
+            actorId: currentSessionId,
+            detail,
+            occurredAt: DateTime.formatIso(yield* DateTime.now),
+          };
+          yield* workflows.recordTrustedEvent(snapshot.featureId, event);
+          return yield* requireWorkflowSnapshot(snapshot.featureId, snapshot.projectId);
+        });
+
       return WsRpcGroup.of({
         [WS_METHODS.workflowsList]: (input) =>
           observeRpcEffect(
@@ -1974,6 +2025,87 @@ const makeWsRpcLayer = (
               .pipe(
                 Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
               ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsAnswer]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsAnswer,
+            Effect.gen(function* () {
+              const snapshot = yield* requireWorkflowSnapshot(input.featureId, input.projectId);
+              const prior = yield* workflows.findRecordedEvent(input.featureId, input.requestId);
+              if (prior) {
+                if (prior.detail !== input.text.trim())
+                  return yield* new WorkflowOperationError({
+                    reason: "Request ID belongs to another answer",
+                  });
+                return yield* recordWorkflowControl(snapshot, input.requestId, "answered");
+              }
+              const last = snapshot.recentEvents.at(-1);
+              if (
+                last?.kind !== "question" ||
+                last.stepId !== snapshot.activeStepId ||
+                !last.sourceId
+              ) {
+                return yield* new WorkflowOperationError({
+                  reason: "Workflow is not waiting for a question answer",
+                });
+              }
+              const text = input.text.trim();
+              if (!text) return yield* new WorkflowOperationError({ reason: "Answer is required" });
+              yield* botHandoffs.answer(last.sourceId, text);
+              return yield* recordWorkflowControl(
+                snapshot,
+                input.requestId,
+                "answered",
+                text,
+                last.sourceId,
+              );
+            }).pipe(
+              Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+            ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsRetry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsRetry,
+            Effect.gen(function* () {
+              const snapshot = yield* requireWorkflowSnapshot(input.featureId, input.projectId);
+              return yield* recordWorkflowControl(snapshot, input.requestId, "retry");
+            }).pipe(
+              Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+            ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsCancel]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsCancel,
+            Effect.gen(function* () {
+              const snapshot = yield* requireWorkflowSnapshot(input.featureId, input.projectId);
+              if (yield* workflows.findRecordedEvent(input.featureId, input.requestId)) {
+                return yield* recordWorkflowControl(snapshot, input.requestId, "cancelled");
+              }
+              const active = snapshot.steps.find((step) => step.id === snapshot.activeStepId);
+              if (!active)
+                return yield* new WorkflowOperationError({ reason: "No active workflow step" });
+              if (active.botRunId !== null) {
+                const handoff = yield* botHandoffStore.getForTargetRun(active.botRunId);
+                if (!handoff || handoff.projectId !== input.projectId) {
+                  return yield* new WorkflowOperationError({
+                    reason: "Active step handoff is unavailable",
+                  });
+                }
+                if (
+                  handoff.status !== "cancelled" &&
+                  handoff.status !== "failed" &&
+                  handoff.status !== "completed"
+                ) {
+                  yield* botHandoffs.cancel(handoff.id);
+                }
+              }
+              return yield* recordWorkflowControl(snapshot, input.requestId, "cancelled");
+            }).pipe(
+              Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+            ),
             { "rpc.aggregate": "workflows" },
           ),
         [WS_METHODS.botsSnapshot]: (input) =>
