@@ -60,6 +60,15 @@ describe("workflow graph", () => {
     expect(() =>
       validateWorkflowDefinition({
         ...definition,
+        bots: {
+          ...definition.bots,
+          manager: { ...definition.bots.manager!, supervisor: "builder" },
+        },
+      }),
+    ).toThrow(/Supervisor cycle/);
+    expect(() =>
+      validateWorkflowDefinition({
+        ...definition,
         steps: {
           ...definition.steps,
           build: { type: "task", bot: "builder", task: "Build", next: { built: "missing" } },
@@ -75,6 +84,21 @@ describe("workflow graph", () => {
         },
       }),
     ).toThrow(/reachable/);
+    expect(() =>
+      validateWorkflowDefinition({
+        ...definition,
+        steps: {
+          ...definition.steps,
+          build: {
+            type: "task",
+            bot: "builder",
+            task: "Build",
+            next: { built: "review", stuck: "dead" },
+          },
+          dead: { type: "task", bot: "builder", task: "Stuck", next: { again: "dead" } },
+        },
+      }),
+    ).toThrow(/path to the end/);
   });
 
   it("rejects unsupported step kinds at the contract boundary", () => {
