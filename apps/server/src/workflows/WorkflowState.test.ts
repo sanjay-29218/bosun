@@ -41,8 +41,8 @@ const event = (
   executionId: null,
   botRunId: null,
   outcome: null,
-  sourceKind: null,
-  sourceId: null,
+  sourceKind: kind === "question" || kind === "answered" || kind === "failed" ? "handoff" : null,
+  sourceId: kind === "question" || kind === "answered" || kind === "failed" ? "handoff-1" : null,
   actorId: "manager",
   detail: null,
   occurredAt: "2026-09-29T00:00:00Z",
@@ -56,6 +56,7 @@ const complete = (id: string, stepId: string, executionId: string, outcome: stri
     outcome,
     sourceKind: "handoff",
     sourceId: `handoff-${id}`,
+    detail: "Work completed",
   });
 
 describe("workflow step history", () => {

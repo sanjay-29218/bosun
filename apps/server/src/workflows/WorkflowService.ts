@@ -1,4 +1,5 @@
 import {
+  WorkflowHandoffOutcome,
   WorkflowStepEvent,
   type ProjectId,
   type WorkflowDefinition,
@@ -74,6 +75,7 @@ export class WorkflowService extends Context.Service<WorkflowService, WorkflowSe
 
 const validId = (value: string) => value.trim().length > 0 && value.length <= 128;
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(WorkflowStepEvent));
+const decodeHandoffOutcome = Schema.decodeSync(Schema.fromJsonString(WorkflowHandoffOutcome));
 
 export const WorkflowServiceLive = Layer.effect(
   WorkflowService,
@@ -283,6 +285,7 @@ export const WorkflowServiceLive = Layer.effect(
             }
             return yield* projectState(copy.definition, events);
           }
+          const current = yield* projectState(copy.definition, events);
           const next = yield* projectState(copy.definition, [...events, event]);
           const step = Object.hasOwn(copy.definition.steps, event.stepId)
             ? copy.definition.steps[event.stepId]
@@ -309,9 +312,7 @@ export const WorkflowServiceLive = Layer.effect(
             }
           }
           if (event.kind === "completed" && step?.type === "task") {
-            const runId = (yield* projectState(copy.definition, events)).steps.get(
-              event.stepId,
-            )?.botRunId;
+            const runId = current.steps.get(event.stepId)?.botRunId;
             const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
             const run = runId ? yield* bots.getRun(runId) : null;
             if (
@@ -326,6 +327,73 @@ export const WorkflowServiceLive = Layer.effect(
               return yield* Effect.fail(
                 new WorkflowTransitionError("Step completion needs its completed bot handoff"),
               );
+            }
+            const recorded = yield* Effect.try({
+              try: () => decodeHandoffOutcome(handoff.responseText!),
+              catch: () =>
+                new WorkflowTransitionError("Handoff result must contain an outcome and summary"),
+            });
+            if (
+              recorded.outcome !== event.outcome ||
+              recorded.summary.trim() !== event.detail?.trim()
+            ) {
+              return yield* Effect.fail(
+                new WorkflowTransitionError("Recorded outcome does not match the bot handoff"),
+              );
+            }
+          }
+          if (
+            (event.kind === "question" || event.kind === "answered" || event.kind === "failed") &&
+            event.sourceKind === "handoff"
+          ) {
+            const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
+            const runId = current.steps.get(event.stepId)?.botRunId;
+            const run = runId ? yield* bots.getRun(runId) : null;
+            if (
+              !handoff ||
+              !run ||
+              handoff.projectId !== copy.projectId ||
+              handoff.targetRunId !== runId ||
+              handoff.targetBotId !== run.botId ||
+              (event.kind === "question" &&
+                (handoff.status !== "needs-input" ||
+                  handoff.questionText?.trim() !== event.detail?.trim())) ||
+              (event.kind === "answered" &&
+                (handoff.status !== "running" ||
+                  handoff.responseText?.trim() !== event.detail?.trim())) ||
+              (event.kind === "failed" &&
+                (handoff.status !== "failed" ||
+                  (handoff.lastError?.trim() !== event.detail?.trim() &&
+                    handoff.responseText?.trim() !== event.detail?.trim())))
+            ) {
+              return yield* Effect.fail(
+                new WorkflowTransitionError("Step event does not match its bot handoff"),
+              );
+            }
+            if ((event.kind === "question" || event.kind === "answered") && step?.type === "task") {
+              const supervisorId = copy.definition.bots[step.bot]?.supervisor;
+              const supervisorSource =
+                supervisorId === null || supervisorId === undefined
+                  ? null
+                  : copy.definition.bots[supervisorId]?.template;
+              if (supervisorSource) {
+                const sourceRun = yield* bots.getRun(handoff.sourceRunId);
+                const sourceBot = sourceRun ? yield* bots.getDefinition(sourceRun.botId) : null;
+                if (
+                  !sourceRun ||
+                  !sourceBot ||
+                  sourceRun.projectId !== copy.projectId ||
+                  (supervisorSource.kind === "template"
+                    ? sourceBot.featureId !== featureId ||
+                      sourceBot.templateId !== supervisorSource.id ||
+                      sourceBot.templateRevision !== supervisorSource.revision
+                    : sourceBot.id !== supervisorSource.id || sourceBot.featureId !== null)
+                ) {
+                  return yield* Effect.fail(
+                    new WorkflowTransitionError("Question did not reach the assigned supervisor"),
+                  );
+                }
+              }
             }
           }
           const result = yield* store.appendEvent(featureId, copy.eventVersion, event);

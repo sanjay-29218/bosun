@@ -39,7 +39,11 @@ const definition: WorkflowDefinition = {
   revision: 1,
   start: "plan",
   bots: {
-    planner: { template: { kind: "template", id: templateId, revision: 1 }, supervisor: null },
+    manager: {
+      template: { kind: "existing-project-bot", id: `bot-manager:${projectId}` },
+      supervisor: null,
+    },
+    planner: { template: { kind: "template", id: templateId, revision: 1 }, supervisor: "manager" },
   },
   steps: {
     plan: { type: "task", bot: "planner", task: "Plan", next: { ready: "end" } },
@@ -127,9 +131,10 @@ describe("Workflow service", () => {
             .validateDefinition(projectId, {
               ...definition,
               bots: {
+                ...definition.bots,
                 planner: {
                   template: { kind: "template", id: templateId, revision: 99 },
-                  supervisor: null,
+                  supervisor: "manager",
                 },
               },
             })
@@ -195,32 +200,6 @@ describe("Workflow service", () => {
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
         ).toBe("running");
-        yield* workflow.recordTrustedEvent(
-          "feature-one",
-          stepEvent("question-plan", "question", {
-            executionId: "execution-1",
-            detail: "Which API?",
-          }),
-        );
-        expect((yield* workflow.getFeatureState("feature-one"))?.steps.get("plan")?.status).toBe(
-          "needs-input",
-        );
-        yield* workflow.recordTrustedEvent(
-          "feature-one",
-          stepEvent("answer-plan", "answered", {
-            executionId: "execution-1",
-            detail: "Use the current API",
-          }),
-        );
-        const completion = stepEvent("complete-plan", "completed", {
-          executionId: "execution-1",
-          outcome: "ready",
-          sourceKind: "handoff",
-          sourceId: "handoff-1",
-        });
-        expect(
-          (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
-        ).toBe("Failure");
         yield* handoffs.insert({
           id: "handoff-1",
           parentId: null,
@@ -231,9 +210,9 @@ describe("Workflow service", () => {
           taskText: "Plan feature one",
           contextText: "",
           depth: 1,
-          status: "running",
+          status: "needs-input",
           responseText: null,
-          questionText: null,
+          questionText: "Which API?",
           lastError: null,
           notificationState: "none",
           noticeVersion: 0,
@@ -241,6 +220,44 @@ describe("Workflow service", () => {
           createdAt: "2026-09-29T00:00:00.000Z",
           updatedAt: "2026-09-29T00:00:00.000Z",
         });
+        yield* workflow.recordTrustedEvent(
+          "feature-one",
+          stepEvent("question-plan", "question", {
+            executionId: "execution-1",
+            detail: "Which API?",
+            sourceKind: "handoff",
+            sourceId: "handoff-1",
+          }),
+        );
+        expect((yield* workflow.getFeatureState("feature-one"))?.steps.get("plan")?.status).toBe(
+          "needs-input",
+        );
+        yield* handoffs.transition(
+          "handoff-1",
+          ["needs-input"],
+          "running",
+          "2026-09-29T00:00:00.500Z",
+          { responseText: "Use the current API" },
+        );
+        yield* workflow.recordTrustedEvent(
+          "feature-one",
+          stepEvent("answer-plan", "answered", {
+            executionId: "execution-1",
+            detail: "Use the current API",
+            sourceKind: "handoff",
+            sourceId: "handoff-1",
+          }),
+        );
+        const completion = stepEvent("complete-plan", "completed", {
+          executionId: "execution-1",
+          outcome: "ready",
+          detail: "Plan ready",
+          sourceKind: "handoff",
+          sourceId: "handoff-1",
+        });
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
+        ).toBe("Failure");
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
         ).toBe("Failure");
@@ -265,8 +282,17 @@ describe("Workflow service", () => {
           ["running"],
           "completed",
           "2026-09-29T00:00:01.000Z",
-          { responseText: "Plan ready" },
+          { responseText: '{"outcome":"ready","summary":"Plan ready"}' },
         );
+        expect(
+          (yield* workflow
+            .recordTrustedEvent("feature-one", {
+              ...completion,
+              id: "mismatched-summary",
+              detail: "Another result",
+            })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
         yield* workflow.recordTrustedEvent("feature-one", completion);
         expect((yield* workflow.getFeatureState("feature-one"))?.completed).toBe(true);
         const snapshot = yield* workflow.getFeatureSnapshot("feature-one", projectId);

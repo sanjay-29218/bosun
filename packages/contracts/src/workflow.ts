@@ -61,6 +61,13 @@ export const WorkflowStepEvent = Schema.Struct({
 });
 export type WorkflowStepEvent = typeof WorkflowStepEvent.Type;
 
+/** Exact result shape accepted from a completed workflow bot handoff. */
+export const WorkflowHandoffOutcome = Schema.Struct({
+  outcome: Schema.String,
+  summary: Schema.String,
+});
+export type WorkflowHandoffOutcome = typeof WorkflowHandoffOutcome.Type;
+
 export const WorkflowStepSnapshot = Schema.Struct({
   id: Schema.String,
   status: Schema.Literals([

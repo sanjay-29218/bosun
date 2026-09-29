@@ -87,6 +87,9 @@ export const projectWorkflowState = (
     const noSource = () => {
       if (event.sourceKind !== null || event.sourceId !== null) invalid();
     };
+    const handoffSource = () => {
+      if (event.sourceKind !== "handoff" || !nonEmpty(event.sourceId, 128)) invalid();
+    };
     const sameExecution = () => {
       if (event.executionId !== previous.executionId || !nonEmpty(event.executionId, 128))
         invalid();
@@ -134,7 +137,8 @@ export const projectWorkflowState = (
           previous.status !== "running" ||
           event.sourceKind !== "handoff" ||
           !nonEmpty(event.sourceId, 128) ||
-          !nonEmpty(event.outcome, 80)
+          !nonEmpty(event.outcome, 80) ||
+          !nonEmpty(event.detail, 16_000)
         )
           invalid();
         let target: string;
@@ -171,21 +175,25 @@ export const projectWorkflowState = (
         continue;
       }
       case "question": {
-        noSource();
+        handoffSource();
         sameExecution();
         if (previous.status !== "running" || !nonEmpty(event.detail, 16_000)) invalid();
         current = { ...previous, status: "needs-input" };
         break;
       }
       case "answered": {
-        noSource();
+        handoffSource();
         sameExecution();
         if (previous.status !== "needs-input" || !nonEmpty(event.detail, 16_000)) invalid();
         current = { ...previous, status: "running" };
         break;
       }
       case "failed": {
-        noSource();
+        if (
+          (event.sourceKind !== "handoff" && event.sourceKind !== "workflow") ||
+          !nonEmpty(event.sourceId, 128)
+        )
+          invalid();
         sameExecution();
         if (
           (previous.status !== "running" && previous.status !== "needs-input") ||
