@@ -5,23 +5,19 @@ import { validateWorkflowDefinition } from "./WorkflowGraph.ts";
 import { makeStarterWorkflow } from "./starterWorkflow.ts";
 
 describe("starter workflow", () => {
-  it("uses a configurable five-bot sequence with a reviewer decision", () => {
+  it("has independently editable assignments, supervisors, and routes", () => {
     const projectId = ProjectId.make("project-one");
-    const definition = makeStarterWorkflow(projectId);
-    expect(validateWorkflowDefinition(definition).map((step) => step.id)).toEqual([
-      "plan",
-      "design",
-      "build",
-      "qa",
-      "review",
-      "end",
-    ]);
-    expect(definition.steps.find((step) => step.id === "review")).toEqual({
-      id: "review",
-      kind: "decision",
-      approver: { kind: "bot", templateId: `template:reviewer:${projectId}` },
-      dependsOn: ["qa"],
+    const definition = makeStarterWorkflow(projectId, { builder: 4 });
+    expect(() => validateWorkflowDefinition(definition)).not.toThrow();
+    expect(definition.bots.builder).toEqual({
+      template: { kind: "template", id: `template:builder:${projectId}`, revision: 4 },
+      supervisor: "manager",
     });
-    expect(definition.steps.some((step) => step.id === "manager")).toBe(false);
+    expect(definition.steps.qa).toMatchObject({
+      next: { passed: "review", changes_requested: "build" },
+    });
+    expect(definition.steps.review).toMatchObject({
+      next: { approved: "end", changes_requested: "build" },
+    });
   });
 });

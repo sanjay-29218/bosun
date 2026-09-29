@@ -82,23 +82,27 @@ export const WorkflowServiceLive = Layer.effect(
         if (!(yield* runtime.projectExists(projectId))) {
           return yield* Effect.fail(new WorkflowValidationError("Project does not exist"));
         }
-        const templateIds = new Set<string>();
-        for (const step of definition.steps) {
-          if (step.kind === "bot") templateIds.add(step.templateId);
-          if (step.kind === "decision" && step.approver.kind === "bot") {
-            templateIds.add(step.approver.templateId);
-          }
-        }
-        for (const templateId of templateIds) {
-          const template = yield* bots.getTemplate(templateId);
-          if (
-            !template?.enabled ||
-            !template.autoCreateForFeature ||
-            (template.projectId !== null && template.projectId !== projectId)
-          ) {
-            return yield* Effect.fail(
-              new WorkflowValidationError(`Feature bot template is unavailable: ${templateId}`),
-            );
+        for (const assignment of Object.values(definition.bots)) {
+          const source = assignment.template;
+          if (source.kind === "template") {
+            const template = yield* bots.getTemplate(source.id);
+            if (
+              !template?.enabled ||
+              !template.autoCreateForFeature ||
+              template.revision !== source.revision ||
+              (template.projectId !== null && template.projectId !== projectId)
+            ) {
+              return yield* Effect.fail(
+                new WorkflowValidationError(`Feature bot template is unavailable: ${source.id}`),
+              );
+            }
+          } else {
+            const bot = yield* bots.getDefinition(source.id);
+            if (!bot?.enabled || bot.projectId !== projectId || bot.featureId !== null) {
+              return yield* Effect.fail(
+                new WorkflowValidationError(`Project bot is unavailable: ${source.id}`),
+              );
+            }
           }
         }
       });
@@ -120,7 +124,12 @@ export const WorkflowServiceLive = Layer.effect(
         Effect.gen(function* () {
           const existing = yield* store.getLatestDefinition(projectId, STARTER_WORKFLOW_ID);
           if (existing !== null) return existing;
-          const starter = makeStarterWorkflow(projectId);
+          const revisions: Record<string, number> = {};
+          for (const role of ["planner", "designer", "builder", "qa-tester", "reviewer"]) {
+            const template = yield* bots.getTemplate(`template:${role}:${projectId}`);
+            if (template) revisions[role] = template.revision;
+          }
+          const starter = makeStarterWorkflow(projectId, revisions);
           yield* checkDefinition(projectId, starter);
           const created = yield* store.createDefinition(
             projectId,
@@ -234,38 +243,33 @@ export const WorkflowServiceLive = Layer.effect(
             return yield* projectState(copy.definition, events);
           }
           const next = yield* projectState(copy.definition, [...events, event]);
-          const step = copy.definition.steps.find((item) => item.id === event.stepId);
-          if (
-            event.kind === "started" &&
-            step &&
-            (step.kind === "bot" || (step.kind === "decision" && step.approver.kind === "bot"))
-          ) {
+          const step = Object.hasOwn(copy.definition.steps, event.stepId)
+            ? copy.definition.steps[event.stepId]
+            : undefined;
+          if (event.kind === "started" && step?.type === "task") {
             const run = event.botRunId ? yield* bots.getRun(event.botRunId) : null;
             const bot = run ? yield* bots.getDefinition(run.botId) : null;
-            const templateId =
-              step.kind === "bot"
-                ? step.templateId
-                : step.approver.kind === "bot"
-                  ? step.approver.templateId
-                  : null;
+            const source = copy.definition.bots[step.bot]?.template;
             if (
               !run ||
               !bot ||
+              !source ||
               run.projectId !== copy.projectId ||
               bot.projectId !== copy.projectId ||
-              bot.featureId !== featureId ||
-              bot.templateId !== templateId
+              (source.kind === "template"
+                ? bot.featureId !== featureId ||
+                  bot.templateId !== source.id ||
+                  bot.templateRevision !== source.revision
+                : bot.id !== source.id || bot.featureId !== null)
             ) {
               return yield* Effect.fail(
-                new WorkflowTransitionError(
-                  "Step run does not belong to this feature and template",
-                ),
+                new WorkflowTransitionError("Step run does not belong to its assigned bot"),
               );
             }
           }
-          if (event.kind === "completed" && step?.kind === "bot") {
+          if (event.kind === "completed" && step?.type === "task") {
             const runId = (yield* projectState(copy.definition, events)).steps.get(
-              step.id,
+              event.stepId,
             )?.botRunId;
             const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
             const run = runId ? yield* bots.getRun(runId) : null;

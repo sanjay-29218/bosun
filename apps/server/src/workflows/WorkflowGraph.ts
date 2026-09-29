@@ -1,132 +1,122 @@
-import type { WorkflowDefinition, WorkflowStep } from "@t3tools/contracts";
+import type { WorkflowDefinition } from "@t3tools/contracts";
 
 export class WorkflowValidationError extends Error {
   readonly _tag = "WorkflowValidationError";
 }
 
+const validId = (value: string) => /^[a-z][a-z0-9_-]{0,79}$/.test(value);
 const validName = (value: string, limit: number) =>
   value.trim().length > 0 && value.length <= limit;
 
-/** Validates a saved definition and returns a stable dependency order. */
-export const validateWorkflowDefinition = (
-  definition: WorkflowDefinition,
-): ReadonlyArray<WorkflowStep> => {
+/** Validates published bot assignments and the single-path outcome graph. */
+export const validateWorkflowDefinition = (definition: WorkflowDefinition): void => {
   if (!validName(definition.id, 128) || !validName(definition.name, 200)) {
     throw new WorkflowValidationError("Workflow ID and name are required and must be bounded");
   }
-  if (!Number.isSafeInteger(definition.revision) || definition.revision < 1) {
-    throw new WorkflowValidationError("Workflow revision must be a positive integer");
+  if (
+    definition.schemaVersion !== 1 ||
+    !Number.isSafeInteger(definition.revision) ||
+    definition.revision < 1
+  ) {
+    throw new WorkflowValidationError("Invalid workflow version");
   }
-  if (definition.steps.length < 1 || definition.steps.length > 64) {
-    throw new WorkflowValidationError("Workflow must contain 1-64 steps");
+  const botIds = Object.keys(definition.bots);
+  const stepIds = Object.keys(definition.steps);
+  if (botIds.length < 1 || botIds.length > 32 || stepIds.length < 2 || stepIds.length > 64) {
+    throw new WorkflowValidationError("Workflow needs 1-32 bots and 2-64 steps");
   }
-
-  const byId = new Map<string, WorkflowStep>();
-  for (const step of definition.steps) {
-    if (!/^[a-z][a-z0-9_-]{0,79}$/.test(step.id)) {
-      throw new WorkflowValidationError(`Invalid step ID: ${step.id}`);
-    }
-    if (byId.has(step.id)) {
-      throw new WorkflowValidationError(`Duplicate step ID: ${step.id}`);
-    }
-    if (step.kind === "bot" && !validName(step.templateId, 128)) {
-      throw new WorkflowValidationError(`Bot step ${step.id} needs a template`);
+  if (
+    !Number.isSafeInteger(definition.defaults.maxAttemptsPerExecution) ||
+    definition.defaults.maxAttemptsPerExecution < 1 ||
+    definition.defaults.maxAttemptsPerExecution > 10 ||
+    !Number.isSafeInteger(definition.defaults.maxStepExecutions) ||
+    definition.defaults.maxStepExecutions < 1 ||
+    definition.defaults.maxStepExecutions > 500
+  ) {
+    throw new WorkflowValidationError("Invalid workflow execution limits");
+  }
+  for (const [id, bot] of Object.entries(definition.bots)) {
+    if (!validId(id) || !validName(bot.template.id, 128)) {
+      throw new WorkflowValidationError(`Invalid workflow bot: ${id}`);
     }
     if (
-      step.kind === "decision" &&
-      step.approver.kind === "bot" &&
-      !validName(step.approver.templateId, 128)
+      bot.template.kind === "template" &&
+      (!Number.isSafeInteger(bot.template.revision) || bot.template.revision < 1)
     ) {
-      throw new WorkflowValidationError(`Decision step ${step.id} needs an approver template`);
+      throw new WorkflowValidationError(`Invalid template revision for ${id}`);
     }
-    byId.set(step.id, step);
-  }
-
-  const ends = definition.steps.filter((step) => step.kind === "end");
-  if (ends.length !== 1) {
-    throw new WorkflowValidationError("Workflow needs exactly one end step");
-  }
-  const end = ends[0]!;
-  const dependents = new Map<string, string[]>();
-  const remaining = new Map<string, number>();
-  for (const step of definition.steps) {
-    if (new Set(step.dependsOn).size !== step.dependsOn.length) {
-      throw new WorkflowValidationError(`Duplicate dependency in step ${step.id}`);
+    if (bot.supervisor !== null && !Object.hasOwn(definition.bots, bot.supervisor)) {
+      throw new WorkflowValidationError(`Unknown supervisor for ${id}`);
     }
-    remaining.set(step.id, step.dependsOn.length);
-    for (const dependency of step.dependsOn) {
-      if (!byId.has(dependency)) {
-        throw new WorkflowValidationError(`Unknown dependency ${dependency} in step ${step.id}`);
-      }
-      if (dependency === step.id) {
-        throw new WorkflowValidationError(`Step ${step.id} depends on itself`);
-      }
-      if (dependency === end.id) {
-        throw new WorkflowValidationError("Nothing can depend on the end step");
-      }
-      const children = dependents.get(dependency) ?? [];
-      children.push(step.id);
-      dependents.set(dependency, children);
+    const visited = new Set<string>([id]);
+    let supervisor = bot.supervisor;
+    while (supervisor !== null) {
+      if (visited.has(supervisor)) throw new WorkflowValidationError("Supervisor cycle");
+      visited.add(supervisor);
+      supervisor = definition.bots[supervisor]?.supervisor ?? null;
     }
   }
-
-  const ready = [...remaining]
-    .filter(([, count]) => count === 0)
-    .map(([id]) => id)
-    .sort();
-  const ordered: WorkflowStep[] = [];
-  while (ready.length > 0) {
-    const id = ready.shift()!;
-    ordered.push(byId.get(id)!);
-    for (const child of dependents.get(id) ?? []) {
-      const count = remaining.get(child)! - 1;
-      remaining.set(child, count);
-      if (count === 0) {
-        ready.push(child);
-        ready.sort();
+  if (!validId(definition.start) || definition.steps[definition.start]?.type !== "task") {
+    throw new WorkflowValidationError("Workflow start must be a task");
+  }
+  const ends = stepIds.filter((id) => definition.steps[id]?.type === "end");
+  if (ends.length !== 1) throw new WorkflowValidationError("Workflow needs exactly one end step");
+  const endId = ends[0]!;
+  for (const [id, step] of Object.entries(definition.steps)) {
+    if (!validId(id)) throw new WorkflowValidationError(`Invalid step ID: ${id}`);
+    if (step.type === "end") continue;
+    if (!Object.hasOwn(definition.bots, step.bot) || !validName(step.task, 8_000)) {
+      throw new WorkflowValidationError(`Invalid task or bot in step ${id}`);
+    }
+    const routes = Object.entries(step.next);
+    if (routes.length < 1 || routes.length > 8) {
+      throw new WorkflowValidationError(`Step ${id} needs 1-8 outcome routes`);
+    }
+    for (const [outcome, target] of routes) {
+      if (!validId(outcome) || !Object.hasOwn(definition.steps, target)) {
+        throw new WorkflowValidationError(`Invalid outcome route from ${id}`);
       }
     }
   }
-  if (ordered.length !== definition.steps.length) {
-    throw new WorkflowValidationError("Workflow contains a dependency cycle");
-  }
-
-  // Every step must contribute to the single explicit end, including parallel branches.
-  const ancestors = new Set<string>();
+  const reachable = new Set<string>();
   const visit = (id: string) => {
-    if (ancestors.has(id)) return;
-    ancestors.add(id);
-    for (const dependency of byId.get(id)!.dependsOn) visit(dependency);
+    if (reachable.has(id)) return;
+    reachable.add(id);
+    const step = definition.steps[id]!;
+    if (step.type === "task") Object.values(step.next).forEach(visit);
   };
-  visit(end.id);
-  if (ancestors.size !== definition.steps.length) {
-    throw new WorkflowValidationError("Every step must lead to the end step");
+  visit(definition.start);
+  if (reachable.size !== stepIds.length) {
+    throw new WorkflowValidationError("Every step must be reachable from start");
   }
-  return ordered;
+  const leadsToEnd = new Set<string>([endId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [id, step] of Object.entries(definition.steps)) {
+      if (
+        step.type === "task" &&
+        !leadsToEnd.has(id) &&
+        Object.values(step.next).some((target) => leadsToEnd.has(target))
+      ) {
+        leadsToEnd.add(id);
+        changed = true;
+      }
+    }
+  }
+  if (leadsToEnd.size !== stepIds.length) {
+    throw new WorkflowValidationError("Every step needs a path to the end");
+  }
 };
 
-export const readyWorkflowSteps = (
+export const nextWorkflowStep = (
   definition: WorkflowDefinition,
-  completedStepIds: ReadonlySet<string>,
-): ReadonlyArray<WorkflowStep> => {
-  const ordered = validateWorkflowDefinition(definition);
-  const knownIds = new Set(ordered.map((step) => step.id));
-  for (const id of completedStepIds) {
-    if (!knownIds.has(id)) {
-      throw new WorkflowValidationError(`Unknown completed step: ${id}`);
-    }
+  stepId: string,
+  outcome: string,
+) => {
+  const step = definition.steps[stepId];
+  if (step?.type !== "task" || !Object.hasOwn(step.next, outcome)) {
+    throw new WorkflowValidationError("Outcome has no transition");
   }
-  for (const step of ordered) {
-    if (
-      completedStepIds.has(step.id) &&
-      step.dependsOn.some((dependency) => !completedStepIds.has(dependency))
-    ) {
-      throw new WorkflowValidationError(`Completed step ${step.id} has incomplete dependencies`);
-    }
-  }
-  return ordered.filter(
-    (step) =>
-      !completedStepIds.has(step.id) &&
-      step.dependsOn.every((dependency) => completedStepIds.has(dependency)),
-  );
+  return step.next[outcome]!;
 };

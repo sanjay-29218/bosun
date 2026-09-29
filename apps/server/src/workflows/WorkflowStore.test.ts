@@ -11,19 +11,27 @@ import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
 
 const projectId = ProjectId.make("workflow-test-project");
 const first: WorkflowDefinition = {
+  schemaVersion: 1,
   id: "delivery",
   name: "Delivery",
   revision: 1,
-  steps: [
-    {
-      id: "build",
-      kind: "bot",
-      templateId: "custom-builder",
-      completion: "handoff",
-      dependsOn: [],
+  start: "build",
+  bots: {
+    builder: {
+      template: { kind: "template", id: "custom-builder", revision: 1 },
+      supervisor: null,
     },
-    { id: "end", kind: "end", dependsOn: ["build"] },
-  ],
+  },
+  steps: {
+    build: { type: "task", bot: "builder", task: "Build", next: { built: "end" } },
+    end: { type: "end" },
+  },
+  defaults: {
+    questions: "supervisor",
+    failure: "pause",
+    maxAttemptsPerExecution: 3,
+    maxStepExecutions: 30,
+  },
 };
 
 it.effect("keeps revisions and feature copies independent across later edits", () =>
@@ -68,7 +76,9 @@ it.effect("keeps revisions and feature copies independent across later edits", (
       id: "start-build",
       stepId: "build",
       kind: "started" as const,
+      executionId: "execution-1",
       botRunId: "run-build-1",
+      outcome: null,
       sourceKind: null,
       sourceId: null,
       actorId: "manager",

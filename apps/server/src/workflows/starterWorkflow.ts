@@ -1,32 +1,70 @@
-import type { ProjectId, WorkflowDefinition, WorkflowStep } from "@t3tools/contracts";
+import type { ProjectId, WorkflowDefinition } from "@t3tools/contracts";
 
 export const STARTER_WORKFLOW_ID = "feature-delivery";
 
-/** Example project definition; the engine treats its template IDs like any others. */
-export const makeStarterWorkflow = (projectId: ProjectId): WorkflowDefinition => {
-  const step = (id: string, template: string, dependsOn: ReadonlyArray<string>): WorkflowStep => ({
-    id,
-    kind: "bot",
-    templateId: `template:${template}:${projectId}`,
-    completion: "handoff",
-    dependsOn,
+/** A configurable starting point, with supervision separate from step order. */
+export const makeStarterWorkflow = (
+  projectId: ProjectId,
+  templateRevisions: Readonly<Record<string, number>> = {},
+): WorkflowDefinition => {
+  const template = (role: string) => ({
+    template: {
+      kind: "template" as const,
+      id: `template:${role}:${projectId}`,
+      revision: templateRevisions[role] ?? 1,
+    },
+    supervisor: "manager",
   });
   return {
+    schemaVersion: 1,
     id: STARTER_WORKFLOW_ID,
     name: "Feature delivery",
     revision: 1,
-    steps: [
-      step("plan", "planner", []),
-      step("design", "designer", ["plan"]),
-      step("build", "builder", ["design"]),
-      step("qa", "qa-tester", ["build"]),
-      {
-        id: "review",
-        kind: "decision",
-        approver: { kind: "bot", templateId: `template:reviewer:${projectId}` },
-        dependsOn: ["qa"],
+    start: "plan",
+    bots: {
+      manager: {
+        template: { kind: "existing-project-bot", id: `bot-manager:${projectId}` },
+        supervisor: null,
       },
-      { id: "end", kind: "end", dependsOn: ["review"] },
-    ],
+      planner: template("planner"),
+      designer: template("designer"),
+      builder: template("builder"),
+      qa: template("qa-tester"),
+      reviewer: template("reviewer"),
+    },
+    steps: {
+      plan: { type: "task", bot: "planner", task: "Plan the feature", next: { ready: "design" } },
+      design: {
+        type: "task",
+        bot: "designer",
+        task: "Design the feature",
+        next: { ready: "build" },
+      },
+      build: {
+        type: "task",
+        bot: "builder",
+        task: "Build the feature",
+        next: { built: "qa", design_change_requested: "design" },
+      },
+      qa: {
+        type: "task",
+        bot: "qa",
+        task: "Test the feature",
+        next: { passed: "review", changes_requested: "build" },
+      },
+      review: {
+        type: "task",
+        bot: "reviewer",
+        task: "Review the feature",
+        next: { approved: "end", changes_requested: "build" },
+      },
+      end: { type: "end" },
+    },
+    defaults: {
+      questions: "supervisor",
+      failure: "pause",
+      maxAttemptsPerExecution: 3,
+      maxStepExecutions: 30,
+    },
   };
 };

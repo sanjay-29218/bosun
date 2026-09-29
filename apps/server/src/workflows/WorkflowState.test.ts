@@ -4,127 +4,147 @@ import { describe, expect, it } from "vite-plus/test";
 import { projectWorkflowState } from "./WorkflowState.ts";
 
 const definition: WorkflowDefinition = {
+  schemaVersion: 1,
   id: "delivery",
   name: "Delivery",
   revision: 1,
-  steps: [
-    { id: "plan", kind: "bot", templateId: "planner", completion: "handoff", dependsOn: [] },
-    { id: "review", kind: "decision", approver: { kind: "person" }, dependsOn: ["plan"] },
-    { id: "end", kind: "end", dependsOn: ["review"] },
-  ],
+  start: "build",
+  bots: {
+    builder: { template: { kind: "template", id: "builder", revision: 1 }, supervisor: null },
+  },
+  steps: {
+    build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+    review: {
+      type: "task",
+      bot: "builder",
+      task: "Review",
+      next: { approved: "end", changes_requested: "build" },
+    },
+    end: { type: "end" },
+  },
+  defaults: {
+    questions: "supervisor",
+    failure: "pause",
+    maxAttemptsPerExecution: 2,
+    maxStepExecutions: 4,
+  },
 };
-
 const event = (
   id: string,
   stepId: string,
   kind: WorkflowStepEvent["kind"],
-  overrides: Partial<WorkflowStepEvent> = {},
+  fields: Partial<WorkflowStepEvent> = {},
 ): WorkflowStepEvent => ({
   id,
   stepId,
   kind,
+  executionId: null,
   botRunId: null,
+  outcome: null,
   sourceKind: null,
   sourceId: null,
   actorId: "manager",
   detail: null,
-  occurredAt: "2026-09-29T00:00:00.000Z",
-  ...overrides,
+  occurredAt: "2026-09-29T00:00:00Z",
+  ...fields,
 });
-
-const started = event("start-plan", "plan", "started", { botRunId: "run-1" });
-const completed = event("complete-plan", "plan", "completed", {
-  sourceKind: "handoff",
-  sourceId: "handoff-1",
-});
-
-describe("workflow step history", () => {
-  it("keeps questions and change requests blocked until their recorded answers", () => {
-    const history = [started, event("ask", "plan", "question", { detail: "Which API?" })];
-    expect(projectWorkflowState(definition, history).steps.get("plan")?.status).toBe("needs-input");
-    expect(() => projectWorkflowState(definition, [...history, completed])).toThrow(
-      /Invalid completed transition/,
-    );
-
-    history.push(event("answer", "plan", "answered", { detail: "Use the existing API" }));
-    history.push(event("change", "plan", "change-requested", { detail: "Revise the design" }));
-    expect(projectWorkflowState(definition, history).steps.get("plan")?.status).toBe(
-      "change-requested",
-    );
-    expect(projectWorkflowState(definition, history).readyStepIds).toEqual([]);
-    history.push(
-      event("resolve", "plan", "change-resolved", {
-        sourceKind: "decision",
-        sourceId: "manager-decision-1",
-        detail: "Designer updated the design; continue",
-      }),
-    );
-    history.push(completed);
-    expect(projectWorkflowState(definition, history).readyStepIds).toEqual(["review"]);
-
-    history.push(event("start-review", "review", "started"));
-    history.push(
-      event("approve", "review", "completed", {
-        sourceKind: "decision",
-        sourceId: "review-decision-1",
-      }),
-    );
-    expect(projectWorkflowState(definition, history).readyStepIds).toEqual(["end"]);
-    history.push(
-      event("finish", "end", "completed", {
-        sourceKind: "workflow",
-        sourceId: "feature-completion-1",
-      }),
-    );
-    expect(projectWorkflowState(definition, history).completed).toBe(true);
+const start = (id: string, stepId: string, executionId: string, botRunId: string) =>
+  event(id, stepId, "started", { executionId, botRunId });
+const complete = (id: string, stepId: string, executionId: string, outcome: string) =>
+  event(id, stepId, "completed", {
+    executionId,
+    outcome,
+    sourceKind: "handoff",
+    sourceId: `handoff-${id}`,
   });
 
-  it("preserves failed attempts and requires a new bot run after retry", () => {
-    const failed = event("failed", "plan", "failed", { detail: "Provider unavailable" });
-    const retry = event("retry", "plan", "retry");
-    const history = [started, failed, retry];
-    const pending = projectWorkflowState(definition, history);
-    expect(pending.steps.get("plan")).toMatchObject({ status: "pending", attempt: 1 });
-    expect(pending.readyStepIds).toEqual(["plan"]);
+describe("workflow step history", () => {
+  it("blocks questions, routes rework to a new execution, and finishes on approval", () => {
+    const history = [
+      start("start-build", "build", "execution-1", "run-1"),
+      event("ask", "build", "question", { executionId: "execution-1", detail: "Which API?" }),
+    ];
+    expect(projectWorkflowState(definition, history).steps.get("build")?.status).toBe(
+      "needs-input",
+    );
     expect(() =>
       projectWorkflowState(definition, [
         ...history,
-        event("start-again", "plan", "started", { botRunId: "run-1" }),
+        complete("premature", "build", "execution-1", "built"),
       ]),
-    ).toThrow(/Invalid started transition/);
-    const restarted = projectWorkflowState(definition, [
-      ...history,
-      event("start-again", "plan", "started", { botRunId: "run-2" }),
-    ]);
-    expect(restarted.steps.get("plan")).toMatchObject({
+    ).toThrow(/Invalid completed/);
+    history.push(
+      event("answer", "build", "answered", { executionId: "execution-1", detail: "Current API" }),
+    );
+    history.push(complete("built", "build", "execution-1", "built"));
+    history.push(start("start-review", "review", "execution-2", "run-2"));
+    history.push(complete("changes", "review", "execution-2", "changes_requested"));
+    expect(projectWorkflowState(definition, history).readyStepIds).toEqual(["build"]);
+    history.push(start("rebuild", "build", "execution-3", "run-3"));
+    expect(projectWorkflowState(definition, history).steps.get("build")).toMatchObject({
+      executionId: "execution-3",
+      attempt: 1,
       status: "running",
-      attempt: 2,
-      botRunId: "run-2",
     });
+    history.push(complete("rebuilt", "build", "execution-3", "built"));
+    history.push(start("review-again", "review", "execution-4", "run-4"));
+    history.push(complete("approved", "review", "execution-4", "approved"));
+    expect(projectWorkflowState(definition, history)).toMatchObject({
+      completed: true,
+      executionCount: 4,
+    });
+    expect(projectWorkflowState(definition, history).steps.get("end")?.status).toBe("completed");
   });
 
-  it("rejects premature completion, unsupported outcomes, and work after cancellation", () => {
-    expect(() => projectWorkflowState(definition, [completed])).toThrow(
-      /Invalid completed transition/,
+  it("retries within the execution with a fresh run and respects limits", () => {
+    const history = [
+      start("start", "build", "execution-1", "run-1"),
+      event("failed", "build", "failed", {
+        executionId: "execution-1",
+        detail: "Provider unavailable",
+      }),
+      event("retry", "build", "retry", { executionId: "execution-1" }),
+    ];
+    expect(projectWorkflowState(definition, history).readyStepIds).toEqual(["build"]);
+    expect(() =>
+      projectWorkflowState(definition, [
+        ...history,
+        start("reused", "build", "execution-1", "run-1"),
+      ]),
+    ).toThrow(/Invalid started/);
+    history.push(start("restart", "build", "execution-1", "run-2"));
+    expect(projectWorkflowState(definition, history).steps.get("build")).toMatchObject({
+      attempt: 2,
+      executionId: "execution-1",
+    });
+    history.push(
+      event("failed-again", "build", "failed", {
+        executionId: "execution-1",
+        detail: "Still unavailable",
+      }),
     );
     expect(() =>
-      projectWorkflowState(definition, [event("review-first", "review", "started")]),
-    ).toThrow(/Invalid started transition/);
+      projectWorkflowState(definition, [
+        ...history,
+        event("retry-again", "build", "retry", { executionId: "execution-1" }),
+      ]),
+    ).toThrow(/Invalid retry/);
+  });
+
+  it("rejects unsupported outcomes and makes cancellation terminal", () => {
     expect(() =>
       projectWorkflowState(definition, [
-        started,
-        event("wrong-source", "plan", "completed", {
-          sourceKind: "decision",
-          sourceId: "some-decision",
-        }),
+        start("start", "build", "execution-1", "run-1"),
+        complete("wrong", "build", "execution-1", "turn_ended"),
       ]),
-    ).toThrow(/Invalid completed transition/);
+    ).toThrow(/Invalid completed/);
+    const cancelled = [event("cancel", "build", "cancelled")];
+    expect(projectWorkflowState(definition, cancelled).cancelled).toBe(true);
     expect(() =>
       projectWorkflowState(definition, [
-        started,
-        event("cancel", "plan", "cancelled"),
-        event("retry", "plan", "retry"),
+        ...cancelled,
+        start("late", "build", "execution-1", "run-1"),
       ]),
-    ).toThrow(/Invalid retry transition/);
+    ).toThrow(/Invalid started/);
   });
 });

@@ -1,135 +1,87 @@
-import { WorkflowDefinition, type WorkflowStep } from "@t3tools/contracts";
+import { WorkflowDefinition } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { readyWorkflowSteps, validateWorkflowDefinition } from "./WorkflowGraph.ts";
+import { nextWorkflowStep, validateWorkflowDefinition } from "./WorkflowGraph.ts";
 
-const steps: ReadonlyArray<WorkflowStep> = [
-  { id: "plan", kind: "bot", templateId: "custom-planner", completion: "handoff", dependsOn: [] },
-  { id: "design", kind: "bot", templateId: "design", completion: "handoff", dependsOn: [] },
-  {
-    id: "build",
-    kind: "bot",
-    templateId: "builder",
-    completion: "handoff",
-    dependsOn: ["plan", "design"],
-  },
-  {
-    id: "review",
-    kind: "decision",
-    approver: { kind: "bot", templateId: "independent-reviewer" },
-    dependsOn: ["build"],
-  },
-  { id: "end", kind: "end", dependsOn: ["review"] },
-];
-
-const definition = (items: ReadonlyArray<WorkflowStep> = steps) => ({
-  id: "feature-delivery",
-  name: "Feature delivery",
+const definition: WorkflowDefinition = {
+  schemaVersion: 1,
+  id: "delivery",
+  name: "Delivery",
   revision: 1,
-  steps: items,
-});
+  start: "build",
+  bots: {
+    manager: { template: { kind: "existing-project-bot", id: "bot-manager" }, supervisor: null },
+    builder: {
+      template: { kind: "template", id: "template-builder", revision: 1 },
+      supervisor: "manager",
+    },
+    reviewer: {
+      template: { kind: "template", id: "template-reviewer", revision: 1 },
+      supervisor: "manager",
+    },
+  },
+  steps: {
+    build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+    review: {
+      type: "task",
+      bot: "reviewer",
+      task: "Review",
+      next: { approved: "end", changes_requested: "build" },
+    },
+    end: { type: "end" },
+  },
+  defaults: {
+    questions: "supervisor",
+    failure: "pause",
+    maxAttemptsPerExecution: 3,
+    maxStepExecutions: 30,
+  },
+};
 
 describe("workflow graph", () => {
-  it("makes independent work ready together and advances through an explicit decision", () => {
-    expect(readyWorkflowSteps(definition(), new Set()).map((step) => step.id)).toEqual([
-      "design",
-      "plan",
-    ]);
-    expect(readyWorkflowSteps(definition(), new Set(["plan"])).map((step) => step.id)).toEqual([
-      "design",
-    ]);
-    expect(
-      readyWorkflowSteps(definition(), new Set(["plan", "design"])).map((step) => step.id),
-    ).toEqual(["build"]);
-    expect(
-      readyWorkflowSteps(definition(), new Set(["plan", "design", "build"])).map((step) => step.id),
-    ).toEqual(["review"]);
-    expect(
-      readyWorkflowSteps(definition(), new Set(["plan", "design", "build", "review"])).map(
-        (step) => step.id,
-      ),
-    ).toEqual(["end"]);
-    expect(
-      readyWorkflowSteps(definition(), new Set(["plan", "design", "build", "review", "end"])),
-    ).toEqual([]);
+  it("routes by explicit outcomes, including rework", () => {
+    expect(() => validateWorkflowDefinition(definition)).not.toThrow();
+    expect(nextWorkflowStep(definition, "review", "changes_requested")).toBe("build");
+    expect(nextWorkflowStep(definition, "review", "approved")).toBe("end");
+    expect(() => nextWorkflowStep(definition, "review", "turn_ended")).toThrow(/no transition/);
   });
 
-  it("produces the same dependency order regardless of the stored step order", () => {
-    const expected = validateWorkflowDefinition(definition()).map((step) => step.id);
-    expect(
-      validateWorkflowDefinition(definition(steps.toReversed())).map((step) => step.id),
-    ).toEqual(expected);
+  it("rejects invalid references and unfinishable cycles", () => {
+    expect(() =>
+      validateWorkflowDefinition({
+        ...definition,
+        bots: {
+          ...definition.bots,
+          builder: { ...definition.bots.builder!, supervisor: "missing" },
+        },
+      }),
+    ).toThrow(/Unknown supervisor/);
+    expect(() =>
+      validateWorkflowDefinition({
+        ...definition,
+        steps: {
+          ...definition.steps,
+          build: { type: "task", bot: "builder", task: "Build", next: { built: "missing" } },
+        },
+      }),
+    ).toThrow(/Invalid outcome route/);
+    expect(() =>
+      validateWorkflowDefinition({
+        ...definition,
+        steps: {
+          ...definition.steps,
+          build: { type: "task", bot: "builder", task: "Build", next: { built: "build" } },
+        },
+      }),
+    ).toThrow(/reachable/);
   });
 
-  it("rejects missing, duplicate, cyclic, and orphaned work", () => {
-    const changes: Array<[ReadonlyArray<WorkflowStep>, RegExp]> = [
-      [[...steps, steps[0]!], /Duplicate step ID/],
-      [
-        [...steps.slice(0, 4), { id: "end", kind: "end", dependsOn: ["absent"] }],
-        /Unknown dependency/,
-      ],
-      [
-        [
-          { id: "a", kind: "bot", templateId: "a", completion: "handoff", dependsOn: ["b"] },
-          { id: "b", kind: "bot", templateId: "b", completion: "handoff", dependsOn: ["a"] },
-          { id: "end", kind: "end", dependsOn: ["a"] },
-        ],
-        /dependency cycle/,
-      ],
-      [
-        [
-          ...steps,
-          { id: "orphan", kind: "bot", templateId: "x", completion: "handoff", dependsOn: [] },
-        ],
-        /lead to the end/,
-      ],
-      [[...steps, { id: "another_end", kind: "end", dependsOn: ["review"] }], /exactly one end/],
-    ];
-    for (const [items, error] of changes) {
-      expect(() => validateWorkflowDefinition(definition(items))).toThrow(error);
-    }
-  });
-
-  it("rejects invalid selectors and completion history", () => {
-    const badBot = steps.map((step) =>
-      step.id === "build" && step.kind === "bot" ? { ...step, templateId: " " } : step,
-    );
-    expect(() => validateWorkflowDefinition(definition(badBot))).toThrow(/needs a template/);
-    expect(() => readyWorkflowSteps(definition(), new Set(["unknown"]))).toThrow(
-      /Unknown completed step/,
-    );
-    expect(() => readyWorkflowSteps(definition(), new Set(["build"]))).toThrow(
-      /incomplete dependencies/,
-    );
-  });
-
-  it("rejects unsupported step kinds and bot completion modes at the contract boundary", () => {
+  it("rejects unsupported step kinds at the contract boundary", () => {
     const decode = Schema.decodeUnknownSync(WorkflowDefinition);
-    expect(() => decode(definition())).not.toThrow();
+    expect(() => decode(definition)).not.toThrow();
     expect(() =>
-      decode({
-        ...definition(),
-        steps: [
-          { id: "run", kind: "script", dependsOn: [] },
-          { id: "end", kind: "end", dependsOn: ["run"] },
-        ],
-      }),
-    ).toThrow();
-    expect(() =>
-      decode({
-        ...definition(),
-        steps: [
-          {
-            id: "run",
-            kind: "bot",
-            templateId: "builder",
-            completion: "turn-ended",
-            dependsOn: [],
-          },
-          { id: "end", kind: "end", dependsOn: ["run"] },
-        ],
-      }),
+      decode({ ...definition, steps: { build: { type: "script" }, end: { type: "end" } } }),
     ).toThrow();
   });
 });
