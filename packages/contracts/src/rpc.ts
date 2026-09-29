@@ -21,6 +21,13 @@ import {
   BotStartResult,
 } from "./bots.ts";
 import {
+  WorkflowCreateInput,
+  WorkflowDefinition,
+  WorkflowOperationError,
+  WorkflowProjectInput,
+  WorkflowReviseInput,
+} from "./workflow.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -293,6 +300,9 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  workflowsList: "workflows.list",
+  workflowsCreate: "workflows.create",
+  workflowsRevise: "workflows.revise",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -733,6 +743,22 @@ const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
 });
 
 const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
+const WorkflowRpcError = Schema.Union([WorkflowOperationError, EnvironmentAuthorizationError]);
+const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
+  payload: WorkflowProjectInput,
+  success: Schema.Array(WorkflowDefinition),
+  error: WorkflowRpcError,
+});
+const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
+  payload: WorkflowCreateInput,
+  success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
+  payload: WorkflowReviseInput,
+  success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
   payload: BotProjectSnapshotInput,
   success: BotProjectSnapshot,
@@ -1484,6 +1510,9 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsWorkflowsListRpc,
+  WsWorkflowsCreateRpc,
+  WsWorkflowsReviseRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,

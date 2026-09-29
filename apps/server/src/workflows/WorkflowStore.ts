@@ -62,6 +62,9 @@ export interface WorkflowStoreShape {
     projectId: ProjectId,
     id: string,
   ) => Effect.Effect<WorkflowDefinitionType | null, PersistenceSqlError>;
+  readonly listLatestDefinitions: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<WorkflowDefinitionType>, PersistenceSqlError>;
   readonly copyForFeature: (
     featureId: string,
     projectId: ProjectId,
@@ -196,6 +199,20 @@ export const WorkflowStoreLive = Layer.effect(
           .pipe(Effect.mapError(queryError)),
       getDefinition,
       getLatestDefinition,
+      listLatestDefinitions: (projectId) =>
+        sql<DefinitionRow>`
+          SELECT r.definition_json AS definitionJson
+          FROM workflow_definition_revisions AS r
+          JOIN workflow_definition_heads AS h
+            ON h.project_id = r.project_id AND h.id = r.id AND h.revision = r.revision
+          WHERE h.project_id = ${projectId}
+          ORDER BY h.id
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) =>
+            Effect.try({ try: () => rows.map(decodeDefinition), catch: decodeError }),
+          ),
+        ),
       copyForFeature: (featureId, projectId, workflowId, revision, createdAt) =>
         sql
           .withTransaction(

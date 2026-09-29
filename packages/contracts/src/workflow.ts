@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { ProjectId } from "./baseSchemas.ts";
 
 const WorkflowStepBase = {
   id: Schema.String,
@@ -54,3 +55,22 @@ export const WorkflowStepEvent = Schema.Struct({
   occurredAt: Schema.String,
 });
 export type WorkflowStepEvent = typeof WorkflowStepEvent.Type;
+
+export class WorkflowOperationError extends Schema.TaggedError<WorkflowOperationError>()(
+  "WorkflowOperationError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
+export const WorkflowProjectInput = Schema.Struct({ projectId: ProjectId });
+export const WorkflowCreateInput = Schema.Struct({
+  projectId: ProjectId,
+  definition: WorkflowDefinition,
+});
+export const WorkflowReviseInput = Schema.Struct({
+  ...WorkflowCreateInput.fields,
+  expectedRevision: Schema.Int,
+});

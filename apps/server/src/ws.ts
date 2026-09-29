@@ -21,6 +21,7 @@ import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
   BotOperationError,
+  WorkflowOperationError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -91,6 +92,7 @@ import { BotService } from "./bots/BotService.ts";
 import { BotStore } from "./bots/BotStore.ts";
 import { BotHandoffService } from "./bots/BotHandoffService.ts";
 import { BotHandoffStore } from "./bots/BotHandoffStore.ts";
+import { WorkflowService } from "./workflows/WorkflowService.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -510,6 +512,7 @@ const makeWsRpcLayer = (
     readonly botStore: BotStore["Service"];
     readonly botHandoffs: BotHandoffService["Service"];
     readonly botHandoffStore: BotHandoffStore["Service"];
+    readonly workflows: WorkflowService["Service"];
   },
 ) =>
   WsRpcGroup.toLayer(
@@ -672,7 +675,7 @@ const makeWsRpcLayer = (
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
-      const { bots, botStore, botHandoffs, botHandoffStore } = botServices;
+      const { bots, botStore, botHandoffs, botHandoffStore, workflows } = botServices;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1913,6 +1916,36 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.workflowsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsList,
+            workflows
+              .listLatestDefinitions(input.projectId)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsCreate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsCreate,
+            workflows
+              .createDefinition(input.projectId, input.definition)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsRevise]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsRevise,
+            workflows
+              .reviseDefinition(input.projectId, input.definition, input.expectedRevision)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
         [WS_METHODS.botsSnapshot]: (input) =>
           observeRpcEffect(
             WS_METHODS.botsSnapshot,
@@ -4053,6 +4086,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       botStore: yield* BotStore,
       botHandoffs: yield* BotHandoffService,
       botHandoffStore: yield* BotHandoffStore,
+      workflows: yield* WorkflowService,
     };
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(

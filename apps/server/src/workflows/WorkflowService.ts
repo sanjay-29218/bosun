@@ -38,6 +38,7 @@ export interface WorkflowServiceShape {
   ) => Effect.Effect<FeatureWorkflowCopy, WorkflowServiceError>;
   readonly getFeatureCopy: WorkflowStore["Service"]["getFeatureCopy"];
   readonly getLatestDefinition: WorkflowStore["Service"]["getLatestDefinition"];
+  readonly listLatestDefinitions: WorkflowStore["Service"]["listLatestDefinitions"];
   readonly getFeatureState: (
     featureId: string,
   ) => Effect.Effect<WorkflowState | null, WorkflowServiceError>;
@@ -206,6 +207,7 @@ export const WorkflowServiceLive = Layer.effect(
         }),
       getFeatureCopy: store.getFeatureCopy,
       getLatestDefinition: store.getLatestDefinition,
+      listLatestDefinitions: store.listLatestDefinitions,
       getFeatureState: (featureId) =>
         Effect.gen(function* () {
           const copy = yield* store.getFeatureCopy(featureId);
