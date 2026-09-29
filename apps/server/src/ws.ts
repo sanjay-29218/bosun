@@ -1926,6 +1926,26 @@ const makeWsRpcLayer = (
               ),
             { "rpc.aggregate": "workflows" },
           ),
+        [WS_METHODS.workflowsEnsureStarter]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsEnsureStarter,
+            workflows
+              .ensureStarterDefinition(input.projectId)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsValidate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsValidate,
+            workflows
+              .validateDefinition(input.projectId, input.definition)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
         [WS_METHODS.workflowsCreate]: (input) =>
           observeRpcEffect(
             WS_METHODS.workflowsCreate,
@@ -1941,6 +1961,16 @@ const makeWsRpcLayer = (
             WS_METHODS.workflowsRevise,
             workflows
               .reviseDefinition(input.projectId, input.definition, input.expectedRevision)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsGetFeature]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsGetFeature,
+            workflows
+              .getFeatureSnapshot(input.featureId, input.projectId)
               .pipe(
                 Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
               ),

@@ -23,6 +23,8 @@ import {
 import {
   WorkflowCreateInput,
   WorkflowDefinition,
+  WorkflowFeatureGetInput,
+  WorkflowFeatureSnapshot,
   WorkflowOperationError,
   WorkflowProjectInput,
   WorkflowReviseInput,
@@ -301,8 +303,11 @@ import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
   workflowsList: "workflows.list",
+  workflowsEnsureStarter: "workflows.ensureStarter",
+  workflowsValidate: "workflows.validate",
   workflowsCreate: "workflows.create",
   workflowsRevise: "workflows.revise",
+  workflowsGetFeature: "workflows.getFeature",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -749,6 +754,16 @@ const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
   success: Schema.Array(WorkflowDefinition),
   error: WorkflowRpcError,
 });
+const WsWorkflowsEnsureStarterRpc = Rpc.make(WS_METHODS.workflowsEnsureStarter, {
+  payload: WorkflowProjectInput,
+  success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsValidateRpc = Rpc.make(WS_METHODS.workflowsValidate, {
+  payload: WorkflowCreateInput,
+  success: Schema.Void,
+  error: WorkflowRpcError,
+});
 const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
   payload: WorkflowCreateInput,
   success: WorkflowDefinition,
@@ -757,6 +772,11 @@ const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
 const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
   payload: WorkflowReviseInput,
   success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsGetFeatureRpc = Rpc.make(WS_METHODS.workflowsGetFeature, {
+  payload: WorkflowFeatureGetInput,
+  success: Schema.NullOr(WorkflowFeatureSnapshot),
   error: WorkflowRpcError,
 });
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
@@ -1511,8 +1531,11 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 
 export const WsRpcGroup = RpcGroup.make(
   WsWorkflowsListRpc,
+  WsWorkflowsEnsureStarterRpc,
+  WsWorkflowsValidateRpc,
   WsWorkflowsCreateRpc,
   WsWorkflowsReviseRpc,
+  WsWorkflowsGetFeatureRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,

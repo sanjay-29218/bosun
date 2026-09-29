@@ -1,4 +1,9 @@
-import { WorkflowStepEvent, type ProjectId, type WorkflowDefinition } from "@t3tools/contracts";
+import {
+  WorkflowStepEvent,
+  type ProjectId,
+  type WorkflowDefinition,
+  type WorkflowFeatureSnapshot,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -19,6 +24,10 @@ import { WorkflowStore, type FeatureWorkflowCopy } from "./WorkflowStore.ts";
 import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
+  readonly validateDefinition: (
+    projectId: ProjectId,
+    definition: WorkflowDefinition,
+  ) => Effect.Effect<void, WorkflowServiceError>;
   readonly ensureStarterDefinition: (
     projectId: ProjectId,
   ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
@@ -42,6 +51,10 @@ export interface WorkflowServiceShape {
   readonly getFeatureState: (
     featureId: string,
   ) => Effect.Effect<WorkflowState | null, WorkflowServiceError>;
+  readonly getFeatureSnapshot: (
+    featureId: string,
+    projectId: ProjectId,
+  ) => Effect.Effect<WorkflowFeatureSnapshot | null, WorkflowServiceError>;
   /** Call only after authenticating the actor and verifying the source receipt. */
   readonly recordTrustedEvent: (
     featureId: string,
@@ -120,6 +133,7 @@ export const WorkflowServiceLive = Layer.effect(
       });
 
     return WorkflowService.of({
+      validateDefinition: checkDefinition,
       ensureStarterDefinition: (projectId) =>
         Effect.gen(function* () {
           const existing = yield* store.getLatestDefinition(projectId, STARTER_WORKFLOW_ID);
@@ -223,6 +237,33 @@ export const WorkflowServiceLive = Layer.effect(
           if (copy === null) return null;
           const events = yield* store.listEvents(featureId);
           return yield* projectState(copy.definition, events);
+        }),
+      getFeatureSnapshot: (featureId, projectId) =>
+        Effect.gen(function* () {
+          const copy = yield* store.getFeatureCopy(featureId);
+          if (copy === null) return null;
+          if (copy.projectId !== projectId) {
+            return yield* Effect.fail(
+              new WorkflowValidationError("Feature belongs to another project"),
+            );
+          }
+          const events = yield* store.listEvents(featureId);
+          const state = yield* projectState(copy.definition, events);
+          return {
+            featureId,
+            projectId,
+            definition: copy.definition,
+            eventVersion: copy.eventVersion,
+            createdAt: copy.createdAt,
+            steps: [...state.steps.values()],
+            activeStepId: state.activeStepId,
+            readyStepIds: [...state.readyStepIds],
+            executionCount: state.executionCount,
+            completed: state.completed,
+            cancelled: state.cancelled,
+            historyLength: events.length,
+            recentEvents: events.slice(-100),
+          } satisfies WorkflowFeatureSnapshot;
         }),
       recordTrustedEvent: (featureId, event) =>
         Effect.gen(function* () {

@@ -122,6 +122,20 @@ describe("Workflow service", () => {
         ]);
         expect(yield* workflow.ensureStarterDefinition(projectId)).toEqual(starter);
 
+        expect(
+          (yield* workflow
+            .validateDefinition(projectId, {
+              ...definition,
+              bots: {
+                planner: {
+                  template: { kind: "template", id: templateId, revision: 99 },
+                  supervisor: null,
+                },
+              },
+            })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+
         expect((yield* workflow.createDefinition(projectId, definition)).revision).toBe(1);
         const first = yield* workflow.copyForFeature("feature-one", projectId, definition.id);
         expect(first.definition.revision).toBe(1);
@@ -255,6 +269,24 @@ describe("Workflow service", () => {
         );
         yield* workflow.recordTrustedEvent("feature-one", completion);
         expect((yield* workflow.getFeatureState("feature-one"))?.completed).toBe(true);
+        const snapshot = yield* workflow.getFeatureSnapshot("feature-one", projectId);
+        expect(snapshot).toMatchObject({
+          featureId: "feature-one",
+          eventVersion: 4,
+          historyLength: 4,
+          completed: true,
+          activeStepId: null,
+        });
+        expect(snapshot?.recentEvents.map((item) => item.id)).toEqual([
+          "start-plan",
+          "question-plan",
+          "answer-plan",
+          "complete-plan",
+        ]);
+        expect(
+          (yield* workflow.getFeatureSnapshot("feature-one", otherProjectId).pipe(Effect.result))
+            ._tag,
+        ).toBe("Failure");
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
         ).toBe("completed");

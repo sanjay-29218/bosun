@@ -53,6 +53,14 @@ grant delegation separately for each source and target pair. A parent relationsh
 permit delegation. The feature-default option records which templates should be copied when
 feature crews become available; it does not start a workflow.
 
+## Workflows
+
+In a connected project's **Workflows** section, add the starter workflow or edit an existing
+definition. Assign bot templates and supervisors, then give each task named outcomes and a next
+task. Use **Validate** before saving. Saving creates a new revision; a feature with an existing
+workflow copy keeps the revision it started with. The current definition supports one active task
+path at a time, including routes back to earlier tasks for rework.
+
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current bot status or send an action.
 
