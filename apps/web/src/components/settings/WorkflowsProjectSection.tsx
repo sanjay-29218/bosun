@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
 import { botsEnvironment } from "../../state/bots";
-import { useEnvironmentQuery } from "../../state/query";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Button } from "../ui/button";
@@ -132,7 +132,7 @@ export function WorkflowsProjectSection({
     try {
       const result = await action();
       if (result._tag !== "Success") {
-        setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
+        setError(formatEnvironmentQueryError(result.cause as Cause.Cause<unknown>));
         return false;
       }
       return true;
@@ -156,7 +156,7 @@ export function WorkflowsProjectSection({
     try {
       const checked = await validate({ environmentId, input: { projectId, definition: draft } });
       if (checked._tag !== "Success") {
-        setError(Cause.pretty(checked.cause));
+        setError(formatEnvironmentQueryError(checked.cause));
         return;
       }
       const result = isNew
@@ -166,7 +166,7 @@ export function WorkflowsProjectSection({
             input: { projectId, definition: draft, expectedRevision: baseRevision },
           });
       if (result._tag !== "Success") {
-        setError(Cause.pretty(result.cause));
+        setError(formatEnvironmentQueryError(result.cause));
         return;
       }
       setMessage(`Saved revision ${result.value.revision}.`);

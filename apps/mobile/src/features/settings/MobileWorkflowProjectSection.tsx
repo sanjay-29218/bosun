@@ -1,12 +1,11 @@
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import * as Cause from "effect/Cause";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { uuidv4 } from "../../lib/uuid";
-import { useEnvironmentQuery } from "../../state/query";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { SettingsSection } from "./components/SettingsSection";
@@ -63,7 +62,7 @@ export function MobileWorkflowProjectSection(props: {
         if (command === "answer") setAnswerText("");
         snapshot.refresh();
       } else {
-        setActionError(Cause.pretty(result.cause));
+        setActionError(formatEnvironmentQueryError(result.cause));
       }
     } finally {
       setBusy(false);

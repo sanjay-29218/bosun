@@ -4,7 +4,7 @@ import * as Cause from "effect/Cause";
 import { useState } from "react";
 
 import { randomUUID } from "../../lib/utils";
-import { useEnvironmentQuery } from "../../state/query";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Button } from "../ui/button";
@@ -43,7 +43,8 @@ function FeatureRun({
     setError(null);
     try {
       const result = await action();
-      if (result._tag !== "Success") setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
+      if (result._tag !== "Success")
+        setError(formatEnvironmentQueryError(result.cause as Cause.Cause<unknown>));
       else snapshot.refresh();
       return result._tag === "Success";
     } finally {
