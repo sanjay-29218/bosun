@@ -10,6 +10,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   type WorkflowDefinition,
+  type WorkflowStepEvent,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,6 +40,23 @@ const definition: WorkflowDefinition = {
     { id: "end", kind: "end", dependsOn: ["plan"] },
   ],
 };
+
+const stepEvent = (
+  id: string,
+  kind: WorkflowStepEvent["kind"],
+  fields: Partial<WorkflowStepEvent> = {},
+): WorkflowStepEvent => ({
+  id,
+  stepId: "plan",
+  kind,
+  botRunId: null,
+  sourceKind: null,
+  sourceId: null,
+  actorId: "manager",
+  detail: null,
+  occurredAt: "2026-09-29T00:00:00.000Z",
+  ...fields,
+});
 
 const createProject = (engine: OrchestrationEngineService["Service"], id: ProjectId) =>
   engine.dispatch({
@@ -89,6 +107,47 @@ describe("Workflow service", () => {
           (yield* workflow.copyForFeature("feature-two", projectId, definition.id)).definition,
         ).toEqual(revised);
 
+        const premature = yield* workflow
+          .recordTrustedEvent(
+            "feature-one",
+            stepEvent("complete-too-early", "completed", {
+              sourceKind: "handoff",
+              sourceId: "handoff-1",
+            }),
+          )
+          .pipe(Effect.result);
+        expect(premature._tag).toBe("Failure");
+        const start = stepEvent("start-plan", "started", { botRunId: "run-plan-1" });
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
+        ).toBe("running");
+        yield* workflow.recordTrustedEvent(
+          "feature-one",
+          stepEvent("question-plan", "question", { detail: "Which API?" }),
+        );
+        expect((yield* workflow.getFeatureState("feature-one"))?.steps.get("plan")?.status).toBe(
+          "needs-input",
+        );
+        yield* workflow.recordTrustedEvent(
+          "feature-one",
+          stepEvent("answer-plan", "answered", { detail: "Use the current API" }),
+        );
+        yield* workflow.recordTrustedEvent(
+          "feature-one",
+          stepEvent("complete-plan", "completed", {
+            sourceKind: "handoff",
+            sourceId: "handoff-1",
+          }),
+        );
+        expect((yield* workflow.getFeatureState("feature-one"))?.readyStepIds).toEqual(["end"]);
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
+        ).toBe("completed");
+        const reusedId = yield* workflow
+          .recordTrustedEvent("feature-one", { ...start, actorId: "another-manager" })
+          .pipe(Effect.result);
+        expect(reusedId._tag).toBe("Failure");
+
         const template = yield* botService.getTemplate(templateId);
         if (template === null) throw new Error("Starter template was not created");
         yield* botService.updateTemplate({
@@ -117,6 +176,12 @@ describe("Workflow service", () => {
         const store = yield* WorkflowStore;
         expect((yield* store.getFeatureCopy("feature-one"))?.definition).toEqual(definition);
         expect((yield* store.getFeatureCopy("feature-two"))?.definition.revision).toBe(2);
+        expect((yield* store.listEvents("feature-one")).map((event) => event.kind)).toEqual([
+          "started",
+          "question",
+          "answered",
+          "completed",
+        ]);
       }).pipe(
         Effect.provide(
           WorkflowStoreLive.pipe(

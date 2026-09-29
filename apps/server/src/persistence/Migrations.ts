@@ -72,6 +72,7 @@ import Migration0057 from "./Migrations/057_BotStorageNames.ts";
 import Migration0058 from "./Migrations/058_BotTemplates.ts";
 import Migration0059 from "./Migrations/059_BotHierarchy.ts";
 import Migration0060 from "./Migrations/060_Workflows.ts";
+import Migration0061 from "./Migrations/061_WorkflowStepEvents.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -144,6 +145,7 @@ const migrationEntries = [
   [58, "BotTemplates", Migration0058],
   [59, "BotHierarchy", Migration0059],
   [60, "Workflows", Migration0060],
+  [61, "WorkflowStepEvents", Migration0061],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

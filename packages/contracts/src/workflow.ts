@@ -31,3 +31,26 @@ export const WorkflowDefinition = Schema.Struct({
   steps: Schema.Array(WorkflowStep),
 });
 export type WorkflowDefinition = typeof WorkflowDefinition.Type;
+
+export const WorkflowStepEvent = Schema.Struct({
+  id: Schema.String,
+  stepId: Schema.String,
+  kind: Schema.Literals([
+    "started",
+    "completed",
+    "question",
+    "answered",
+    "change-requested",
+    "change-resolved",
+    "failed",
+    "retry",
+    "cancelled",
+  ]),
+  botRunId: Schema.NullOr(Schema.String),
+  sourceKind: Schema.NullOr(Schema.Literals(["handoff", "decision", "workflow"])),
+  sourceId: Schema.NullOr(Schema.String),
+  actorId: Schema.String,
+  detail: Schema.NullOr(Schema.String),
+  occurredAt: Schema.String,
+});
+export type WorkflowStepEvent = typeof WorkflowStepEvent.Type;

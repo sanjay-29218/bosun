@@ -64,6 +64,30 @@ it.effect("keeps revisions and feature copies independent across later edits", (
     );
     assert.deepEqual(featureOneAgain, featureOne);
     assert.strictEqual(featureTwo?.definition.revision, 2);
+    const event = {
+      id: "start-build",
+      stepId: "build",
+      kind: "started" as const,
+      botRunId: "run-build-1",
+      sourceKind: null,
+      sourceId: null,
+      actorId: "manager",
+      detail: null,
+      occurredAt: "2026-09-29T00:04:00Z",
+    };
+    assert.deepEqual(yield* store.appendEvent("feature-1", 0, event), {
+      kind: "inserted",
+      event,
+    });
+    assert.deepEqual(yield* store.appendEvent("feature-1", 0, event), {
+      kind: "duplicate",
+      event,
+    });
+    assert.deepEqual(yield* store.appendEvent("feature-1", 0, { ...event, id: "another-start" }), {
+      kind: "conflict",
+    });
+    assert.deepEqual(yield* store.listEvents("feature-1"), [event]);
+    assert.strictEqual((yield* store.getFeatureCopy("feature-1"))?.eventVersion, 1);
     assert.deepEqual(yield* sql`PRAGMA foreign_key_check`, []);
   }).pipe(Effect.provide(WorkflowStoreLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)))),
 );
@@ -95,7 +119,12 @@ it.effect("migrates an existing bots database without damaging its rows", () =>
     );
     assert.deepEqual(
       workflowTables.map((row) => row.name),
-      ["feature_workflows", "workflow_definition_heads", "workflow_definition_revisions"],
+      [
+        "feature_workflows",
+        "workflow_definition_heads",
+        "workflow_definition_revisions",
+        "workflow_step_events",
+      ],
     );
     assert.deepEqual(yield* sql`PRAGMA foreign_key_check`, []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

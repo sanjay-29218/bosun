@@ -1,13 +1,19 @@
-import type { ProjectId, WorkflowDefinition } from "@t3tools/contracts";
+import { WorkflowStepEvent, type ProjectId, type WorkflowDefinition } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import { BotStore } from "../bots/BotStore.ts";
 import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { validateWorkflowDefinition, WorkflowValidationError } from "./WorkflowGraph.ts";
+import {
+  projectWorkflowState,
+  WorkflowTransitionError,
+  type WorkflowState,
+} from "./WorkflowState.ts";
 import { WorkflowStore, type FeatureWorkflowCopy } from "./WorkflowStore.ts";
 
 export interface WorkflowServiceShape {
@@ -27,10 +33,19 @@ export interface WorkflowServiceShape {
   ) => Effect.Effect<FeatureWorkflowCopy, WorkflowServiceError>;
   readonly getFeatureCopy: WorkflowStore["Service"]["getFeatureCopy"];
   readonly getLatestDefinition: WorkflowStore["Service"]["getLatestDefinition"];
+  readonly getFeatureState: (
+    featureId: string,
+  ) => Effect.Effect<WorkflowState | null, WorkflowServiceError>;
+  /** Call only after authenticating the actor and verifying the source receipt. */
+  readonly recordTrustedEvent: (
+    featureId: string,
+    event: WorkflowStepEvent,
+  ) => Effect.Effect<WorkflowState, WorkflowServiceError>;
 }
 
 export type WorkflowServiceError =
   | WorkflowValidationError
+  | WorkflowTransitionError
   | PersistenceSqlError
   | ProjectionRepositoryError;
 
@@ -39,6 +54,7 @@ export class WorkflowService extends Context.Service<WorkflowService, WorkflowSe
 ) {}
 
 const validId = (value: string) => value.trim().length > 0 && value.length <= 128;
+const encodeEvent = Schema.encodeSync(Schema.fromJsonString(WorkflowStepEvent));
 
 export const WorkflowServiceLive = Layer.effect(
   WorkflowService,
@@ -78,6 +94,18 @@ export const WorkflowServiceLive = Layer.effect(
             );
           }
         }
+      });
+
+    const projectState = (
+      definition: WorkflowDefinition,
+      events: ReadonlyArray<WorkflowStepEvent>,
+    ) =>
+      Effect.try({
+        try: () => projectWorkflowState(definition, events),
+        catch: (cause) =>
+          cause instanceof WorkflowTransitionError
+            ? cause
+            : new WorkflowTransitionError("Invalid workflow history"),
       });
 
     return WorkflowService.of({
@@ -152,6 +180,48 @@ export const WorkflowServiceLive = Layer.effect(
         }),
       getFeatureCopy: store.getFeatureCopy,
       getLatestDefinition: store.getLatestDefinition,
+      getFeatureState: (featureId) =>
+        Effect.gen(function* () {
+          const copy = yield* store.getFeatureCopy(featureId);
+          if (copy === null) return null;
+          const events = yield* store.listEvents(featureId);
+          return yield* projectState(copy.definition, events);
+        }),
+      recordTrustedEvent: (featureId, event) =>
+        Effect.gen(function* () {
+          const copy = yield* store.getFeatureCopy(featureId);
+          if (copy === null) {
+            return yield* Effect.fail(
+              new WorkflowTransitionError("Feature workflow does not exist"),
+            );
+          }
+          const events = yield* store.listEvents(featureId);
+          const prior = events.find((item) => item.id === event.id);
+          if (prior) {
+            if (encodeEvent(prior) !== encodeEvent(event)) {
+              return yield* Effect.fail(
+                new WorkflowTransitionError("Event ID belongs to another outcome"),
+              );
+            }
+            return yield* projectState(copy.definition, events);
+          }
+          const next = yield* projectState(copy.definition, [...events, event]);
+          const result = yield* store.appendEvent(featureId, copy.eventVersion, event);
+          if (result.kind === "conflict") {
+            return yield* Effect.fail(
+              new WorkflowTransitionError("Workflow changed; reload and retry"),
+            );
+          }
+          if (result.kind === "duplicate" && encodeEvent(result.event) !== encodeEvent(event)) {
+            return yield* Effect.fail(
+              new WorkflowTransitionError("Event ID belongs to another outcome"),
+            );
+          }
+          if (result.kind === "duplicate") {
+            return yield* projectState(copy.definition, yield* store.listEvents(featureId));
+          }
+          return next;
+        }),
     });
   }),
 );

@@ -2,6 +2,8 @@ import {
   ProjectId,
   WorkflowDefinition,
   type WorkflowDefinition as WorkflowDefinitionType,
+  WorkflowStepEvent,
+  type WorkflowStepEvent as WorkflowStepEventType,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -15,6 +17,7 @@ export interface FeatureWorkflowCopy {
   readonly featureId: string;
   readonly projectId: ProjectId;
   readonly definition: WorkflowDefinitionType;
+  readonly eventVersion: number;
   readonly createdAt: string;
 }
 
@@ -25,8 +28,18 @@ interface DefinitionRow {
 interface FeatureCopyRow extends DefinitionRow {
   readonly featureId: string;
   readonly projectId: string;
+  readonly eventVersion: number;
   readonly createdAt: string;
 }
+
+interface EventRow {
+  readonly eventJson: string;
+}
+
+export type AppendWorkflowEventResult =
+  | { readonly kind: "inserted"; readonly event: WorkflowStepEventType }
+  | { readonly kind: "duplicate"; readonly event: WorkflowStepEventType }
+  | { readonly kind: "conflict" };
 
 export interface WorkflowStoreShape {
   readonly createDefinition: (
@@ -59,6 +72,14 @@ export interface WorkflowStoreShape {
   readonly getFeatureCopy: (
     featureId: string,
   ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
+  readonly listEvents: (
+    featureId: string,
+  ) => Effect.Effect<ReadonlyArray<WorkflowStepEventType>, PersistenceSqlError>;
+  readonly appendEvent: (
+    featureId: string,
+    expectedVersion: number,
+    event: WorkflowStepEventType,
+  ) => Effect.Effect<AppendWorkflowEventResult, PersistenceSqlError>;
 }
 
 export class WorkflowStore extends Context.Service<WorkflowStore, WorkflowStoreShape>()(
@@ -69,10 +90,14 @@ const definitionJson = Schema.fromJsonString(WorkflowDefinition);
 const encodeDefinition = Schema.encodeSync(definitionJson);
 const decodeDefinition = (row: DefinitionRow) =>
   Schema.decodeSync(definitionJson)(row.definitionJson);
+const eventJson = Schema.fromJsonString(WorkflowStepEvent);
+const encodeEvent = Schema.encodeSync(eventJson);
+const decodeEvent = (row: EventRow) => Schema.decodeSync(eventJson)(row.eventJson);
 const decodeCopy = (row: FeatureCopyRow): FeatureWorkflowCopy => ({
   featureId: row.featureId,
   projectId: ProjectId.make(row.projectId),
   definition: decodeDefinition(row),
+  eventVersion: row.eventVersion,
   createdAt: row.createdAt,
 });
 
@@ -117,7 +142,8 @@ export const WorkflowStoreLive = Layer.effect(
     const getFeatureCopy: WorkflowStoreShape["getFeatureCopy"] = (featureId) =>
       sql<FeatureCopyRow>`
         SELECT feature_id AS featureId, project_id AS projectId,
-          definition_json AS definitionJson, created_at AS createdAt
+          definition_json AS definitionJson, event_version AS eventVersion,
+          created_at AS createdAt
         FROM feature_workflows WHERE feature_id = ${featureId}
       `.pipe(
         Effect.mapError(queryError),
@@ -187,6 +213,47 @@ export const WorkflowStoreLive = Layer.effect(
           )
           .pipe(Effect.mapError(queryError)),
       getFeatureCopy,
+      listEvents: (featureId) =>
+        sql<EventRow>`
+          SELECT event_json AS eventJson FROM workflow_step_events
+          WHERE feature_id = ${featureId} ORDER BY sequence LIMIT 4097
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) =>
+            Effect.try({
+              try: () => {
+                if (rows.length > 4096) throw new Error("Workflow history is too large");
+                return rows.map(decodeEvent);
+              },
+              catch: decodeError,
+            }),
+          ),
+        ),
+      appendEvent: (featureId, expectedVersion, event) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const existing = yield* sql<EventRow>`
+                SELECT event_json AS eventJson FROM workflow_step_events
+                WHERE feature_id = ${featureId} AND event_id = ${event.id}
+              `;
+              if (existing[0]) {
+                return { kind: "duplicate" as const, event: decodeEvent(existing[0]) };
+              }
+              const updated = yield* sql<{ readonly eventVersion: number }>`
+                UPDATE feature_workflows SET event_version = event_version + 1
+                WHERE feature_id = ${featureId} AND event_version = ${expectedVersion}
+                RETURNING event_version AS eventVersion
+              `;
+              if (updated.length === 0) return { kind: "conflict" as const };
+              yield* sql`
+                INSERT INTO workflow_step_events (feature_id, event_id, event_json, occurred_at)
+                VALUES (${featureId}, ${event.id}, ${encodeEvent(event)}, ${event.occurredAt})
+              `;
+              return { kind: "inserted" as const, event };
+            }),
+          )
+          .pipe(Effect.mapError(queryError)),
     });
   }),
 );
