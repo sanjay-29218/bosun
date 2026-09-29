@@ -167,6 +167,7 @@ export function WorkflowsProjectSection({
           });
       if (result._tag !== "Success") {
         setError(formatEnvironmentQueryError(result.cause));
+        definitions.refresh();
         return;
       }
       setMessage(`Saved revision ${result.value.revision}.`);

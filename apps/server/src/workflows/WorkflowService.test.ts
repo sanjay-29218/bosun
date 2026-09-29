@@ -126,6 +126,30 @@ describe("Workflow service", () => {
         ]);
         expect(yield* workflow.ensureStarterDefinition(projectId)).toEqual(starter);
 
+        const researcher = yield* botService.createTemplate({
+          id: "template:researcher",
+          projectId,
+          name: "Researcher",
+          instructions: "Investigate the feature",
+          modelSelection,
+          runtimeMode: "approval-required",
+          autoCreateForFeature: true,
+        });
+        yield* workflow.validateDefinition(projectId, {
+          ...definition,
+          bots: {
+            manager: definition.bots.manager!,
+            researcher: {
+              template: { kind: "template", id: researcher.id, revision: researcher.revision },
+              supervisor: "manager",
+            },
+          },
+          steps: {
+            plan: { type: "task", bot: "researcher", task: "Investigate", next: { ready: "end" } },
+            end: { type: "end" },
+          },
+        });
+
         expect(
           (yield* workflow
             .validateDefinition(projectId, {
@@ -146,6 +170,9 @@ describe("Workflow service", () => {
         expect(first.definition.revision).toBe(1);
         const revised: WorkflowDefinition = { ...definition, name: "Delivery 2", revision: 2 };
         yield* workflow.reviseDefinition(projectId, revised, 1);
+        expect(
+          (yield* workflow.reviseDefinition(projectId, revised, 1).pipe(Effect.result))._tag,
+        ).toBe("Failure");
         expect(
           (yield* workflow.copyForFeature("feature-one", projectId, definition.id)).definition,
         ).toEqual(definition);

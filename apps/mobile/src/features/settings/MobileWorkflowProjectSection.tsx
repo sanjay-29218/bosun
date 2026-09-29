@@ -183,7 +183,7 @@ export function MobileWorkflowProjectSection(props: {
                     disabled={busy}
                     onPress={() => void act("retry")}
                   >
-                    <Text className="text-sm text-foreground">Queue another attempt</Text>
+                    <Text className="text-sm text-foreground">Make step ready to retry</Text>
                   </Pressable>
                 ) : null}
                 <Pressable

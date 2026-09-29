@@ -181,7 +181,7 @@ function FeatureRun({
                     )
                   }
                 >
-                  Queue another attempt
+                  Make step ready to retry
                 </Button>
               ) : null}
               <Button
