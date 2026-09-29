@@ -95,6 +95,17 @@ describe("Workflow service", () => {
         yield* createProject(engine, otherProjectId);
         yield* botService.ensureCrew(projectId, modelSelection);
 
+        const starter = yield* workflow.ensureStarterDefinition(projectId);
+        expect(starter.steps.map((step) => step.id)).toEqual([
+          "plan",
+          "design",
+          "build",
+          "qa",
+          "review",
+          "end",
+        ]);
+        expect(yield* workflow.ensureStarterDefinition(projectId)).toEqual(starter);
+
         expect((yield* workflow.createDefinition(projectId, definition)).revision).toBe(1);
         const first = yield* workflow.copyForFeature("feature-one", projectId, definition.id);
         expect(first.definition.revision).toBe(1);

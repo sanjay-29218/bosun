@@ -15,8 +15,12 @@ import {
   type WorkflowState,
 } from "./WorkflowState.ts";
 import { WorkflowStore, type FeatureWorkflowCopy } from "./WorkflowStore.ts";
+import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
+  readonly ensureStarterDefinition: (
+    projectId: ProjectId,
+  ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
   readonly createDefinition: (
     projectId: ProjectId,
     definition: WorkflowDefinition,
@@ -109,6 +113,26 @@ export const WorkflowServiceLive = Layer.effect(
       });
 
     return WorkflowService.of({
+      ensureStarterDefinition: (projectId) =>
+        Effect.gen(function* () {
+          const existing = yield* store.getLatestDefinition(projectId, STARTER_WORKFLOW_ID);
+          if (existing !== null) return existing;
+          const starter = makeStarterWorkflow(projectId);
+          yield* checkDefinition(projectId, starter);
+          const created = yield* store.createDefinition(
+            projectId,
+            starter,
+            DateTime.formatIso(yield* DateTime.now),
+          );
+          if (created) return starter;
+          const concurrent = yield* store.getLatestDefinition(projectId, STARTER_WORKFLOW_ID);
+          if (concurrent === null) {
+            return yield* Effect.fail(
+              new WorkflowValidationError("Starter workflow is unavailable"),
+            );
+          }
+          return concurrent;
+        }),
       createDefinition: (projectId, definition) =>
         Effect.gen(function* () {
           if (definition.revision !== 1) {
