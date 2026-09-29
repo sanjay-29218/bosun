@@ -1,0 +1,138 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { it as effectIt } from "@effect/vitest";
+import {
+  CommandId,
+  ProjectId,
+  ProviderInstanceId,
+  type WorkflowDefinition,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { describe, expect } from "vite-plus/test";
+
+import { BotService } from "../bots/BotService.ts";
+import { BotRuntimeLive } from "../bots/runtimeLayer.ts";
+import { ServerConfig } from "../config.ts";
+import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
+import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
+import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
+
+const projectId = ProjectId.make("workflow-service-project");
+const otherProjectId = ProjectId.make("workflow-service-other");
+const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+const templateId = `template:planner:${projectId}`;
+
+const definition: WorkflowDefinition = {
+  id: "delivery",
+  name: "Delivery",
+  revision: 1,
+  steps: [
+    { id: "plan", kind: "bot", templateId, completion: "handoff", dependsOn: [] },
+    { id: "end", kind: "end", dependsOn: ["plan"] },
+  ],
+};
+
+const createProject = (engine: OrchestrationEngineService["Service"], id: ProjectId) =>
+  engine.dispatch({
+    type: "project.create",
+    commandId: CommandId.make(`workflow-test-create:${id}`),
+    projectId: id,
+    title: `Test ${id}`,
+    workspaceRoot: `/tmp/${id}`,
+    createdAt: "2026-09-29T00:00:00.000Z",
+  });
+
+describe("Workflow service", () => {
+  effectIt.effect("validates template ownership and keeps feature copies on their revision", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "workflow-service-")),
+      );
+      const databasePath = NodePath.join(directory, "state.sqlite");
+      const orchestration = OrchestrationLayerLive;
+      const bots = BotRuntimeLive.pipe(Layer.provide(orchestration));
+      const workflows = WorkflowServiceLive.pipe(
+        Layer.provideMerge(WorkflowStoreLive),
+        Layer.provideMerge(bots),
+      );
+      const layer = Layer.mergeAll(orchestration, workflows).pipe(
+        Layer.provide(makeSqlitePersistenceLive(databasePath)),
+        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "workflow-test-" })),
+        Layer.provideMerge(RepositoryIdentityResolver.layer),
+        Layer.provideMerge(NodeServices.layer),
+      );
+      const exercise = Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const botService = yield* BotService;
+        const workflow = yield* WorkflowService;
+        yield* createProject(engine, projectId);
+        yield* createProject(engine, otherProjectId);
+        yield* botService.ensureCrew(projectId, modelSelection);
+
+        expect((yield* workflow.createDefinition(projectId, definition)).revision).toBe(1);
+        const first = yield* workflow.copyForFeature("feature-one", projectId, definition.id);
+        expect(first.definition.revision).toBe(1);
+        const revised: WorkflowDefinition = { ...definition, name: "Delivery 2", revision: 2 };
+        yield* workflow.reviseDefinition(projectId, revised, 1);
+        expect(
+          (yield* workflow.copyForFeature("feature-one", projectId, definition.id)).definition,
+        ).toEqual(definition);
+        expect(
+          (yield* workflow.copyForFeature("feature-two", projectId, definition.id)).definition,
+        ).toEqual(revised);
+
+        const template = yield* botService.getTemplate(templateId);
+        if (template === null) throw new Error("Starter template was not created");
+        yield* botService.updateTemplate({
+          ...template,
+          expectedRevision: template.revision,
+          enabled: false,
+        });
+        expect(
+          (yield* workflow.copyForFeature("feature-one", projectId, definition.id)).definition,
+        ).toEqual(definition);
+        const disabledTemplate = yield* workflow
+          .copyForFeature("feature-three", projectId, definition.id)
+          .pipe(Effect.result);
+        expect(disabledTemplate._tag).toBe("Failure");
+
+        const wrongProject = yield* workflow
+          .createDefinition(otherProjectId, definition)
+          .pipe(Effect.result);
+        expect(wrongProject._tag).toBe("Failure");
+        const duplicateFeature = yield* workflow
+          .copyForFeature("feature-one", otherProjectId, definition.id)
+          .pipe(Effect.result);
+        expect(duplicateFeature._tag).toBe("Failure");
+      }).pipe(Effect.provide(layer));
+      const afterRestart = Effect.gen(function* () {
+        const store = yield* WorkflowStore;
+        expect((yield* store.getFeatureCopy("feature-one"))?.definition).toEqual(definition);
+        expect((yield* store.getFeatureCopy("feature-two"))?.definition.revision).toBe(2);
+      }).pipe(
+        Effect.provide(
+          WorkflowStoreLive.pipe(
+            Layer.provide(makeSqlitePersistenceLive(databasePath)),
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        yield* exercise;
+        yield* afterRestart;
+      }).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+});
