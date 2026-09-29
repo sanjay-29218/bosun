@@ -363,6 +363,88 @@ describe("Workflow service", () => {
           .pipe(Effect.result);
         expect(reusedId._tag).toBe("Failure");
 
+        yield* workflow.copyForFeature("feature-retry", projectId, definition.id);
+        const retryBot = yield* botService.createDefinition({
+          id: "feature-retry-planner",
+          projectId,
+          featureId: "feature-retry",
+          templateId,
+          name: template.name,
+          instructions: template.instructions,
+          allowedTools: template.allowedTools,
+          modelSelection: template.modelSelection,
+          runtimeMode: template.runtimeMode,
+        });
+        const firstAttempt = yield* botService.createRun({
+          id: "retry-run-1",
+          botId: retryBot.id,
+          projectId,
+          taskText: "Plan retry feature",
+        });
+        yield* handoffs.insert({
+          ...(yield* handoffs.get("handoff-1"))!,
+          id: "handoff-retry",
+          targetBotId: retryBot.id,
+          targetRunId: firstAttempt.id,
+          status: "running",
+          responseText: null,
+          questionText: null,
+        });
+        yield* workflow.recordTrustedEvent(
+          "feature-retry",
+          stepEvent("retry-start-1", "started", {
+            executionId: "retry-execution",
+            botRunId: firstAttempt.id,
+            sourceKind: "handoff",
+            sourceId: "handoff-retry",
+          }),
+        );
+        yield* handoffs.transition("handoff-retry", ["running"], "failed", "2026-09-29T00:00:02Z", {
+          lastError: "Provider unavailable",
+        });
+        yield* workflow.recordTrustedEvent(
+          "feature-retry",
+          stepEvent("retry-failed-1", "failed", {
+            executionId: "retry-execution",
+            sourceKind: "handoff",
+            sourceId: "handoff-retry",
+            detail: "Provider unavailable",
+          }),
+        );
+        yield* workflow.recordTrustedEvent(
+          "feature-retry",
+          stepEvent("retry-decision", "retry", { executionId: "retry-execution" }),
+        );
+        expect(yield* handoffs.retry("handoff-retry", "2026-09-29T00:00:03Z")).toBe(true);
+        const secondHandoff = (yield* handoffs.get("handoff-retry"))!;
+        const secondAttempt = yield* botService.createRun({
+          id: secondHandoff.targetRunId,
+          botId: retryBot.id,
+          projectId,
+          taskText: "Plan retry feature",
+        });
+        yield* workflow.recordTrustedEvent(
+          "feature-retry",
+          stepEvent("retry-start-2", "started", {
+            executionId: "retry-execution",
+            botRunId: secondAttempt.id,
+            sourceKind: "handoff",
+            sourceId: "handoff-retry",
+          }),
+        );
+        expect((yield* workflow.getFeatureState("feature-retry"))?.steps.get("plan")).toMatchObject(
+          {
+            attempt: 2,
+            botRunId: secondAttempt.id,
+            status: "running",
+          },
+        );
+        yield* workflow.recordTrustedEvent(
+          "feature-retry",
+          stepEvent("retry-cancel", "cancelled", { executionId: "retry-execution" }),
+        );
+        expect((yield* workflow.getFeatureState("feature-retry"))?.cancelled).toBe(true);
+
         yield* botService.updateTemplate({
           ...template,
           expectedRevision: template.revision,
@@ -394,6 +476,13 @@ describe("Workflow service", () => {
           "question",
           "answered",
           "completed",
+        ]);
+        expect((yield* store.listEvents("feature-retry")).map((event) => event.kind)).toEqual([
+          "started",
+          "failed",
+          "retry",
+          "started",
+          "cancelled",
         ]);
       }).pipe(
         Effect.provide(
