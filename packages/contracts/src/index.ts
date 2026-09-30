@@ -5,6 +5,7 @@ export * from "./composerContextClipboard.ts";
 export * from "./background.ts";
 export * from "./bots.ts";
 export * from "./features.ts";
+export * from "./workflow.ts";
 export * from "./auth.ts";
 export * from "./environment.ts";
 export * from "./environmentHttp.ts";

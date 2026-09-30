@@ -1,0 +1,124 @@
+import { ProjectId } from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
+
+/** Feature supplies existing instances and the runs authorized to dispatch their work. */
+export const WorkflowBindings = Schema.Record(
+  Schema.String,
+  Schema.Struct({
+    botId: Schema.String,
+    dispatchRunId: Schema.String,
+  }),
+);
+export type WorkflowBindings = typeof WorkflowBindings.Type;
+
+export interface WorkflowExecution {
+  readonly featureId: string;
+  readonly projectId: ProjectId;
+  readonly bindings: WorkflowBindings;
+  readonly lastError: string | null;
+  readonly settled: boolean;
+}
+
+export class WorkflowExecutionStore extends Context.Service<
+  WorkflowExecutionStore,
+  {
+    readonly attach: (
+      featureId: string,
+      bindings: WorkflowBindings,
+    ) => Effect.Effect<void, PersistenceSqlError>;
+    readonly get: (
+      featureId: string,
+    ) => Effect.Effect<WorkflowExecution | null, PersistenceSqlError>;
+    readonly listActive: (
+      projectId?: ProjectId,
+    ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
+    readonly findFeatureForHandoff: (
+      handoffId: string,
+    ) => Effect.Effect<string | null, PersistenceSqlError>;
+    readonly update: (
+      featureId: string,
+      lastError: string | null,
+      settled: boolean,
+    ) => Effect.Effect<void, PersistenceSqlError>;
+  }
+>()("t3/workflows/WorkflowExecutionStore") {}
+
+const bindingsJson = Schema.fromJsonString(WorkflowBindings);
+const encodeBindings = Schema.encodeSync(bindingsJson);
+const decodeBindings = Schema.decodeSync(bindingsJson);
+
+export const WorkflowExecutionStoreLive = Layer.effect(
+  WorkflowExecutionStore,
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const error = toPersistenceSqlError("WorkflowExecutionStore.query");
+    return WorkflowExecutionStore.of({
+      findFeatureForHandoff: (handoffId) =>
+        sql<{ readonly featureId: string }>`
+        SELECT feature_id AS featureId FROM workflow_step_events
+        WHERE json_extract(event_json, '$.kind') = 'started'
+          AND json_extract(event_json, '$.sourceId') = ${handoffId}
+        LIMIT 1
+      `.pipe(
+          Effect.mapError(error),
+          Effect.map((rows) => rows[0]?.featureId ?? null),
+        ),
+      attach: (featureId, bindings) =>
+        sql`
+      INSERT OR IGNORE INTO workflow_executions (feature_id, bindings_json)
+      VALUES (${featureId}, ${encodeBindings(bindings)})
+    `.pipe(Effect.asVoid, Effect.mapError(error)),
+      get: (featureId) =>
+        sql<{
+          readonly featureId: string;
+          readonly projectId: string;
+          readonly bindingsJson: string;
+          readonly lastError: string | null;
+          readonly settled: number;
+        }>`
+      SELECT e.feature_id AS featureId, w.project_id AS projectId,
+        e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled
+      FROM workflow_executions AS e JOIN feature_workflows AS w ON w.feature_id = e.feature_id
+      WHERE e.feature_id = ${featureId}
+    `.pipe(
+          Effect.mapError(error),
+          Effect.flatMap((rows) =>
+            Effect.try({
+              try: () =>
+                rows[0]
+                  ? {
+                      featureId: rows[0].featureId,
+                      projectId: ProjectId.make(rows[0].projectId),
+                      bindings: decodeBindings(rows[0].bindingsJson),
+                      lastError: rows[0].lastError,
+                      settled: rows[0].settled === 1,
+                    }
+                  : null,
+              catch: error,
+            }),
+          ),
+        ),
+      listActive: (projectId) =>
+        sql<{ readonly featureId: string }>`
+      SELECT e.feature_id AS featureId FROM workflow_executions AS e
+      JOIN feature_workflows AS w ON w.feature_id = e.feature_id
+      WHERE e.settled = 0 ${projectId === undefined ? sql`` : sql`AND w.project_id = ${projectId}`}
+      ORDER BY e.feature_id
+    `.pipe(
+          Effect.mapError(error),
+          Effect.map((rows) => rows.map((row) => row.featureId)),
+        ),
+      update: (featureId, lastError, settled) =>
+        sql`
+      UPDATE workflow_executions SET last_error = ${lastError}, settled = ${settled ? 1 : 0}
+      WHERE feature_id = ${featureId}
+    `.pipe(Effect.asVoid, Effect.mapError(error)),
+    });
+  }),
+);

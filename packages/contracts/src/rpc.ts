@@ -28,6 +28,17 @@ import {
   FeatureRecord,
 } from "./features.ts";
 import {
+  WorkflowCreateInput,
+  WorkflowActionInput,
+  WorkflowAnswerInput,
+  WorkflowDefinition,
+  WorkflowFeatureGetInput,
+  WorkflowFeatureSnapshot,
+  WorkflowOperationError,
+  WorkflowProjectInput,
+  WorkflowReviseInput,
+} from "./workflow.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -303,6 +314,17 @@ export const WS_METHODS = {
   featuresCreate: "features.create",
   featuresList: "features.list",
   featuresGet: "features.get",
+  workflowsList: "workflows.list",
+  workflowsEnsureStarter: "workflows.ensureStarter",
+  workflowsValidate: "workflows.validate",
+  workflowsCreate: "workflows.create",
+  workflowsRevise: "workflows.revise",
+  workflowsGetFeature: "workflows.getFeature",
+  workflowsAnswer: "workflows.answer",
+  workflowsRetry: "workflows.retry",
+  workflowsCancel: "workflows.cancel",
+  workflowsPause: "workflows.pause",
+  workflowsResume: "workflows.resume",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -758,6 +780,62 @@ const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
   payload: FeatureGetInput,
   success: Schema.NullOr(FeatureRecord),
   error: FeatureRpcError,
+});
+const WorkflowRpcError = Schema.Union([WorkflowOperationError, EnvironmentAuthorizationError]);
+const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
+  payload: WorkflowProjectInput,
+  success: Schema.Array(WorkflowDefinition),
+  error: WorkflowRpcError,
+});
+const WsWorkflowsEnsureStarterRpc = Rpc.make(WS_METHODS.workflowsEnsureStarter, {
+  payload: WorkflowProjectInput,
+  success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsValidateRpc = Rpc.make(WS_METHODS.workflowsValidate, {
+  payload: WorkflowCreateInput,
+  success: Schema.Void,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
+  payload: WorkflowCreateInput,
+  success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
+  payload: WorkflowReviseInput,
+  success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsGetFeatureRpc = Rpc.make(WS_METHODS.workflowsGetFeature, {
+  payload: WorkflowFeatureGetInput,
+  success: Schema.NullOr(WorkflowFeatureSnapshot),
+  error: WorkflowRpcError,
+});
+const WsWorkflowsAnswerRpc = Rpc.make(WS_METHODS.workflowsAnswer, {
+  payload: WorkflowAnswerInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsRetryRpc = Rpc.make(WS_METHODS.workflowsRetry, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsCancelRpc = Rpc.make(WS_METHODS.workflowsCancel, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsPauseRpc = Rpc.make(WS_METHODS.workflowsPause, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsResumeRpc = Rpc.make(WS_METHODS.workflowsResume, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
 });
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
   payload: BotProjectSnapshotInput,
@@ -1513,6 +1591,17 @@ export const WsRpcGroup = RpcGroup.make(
   WsFeaturesCreateRpc,
   WsFeaturesListRpc,
   WsFeaturesGetRpc,
+  WsWorkflowsListRpc,
+  WsWorkflowsEnsureStarterRpc,
+  WsWorkflowsValidateRpc,
+  WsWorkflowsCreateRpc,
+  WsWorkflowsReviseRpc,
+  WsWorkflowsGetFeatureRpc,
+  WsWorkflowsAnswerRpc,
+  WsWorkflowsRetryRpc,
+  WsWorkflowsCancelRpc,
+  WsWorkflowsPauseRpc,
+  WsWorkflowsResumeRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,

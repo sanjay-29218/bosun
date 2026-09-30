@@ -104,6 +104,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   pullRequests: Schema.optionalKey(Schema.Boolean),
   /** Server exposes durable bots, handoffs, and project status. */
   bots: Schema.optionalKey(Schema.Boolean),
+  /** Server exposes versioned Workflow definitions and feature run state. */
+  workflows: Schema.optionalKey(Schema.Boolean),
   /** Server understands canonical inline context links plus their message context records.
       Absent on servers from before inline context shipped, which drop the records and forward
       the links as literal text -- so a client must serialize context the legacy way for them. */

@@ -25,6 +25,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import { BotRuntimeLive } from "./bots/runtimeLayer.ts";
 import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
+import { WorkflowRuntimeLive } from "./workflows/runtimeLayer.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import {
@@ -267,7 +268,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(OrchestrationReactorLive),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
-  Layer.provideMerge(BotRuntimeLive),
+  Layer.provideMerge(WorkflowRuntimeLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(StorageCleanup.layer),
   Layer.provideMerge(ThreadDeletionReactorLive),
@@ -614,6 +615,7 @@ export const makeRoutesLayer = Layer.mergeAll(
 ).pipe(
   Layer.provide(BotRuntimeLive),
   Layer.provide(FeatureRuntimeLive),
+  Layer.provide(WorkflowRuntimeLive),
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),

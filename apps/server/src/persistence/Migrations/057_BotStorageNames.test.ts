@@ -22,6 +22,7 @@ fresh("new bot storage", (it) => {
         tables.map((row) => row.name),
         [
           "bot_delegation_grants",
+          "bot_handoff_receipts",
           "bot_handoffs",
           "bot_hierarchy",
           "bot_runs",

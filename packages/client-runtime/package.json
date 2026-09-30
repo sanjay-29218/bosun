@@ -11,6 +11,10 @@
       "types": "./src/state/bots.ts",
       "default": "./src/state/bots.ts"
     },
+    "./state/workflows": {
+      "types": "./src/state/workflows.ts",
+      "default": "./src/state/workflows.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

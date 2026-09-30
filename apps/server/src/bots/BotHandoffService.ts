@@ -56,6 +56,7 @@ export interface BotHandoffServiceShape {
   ) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
   readonly reconcile: () => Effect.Effect<void, BotServiceError>;
   readonly refreshProject: (projectId: ProjectId) => Effect.Effect<void, BotServiceError>;
+  readonly refreshRun: (runId: string) => Effect.Effect<void, BotServiceError>;
 }
 
 export class BotHandoffService extends Context.Service<BotHandoffService, BotHandoffServiceShape>()(
@@ -453,6 +454,13 @@ export const BotHandoffServiceLive = Layer.effect(
             concurrency: 1,
             discard: true,
           });
+        }),
+      refreshRun: (runId) =>
+        Effect.gen(function* () {
+          const handoff = yield* handoffs.getForTargetRun(runId);
+          if (handoff?.status === "running") yield* settleIfExited(handoff);
+          const updated = handoff ? yield* handoffs.get(handoff.id) : null;
+          if (updated) yield* deliver(updated).pipe(Effect.result);
         }),
     } satisfies BotHandoffServiceShape;
   }),

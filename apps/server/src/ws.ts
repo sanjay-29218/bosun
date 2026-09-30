@@ -22,6 +22,7 @@ import {
   AuthAccessStreamError,
   BotOperationError,
   FeatureOperationError,
+  WorkflowOperationError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -93,6 +94,8 @@ import { BotStore } from "./bots/BotStore.ts";
 import { BotHandoffService } from "./bots/BotHandoffService.ts";
 import { BotHandoffStore } from "./bots/BotHandoffStore.ts";
 import { FeatureService } from "./features/FeatureService.ts";
+import { WorkflowService } from "./workflows/WorkflowService.ts";
+import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -513,6 +516,8 @@ const makeWsRpcLayer = (
     readonly botHandoffs: BotHandoffService["Service"];
     readonly botHandoffStore: BotHandoffStore["Service"];
     readonly features: FeatureService["Service"];
+    readonly workflows: WorkflowService["Service"];
+    readonly workflowExecution: WorkflowExecutionService["Service"];
   },
 ) =>
   WsRpcGroup.toLayer(
@@ -675,7 +680,15 @@ const makeWsRpcLayer = (
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
-      const { bots, botStore, botHandoffs, botHandoffStore, features } = botServices;
+      const {
+        bots,
+        botStore,
+        botHandoffs,
+        botHandoffStore,
+        features,
+        workflows,
+        workflowExecution,
+      } = botServices;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1946,6 +1959,137 @@ const makeWsRpcLayer = (
               Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
             ),
             { "rpc.aggregate": "features" },
+          ),
+        [WS_METHODS.workflowsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsList,
+            workflows
+              .listLatestDefinitions(input.projectId)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsEnsureStarter]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsEnsureStarter,
+            workflows
+              .ensureStarterDefinition(input.projectId)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsValidate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsValidate,
+            workflows
+              .validateDefinition(input.projectId, input.definition)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsCreate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsCreate,
+            workflows
+              .createDefinition(input.projectId, input.definition)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsRevise]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsRevise,
+            workflows
+              .reviseDefinition(input.projectId, input.definition, input.expectedRevision)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsGetFeature]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsGetFeature,
+            workflows
+              .getFeatureSnapshot(input.featureId, input.projectId)
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsAnswer]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsAnswer,
+            workflowExecution
+              .control({
+                ...input,
+                actorId: currentSessionId,
+                kind: "answered",
+                text: input.text,
+              })
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsRetry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsRetry,
+            workflowExecution
+              .control({
+                ...input,
+                actorId: currentSessionId,
+                kind: "retry",
+              })
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsCancel]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsCancel,
+            workflowExecution
+              .control({
+                ...input,
+                actorId: currentSessionId,
+                kind: "cancelled",
+              })
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsPause]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsPause,
+            workflowExecution
+              .control({
+                ...input,
+                actorId: currentSessionId,
+                kind: "paused",
+              })
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
+          ),
+        [WS_METHODS.workflowsResume]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowsResume,
+            workflowExecution
+              .control({
+                ...input,
+                actorId: currentSessionId,
+                kind: "resumed",
+              })
+              .pipe(
+                Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "workflows" },
           ),
         [WS_METHODS.botsSnapshot]: (input) =>
           observeRpcEffect(
@@ -4088,6 +4232,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       botHandoffs: yield* BotHandoffService,
       botHandoffStore: yield* BotHandoffStore,
       features: yield* FeatureService,
+      workflows: yield* WorkflowService,
+      workflowExecution: yield* WorkflowExecutionService,
     };
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
