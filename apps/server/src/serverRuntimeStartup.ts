@@ -41,6 +41,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import * as OrchestrationReactor from "./orchestration/Services/OrchestrationReactor.ts";
 import { BotService } from "./bots/BotService.ts";
 import { BotHandoffService } from "./bots/BotHandoffService.ts";
+import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
@@ -904,6 +905,7 @@ export const make = (options?: StartupOptions) =>
     const orchestrationReactor = yield* OrchestrationReactor.OrchestrationReactor;
     const bots = yield* BotService;
     const botHandoffs = yield* BotHandoffService;
+    const workflowExecution = yield* WorkflowExecutionService;
     const providerSessionReaper = yield* ProviderSessionReaper.ProviderSessionReaper;
     const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -974,6 +976,10 @@ export const make = (options?: StartupOptions) =>
       // Bot replay emits turn-start events; the provider reactor must subscribe first.
       yield* runStartupPhase("bots.reconcile", bots.reconcileRuns());
       yield* runStartupPhase("bots.handoffs.reconcile", botHandoffs.reconcile());
+      yield* runStartupPhase(
+        "workflows.start",
+        workflowExecution.start().pipe(Scope.provide(reactorScope)),
+      );
       yield* runStartupPhase("worktree-setups.reconcile", reconcileWorktreeSetups);
 
       yield* Effect.logDebug("startup phase: syncing clean projects");

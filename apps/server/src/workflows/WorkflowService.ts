@@ -138,6 +138,36 @@ export const WorkflowServiceLive = Layer.effect(
             : new WorkflowTransitionError("Invalid workflow history"),
       });
 
+    const handoffEvidence = (
+      id: string | null,
+      status?: "completed" | "needs-input" | "running" | "failed" | "queued",
+      runId?: string | null,
+      detail?: string | null,
+    ) =>
+      Effect.gen(function* () {
+        if (id === null) return null;
+        const current = yield* handoffs.get(id);
+        const receipts = yield* handoffs.listReceipts(id);
+        const candidates = [
+          ...receipts.map((receipt) => receipt.handoff),
+          ...(current ? [current] : []),
+        ];
+        return (
+          candidates.findLast(
+            (handoff) =>
+              (status === undefined || handoff.status === status) &&
+              (runId === undefined || handoff.targetRunId === runId) &&
+              (detail === undefined ||
+                (status === "needs-input"
+                  ? handoff.questionText?.trim() === detail?.trim()
+                  : status === "failed"
+                    ? handoff.lastError?.trim() === detail?.trim() ||
+                      handoff.responseText?.trim() === detail?.trim()
+                    : handoff.responseText?.trim() === detail?.trim())),
+          ) ?? null
+        );
+      });
+
     return WorkflowService.of({
       validateDefinition: checkDefinition,
       ensureStarterDefinition: (projectId) =>
@@ -259,6 +289,7 @@ export const WorkflowServiceLive = Layer.effect(
           }
           const events = yield* store.listEvents(featureId);
           const state = yield* projectState(copy.definition, events);
+          const execution = yield* store.getExecutionStatus(featureId);
           const steps = yield* Effect.forEach(
             [...state.steps.values()],
             (step) =>
@@ -281,6 +312,9 @@ export const WorkflowServiceLive = Layer.effect(
             executionCount: state.executionCount,
             completed: state.completed,
             cancelled: state.cancelled,
+            paused: state.paused,
+            executionConfigured: execution !== null,
+            executionError: execution?.lastError ?? null,
             historyLength: events.length,
             recentEvents: events.slice(-100),
           } satisfies WorkflowFeatureSnapshot;
@@ -311,7 +345,13 @@ export const WorkflowServiceLive = Layer.effect(
           if (event.kind === "started" && step?.type === "task") {
             const run = event.botRunId ? yield* bots.getRun(event.botRunId) : null;
             const bot = run ? yield* bots.getDefinition(run.botId) : null;
-            const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
+            const liveHandoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
+            // Cancellation can arrive before the dispatcher records its start. Replay
+            // the original dispatch receipt, then its cancellation, in that order.
+            const handoff =
+              liveHandoff?.status === "cancelled"
+                ? yield* handoffEvidence(event.sourceId, "queued", run?.id)
+                : liveHandoff;
             const source = copy.definition.bots[step.bot]?.template;
             if (
               !run ||
@@ -337,7 +377,7 @@ export const WorkflowServiceLive = Layer.effect(
           }
           if (event.kind === "completed" && step?.type === "task") {
             const runId = current.steps.get(event.stepId)?.botRunId;
-            const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
+            const handoff = yield* handoffEvidence(event.sourceId, "completed", runId);
             const run = runId ? yield* bots.getRun(runId) : null;
             if (
               !handoff ||
@@ -370,8 +410,17 @@ export const WorkflowServiceLive = Layer.effect(
             (event.kind === "question" || event.kind === "answered" || event.kind === "failed") &&
             event.sourceKind === "handoff"
           ) {
-            const handoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
             const runId = current.steps.get(event.stepId)?.botRunId;
+            const handoff = yield* handoffEvidence(
+              event.sourceId,
+              event.kind === "question"
+                ? "needs-input"
+                : event.kind === "answered"
+                  ? "running"
+                  : "failed",
+              runId,
+              event.detail,
+            );
             const run = runId ? yield* bots.getRun(runId) : null;
             if (
               !handoff ||
@@ -418,6 +467,17 @@ export const WorkflowServiceLive = Layer.effect(
                   );
                 }
               }
+            }
+          }
+          if (event.kind === "answered" && event.sourceKind === "decision") {
+            const runId = current.steps.get(event.stepId)?.botRunId;
+            const handoff = yield* handoffEvidence(event.sourceId, "needs-input", runId);
+            if (!handoff || handoff.projectId !== copy.projectId) {
+              return yield* Effect.fail(
+                new WorkflowTransitionError(
+                  "Answer decision needs the active step's question receipt",
+                ),
+              );
             }
           }
           const result = yield* store.appendEvent(featureId, copy.eventVersion, event);

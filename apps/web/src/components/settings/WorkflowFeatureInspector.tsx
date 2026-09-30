@@ -30,12 +30,18 @@ function FeatureRun({
   const answer = useAtomCommand(workflowsEnvironment.answer);
   const retry = useAtomCommand(workflowsEnvironment.retry);
   const cancel = useAtomCommand(workflowsEnvironment.cancel);
+  const pause = useAtomCommand(workflowsEnvironment.pause);
+  const resume = useAtomCommand(workflowsEnvironment.resume);
   const [answerText, setAnswerText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const data = snapshot.data;
   const active = data?.steps.find((step) => step.id === data.activeStepId);
-  const last = data?.recentEvents.at(-1);
+  const question = data?.recentEvents.findLast(
+    (event) => event.kind === "question" && event.executionId === active?.executionId,
+  );
+  const task = data?.activeStepId ? data.definition.steps[data.activeStepId] : null;
+  const supervisor = task?.type === "task" ? data?.definition.bots[task.bot]?.supervisor : null;
   const invoke = async (
     action: () => Promise<{ readonly _tag: string; readonly cause?: unknown }>,
   ) => {
@@ -52,7 +58,7 @@ function FeatureRun({
     }
   };
   return (
-    <div className="space-y-4 rounded-lg border border-border p-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
       {snapshot.error ? (
         <p role="alert" className="text-sm text-destructive">
           {snapshot.error}
@@ -83,9 +89,11 @@ function FeatureRun({
                   ? "Completed"
                   : data.cancelled
                     ? "Cancelled"
-                    : active
-                      ? `${active.id} · ${active.status === "pending" && active.attempt > 0 ? "ready for another run" : active.status}`
-                      : "Ready to start"}
+                    : data.paused
+                      ? "Paused · current work may finish; the next step will wait"
+                      : active
+                        ? `${active.id} · ${active.status === "pending" && active.attempt > 0 ? "ready for another run" : active.status}`
+                        : "Ready to start"}
                 {active?.botRunId ? ` · run ${active.botRunId}` : ""}
               </p>
             </div>
@@ -93,6 +101,16 @@ function FeatureRun({
               Refresh
             </Button>
           </div>
+          {data.executionError ? (
+            <p role="alert" className="break-words text-sm text-destructive">
+              {data.executionError}
+            </p>
+          ) : null}
+          {data.executionConfigured === false && !data.completed && !data.cancelled ? (
+            <p className="text-sm text-muted-foreground">
+              Waiting for the feature crew to be attached.
+            </p>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-2">
             {data.steps.map((step) => (
               <div
@@ -127,12 +145,16 @@ function FeatureRun({
             ))}
           </div>
           {active?.status === "needs-input" ? (
-            <div className="space-y-2 rounded-md border border-border p-3">
+            <div className="flex flex-col gap-2 rounded-md border border-border p-3">
               <p className="text-sm font-medium">Question from {active.id}</p>
               <p className="text-sm text-muted-foreground">
-                {last?.kind === "question" ? last.detail : "The step needs an answer."}
+                {question?.detail ?? "The step needs an answer."}
               </p>
+              {supervisor ? (
+                <p className="text-xs text-muted-foreground">Supervisor: {supervisor}</p>
+              ) : null}
               <Textarea
+                maxLength={8000}
                 aria-label="Workflow answer"
                 value={answerText}
                 rows={3}
@@ -163,11 +185,35 @@ function FeatureRun({
           ) : null}
           {!data.completed && !data.cancelled ? (
             <div className="flex flex-wrap gap-2">
-              {active?.status === "failed" ? (
+              {data.paused !== undefined ? (
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={busy}
+                  onClick={() =>
+                    void invoke(() =>
+                      (data.paused ? resume : pause)({
+                        environmentId,
+                        input: {
+                          projectId,
+                          featureId,
+                          requestId: `workflow-${data.paused ? "resume" : "pause"}:${randomUUID()}`,
+                        },
+                      }),
+                    )
+                  }
+                >
+                  {data.paused ? "Resume workflow" : "Pause workflow"}
+                </Button>
+              ) : null}
+              {active?.status === "failed" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    busy ||
+                    (active?.attempt ?? 0) >= data.definition.defaults.maxAttemptsPerExecution
+                  }
                   onClick={() =>
                     void invoke(() =>
                       retry({
@@ -181,7 +227,7 @@ function FeatureRun({
                     )
                   }
                 >
-                  Make step ready to retry
+                  {data.executionConfigured ? "Retry step" : "Make step ready to retry"}
                 </Button>
               ) : null}
               <Button
@@ -201,7 +247,7 @@ function FeatureRun({
               </Button>
             </div>
           ) : null}
-          <div className="space-y-2 border-t border-border pt-3">
+          <div className="flex flex-col gap-2 border-t border-border pt-3">
             <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Recent history · {data.historyLength} events
             </h5>
@@ -209,12 +255,17 @@ function FeatureRun({
               .slice(-12)
               .toReversed()
               .map((event) => (
-                <div key={event.id} className="flex gap-3 text-xs">
+                <div
+                  key={event.id}
+                  aria-label={`Recorded by ${event.actorId}`}
+                  className="flex gap-3 text-xs"
+                >
                   <span className="w-28 shrink-0 text-muted-foreground">
                     {event.stepId} · {event.kind}
                   </span>
                   <span className="min-w-0 break-words">
-                    {event.outcome ?? event.detail ?? event.sourceId ?? ""}
+                    {event.outcome ? `${event.outcome} · ` : ""}
+                    {event.detail ?? event.sourceId ?? ""}
                   </span>
                 </div>
               ))}
@@ -232,7 +283,7 @@ export function WorkflowFeatureInspector(props: {
   const [featureId, setFeatureId] = useState("");
   const [inspectedId, setInspectedId] = useState<string | null>(null);
   return (
-    <div className="space-y-3 border-t border-border pt-4">
+    <div className="flex flex-col gap-3 border-t border-border pt-4">
       <div>
         <h4 className="text-sm font-medium">Feature progress</h4>
         <p className="text-xs text-muted-foreground">

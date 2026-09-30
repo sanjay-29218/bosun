@@ -87,6 +87,30 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
           registry,
         ),
     }),
+    pause: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:pause",
+      tag: WS_METHODS.workflowsPause,
+      onSuccess: (target, registry) =>
+        refreshFeature(
+          {
+            environmentId: target.environmentId,
+            input: { projectId: target.input.projectId, featureId: target.input.featureId },
+          },
+          registry,
+        ),
+    }),
+    resume: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:resume",
+      tag: WS_METHODS.workflowsResume,
+      onSuccess: (target, registry) =>
+        refreshFeature(
+          {
+            environmentId: target.environmentId,
+            input: { projectId: target.input.projectId, featureId: target.input.featureId },
+          },
+          registry,
+        ),
+    }),
     cancel: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workflows:cancel",
       tag: WS_METHODS.workflowsCancel,

@@ -50,6 +50,8 @@ export const WorkflowStepEvent = Schema.Struct({
     "failed",
     "retry",
     "cancelled",
+    "paused",
+    "resumed",
   ]),
   botRunId: Schema.NullOr(Schema.String),
   outcome: Schema.NullOr(Schema.String),
@@ -98,6 +100,9 @@ export const WorkflowFeatureSnapshot = Schema.Struct({
   executionCount: Schema.Int,
   completed: Schema.Boolean,
   cancelled: Schema.Boolean,
+  paused: Schema.optionalKey(Schema.Boolean),
+  executionConfigured: Schema.optionalKey(Schema.Boolean),
+  executionError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   historyLength: Schema.Int,
   recentEvents: Schema.Array(WorkflowStepEvent),
 });

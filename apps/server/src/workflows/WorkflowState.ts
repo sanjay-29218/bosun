@@ -30,6 +30,7 @@ export interface WorkflowState {
   readonly executionCount: number;
   readonly completed: boolean;
   readonly cancelled: boolean;
+  readonly paused: boolean;
 }
 
 const nonEmpty = (value: string | null, max: number) =>
@@ -55,6 +56,7 @@ export const projectWorkflowState = (
   let executionCount = 0;
   let completed = false;
   let cancelled = false;
+  let paused = false;
 
   for (const event of events) {
     if (
@@ -99,9 +101,22 @@ export const projectWorkflowState = (
       invalid();
     let current: WorkflowStepState;
     switch (event.kind) {
+      case "paused":
+      case "resumed": {
+        noSource();
+        if (
+          event.executionId !== previous.executionId ||
+          event.botRunId !== null ||
+          (event.kind === "paused" ? paused : !paused)
+        )
+          invalid();
+        paused = event.kind === "paused";
+        continue;
+      }
       case "started": {
         handoffSource();
         if (
+          paused ||
           previous.status !== "pending" ||
           !nonEmpty(event.botRunId, 128) ||
           !nonEmpty(event.executionId, 128)
@@ -182,7 +197,11 @@ export const projectWorkflowState = (
         break;
       }
       case "answered": {
-        handoffSource();
+        if (
+          (event.sourceKind !== "handoff" && event.sourceKind !== "decision") ||
+          !nonEmpty(event.sourceId, 128)
+        )
+          invalid();
         sameExecution();
         if (previous.status !== "needs-input" || !nonEmpty(event.detail, 16_000)) invalid();
         current = { ...previous, status: "running" };
@@ -234,10 +253,13 @@ export const projectWorkflowState = (
   return {
     steps,
     readyStepIds:
-      activeStepId !== null && steps.get(activeStepId)?.status === "pending" ? [activeStepId] : [],
+      !paused && activeStepId !== null && steps.get(activeStepId)?.status === "pending"
+        ? [activeStepId]
+        : [],
     activeStepId,
     executionCount,
     completed,
     cancelled,
+    paused,
   };
 };

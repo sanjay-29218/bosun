@@ -38,10 +38,14 @@ export function MobileWorkflowProjectSection(props: {
   const answer = useAtomCommand(workflowsEnvironment.answer);
   const retry = useAtomCommand(workflowsEnvironment.retry);
   const cancel = useAtomCommand(workflowsEnvironment.cancel);
+  const pause = useAtomCommand(workflowsEnvironment.pause);
+  const resume = useAtomCommand(workflowsEnvironment.resume);
   const data = snapshot.data;
   const active = data?.steps.find((step) => step.id === data.activeStepId);
-  const last = data?.recentEvents.at(-1);
-  const act = async (command: "answer" | "retry" | "cancel") => {
+  const question = data?.recentEvents.findLast(
+    (event) => event.kind === "question" && event.executionId === active?.executionId,
+  );
+  const act = async (command: "answer" | "retry" | "cancel" | "pause" | "resume") => {
     if (!selectedFeatureId || busy) return;
     setBusy(true);
     setActionError(null);
@@ -57,7 +61,11 @@ export function MobileWorkflowProjectSection(props: {
           ? await answer({ ...target, input: { ...input, text: answerText.trim() } })
           : command === "retry"
             ? await retry(target)
-            : await cancel(target);
+            : command === "pause"
+              ? await pause(target)
+              : command === "resume"
+                ? await resume(target)
+                : await cancel(target);
       if (result._tag === "Success") {
         if (command === "answer") setAnswerText("");
         snapshot.refresh();
@@ -119,10 +127,22 @@ export function MobileWorkflowProjectSection(props: {
                 ? "Completed"
                 : data.cancelled
                   ? "Cancelled"
-                  : active
-                    ? `${active.id} · ${active.status}`
-                    : "Ready to start"}
+                  : data.paused
+                    ? "Paused · the next step will wait"
+                    : active
+                      ? `${active.id} · ${active.status}`
+                      : "Ready to start"}
             </Text>
+            {data.executionError ? (
+              <Text accessibilityRole="alert" className="text-sm text-red-500">
+                {data.executionError}
+              </Text>
+            ) : null}
+            {data.executionConfigured === false && !data.completed && !data.cancelled ? (
+              <Text className="text-sm text-foreground-muted">
+                Waiting for the feature crew to be attached.
+              </Text>
+            ) : null}
             {data.steps.map((step) => {
               return (
                 <View key={step.id} className="gap-1 rounded-xl border border-border-subtle p-3">
@@ -155,7 +175,7 @@ export function MobileWorkflowProjectSection(props: {
                   Question for {active.id}
                 </Text>
                 <Text className="text-sm text-foreground-muted">
-                  {last?.kind === "question" ? last.detail : "This step needs an answer."}
+                  {question?.detail ?? "This step needs an answer."}
                 </Text>
                 <AppTextInput
                   accessibilityLabel="Workflow answer"
@@ -176,14 +196,29 @@ export function MobileWorkflowProjectSection(props: {
               </View>
             ) : null}
             {!data.completed && !data.cancelled ? (
-              <View className="flex-row gap-4">
-                {active?.status === "failed" ? (
+              <View className="flex-row flex-wrap gap-4">
+                {data.paused !== undefined ? (
                   <Pressable
                     accessibilityRole="button"
                     disabled={busy}
+                    onPress={() => void act(data.paused ? "resume" : "pause")}
+                  >
+                    <Text className="text-sm text-foreground">
+                      {data.paused ? "Resume workflow" : "Pause workflow"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {active?.status === "failed" ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={
+                      busy || active.attempt >= data.definition.defaults.maxAttemptsPerExecution
+                    }
                     onPress={() => void act("retry")}
                   >
-                    <Text className="text-sm text-foreground">Make step ready to retry</Text>
+                    <Text className="text-sm text-foreground">
+                      {data.executionConfigured ? "Retry step" : "Make step ready to retry"}
+                    </Text>
                   </Pressable>
                 ) : null}
                 <Pressable

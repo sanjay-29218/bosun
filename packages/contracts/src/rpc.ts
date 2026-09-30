@@ -313,6 +313,8 @@ export const WS_METHODS = {
   workflowsAnswer: "workflows.answer",
   workflowsRetry: "workflows.retry",
   workflowsCancel: "workflows.cancel",
+  workflowsPause: "workflows.pause",
+  workflowsResume: "workflows.resume",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -795,6 +797,16 @@ const WsWorkflowsRetryRpc = Rpc.make(WS_METHODS.workflowsRetry, {
   error: WorkflowRpcError,
 });
 const WsWorkflowsCancelRpc = Rpc.make(WS_METHODS.workflowsCancel, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsPauseRpc = Rpc.make(WS_METHODS.workflowsPause, {
+  payload: WorkflowActionInput,
+  success: WorkflowFeatureSnapshot,
+  error: WorkflowRpcError,
+});
+const WsWorkflowsResumeRpc = Rpc.make(WS_METHODS.workflowsResume, {
   payload: WorkflowActionInput,
   success: WorkflowFeatureSnapshot,
   error: WorkflowRpcError,
@@ -1559,6 +1571,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkflowsAnswerRpc,
   WsWorkflowsRetryRpc,
   WsWorkflowsCancelRpc,
+  WsWorkflowsPauseRpc,
+  WsWorkflowsResumeRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,

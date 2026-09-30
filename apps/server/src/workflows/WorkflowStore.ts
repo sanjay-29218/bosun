@@ -9,6 +9,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as PubSub from "effect/PubSub";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
@@ -42,6 +45,13 @@ export type AppendWorkflowEventResult =
   | { readonly kind: "conflict" };
 
 export interface WorkflowStoreShape {
+  readonly subscribeChanges: Effect.Effect<Stream.Stream<string>, never, Scope.Scope>;
+  readonly getExecutionStatus: (featureId: string) => Effect.Effect<
+    {
+      readonly lastError: string | null;
+    } | null,
+    PersistenceSqlError
+  >;
   readonly createDefinition: (
     projectId: ProjectId,
     definition: WorkflowDefinitionType,
@@ -108,6 +118,7 @@ export const WorkflowStoreLive = Layer.effect(
   WorkflowStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const changes = yield* PubSub.unbounded<string>();
     const queryError = toPersistenceSqlError("WorkflowStore.query");
     const decodeError = toPersistenceSqlError("WorkflowStore.decode");
 
@@ -156,6 +167,14 @@ export const WorkflowStoreLive = Layer.effect(
       );
 
     return WorkflowStore.of({
+      subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
+      getExecutionStatus: (featureId) =>
+        sql<{ readonly lastError: string | null }>`
+        SELECT last_error AS lastError FROM workflow_executions WHERE feature_id = ${featureId}
+      `.pipe(
+          Effect.mapError(queryError),
+          Effect.map((rows) => rows[0] ?? null),
+        ),
       createDefinition: (projectId, definition, createdAt) =>
         sql
           .withTransaction(
@@ -270,7 +289,12 @@ export const WorkflowStoreLive = Layer.effect(
               return { kind: "inserted" as const, event };
             }),
           )
-          .pipe(Effect.mapError(queryError)),
+          .pipe(
+            Effect.mapError(queryError),
+            Effect.tap((result) =>
+              result.kind === "inserted" ? PubSub.publish(changes, featureId) : Effect.void,
+            ),
+          ),
     });
   }),
 );

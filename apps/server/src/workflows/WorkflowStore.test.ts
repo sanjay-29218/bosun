@@ -133,6 +133,7 @@ it.effect("migrates an existing bots database without damaging its rows", () =>
         "feature_workflows",
         "workflow_definition_heads",
         "workflow_definition_revisions",
+        "workflow_executions",
         "workflow_step_events",
       ],
     );
