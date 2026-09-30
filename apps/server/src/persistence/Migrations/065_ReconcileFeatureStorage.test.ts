@@ -44,6 +44,10 @@ it.effect("upgrades a Feature-only database without skipping Workflow storage", 
     assert.deepStrictEqual(yield* sql`SELECT title, brief FROM features`, [
       { title: "Existing feature", brief: "Keep this brief" },
     ]);
+    assert.deepStrictEqual(
+      yield* sql`SELECT status, updated_at, bot_assignments_json FROM features`,
+      [{ status: "open", updated_at: "2026-09-30", bot_assignments_json: "{}" }],
+    );
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
     assert.deepStrictEqual(yield* runMigrations(), []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

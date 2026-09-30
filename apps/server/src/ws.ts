@@ -1929,6 +1929,16 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.featuresSetStatus]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.featuresSetStatus,
+            features
+              .setStatus(input.featureId, input.projectId, input.status)
+              .pipe(
+                Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "features" },
+          ),
         [WS_METHODS.featuresCreate]: (input) =>
           observeRpcEffect(
             WS_METHODS.featuresCreate,

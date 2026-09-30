@@ -25,6 +25,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.featuresCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresList]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresGet]: AuthOrchestrationReadScope,
+  [WS_METHODS.featuresSetStatus]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsList]: AuthOrchestrationReadScope,
   [WS_METHODS.workflowsEnsureStarter]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsValidate]: AuthOrchestrationReadScope,

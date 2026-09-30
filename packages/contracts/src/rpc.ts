@@ -26,6 +26,7 @@ import {
   FeatureOperationError,
   FeatureProjectInput,
   FeatureRecord,
+  FeatureSetStatusInput,
 } from "./features.ts";
 import {
   WorkflowCreateInput,
@@ -314,6 +315,7 @@ export const WS_METHODS = {
   featuresCreate: "features.create",
   featuresList: "features.list",
   featuresGet: "features.get",
+  featuresSetStatus: "features.setStatus",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -779,6 +781,11 @@ const WsFeaturesListRpc = Rpc.make(WS_METHODS.featuresList, {
 const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
   payload: FeatureGetInput,
   success: Schema.NullOr(FeatureRecord),
+  error: FeatureRpcError,
+});
+const WsFeaturesSetStatusRpc = Rpc.make(WS_METHODS.featuresSetStatus, {
+  payload: FeatureSetStatusInput,
+  success: FeatureRecord,
   error: FeatureRpcError,
 });
 const WorkflowRpcError = Schema.Union([WorkflowOperationError, EnvironmentAuthorizationError]);
@@ -1591,6 +1598,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsFeaturesCreateRpc,
   WsFeaturesListRpc,
   WsFeaturesGetRpc,
+  WsFeaturesSetStatusRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,

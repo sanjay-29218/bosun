@@ -15,6 +15,10 @@
       "types": "./src/state/workflows.ts",
       "default": "./src/state/workflows.ts"
     },
+    "./state/features": {
+      "types": "./src/state/features.ts",
+      "default": "./src/state/features.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"
