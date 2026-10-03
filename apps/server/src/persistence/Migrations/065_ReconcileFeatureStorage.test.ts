@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as BosunMigrations from "../BosunMigrations.ts";
 import { runMigrations } from "../Migrations.ts";
 import Features from "./062_Features.ts";
 import BotHandoffReceipts from "./063_BotHandoffReceipts.ts";
@@ -57,7 +58,8 @@ it.effect("upgrades a Workflow-only database without losing copied revisions or 
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA foreign_keys = ON`;
-    yield* runMigrations({ toMigrationInclusive: 61 });
+    yield* runMigrations({ toMigrationInclusive: 54 });
+    yield* BosunMigrations.runMigrations(61);
     yield* BotHandoffReceipts;
     yield* WorkflowExecutions;
     yield* sql`

@@ -6,7 +6,7 @@ import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import { ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -19,8 +19,11 @@ import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
 import { ServerConfig } from "../config.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import {
+  BotTestOrchestration as OrchestrationLayerLive,
+  seedBotProject,
+} from "../bots/BotRuntime.testkit.ts";
+import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
@@ -58,14 +61,10 @@ const withSystem = <E>(
       Layer.provideMerge(NodeServices.layer),
     );
     yield* Effect.gen(function* () {
-      const engine = yield* OrchestrationEngineService;
-      yield* engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("create-feature-project"),
+      yield* seedBotProject({
         projectId,
         title: "Feature project",
         workspaceRoot: directory,
-        createdAt: "2026-09-30T00:00:00.000Z",
       });
       yield* (yield* BotService).ensureCrew(projectId, modelSelection);
       yield* exercise;
@@ -282,17 +281,13 @@ describe("feature creation", () => {
         Layer.provideMerge(NodeServices.layer),
       );
       const exercise = Effect.gen(function* () {
-        const engine = yield* OrchestrationEngineService;
         const bots = yield* BotService;
         const botStore = yield* BotStore;
         const features = yield* FeatureService;
-        yield* engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.make("create-workflow-feature-project"),
+        yield* seedBotProject({
           projectId,
           title: "Workflow feature project",
           workspaceRoot: `/tmp/${projectId}`,
-          createdAt: "2026-09-29T00:00:00.000Z",
         });
         yield* bots.ensureCrew(projectId, modelSelection);
         const extra = yield* bots.createTemplate({
