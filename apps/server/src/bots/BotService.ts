@@ -12,7 +12,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
+import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
 import {
   BotStore,

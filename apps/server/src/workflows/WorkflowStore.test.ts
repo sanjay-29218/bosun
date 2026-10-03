@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import * as BosunMigrations from "../persistence/BosunMigrations.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
@@ -106,7 +107,8 @@ it.effect("migrates an existing bots database without damaging its rows", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA foreign_keys = ON`;
-    yield* runMigrations({ toMigrationInclusive: 59 });
+    yield* runMigrations({ toMigrationInclusive: 54 });
+    yield* BosunMigrations.runMigrations(59);
     yield* sql`
       INSERT INTO bot_templates (
         id, project_id, name, instructions, allowed_tools_json,
@@ -120,7 +122,7 @@ it.effect("migrates an existing bots database without damaging its rows", () =>
     yield* runMigrations();
     const templates = yield* sql<{ readonly id: string }>`SELECT id FROM bot_templates`;
     const workflowTables = yield* sql<{ readonly name: string }>`
-      SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%workflow%'
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%workflow%' AND name NOT LIKE 'orchestration_v2_%'
       ORDER BY name
     `;
     assert.deepEqual(

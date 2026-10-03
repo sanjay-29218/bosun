@@ -1,7 +1,8 @@
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
-import { ModelSelection, RuntimeMode } from "./orchestration.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 
 export const BOT_TURN_STATE = {
   MISSING: "missing",

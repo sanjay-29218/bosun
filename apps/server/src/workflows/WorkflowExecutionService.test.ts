@@ -5,7 +5,12 @@ import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { ProjectId, ProviderInstanceId, type WorkflowDefinition } from "@t3tools/contracts";
+import {
+  CommandId,
+  ProjectId,
+  ProviderInstanceId,
+  type WorkflowDefinition,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
@@ -18,8 +23,8 @@ import { BotThreadRuntime, type BotThreadStart } from "../bots/BotThreadRuntime.
 import { BotHandoffService, BotHandoffServiceLive } from "../bots/BotHandoffService.ts";
 import { BotHandoffStore, BotHandoffStoreLive } from "../bots/BotHandoffStore.ts";
 import { ServerConfig } from "../config.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { OrchestrationCommandInvariantError } from "../orchestration/Errors.ts";
+import { BotTestOrchestration as OrchestrationLayerLive } from "../bots/BotRuntime.testkit.ts";
+import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
 import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
@@ -48,8 +53,9 @@ const fixture = (directory: string) => {
           if (failDispatch && input.runId.startsWith("bot-handoff:workflow:")) {
             failDispatch = false;
             return yield* new OrchestrationCommandInvariantError({
-              commandType: "thread.turn.start",
-              detail: "Dispatch unavailable",
+              commandId: CommandId.make("test"),
+              commandType: "message.dispatch",
+              cause: "Dispatch unavailable",
             });
           }
           if (!starts.some((start) => start.runId === input.runId)) starts.push(input);
@@ -62,8 +68,9 @@ const fixture = (directory: string) => {
           if (failInterrupt) {
             failInterrupt = false;
             return yield* new OrchestrationCommandInvariantError({
-              commandType: "thread.turn.interrupt",
-              detail: "Interrupt unavailable",
+              commandId: CommandId.make("test"),
+              commandType: "message.dispatch",
+              cause: "Interrupt unavailable",
             });
           }
           interruptions.push(threadId);

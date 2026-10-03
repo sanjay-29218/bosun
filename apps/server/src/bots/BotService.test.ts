@@ -11,10 +11,12 @@ import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { OrchestrationCommandInvariantError } from "../orchestration/Errors.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { BotTestOrchestration, seedBotProject } from "./BotRuntime.testkit.ts";
+import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
+import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
+import * as Option from "effect/Option";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import {
   makeSqlitePersistenceLive,
   SqlitePersistenceMemory,
@@ -34,37 +36,47 @@ const withSystem = <A, E>(
     readonly bots: BotService["Service"];
     readonly store: BotStore["Service"];
     readonly engine: OrchestrationEngineService["Service"];
-    readonly query: ProjectionSnapshotQuery["Service"];
-  }) => Effect.Effect<A, E>,
+    readonly sql: SqlClient.SqlClient;
+    readonly query: {
+      readonly getThreadDetailById: (threadId: ThreadId) => Effect.Effect<
+        Option.Option<{
+          readonly messages: ReadonlyArray<{ readonly role: string; readonly text: string }>;
+        }>,
+        import("../orchestration-v2/Orchestrator.ts").OrchestratorV2Error
+      >;
+    };
+  }) => Effect.Effect<A, E, ProjectStore.ProjectStoreV2>,
 ) => {
-  const orchestration = OrchestrationLayerLive;
+  const orchestration = BotTestOrchestration;
   const layer = Layer.mergeAll(
     orchestration,
     BotRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
-    Layer.provide(makeSqlitePersistenceLive(databasePath)),
+    Layer.provideMerge(makeSqlitePersistenceLive(databasePath)),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-test-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),
   );
   return Effect.gen(function* () {
+    const engine = yield* OrchestrationEngineService;
     return yield* use({
       bots: yield* BotService,
       store: yield* BotStore,
-      engine: yield* OrchestrationEngineService,
-      query: yield* ProjectionSnapshotQuery,
+      engine,
+      sql: yield* SqlClient.SqlClient,
+      query: {
+        getThreadDetailById: (threadId) =>
+          engine.getThreadRecords(threadId, ["messages"]).pipe(Effect.map(Option.some)),
+      },
     });
   }).pipe(Effect.provide(layer));
 };
 
-const createProject = (engine: OrchestrationEngineService["Service"]) =>
-  engine.dispatch({
-    type: "project.create",
-    commandId: CommandId.make("bot-test-project-create"),
+const createProject = (_engine: OrchestrationEngineService["Service"]) =>
+  seedBotProject({
     projectId,
     title: "Bot test project",
     workspaceRoot: "/tmp/bot-test-project",
-    createdAt: "2026-01-01T00:00:00.000Z",
   });
 
 const createBot = (bots: BotService["Service"]) =>
@@ -168,7 +180,8 @@ describe("Bot foundation", () => {
                 ? Effect.fail(
                     new OrchestrationCommandInvariantError({
                       commandType: "thread.create",
-                      detail: "test failure",
+                      commandId: CommandId.make("test-failure"),
+                      cause: new Error("test failure"),
                     }),
                   )
                 : Effect.void,
@@ -222,7 +235,7 @@ describe("Bot foundation", () => {
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-run-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
-      yield* withSystem(databasePath, ({ bots, engine, query }) =>
+      yield* withSystem(databasePath, ({ bots, engine, query, sql }) =>
         Effect.gen(function* () {
           yield* createProject(engine);
           yield* createBot(bots);
@@ -256,6 +269,14 @@ describe("Bot foundation", () => {
           expect(summaries).toHaveLength(1);
           expect(summaries[0]).not.toHaveProperty("taskText");
           expect(summaries[0]).not.toHaveProperty("instructions");
+          yield* sql`UPDATE bot_runs SET thread_id = 'bot-run:legacy' WHERE id = 'run-1'`;
+          yield* sql`INSERT INTO projection_turns (thread_id, turn_id, state, requested_at, checkpoint_files_json)
+            VALUES ('bot-run:legacy', 'old-turn', 'completed', '2026-01-01', '[]')`;
+          yield* bots.reconcileRuns();
+          expect((yield* bots.getRun("run-1"))?.turnState).toBe("completed");
+          expect((yield* bots.listRunSummaries(projectId, 1))[0]?.turnState).toBe("completed");
+          expect((yield* bots.getRun("run-1"))?.run.recoveryAttempt).toBe(0);
+          expect(yield* engine.getThreadShell(ThreadId.make("bot-run:legacy"))).toBeNull();
         }),
       ).pipe(
         Effect.ensuring(
@@ -306,7 +327,8 @@ describe("Bot foundation", () => {
               interactionMode: "default",
               branch: null,
               worktreePath: null,
-              createdAt: "2026-01-01T00:00:00.000Z",
+              createdBy: "agent",
+              creationSource: "mcp",
             });
           }),
         );
@@ -329,7 +351,7 @@ describe("Bot foundation", () => {
             yield* bots.reconcileRuns();
             const replayed = yield* bots.getRun("queued-1");
             const detail = yield* query.getThreadDetailById(ThreadId.make("bot-run:queued-1"));
-            expect(replayed?.run.recoveryAttempt).toBe(1);
+            expect(replayed?.run.recoveryAttempt).toBe(0);
             expect(detail._tag).toBe("Some");
             if (detail._tag === "Some") {
               expect(

@@ -6,7 +6,6 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
-  CommandId,
   ProjectId,
   ProviderInstanceId,
   type WorkflowDefinition,
@@ -20,8 +19,11 @@ import { BotService } from "../bots/BotService.ts";
 import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
 import { BotRuntimeLive } from "../bots/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import {
+  BotTestOrchestration as OrchestrationLayerLive,
+  seedBotProject,
+} from "../bots/BotRuntime.testkit.ts";
+import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
@@ -77,13 +79,10 @@ const stepEvent = (
 });
 
 const createProject = (engine: OrchestrationEngineService["Service"], id: ProjectId) =>
-  engine.dispatch({
-    type: "project.create",
-    commandId: CommandId.make(`workflow-test-create:${id}`),
+  seedBotProject({
     projectId: id,
     title: `Test ${id}`,
     workspaceRoot: `/tmp/${id}`,
-    createdAt: "2026-09-29T00:00:00.000Z",
   });
 
 describe("Workflow service", () => {

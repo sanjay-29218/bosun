@@ -20,7 +20,7 @@ import { BotHandoffService, type BotHandoffError } from "../bots/BotHandoffServi
 import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
 import { BotStore } from "../bots/BotStore.ts";
 import type { BotServiceError } from "../bots/BotService.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
 import { WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
 import { WorkflowStore } from "./WorkflowStore.ts";
@@ -437,7 +437,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         Effect.gen(function* () {
           const handoffChanges = yield* handoffs.subscribeChanges;
           const workflowChanges = yield* store.subscribeChanges;
-          const domainEvents = yield* engine.subscribeDomainEvents;
+          const domainEvents = engine.streamDomainEvents;
           yield* Stream.runForEach(handoffChanges, (id) =>
             executions.findFeatureForHandoff(id).pipe(
               Effect.flatMap((featureId) =>
@@ -456,8 +456,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             ),
           ).pipe(Effect.forkScoped);
           yield* Stream.runForEach(domainEvents, (event) => {
-            if (event.type !== "thread.session-set" && event.type !== "thread.turn-diff-completed")
-              return Effect.void;
+            if (event.type !== "run.updated") return Effect.void;
             return handoffs.getRunByThread(event.payload.threadId).pipe(
               Effect.flatMap((runId) =>
                 runId ? handoffs.getForTargetRun(runId) : Effect.succeed(null),
@@ -481,7 +480,12 @@ export const WorkflowExecutionServiceLive = Layer.effect(
                 Effect.logWarning("Workflow provider reconciliation failed", { error }),
               ),
             );
-          }).pipe(Effect.forkScoped);
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Workflow orchestration stream failed", { error }),
+            ),
+            Effect.forkScoped,
+          );
           yield* reconcile();
         }),
     });
