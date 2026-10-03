@@ -48,6 +48,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
 
     const resolved = yield* registry.resolve(token);
     expect(resolved?.threadId).toBe(threadId);
+    expect(resolved?.capabilities).toEqual(new Set(["preview"]));
 
     yield* registry.revokeThread(threadId);
     expect(yield* registry.resolve(token)).toBeUndefined();
@@ -82,6 +83,16 @@ it.effect("grants only the capabilities requested for a provider thread", () =>
     expect(yield* capabilitiesOf(withPreview)).toEqual(["preview", "pull-requests"]);
     expect(yield* capabilitiesOf(withoutPreview)).toEqual([]);
     expect(yield* capabilitiesOf(withDevice)).toEqual(["device"]);
+    const defaults = yield* registry.issue({
+      threadId: ThreadId.make("thread-defaults"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+    });
+    expect(yield* capabilitiesOf(defaults)).toEqual([
+      "orchestration",
+      "preview",
+      "pull-requests",
+      "worktree",
+    ]);
   }),
 );
 

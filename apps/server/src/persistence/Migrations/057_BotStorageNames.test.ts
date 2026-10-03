@@ -1,3 +1,4 @@
+import * as BosunMigrations from "../BosunMigrations.ts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -38,7 +39,8 @@ legacy("legacy bot storage", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`PRAGMA foreign_keys = ON`;
-      yield* runMigrations({ toMigrationInclusive: 56 });
+      yield* runMigrations({ toMigrationInclusive: 54 });
+      yield* BosunMigrations.runMigrations(56);
       yield* sql`
         INSERT INTO bosun_bot_definitions (
           id, project_id, role, name, instructions, allowed_tools_json,
@@ -69,10 +71,32 @@ legacy("legacy bot storage", (it) => {
           'Review', '', 1, 'completed', '2026-09-27', '2026-09-27'
         )
       `;
-      yield* sql`UPDATE effect_sql_migrations SET name = 'BosunBots' WHERE migration_id = 55`;
-      yield* sql`UPDATE effect_sql_migrations SET name = 'BosunHandoffs' WHERE migration_id = 56`;
+      yield* sql`UPDATE bosun_sql_migrations SET name = 'BosunBots' WHERE migration_id = 55`;
+      yield* sql`UPDATE bosun_sql_migrations SET name = 'BosunHandoffs' WHERE migration_id = 56`;
 
+      // Reproduce the old fork's shared migration ledger, including colliding IDs.
+      yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at)
+        SELECT migration_id, name, created_at FROM bosun_sql_migrations`;
+      yield* sql`DROP TABLE bosun_sql_migrations`;
       yield* runMigrations();
+      yield* runMigrations();
+      const upstream = yield* sql<{ readonly name: string }>`
+        SELECT name FROM effect_sql_migrations WHERE migration_id >= 55 ORDER BY migration_id
+      `;
+      assert.deepStrictEqual(
+        upstream.map((row) => row.name),
+        ["OrchestrationV2", "RemoveRedundantProjectionIndexes"],
+      );
+      const domain = yield* sql<{ readonly name: string }>`
+        SELECT name FROM bosun_sql_migrations ORDER BY migration_id
+      `;
+      assert.deepStrictEqual(
+        domain.map((row) => row.name),
+        ["Bots", "BotHandoffs", "BotStorageNames", "BotTemplates", "BotHierarchy"],
+      );
+      const v2Tables =
+        yield* sql`SELECT name FROM sqlite_master WHERE name = 'orchestration_v2_projection_runs'`;
+      assert.strictEqual(v2Tables.length, 1);
 
       const bots = yield* sql<{ readonly id: string; readonly templateId: string | null }>`
         SELECT id, template_id AS templateId FROM bots

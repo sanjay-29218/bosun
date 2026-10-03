@@ -498,8 +498,18 @@ export const BotStoreLive = Layer.effect(
           SELECT id, bot_id AS botId, project_id AS projectId, thread_id AS threadId,
             dispatch_state AS dispatchState, last_error AS lastError, created_at AS createdAt,
             COALESCE((
-              SELECT state FROM projection_turns AS t
-              WHERE t.thread_id = r.thread_id ORDER BY t.row_id DESC LIMIT 1
+              SELECT CASE t.status
+                WHEN 'running' THEN 'running' WHEN 'waiting' THEN 'running'
+                WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'error'
+                WHEN 'interrupted' THEN 'interrupted' WHEN 'cancelled' THEN 'interrupted'
+                WHEN 'rolled_back' THEN 'interrupted' ELSE 'pending' END
+              FROM orchestration_v2_projection_runs AS t
+              WHERE t.thread_id = r.thread_id ORDER BY t.ordinal DESC LIMIT 1
+            ), (
+              SELECT CASE legacy.state WHEN 'completed' THEN 'completed'
+                WHEN 'error' THEN 'error' ELSE 'interrupted' END
+              FROM projection_turns AS legacy WHERE legacy.thread_id = r.thread_id
+              ORDER BY legacy.requested_at DESC, legacy.row_id DESC LIMIT 1
             ), ${BOT_TURN_STATE.MISSING}) AS turnState
           FROM bot_runs AS r WHERE project_id = ${projectId}
           ORDER BY created_at DESC, id DESC LIMIT ${limit}

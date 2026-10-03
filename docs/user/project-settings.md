@@ -56,6 +56,31 @@ feature crews become available; it does not start a workflow.
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current bot status or send an action.
 
+## Worktree branch names
+
+In **Settings → Source Control → Worktree branch naming**, choose a static prefix,
+a model-selected semantic prefix such as `feat/` or `fix/`, or custom instructions
+for the complete name. The static prefix defaults to `t3code/`; a trailing slash is
+optional, and an empty prefix adds nothing. Invalid characters in a static prefix
+are replaced with hyphens. Custom instructions are appended to
+the naming prompt and can specify issue IDs, namespaces, and casing.
+
+These settings apply to automatically named new worktree branches. Select a project
+to override its environment defaults. Worktree directories keep their original names.
+If generation fails, or a custom name is invalid or already taken, the temporary
+branch name remains.
+
+## Scheduled tasks on mobile
+
+Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
+ones across your connected environments. Use the settings filter to narrow the
+list by environment or project. Each task runs on the environment you choose,
+using its project, model, and workspace settings. Fixed-time schedules use that
+environment's time zone, which may differ from your phone's.
+
+You can edit, pause, resume, run immediately, or delete a task from the list.
+Leaving an edited form asks before discarding unsaved changes.
+
 ## Defaults and inheritance
 
 General contains the model and workspace for new threads. Integrations controls agent browser

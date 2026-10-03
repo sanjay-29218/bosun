@@ -35,11 +35,11 @@ export default Effect.gen(function* () {
   }
 
   yield* sql`
-    UPDATE effect_sql_migrations SET name = 'Bots'
+    UPDATE bosun_sql_migrations SET name = 'Bots'
     WHERE migration_id = 55 AND name = 'BosunBots'
   `;
   yield* sql`
-    UPDATE effect_sql_migrations SET name = 'BotHandoffs'
+    UPDATE bosun_sql_migrations SET name = 'BotHandoffs'
     WHERE migration_id = 56 AND name = 'BosunHandoffs'
   `;
 });
