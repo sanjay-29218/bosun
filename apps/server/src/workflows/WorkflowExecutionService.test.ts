@@ -377,6 +377,45 @@ describe("Workflow execution", () => {
     }),
   );
 
+  it.effect("keeps a running feature on its workflow version when a new one is published", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, definition, execution, workflows, bindings } = yield* seed();
+        const handoffs = yield* BotHandoffService;
+        yield* execution.attach(featureId, projectId, bindings);
+        const review = definition.steps.review!;
+        yield* workflows.reviseDefinition(
+          projectId,
+          {
+            ...definition,
+            revision: 2,
+            steps: { ...definition.steps, review: { ...review, task: "Review with checklist" } },
+          },
+          1,
+        );
+
+        const plan = yield* activeHandoff(featureId);
+        yield* handoffs.respond(
+          plan.run.threadId,
+          "completed",
+          '{"outcome":"ready","summary":"Plan ready"}',
+        );
+        yield* execution.reconcileFeature(featureId);
+        const next = yield* activeHandoff(featureId);
+        expect(next.snapshot.definition.revision).toBe(1);
+        expect(
+          (yield* workflows.getStageHandoffForThread(projectId, next.run.threadId))?.workflow,
+        ).toEqual({ id: definition.id, name: definition.name, revision: 1 });
+        expect(next.run.taskText.startsWith("Review\n")).toBe(true);
+
+        const later = yield* workflows.copyForFeature("feature-later", projectId, definition.id);
+        expect(later.definition.revision).toBe(2);
+        expect(later.definition.steps.review).toMatchObject({ task: "Review with checklist" });
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+
   it.effect("advances from the live receipt subscription without polling", () =>
     withDirectory((directory) => {
       const system = fixture(directory);

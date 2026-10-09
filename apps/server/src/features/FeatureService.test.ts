@@ -119,6 +119,8 @@ describe("feature creation", () => {
           };
           const created = yield* features.create(input);
           expect(created.workflowId).toBe(selected.id);
+          expect(created.workflowRevision).toBe(selected.revision);
+          expect((yield* features.get(created.id))?.workflowRevision).toBe(selected.revision);
           expect(created.botAssignments.manager).toBe(`bot-manager:${projectId}`);
           expect(created.botAssignments.second_planner).not.toBe(created.botAssignments.planner);
           const crew = (yield* store.listDefinitionsForProject(projectId)).filter(
@@ -335,6 +337,7 @@ describe("feature creation", () => {
         expect(created.status).toBe("open");
         expect(created.updatedAt).toBe(created.createdAt);
         expect(created.workflowId).toBeNull();
+        expect(created.workflowRevision).toBeNull();
         const featureBots = (yield* botStore.listDefinitionsForProject(projectId)).filter(
           (bot) => bot.featureId === input.id,
         );
