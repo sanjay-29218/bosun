@@ -211,9 +211,7 @@ export function MobileWorkflowProjectSection(props: {
                 {active?.status === "failed" ? (
                   <Pressable
                     accessibilityRole="button"
-                    disabled={
-                      busy || active.attempt >= data.definition.defaults.maxAttemptsPerExecution
-                    }
+                    disabled={busy}
                     onPress={() => void act("retry")}
                   >
                     <Text className="text-sm text-foreground">

@@ -49,6 +49,7 @@ export interface WorkflowStoreShape {
   readonly getExecutionStatus: (featureId: string) => Effect.Effect<
     {
       readonly lastError: string | null;
+      readonly queuedAt: string | null;
     } | null,
     PersistenceSqlError
   >;
@@ -169,8 +170,9 @@ export const WorkflowStoreLive = Layer.effect(
     return WorkflowStore.of({
       subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
       getExecutionStatus: (featureId) =>
-        sql<{ readonly lastError: string | null }>`
-        SELECT last_error AS lastError FROM workflow_executions WHERE feature_id = ${featureId}
+        sql<{ readonly lastError: string | null; readonly queuedAt: string | null }>`
+        SELECT last_error AS lastError, queued_at AS queuedAt
+        FROM workflow_executions WHERE feature_id = ${featureId}
       `.pipe(
           Effect.mapError(queryError),
           Effect.map((rows) => rows[0] ?? null),

@@ -33,12 +33,19 @@ export const makeStarterWorkflow = (
       reviewer: template("reviewer"),
     },
     steps: {
-      plan: { type: "task", bot: "planner", task: "Plan the feature", next: { ready: "design" } },
+      plan: {
+        type: "task",
+        bot: "planner",
+        task: "Plan the feature",
+        next: { ready: "design" },
+        gate: true,
+      },
       design: {
         type: "task",
         bot: "designer",
         task: "Design the feature",
         next: { ready: "build" },
+        gate: true,
       },
       build: {
         type: "task",
@@ -57,6 +64,7 @@ export const makeStarterWorkflow = (
         bot: "reviewer",
         task: "Review the feature",
         next: { approved: "end", changes_requested: "change_review" },
+        limits: { changes_requested: 3 },
       },
       change_review: {
         type: "task",
@@ -69,7 +77,6 @@ export const makeStarterWorkflow = (
     defaults: {
       questions: "supervisor",
       failure: "pause",
-      maxAttemptsPerExecution: 3,
       maxStepExecutions: 30,
     },
   };

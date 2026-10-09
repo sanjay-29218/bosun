@@ -450,10 +450,11 @@ describe("Workflow execution", () => {
           );
           yield* handoffs.respond(second.run.threadId, "failed", "Provider unavailable");
           yield* execution.reconcileFeature(featureId);
+          // A person's Retry is never capped; only automatic retries are.
           expect(
             (yield* workflows
               .recordTrustedEvent(featureId, {
-                id: "retry-over-limit",
+                id: "retry-again",
                 stepId: "plan",
                 executionId: second.step.executionId,
                 kind: "retry",
@@ -466,7 +467,7 @@ describe("Workflow execution", () => {
                 occurredAt: "2026-09-30T00:00:01Z",
               })
               .pipe(Effect.result))._tag,
-          ).toBe("Failure");
+          ).toBe("Success");
         }).pipe(Effect.provide(system.layer));
       }),
   );

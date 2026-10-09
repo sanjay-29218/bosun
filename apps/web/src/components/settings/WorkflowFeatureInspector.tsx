@@ -210,10 +210,7 @@ function FeatureRun({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={
-                    busy ||
-                    (active?.attempt ?? 0) >= data.definition.defaults.maxAttemptsPerExecution
-                  }
+                  disabled={busy}
                   onClick={() =>
                     void invoke(() =>
                       retry({

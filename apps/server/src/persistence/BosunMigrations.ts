@@ -21,6 +21,7 @@ import Features from "./Migrations/062_Features.ts";
 import ReconcileFeatureStorage from "./Migrations/065_ReconcileFeatureStorage.ts";
 
 import FeatureLifecycle from "./Migrations/066_FeatureLifecycle.ts";
+import CrewLifecycle from "./Migrations/067_CrewLifecycle.ts";
 
 export const migrationEntries = [
   [55, "Bots", Bots],
@@ -35,6 +36,7 @@ export const migrationEntries = [
   [64, "WorkflowExecutions", WorkflowExecutions],
   [65, "ReconcileFeatureStorage", ReconcileFeatureStorage],
   [66, "FeatureLifecycle", FeatureLifecycle],
+  [67, "CrewLifecycle", CrewLifecycle],
 ] as const;
 
 const legacyNames = new Set([
@@ -53,6 +55,7 @@ const legacyNames = new Set([
   "WorkflowExecutions",
   "ReconcileFeatureStorage",
   "FeatureLifecycle",
+  "CrewLifecycle",
   "FeatureLaunches",
   "FeatureExecution",
   "FeatureCheckoutSetup",

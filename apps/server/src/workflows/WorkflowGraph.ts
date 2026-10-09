@@ -7,6 +7,8 @@ export class WorkflowValidationError extends Error {
 const validId = (value: string) => /^[a-z][a-z0-9_-]{0,79}$/.test(value);
 const validName = (value: string, limit: number) =>
   value.trim().length > 0 && value.length <= limit;
+const intBetween = (value: number, min: number, max: number) =>
+  Number.isSafeInteger(value) && value >= min && value <= max;
 
 /** Validates published bot assignments and the single-path outcome graph. */
 export const validateWorkflowDefinition = (definition: WorkflowDefinition): void => {
@@ -25,13 +27,11 @@ export const validateWorkflowDefinition = (definition: WorkflowDefinition): void
   if (botIds.length < 1 || botIds.length > 32 || stepIds.length < 2 || stepIds.length > 64) {
     throw new WorkflowValidationError("Workflow needs 1-32 bots and 2-64 steps");
   }
+  const { maxAttemptsPerExecution, maxStepExecutions, retries } = definition.defaults;
   if (
-    !Number.isSafeInteger(definition.defaults.maxAttemptsPerExecution) ||
-    definition.defaults.maxAttemptsPerExecution < 1 ||
-    definition.defaults.maxAttemptsPerExecution > 10 ||
-    !Number.isSafeInteger(definition.defaults.maxStepExecutions) ||
-    definition.defaults.maxStepExecutions < 1 ||
-    definition.defaults.maxStepExecutions > 500
+    (maxAttemptsPerExecution !== undefined && !intBetween(maxAttemptsPerExecution, 1, 10)) ||
+    !intBetween(maxStepExecutions, 1, 500) ||
+    (retries !== undefined && !intBetween(retries, 0, 10))
   ) {
     throw new WorkflowValidationError("Invalid workflow execution limits");
   }
@@ -75,6 +75,11 @@ export const validateWorkflowDefinition = (definition: WorkflowDefinition): void
     for (const [outcome, target] of routes) {
       if (!validId(outcome) || !Object.hasOwn(definition.steps, target)) {
         throw new WorkflowValidationError(`Invalid outcome route from ${id}`);
+      }
+    }
+    for (const [outcome, limit] of Object.entries(step.limits ?? {})) {
+      if (!Object.hasOwn(step.next, outcome) || !intBetween(limit, 1, 20)) {
+        throw new WorkflowValidationError(`Invalid route limit from ${id}`);
       }
     }
   }

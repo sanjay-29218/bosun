@@ -27,6 +27,14 @@ export const FeatureSetStatusInput = Schema.Struct({
   status: Schema.Literals(["open", "closed"]),
 });
 
+export const FeatureStartInput = FeatureGetInput;
+/** From Done, `stepId` picks the stage the follow-up starts at. */
+export const FeatureReopenInput = Schema.Struct({
+  ...FeatureGetInput.fields,
+  requestId: Schema.String,
+  stepId: Schema.optionalKey(Schema.String),
+});
+
 export class FeatureOperationError extends Schema.TaggedError<FeatureOperationError>()(
   "FeatureOperationError",
   { reason: Schema.String },

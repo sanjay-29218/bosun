@@ -17,6 +17,8 @@ import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { validateWorkflowDefinition, WorkflowValidationError } from "./WorkflowGraph.ts";
 import {
+  featureCardState,
+  featureStage,
   projectWorkflowState,
   WorkflowTransitionError,
   type WorkflowState,
@@ -292,7 +294,7 @@ export const WorkflowServiceLive = Layer.effect(
           const execution = yield* store.getExecutionStatus(featureId);
           const steps = yield* Effect.forEach(
             [...state.steps.values()],
-            (step) =>
+            ({ modelSelection: _override, ...step }) =>
               step.botRunId === null
                 ? Effect.succeed({ ...step, threadId: null })
                 : bots
@@ -300,6 +302,7 @@ export const WorkflowServiceLive = Layer.effect(
                     .pipe(Effect.map((run) => ({ ...step, threadId: run?.threadId ?? null }))),
             { concurrency: 8 },
           );
+          const queuedAt = execution?.queuedAt ?? null;
           return {
             featureId,
             projectId,
@@ -315,6 +318,10 @@ export const WorkflowServiceLive = Layer.effect(
             paused: state.paused,
             executionConfigured: execution !== null,
             executionError: execution?.lastError ?? null,
+            state: featureCardState(state, queuedAt !== null),
+            queuedAt,
+            stage: featureStage(copy.definition, state),
+            yourCall: state.yourCall,
             historyLength: events.length,
             recentEvents: events.slice(-100),
           } satisfies WorkflowFeatureSnapshot;

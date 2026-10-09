@@ -1,7 +1,16 @@
-import type { WorkflowDefinition, WorkflowStepEvent } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  type WorkflowDefinition,
+  type WorkflowStepEvent,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { projectWorkflowState } from "./WorkflowState.ts";
+import {
+  featureCardState,
+  featureStage,
+  projectWorkflowState,
+  type WorkflowState,
+} from "./WorkflowState.ts";
 
 const definition: WorkflowDefinition = {
   schemaVersion: 1,
@@ -102,7 +111,7 @@ describe("workflow step history", () => {
     expect(projectWorkflowState(definition, history).steps.get("end")?.status).toBe("completed");
   });
 
-  it("retries within the execution with a fresh run and respects limits", () => {
+  it("retries within the execution with a fresh run, as often as a person asks", () => {
     const history = [
       start("start", "build", "execution-1", "run-1"),
       event("failed", "build", "failed", {
@@ -129,10 +138,23 @@ describe("workflow step history", () => {
         detail: "Still unavailable",
       }),
     );
+    const model = { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus-5-5" };
+    history.push(
+      event("retry-again", "build", "retry", { executionId: "execution-1", modelSelection: model }),
+    );
+    expect(projectWorkflowState(definition, history).steps.get("build")).toMatchObject({
+      status: "pending",
+      modelSelection: model,
+    });
+    history.push(start("third", "build", "execution-1", "run-3"));
+    expect(projectWorkflowState(definition, history).steps.get("build")).toMatchObject({
+      attempt: 3,
+      modelSelection: model,
+    });
     expect(() =>
       projectWorkflowState(definition, [
         ...history,
-        event("retry-again", "build", "retry", { executionId: "execution-1" }),
+        event("retry-running", "build", "retry", { executionId: "execution-1" }),
       ]),
     ).toThrow(/Invalid retry/);
   });
@@ -152,5 +174,247 @@ describe("workflow step history", () => {
         start("late", "build", "execution-1", "run-1"),
       ]),
     ).toThrow(/Invalid started/);
+  });
+
+  const gated: WorkflowDefinition = {
+    ...definition,
+    steps: {
+      plan: { type: "task", bot: "builder", task: "Plan", next: { ready: "build" }, gate: true },
+      build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+      review: {
+        type: "task",
+        bot: "builder",
+        task: "Review",
+        next: { approved: "end", changes_requested: "build" },
+        limits: { changes_requested: 1 },
+      },
+      end: { type: "end" },
+    },
+    start: "plan",
+    defaults: { ...definition.defaults, maxStepExecutions: 20 },
+  };
+  const project = (history: ReadonlyArray<WorkflowStepEvent>) =>
+    projectWorkflowState(gated, history);
+  const status = (state: WorkflowState, stepId: string) => state.steps.get(stepId)?.status;
+  const throughReview = () => [
+    start("p1", "plan", "e1", "r1"),
+    complete("p1-done", "plan", "e1", "ready"),
+    event("approve", "plan", "approved", { executionId: "e1", detail: "Keep it small" }),
+    start("b1", "build", "e2", "r2"),
+    complete("b1-done", "build", "e2", "built"),
+    start("v1", "review", "e3", "r3"),
+  ];
+
+  it("holds a gated stage for approval, and reruns it when changes are requested", () => {
+    const waiting = [start("p1", "plan", "e1", "r1"), complete("p1-done", "plan", "e1", "ready")];
+    expect(project(waiting).steps.get("plan")).toMatchObject({
+      status: "awaiting-approval",
+      pendingOutcome: "ready",
+    });
+    expect(featureCardState(project(waiting), false)).toBe("approval");
+    expect(project(waiting).readyStepIds).toEqual([]);
+    expect(() =>
+      project([...waiting, event("note-less", "plan", "changes-requested", { executionId: "e1" })]),
+    ).toThrow(/Invalid changes-requested/);
+    const rerun = [
+      ...waiting,
+      event("changes", "plan", "changes-requested", { executionId: "e1", detail: "Add risks" }),
+    ];
+    expect(project(rerun).steps.get("plan")).toMatchObject({
+      status: "pending",
+      executionId: null,
+    });
+    expect(project([...rerun, start("p2", "plan", "e4", "r4")]).executionCount).toBe(2);
+    const approved = [...waiting, event("ok", "plan", "approved", { executionId: "e1" })];
+    expect(project(approved).activeStepId).toBe("build");
+    expect(status(project(approved), "plan")).toBe("completed");
+  });
+
+  it("stops a looping route at Your call, then accepts or allows one more round", () => {
+    const firstLoop = [
+      ...throughReview(),
+      complete("v1-done", "review", "e3", "changes_requested"),
+      start("b2", "build", "e4", "r4"),
+      complete("b2-done", "build", "e4", "built"),
+      start("v2", "review", "e5", "r5"),
+      complete("v2-done", "review", "e5", "changes_requested"),
+    ];
+    const held = project(firstLoop);
+    expect(held.yourCall).toEqual({
+      reason: "loop-limit",
+      stepId: "review",
+      outcome: "changes_requested",
+      target: "build",
+    });
+    expect(status(held, "review")).toBe("limit-reached");
+    expect(featureCardState(held, false)).toBe("your-call");
+    const accepted = project([
+      ...firstLoop,
+      event("accept", "review", "accepted", { executionId: "e5", outcome: "approved" }),
+    ]);
+    expect(accepted.completed).toBe(true);
+    expect(featureCardState(accepted, false)).toBe("done");
+    const extended = project([
+      ...firstLoop,
+      event("more", "review", "extended", { executionId: "e5" }),
+    ]);
+    expect(extended.activeStepId).toBe("build");
+    expect(extended.yourCall).toBeNull();
+  });
+
+  it("stops at Your call when the execution limit is used up", () => {
+    const tight = { ...gated, defaults: { ...gated.defaults, maxStepExecutions: 2 } };
+    const history = [
+      start("p1", "plan", "e1", "r1"),
+      complete("p1-done", "plan", "e1", "ready"),
+      event("approve", "plan", "approved", { executionId: "e1" }),
+      start("b1", "build", "e2", "r2"),
+      complete("b1-done", "build", "e2", "built"),
+    ];
+    const held = projectWorkflowState(tight, history);
+    expect(held.yourCall?.reason).toBe("execution-limit");
+    const more = projectWorkflowState(tight, [
+      ...history,
+      event("more", "build", "extended", { executionId: "e2" }),
+    ]);
+    expect(more.activeStepId).toBe("review");
+    expect(more.readyStepIds).toEqual(["review"]);
+  });
+
+  it("lets a person take over a stage and mark it done, ignoring bot results", () => {
+    const history = [
+      ...throughReview(),
+      event("take", "review", "taken-over", { executionId: "e3" }),
+    ];
+    expect(status(project(history), "review")).toBe("taken-over");
+    expect(featureCardState(project(history), false)).toBe("working");
+    expect(() => project([...history, complete("late", "review", "e3", "approved")])).toThrow(
+      /Invalid completed/,
+    );
+    expect(() =>
+      project([
+        ...history,
+        event("no-summary", "review", "marked-done", { executionId: "e3", outcome: "approved" }),
+      ]),
+    ).toThrow(/Invalid marked-done/);
+    const done = project([
+      ...history,
+      event("done", "review", "marked-done", {
+        executionId: "e3",
+        outcome: "approved",
+        detail: "Reviewed by hand",
+      }),
+    ]);
+    expect(done.completed).toBe(true);
+    const retried = project([...history, event("again", "review", "retry", { executionId: "e3" })]);
+    expect(status(retried, "review")).toBe("pending");
+  });
+
+  it("retries automatically only after a failure it cites", () => {
+    const failed = [
+      ...throughReview(),
+      event("fail", "review", "failed", { executionId: "e3", detail: "Crashed" }),
+    ];
+    expect(featureCardState(project(failed), false)).toBe("failed");
+    expect(() =>
+      project([
+        ...failed,
+        event("auto", "review", "retry", {
+          executionId: "e3",
+          sourceKind: "workflow",
+          sourceId: null,
+        }),
+      ]),
+    ).toThrow(/Invalid retry/);
+    const retried = project([
+      ...failed,
+      event("auto", "review", "retry", {
+        executionId: "e3",
+        sourceKind: "workflow",
+        sourceId: "fail",
+      }),
+    ]);
+    expect(retried.readyStepIds).toEqual(["review"]);
+  });
+
+  it("sends a stage back to an earlier one and resets everything after it", () => {
+    const failed = [
+      ...throughReview(),
+      event("fail", "review", "failed", { executionId: "e3", detail: "Broken build" }),
+    ];
+    expect(() =>
+      project([
+        ...failed,
+        event("future", "review", "sent-back", { executionId: "e3", targetStepId: "review" }),
+      ]),
+    ).toThrow(/Invalid sent-back/);
+    const sent = project([
+      ...failed,
+      event("back", "review", "sent-back", {
+        executionId: "e3",
+        targetStepId: "build",
+        detail: "Broken build: fix the import",
+      }),
+    ]);
+    expect(sent.activeStepId).toBe("build");
+    expect(status(sent, "build")).toBe("pending");
+    expect(status(sent, "review")).toBe("pending");
+    expect(status(sent, "plan")).toBe("completed");
+  });
+
+  it("skips a failed stage along its first unlimited route", () => {
+    const skipped = project([
+      ...throughReview(),
+      event("fail", "review", "failed", { executionId: "e3", detail: "Flaky" }),
+      event("skip", "review", "skipped", { executionId: "e3", outcome: "approved" }),
+    ]);
+    expect(skipped.completed).toBe(true);
+    expect(status(skipped, "review")).toBe("skipped");
+  });
+
+  it("reopens a cancelled feature where it stopped, and Done at a chosen stage", () => {
+    const cancelled = [
+      ...throughReview(),
+      event("cancel", "review", "cancelled", { executionId: "e3" }),
+    ];
+    expect(featureCardState(project(cancelled), false)).toBe("cancelled");
+    expect(featureStage(gated, project(cancelled))).toEqual({
+      stepId: "review",
+      index: 3,
+      total: 3,
+    });
+    expect(() => project([...cancelled, event("elsewhere", "build", "reopened")])).toThrow(
+      /Invalid reopened/,
+    );
+    const resumed = project([...cancelled, event("reopen", "review", "reopened")]);
+    expect(resumed.cancelled).toBe(false);
+    expect(resumed.steps.get("review")).toMatchObject({ status: "pending", executionId: "e3" });
+    const resumedHistory = [
+      ...cancelled,
+      event("reopen", "review", "reopened"),
+      start("v2", "review", "e3", "r4"),
+    ];
+    expect(project(resumedHistory).steps.get("review")?.attempt).toBe(2);
+    const done = [...resumedHistory, complete("v2-done", "review", "e3", "approved")];
+    expect(project(done).completed).toBe(true);
+    const followUp = project([...done, event("follow-up", "build", "reopened")]);
+    expect(followUp.completed).toBe(false);
+    expect(followUp.activeStepId).toBe("build");
+    expect(status(followUp, "review")).toBe("pending");
+    expect(status(followUp, "end")).toBe("pending");
+  });
+
+  it("orders card states so what needs a person wins", () => {
+    const waiting = project([start("p1", "plan", "e1", "r1")]);
+    expect(featureCardState(waiting, false)).toBe("working");
+    expect(featureCardState(project([]), true)).toBe("queued");
+    const paused = project([event("pause", "plan", "paused")]);
+    expect(featureCardState(paused, true)).toBe("paused");
+    const asking = project([
+      start("p1", "plan", "e1", "r1"),
+      event("ask", "plan", "question", { executionId: "e1", detail: "Which?" }),
+      event("pause", "plan", "paused", { executionId: "e1" }),
+    ]);
+    expect(featureCardState(asking, false)).toBe("input");
   });
 });

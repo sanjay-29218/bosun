@@ -593,22 +593,24 @@ export function WorkflowsProjectSection({
               </div>
               <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
                 <label className="space-y-1 text-xs text-muted-foreground">
-                  <span>Attempts per execution</span>
+                  <span>Retries before a stage fails</span>
                   <Input
-                    aria-label="Attempts per execution"
+                    aria-label="Retries before a stage fails"
                     type="number"
-                    min={1}
+                    min={0}
                     max={10}
-                    value={draft.defaults.maxAttemptsPerExecution}
-                    onChange={(event) =>
+                    placeholder="Crew default"
+                    value={draft.defaults.retries ?? ""}
+                    onChange={(event) => {
+                      const { retries: _retries, ...defaults } = draft.defaults;
                       setDraft({
                         ...draft,
-                        defaults: {
-                          ...draft.defaults,
-                          maxAttemptsPerExecution: Number(event.target.value),
-                        },
-                      })
-                    }
+                        defaults:
+                          event.target.value === ""
+                            ? defaults
+                            : { ...defaults, retries: Number(event.target.value) },
+                      });
+                    }}
                   />
                 </label>
                 <label className="space-y-1 text-xs text-muted-foreground">
