@@ -9,11 +9,13 @@ import {
   CommandId,
   ProjectId,
   ProviderInstanceId,
+  type ThreadId,
   type WorkflowDefinition,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
 
@@ -24,8 +26,14 @@ import { BotHandoffService, BotHandoffServiceLive } from "../bots/BotHandoffServ
 import { BotHandoffStore, BotHandoffStoreLive } from "../bots/BotHandoffStore.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { BotTestOrchestration as OrchestrationLayerLive } from "../bots/BotRuntime.testkit.ts";
-import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
+import {
+  BotTestOrchestration as OrchestrationLayerLive,
+  seedBotProject,
+} from "../bots/BotRuntime.testkit.ts";
+import {
+  OrchestratorDispatchError as OrchestrationCommandInvariantError,
+  OrchestratorV2,
+} from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
@@ -856,6 +864,85 @@ describe("Workflow execution", () => {
         expect(restarted.interruptions.length).toBe(1);
         expect(restarted.starts).toEqual([]);
       });
+    }),
+  );
+
+  it.effect("labels each stage thread with its feature stage and keeps one current", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const engine = yield* OrchestratorV2;
+        const sql = yield* SqlClient.SqlClient;
+        const handoffs = yield* BotHandoffService;
+        yield* seedBotProject({ projectId, title: "Execution", workspaceRoot: "/repo" });
+        const { featureId, execution, bindings } = yield* seed();
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '')`;
+        // The fake bot runtime starts no threads, so create each stage thread as the real one would.
+        const createThread = (threadId: ThreadId) =>
+          engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`create:${threadId}`),
+            threadId,
+            projectId,
+            title: "Planner: Plan",
+            modelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeHandoff(featureId);
+        yield* createThread(plan.run.threadId);
+        yield* execution.reconcileFeature(featureId);
+        const planShell = (yield* engine.getThreadShell(plan.run.threadId))!;
+        expect(planShell.title).toBe("Kanban board");
+        expect(planShell.crew).toEqual({
+          featureId,
+          stepId: "plan",
+          index: 1,
+          total: 3,
+          state: "working",
+          current: true,
+        });
+
+        // A person's rename survives later stage updates.
+        yield* engine.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("rename"),
+          threadId: plan.run.threadId,
+          title: "My plan",
+        });
+        yield* handoffs.respond(
+          plan.run.threadId,
+          "completed",
+          '{"outcome":"ready","summary":"Plan ready"}',
+        );
+        yield* execution.reconcileFeature(featureId);
+        const review = yield* activeHandoff(featureId);
+        yield* createThread(review.run.threadId);
+        yield* execution.reconcileFeature(featureId);
+        expect((yield* engine.getThreadShell(review.run.threadId))?.crew).toMatchObject({
+          stepId: "review",
+          index: 3,
+          current: true,
+        });
+        const earlier = (yield* engine.getThreadShell(plan.run.threadId))!;
+        expect(earlier.title).toBe("My plan");
+        expect(earlier.crew).toMatchObject({ stepId: "plan", current: false, state: "working" });
+
+        yield* execution.control({
+          featureId,
+          projectId,
+          requestId: "cancel",
+          actorId: "person",
+          kind: "cancelled",
+        });
+        expect((yield* engine.getThreadShell(review.run.threadId))?.crew?.state).toBe("cancelled");
+      }).pipe(Effect.provide(system.layer));
     }),
   );
 });

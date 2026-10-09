@@ -2,10 +2,13 @@
 import * as NodeCrypto from "node:crypto";
 
 import {
+  CommandId,
+  CrewStageSummary,
   WorkflowHandoffOutcome,
   type ModelSelection,
   type ProjectId,
   type ServerSettingsError,
+  type ThreadId,
   type WorkflowDefinition,
   type WorkflowStepEvent,
   type WorkflowFeatureSnapshot,
@@ -27,10 +30,12 @@ import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v
 import { ServerSettingsService } from "../serverSettings.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
 import { renderStageHandoff } from "./StageHandoff.ts";
+import { stageThreadSummaries } from "./CrewStageThreads.ts";
 import { WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
 import { WorkflowStore } from "./WorkflowStore.ts";
 import {
   defaultForwardOutcome,
+  featureCardState,
   WorkflowTransitionError,
   type WorkflowState,
   type WorkflowStepState,
@@ -99,6 +104,7 @@ export class WorkflowExecutionService extends Context.Service<
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 const outcomeJson = Schema.fromJsonString(WorkflowHandoffOutcome);
+const encodeStageSummary = Schema.encodeSync(Schema.fromJsonString(CrewStageSummary));
 
 export const WorkflowExecutionServiceLive = Layer.effect(
   WorkflowExecutionService,
@@ -426,6 +432,62 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         if (holding) yield* drainQueue(featureId);
       });
 
+    /**
+     * Writes each stage thread's board summary onto its thread shell. A thread that fails to
+     * update keeps its old row, so the next reconcile retries it. The first write also gives the
+     * thread the feature's title, since the thread is the feature's sidebar row.
+     */
+    const syncStageThreads = (featureId: string): Effect.Effect<void, ExecutionError> =>
+      Effect.gen(function* () {
+        const copy = yield* workflows.getFeatureCopy(featureId);
+        const state = yield* workflows.getFeatureState(featureId);
+        if (!copy || !state) return;
+        const events = yield* store.listEvents(featureId);
+        const execution = yield* executions.get(featureId);
+        const runThreads = new Map<string, ThreadId>();
+        for (const event of events) {
+          if (event.kind !== "started" || !event.botRunId || runThreads.has(event.botRunId))
+            continue;
+          const run = yield* bots.getRun(event.botRunId);
+          if (run) runThreads.set(run.id, run.threadId);
+        }
+        const written = yield* executions.listStageThreads(featureId);
+        const title = execution?.brief?.title.trim() || null;
+        const summaries = stageThreadSummaries({
+          featureId,
+          definition: copy.definition,
+          events,
+          state: featureCardState(state, execution?.queuedAt != null),
+          runThreads,
+        });
+        yield* Effect.forEach(
+          summaries,
+          ({ threadId, summary }) => {
+            const json = encodeStageSummary(summary);
+            if (written.get(threadId) === json) return Effect.void;
+            return engine
+              .dispatch({
+                type: "thread.crew-stage.set",
+                commandId: CommandId.make(`workflow:crew-stage:${NodeCrypto.randomUUID()}`),
+                threadId,
+                crew: summary,
+                ...(written.has(threadId) || title === null ? {} : { title: title.slice(0, 200) }),
+              })
+              .pipe(
+                Effect.andThen(executions.setStageThread(threadId, featureId, json)),
+                Effect.catch((error) =>
+                  Effect.logWarning("Stage thread summary update failed", {
+                    featureId,
+                    threadId,
+                    error,
+                  }),
+                ),
+              );
+          },
+          { discard: true },
+        );
+      });
+
     /** Offers freed slots to queued features, oldest first. */
     const drainQueue = (except?: string): Effect.Effect<void, ExecutionError> =>
       executions.listSlots().pipe(
@@ -458,6 +520,13 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           syncSlot(featureId).pipe(
             Effect.catch((error) =>
               Effect.logWarning("Workflow slot sync failed", { featureId, error }),
+            ),
+            Effect.andThen(
+              syncStageThreads(featureId).pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Stage thread sync failed", { featureId, error }),
+                ),
+              ),
             ),
           ),
         ),
