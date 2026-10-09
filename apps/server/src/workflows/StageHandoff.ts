@@ -15,6 +15,8 @@ export interface StageResult {
   readonly executionId: string;
   readonly version: number;
   readonly botRunId: string | null;
+  /** The person's thread an attached execution ran in. */
+  readonly threadId: ThreadId | null;
 }
 
 export const latestStageResults = (
@@ -27,7 +29,9 @@ export const latestStageResults = (
     const version = (versions.get(event.stepId) ?? 0) + 1;
     versions.set(event.stepId, version);
     const start = events.findLast(
-      (candidate) => candidate.kind === "started" && candidate.executionId === event.executionId,
+      (candidate) =>
+        (candidate.kind === "started" || candidate.kind === "attached") &&
+        candidate.executionId === event.executionId,
     );
     latest.delete(event.stepId);
     latest.set(event.stepId, {
@@ -35,6 +39,7 @@ export const latestStageResults = (
       executionId: event.executionId,
       version,
       botRunId: start?.botRunId ?? null,
+      threadId: start?.threadId ?? null,
     });
   }
   return [...latest.values()];
@@ -49,7 +54,8 @@ export const collectStageOutputs = (
 ): ReadonlyArray<WorkflowStageOutput> =>
   results.flatMap((result) => {
     const step = definition.steps[result.stepId];
-    const threadId = result.botRunId ? (threads.get(result.botRunId) ?? null) : null;
+    const threadId =
+      result.threadId ?? (result.botRunId ? (threads.get(result.botRunId) ?? null) : null);
     const files: ReadonlyArray<WorkflowStageOutput> =
       step?.type === "task"
         ? (step.outputs ?? []).map((path) => ({

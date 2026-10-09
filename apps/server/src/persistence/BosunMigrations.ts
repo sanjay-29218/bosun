@@ -24,6 +24,7 @@ import FeatureLifecycle from "./Migrations/066_FeatureLifecycle.ts";
 import CrewLifecycle from "./Migrations/067_CrewLifecycle.ts";
 
 import WorkflowStageHandoffs from "./Migrations/068_WorkflowStageHandoffs.ts";
+import AttachedStageThreads from "./Migrations/069_AttachedStageThreads.ts";
 
 export const migrationEntries = [
   [55, "Bots", Bots],
@@ -40,6 +41,7 @@ export const migrationEntries = [
   [66, "FeatureLifecycle", FeatureLifecycle],
   [67, "CrewLifecycle", CrewLifecycle],
   [68, "WorkflowStageHandoffs", WorkflowStageHandoffs],
+  [69, "AttachedStageThreads", AttachedStageThreads],
 ] as const;
 
 const legacyNames = new Set([

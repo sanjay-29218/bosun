@@ -6,6 +6,7 @@ import {
   type ModelSelection,
   type ProjectId,
   type ServerSettingsError,
+  type ThreadId,
   type WorkflowDefinition,
   type WorkflowStepEvent,
   type WorkflowFeatureSnapshot,
@@ -64,7 +65,7 @@ export interface WorkflowControl {
     | "reopened"
     | "accepted"
     | "extended";
-  /** The answer, gate note, send-back note or Mark done summary. */
+  /** The answer, gate note, send-back note, Mark done summary or cancel reason. */
   readonly text?: string;
   /** Mark done's result; Skip and Accept as is default to the first unlimited route. */
   readonly outcome?: string;
@@ -156,6 +157,29 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         return false;
       });
 
+    /** The thread's latest turn, if it finished, with its last reply as the stage result. */
+    const finishedTurn = (threadId: ThreadId) =>
+      Effect.gen(function* () {
+        const shell = yield* engine.getThreadShell(threadId);
+        const runId = shell?.latestRunId;
+        if (!shell || !runId || shell.deletedAt !== null) return null;
+        const records = yield* engine.getThreadRecords(threadId, ["runs", "messages"], {
+          runIds: [runId],
+          messageRunIds: [runId],
+          messageRoles: ["assistant"],
+        });
+        const run = records.runs.find((candidate) => candidate.id === runId);
+        if (run?.status !== "completed") return null;
+        const reply = records.messages.findLast((message) => message.text.trim())?.text.trim();
+        return {
+          runId,
+          summary: (reply || `Finished in thread "${shell.title}"`).slice(0, 8_000),
+          completedAt: DateTime.formatIso(run.completedAt ?? (yield* DateTime.now)),
+        };
+      }).pipe(
+        Effect.mapError(() => new WorkflowTransitionError("Attached stage thread is unavailable")),
+      );
+
     /** Records an automatic retry while the stage has retries left. */
     const applyFailurePolicy = (
       featureId: string,
@@ -220,6 +244,25 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           if (step.status === "failed") {
             if (yield* applyFailurePolicy(featureId, copy.definition, step, events)) continue;
             return;
+          }
+          // An attached stage completes when its thread's turn finishes, through its gate.
+          if (step.status === "taken-over" && step.threadId !== null && step.botRunId === null) {
+            const turn = yield* finishedTurn(step.threadId);
+            if (!turn) return;
+            yield* workflows.recordTrustedEvent(featureId, {
+              id: `attached-done:${key(featureId, step.executionId!, turn.runId)}`,
+              stepId,
+              executionId: step.executionId,
+              kind: "completed",
+              botRunId: null,
+              outcome: defaultForwardOutcome(copy.definition, stepId),
+              sourceKind: "workflow",
+              sourceId: turn.runId,
+              actorId: "workflow",
+              detail: turn.summary,
+              occurredAt: turn.completedAt,
+            });
+            continue;
           }
           // Gates, Your call and taken-over stages wait for a person.
           if (!["pending", "running", "needs-input"].includes(step.status)) return;
@@ -535,6 +578,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             } as const;
           }
           case "approved":
+          case "cancelled":
             return { ...event, detail: text };
           case "changes-requested":
             if (!text) return yield* reject("Request changes needs a note");
@@ -717,7 +761,20 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           ).pipe(Effect.forkScoped);
           yield* Stream.runForEach(domainEvents, (event) => {
             if (event.type !== "run.updated") return Effect.void;
-            return handoffs.getRunByThread(event.payload.threadId).pipe(
+            const threadId = event.payload.threadId;
+            return handoffs.getRunByThread(threadId).pipe(
+              Effect.tap((runId) =>
+                // A person's thread attached as a stage finishes that stage when its turn ends.
+                runId
+                  ? Effect.void
+                  : executions
+                      .findFeaturesForThread(threadId)
+                      .pipe(
+                        Effect.flatMap((ids) =>
+                          Effect.forEach(ids, reconcileFeature, { discard: true }),
+                        ),
+                      ),
+              ),
               Effect.flatMap((runId) =>
                 runId ? handoffs.getForTargetRun(runId) : Effect.succeed(null),
               ),
