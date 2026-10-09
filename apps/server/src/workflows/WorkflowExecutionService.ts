@@ -4,6 +4,7 @@ import * as NodeCrypto from "node:crypto";
 import {
   WorkflowHandoffOutcome,
   type ProjectId,
+  type WorkflowDefinition,
   type WorkflowStepEvent,
   type WorkflowFeatureSnapshot,
 } from "@t3tools/contracts";
@@ -56,6 +57,27 @@ export class WorkflowExecutionService extends Context.Service<
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 const outcomeJson = Schema.fromJsonString(WorkflowHandoffOutcome);
+
+/** The context a stage bot receives with its task: how to report, plus the previous result. */
+const buildStageContext = (
+  definition: WorkflowDefinition,
+  stepId: string,
+  events: ReadonlyArray<WorkflowStepEvent>,
+) => {
+  const task = definition.steps[stepId];
+  const outcomes = task?.type === "task" ? Object.keys(task.next) : [];
+  const priorResult = events.findLast((event) => event.kind === "completed");
+  return [
+    `Workflow ${definition.name}, step ${stepId}.`,
+    `Report with bots_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${outcomes.join(", ")}>","summary":"<result and evidence>"}.`,
+    "Use bots_ask for questions. A final chat message does not complete this step.",
+    priorResult
+      ? `Previous step ${priorResult.stepId}: ${priorResult.detail?.slice(0, 2_000) ?? ""}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+};
 
 export const WorkflowExecutionServiceLive = Layer.effect(
   WorkflowExecutionService,
@@ -120,17 +142,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
             const handoffId = `workflow:${key(featureId, executionId, step.attempt + 1)}`;
             const taskText = task.task;
-            const priorResult = events.findLast((event) => event.kind === "completed");
-            const contextText = [
-              `Workflow ${copy.definition.name}, step ${stepId}.`,
-              `Report with bots_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${Object.keys(task.next).join(", ")}>","summary":"<result and evidence>"}.`,
-              "Use bots_ask for questions. A final chat message does not complete this step.",
-              priorResult
-                ? `Previous step ${priorResult.stepId}: ${priorResult.detail?.slice(0, 2_000) ?? ""}`
-                : "",
-            ]
-              .filter(Boolean)
-              .join("\n");
+            const contextText = buildStageContext(copy.definition, stepId, events);
             const reserved = yield* handoffs.get(handoffId);
             const reservedRun = reserved ? yield* bots.getRun(reserved.targetRunId) : null;
             const dispatch =
