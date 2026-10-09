@@ -541,15 +541,19 @@ function ProjectDetail({
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.bots ===
-          true ? (
-            <BotsProjectSection key={memberKey(member)} project={member} />
+          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+            .workflows === true ? (
+            <WorkflowsProjectSection
+              key={memberKey(member)}
+              project={member}
+              showEnvironment={group.memberProjects.length > 1}
+            />
           ) : null,
         )}
         {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
-            .workflows === true ? (
-            <WorkflowsProjectSection key={memberKey(member)} project={member} />
+          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.bots ===
+          true ? (
+            <BotsProjectSection key={memberKey(member)} project={member} />
           ) : null,
         )}
         {hasMultipleCheckouts ? checkoutChoices : null}
