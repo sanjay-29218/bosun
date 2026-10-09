@@ -39,6 +39,7 @@ export const makeStarterWorkflow = (
         task: "Plan the feature",
         next: { ready: "design" },
         gate: true,
+        outputs: ["plan.md"],
       },
       design: {
         type: "task",
@@ -46,6 +47,7 @@ export const makeStarterWorkflow = (
         task: "Design the feature",
         next: { ready: "build" },
         gate: true,
+        outputs: ["design.md"],
       },
       build: {
         type: "task",
@@ -58,6 +60,7 @@ export const makeStarterWorkflow = (
         bot: "qa",
         task: "Test the feature",
         next: { passed: "review", changes_requested: "change_review" },
+        outputs: ["qa-report.md"],
       },
       review: {
         type: "task",

@@ -15,6 +15,7 @@ import { describe, expect } from "vite-plus/test";
 import { BotService } from "../bots/BotService.ts";
 import { BotStore } from "../bots/BotStore.ts";
 import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
+import { WorkflowWorkspaceEmpty } from "../workflows/WorkflowWorkspace.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
@@ -54,7 +55,12 @@ const withSystem = <E>(
     );
     const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
-      Layer.provideMerge(WorkflowRuntimeLive.pipe(Layer.provide(orchestration))),
+      Layer.provideMerge(
+        WorkflowRuntimeLive.pipe(
+          Layer.provide(WorkflowWorkspaceEmpty),
+          Layer.provide(orchestration),
+        ),
+      ),
       Layer.provideMerge(orchestration),
       Layer.provide(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
@@ -115,6 +121,8 @@ describe("feature creation", () => {
           };
           const created = yield* features.create(input);
           expect(created.workflowId).toBe(selected.id);
+          expect(created.workflowRevision).toBe(selected.revision);
+          expect((yield* features.get(created.id))?.workflowRevision).toBe(selected.revision);
           expect(created.botAssignments.manager).toBe(`bot-manager:${projectId}`);
           expect(created.botAssignments.second_planner).not.toBe(created.botAssignments.planner);
           const crew = (yield* store.listDefinitionsForProject(projectId)).filter(
@@ -273,7 +281,10 @@ describe("feature creation", () => {
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
       const orchestration = OrchestrationLayerLive;
-      const botRuntime = WorkflowRuntimeLive.pipe(Layer.provide(orchestration));
+      const botRuntime = WorkflowRuntimeLive.pipe(
+        Layer.provide(WorkflowWorkspaceEmpty),
+        Layer.provide(orchestration),
+      );
       const layer = FeatureServiceLive.pipe(
         Layer.provideMerge(botRuntime),
         Layer.provideMerge(orchestration),
@@ -329,6 +340,7 @@ describe("feature creation", () => {
         expect(created.status).toBe("open");
         expect(created.updatedAt).toBe(created.createdAt);
         expect(created.workflowId).toBeNull();
+        expect(created.workflowRevision).toBeNull();
         const featureBots = (yield* botStore.listDefinitionsForProject(projectId)).filter(
           (bot) => bot.featureId === input.id,
         );

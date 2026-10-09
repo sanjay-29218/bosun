@@ -7,7 +7,13 @@ export default Effect.gen(function* () {
   yield* sql`ALTER TABLE workflow_executions ADD COLUMN queued_at TEXT`;
   yield* sql`ALTER TABLE workflow_executions ADD COLUMN slot_instance_id TEXT`;
   // A Retry with another model, applied when the queued handoff starts its run.
-  yield* sql`ALTER TABLE bot_handoffs ADD COLUMN model_selection_json TEXT`;
+  // Feature-only databases reached slot 62 without Bots' slots 55-59, so they have no handoffs table.
+  const handoffs = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bot_handoffs'
+  `;
+  if (handoffs.length > 0) {
+    yield* sql`ALTER TABLE bot_handoffs ADD COLUMN model_selection_json TEXT`;
+  }
   // The board summary for each stage thread, read with thread shells.
   yield* sql`
     CREATE TABLE crew_stage_threads (

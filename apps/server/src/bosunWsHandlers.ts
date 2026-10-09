@@ -113,6 +113,12 @@ export const layerBosunWsRpc = (
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
+        [WS_METHODS.workflowsGetStageHandoff]: (input) =>
+          workflows
+            .getStageHandoffForThread(input.projectId, input.threadId)
+            .pipe(
+              Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
+            ),
         [WS_METHODS.workflowsAnswer]: (input) =>
           workflowExecution
             .control({

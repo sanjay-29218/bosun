@@ -130,6 +130,7 @@ export const FeatureServiceLive = Layer.effect(
       sql<FeatureRow>`
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
+          w.workflow_revision AS workflowRevision,
           f.bot_assignments_json AS botAssignmentsJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.id = ${id}
@@ -260,6 +261,7 @@ export const FeatureServiceLive = Layer.effect(
         sql<FeatureRow>`
           SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
             f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
+          w.workflow_revision AS workflowRevision,
             f.bot_assignments_json AS botAssignmentsJson
           FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
           WHERE f.project_id = ${projectId}
@@ -403,6 +405,7 @@ export const FeatureServiceLive = Layer.effect(
                 return {
                   ...input,
                   workflowId: input.workflowId ?? null,
+                  workflowRevision: copy?.definition.revision ?? null,
                   botAssignments,
                   createdAt,
                   updatedAt: createdAt,

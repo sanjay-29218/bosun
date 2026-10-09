@@ -10,6 +10,14 @@ const validName = (value: string, limit: number) =>
 const intBetween = (value: number, min: number, max: number) =>
   Number.isSafeInteger(value) && value >= min && value <= max;
 
+// Output files live inside the stage's worktree: relative, normalized, no parent segments.
+const validOutputPath = (value: string) =>
+  validName(value, 200) &&
+  value === value.trim() &&
+  !value.startsWith("/") &&
+  !value.includes("\\") &&
+  value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+
 /** Validates published bot assignments and the single-path outcome graph. */
 export const validateWorkflowDefinition = (definition: WorkflowDefinition): void => {
   if (!validName(definition.id, 128) || !validName(definition.name, 200)) {
@@ -81,6 +89,32 @@ export const validateWorkflowDefinition = (definition: WorkflowDefinition): void
       if (!Object.hasOwn(step.next, outcome) || !intBetween(limit, 1, 20)) {
         throw new WorkflowValidationError(`Invalid route limit from ${id}`);
       }
+    }
+    if (
+      (step.outputs !== undefined &&
+        (step.outputs.length > 16 ||
+          new Set(step.outputs).size !== step.outputs.length ||
+          !step.outputs.every(validOutputPath))) ||
+      (step.scope !== undefined && !validName(step.scope, 200))
+    ) {
+      throw new WorkflowValidationError(`Invalid outputs or scope in step ${id}`);
+    }
+  }
+  const produced = new Set(
+    Object.values(definition.steps).flatMap((step) =>
+      step.type === "task" ? (step.outputs ?? []) : [],
+    ),
+  );
+  for (const [id, step] of Object.entries(definition.steps)) {
+    if (step.type !== "task" || step.receives === undefined) continue;
+    const { files, diffs } = step.receives;
+    if (
+      files.length > 32 ||
+      diffs.length > 32 ||
+      !files.every((file) => produced.has(file)) ||
+      !diffs.every((source) => definition.steps[source]?.type === "task")
+    ) {
+      throw new WorkflowValidationError(`Step ${id} receives an output no step produces`);
     }
   }
   const reachable = new Set<string>();

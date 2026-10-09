@@ -26,6 +26,7 @@ import type { BotServiceError } from "../bots/BotService.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
+import { renderStageHandoff } from "./StageHandoff.ts";
 import { WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
 import { WorkflowStore } from "./WorkflowStore.ts";
 import {
@@ -98,39 +99,6 @@ export class WorkflowExecutionService extends Context.Service<
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 const outcomeJson = Schema.fromJsonString(WorkflowHandoffOutcome);
-
-/** The context a stage bot receives with its task: how to report, plus the previous result. */
-const buildStageContext = (
-  definition: WorkflowDefinition,
-  stepId: string,
-  events: ReadonlyArray<WorkflowStepEvent>,
-) => {
-  const task = definition.steps[stepId];
-  const outcomes = task?.type === "task" ? Object.keys(task.next) : [];
-  const priorResult = events.findLast((event) => event.kind === "completed");
-  // Request changes and Send back rerun this stage; their note travels with it.
-  const lastNote = events.findLastIndex(
-    (event) =>
-      (event.kind === "changes-requested" && event.stepId === stepId) ||
-      (event.kind === "sent-back" && event.targetStepId === stepId),
-  );
-  const note =
-    lastNote >= 0 &&
-    !events.slice(lastNote).some((event) => event.stepId === stepId && event.kind === "completed")
-      ? events[lastNote]?.detail
-      : null;
-  return [
-    `Workflow ${definition.name}, step ${stepId}.`,
-    `Report with bots_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${outcomes.join(", ")}>","summary":"<result and evidence>"}.`,
-    "Use bots_ask for questions. A final chat message does not complete this step.",
-    priorResult
-      ? `Previous step ${priorResult.stepId}: ${priorResult.detail?.slice(0, 2_000) ?? ""}`
-      : "",
-    note ? `Rerun note: ${note.slice(0, 1_000)}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-};
 
 export const WorkflowExecutionServiceLive = Layer.effect(
   WorkflowExecutionService,
@@ -270,13 +238,16 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             const executionId =
               step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
             const handoffId = `workflow:${key(featureId, executionId, step.attempt + 1)}`;
-            const taskText = execution.brief
-              ? `${task.task}\n\nFeature: ${execution.brief.title}\n${execution.brief.text}`.slice(
-                  0,
-                  8_000,
-                )
-              : task.task;
-            const contextText = buildStageContext(copy.definition, stepId, events);
+            // The stage starts from its persisted handoff record and nothing else.
+            const { taskText, contextText } = renderStageHandoff(
+              yield* workflows.prepareStageHandoff({
+                featureId,
+                stepId,
+                executionId,
+                attempt: step.attempt + 1,
+                handoffId,
+              }),
+            );
             const reserved = yield* handoffs.get(handoffId);
             const reservedRun = reserved ? yield* bots.getRun(reserved.targetRunId) : null;
             const dispatch =

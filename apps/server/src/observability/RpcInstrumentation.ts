@@ -210,6 +210,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.workflowsCreate]: "workflows",
   [WS_METHODS.workflowsRevise]: "workflows",
   [WS_METHODS.workflowsGetFeature]: "workflows",
+  [WS_METHODS.workflowsGetStageHandoff]: "workflows",
   [WS_METHODS.workflowsAnswer]: "workflows",
   [WS_METHODS.workflowsRetry]: "workflows",
   [WS_METHODS.workflowsCancel]: "workflows",

@@ -28,6 +28,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
+import { WorkflowStageHandoffStoreLive } from "./WorkflowStageHandoffStore.ts";
+import { WorkflowWorkspaceEmpty } from "./WorkflowWorkspace.ts";
 
 const projectId = ProjectId.make("workflow-service-project");
 const otherProjectId = ProjectId.make("workflow-service-other");
@@ -96,6 +98,8 @@ describe("Workflow service", () => {
       const bots = BotRuntimeLive.pipe(Layer.provide(orchestration));
       const workflows = WorkflowServiceLive.pipe(
         Layer.provideMerge(WorkflowStoreLive),
+        Layer.provideMerge(WorkflowStageHandoffStoreLive),
+        Layer.provideMerge(WorkflowWorkspaceEmpty),
         Layer.provideMerge(bots),
       );
       const layer = Layer.mergeAll(orchestration, workflows).pipe(

@@ -101,6 +101,39 @@ describe("workflow graph", () => {
     ).toThrow(/path to the end/);
   });
 
+  it("checks declared outputs, received outputs and scope", () => {
+    const withOutputs = (build: object, review: object = {}): WorkflowDefinition => ({
+      ...definition,
+      steps: {
+        ...definition.steps,
+        build: { ...definition.steps.build!, ...build } as WorkflowDefinition["steps"][string],
+        review: { ...definition.steps.review!, ...review } as WorkflowDefinition["steps"][string],
+      },
+    });
+    expect(() =>
+      validateWorkflowDefinition(
+        withOutputs(
+          { outputs: ["docs/build-notes.md"], scope: "apps/web" },
+          { receives: { files: ["docs/build-notes.md"], diffs: ["build"] } },
+        ),
+      ),
+    ).not.toThrow();
+    for (const path of ["/etc/passwd", "../plan.md", "a//b.md", "./plan.md", "a\\b.md", " x.md"]) {
+      expect(() => validateWorkflowDefinition(withOutputs({ outputs: [path] }))).toThrow(
+        /Invalid outputs/,
+      );
+    }
+    expect(() =>
+      validateWorkflowDefinition(withOutputs({ outputs: ["plan.md", "plan.md"] })),
+    ).toThrow(/Invalid outputs/);
+    expect(() =>
+      validateWorkflowDefinition(withOutputs({}, { receives: { files: ["plan.md"], diffs: [] } })),
+    ).toThrow(/no step produces/);
+    expect(() =>
+      validateWorkflowDefinition(withOutputs({}, { receives: { files: [], diffs: ["end"] } })),
+    ).toThrow(/no step produces/);
+  });
+
   it("rejects unsupported step kinds at the contract boundary", () => {
     const decode = Schema.decodeUnknownSync(WorkflowDefinition);
     expect(() => decode(definition)).not.toThrow();

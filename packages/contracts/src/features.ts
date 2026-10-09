@@ -12,6 +12,8 @@ export const FeatureCreateInput = Schema.Struct({
 export const FeatureRecord = Schema.Struct({
   ...FeatureCreateInput.fields,
   workflowId: Schema.NullOr(Schema.String),
+  /** The workflow version this feature runs on. Publishing later versions never changes it. */
+  workflowRevision: Schema.NullOr(Schema.Int),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   status: Schema.Literals(["open", "closed"]),
