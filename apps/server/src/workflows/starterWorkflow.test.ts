@@ -15,7 +15,10 @@ describe("starter workflow", () => {
     });
     expect(definition.steps.qa).toMatchObject({
       next: { passed: "review", changes_requested: "change_review" },
+      outputs: ["qa-report.md"],
     });
+    expect(definition.steps.plan).toMatchObject({ outputs: ["plan.md"] });
+    expect(definition.steps.design).toMatchObject({ outputs: ["design.md"] });
     expect(definition.steps.review).toMatchObject({
       next: { approved: "end", changes_requested: "change_review" },
     });

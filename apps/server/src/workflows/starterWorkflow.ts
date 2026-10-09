@@ -33,12 +33,19 @@ export const makeStarterWorkflow = (
       reviewer: template("reviewer"),
     },
     steps: {
-      plan: { type: "task", bot: "planner", task: "Plan the feature", next: { ready: "design" } },
+      plan: {
+        type: "task",
+        bot: "planner",
+        task: "Plan the feature",
+        next: { ready: "design" },
+        outputs: ["plan.md"],
+      },
       design: {
         type: "task",
         bot: "designer",
         task: "Design the feature",
         next: { ready: "build" },
+        outputs: ["design.md"],
       },
       build: {
         type: "task",
@@ -51,6 +58,7 @@ export const makeStarterWorkflow = (
         bot: "qa",
         task: "Test the feature",
         next: { passed: "review", changes_requested: "change_review" },
+        outputs: ["qa-report.md"],
       },
       review: {
         type: "task",

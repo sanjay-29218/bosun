@@ -2,8 +2,11 @@ import {
   WorkflowHandoffOutcome,
   WorkflowStepEvent,
   type ProjectId,
+  type ThreadId,
   type WorkflowDefinition,
   type WorkflowFeatureSnapshot,
+  type WorkflowStageHandoff,
+  type WorkflowStageOutput,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -22,6 +25,15 @@ import {
   type WorkflowState,
 } from "./WorkflowState.ts";
 import { WorkflowStore, type FeatureWorkflowCopy } from "./WorkflowStore.ts";
+import {
+  collectNotes,
+  collectStageOutputs,
+  latestStageResults,
+  previousFailure,
+  selectReceived,
+} from "./StageHandoff.ts";
+import { WorkflowStageHandoffStore } from "./WorkflowStageHandoffStore.ts";
+import { WorkflowWorkspace, type StageThreadDiff } from "./WorkflowWorkspace.ts";
 import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
@@ -60,6 +72,25 @@ export interface WorkflowServiceShape {
     featureId: string,
     projectId: ProjectId,
   ) => Effect.Effect<WorkflowFeatureSnapshot | null, WorkflowServiceError>;
+  /**
+   * Builds and persists what one stage attempt starts from, before it is dispatched.
+   * Returns the persisted record, so a restart renders the same prompt.
+   */
+  readonly prepareStageHandoff: (input: {
+    readonly featureId: string;
+    readonly stepId: string;
+    readonly executionId: string;
+    readonly attempt: number;
+    readonly handoffId: string;
+  }) => Effect.Effect<WorkflowStageHandoff, WorkflowServiceError>;
+  readonly getStageHandoff: (
+    id: string,
+  ) => Effect.Effect<WorkflowStageHandoff | null, WorkflowServiceError>;
+  /** The handoff a stage thread started from, or null for threads outside a workflow. */
+  readonly getStageHandoffForThread: (
+    projectId: ProjectId,
+    threadId: ThreadId,
+  ) => Effect.Effect<WorkflowStageHandoff | null, WorkflowServiceError>;
   /** Call only after authenticating the actor and verifying the source receipt. */
   readonly recordTrustedEvent: (
     featureId: string,
@@ -88,6 +119,28 @@ export const WorkflowServiceLive = Layer.effect(
     const bots = yield* BotStore;
     const handoffs = yield* BotHandoffStore;
     const runtime = yield* BotThreadRuntime;
+    const workspace = yield* WorkflowWorkspace;
+    const stageHandoffs = yield* WorkflowStageHandoffStore;
+
+    /** Newest version of every output so far, with each producing stage's thread diff. */
+    const stageOutputs = (
+      definition: WorkflowDefinition,
+      events: ReadonlyArray<WorkflowStepEvent>,
+    ) =>
+      Effect.gen(function* () {
+        const results = latestStageResults(events);
+        const threads = new Map<string, ThreadId>();
+        const diffs = new Map<ThreadId, StageThreadDiff>();
+        for (const result of results) {
+          if (result.botRunId === null) continue;
+          const run = yield* bots.getRun(result.botRunId);
+          if (!run) continue;
+          threads.set(result.botRunId, run.threadId);
+          const diff = yield* workspace.threadDiff(run.threadId);
+          if (diff) diffs.set(run.threadId, diff);
+        }
+        return collectStageOutputs(definition, results, threads, diffs);
+      });
 
     const checkDefinition = (projectId: ProjectId, definition: WorkflowDefinition) =>
       Effect.gen(function* () {
@@ -317,7 +370,69 @@ export const WorkflowServiceLive = Layer.effect(
             executionError: execution?.lastError ?? null,
             historyLength: events.length,
             recentEvents: events.slice(-100),
+            outputs: yield* stageOutputs(copy.definition, events),
           } satisfies WorkflowFeatureSnapshot;
+        }),
+      prepareStageHandoff: (input) =>
+        Effect.gen(function* () {
+          const existing = yield* stageHandoffs.get(input.handoffId);
+          if (existing) return existing;
+          const copy = yield* store.getFeatureCopy(input.featureId);
+          const step = copy?.definition.steps[input.stepId];
+          if (!copy || step?.type !== "task") {
+            return yield* Effect.fail(new WorkflowTransitionError("Stage is not a workflow task"));
+          }
+          const events = yield* store.listEvents(input.featureId);
+          const received = selectReceived(
+            copy.definition,
+            input.stepId,
+            yield* stageOutputs(copy.definition, events),
+          );
+          const files = received.flatMap((output) => (output.kind === "file" ? [output.path] : []));
+          const stageWorkspace = yield* workspace.describe(copy.projectId, files);
+          const outputs = received.map((output): WorkflowStageOutput =>
+            output.kind === "file" && stageWorkspace.cwd !== null
+              ? { ...output, exists: stageWorkspace.existing.has(output.path) }
+              : output,
+          );
+          const { from, notes } = collectNotes(events, input.executionId);
+          return yield* stageHandoffs.insertIfAbsent({
+            id: input.handoffId,
+            featureId: input.featureId,
+            stepId: input.stepId,
+            executionId: input.executionId,
+            attempt: input.attempt,
+            workflow: {
+              id: copy.definition.id,
+              name: copy.definition.name,
+              revision: copy.definition.revision,
+            },
+            from,
+            brief: yield* stageHandoffs.getFeatureBrief(input.featureId),
+            task: step.task,
+            scope: step.scope ?? null,
+            outcomes: Object.keys(step.next),
+            produces: [...(step.outputs ?? [])],
+            outputs,
+            notes: [...notes],
+            retry: previousFailure(events, input.executionId, input.attempt),
+            workspace: {
+              cwd: stageWorkspace.cwd,
+              branch: stageWorkspace.branch,
+              commit: stageWorkspace.commit,
+            },
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+          });
+        }),
+      getStageHandoff: stageHandoffs.get,
+      getStageHandoffForThread: (projectId, threadId) =>
+        Effect.gen(function* () {
+          const runId = yield* handoffs.getRunByThread(threadId);
+          const handoff = runId ? yield* handoffs.getForTargetRun(runId) : null;
+          const record = handoff ? yield* stageHandoffs.get(handoff.id) : null;
+          if (!record) return null;
+          const copy = yield* store.getFeatureCopy(record.featureId);
+          return copy?.projectId === projectId ? record : null;
         }),
       recordTrustedEvent: (featureId, event) =>
         Effect.gen(function* () {

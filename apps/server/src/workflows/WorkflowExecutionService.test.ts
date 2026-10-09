@@ -34,6 +34,9 @@ import {
   WorkflowExecutionService,
   WorkflowExecutionServiceLive,
 } from "./WorkflowExecutionService.ts";
+import { renderStageHandoff } from "./StageHandoff.ts";
+import { WorkflowStageHandoffStoreLive } from "./WorkflowStageHandoffStore.ts";
+import { WorkflowWorkspace, type StageThreadDiff } from "./WorkflowWorkspace.ts";
 
 const projectId = ProjectId.make("execution-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" };
@@ -79,6 +82,21 @@ const fixture = (directory: string) => {
       getTurnState: () => Effect.succeed("running"),
     }),
   );
+  const files = new Set<string>();
+  const diffs = new Map<string, StageThreadDiff>();
+  const workspace = Layer.succeed(
+    WorkflowWorkspace,
+    WorkflowWorkspace.of({
+      describe: (_projectId, paths) =>
+        Effect.succeed({
+          cwd: "/repo",
+          branch: "crew/feature",
+          commit: "0123456789abcdef0123",
+          existing: new Set(paths.filter((path) => files.has(path))),
+        }),
+      threadDiff: (threadId) => Effect.succeed(diffs.get(threadId) ?? null),
+    }),
+  );
   const foundation = BotServiceLive.pipe(
     Layer.provideMerge(BotStoreLive),
     Layer.provideMerge(runtime),
@@ -89,6 +107,8 @@ const fixture = (directory: string) => {
   );
   const workflows = WorkflowServiceLive.pipe(
     Layer.provideMerge(WorkflowStoreLive),
+    Layer.provideMerge(WorkflowStageHandoffStoreLive),
+    Layer.provideMerge(workspace),
     Layer.provideMerge(bots),
   );
   const execution = WorkflowExecutionServiceLive.pipe(
@@ -106,6 +126,8 @@ const fixture = (directory: string) => {
     layer,
     starts,
     interruptions,
+    files,
+    diffs,
     failNextDispatch: () => {
       failDispatch = true;
     },
@@ -169,6 +191,7 @@ const seed = (featureId = "feature-one") =>
           bot: "planner",
           task: "Plan",
           next: { ready: "review", change: "decision" },
+          outputs: ["plan.md"],
         },
         decision: {
           type: "task",
@@ -225,6 +248,135 @@ const withDirectory = <A, E, R>(use: (directory: string) => Effect.Effect<A, E, 
   });
 
 describe("Workflow execution", () => {
+  it.effect("starts every stage from its persisted handoff record and nothing else", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, execution, workflows, bindings } = yield* seed();
+        const handoffs = yield* BotHandoffService;
+        const promptOf = (record: Parameters<typeof renderStageHandoff>[0]) => {
+          const { taskText, contextText } = renderStageHandoff(record);
+          return `${taskText}\n\nContext:\n${contextText}`;
+        };
+        yield* execution.attach(featureId, projectId, bindings);
+
+        const plan = yield* activeHandoff(featureId);
+        const planRecord = (yield* workflows.getStageHandoffForThread(
+          projectId,
+          plan.run.threadId,
+        ))!;
+        expect(planRecord).toMatchObject({
+          id: plan.handoff.id,
+          stepId: "plan",
+          attempt: 1,
+          from: null,
+          produces: ["plan.md"],
+          outputs: [],
+          notes: [],
+          retry: null,
+          workspace: { cwd: "/repo", branch: "crew/feature", commit: "0123456789abcdef0123" },
+        });
+        expect(plan.run.taskText).toBe(promptOf(planRecord));
+        expect(
+          yield* workflows.getStageHandoffForThread(ProjectId.make("other"), plan.run.threadId),
+        ).toBeNull();
+
+        system.files.add("plan.md");
+        const planDiff = {
+          turnCount: 2,
+          fromRef: "refs/t3/plan/0",
+          toRef: "refs/t3/plan/2",
+          additions: 12,
+          deletions: 3,
+          fileCount: 2,
+        };
+        system.diffs.set(plan.run.threadId, planDiff);
+        yield* handoffs.respond(
+          plan.run.threadId,
+          "completed",
+          '{"outcome":"ready","summary":"Plan ready"}',
+        );
+        yield* execution.reconcileFeature(featureId);
+
+        const review = yield* activeHandoff(featureId);
+        const reviewRecord = (yield* workflows.getStageHandoffForThread(
+          projectId,
+          review.run.threadId,
+        ))!;
+        expect(reviewRecord.from).toEqual({ stepId: "plan", outcome: "ready" });
+        expect(reviewRecord.outputs).toEqual([
+          {
+            kind: "file",
+            path: "plan.md",
+            stepId: "plan",
+            version: 1,
+            threadId: plan.run.threadId,
+            exists: true,
+          },
+          { kind: "diff", stepId: "plan", version: 1, threadId: plan.run.threadId, ...planDiff },
+        ]);
+        expect(reviewRecord.notes).toMatchObject([
+          { stepId: "plan", kind: "routed", outcome: "ready", text: "Plan ready" },
+        ]);
+        expect(review.run.taskText).toBe(promptOf(reviewRecord));
+        expect(review.run.taskText).toContain("plan.md v1, from plan");
+        expect(review.run.taskText).toContain("git diff refs/t3/plan/0 refs/t3/plan/2");
+
+        // Replays and restarts reuse the stored record instead of rebuilding it.
+        system.files.delete("plan.md");
+        const startsBefore = system.starts.length;
+        yield* execution.reconcileFeature(featureId);
+        yield* execution.reconcile();
+        expect(system.starts.length).toBe(startsBefore);
+        expect(yield* workflows.getStageHandoff(review.handoff.id)).toEqual(reviewRecord);
+
+        // Rework sees the earlier version of its own output; the next stage sees the new one.
+        yield* handoffs.respond(
+          review.run.threadId,
+          "completed",
+          '{"outcome":"revise","summary":"Split the plan into two phases"}',
+        );
+        yield* execution.reconcileFeature(featureId);
+        const rework = yield* activeHandoff(featureId);
+        const reworkRecord = (yield* workflows.getStageHandoffForThread(
+          projectId,
+          rework.run.threadId,
+        ))!;
+        expect(reworkRecord.from).toEqual({ stepId: "review", outcome: "revise" });
+        expect(reworkRecord.outputs).toMatchObject([
+          { kind: "file", path: "plan.md", version: 1, exists: false },
+          { kind: "diff", stepId: "plan", version: 1 },
+        ]);
+        expect(reworkRecord.notes.map((note) => note.text)).toEqual([
+          "Split the plan into two phases",
+        ]);
+        yield* handoffs.respond(
+          rework.run.threadId,
+          "completed",
+          '{"outcome":"ready","summary":"Two phases"}',
+        );
+        yield* execution.reconcileFeature(featureId);
+        const secondReview = yield* activeHandoff(featureId);
+        const secondReviewRecord = (yield* workflows.getStageHandoffForThread(
+          projectId,
+          secondReview.run.threadId,
+        ))!;
+        expect(secondReviewRecord.outputs).toMatchObject([
+          { kind: "file", path: "plan.md", version: 2, threadId: rework.run.threadId },
+        ]);
+        expect((yield* workflows.getFeatureSnapshot(featureId, projectId))?.outputs).toEqual([
+          {
+            kind: "file",
+            path: "plan.md",
+            stepId: "plan",
+            version: 2,
+            threadId: rework.run.threadId,
+          },
+        ]);
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+
   it.effect("advances from the live receipt subscription without polling", () =>
     withDirectory((directory) => {
       const system = fixture(directory);
@@ -445,6 +597,13 @@ describe("Workflow execution", () => {
           expect(second.handoff.id).not.toBe(first.handoff.id);
           expect(second.step.executionId).toBe(first.step.executionId);
           expect(second.step.attempt).toBe(2);
+          expect(
+            (yield* workflows.getStageHandoffForThread(projectId, second.run.threadId))?.retry,
+          ).toEqual({
+            previousError:
+              "Completed handoff has an invalid or unrouted outcome; retry the step with a structured result",
+          });
+          expect(second.run.taskText).toContain("The previous attempt failed:");
           expect((yield* (yield* BotHandoffStore).get(first.handoff.id))?.responseText).toContain(
             "unknown",
           );

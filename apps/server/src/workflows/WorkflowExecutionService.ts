@@ -22,6 +22,7 @@ import { BotStore } from "../bots/BotStore.ts";
 import type { BotServiceError } from "../bots/BotService.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
+import { renderStageHandoff } from "./StageHandoff.ts";
 import { WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
 import { WorkflowStore } from "./WorkflowStore.ts";
 import { WorkflowTransitionError } from "./WorkflowState.ts";
@@ -119,18 +120,16 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             const executionId =
               step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
             const handoffId = `workflow:${key(featureId, executionId, step.attempt + 1)}`;
-            const taskText = task.task;
-            const priorResult = events.findLast((event) => event.kind === "completed");
-            const contextText = [
-              `Workflow ${copy.definition.name}, step ${stepId}.`,
-              `Report with bots_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${Object.keys(task.next).join(", ")}>","summary":"<result and evidence>"}.`,
-              "Use bots_ask for questions. A final chat message does not complete this step.",
-              priorResult
-                ? `Previous step ${priorResult.stepId}: ${priorResult.detail?.slice(0, 2_000) ?? ""}`
-                : "",
-            ]
-              .filter(Boolean)
-              .join("\n");
+            // The stage starts from its persisted handoff record and nothing else.
+            const { taskText, contextText } = renderStageHandoff(
+              yield* workflows.prepareStageHandoff({
+                featureId,
+                stepId,
+                executionId,
+                attempt: step.attempt + 1,
+                handoffId,
+              }),
+            );
             const reserved = yield* handoffs.get(handoffId);
             const reservedRun = reserved ? yield* bots.getRun(reserved.targetRunId) : null;
             const dispatch =
