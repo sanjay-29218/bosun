@@ -38,28 +38,46 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
-## Bots
-
-For a connected project, open **Settings → Project → Bots** to give the Captain a task. An
-available project or inherited default model is required. The Captain coordinates its Manager and Builder bots;
-each run has a linked thread you can open to inspect its work. The Bots section shows the
-current requests and questions. Answer a question there, cancel a request that should stop,
-or retry a failed or cancelled request. Bot threads remain visible in the normal thread list.
-
-Use **Templates and permissions** in the same section to add or edit a bot template, choose its
-provider and instructions, and create a bot from it. Template edits affect future bots; existing
-bots and runs keep their saved settings. Set a bot's parent to place it in the hierarchy, then
-grant delegation separately for each source and target pair. A parent relationship alone does not
-permit delegation. The feature-default option records which templates should be copied when
-feature crews become available; it does not start a workflow.
-
 ## Workflows
 
-In a connected project's **Workflows** section, add the starter workflow or edit an existing
-definition. Assign bot templates and supervisors, then give each task named outcomes and a next
-task. Use **Validate** before saving. Saving creates a new revision; a feature with an existing
-workflow copy keeps the revision it started with. The current definition supports one active task
-path at a time, including routes back to earlier tasks for rework.
+Open **Settings → Project** and find **Workflows** to see a project's workflows. Use **Add
+starter workflow** for Feature delivery, then **Edit** to open a workflow's page.
+
+- **Stages** run in order from the first stage. Each stage runs as a crew role, has a task, and
+  can write files such as `plan.md`. Its last line says what it gets in its handoff: every earlier
+  output by default, or only the files and changes you pick. **Approve …** switches make the
+  feature wait for your approval after that stage. A stage can be removed once nothing starts at
+  it or routes to it.
+- **Routes** say where each outcome goes next, for example back to Build when Review requests
+  changes. Give a route a number to stop the feature at **Your call** after it has been taken that
+  many times. Questions go to the Manager first, then to you. A failed stage retries the number of
+  times you set (empty uses the Crew setting), then pauses and notifies you.
+- **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
+  keep the version they began with. Use the **⋯** menu to duplicate a workflow.
+
+Workflows record the version of each role they use. After you edit or turn off a role in Crew, the
+workflow shows that it changed, and new features can't start on it until you publish a new version.
+
+## Crew
+
+**Settings → Crew** holds the roles workflow stages run as, and limits on running agents.
+
+Roles belong to a project, so pick a project at the top of the page to see them. Use **Add the
+starter crew** for a Manager, Planner, Designer, Builder, QA Tester and Reviewer. Each role has
+instructions, crew tools and a default model. **Act** lets it work on its own; **Ask first**
+asks before changes. Use **Add role** for another role, and the **⋯** menu to edit a role or turn
+it off. The Captain is environment-wide and shown read-only.
+
+**Limits** are environment-wide:
+
+- **Agents running at once** (default 4). Further stage threads wait as Queued. Threads you start
+  yourself are never counted or queued.
+- **Per provider** caps one provider, so its rate limit doesn't stall every feature. Empty means no
+  cap.
+- **Retries before a stage fails** (default 1), for workflows that don't set their own.
+
+Editing workflows and the crew is available on web and desktop. **Settings → Project → Crew
+activity** still lets you give the Captain a task and answer, cancel or retry its requests.
 
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current bot status or send an action.
