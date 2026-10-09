@@ -17,7 +17,10 @@ import type { BotStore } from "./bots/BotStore.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
-import type { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
+import type {
+  WorkflowControl,
+  WorkflowExecutionService,
+} from "./workflows/WorkflowExecutionService.ts";
 import type { WorkflowService } from "./workflows/WorkflowService.ts";
 
 const isBotOperationError = Schema.is(BotOperationError);
@@ -52,6 +55,10 @@ export const layerBosunWsRpc = (
   BosunWsRpcGroup.middleware(RpcInstrumentation).toLayer(
     Effect.gen(function* () {
       const projectStore = yield* ProjectStore.ProjectStoreV2;
+      const control = (input: Omit<WorkflowControl, "actorId">) =>
+        workflowExecution
+          .control({ ...input, actorId: currentSessionId })
+          .pipe(Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })));
       return {
         [WS_METHODS.featuresSetStatus]: (input) =>
           features
@@ -117,16 +124,39 @@ export const layerBosunWsRpc = (
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
-        [WS_METHODS.workflowsRetry]: (input) =>
+        [WS_METHODS.workflowsRetry]: (input) => control({ ...input, kind: "retry" }),
+        [WS_METHODS.workflowsApprove]: ({ note, ...input }) =>
+          control({ ...input, kind: "approved", ...(note === undefined ? {} : { text: note }) }),
+        [WS_METHODS.workflowsRequestChanges]: ({ note, ...input }) =>
+          control({ ...input, kind: "changes-requested", text: note }),
+        [WS_METHODS.workflowsTakeOver]: (input) => control({ ...input, kind: "taken-over" }),
+        [WS_METHODS.workflowsMarkDone]: ({ summary, ...input }) =>
+          control({ ...input, kind: "marked-done", text: summary }),
+        [WS_METHODS.workflowsSendBack]: ({ note, ...input }) =>
+          control({ ...input, kind: "sent-back", ...(note === undefined ? {} : { text: note }) }),
+        [WS_METHODS.workflowsSkip]: (input) => control({ ...input, kind: "skipped" }),
+        [WS_METHODS.workflowsAcceptAsIs]: (input) => control({ ...input, kind: "accepted" }),
+        [WS_METHODS.workflowsOneMoreRound]: (input) => control({ ...input, kind: "extended" }),
+        [WS_METHODS.workflowsStartNow]: (input) =>
           workflowExecution
-            .control({
-              ...input,
-              actorId: currentSessionId,
-              kind: "retry",
-            })
+            .startNow(input.featureId, input.projectId)
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
+        [WS_METHODS.featuresStart]: (input) =>
+          features
+            .start(input.featureId, input.projectId)
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresReopen]: (input) =>
+          features
+            .reopen({
+              id: input.featureId,
+              projectId: input.projectId,
+              requestId: input.requestId,
+              actorId: currentSessionId,
+              ...(input.stepId === undefined ? {} : { stepId: input.stepId }),
+            })
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
         [WS_METHODS.workflowsCancel]: (input) =>
           workflowExecution
             .control({

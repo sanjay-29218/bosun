@@ -1,4 +1,9 @@
-import { BotHandoff as BotHandoffContract, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  BotHandoff as BotHandoffContract,
+  ModelSelection,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -47,11 +52,18 @@ export interface BotHandoff {
   readonly attempt: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Overrides the target bot's model for the run this handoff starts. Not part of receipts. */
+  readonly modelSelection?: ModelSelection | null;
 }
 
-interface HandoffRow extends Omit<BotHandoff, "projectId"> {
+interface HandoffRow extends Omit<BotHandoff, "projectId" | "modelSelection"> {
   readonly projectId: string;
+  readonly modelSelectionJson: string | null;
 }
+
+const modelSelectionJson = Schema.fromJsonString(ModelSelection);
+const encodeModelSelection = Schema.encodeSync(modelSelectionJson);
+const decodeModelSelection = Schema.decodeSync(modelSelectionJson);
 
 const columns = `
   id, parent_id AS parentId, source_run_id AS sourceRunId,
@@ -60,11 +72,13 @@ const columns = `
   depth, status, response_text AS responseText, question_text AS questionText,
   last_error AS lastError, created_at AS createdAt, updated_at AS updatedAt
   , notification_state AS notificationState, notice_version AS noticeVersion, attempt
+  , model_selection_json AS modelSelectionJson
 `;
 
-const decode = (row: HandoffRow): BotHandoff => ({
+const decode = ({ modelSelectionJson, ...row }: HandoffRow): BotHandoff => ({
   ...row,
   projectId: ProjectId.make(row.projectId),
+  modelSelection: modelSelectionJson === null ? null : decodeModelSelection(modelSelectionJson),
 });
 
 export interface BotHandoffReceipt {
@@ -186,14 +200,16 @@ export const BotHandoffStoreLive = Layer.effect(
           INSERT OR IGNORE INTO bot_handoffs (
             id, parent_id, source_run_id, target_bot_id, target_run_id, project_id,
             task_text, context_text, depth, status, response_text, question_text,
-            last_error, notification_state, notice_version, attempt, created_at, updated_at
+            last_error, notification_state, notice_version, attempt, created_at, updated_at,
+            model_selection_json
           ) VALUES (
             ${handoff.id}, ${handoff.parentId}, ${handoff.sourceRunId}, ${handoff.targetBotId},
             ${handoff.targetRunId}, ${handoff.projectId}, ${handoff.taskText},
             ${handoff.contextText}, ${handoff.depth}, ${handoff.status},
             ${handoff.responseText}, ${handoff.questionText}, ${handoff.lastError},
             ${handoff.notificationState}, ${handoff.noticeVersion}, ${handoff.attempt},
-            ${handoff.createdAt}, ${handoff.updatedAt}
+            ${handoff.createdAt}, ${handoff.updatedAt},
+            ${handoff.modelSelection ? encodeModelSelection(handoff.modelSelection) : null}
           )
           RETURNING id
         `,

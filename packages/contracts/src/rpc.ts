@@ -50,12 +50,20 @@ import {
   FeatureOperationError,
   FeatureProjectInput,
   FeatureRecord,
+  FeatureReopenInput,
   FeatureSetStatusInput,
+  FeatureStartInput,
 } from "./features.ts";
 import {
   WorkflowCreateInput,
   WorkflowActionInput,
   WorkflowAnswerInput,
+  WorkflowApproveInput,
+  WorkflowMarkDoneInput,
+  WorkflowRequestChangesInput,
+  WorkflowRetryInput,
+  WorkflowRouteInput,
+  WorkflowSendBackInput,
   WorkflowDefinition,
   WorkflowFeatureGetInput,
   WorkflowFeatureSnapshot,
@@ -399,6 +407,8 @@ export const WS_METHODS = {
   featuresList: "features.list",
   featuresGet: "features.get",
   featuresSetStatus: "features.setStatus",
+  featuresStart: "features.start",
+  featuresReopen: "features.reopen",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -410,6 +420,15 @@ export const WS_METHODS = {
   workflowsCancel: "workflows.cancel",
   workflowsPause: "workflows.pause",
   workflowsResume: "workflows.resume",
+  workflowsApprove: "workflows.approve",
+  workflowsRequestChanges: "workflows.requestChanges",
+  workflowsTakeOver: "workflows.takeOver",
+  workflowsMarkDone: "workflows.markDone",
+  workflowsSendBack: "workflows.sendBack",
+  workflowsSkip: "workflows.skip",
+  workflowsAcceptAsIs: "workflows.acceptAsIs",
+  workflowsOneMoreRound: "workflows.oneMoreRound",
+  workflowsStartNow: "workflows.startNow",
   botsSnapshot: "bots.snapshot",
   botsConfiguration: "bots.configuration",
   botsInitialize: "bots.initialize",
@@ -1048,7 +1067,7 @@ const WsWorkflowsAnswerRpc = Rpc.make(WS_METHODS.workflowsAnswer, {
   error: WorkflowRpcError,
 });
 const WsWorkflowsRetryRpc = Rpc.make(WS_METHODS.workflowsRetry, {
-  payload: WorkflowActionInput,
+  payload: WorkflowRetryInput,
   success: WorkflowFeatureSnapshot,
   error: WorkflowRpcError,
 });
@@ -1066,6 +1085,38 @@ const WsWorkflowsResumeRpc = Rpc.make(WS_METHODS.workflowsResume, {
   payload: WorkflowActionInput,
   success: WorkflowFeatureSnapshot,
   error: WorkflowRpcError,
+});
+const workflowAction = <const Tag extends string, Payload extends Schema.Top>(
+  tag: Tag,
+  payload: Payload,
+) => Rpc.make(tag, { payload, success: WorkflowFeatureSnapshot, error: WorkflowRpcError });
+const WsWorkflowsApproveRpc = workflowAction(WS_METHODS.workflowsApprove, WorkflowApproveInput);
+const WsWorkflowsRequestChangesRpc = workflowAction(
+  WS_METHODS.workflowsRequestChanges,
+  WorkflowRequestChangesInput,
+);
+const WsWorkflowsTakeOverRpc = workflowAction(WS_METHODS.workflowsTakeOver, WorkflowActionInput);
+const WsWorkflowsMarkDoneRpc = workflowAction(WS_METHODS.workflowsMarkDone, WorkflowMarkDoneInput);
+const WsWorkflowsSendBackRpc = workflowAction(WS_METHODS.workflowsSendBack, WorkflowSendBackInput);
+const WsWorkflowsSkipRpc = workflowAction(WS_METHODS.workflowsSkip, WorkflowRouteInput);
+const WsWorkflowsAcceptAsIsRpc = workflowAction(WS_METHODS.workflowsAcceptAsIs, WorkflowRouteInput);
+const WsWorkflowsOneMoreRoundRpc = workflowAction(
+  WS_METHODS.workflowsOneMoreRound,
+  WorkflowActionInput,
+);
+const WsWorkflowsStartNowRpc = workflowAction(
+  WS_METHODS.workflowsStartNow,
+  WorkflowFeatureGetInput,
+);
+const WsFeaturesStartRpc = Rpc.make(WS_METHODS.featuresStart, {
+  payload: FeatureStartInput,
+  success: WorkflowFeatureSnapshot,
+  error: FeatureRpcError,
+});
+const WsFeaturesReopenRpc = Rpc.make(WS_METHODS.featuresReopen, {
+  payload: FeatureReopenInput,
+  success: WorkflowFeatureSnapshot,
+  error: FeatureRpcError,
 });
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
   payload: BotProjectSnapshotInput,
@@ -2017,6 +2068,8 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesListRpc,
   WsFeaturesGetRpc,
   WsFeaturesSetStatusRpc,
+  WsFeaturesStartRpc,
+  WsFeaturesReopenRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,
@@ -2028,6 +2081,15 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsCancelRpc,
   WsWorkflowsPauseRpc,
   WsWorkflowsResumeRpc,
+  WsWorkflowsApproveRpc,
+  WsWorkflowsRequestChangesRpc,
+  WsWorkflowsTakeOverRpc,
+  WsWorkflowsMarkDoneRpc,
+  WsWorkflowsSendBackRpc,
+  WsWorkflowsSkipRpc,
+  WsWorkflowsAcceptAsIsRpc,
+  WsWorkflowsOneMoreRoundRpc,
+  WsWorkflowsStartNowRpc,
   WsBotsSnapshotRpc,
   WsBotsConfigurationRpc,
   WsBotsInitializeRpc,

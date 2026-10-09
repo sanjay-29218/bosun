@@ -19,6 +19,7 @@ import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
 import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import {
   BotTestOrchestration as OrchestrationLayerLive,
   seedBotProject,
@@ -57,6 +58,7 @@ const withSystem = <E>(
       Layer.provideMerge(orchestration),
       Layer.provide(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -277,6 +279,7 @@ describe("feature creation", () => {
         Layer.provideMerge(orchestration),
         Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
         Layer.provideMerge(NodeServices.layer),
       );

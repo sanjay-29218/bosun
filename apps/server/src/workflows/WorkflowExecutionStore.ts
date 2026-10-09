@@ -23,6 +23,19 @@ export interface WorkflowExecution {
   readonly bindings: WorkflowBindings;
   readonly lastError: string | null;
   readonly settled: boolean;
+  /** The feature's title and brief, when it was created through FeatureService. */
+  readonly brief: { readonly title: string; readonly text: string } | null;
+  /** Set while the feature waits for a stage slot. */
+  readonly queuedAt: string | null;
+  /** The provider instance whose slot it holds, or, while queued, the one it waits for. */
+  readonly slotInstanceId: string | null;
+}
+
+/** One unsettled feature's place in the stage-thread limits. */
+export interface WorkflowSlot {
+  readonly featureId: string;
+  readonly queuedAt: string | null;
+  readonly slotInstanceId: string | null;
 }
 
 export class WorkflowExecutionStore extends Context.Service<
@@ -45,6 +58,12 @@ export class WorkflowExecutionStore extends Context.Service<
       featureId: string,
       lastError: string | null,
       settled: boolean,
+    ) => Effect.Effect<void, PersistenceSqlError>;
+    readonly listSlots: () => Effect.Effect<ReadonlyArray<WorkflowSlot>, PersistenceSqlError>;
+    readonly setSlot: (
+      featureId: string,
+      queuedAt: string | null,
+      slotInstanceId: string | null,
     ) => Effect.Effect<void, PersistenceSqlError>;
   }
 >()("t3/workflows/WorkflowExecutionStore") {}
@@ -81,10 +100,16 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           readonly bindingsJson: string;
           readonly lastError: string | null;
           readonly settled: number;
+          readonly title: string | null;
+          readonly brief: string | null;
+          readonly queuedAt: string | null;
+          readonly slotInstanceId: string | null;
         }>`
       SELECT e.feature_id AS featureId, w.project_id AS projectId,
-        e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled
+        e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled,
+        f.title, f.brief, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId
       FROM workflow_executions AS e JOIN feature_workflows AS w ON w.feature_id = e.feature_id
+      LEFT JOIN features AS f ON f.id = e.feature_id
       WHERE e.feature_id = ${featureId}
     `.pipe(
           Effect.mapError(error),
@@ -98,6 +123,12 @@ export const WorkflowExecutionStoreLive = Layer.effect(
                       bindings: decodeBindings(rows[0].bindingsJson),
                       lastError: rows[0].lastError,
                       settled: rows[0].settled === 1,
+                      brief:
+                        rows[0].title === null
+                          ? null
+                          : { title: rows[0].title, text: rows[0].brief ?? "" },
+                      queuedAt: rows[0].queuedAt,
+                      slotInstanceId: rows[0].slotInstanceId,
                     }
                   : null,
               catch: error,
@@ -117,6 +148,18 @@ export const WorkflowExecutionStoreLive = Layer.effect(
       update: (featureId, lastError, settled) =>
         sql`
       UPDATE workflow_executions SET last_error = ${lastError}, settled = ${settled ? 1 : 0}
+      WHERE feature_id = ${featureId}
+    `.pipe(Effect.asVoid, Effect.mapError(error)),
+      listSlots: () =>
+        sql<WorkflowSlot>`
+      SELECT feature_id AS featureId, queued_at AS queuedAt, slot_instance_id AS slotInstanceId
+      FROM workflow_executions
+      WHERE settled = 0 AND (queued_at IS NOT NULL OR slot_instance_id IS NOT NULL)
+      ORDER BY queued_at, feature_id
+    `.pipe(Effect.mapError(error)),
+      setSlot: (featureId, queuedAt, slotInstanceId) =>
+        sql`
+      UPDATE workflow_executions SET queued_at = ${queuedAt}, slot_instance_id = ${slotInstanceId}
       WHERE feature_id = ${featureId}
     `.pipe(Effect.asVoid, Effect.mapError(error)),
     });

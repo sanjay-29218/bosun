@@ -5,6 +5,8 @@ import {
   type FeatureCreateInput,
   type FeatureRecord as FeatureRecordSchema,
   type ProjectId,
+  type WorkflowDefinition,
+  type WorkflowFeatureSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -18,7 +20,14 @@ import { BotStore } from "../bots/BotStore.ts";
 import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
-import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
+import {
+  WorkflowExecutionService,
+  type WorkflowExecutionError,
+} from "../workflows/WorkflowExecutionService.ts";
+import {
+  WorkflowExecutionStore,
+  type WorkflowBindings,
+} from "../workflows/WorkflowExecutionStore.ts";
 
 export class FeatureValidationError extends Error {
   readonly _tag = "FeatureValidationError";
@@ -31,7 +40,8 @@ export type FeatureServiceError =
   | FeatureValidationError
   | BotServiceError
   | PersistenceSqlError
-  | WorkflowServiceError;
+  | WorkflowServiceError
+  | WorkflowExecutionError;
 
 export interface FeatureServiceShape {
   readonly create: (input: CreateFeatureInput) => Effect.Effect<FeatureRecord, FeatureServiceError>;
@@ -40,6 +50,22 @@ export interface FeatureServiceShape {
     projectId: ProjectId,
     status: FeatureRecord["status"],
   ) => Effect.Effect<FeatureRecord, FeatureServiceError>;
+  /**
+   * Starts the feature's workflow. Each stage is sent from a lead run: its supervisor's, or the
+   * Captain's for stages without one. Those threads are where stage questions and notices land.
+   */
+  readonly start: (
+    id: string,
+    projectId: ProjectId,
+  ) => Effect.Effect<WorkflowFeatureSnapshot, FeatureServiceError>;
+  /** Opens a closed feature and resumes it: where it stopped, or at `stepId` after Done. */
+  readonly reopen: (input: {
+    readonly id: string;
+    readonly projectId: ProjectId;
+    readonly requestId: string;
+    readonly actorId: string;
+    readonly stepId?: string;
+  }) => Effect.Effect<WorkflowFeatureSnapshot, FeatureServiceError>;
   readonly get: (id: string) => Effect.Effect<FeatureRecord | null, PersistenceSqlError>;
   readonly listByProject: (
     projectId: ProjectId,
@@ -52,11 +78,26 @@ export class FeatureService extends Context.Service<FeatureService, FeatureServi
 
 const validText = (value: string, max: number) => value.trim().length > 0 && value.length <= max;
 
-const featureBotId = (featureId: string, templateId: string) =>
-  `feature-bot:${NodeCrypto.createHash("sha256")
-    .update(JSON.stringify([featureId, templateId]))
+const hashed = (prefix: string, featureId: string, id: string) =>
+  `${prefix}:${NodeCrypto.createHash("sha256")
+    .update(JSON.stringify([featureId, id]))
     .digest("hex")
     .slice(0, 32)}`;
+const featureBotId = (featureId: string, templateId: string) =>
+  hashed("feature-bot", featureId, templateId);
+const CAPTAIN_BOT_ID = "bot-captain";
+
+const leadTask = (feature: FeatureRecord, definition: WorkflowDefinition, captain: boolean) =>
+  [
+    captain
+      ? `You keep feature "${feature.title}" (${feature.id}) moving on workflow ${definition.name}.`
+      : `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
+    "The workflow sends each stage to its bot, so never delegate stage work yourself.",
+    captain
+      ? "Stage notices arrive here. Tell the person only what they must decide."
+      : "Stage bots ask you questions here. Answer with bots_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
+    `Brief:\n${feature.brief.slice(0, 8_000)}`,
+  ].join("\n\n");
 
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
@@ -74,6 +115,7 @@ export const FeatureServiceLive = Layer.effect(
     const runtime = yield* BotThreadRuntime;
     const workflows = yield* WorkflowService;
     const executions = yield* WorkflowExecutionStore;
+    const execution = yield* WorkflowExecutionService;
     const queryError = toPersistenceSqlError("FeatureService.query");
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
@@ -96,7 +138,87 @@ export const FeatureServiceLive = Layer.effect(
         Effect.flatMap((rows) => (rows[0] ? decodeRow(rows[0]) : Effect.succeed(null))),
       );
 
+    const requireFeature = (id: string, projectId: ProjectId) =>
+      get(id).pipe(
+        Effect.flatMap((feature) =>
+          feature && feature.projectId === projectId
+            ? Effect.succeed(feature)
+            : Effect.fail(new FeatureValidationError("Feature not found in project")),
+        ),
+      );
+
+    /** One lead run per dispatching bot, created once per feature. */
+    const leadBindings = (feature: FeatureRecord, definition: WorkflowDefinition) =>
+      Effect.gen(function* () {
+        const bindings: Record<string, WorkflowBindings[string]> = {};
+        for (const [name, assignment] of Object.entries(definition.bots)) {
+          const botId = feature.botAssignments[name];
+          const leadBotId =
+            assignment.supervisor === null
+              ? CAPTAIN_BOT_ID
+              : feature.botAssignments[assignment.supervisor];
+          if (!botId || !leadBotId) {
+            return yield* Effect.fail(
+              new FeatureValidationError(`Workflow bot ${name} has no feature bot`),
+            );
+          }
+          if (leadBotId === CAPTAIN_BOT_ID) {
+            if (!(yield* botStore.getDefinition(CAPTAIN_BOT_ID))?.enabled) {
+              return yield* Effect.fail(
+                new FeatureValidationError("Set up the crew before starting a feature"),
+              );
+            }
+            if (!(yield* botStore.canDelegate(CAPTAIN_BOT_ID, botId))) {
+              yield* bots.allowDelegation(CAPTAIN_BOT_ID, botId);
+            }
+          }
+          const run = yield* bots.createRun({
+            id: hashed("feature-lead", feature.id, leadBotId),
+            botId: leadBotId,
+            projectId: feature.projectId,
+            taskText: leadTask(feature, definition, leadBotId === CAPTAIN_BOT_ID),
+          });
+          bindings[name] = { botId, dispatchRunId: run.id };
+        }
+        return bindings;
+      });
+
     return FeatureService.of({
+      start: (id, projectId) =>
+        Effect.gen(function* () {
+          const feature = yield* requireFeature(id, projectId);
+          if (feature.status !== "open") {
+            return yield* Effect.fail(
+              new FeatureValidationError("Reopen the feature before starting it"),
+            );
+          }
+          const copy = yield* workflows.getFeatureCopy(id);
+          if (!copy) {
+            return yield* Effect.fail(new FeatureValidationError("This feature has no workflow"));
+          }
+          // Starting twice is a no-op: the execution already exists.
+          if (!(yield* executions.get(id))) {
+            yield* execution.attach(id, projectId, yield* leadBindings(feature, copy.definition));
+          }
+          return (yield* workflows.getFeatureSnapshot(id, projectId))!;
+        }),
+      reopen: ({ id, projectId, requestId, actorId, stepId }) =>
+        Effect.gen(function* () {
+          const feature = yield* requireFeature(id, projectId);
+          if (feature.status === "closed") {
+            const updatedAt = DateTime.formatIso(yield* DateTime.now);
+            yield* sql`UPDATE features SET status = 'open', updated_at = ${updatedAt}
+              WHERE id = ${id} AND project_id = ${projectId}`.pipe(Effect.mapError(queryError));
+          }
+          return yield* execution.control({
+            featureId: id,
+            projectId,
+            requestId,
+            actorId,
+            kind: "reopened",
+            ...(stepId === undefined ? {} : { stepId }),
+          });
+        }),
       get,
       setStatus: (id, projectId, status) =>
         sql

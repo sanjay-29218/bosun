@@ -1,4 +1,4 @@
-import { type ProjectId, type ThreadId } from "@t3tools/contracts";
+import { type ModelSelection, type ProjectId, type ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -22,6 +22,8 @@ export interface DelegateBotInput {
   readonly projectId: ProjectId;
   readonly taskText: string;
   readonly contextText?: string;
+  /** Runs the target bot on another model, as Retry with another model does. */
+  readonly modelSelection?: ModelSelection;
 }
 
 export interface BotHandoffServiceShape {
@@ -76,7 +78,8 @@ const sameRequest = (handoff: BotHandoff, input: DelegateBotInput, sourceRunId: 
   handoff.targetBotId === input.targetBotId &&
   handoff.projectId === input.projectId &&
   handoff.taskText === input.taskText.trim() &&
-  handoff.contextText === (input.contextText?.trim() ?? "");
+  handoff.contextText === (input.contextText?.trim() ?? "") &&
+  JSON.stringify(handoff.modelSelection ?? null) === JSON.stringify(input.modelSelection ?? null);
 
 export const BotHandoffServiceLive = Layer.effect(
   BotHandoffService,
@@ -163,6 +166,7 @@ export const BotHandoffServiceLive = Layer.effect(
           botId: handoff.targetBotId,
           projectId: handoff.projectId,
           taskText: `${handoff.taskText}${handoff.contextText ? `\n\nContext:\n${handoff.contextText}` : ""}`,
+          ...(handoff.modelSelection ? { modelSelection: handoff.modelSelection } : {}),
         });
         const now = DateTime.formatIso(yield* DateTime.now);
         yield* handoffs.transition(handoff.id, ["queued"], "running", now);
@@ -235,6 +239,7 @@ export const BotHandoffServiceLive = Layer.effect(
           attempt: 1,
           createdAt: now,
           updatedAt: now,
+          modelSelection: input.modelSelection ?? null,
         };
         yield* handoffs.insert(handoff);
         const persisted = yield* handoffs.get(id);

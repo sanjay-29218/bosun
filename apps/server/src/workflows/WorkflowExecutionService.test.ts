@@ -23,6 +23,7 @@ import { BotThreadRuntime, type BotThreadStart } from "../bots/BotThreadRuntime.
 import { BotHandoffService, BotHandoffServiceLive } from "../bots/BotHandoffService.ts";
 import { BotHandoffStore, BotHandoffStoreLive } from "../bots/BotHandoffStore.ts";
 import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { BotTestOrchestration as OrchestrationLayerLive } from "../bots/BotRuntime.testkit.ts";
 import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -38,7 +39,10 @@ import {
 const projectId = ProjectId.make("execution-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" };
 
-const fixture = (directory: string) => {
+const fixture = (
+  directory: string,
+  crew: { readonly maxRunningStageThreads?: number; readonly stageRetries?: number } = {},
+) => {
   const starts: Array<BotThreadStart> = [];
   const interruptions: Array<string> = [];
   let failDispatch = false;
@@ -99,6 +103,7 @@ const fixture = (directory: string) => {
     Layer.provideMerge(OrchestrationLayerLive),
     Layer.provideMerge(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
     Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "workflow-execution-" })),
+    Layer.provideMerge(ServerSettingsService.layerTest({ crew })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -187,8 +192,8 @@ const seed = (featureId = "feature-one") =>
       defaults: {
         questions: "supervisor",
         failure: "pause",
-        maxAttemptsPerExecution: 2,
         maxStepExecutions: 6,
+        retries: 0,
       },
     };
     yield* workflows.createDefinition(projectId, definition);
