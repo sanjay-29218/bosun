@@ -384,7 +384,8 @@ describe("Workflow execution", () => {
         const { featureId, definition, execution, workflows, bindings } = yield* seed();
         const handoffs = yield* BotHandoffService;
         yield* execution.attach(featureId, projectId, bindings);
-        const review = definition.steps.review!;
+        const review = definition.steps.review;
+        if (review?.type !== "task") return yield* Effect.die("review is a task step");
         yield* workflows.reviseDefinition(
           projectId,
           {
