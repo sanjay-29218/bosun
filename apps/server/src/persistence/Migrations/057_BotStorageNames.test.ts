@@ -2,10 +2,10 @@ import * as BosunMigrations from "../BosunMigrations.ts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
-import { runMigrations } from "../Migrations.ts";
+import { migrationEntries, runMigrations } from "../Migrations.ts";
 
 const fresh = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 const legacy = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
@@ -86,7 +86,7 @@ legacy("legacy bot storage", (it) => {
       `;
       assert.deepStrictEqual(
         upstream.map((row) => row.name),
-        ["OrchestrationV2", "RemoveRedundantProjectionIndexes"],
+        migrationEntries.filter(([id]) => id >= 55).map(([, name]) => name),
       );
       const domain = yield* sql<{ readonly name: string }>`
         SELECT name FROM bosun_sql_migrations WHERE migration_id <= 59 ORDER BY migration_id

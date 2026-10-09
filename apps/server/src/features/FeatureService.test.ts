@@ -24,7 +24,7 @@ import {
   seedBotProject,
 } from "../bots/BotRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
-import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 
@@ -55,7 +55,7 @@ const withSystem = <E>(
     const layer = FeatureServiceLive.pipe(
       Layer.provideMerge(WorkflowRuntimeLive.pipe(Layer.provide(orchestration))),
       Layer.provideMerge(orchestration),
-      Layer.provide(makeSqlitePersistenceLive(NodePath.join(directory, "state.sqlite"))),
+      Layer.provide(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
       Layer.provideMerge(NodeServices.layer),
@@ -275,7 +275,7 @@ describe("feature creation", () => {
       const layer = FeatureServiceLive.pipe(
         Layer.provideMerge(botRuntime),
         Layer.provideMerge(orchestration),
-        Layer.provide(makeSqlitePersistenceLive(databasePath)),
+        Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
         Layer.provideMerge(NodeServices.layer),

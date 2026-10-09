@@ -6,7 +6,7 @@ import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 
@@ -146,7 +146,7 @@ export const BotHandoffStoreLive = Layer.effect(
       });
     const mutate = <A>(
       id: string,
-      operation: Effect.Effect<ReadonlyArray<A>, import("effect/unstable/sql/SqlError").SqlError>,
+      operation: Effect.Effect<ReadonlyArray<A>, import("effect/sql/SqlError").SqlError>,
     ) =>
       sql
         .withTransaction(

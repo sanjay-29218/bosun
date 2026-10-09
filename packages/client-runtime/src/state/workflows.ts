@@ -1,6 +1,6 @@
 import { WS_METHODS, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";

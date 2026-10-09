@@ -16,14 +16,14 @@ import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
-import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
-import type { ProviderInstance } from "../provider/ProviderDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
-import type { ProviderAdapterV2Shape } from "../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2Shape } from "@t3tools/provider-core/server/ProviderAdapter";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
-import { OrchestrationV2LayerLive } from "../orchestration-v2/runtimeLayer.ts";
+import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 const PlatformTestLayer = Layer.merge(
   NodeServices.layer,
@@ -111,10 +111,7 @@ const TestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-export const BotTestOrchestration = Layer.mergeAll(
-  OrchestrationV2LayerLive,
-  ProjectStore.layer,
-).pipe(
+export const BotTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectStore.layer).pipe(
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(CheckpointStoreTestLayer),
   Layer.provide(ServerConfigLayer),

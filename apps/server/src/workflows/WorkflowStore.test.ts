@@ -3,11 +3,11 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as BosunMigrations from "../persistence/BosunMigrations.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
 
 const projectId = ProjectId.make("workflow-test-project");
@@ -100,7 +100,9 @@ it.effect("keeps revisions and feature copies independent across later edits", (
     assert.deepEqual(yield* store.listEvents("feature-1"), [event]);
     assert.strictEqual((yield* store.getFeatureCopy("feature-1"))?.eventVersion, 1);
     assert.deepEqual(yield* sql`PRAGMA foreign_key_check`, []);
-  }).pipe(Effect.provide(WorkflowStoreLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)))),
+  }).pipe(
+    Effect.provide(WorkflowStoreLive.pipe(Layer.provideMerge(SqlitePersistence.layerMemory))),
+  ),
 );
 
 it.effect("migrates an existing bots database without damaging its rows", () =>

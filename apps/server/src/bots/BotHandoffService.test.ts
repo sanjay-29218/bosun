@@ -9,13 +9,13 @@ import { ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
 import { BotTestOrchestration, seedBotProject } from "./BotRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
-import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { BotService } from "./BotService.ts";
 import { BotHandoffService } from "./BotHandoffService.ts";
@@ -40,7 +40,7 @@ const withSystem = <A, E>(
     orchestration,
     BotRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
-    Layer.provideMerge(makeSqlitePersistenceLive(path)),
+    Layer.provideMerge(SqlitePersistence.layerFromPath(path)),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-handoff-test-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),

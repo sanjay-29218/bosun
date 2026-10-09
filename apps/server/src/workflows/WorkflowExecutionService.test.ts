@@ -25,7 +25,7 @@ import { BotHandoffStore, BotHandoffStoreLive } from "../bots/BotHandoffStore.ts
 import { ServerConfig } from "../config.ts";
 import { BotTestOrchestration as OrchestrationLayerLive } from "../bots/BotRuntime.testkit.ts";
 import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
-import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
@@ -97,7 +97,7 @@ const fixture = (directory: string) => {
   );
   const layer = execution.pipe(
     Layer.provideMerge(OrchestrationLayerLive),
-    Layer.provideMerge(makeSqlitePersistenceLive(NodePath.join(directory, "state.sqlite"))),
+    Layer.provideMerge(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
     Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "workflow-execution-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),

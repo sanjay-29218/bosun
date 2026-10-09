@@ -24,7 +24,7 @@ import {
   seedBotProject,
 } from "../bots/BotRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
-import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
@@ -99,7 +99,7 @@ describe("Workflow service", () => {
         Layer.provideMerge(bots),
       );
       const layer = Layer.mergeAll(orchestration, workflows).pipe(
-        Layer.provide(makeSqlitePersistenceLive(databasePath)),
+        Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "workflow-test-" })),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
         Layer.provideMerge(NodeServices.layer),
@@ -486,7 +486,7 @@ describe("Workflow service", () => {
       }).pipe(
         Effect.provide(
           WorkflowStoreLive.pipe(
-            Layer.provide(makeSqlitePersistenceLive(databasePath)),
+            Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
             Layer.provide(NodeServices.layer),
           ),
         ),

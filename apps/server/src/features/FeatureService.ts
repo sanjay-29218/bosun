@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 import * as NodeCrypto from "node:crypto";
 
 import {
@@ -10,7 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { BotService, type BotServiceError } from "../bots/BotService.ts";
 import { BotStore } from "../bots/BotStore.ts";
@@ -132,7 +133,7 @@ export const FeatureServiceLive = Layer.effect(
               return { ...feature, status, updatedAt };
             }),
           )
-          .pipe(Effect.catchTag("SqlError", (error) => Effect.fail(queryError(error)))),
+          .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) })),
       listByProject: (projectId) =>
         sql<FeatureRow>`
           SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
@@ -287,7 +288,7 @@ export const FeatureServiceLive = Layer.effect(
                 };
               }),
             )
-            .pipe(Effect.catchTag("SqlError", (error) => Effect.fail(queryError(error))));
+            .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
         }),
     });
   }),

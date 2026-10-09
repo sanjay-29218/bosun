@@ -1,11 +1,11 @@
-import { McpCapabilityUnavailableError } from "@t3tools/contracts";
+import { McpCapabilityUnavailableError, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import { Tool, Toolkit } from "effect/ai";
 
 import { BotHandoffService } from "../../../bots/BotHandoffService.ts";
 import { BotHandoffStore } from "../../../bots/BotHandoffStore.ts";
 import { BotStore } from "../../../bots/BotStore.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 export class BotToolFailedError extends Schema.TaggedError<BotToolFailedError>()(
@@ -17,8 +17,19 @@ export class BotToolFailedError extends Schema.TaggedError<BotToolFailedError>()
   }
 }
 
-const dependencies = [McpInvocationContext, BotHandoffService, BotHandoffStore, BotStore];
-const failure = Schema.Union([McpCapabilityUnavailableError, BotToolFailedError]);
+const dependencies = [
+  McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
+  BotHandoffService,
+  BotHandoffStore,
+  BotStore,
+];
+/** What a bot tool fails with, including the access gate's refusal. */
+const failure = Schema.Union([
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  BotToolFailedError,
+]);
 const Handoff = Schema.Struct({
   id: Schema.String,
   parentId: Schema.NullOr(Schema.String),

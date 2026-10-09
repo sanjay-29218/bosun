@@ -15,12 +15,9 @@ import { BotTestOrchestration, seedBotProject } from "./BotRuntime.testkit.ts";
 import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as Option from "effect/Option";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
-import {
-  makeSqlitePersistenceLive,
-  SqlitePersistenceMemory,
-} from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { BotService, BotServiceLive } from "./BotService.ts";
 import { BotStore, BotStoreLive } from "./BotStore.ts";
@@ -52,7 +49,7 @@ const withSystem = <A, E>(
     orchestration,
     BotRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
-    Layer.provideMerge(makeSqlitePersistenceLive(databasePath)),
+    Layer.provideMerge(SqlitePersistence.layerFromPath(databasePath)),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-test-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(NodeServices.layer),
@@ -196,7 +193,7 @@ describe("Bot foundation", () => {
       const layer = BotServiceLive.pipe(
         Layer.provideMerge(BotStoreLive),
         Layer.provide(fakeRuntime),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provide(SqlitePersistence.layerMemory),
       );
       yield* Effect.gen(function* () {
         const bots = yield* BotService;
