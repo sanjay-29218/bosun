@@ -1,4 +1,8 @@
-import { McpCapabilityUnavailableError, OrchestratorMcpFailure } from "@t3tools/contracts";
+import {
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  WorkflowStageHandoff,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
@@ -6,6 +10,7 @@ import { BotHandoffService } from "../../../bots/BotHandoffService.ts";
 import { BotHandoffStore } from "../../../bots/BotHandoffStore.ts";
 import { BotStore } from "../../../bots/BotStore.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 export class BotToolFailedError extends Schema.TaggedError<BotToolFailedError>()(
@@ -108,4 +113,12 @@ const Answer = Tool.make("bots_answer", {
   dependencies,
 }).annotate(Tool.Idempotent, false);
 
-export const BotsToolkit = Toolkit.make(Delegate, Respond, Ask, List, Wait, Answer);
+const StageHandoff = Tool.make("bots_stage_handoff", {
+  description:
+    "Read the full handoff this workflow stage started from: the brief, the outputs it receives, notes from earlier stages and people, and the branch and commit. Nothing else is passed between stages.",
+  success: WorkflowStageHandoff,
+  failure,
+  dependencies: [...dependencies, WorkflowService],
+}).annotate(Tool.Readonly, true);
+
+export const BotsToolkit = Toolkit.make(Delegate, Respond, Ask, List, Wait, Answer, StageHandoff);

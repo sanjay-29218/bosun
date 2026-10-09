@@ -19,6 +19,13 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
   });
+  /** The handoff a stage thread started from; null for threads outside a workflow. */
+  const stageHandoff = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:workflows:stage-handoff",
+    tag: WS_METHODS.workflowsGetStageHandoff,
+    staleTimeMs: 60_000,
+    idleTtlMs: 60_000,
+  });
   const refreshDefinitions = (
     target: {
       readonly environmentId: EnvironmentId;
@@ -36,6 +43,7 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
   return {
     definitions,
     feature,
+    stageHandoff,
     ensureStarter: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workflows:ensure-starter",
       tag: WS_METHODS.workflowsEnsureStarter,

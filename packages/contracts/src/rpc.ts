@@ -62,6 +62,8 @@ import {
   WorkflowOperationError,
   WorkflowProjectInput,
   WorkflowReviseInput,
+  WorkflowStageHandoff,
+  WorkflowStageHandoffInput,
 } from "./workflow.ts";
 import {
   CodexAuthCallbackInput,
@@ -405,6 +407,7 @@ export const WS_METHODS = {
   workflowsCreate: "workflows.create",
   workflowsRevise: "workflows.revise",
   workflowsGetFeature: "workflows.getFeature",
+  workflowsGetStageHandoff: "workflows.getStageHandoff",
   workflowsAnswer: "workflows.answer",
   workflowsRetry: "workflows.retry",
   workflowsCancel: "workflows.cancel",
@@ -1040,6 +1043,11 @@ const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
 const WsWorkflowsGetFeatureRpc = Rpc.make(WS_METHODS.workflowsGetFeature, {
   payload: WorkflowFeatureGetInput,
   success: Schema.NullOr(WorkflowFeatureSnapshot),
+  error: WorkflowRpcError,
+});
+const WsWorkflowsGetStageHandoffRpc = Rpc.make(WS_METHODS.workflowsGetStageHandoff, {
+  payload: WorkflowStageHandoffInput,
+  success: Schema.NullOr(WorkflowStageHandoff),
   error: WorkflowRpcError,
 });
 const WsWorkflowsAnswerRpc = Rpc.make(WS_METHODS.workflowsAnswer, {
@@ -2023,6 +2031,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsCreateRpc,
   WsWorkflowsReviseRpc,
   WsWorkflowsGetFeatureRpc,
+  WsWorkflowsGetStageHandoffRpc,
   WsWorkflowsAnswerRpc,
   WsWorkflowsRetryRpc,
   WsWorkflowsCancelRpc,
