@@ -18,10 +18,10 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import * as EffectAcpErrors from "effect-acp/errors";
 
-import * as ServerConfig from "../../config.ts";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import {
   normalizeAcpRegistryCommands,
   normalizeAcpRegistryLiveConfiguration,
@@ -29,24 +29,24 @@ import {
 } from "../../provider/acp/AcpRegistryProbe.ts";
 import * as AcpRegistrySupport from "../../provider/acp/AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "../../provider/acp/AcpRegistryRuntimeCoordinator.ts";
-import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
-import { makeAcpNativeLoggerFactory } from "../../provider/acp/AcpNativeLogging.ts";
-import * as ProviderEventLoggers from "../../provider/Layers/ProviderEventLoggers.ts";
-import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
-import * as IdAllocator from "../IdAllocator.ts";
-import { makeProviderFailure } from "../ProviderFailure.ts";
+import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
+import * as ProviderEventLoggers from "../../provider/ProviderEventLoggers.ts";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
   type ProviderAdapterDriverCreateInput,
-} from "../ProviderAdapterDriver.ts";
+} from "@t3tools/provider-core/server/adapterDriver";
 import {
   AcpProviderCapabilitiesV2,
   makeAcpAdapterV2,
   type AcpAdapterV2ExtensionContext,
   type AcpAdapterV2Flavor,
   type AcpAdapterV2RuntimeInput,
-} from "./AcpAdapterV2.ts";
+} from "@t3tools/provider-acp/server/adapter";
 
 export const ACP_REGISTRY_PROVIDER = ProviderDriverKind.make("acpRegistry");
 export const ACP_REGISTRY_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(ACP_REGISTRY_PROVIDER);
@@ -65,7 +65,7 @@ export interface AcpRegistryAdapterV2Options {
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly resolver: Pick<AcpRegistrySupport.AcpRegistryCatalog["Service"], "resolve">;
   readonly runtimeCoordinator?: AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator["Service"];
-  readonly serverConfig: ServerConfig.ServerConfig["Service"];
+  readonly host: ProviderHost.ProviderHostShape;
   readonly nativeLogging?: Parameters<typeof makeAcpAdapterV2>[0]["nativeLogging"];
   readonly makeRuntime?: (
     input: AcpAdapterV2RuntimeInput,
@@ -183,14 +183,17 @@ function makeAcpRegistryRuntime(options: AcpRegistryAdapterV2Options) {
 
 export function makeAcpRegistryAdapterV2(options: AcpRegistryAdapterV2Options) {
   const runtimeCoordinator = options.runtimeCoordinator;
-  const isDevin = options.settings.agentId === "devin";
+  const registryAgentId = options.settings.source === "local" ? "" : options.settings.agentId;
+  const startupKey =
+    options.settings.source === "local" ? `local:${options.instanceId}` : registryAgentId;
+  const isDevin = registryAgentId === "devin";
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
     capabilities: AcpProviderCapabilitiesV2,
-    promptFailure: (cause) => acpRegistryPromptFailure(options.settings.agentId, cause),
+    promptFailure: (cause) => acpRegistryPromptFailure(registryAgentId, cause),
     // Per-agent exceptions (Mistral Vibe, Devin): see the note above
     // registerMistralVibeAcpExtensions before adding any more.
-    ...(options.settings.agentId === "mistral-vibe"
+    ...(registryAgentId === "mistral-vibe"
       ? { registerExtensions: registerMistralVibeAcpExtensions }
       : {}),
     ...(isDevin
@@ -230,7 +233,7 @@ export function makeAcpRegistryAdapterV2(options: AcpRegistryAdapterV2Options) {
             });
           },
           withRuntimeStartup: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-            runtimeCoordinator.withForegroundStartup(options.settings.agentId, effect),
+            runtimeCoordinator.withForegroundStartup(startupKey, effect),
         }),
     ...(options.assertComplete === undefined ? {} : { assertComplete: options.assertComplete }),
   };
@@ -240,7 +243,7 @@ export function makeAcpRegistryAdapterV2(options: AcpRegistryAdapterV2Options) {
     crypto: options.crypto,
     fileSystem: options.fileSystem,
     idAllocator: options.idAllocator,
-    serverConfig: options.serverConfig,
+    host: options.host,
     selfInvocation: options.selfInvocation,
     // Per-agent exception (see the note above registerMistralVibeAcpExtensions):
     // Devin runs commands through client terminals and has no ask mode over
@@ -266,7 +269,7 @@ export type AcpRegistryAdapterV2DriverEnv =
   | IdAllocator.IdAllocatorV2
   | Path.Path
   | ProviderEventLoggers.ProviderEventLoggers
-  | ServerConfig.ServerConfig;
+  | ProviderHost.ProviderHost;
 
 export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
   AcpRegistrySettings,
@@ -284,7 +287,7 @@ export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
       const fileSystem = yield* FileSystem.FileSystem;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      const serverConfig = yield* ServerConfig.ServerConfig;
+      const host = yield* ProviderHost.ProviderHost;
       const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
       const resolver = yield* AcpRegistrySupport.AcpRegistryCatalog;
       const runtimeCoordinator = yield* Effect.serviceOption(
@@ -302,7 +305,7 @@ export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
         ...(Option.isSome(runtimeCoordinator)
           ? { runtimeCoordinator: runtimeCoordinator.value }
           : {}),
-        serverConfig,
+        host,
         selfInvocation,
         nativeLogging: (threadId) =>
           makeNativeLogger({

@@ -1,27 +1,24 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { GrokSettings } from "@t3tools/contracts";
+import { GrokSettings } from "@t3tools/provider-grok/settings";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 
-import * as ServerConfig from "../../config.ts";
-import {
-  GROK_ACP_CANCEL_META,
-  GROK_ACP_INITIALIZE_META,
-} from "../../provider/acp/GrokAcpSupport.ts";
-import { makeXAiPromptCompletionRuntime } from "../../provider/acp/XAiAcpExtension.ts";
-import * as IdAllocator from "../IdAllocator.ts";
-import * as ProviderContinuationRequests from "../ProviderContinuationRequests.ts";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import { layerTestProviderHost } from "@t3tools/provider-testing/host";
+import { GROK_ACP_CANCEL_META, GROK_ACP_INITIALIZE_META } from "@t3tools/provider-grok/testing";
+import { makeXAiPromptCompletionRuntime } from "@t3tools/provider-grok/testing";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as ProviderContinuationRequests from "@t3tools/provider-core/server/continuationRequests";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
-import type { ProviderReplayGate } from "../testkit/ProviderReplayGate.testkit.ts";
+import type { ProviderReplayGate } from "@t3tools/provider-testing/replayGate";
 import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
-import { makeReplayServerConfig } from "../testkit/ProviderReplayHarness.ts";
 import {
   type AcpReplayTranscript,
   AcpReplayTranscriptDecodeError,
@@ -29,20 +26,21 @@ import {
   makeAcpReplayCompletenessAssertion,
   makeAcpReplayRuntime,
 } from "./AcpAdapterV2.testkit.ts";
-import { GROK_DEFAULT_INSTANCE_ID, GROK_PROVIDER, makeGrokAdapterV2 } from "./GrokAdapterV2.ts";
+import {
+  GROK_DEFAULT_INSTANCE_ID,
+  GROK_PROVIDER,
+  makeGrokAdapterV2,
+} from "@t3tools/provider-grok/testing";
 
 const DEFAULT_GROK_SETTINGS = Schema.decodeUnknownSync(GrokSettings)({});
 
-function makeGrokProviderAdapterRegistryReplayLayer(
+function layerGrokProviderAdapterRegistryReplay(
   transcript: AcpReplayTranscript,
   options: { readonly replayGate?: ProviderReplayGate } = {},
 ) {
-  const serverConfigLayer = Layer.effect(
-    ServerConfig.ServerConfig,
-    makeReplayServerConfig(`grok-${transcript.scenario}`).pipe(Effect.orDie),
-  ).pipe(Layer.provide(NodeServices.layer));
+  const layerHost = layerTestProviderHost().pipe(Layer.provide(NodeServices.layer));
 
-  return ProviderAdapterRegistry.makeLayerEffect(
+  return ProviderAdapterRegistry.layerFromAdaptersEffect(
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -50,7 +48,7 @@ function makeGrokProviderAdapterRegistryReplayLayer(
       const crypto = yield* Crypto.Crypto;
       const hostPlatform = yield* HostProcessPlatform;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const serverConfig = yield* ServerConfig.ServerConfig;
+      const host = yield* ProviderHost.ProviderHost;
       // Same queue the continuation worker drains when the fixture runs it.
       const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
       const replayGate = options.replayGate;
@@ -72,7 +70,7 @@ function makeGrokProviderAdapterRegistryReplayLayer(
         crypto,
         fileSystem,
         idAllocator,
-        serverConfig,
+        host,
         selfInvocation: yield* resolveSelfInvocation(),
         // Same wrapping as makeGrokAcpRuntime: client type and Ctrl+C cancel
         // metadata and the x.ai prompt-completion race, so replay sends what
@@ -102,7 +100,7 @@ function makeGrokProviderAdapterRegistryReplayLayer(
       return [adapter];
     }),
   ).pipe(
-    Layer.provide(Layer.mergeAll(serverConfigLayer, NodeServices.layer, IdAllocator.layer)),
+    Layer.provide(Layer.mergeAll(layerHost, NodeServices.layer, IdAllocator.layer)),
     // Held inbound lines must not outlive the scenario and wedge teardown.
     Layer.merge(
       Layer.effectDiscard(
@@ -118,5 +116,5 @@ export const GrokOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness<
 > = {
   driver: GROK_PROVIDER,
   decodeTranscript: (transcript) => decodeAcpReplayTranscript(transcript, GROK_PROVIDER),
-  makeProviderAdapterRegistryLayer: makeGrokProviderAdapterRegistryReplayLayer,
+  makeProviderAdapterRegistryLayer: layerGrokProviderAdapterRegistryReplay,
 };
