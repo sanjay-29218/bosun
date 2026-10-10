@@ -58,6 +58,34 @@ export const WorkflowDefinition = Schema.Struct({
 });
 export type WorkflowDefinition = typeof WorkflowDefinition.Type;
 
+/** The first route without a limit, which is how Skip and "Accept as is" move forward. */
+export const workflowForwardOutcome = (
+  definition: WorkflowDefinition,
+  stepId: string,
+): string | null => {
+  const step = definition.steps[stepId];
+  if (step?.type !== "task") return null;
+  const outcomes = Object.keys(step.next);
+  return outcomes.find((outcome) => step.limits?.[outcome] === undefined) ?? outcomes[0] ?? null;
+};
+
+/**
+ * Task steps met by following each stage's forward route from the start. These are the
+ * stages a thread can be attached at; the ones before it are skipped.
+ */
+export const workflowForwardStages = (definition: WorkflowDefinition): ReadonlyArray<string> => {
+  const stages: Array<string> = [];
+  let stepId: string | undefined = definition.start;
+  while (stepId !== undefined && definition.steps[stepId]?.type === "task") {
+    if (stages.includes(stepId)) break;
+    stages.push(stepId);
+    const outcome = workflowForwardOutcome(definition, stepId);
+    const step: WorkflowStep | undefined = definition.steps[stepId];
+    stepId = outcome !== null && step?.type === "task" ? step.next[outcome] : undefined;
+  }
+  return stages;
+};
+
 export const WorkflowStepEvent = Schema.Struct({
   id: Schema.String,
   stepId: Schema.String,
@@ -81,6 +109,7 @@ export const WorkflowStepEvent = Schema.Struct({
     "reopened",
     "accepted",
     "extended",
+    "attached",
   ]),
   botRunId: Schema.NullOr(Schema.String),
   outcome: Schema.NullOr(Schema.String),
@@ -93,6 +122,8 @@ export const WorkflowStepEvent = Schema.Struct({
   targetStepId: Schema.optionalKey(Schema.String),
   /** A `retry` override that applies to the rest of the stage's execution. */
   modelSelection: Schema.optionalKey(ModelSelection),
+  /** The existing thread an `attached` event makes the stage's thread. */
+  threadId: Schema.optionalKey(ThreadId),
 });
 export type WorkflowStepEvent = typeof WorkflowStepEvent.Type;
 

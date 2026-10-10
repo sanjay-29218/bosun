@@ -19,6 +19,10 @@
       "types": "./src/state/features.ts",
       "default": "./src/state/features.ts"
     },
+    "./state/featureThreads": {
+      "types": "./src/state/featureThreads.ts",
+      "default": "./src/state/featureThreads.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

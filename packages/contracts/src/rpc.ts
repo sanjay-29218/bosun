@@ -53,6 +53,10 @@ import {
   FeatureReopenInput,
   FeatureSetStatusInput,
   FeatureStartInput,
+  FeatureAttachThreadInput,
+  FeatureDetachThreadInput,
+  FeatureThreadInput,
+  FeatureThreadLink,
 } from "./features.ts";
 import {
   WorkflowCreateInput,
@@ -411,6 +415,9 @@ export const WS_METHODS = {
   featuresSetStatus: "features.setStatus",
   featuresStart: "features.start",
   featuresReopen: "features.reopen",
+  featuresAttachThread: "features.attachThread",
+  featuresDetachThread: "features.detachThread",
+  featuresThreadLink: "features.threadLink",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -1124,6 +1131,21 @@ const WsFeaturesStartRpc = Rpc.make(WS_METHODS.featuresStart, {
 const WsFeaturesReopenRpc = Rpc.make(WS_METHODS.featuresReopen, {
   payload: FeatureReopenInput,
   success: WorkflowFeatureSnapshot,
+  error: FeatureRpcError,
+});
+const WsFeaturesAttachThreadRpc = Rpc.make(WS_METHODS.featuresAttachThread, {
+  payload: FeatureAttachThreadInput,
+  success: WorkflowFeatureSnapshot,
+  error: FeatureRpcError,
+});
+const WsFeaturesDetachThreadRpc = Rpc.make(WS_METHODS.featuresDetachThread, {
+  payload: FeatureDetachThreadInput,
+  success: WorkflowFeatureSnapshot,
+  error: FeatureRpcError,
+});
+const WsFeaturesThreadLinkRpc = Rpc.make(WS_METHODS.featuresThreadLink, {
+  payload: FeatureThreadInput,
+  success: FeatureThreadLink,
   error: FeatureRpcError,
 });
 const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
@@ -2078,6 +2100,9 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesSetStatusRpc,
   WsFeaturesStartRpc,
   WsFeaturesReopenRpc,
+  WsFeaturesAttachThreadRpc,
+  WsFeaturesDetachThreadRpc,
+  WsFeaturesThreadLinkRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,

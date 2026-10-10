@@ -27,6 +27,8 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "make-feature"
+  | "detach-feature"
   | "archive"
   | "delete";
 
@@ -99,6 +101,11 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /**
+   * The thread's place in Crew: a feature's current stage, or a plain thread that can
+   * become one. Absent for bot threads and servers without features.
+   */
+  readonly feature?: { readonly isStage: boolean } | null;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -214,6 +221,24 @@ export function buildThreadActionMenuItems(
               },
             ],
           },
+        ]
+      : []),
+    ...(state.feature
+      ? [
+          state.feature.isStage
+            ? {
+                id: "detach-feature" as const,
+                label: "Detach from workflow",
+                icon: "unlink",
+                destructive: true,
+                separatorBefore: true,
+              }
+            : {
+                id: "make-feature" as const,
+                label: "Make it a feature…",
+                icon: "workflow",
+                separatorBefore: true,
+              },
         ]
       : []),
     {

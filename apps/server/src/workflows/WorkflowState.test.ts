@@ -1,5 +1,7 @@
 import {
   ProviderInstanceId,
+  ThreadId,
+  workflowForwardStages,
   type WorkflowDefinition,
   type WorkflowStepEvent,
 } from "@t3tools/contracts";
@@ -402,6 +404,76 @@ describe("workflow step history", () => {
     expect(followUp.activeStepId).toBe("build");
     expect(status(followUp, "review")).toBe("pending");
     expect(status(followUp, "end")).toBe("pending");
+  });
+
+  it("attaches a person's thread as a stage and completes it through the gate", () => {
+    const thread = ThreadId.make("thread:person");
+    const attach = (stepId: string) =>
+      event(`attach-${stepId}`, stepId, "attached", {
+        executionId: `x-${stepId}`,
+        threadId: thread,
+      });
+    const finished = (stepId: string, outcome: string) =>
+      event(`done-${stepId}`, stepId, "completed", {
+        executionId: `x-${stepId}`,
+        outcome,
+        sourceKind: "workflow",
+        sourceId: "run:person",
+        detail: "Fixed it",
+      });
+    expect(workflowForwardStages(gated)).toEqual(["plan", "build", "review"]);
+
+    const atBuild = [event("skip-plan", "plan", "skipped", { outcome: "ready" }), attach("build")];
+    expect(project(atBuild).steps.get("build")).toMatchObject({
+      status: "taken-over",
+      threadId: thread,
+      botRunId: null,
+    });
+    expect(status(project(atBuild), "plan")).toBe("skipped");
+    expect(project(atBuild).readyStepIds).toEqual([]);
+    expect(project([...atBuild, finished("build", "built")]).activeStepId).toBe("review");
+
+    // A gated stage waits for approval even when its thread finished on its own.
+    expect(project([attach("plan"), finished("plan", "ready")]).steps.get("plan")).toMatchObject({
+      status: "awaiting-approval",
+      pendingOutcome: "ready",
+    });
+    // Only attached stages complete from the workflow; bot stages need their handoff.
+    expect(() =>
+      project([
+        start("p1", "plan", "e1", "r1"),
+        event("p1-done", "plan", "completed", {
+          executionId: "e1",
+          outcome: "ready",
+          sourceKind: "workflow",
+          sourceId: "run",
+          detail: "Done",
+        }),
+      ]),
+    ).toThrow(/Invalid completed/);
+    expect(() => project([start("p1", "plan", "e1", "r1"), attach("plan")])).toThrow(
+      /Invalid attached/,
+    );
+    expect(() => project([event("bare", "plan", "attached", { executionId: "x-plan" })])).toThrow(
+      /Invalid attached/,
+    );
+
+    // Cancel (Detach) and Reopen hand the stage back to the same thread.
+    const detached = [
+      ...atBuild,
+      event("detach", "build", "cancelled", { executionId: "x-build" }),
+    ];
+    expect(project(detached).cancelled).toBe(true);
+    const reopened = project([...detached, event("reopen", "build", "reopened")]);
+    expect(reopened.steps.get("build")).toMatchObject({ status: "taken-over", threadId: thread });
+    expect(reopened.readyStepIds).toEqual([]);
+    // Retry hands an attached stage to its bot.
+    const retried = project([
+      ...atBuild,
+      event("retry", "build", "retry", { executionId: "x-build" }),
+    ]);
+    expect(retried.steps.get("build")).toMatchObject({ status: "pending", threadId: null });
+    expect(retried.readyStepIds).toEqual(["build"]);
   });
 
   it("orders card states so what needs a person wins", () => {

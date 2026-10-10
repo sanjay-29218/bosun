@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
-import { ProjectId } from "./baseSchemas.ts";
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { CrewStageSummary } from "./workflow.ts";
 
 export const FeatureCreateInput = Schema.Struct({
   id: Schema.String,
@@ -36,6 +37,33 @@ export const FeatureReopenInput = Schema.Struct({
   requestId: Schema.String,
   stepId: Schema.optionalKey(Schema.String),
 });
+
+/**
+ * Makes an existing thread the `stageId` stage of a new feature. `featureId` is chosen by
+ * the caller, so a retry with the same ID returns the same feature.
+ */
+export const FeatureAttachThreadInput = Schema.Struct({
+  featureId: Schema.String,
+  projectId: ProjectId,
+  threadId: ThreadId,
+  workflowId: Schema.String,
+  stageId: Schema.String,
+  title: Schema.String,
+});
+/** Turns a feature's current stage thread back into a plain thread and cancels the feature. */
+export const FeatureDetachThreadInput = Schema.Struct({
+  projectId: ProjectId,
+  threadId: ThreadId,
+  requestId: Schema.String,
+});
+export const FeatureThreadInput = Schema.Struct({ projectId: ProjectId, threadId: ThreadId });
+/** What a thread is to Crew: a feature's stage thread, or a plain thread that may become one. */
+export const FeatureThreadLink = Schema.Struct({
+  stage: Schema.NullOr(CrewStageSummary),
+  /** False for bot threads, which belong to the crew rather than to a person. */
+  attachable: Schema.Boolean,
+});
+export type FeatureThreadLink = typeof FeatureThreadLink.Type;
 
 export class FeatureOperationError extends Schema.TaggedError<FeatureOperationError>()(
   "FeatureOperationError",

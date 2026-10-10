@@ -163,6 +163,18 @@ export const layerBosunWsRpc = (
               ...(input.stepId === undefined ? {} : { stepId: input.stepId }),
             })
             .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresAttachThread]: (input) =>
+          features
+            .attachThread({ ...input, actorId: currentSessionId })
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresDetachThread]: (input) =>
+          features
+            .detachThread({ ...input, actorId: currentSessionId })
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresThreadLink]: (input) =>
+          features
+            .threadLink(input.projectId, input.threadId)
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
         [WS_METHODS.workflowsCancel]: (input) =>
           workflowExecution
             .control({

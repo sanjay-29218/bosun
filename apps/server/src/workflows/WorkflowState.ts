@@ -1,10 +1,12 @@
-import type {
-  FeatureCardState,
-  ModelSelection,
-  WorkflowDefinition,
-  WorkflowStagePosition,
-  WorkflowStepEvent,
-  WorkflowYourCall,
+import {
+  workflowForwardOutcome,
+  type FeatureCardState,
+  type ModelSelection,
+  type ThreadId,
+  type WorkflowDefinition,
+  type WorkflowStagePosition,
+  type WorkflowStepEvent,
+  type WorkflowYourCall,
 } from "@t3tools/contracts";
 
 import { nextWorkflowStep, validateWorkflowDefinition } from "./WorkflowGraph.ts";
@@ -36,6 +38,8 @@ export interface WorkflowStepState {
   readonly pendingOutcome: string | null;
   /** A Retry override that applies to the rest of this execution. */
   readonly modelSelection: ModelSelection | null;
+  /** A person's existing thread, attached as this stage's thread instead of a bot run. */
+  readonly threadId: ThreadId | null;
 }
 
 export interface WorkflowState {
@@ -63,6 +67,7 @@ const freshStep = (id: string): WorkflowStepState => ({
   outcome: null,
   pendingOutcome: null,
   modelSelection: null,
+  threadId: null,
 });
 
 /** Steps reachable from `stepId` through outcome routes, including itself. */
@@ -78,13 +83,7 @@ const reachableFrom = (definition: WorkflowDefinition, stepId: string) => {
   return reachable;
 };
 
-/** The first route without a limit, which is how "Accept as is" and "Skip" move forward. */
-export const defaultForwardOutcome = (definition: WorkflowDefinition, stepId: string) => {
-  const step = definition.steps[stepId];
-  if (step?.type !== "task") return null;
-  const outcomes = Object.keys(step.next);
-  return outcomes.find((outcome) => step.limits?.[outcome] === undefined) ?? outcomes[0] ?? null;
-};
+export const defaultForwardOutcome = workflowForwardOutcome;
 
 /**
  * Replays the active path; every rework execution remains in the durable event history.
@@ -92,7 +91,8 @@ export const defaultForwardOutcome = (definition: WorkflowDefinition, stepId: st
  * Every other kind is a person's (or the workflow's own) decision, and each stuck state has
  * one: failed → retry/take over/send back/skip, awaiting-approval → approve/request changes,
  * limit-reached → accept/one more round/take over, taken-over → mark done/retry,
- * cancelled and done → reopen.
+ * cancelled and done → reopen. An `attached` stage is a person's own thread: it starts
+ * taken over, and the workflow completes it when that thread's turn finishes.
  */
 export const projectWorkflowState = (
   definition: WorkflowDefinition,
@@ -160,6 +160,9 @@ export const projectWorkflowState = (
       invalid();
     if (event.kind !== "sent-back" && event.targetStepId !== undefined) invalid();
     if (event.kind !== "retry" && event.modelSelection !== undefined) invalid();
+    if (event.kind !== "attached" && event.threadId !== undefined) invalid();
+    const attachedStage =
+      previous.status === "taken-over" && previous.threadId !== null && previous.botRunId === null;
 
     /** Leaves `from` with `outcome`, or holds it at Your call when a limit is used up. */
     const route = (from: WorkflowStepState, outcome: string, checkLimits: boolean) => {
@@ -245,11 +248,37 @@ export const projectWorkflowState = (
         });
         continue;
       }
+      case "attached": {
+        noSource();
+        if (
+          paused ||
+          previous.status !== "pending" ||
+          previous.executionId !== null ||
+          event.botRunId !== null ||
+          !nonEmpty(event.executionId, 128) ||
+          !nonEmpty(event.threadId, 128)
+        )
+          invalid();
+        if (executionIds.has(event.executionId!)) invalid();
+        executionIds.add(event.executionId!);
+        executionCount++;
+        steps.set(event.stepId, {
+          ...previous,
+          status: "taken-over",
+          executionId: event.executionId,
+          attempt: previous.attempt + 1,
+          threadId: event.threadId!,
+          outcome: null,
+        });
+        continue;
+      }
       case "completed": {
         sameExecution();
+        // An attached stage completes from its thread's finished turn, cited by run ID.
         if (
-          previous.status !== "running" ||
-          event.sourceKind !== "handoff" ||
+          (attachedStage
+            ? event.sourceKind !== "workflow"
+            : previous.status !== "running" || event.sourceKind !== "handoff") ||
           !nonEmpty(event.sourceId, 128) ||
           !nonEmpty(event.outcome, 80) ||
           !nonEmpty(event.detail, 16_000) ||
@@ -308,10 +337,12 @@ export const projectWorkflowState = (
         }
         sameExecution();
         if (event.botRunId !== null) invalid();
+        // Retrying an attached stage hands it to the stage's bot.
         steps.set(event.stepId, {
           ...previous,
           status: "pending",
           botRunId: null,
+          threadId: null,
           modelSelection: event.modelSelection ?? previous.modelSelection,
         });
         continue;
@@ -412,11 +443,13 @@ export const projectWorkflowState = (
         noSource();
         if (event.executionId !== null) invalid();
         if (cancelled) {
-          // Resume where it stopped; an interrupted attempt restarts within its execution.
+          // Resume where it stopped; an interrupted attempt restarts within its execution,
+          // and an attached thread becomes the stage's thread again.
           if (event.stepId !== stoppedStepId) invalid();
+          const reattach = previous.threadId !== null && previous.botRunId === null;
           steps.set(event.stepId, {
             ...previous,
-            status: "pending",
+            status: reattach ? "taken-over" : "pending",
             botRunId: null,
             pendingOutcome: null,
           });

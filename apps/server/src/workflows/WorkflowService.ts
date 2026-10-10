@@ -134,12 +134,12 @@ export const WorkflowServiceLive = Layer.effect(
         const threads = new Map<string, ThreadId>();
         const diffs = new Map<ThreadId, StageThreadDiff>();
         for (const result of results) {
-          if (result.botRunId === null) continue;
-          const run = yield* bots.getRun(result.botRunId);
-          if (!run) continue;
-          threads.set(result.botRunId, run.threadId);
-          const diff = yield* workspace.threadDiff(run.threadId);
-          if (diff) diffs.set(run.threadId, diff);
+          const run = result.botRunId === null ? null : yield* bots.getRun(result.botRunId);
+          if (run) threads.set(run.id, run.threadId);
+          const threadId = result.threadId ?? run?.threadId;
+          if (!threadId) continue;
+          const diff = yield* workspace.threadDiff(threadId);
+          if (diff) diffs.set(threadId, diff);
         }
         return collectStageOutputs(definition, results, threads, diffs);
       });
@@ -349,7 +349,7 @@ export const WorkflowServiceLive = Layer.effect(
             [...state.steps.values()],
             ({ modelSelection: _override, ...step }) =>
               step.botRunId === null
-                ? Effect.succeed({ ...step, threadId: null })
+                ? Effect.succeed(step)
                 : bots
                     .getRun(step.botRunId)
                     .pipe(Effect.map((run) => ({ ...step, threadId: run?.threadId ?? null }))),
@@ -497,7 +497,11 @@ export const WorkflowServiceLive = Layer.effect(
               );
             }
           }
-          if (event.kind === "completed" && step?.type === "task") {
+          if (
+            event.kind === "completed" &&
+            event.sourceKind === "handoff" &&
+            step?.type === "task"
+          ) {
             const runId = current.steps.get(event.stepId)?.botRunId;
             const handoff = yield* handoffEvidence(event.sourceId, "completed", runId);
             const run = runId ? yield* bots.getRun(runId) : null;

@@ -42,6 +42,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 
   [WS_METHODS.featuresStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresReopen]: AuthOrchestrationOperateScope,
+  [WS_METHODS.featuresAttachThread]: AuthOrchestrationOperateScope,
+  [WS_METHODS.featuresDetachThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsApprove]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsRequestChanges]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsTakeOver]: AuthOrchestrationOperateScope,
