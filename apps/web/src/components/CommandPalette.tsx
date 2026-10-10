@@ -772,6 +772,12 @@ function OpenCommandPaletteDialog(props: {
         })
       : null,
   ).data;
+  const canAttachFeature = useAtomValue(
+    featureThreadsEnvironment.attach.permissionAtom(activeThread?.environmentId ?? null),
+  );
+  const canDetachFeature = useAtomValue(
+    featureThreadsEnvironment.detach.permissionAtom(activeThread?.environmentId ?? null),
+  );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
@@ -2003,7 +2009,7 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
-  if (activeThread !== null && activeThreadFeatureLink) {
+  if (activeThread !== null && activeThreadFeatureLink?.attachable) {
     const thread = activeThread;
     const threadRef = scopeThreadRef(thread.environmentId, thread.id);
     if (activeThreadFeatureLink.stage?.current) {
@@ -2012,15 +2018,17 @@ function OpenCommandPaletteDialog(props: {
         value: "action:detach-feature",
         searchTerms: ["detach", "workflow", "feature", "crew", "plain thread"],
         title: "Detach from workflow",
+        disabled: !canDetachFeature,
         icon: <UnlinkIcon className={ITEM_ICON_CLASS} />,
         run: () => runFeatureThreadAction("detach-feature", threadRef, thread),
       });
-    } else if (activeThreadFeatureLink.attachable) {
+    } else {
       actionItems.push({
         kind: "action",
         value: "action:make-feature",
         searchTerms: ["make", "feature", "workflow", "crew", "attach", "stage"],
         title: "Make it a feature…",
+        disabled: !canAttachFeature,
         icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
         run: () => runFeatureThreadAction("make-feature", threadRef, thread),
       });

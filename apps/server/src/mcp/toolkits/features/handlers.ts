@@ -20,7 +20,8 @@ const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A,
 ) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
 
 export const layer = McpToolAccess.toLayer(FeaturesToolkit, {
-  t3_feature_attach_thread: writesThread((input) =>
+  // Attaching starts the feature's crew runs, so it needs the caller's full access.
+  t3_feature_attach_thread: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const { scope, projection } = yield* readThread(input.threadId);
       const thread = projection.thread;

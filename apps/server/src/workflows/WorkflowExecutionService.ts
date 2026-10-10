@@ -248,9 +248,11 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           // An attached stage completes when its thread's turn finishes, through its gate.
           if (step.status === "taken-over" && step.threadId !== null && step.botRunId === null) {
             const turn = yield* finishedTurn(step.threadId);
-            if (!turn) return;
+            const id = turn && `attached-done:${key(featureId, step.executionId!, turn.runId)}`;
+            // A turn completes the stage once. After Reopen or Take over, only a new turn does.
+            if (!turn || !id || events.some((event) => event.id === id)) return;
             yield* workflows.recordTrustedEvent(featureId, {
-              id: `attached-done:${key(featureId, step.executionId!, turn.runId)}`,
+              id,
               stepId,
               executionId: step.executionId,
               kind: "completed",

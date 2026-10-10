@@ -77,7 +77,7 @@ export function FeatureThreadSheet({ route }: StaticScreenProps<FeatureThreadTar
         <Text className="text-sm text-foreground-muted">Loading…</Text>
       ) : link.error ? (
         <Text className="text-sm text-red-500">{link.error}</Text>
-      ) : stage?.current ? (
+      ) : stage?.current && link.data?.attachable ? (
         <View className="gap-3">
           <Text className="text-lg font-t3-medium text-foreground">Detach from workflow</Text>
           <Text className="text-sm text-foreground-muted">

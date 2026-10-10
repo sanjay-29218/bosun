@@ -18,8 +18,8 @@ import { openMakeFeatureDialog } from "./MakeFeatureDialog";
 const MENU_WAIT_MS = 500;
 
 /**
- * Whether a thread's menu offers Make it a feature (plain thread) or Detach (a feature's
- * current stage). Bot threads, older servers and slow answers get neither.
+ * Whether a thread's menu offers Make it a feature (plain thread) or Detach (a person's thread
+ * that is a feature's current stage). Bot threads, older servers and slow answers get neither.
  */
 export async function readFeatureMenuState(
   threadRef: ScopedThreadRef,
@@ -37,8 +37,8 @@ export async function readFeatureMenuState(
       { signal: controller.signal, reportFailure: false, reportDefect: false },
     );
     if (result._tag === "Failure") return null;
-    if (result.value.stage?.current) return { isStage: true };
-    return result.value.attachable ? { isStage: false } : null;
+    const { stage, attachable } = result.value;
+    return attachable ? { isStage: stage?.current === true } : null;
   } finally {
     clearTimeout(timer);
   }

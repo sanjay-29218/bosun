@@ -18,6 +18,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
@@ -430,6 +431,9 @@ export const FeatureServiceLive = Layer.effect(
         };
       });
 
+    // Attach, detach and reopen check who owns a thread, then change it; one at a time.
+    const ownership = yield* Semaphore.make(1);
+
     const readThread = <A, E>(effect: Effect.Effect<A, E>) =>
       effect.pipe(Effect.mapError(() => new FeatureValidationError("Thread is unavailable")));
 
@@ -455,7 +459,12 @@ export const FeatureServiceLive = Layer.effect(
           const attachId = hashed("attach", input.featureId, input.threadId);
           const prior = yield* workflows.findRecordedEvent(input.featureId, attachId);
           if (prior) {
-            if (prior.stepId !== input.stageId) {
+            const existing = yield* get(input.featureId);
+            if (
+              prior.stepId !== input.stageId ||
+              existing?.workflowId !== input.workflowId ||
+              existing.title !== input.title
+            ) {
               return yield* Effect.fail(
                 new FeatureValidationError("Feature ID belongs to another request"),
               );
@@ -531,27 +540,39 @@ export const FeatureServiceLive = Layer.effect(
             )
             .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
           return yield* start(input.featureId, input.projectId);
-        }),
+        }).pipe(ownership.withPermits(1)),
       detachThread: ({ projectId, threadId, requestId, actorId }) =>
         Effect.gen(function* () {
-          const { stage } = yield* threadLink(projectId, threadId);
-          const retried =
-            stage !== null &&
-            (yield* workflows.findRecordedEvent(stage.featureId, requestId)) !== null;
-          if (!stage || (!stage.current && !retried)) {
+          const detach = (featureId: string) =>
+            execution.control({
+              featureId,
+              projectId,
+              requestId,
+              actorId,
+              kind: "cancelled",
+              text: "Detached from the workflow",
+            });
+          // A retry finishes on the feature it first detached, whatever the thread is now.
+          for (const featureId of yield* executions.findFeaturesForThread(threadId)) {
+            if (yield* workflows.findRecordedEvent(featureId, requestId))
+              return yield* detach(featureId);
+          }
+          const { stage, attachable } = yield* threadLink(projectId, threadId);
+          // Cancelling a bot's stage stops its run, so the thread could not carry on.
+          if (!attachable) {
+            return yield* Effect.fail(
+              new FeatureValidationError(
+                "A bot's stage thread can't be detached; cancel the feature",
+              ),
+            );
+          }
+          if (!stage?.current) {
             return yield* Effect.fail(
               new FeatureValidationError("This thread is not a feature's current stage"),
             );
           }
-          return yield* execution.control({
-            featureId: stage.featureId,
-            projectId,
-            requestId,
-            actorId,
-            kind: "cancelled",
-            text: "Detached from the workflow",
-          });
-        }),
+          return yield* detach(stage.featureId);
+        }).pipe(ownership.withPermits(1)),
       reopen: ({ id, projectId, requestId, actorId, stepId }) =>
         Effect.gen(function* () {
           const feature = yield* requireFeature(id, projectId);
@@ -579,7 +600,7 @@ export const FeatureServiceLive = Layer.effect(
             kind: "reopened",
             ...(stepId === undefined ? {} : { stepId }),
           });
-        }),
+        }).pipe(ownership.withPermits(1)),
       get,
       setStatus: (id, projectId, status) =>
         sql

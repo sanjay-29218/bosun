@@ -67,6 +67,9 @@ function MakeFeatureDialog({
   const definitions = useEnvironmentQuery(workflowsEnvironment.definitions(target));
   const configuration = useEnvironmentQuery(botsEnvironment.configuration(target));
   const workflows = definitions.data ?? [];
+  const canAttach = useAtomValue(
+    featureThreadsEnvironment.attach.permissionAtom(threadRef.environmentId),
+  );
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [stageId, setStageId] = useState<string | null>(null);
   const [title, setTitle] = useState(thread.title);
@@ -246,7 +249,10 @@ function MakeFeatureDialog({
             <Button type="button" variant="outline" onClick={close}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !workflow || !stage || !title.trim()}>
+            <Button
+              type="submit"
+              disabled={!canAttach || busy || !workflow || !stage || !title.trim()}
+            >
               Make feature
             </Button>
           </DialogFooter>

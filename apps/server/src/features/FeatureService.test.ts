@@ -590,6 +590,19 @@ describe("making a thread a feature", () => {
         expect((yield* attach(threadId, "qa").pipe(Effect.flip)).message).toContain(
           "another request",
         );
+        expect(
+          (yield* (yield* FeatureService)
+            .attachThread({
+              featureId: "attached",
+              projectId,
+              threadId,
+              workflowId: "feature-delivery",
+              stageId: "review",
+              title: "Another title",
+              actorId: "person",
+            })
+            .pipe(Effect.flip)).message,
+        ).toContain("another request");
         expect((yield* attach(threadId, "review", "second").pipe(Effect.flip)).message).toContain(
           "already a feature's current stage",
         );
@@ -634,6 +647,30 @@ describe("making a thread a feature", () => {
         expect(snapshot.recentEvents.at(-1)?.detail).toBe(
           "The plan: clear the backoff timer on sleep.",
         );
+
+        // Detached at the gate and reopened, the stage waits for a new turn: the finished one
+        // has already been handed on, and reconciling must not record it again.
+        const features = yield* FeatureService;
+        yield* features.detachThread({
+          projectId,
+          threadId,
+          requestId: "detach-at-gate",
+          actorId: "person",
+        });
+        const reopened = yield* features.reopen({
+          id: "attached",
+          projectId,
+          requestId: "reopen-at-gate",
+          actorId: "person",
+        });
+        expect(reopened.steps.find((step) => step.id === "plan")).toMatchObject({
+          status: "taken-over",
+          threadId,
+        });
+        yield* (yield* WorkflowExecutionService).reconcileFeature("attached");
+        expect(
+          (yield* (yield* WorkflowService).getFeatureState("attached"))?.steps.get("plan")?.status,
+        ).toBe("taken-over");
       }),
     ),
   );
@@ -664,12 +701,18 @@ describe("making a thread a feature", () => {
         });
         expect((yield* features.threadLink(projectId, threadId)).stage?.current).toBe(true);
 
-        // Once the thread joins another feature, the first one can no longer take it back.
+        // Once the thread joins another feature, the first one can no longer take it back,
+        // and a retried detach still lands on the feature it first detached.
         yield* detach("detach-3");
         yield* attach(threadId, "review", "second");
         expect((yield* reopen("reopen-2").pipe(Effect.flip)).message).toContain(
           "now another feature's stage",
         );
+        expect((yield* detach("detach-3")).featureId).toBe("attached");
+        expect((yield* features.threadLink(projectId, threadId)).stage).toMatchObject({
+          featureId: "second",
+          current: true,
+        });
       }),
     ),
   );
