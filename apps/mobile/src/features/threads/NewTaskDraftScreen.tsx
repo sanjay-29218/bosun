@@ -1315,6 +1315,13 @@ export function NewTaskDraftScreen(props: {
     const initialMessageText = draft.text.trim();
     if (workflow !== null) {
       if (initialMessageText.length === 0 || flow.submitting) return;
+      if (draft.attachments.length > 0) {
+        Alert.alert(
+          "Remove attachments",
+          "A feature starts from the text of its brief. Remove the attachments, or choose No workflow.",
+        );
+        return;
+      }
       await startWorkflowFeature(selectedProject, workflow.id, initialMessageText, draftKey);
       return;
     }
@@ -1471,17 +1478,19 @@ export function NewTaskDraftScreen(props: {
     !isImportingContext &&
     !cloneBlocksStart &&
     taskPermissionReason === null &&
-    attachmentBlockReason === null &&
-    !modelUnavailable &&
+    // A workflow brings its own crew models and workspace, so only the brief matters.
+    (workflow !== null ||
+      (attachmentBlockReason === null &&
+        !modelUnavailable &&
+        Boolean(flow.selectedModel) &&
+        !(flow.workspaceMode === "worktree" && !flow.selectedBranchName))) &&
     Boolean(flow.selectedProject) &&
-    Boolean(flow.selectedModel) &&
     flow.prompt.trim().length > 0 &&
     isIncomingShareReady &&
     !isImportingShare &&
     !flow.submitting &&
     pendingPastedTextAttachmentCount === 0 &&
-    !voiceInput.blocksSubmission &&
-    !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+    !voiceInput.blocksSubmission;
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     // A draft attachment lives only in the draft. Without its key the screen would fall through
     // to a remote lookup for bytes the server has never seen.

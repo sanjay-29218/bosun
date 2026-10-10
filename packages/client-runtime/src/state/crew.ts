@@ -2,11 +2,11 @@ import type {
   CrewStageSummary,
   FeatureCardState,
   FeatureRecord,
-  ThreadId,
   WorkflowDefinition,
   WorkflowFeatureSnapshot,
   WorkflowStepSnapshot,
 } from "@t3tools/contracts";
+import { ThreadId } from "@t3tools/contracts";
 
 /**
  * Crew mode view logic shared by web and mobile. Everything here is pure: it reads a
@@ -50,30 +50,64 @@ export function crewStageRole(definition: WorkflowDefinition, stepId: string): s
   return step?.type === "task" ? humanizeCrewId(step.bot) : null;
 }
 
-/** One summary per stage thread the snapshot knows, marking the feature's current stage. */
+/**
+ * Thread ids of earlier executions, from the runs the recent events started. Snapshots only
+ * keep each stage's latest run, so a reworked stage's old thread is recovered by applying the
+ * run-to-thread naming its current run shows.
+ */
+function earlierStageThreads(
+  snapshot: WorkflowFeatureSnapshot,
+): ReadonlyArray<{ readonly threadId: ThreadId; readonly stepId: string }> {
+  const sample = snapshot.steps.find(
+    (step) =>
+      step.botRunId !== null && step.threadId !== null && step.threadId.endsWith(step.botRunId),
+  );
+  if (!sample?.botRunId || !sample.threadId) return [];
+  const prefix = sample.threadId.slice(0, sample.threadId.length - sample.botRunId.length);
+  const latest = new Set(snapshot.steps.map((step) => step.botRunId));
+  const earlier = new Map<string, string>();
+  for (const event of snapshot.recentEvents) {
+    if (event.kind === "started" && event.botRunId !== null && !latest.has(event.botRunId)) {
+      earlier.set(event.botRunId, event.stepId);
+    }
+  }
+  return [...earlier].map(([runId, stepId]) => ({
+    threadId: ThreadId.make(`${prefix}${runId}`),
+    stepId,
+  }));
+}
+
+/**
+ * One summary per stage thread the snapshot knows. Exactly one is `current`: the thread the
+ * feature's row stands for (see `crewCurrentThreadId`).
+ */
 export function crewStageThreads(feature: CrewFeature): ReadonlyArray<CrewStageThread> {
   const snapshot = feature.snapshot;
   if (snapshot === null) return [];
   const stages = workflowStageIds(snapshot.definition);
   const state = snapshot.state ?? "working";
-  const currentStepId = snapshot.stage?.stepId ?? null;
+  const representative = crewCurrentThreadId(feature);
   const threads: CrewStageThread[] = [];
-  for (const step of snapshot.steps) {
-    const index = stages.indexOf(step.id);
-    if (step.threadId === null || index < 0) continue;
+  const add = (threadId: ThreadId, stepId: string) => {
+    const index = stages.indexOf(stepId);
+    if (index < 0) return;
     threads.push({
-      threadId: step.threadId,
+      threadId,
       feature,
       summary: {
         featureId: snapshot.featureId,
-        stepId: step.id,
+        stepId,
         index: index + 1,
         total: stages.length,
         state,
-        current: step.id === currentStepId,
+        current: threadId === representative,
       },
     });
+  };
+  for (const step of snapshot.steps) {
+    if (step.threadId !== null) add(step.threadId, step.id);
   }
+  for (const earlier of earlierStageThreads(snapshot)) add(earlier.threadId, earlier.stepId);
   return threads;
 }
 
@@ -103,18 +137,23 @@ export function crewCurrentStep(snapshot: WorkflowFeatureSnapshot): WorkflowStep
   return stepId === null ? null : (snapshot.steps.find((step) => step.id === stepId) ?? null);
 }
 
-/** The thread a feature's row opens: its current stage thread. */
+/**
+ * The thread a feature's row opens: its current stage's thread, or, while the next stage has
+ * none yet (queued) or the feature is done, the stage thread that started most recently.
+ */
 export function crewCurrentThreadId(feature: CrewFeature): ThreadId | null {
   const snapshot = feature.snapshot;
   if (snapshot === null) return null;
   const current = crewCurrentStep(snapshot)?.threadId ?? null;
   if (current !== null) return current;
-  // Done features have no current stage; open the last stage that ran.
+  const withThread = snapshot.steps.filter((step) => step.threadId !== null);
+  const lastStarted = snapshot.recentEvents.findLast(
+    (event) => event.kind === "started" && withThread.some((step) => step.id === event.stepId),
+  );
+  if (lastStarted) return withThread.find((step) => step.id === lastStarted.stepId)!.threadId;
   const stages = workflowStageIds(snapshot.definition);
   return (
-    snapshot.steps
-      .filter((step) => step.threadId !== null)
-      .sort((a, b) => stages.indexOf(b.id) - stages.indexOf(a.id))[0]?.threadId ?? null
+    withThread.sort((a, b) => stages.indexOf(b.id) - stages.indexOf(a.id))[0]?.threadId ?? null
   );
 }
 
@@ -218,6 +257,17 @@ export function crewGroupByStage(
         waiting: stageFeatures.filter((feature) => crewFeatureState(feature) === "approval").length,
       });
     }
+  }
+  // Features on another version of this workflow can sit at a stage this version lacks.
+  const known = new Set(workflowStageIds(definition));
+  for (const [stepId, stageFeatures] of byStage) {
+    if (known.has(stepId)) continue;
+    items.push({
+      kind: "stage",
+      key: stepId,
+      label: `${humanizeCrewId(stepId)} (other version)`,
+      features: stageFeatures,
+    });
   }
   if (done.length > 0) items.push({ kind: "stage", key: "done", label: "Done", features: done });
   return { items, hiddenCount };

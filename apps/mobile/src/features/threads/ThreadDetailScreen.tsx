@@ -143,7 +143,7 @@ import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { MobileBotRunStatusStrip } from "./MobileBotRunStatusStrip";
 import { CrewHandoffCard } from "../crew/CrewHandoffCard";
 import { CrewStageCard, crewComposerMode } from "../crew/CrewStageCard";
-import { useCrewThreadStage } from "../../state/features";
+import { useCrewThreadStage, useRefreshCrewBoardsWhileFocused } from "../../state/features";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -1092,6 +1092,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const isBotThread = isBotThreadId(props.selectedThread.id);
   const crewStage = useCrewThreadStage(props.environmentId, props.selectedThread.id);
   const crewComposer = crewComposerMode(crewStage);
+  // The hook keys on the target ids, so a fresh array each render is fine.
+  useRefreshCrewBoardsWhileFocused(
+    crewStage === null
+      ? []
+      : [{ environmentId: props.environmentId, projectId: props.selectedThread.projectId }],
+  );
   const onChangeDraftMessage = props.onChangeDraftMessage;
   const clearCrewNote = useCallback(() => onChangeDraftMessage(""), [onChangeDraftMessage]);
   const openCrewDiff = useCallback(() => {

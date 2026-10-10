@@ -198,6 +198,7 @@ export function CrewStageCard(props: {
   const handleMenu = (id: string) => {
     if (id === "take-over") return void run(() => takeOver(target(action("take-over"))));
     if (id === "skip") return void run(() => skip(target(action("skip"))));
+    if (id === "resume") return void run(() => resume(target(action("resume"))));
     if (id === "cancel") return confirmCancel();
     if (id.startsWith(SEND_BACK)) {
       return void run(
@@ -238,10 +239,15 @@ export function CrewStageCard(props: {
     title: "Cancel feature",
     attributes: { destructive: true },
   };
+  // A paused feature keeps showing what it waits on, so Resume rides along in More actions.
   const moreButton = (actions: MenuAction[]) => (
     <ControlPillMenu
       accessibilityLabel="More actions"
-      actions={actions}
+      actions={
+        snapshot.paused && kind !== "paused"
+          ? [{ id: "resume", title: "Resume" }, ...actions]
+          : actions
+      }
       onPressAction={({ nativeEvent }) => handleMenu(nativeEvent.event)}
     >
       <RequestActionButton label="More actions" tone="secondary" disabled={disabled} />
@@ -421,7 +427,7 @@ export function CrewStageCard(props: {
       return (
         <ApprovalCardLayout
           kicker="Queued"
-          title={stageName}
+          title={humanizeCrewId(snapshot.stage?.stepId ?? stepId)}
           detail="Waiting for a free stage slot."
         >
           <RequestActionButton

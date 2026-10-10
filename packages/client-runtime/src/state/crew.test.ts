@@ -166,6 +166,47 @@ describe("crew stage threads", () => {
   });
 });
 
+describe("crew rows across rework and finished features", () => {
+  it("keeps exactly one current thread for a done feature", () => {
+    const done = feature({
+      id: "done-rows",
+      state: "done",
+      stage: null,
+      steps: [step("plan", "completed", "thread-plan"), step("build", "completed", "thread-build")],
+    });
+    expect(
+      crewStageThreads(done)
+        .filter((thread) => thread.summary.current)
+        .map((thread) => thread.threadId),
+    ).toEqual(["thread-build"]);
+  });
+
+  it("recovers a reworked stage's earlier thread from its started run", () => {
+    const reworked = feature({
+      id: "reworked",
+      state: "working",
+      stage: "design",
+      steps: [step("design", "running", "bot-run:run-2", { botRunId: "run-2" })],
+    });
+    const snapshot = {
+      ...reworked.snapshot!,
+      recentEvents: [
+        { ...reworked.snapshot!.recentEvents[0]!, stepId: "design", botRunId: "run-1" },
+        { ...reworked.snapshot!.recentEvents[0]!, id: "e2", stepId: "design", botRunId: "run-2" },
+      ],
+    };
+    expect(
+      crewStageThreads({ ...reworked, snapshot }).map((thread) => [
+        thread.threadId,
+        thread.summary.current,
+      ]),
+    ).toEqual([
+      ["bot-run:run-2", true],
+      ["bot-run:run-1", false],
+    ]);
+  });
+});
+
 describe("crew questions", () => {
   it("returns the question the current stage is waiting on, and nothing once it moved on", () => {
     const asking = feature({
@@ -285,5 +326,20 @@ describe("crew grouping", () => {
       "Build (2)",
       "Done (1)",
     ]);
+  });
+
+  it("keeps features at a stage only another version of the workflow has", () => {
+    const legacy = feature({
+      id: "legacy",
+      state: "working",
+      stage: "plan",
+      steps: [],
+    });
+    const atLegacyStage = {
+      ...legacy,
+      snapshot: { ...legacy.snapshot!, stage: { stepId: "spec", index: 1, total: 3 } },
+    };
+    const { items } = crewGroupByStage([atLegacyStage], definition);
+    expect(items.map((item) => item.label)).toContain("Spec (other version)");
   });
 });

@@ -24,7 +24,11 @@ import { ControlPillMenu } from "../../components/ControlPill";
 import { cn } from "../../lib/cn";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { uuidv4 } from "../../lib/uuid";
-import { featuresEnvironment, useCrewBoards } from "../../state/features";
+import {
+  featuresEnvironment,
+  useCrewBoards,
+  useRefreshCrewBoardsWhileFocused,
+} from "../../state/features";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -85,8 +89,9 @@ function FeatureRow(props: { readonly item: FeatureItem; readonly showProject: b
   const actions: MenuAction[] = [
     ...(notStarted ? [{ id: "start", title: "Start" }] : []),
     ...(state === "queued" ? [{ id: "start-now", title: "Start now" }] : []),
-    ...(state === "paused" ? [{ id: "resume", title: "Resume" }] : []),
-    ...(["working", "queued", "approval", "input", "your-call", "failed"].includes(state)
+    // Paused is its own flag: a paused feature can still show Approval or Failed.
+    ...(feature.snapshot?.paused ? [{ id: "resume", title: "Resume" }] : []),
+    ...(!feature.snapshot?.paused && state !== "cancelled" && state !== "done"
       ? [{ id: "pause", title: "Pause" }]
       : []),
     ...(state === "cancelled" ? [{ id: "reopen", title: "Reopen" }] : []),
@@ -184,6 +189,12 @@ export function FeaturesRouteScreen() {
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const [scope, setScope] = useState(ALL_SCOPE);
   const [doneExpanded, setDoneExpanded] = useState(false);
+  useRefreshCrewBoardsWhileFocused(
+    boards.map((board) => ({
+      environmentId: board.project.environmentId,
+      projectId: board.project.id,
+    })),
+  );
 
   const items = useMemo(
     () =>

@@ -1,4 +1,5 @@
-import { useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
+import { useFocusEffect } from "@react-navigation/native";
 import { isBotThreadId } from "@t3tools/client-runtime/bot-message-origin";
 import {
   crewStageThreads,
@@ -9,6 +10,7 @@ import { createFeatureAtoms } from "@t3tools/client-runtime/state/features";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, type ProjectId, type ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import { useCallback, useContext } from "react";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -132,4 +134,36 @@ export function useCrewBoards(): ReadonlyArray<CrewBoardEntry> {
 
 export function useCrewProjects(): ReadonlyArray<EnvironmentProject> {
   return useAtomValue(crewProjectsAtom);
+}
+
+/** How often a focused Crew view re-reads its boards. */
+const FOCUSED_BOARD_REFRESH_MS = 30_000;
+
+/**
+ * Re-reads boards when the screen gains focus and every 30 seconds while it keeps it. A
+ * decision made on another device (a pause, or an approval that starts no new run yet) moves
+ * no bot thread here, so the board's thread signal alone would miss it.
+ */
+export function useRefreshCrewBoardsWhileFocused(
+  projects: ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly projectId: ProjectId }>,
+) {
+  const registry = useContext(RegistryContext);
+  const key = JSON.stringify(projects.map((project) => [project.environmentId, project.projectId]));
+  useFocusEffect(
+    useCallback(() => {
+      const targets = (JSON.parse(key) as Array<[string, string]>).map(
+        ([environmentId, projectId]) => ({
+          environmentId: environmentId as EnvironmentId,
+          projectId: projectId as ProjectId,
+        }),
+      );
+      if (targets.length === 0) return undefined;
+      const refresh = () => {
+        for (const target of targets) registry.refresh(crewBoardAtom(target));
+      };
+      refresh();
+      const timer = setInterval(refresh, FOCUSED_BOARD_REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [key, registry]),
+  );
 }
