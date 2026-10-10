@@ -12,20 +12,28 @@ import {
   createEnvironmentRpcQueryAtomFamily,
 } from "./runtime.ts";
 
-/** Closed features the board keeps for its Done shelf, most recently updated first. */
+/** Closed features the snapshot board keeps for its Done shelf, most recently updated first. */
 const BOARD_CLOSED_LIMIT = 20;
 
-export interface FeatureAtomsOptions {
-  /** Re-reads a project's board when this signal changes, such as its stage threads' status. */
-  readonly boardRefreshTrigger?: (target: {
-    readonly environmentId: EnvironmentId;
-    readonly input: { readonly projectId: ProjectId };
-  }) => Atom.Atom<unknown> | undefined;
+interface FeatureTarget {
+  readonly environmentId: EnvironmentId;
+  readonly input: { readonly projectId: ProjectId; readonly featureId: string };
 }
 
+/**
+ * Feature records, the Features board, and every action on a feature card or stage.
+ * Pass the workflow `feature` query family so actions also refresh an open stage's snapshot.
+ */
 export function createFeatureAtoms<R, ER>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
-  options: FeatureAtomsOptions = {},
+  options: {
+    readonly workflowFeature?: (target: FeatureTarget) => Atom.Atom<unknown>;
+    /** Re-reads a project's snapshot board when this signal changes, such as its stage threads' status. */
+    readonly boardRefreshTrigger?: (target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly projectId: ProjectId };
+    }) => Atom.Atom<unknown> | undefined;
+  } = {},
 ) {
   const list = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:features:list",
@@ -39,9 +47,19 @@ export function createFeatureAtoms<R, ER>(
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
   });
-  /** A project's features with their workflow snapshots, read only while a view shows them. */
-  const board = createEnvironmentQueryAtomFamily(runtime, {
+  /** One project's board cards. Clients refresh it when that project's stage threads change. */
+  const board = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:features:board",
+    tag: WS_METHODS.featuresBoard,
+    staleTimeMs: 5_000,
+    idleTtlMs: 60_000,
+  });
+  /**
+   * Each feature with its full workflow snapshot, read only while a view shows them.
+   * Mobile's board still reads this; `board` is the slimmer server-built replacement.
+   */
+  const snapshotBoard = createEnvironmentQueryAtomFamily(runtime, {
+    label: "environment-data:features:snapshot-board",
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
     ...(options.boardRefreshTrigger === undefined
@@ -70,15 +88,6 @@ export function createFeatureAtoms<R, ER>(
         ),
       ),
   });
-  const refreshProject = (
-    environmentId: EnvironmentId,
-    projectId: ProjectId,
-    registry: AtomRegistry.AtomRegistry,
-  ) =>
-    Effect.sync(() => {
-      registry.refresh(list({ environmentId, input: { projectId } }));
-      registry.refresh(board({ environmentId, input: { projectId } }));
-    });
   const refresh = (
     environmentId: EnvironmentId,
     projectId: ProjectId,
@@ -87,118 +96,72 @@ export function createFeatureAtoms<R, ER>(
   ) =>
     Effect.sync(() => {
       registry.refresh(list({ environmentId, input: { projectId } }));
-      registry.refresh(detail({ environmentId, input: { projectId, featureId } }));
       registry.refresh(board({ environmentId, input: { projectId } }));
+      registry.refresh(snapshotBoard({ environmentId, input: { projectId } }));
+      registry.refresh(detail({ environmentId, input: { projectId, featureId } }));
+      const workflowFeature = options.workflowFeature?.({
+        environmentId,
+        input: { projectId, featureId },
+      });
+      if (workflowFeature) registry.refresh(workflowFeature);
     });
-  const refreshTarget = (
-    target: {
-      readonly environmentId: EnvironmentId;
-      readonly input: { readonly projectId: ProjectId; readonly featureId: string };
-    },
-    registry: AtomRegistry.AtomRegistry,
-  ) => refresh(target.environmentId, target.input.projectId, target.input.featureId, registry);
-  const onProjectChanged = (
-    target: {
-      readonly environmentId: EnvironmentId;
-      readonly input: { readonly projectId: ProjectId };
-    },
-    registry: AtomRegistry.AtomRegistry,
-  ) => refreshProject(target.environmentId, target.input.projectId, registry);
+  const refreshTarget = (target: FeatureTarget, registry: AtomRegistry.AtomRegistry) =>
+    refresh(target.environmentId, target.input.projectId, target.input.featureId, registry);
+  const action = <TTag extends FeatureActionTag>(tag: TTag) =>
+    createEnvironmentRpcCommand(runtime, {
+      label: `environment-data:features:${tag}`,
+      tag,
+      onSuccess: refreshTarget,
+    });
+
   return {
     list,
     detail,
     board,
+    snapshotBoard,
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:features:create",
       tag: WS_METHODS.featuresCreate,
       onSuccess: (target, registry) =>
         refresh(target.environmentId, target.input.projectId, target.input.id, registry),
     }),
-    setStatus: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:set-status",
-      tag: WS_METHODS.featuresSetStatus,
-      onSuccess: refreshTarget,
-    }),
-    // Feature actions. Each returns the feature's workflow snapshot.
-    start: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:start",
-      tag: WS_METHODS.featuresStart,
-      onSuccess: refreshTarget,
-    }),
-    reopen: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:reopen",
-      tag: WS_METHODS.featuresReopen,
-      onSuccess: refreshTarget,
-    }),
-    approve: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:approve",
-      tag: WS_METHODS.workflowsApprove,
-      onSuccess: refreshTarget,
-    }),
-    requestChanges: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:request-changes",
-      tag: WS_METHODS.workflowsRequestChanges,
-      onSuccess: refreshTarget,
-    }),
-    takeOver: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:take-over",
-      tag: WS_METHODS.workflowsTakeOver,
-      onSuccess: refreshTarget,
-    }),
-    markDone: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:mark-done",
-      tag: WS_METHODS.workflowsMarkDone,
-      onSuccess: refreshTarget,
-    }),
-    sendBack: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:send-back",
-      tag: WS_METHODS.workflowsSendBack,
-      onSuccess: refreshTarget,
-    }),
-    skip: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:skip",
-      tag: WS_METHODS.workflowsSkip,
-      onSuccess: refreshTarget,
-    }),
-    acceptAsIs: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:accept-as-is",
-      tag: WS_METHODS.workflowsAcceptAsIs,
-      onSuccess: refreshTarget,
-    }),
-    oneMoreRound: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:one-more-round",
-      tag: WS_METHODS.workflowsOneMoreRound,
-      onSuccess: refreshTarget,
-    }),
-    startNow: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:start-now",
-      tag: WS_METHODS.workflowsStartNow,
-      onSuccess: refreshTarget,
-    }),
-    answer: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:answer",
-      tag: WS_METHODS.workflowsAnswer,
-      onSuccess: onProjectChanged,
-    }),
-    retry: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:retry",
-      tag: WS_METHODS.workflowsRetry,
-      onSuccess: onProjectChanged,
-    }),
-    pause: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:pause",
-      tag: WS_METHODS.workflowsPause,
-      onSuccess: onProjectChanged,
-    }),
-    resume: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:resume",
-      tag: WS_METHODS.workflowsResume,
-      onSuccess: onProjectChanged,
-    }),
-    cancel: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:features:cancel",
-      tag: WS_METHODS.workflowsCancel,
-      onSuccess: onProjectChanged,
-    }),
+    setStatus: action(WS_METHODS.featuresSetStatus),
+    start: action(WS_METHODS.featuresStart),
+    /** From Done, pass `stepId` to pick the stage the follow-up starts at. */
+    reopen: action(WS_METHODS.featuresReopen),
+    approve: action(WS_METHODS.workflowsApprove),
+    requestChanges: action(WS_METHODS.workflowsRequestChanges),
+    answer: action(WS_METHODS.workflowsAnswer),
+    /** Pass `modelSelection` for Retry with another model. */
+    retry: action(WS_METHODS.workflowsRetry),
+    takeOver: action(WS_METHODS.workflowsTakeOver),
+    markDone: action(WS_METHODS.workflowsMarkDone),
+    sendBack: action(WS_METHODS.workflowsSendBack),
+    skip: action(WS_METHODS.workflowsSkip),
+    acceptAsIs: action(WS_METHODS.workflowsAcceptAsIs),
+    oneMoreRound: action(WS_METHODS.workflowsOneMoreRound),
+    startNow: action(WS_METHODS.workflowsStartNow),
+    pause: action(WS_METHODS.workflowsPause),
+    resume: action(WS_METHODS.workflowsResume),
+    cancel: action(WS_METHODS.workflowsCancel),
   };
 }
+
+type FeatureActionTag =
+  | typeof WS_METHODS.featuresSetStatus
+  | typeof WS_METHODS.featuresStart
+  | typeof WS_METHODS.featuresReopen
+  | typeof WS_METHODS.workflowsApprove
+  | typeof WS_METHODS.workflowsRequestChanges
+  | typeof WS_METHODS.workflowsAnswer
+  | typeof WS_METHODS.workflowsRetry
+  | typeof WS_METHODS.workflowsTakeOver
+  | typeof WS_METHODS.workflowsMarkDone
+  | typeof WS_METHODS.workflowsSendBack
+  | typeof WS_METHODS.workflowsSkip
+  | typeof WS_METHODS.workflowsAcceptAsIs
+  | typeof WS_METHODS.workflowsOneMoreRound
+  | typeof WS_METHODS.workflowsStartNow
+  | typeof WS_METHODS.workflowsPause
+  | typeof WS_METHODS.workflowsResume
+  | typeof WS_METHODS.workflowsCancel;

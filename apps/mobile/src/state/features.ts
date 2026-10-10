@@ -42,7 +42,7 @@ export const featuresEnvironment = createFeatureAtoms(connectionAtomRuntime, {
 });
 
 export function crewBoardAtom(project: { environmentId: EnvironmentId; projectId: ProjectId }) {
-  return featuresEnvironment.board({
+  return featuresEnvironment.snapshotBoard({
     environmentId: project.environmentId,
     input: { projectId: project.projectId },
   });

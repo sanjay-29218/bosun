@@ -48,6 +48,7 @@ import {
   FeatureCreateInput,
   FeatureGetInput,
   FeatureOperationError,
+  FeatureBoardCard,
   FeatureProjectInput,
   FeatureRecord,
   FeatureReopenInput,
@@ -418,6 +419,7 @@ export const WS_METHODS = {
   featuresAttachThread: "features.attachThread",
   featuresDetachThread: "features.detachThread",
   featuresThreadLink: "features.threadLink",
+  featuresBoard: "features.board",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -1028,6 +1030,11 @@ const WsFeaturesCreateRpc = Rpc.make(WS_METHODS.featuresCreate, {
 const WsFeaturesListRpc = Rpc.make(WS_METHODS.featuresList, {
   payload: FeatureProjectInput,
   success: Schema.Array(FeatureRecord),
+  error: FeatureRpcError,
+});
+const WsFeaturesBoardRpc = Rpc.make(WS_METHODS.featuresBoard, {
+  payload: FeatureProjectInput,
+  success: Schema.Array(FeatureBoardCard),
   error: FeatureRpcError,
 });
 const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
@@ -2103,6 +2110,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesAttachThreadRpc,
   WsFeaturesDetachThreadRpc,
   WsFeaturesThreadLinkRpc,
+  WsFeaturesBoardRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,

@@ -31,6 +31,10 @@
       "types": "./src/state/crew.ts",
       "default": "./src/state/crew.ts"
     },
+    "./state/crew-board": {
+      "types": "./src/state/crewBoard.ts",
+      "default": "./src/state/crewBoard.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

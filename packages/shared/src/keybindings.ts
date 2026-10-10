@@ -145,6 +145,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
   { key: "mod+shift+f", command: "projectSearch.toggle", when: "!terminalFocus" },
   { key: "mod+u", command: "usage.open", when: "!terminalFocus" },
+  { key: "mod+shift+b", command: "features.open", when: "!terminalFocus" },
+  { key: "mod+shift+y", command: "needsYou.next", when: "!terminalFocus" },
   { key: "mod+alt+a", command: "theme.select", when: "!terminalFocus" },
   { key: "mod+alt+shift+a", command: "appearance.cycle", when: "!terminalFocus" },
   { key: "mod+alt+shift+t", command: "themeEditor.toggle" },
@@ -206,6 +208,10 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+2", command: "usage.period.week", when: "usagePageOpen" },
   { key: "mod+shift+3", command: "usage.period.month", when: "usagePageOpen" },
   { key: "mod+shift+4", command: "usage.period.quarter", when: "usagePageOpen" },
+  { key: "l", command: "features.list", when: "featuresPageOpen" },
+  { key: "b", command: "features.board", when: "featuresPageOpen" },
+  { key: "w", command: "features.workflow", when: "featuresPageOpen" },
+  { key: "n", command: "features.needsYou", when: "featuresPageOpen" },
 ];
 
 function normalizeKeyToken(token: string): string {

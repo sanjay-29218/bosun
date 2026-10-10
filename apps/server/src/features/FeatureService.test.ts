@@ -289,6 +289,38 @@ describe("feature creation", () => {
       }),
     ),
   );
+  effectIt.effect("lists board cards only for features that run a workflow", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const workflows = yield* WorkflowService;
+        yield* workflows.ensureStarterDefinition(projectId);
+        yield* features.create({
+          id: "board-feature",
+          projectId,
+          title: "On the board",
+          brief: "Run the starter workflow",
+          workflowId: "feature-delivery",
+        });
+        yield* features.create({
+          id: "plain-feature",
+          projectId,
+          title: "No workflow",
+          brief: "Bots only",
+        });
+        const board = yield* features.board(projectId);
+        expect(board.map((card) => card.featureId)).toEqual(["board-feature"]);
+        expect(board[0]).toMatchObject({
+          title: "On the board",
+          started: false,
+          threadId: null,
+          workflow: { id: "feature-delivery", revision: 1, latestRevision: 1 },
+          stage: { stepId: "plan", index: 1, role: "planner", gate: true },
+        });
+      }),
+    ),
+  );
+
   effectIt.effect("creates a feature with independent enabled bot instances exactly once", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
