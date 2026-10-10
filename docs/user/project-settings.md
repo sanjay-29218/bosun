@@ -61,6 +61,14 @@ task. Use **Validate** before saving. Saving creates a new revision; a feature w
 workflow copy keeps the revision it started with. The current definition supports one active task
 path at a time, including routes back to earlier tasks for rework.
 
+To turn a thread into a feature, choose **Make it a feature…** from the thread's ⋯ menu or the
+command palette. On mobile, choose **Workflow…** from the thread's menu. Pick a workflow and the stage
+this thread already covers. Earlier stages are marked skipped, and the thread keeps its history,
+branch and worktree. If the thread's last turn finished, its last reply is handed to the next
+stage, after approval if this stage has a gate. Otherwise this happens when the turn ends.
+**Detach from workflow** in a stage thread's menu turns it back into a plain thread and cancels
+the rest of the feature. Reopening the feature reattaches the thread.
+
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current bot status or send an action.
 
