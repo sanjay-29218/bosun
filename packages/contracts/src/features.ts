@@ -97,6 +97,8 @@ export const FeatureBoardCard = Schema.Struct({
       role: Schema.String,
       attempt: Schema.Int,
       gate: Schema.Boolean,
+      /** A person took the stage over; it waits for Mark done or Retry. */
+      takenOver: Schema.Boolean,
     }),
   ),
   /** The current (or last) stage thread, which a card opens. */

@@ -99,6 +99,7 @@ describe("feature board cards", () => {
       role: "planner",
       attempt: 0,
       gate: true,
+      takenOver: false,
     });
     expect(result.workflow).toEqual({
       id: "delivery",
@@ -119,6 +120,35 @@ describe("feature board cards", () => {
     expect(result.state).toBe("approval");
     expect(result.detail).toBe("plan.md is ready");
     expect(result.stateSince).toBe("2026-10-01T02:00:00.000Z");
+  });
+
+  it("keeps a waiting state's age across a pause and resume", () => {
+    const decision = (id: string, kind: WorkflowStepEvent["kind"], occurredAt: string) =>
+      handoffEvent(id, "plan", kind, occurredAt, { sourceKind: null, sourceId: null });
+    const result = card([
+      started("plan", "2026-10-01T01:00:00.000Z"),
+      handoffEvent("done-plan", "plan", "completed", "2026-10-01T02:00:00.000Z", {
+        outcome: "ready",
+        detail: "plan.md is ready",
+      }),
+      decision("pause", "paused", "2026-10-01T03:00:00.000Z"),
+      decision("resume", "resumed", "2026-10-01T04:00:00.000Z"),
+    ]);
+    expect(result.state).toBe("approval");
+    expect(result.stateSince).toBe("2026-10-01T02:00:00.000Z");
+  });
+
+  it("marks a stage a person took over", () => {
+    const result = card([
+      started("plan", "2026-10-01T01:00:00.000Z"),
+      handoffEvent("fail", "plan", "failed", "2026-10-01T01:50:00.000Z", { detail: "stuck" }),
+      handoffEvent("take", "plan", "taken-over", "2026-10-01T02:00:00.000Z", {
+        sourceKind: null,
+        sourceId: null,
+      }),
+    ]);
+    expect(result.state).toBe("working");
+    expect(result.stage?.takenOver).toBe(true);
   });
 
   it("carries a question's text and the failure that replaced it", () => {

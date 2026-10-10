@@ -21,6 +21,7 @@ import {
   ordinal,
   parseFeatureSearch,
   sendBackTargets,
+  stageOutcomes,
   stagePhase,
   type EnvironmentFeatureCard,
   type NeedsYouShell,
@@ -77,6 +78,7 @@ const card = (
           role: (definition.steps[stepId] as { bot?: string } | undefined)?.bot ?? "builder",
           attempt: 1,
           gate: false,
+          takenOver: false,
         },
   threadId: ThreadId.make(`thread-${featureId}`),
   detail: null,
@@ -191,6 +193,11 @@ describe("needs you", () => {
       shells: [
         // The gate card's own stage thread is represented by the card.
         shell("thread-gate", { hasPendingApprovals: true }),
+        // A working stage's tool approval is not on its card, so the thread shows.
+        shell("thread-busy", {
+          hasPendingApprovals: true,
+          runtime: { updatedAt: "2026-10-01T00:40:00.000Z" },
+        }),
         shell("tool", {
           hasPendingApprovals: true,
           runtime: { updatedAt: "2026-10-01T00:30:00.000Z" },
@@ -203,14 +210,14 @@ describe("needs you", () => {
     expect(
       groups.map((group) => [group.kind, group.items.map((item) => item.key.split(":")[1])]),
     ).toEqual([
-      ["approval", ["tool", "gate"]],
+      ["approval", ["tool", "thread-busy", "gate"]],
       ["problem", ["failed"]],
       ["question", ["question", "asks"]],
     ]);
     expect(oldestNeedsYouItem(groups)?.key).toBe("env-1:question");
   });
 
-  it("reads stage threads from their crew summary when no card covers them", () => {
+  it("reads stage threads from their crew summary, then their own requests", () => {
     const crew = (current: boolean, state: FeatureCardState) => ({
       featureId: "remote",
       stepId: "build",
@@ -227,8 +234,10 @@ describe("needs you", () => {
         shell("working", { crew: crew(true, "working"), hasPendingApprovals: true }),
       ],
     });
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.items.map((item) => item.key)).toEqual(["env-1:current"]);
+    expect(groups.map((group) => [group.kind, group.items.map((item) => item.key)])).toEqual([
+      ["approval", ["env-1:working"]],
+      ["problem", ["env-1:current"]],
+    ]);
     expect(oldestNeedsYouItem([])).toBeNull();
   });
 });
@@ -282,7 +291,21 @@ describe("queue, drag and actions", () => {
     ]);
     expect(featureCardActions(card("a", "cancelled", "build"))).toEqual(["reopen"]);
     expect(featureCardActions(card("a", "queued", "build"))).toContain("start-now");
-    expect(sendBackTargets(definition, "review")).toEqual(["plan", "design", "build"]);
-    expect(sendBackTargets(definition, "plan")).toEqual([]);
+    const takenOver = card("a", "working", "build");
+    expect(
+      featureCardActions({ ...takenOver, stage: { ...takenOver.stage!, takenOver: true } }),
+    ).toEqual(["mark-done", "retry", "send-back", "cancel"]);
+  });
+
+  it("sends back only to stages this run finished", () => {
+    const steps = [
+      { id: "plan", status: "completed" },
+      { id: "design", status: "pending" },
+      { id: "build", status: "skipped" },
+      { id: "review", status: "failed" },
+    ];
+    expect(sendBackTargets(definition, steps, "review")).toEqual(["plan", "build"]);
+    expect(sendBackTargets(definition, [], "plan")).toEqual([]);
+    expect(stageOutcomes(definition, "plan")).toEqual(["ready"]);
   });
 });

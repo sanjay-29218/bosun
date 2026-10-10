@@ -24,6 +24,11 @@ const COPY = {
     description: "Your answer goes to the bot that asked, and the stage carries on.",
     submit: "Answer",
   },
+  "mark-done": {
+    title: "Mark done",
+    description: "Summarize what you did. The next stage gets your summary as its handoff.",
+    submit: "Mark done",
+  },
 } as const;
 
 /** Asks for the text an action needs, then runs it. */
@@ -44,7 +49,10 @@ export function FeatureNoteDialog(props: {
     <Dialog open={request !== null} onOpenChange={(open) => (open || busy ? undefined : close())}>
       <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{copy?.title}</DialogTitle>
+          <DialogTitle>
+            {copy?.title}
+            {request?.outcome ? ` · ${request.outcome.replace(/_/g, " ")}` : ""}
+          </DialogTitle>
           <DialogDescription>
             {request ? <span className="font-medium">{request.card.title}</span> : null}
             {request?.card.detail ? ` · ${request.card.detail}` : ""}

@@ -294,7 +294,7 @@ export function FeatureStageBoardView(props: {
       </div>
       {hiddenCount > 0 ? (
         <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          {hiddenCount} {hiddenCount === 1 ? "feature" : "features"} on other workflows{" "}
+          {hiddenCount} {hiddenCount === 1 ? "feature" : "features"} on other workflows or projects{" "}
           {hiddenCount === 1 ? "is" : "are"} hidden (
           {hidden.map((entry) => `${entry.name} ${entry.count}`).join(", ")}).
           <Button variant="link" size="xs" onClick={props.onShowPhases}>

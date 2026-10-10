@@ -29,7 +29,9 @@ export function featureStatus(
     return { label: "Not started", className: "text-muted-foreground" };
   switch (card.state) {
     case "working":
-      return { label: "Working", className: "text-info" };
+      return card.stage?.takenOver
+        ? { label: "Taken over", className: "text-warning-foreground" }
+        : { label: "Working", className: "text-info" };
     case "queued":
       return {
         label: queuePosition ? `Queued · ${ordinal(queuePosition)}` : "Queued",
@@ -64,7 +66,7 @@ export function featureOwnerLine(card: EnvironmentFeatureCard): string {
   const stage = stageLabel(card.stage.stepId);
   if (card.state === "cancelled") return `Stopped at ${stage}`;
   if (card.state === "done") return card.workflow.name;
-  const role = stageLabel(card.stage.role);
+  const role = card.stage.takenOver ? "You" : stageLabel(card.stage.role);
   return card.stage.attempt > 1
     ? `${role} · ${stage} · attempt ${card.stage.attempt}`
     : `${role} · ${stage}`;
