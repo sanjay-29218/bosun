@@ -196,6 +196,11 @@ export const CrewStageSummary = Schema.Struct({
   state: FeatureCardState,
   /** False for an earlier attempt or stage of the same feature. */
   current: Schema.Boolean,
+  /**
+   * The feature's event version, on the current stage thread only. It changes with every
+   * decision, so an open stage thread knows to reload the feature.
+   */
+  revision: Schema.optionalKey(Schema.Int),
 });
 export type CrewStageSummary = typeof CrewStageSummary.Type;
 /**

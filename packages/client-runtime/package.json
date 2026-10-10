@@ -23,6 +23,10 @@
       "types": "./src/state/featureThreads.ts",
       "default": "./src/state/featureThreads.ts"
     },
+    "./crew-stage": {
+      "types": "./src/crewStage.ts",
+      "default": "./src/crewStage.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

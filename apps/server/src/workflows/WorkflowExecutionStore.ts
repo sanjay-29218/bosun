@@ -69,6 +69,19 @@ export class WorkflowExecutionStore extends Context.Service<
       queuedAt: string | null,
       slotInstanceId: string | null,
     ) => Effect.Effect<void, PersistenceSqlError>;
+    /** The stage summary last written to each of the feature's threads, as JSON. */
+    readonly listStageThreads: (
+      featureId: string,
+    ) => Effect.Effect<ReadonlyMap<string, string>, PersistenceSqlError>;
+    /** Settled features with a stage thread still showing a state they have left. */
+    readonly listUnsyncedSettledFeatures: (
+      projectId?: ProjectId,
+    ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
+    readonly setStageThread: (
+      threadId: string,
+      featureId: string,
+      summaryJson: string,
+    ) => Effect.Effect<void, PersistenceSqlError>;
   }
 >()("t3/workflows/WorkflowExecutionStore") {}
 
@@ -175,6 +188,34 @@ export const WorkflowExecutionStoreLive = Layer.effect(
         sql`
       UPDATE workflow_executions SET queued_at = ${queuedAt}, slot_instance_id = ${slotInstanceId}
       WHERE feature_id = ${featureId}
+    `.pipe(Effect.asVoid, Effect.mapError(error)),
+      listStageThreads: (featureId) =>
+        sql<{ readonly threadId: string; readonly summaryJson: string }>`
+      SELECT thread_id AS threadId, summary_json AS summaryJson
+      FROM crew_stage_threads WHERE feature_id = ${featureId}
+    `.pipe(
+          Effect.mapError(error),
+          Effect.map((rows) => new Map(rows.map((row) => [row.threadId, row.summaryJson]))),
+        ),
+      listUnsyncedSettledFeatures: (projectId) =>
+        sql<{ readonly featureId: string }>`
+      SELECT DISTINCT s.feature_id AS featureId FROM crew_stage_threads AS s
+      JOIN workflow_executions AS e ON e.feature_id = s.feature_id
+      JOIN feature_workflows AS w ON w.feature_id = s.feature_id
+      WHERE e.settled = 1
+        AND json_extract(s.summary_json, '$.current') = 1
+        AND json_extract(s.summary_json, '$.state') NOT IN ('done', 'cancelled')
+        ${projectId === undefined ? sql`` : sql`AND w.project_id = ${projectId}`}
+    `.pipe(
+          Effect.mapError(error),
+          Effect.map((rows) => rows.map((row) => row.featureId)),
+        ),
+      setStageThread: (threadId, featureId, summaryJson) =>
+        sql`
+      INSERT INTO crew_stage_threads (thread_id, feature_id, summary_json)
+      VALUES (${threadId}, ${featureId}, ${summaryJson})
+      ON CONFLICT (thread_id) DO UPDATE SET
+        feature_id = excluded.feature_id, summary_json = excluded.summary_json
     `.pipe(Effect.asVoid, Effect.mapError(error)),
     });
   }),
