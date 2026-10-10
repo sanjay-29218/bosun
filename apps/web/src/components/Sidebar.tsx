@@ -272,6 +272,7 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
@@ -5208,6 +5209,7 @@ export default function Sidebar() {
               </p>
             )
           ) : null}
+          {!isSearchingThreads ? <SidebarNeedsYouShelf /> : null}
           {!isSearchingThreads ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"

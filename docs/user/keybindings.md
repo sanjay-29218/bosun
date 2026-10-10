@@ -101,10 +101,16 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 `mod` means Command on macOS and Control elsewhere. Other modifiers are
 `cmd` / `meta`, `ctrl` / `control`, `alt` / `option`, and `shift`.
 
+## Features
+
+`mod+shift+b` opens the Features page and `mod+shift+y` opens the thread that has waited on you
+longest. On the Features page, `l`, `b`, `w` and `n` switch to the list, the board, the
+Workflow toggle and Needs you. See [Features](./features.md).
+
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `composerDraft`,
+`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `featuresPageOpen`, `composerFocus`, `composerDraft`,
 `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the

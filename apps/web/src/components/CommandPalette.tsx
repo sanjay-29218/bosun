@@ -49,6 +49,7 @@ import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  KanbanIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -213,6 +214,7 @@ import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/com
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+import { openNextNeedsYou } from "./features/featuresNavigation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -569,6 +571,14 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         event.stopPropagation();
         setOpen(false);
         void navigate({ to: "/usage" });
+        return;
+      }
+      if (command === "features.open" || command === "needsYou.next") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        if (command === "features.open") void navigate({ to: "/features" });
+        else openNextNeedsYou(navigate);
         return;
       }
       const mode = overlayModeForCommand(command);
@@ -2245,6 +2255,37 @@ function OpenCommandPaletteDialog(props: {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
     });
+  }
+
+  if (
+    environments.some(
+      (environment) => environment.serverConfig?.environment.capabilities.workflows === true,
+    )
+  ) {
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:features",
+        searchTerms: ["features", "board", "kanban", "crew", "workflow", "bosun"],
+        title: "Open features",
+        icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "features.open",
+        run: async () => {
+          await navigate({ to: "/features" });
+        },
+      },
+      {
+        kind: "action",
+        value: "action:needs-you-next",
+        searchTerms: ["needs you", "approval", "question", "failed", "waiting", "next"],
+        title: "Go to next item that needs you",
+        icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "needsYou.next",
+        run: async () => {
+          openNextNeedsYou(navigate);
+        },
+      },
+    );
   }
 
   actionItems.push({
