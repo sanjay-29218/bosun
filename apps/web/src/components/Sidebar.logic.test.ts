@@ -446,6 +446,26 @@ describe("sidebar thread lineage helpers", () => {
     ).toEqual([parentId, fork.id]);
   });
 
+  it("shows one row per feature: its current stage thread", () => {
+    const crew = {
+      featureId: "feature",
+      stepId: "design",
+      index: 2,
+      total: 6,
+      state: "approval",
+      current: true,
+    } as const;
+    const current = makeThreadFixture({ id: ThreadId.make("thread-design"), crew });
+    const earlier = makeThreadFixture({
+      id: ThreadId.make("thread-plan"),
+      crew: { ...crew, stepId: "plan", index: 1, current: false },
+    });
+    const plain = makeThreadFixture({ id: ThreadId.make("thread-plain") });
+    expect(
+      filterSidebarV2VisibleThreads([current, earlier, plain], null).map((thread) => thread.id),
+    ).toEqual([current.id, plain.id]);
+  });
+
   it("identifies subagent threads so the sidebar can hide them", () => {
     const parentId = ThreadId.make("thread-parent");
     const subagent = makeThreadFixture({
@@ -898,6 +918,35 @@ describe("resolveSidebarThreadStatus", () => {
   };
 
   const idle = { hasPendingApprovals: false, hasPendingUserInput: false, runtime: null };
+
+  it("shows what a feature's current stage waits on, whatever its thread is doing", () => {
+    const crew = {
+      featureId: "feature",
+      stepId: "build",
+      index: 3,
+      total: 6,
+      state: "failed",
+      current: true,
+    } as const;
+    expect(resolveSidebarThreadStatus({ ...idle, crew })).toBe("failed");
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "approval" } })).toBe(
+      "approval",
+    );
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "your-call" } })).toBe(
+      "approval",
+    );
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "input" } })).toBe(
+      "input",
+    );
+    // Working and queued features read from the thread's own runtime.
+    expect(
+      resolveSidebarThreadStatus({ ...idle, runtime, crew: { ...crew, state: "working" } }),
+    ).toBe("working");
+    // Earlier stage threads keep their own status.
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, current: false } })).toBe(
+      "ready",
+    );
+  });
 
   it("prioritizes approval over a running runtime", () => {
     expect(resolveSidebarThreadStatus({ ...idle, hasPendingApprovals: true, runtime })).toBe(

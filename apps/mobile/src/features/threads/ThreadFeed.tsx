@@ -24,6 +24,7 @@ import {
   type RunId,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import { botMessageOrigin } from "@t3tools/client-runtime/bot-message-origin";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import {
@@ -272,6 +273,8 @@ export interface ThreadFeedHistoryControls {
 }
 
 export interface ThreadFeedProps {
+  /** Pinned above the history, such as a stage thread's handoff card. */
+  readonly headerAccessory?: ReactNode;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
@@ -1696,6 +1699,7 @@ function renderFeedEntry(
       !message.streaming;
 
     if (isUser) {
+      const botOrigin = botMessageOrigin(message.context);
       const enterAnimated = isFreshTimestamp(message.createdAt);
       const intentBadge = resolveUserMessageIntentBadge(message.inputIntent);
       const referenceIds = new Set(
@@ -1738,6 +1742,11 @@ function renderFeedEntry(
                   : null),
             }}
           >
+            {botOrigin ? (
+              <Text className="font-t3-medium text-xs text-foreground-secondary">
+                Bot · {botOrigin.botId}
+              </Text>
+            ) : null}
             {entry.pendingMessage?.attachments.map((attachment) =>
               attachment.type === "image" && attachment.uploadedAttachmentId ? (
                 <MessageAttachmentImage
@@ -3221,6 +3230,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             ListHeaderComponent={
               <>
                 {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                {props.headerAccessory}
                 {setupAnchorIndex < 0 && props.worktreeSetup ? (
                   <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
                 ) : null}

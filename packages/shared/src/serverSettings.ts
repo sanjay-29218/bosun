@@ -366,6 +366,10 @@ export function applyServerSettingsPatch(
           ],
         }
       : {}),
+    // Map replacement: deepMerge would keep a removed provider cap.
+    ...(patch.crew?.providerLimits !== undefined
+      ? { crew: { ...next.crew, providerLimits: patch.crew.providerLimits } }
+      : {}),
     // Host replacement: deepMerge would keep a cleared account pin.
     ...(patch.github?.hosts !== undefined
       ? { github: { ...next.github, hosts: patch.github.hosts } }

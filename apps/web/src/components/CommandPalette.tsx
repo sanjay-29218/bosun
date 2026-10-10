@@ -49,6 +49,7 @@ import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  KanbanIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -67,7 +68,21 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  UnlinkIcon,
+  WorkflowIcon,
 } from "lucide-react";
+import {
+  featureStageRows,
+  formatStageName,
+  sendBackTargets,
+  type CrewAction,
+} from "@t3tools/client-runtime/crew-stage";
+import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
+import { workflowsEnvironment } from "../state/workflows";
+import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
+import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
+import { useCrewDraftStore } from "./crew/crewDraftStore";
+import { useCrewStage } from "./crew/useCrewStage";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
   useCallback,
@@ -193,6 +208,8 @@ import { Checkbox } from "./ui/checkbox";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
+import { runFeatureThreadAction } from "./features/featureThreadActions";
+import { featureThreadsEnvironment } from "../state/featureThreads";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -213,6 +230,7 @@ import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/com
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+import { openNextNeedsYou } from "./features/featuresNavigation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -571,6 +589,14 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
+      if (command === "features.open" || command === "needsYou.next") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        if (command === "features.open") void navigate({ to: "/features" });
+        else openNextNeedsYou(navigate);
+        return;
+      }
       const mode = overlayModeForCommand(command);
       if (mode === null) {
         return;
@@ -759,6 +785,20 @@ function OpenCommandPaletteDialog(props: {
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
+  );
+  const activeThreadFeatureLink = useEnvironmentQuery(
+    activeThread
+      ? featureThreadsEnvironment.link({
+          environmentId: activeThread.environmentId,
+          input: { projectId: activeThread.projectId, threadId: activeThread.id },
+        })
+      : null,
+  ).data;
+  const canAttachFeature = useAtomValue(
+    featureThreadsEnvironment.attach.permissionAtom(activeThread?.environmentId ?? null),
+  );
+  const canDetachFeature = useAtomValue(
+    featureThreadsEnvironment.detach.permissionAtom(activeThread?.environmentId ?? null),
   );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
@@ -1140,6 +1180,21 @@ function OpenCommandPaletteDialog(props: {
   );
 
   const activeThreadId = activeThread?.id;
+  // Stage actions for an open stage thread, and New feature… where workflows run.
+  const crewStage = useCrewStage(activeThread);
+  const currentProjectSupportsWorkflows = useEnvironmentSupportsWorkflows(
+    activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null,
+  );
+  const currentProjectWorkflows = useEnvironmentQuery(
+    currentProjectSupportsWorkflows &&
+      (activeThread ?? activeDraftThread) &&
+      (activeThread?.projectId ?? activeDraftThread?.projectId)
+      ? workflowsEnvironment.definitions({
+          environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
+          input: { projectId: (activeThread?.projectId ?? activeDraftThread?.projectId)! },
+        })
+      : null,
+  ).data;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -1991,6 +2046,140 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  if (activeThread !== null && activeThreadFeatureLink?.attachable) {
+    const thread = activeThread;
+    const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+    if (activeThreadFeatureLink.stage?.current) {
+      actionItems.push({
+        kind: "action",
+        value: "action:detach-feature",
+        searchTerms: ["detach", "workflow", "feature", "crew", "plain thread"],
+        title: "Detach from workflow",
+        disabled: !canDetachFeature,
+        icon: <UnlinkIcon className={ITEM_ICON_CLASS} />,
+        run: () => runFeatureThreadAction("detach-feature", threadRef, thread),
+      });
+    } else {
+      actionItems.push({
+        kind: "action",
+        value: "action:make-feature",
+        searchTerms: ["make", "feature", "workflow", "crew", "attach", "stage"],
+        title: "Make it a feature…",
+        disabled: !canAttachFeature,
+        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+        run: () => runFeatureThreadAction("make-feature", threadRef, thread),
+      });
+    }
+  }
+
+  const firstWorkflow = currentProjectWorkflows?.[0];
+  if (firstWorkflow && currentProjectEnvironmentId && currentProjectId) {
+    const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
+    actionItems.push({
+      kind: "action",
+      value: "action:crew:new-feature",
+      searchTerms: ["new feature", "workflow", "crew", "brief"],
+      title: "New feature…",
+      description: "A new thread whose first message is the brief",
+      icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        const created = await handleNewThread(projectRef);
+        if (created) useCrewDraftStore.getState().setWorkflow(created.draftId, firstWorkflow.id);
+      },
+    });
+  }
+
+  if (crewStage?.snapshot) {
+    const stage = crewStage;
+    const snapshot = crewStage.snapshot;
+    const threadRef = scopeThreadRef(stage.thread.environmentId, stage.thread.id);
+    // Notes come from the stage thread's composer, as in its banner.
+    const note = () =>
+      getComposerDraftState(useComposerDraftStore.getState(), threadRef)?.prompt.trim() ?? "";
+    const runStage = async (
+      action: CrewAction,
+      input: Parameters<typeof stage.run>[1] = {},
+    ): Promise<void> => {
+      await stage.run(action, input);
+    };
+    for (const action of stage.actions) {
+      // Mark stage done needs an outcome, which only the banner asks for.
+      if (action === "mark-done") continue;
+      const copy = CREW_ACTION_COPY[action];
+      if (action === "reopen" && snapshot.completed) {
+        // A finished feature reopens as a follow-up at a stage you pick.
+        actionItems.push({
+          kind: "submenu",
+          value: "action:crew:reopen",
+          searchTerms: ["reopen", "follow up", "feature"],
+          title: copy.label,
+          description: copy.description,
+          icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+          addonIcon: <WorkflowIcon className={ADDON_ICON_CLASS} />,
+          groups: [
+            {
+              value: "crew-reopen",
+              label: "Reopen at",
+              items: featureStageRows(snapshot).map((row) => ({
+                kind: "action" as const,
+                value: `action:crew:reopen:${row.stepId}`,
+                searchTerms: [row.stepId],
+                title: row.name,
+                icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+                run: () => runStage("reopen", { stepId: row.stepId }),
+              })),
+            },
+          ],
+        });
+        continue;
+      }
+      if (action === "send-back") {
+        actionItems.push({
+          kind: "submenu",
+          value: "action:crew:send-back",
+          searchTerms: ["send back", "stage", "rework", "feature"],
+          title: copy.label,
+          description: copy.description,
+          icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+          addonIcon: <WorkflowIcon className={ADDON_ICON_CLASS} />,
+          groups: [
+            {
+              value: "crew-send-back",
+              label: "Send back to",
+              items: sendBackTargets(snapshot).map((stepId) => ({
+                kind: "action" as const,
+                value: `action:crew:send-back:${stepId}`,
+                searchTerms: [stepId],
+                title: formatStageName(stepId),
+                icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+                run: () => runStage("send-back", { stepId, text: note() }),
+              })),
+            },
+          ],
+        });
+        continue;
+      }
+      actionItems.push({
+        kind: "action",
+        value: `action:crew:${action}`,
+        searchTerms: [copy.label, "stage", "feature", "crew"],
+        title: action === "approve" ? "Approve gate" : copy.label,
+        description: copy.description,
+        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          if (action === "request-changes" && !note()) {
+            toastManager.add({
+              type: "info",
+              title: "Describe the changes you want in the composer first",
+            });
+            return;
+          }
+          await runStage(action, action === "request-changes" ? { text: note() } : {});
+        },
+      });
+    }
+  }
+
   if (activeThread !== null) {
     const thread = activeThread;
     actionItems.push({
@@ -2245,6 +2434,37 @@ function OpenCommandPaletteDialog(props: {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
     });
+  }
+
+  if (
+    environments.some(
+      (environment) => environment.serverConfig?.environment.capabilities.workflows === true,
+    )
+  ) {
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:features",
+        searchTerms: ["features", "board", "kanban", "crew", "workflow", "bosun"],
+        title: "Open features",
+        icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "features.open",
+        run: async () => {
+          await navigate({ to: "/features" });
+        },
+      },
+      {
+        kind: "action",
+        value: "action:needs-you-next",
+        searchTerms: ["needs you", "approval", "question", "failed", "waiting", "next"],
+        title: "Go to next item that needs you",
+        icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "needsYou.next",
+        run: async () => {
+          openNextNeedsYou(navigate);
+        },
+      },
+    );
   }
 
   actionItems.push({

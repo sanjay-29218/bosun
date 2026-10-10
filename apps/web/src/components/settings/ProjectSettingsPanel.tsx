@@ -43,6 +43,8 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
+import { BotsProjectSection } from "./BotsProjectSection";
+import { WorkflowsProjectSection } from "./WorkflowsProjectSection";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -538,6 +540,22 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
+        {group.memberProjects.map((member) =>
+          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+            .workflows === true ? (
+            <WorkflowsProjectSection
+              key={memberKey(member)}
+              project={member}
+              showEnvironment={group.memberProjects.length > 1}
+            />
+          ) : null,
+        )}
+        {group.memberProjects.map((member) =>
+          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.bots ===
+          true ? (
+            <BotsProjectSection key={memberKey(member)} project={member} />
+          ) : null,
+        )}
         {hasMultipleCheckouts ? checkoutChoices : null}
         <SettingsSection title="Danger">
           <SettingsRow

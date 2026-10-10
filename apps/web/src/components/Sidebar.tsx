@@ -1,4 +1,5 @@
 import { type EnvironmentId } from "@t3tools/contracts";
+import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { setThreadChangeRequestSnapshot } from "./ThreadStatusIndicators";
@@ -174,6 +175,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
+import { readFeatureMenuState, runFeatureThreadAction } from "./features/featureThreadActions";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
@@ -272,6 +274,7 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
@@ -2159,7 +2162,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
-                  branch, so the row lost its most stable identifier. */}
+                  branch, so the row lost its most stable identifier. A feature's
+                  row leads with its stage. */}
+              {thread.crew ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {formatCrewStageLine(thread.crew)}
+                </span>
+              ) : null}
               {thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
@@ -4602,6 +4611,7 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const feature = await readFeatureMenuState(threadRef, thread.projectId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -4639,6 +4649,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              feature,
             }),
             position,
           ),
@@ -4768,6 +4779,10 @@ export default function Sidebar() {
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "make-feature":
+          case "detach-feature":
+            await runFeatureThreadAction(clicked.value, threadRef, thread);
             return;
           case "archive": {
             if (confirmThreadArchive) {
@@ -5208,6 +5223,7 @@ export default function Sidebar() {
               </p>
             )
           ) : null}
+          {!isSearchingThreads ? <SidebarNeedsYouShelf /> : null}
           {!isSearchingThreads ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"

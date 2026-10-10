@@ -38,6 +38,64 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## Workflows
+
+Open **Settings → Project** and find **Workflows** to see a project's workflows. Use **Add
+starter workflow** for Feature delivery, then **Edit** to open a workflow's page.
+
+- **Stages** run in order from the first stage. Each stage runs as a crew role, has a task, and
+  can write files such as `plan.md`. Its last line says what it gets in its handoff: every earlier
+  output by default, or only the files and changes you pick. **Approve …** switches make the
+  feature wait for your approval after that stage. A stage can be removed once nothing starts at
+  it or routes to it.
+- **Routes** say where each outcome goes next, for example back to Build when Review requests
+  changes. Give a route a number to stop the feature at **Your call** after it has been taken that
+  many times. Questions go to the Manager first, then to you. A failed stage retries the number of
+  times you set (empty uses the Crew setting), then pauses and notifies you.
+- **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
+  keep the version they began with. Use the **⋯** menu to duplicate a workflow.
+
+Workflows record the version of each role they use. After you edit or turn off a role in Crew, the
+workflow shows that it changed, and new features can't start on it until you publish a new version.
+
+## Crew
+
+**Settings → Crew** holds the roles workflow stages run as, and limits on running agents.
+
+Roles belong to a project, so pick a project at the top of the page to see them. Use **Add the
+starter crew** for a Manager, Planner, Designer, Builder, QA Tester and Reviewer. Each role has
+instructions, crew tools and a default model. **Act** lets it work on its own; **Ask first**
+asks before changes. Use **Add role** for another role, and the **⋯** menu to edit a role or turn
+it off. Only roles with **Workflow stages can use this role** switched on can be picked for a
+stage. The Captain is environment-wide and shown read-only.
+
+**Limits** are environment-wide:
+
+- **Agents running at once** (default 4). Further stage threads wait as Queued. Threads you start
+  yourself are never counted or queued.
+- **Per provider** caps one provider, so its rate limit doesn't stall every feature. Empty means no
+  cap.
+- **Retries before a stage fails** (default 1), for workflows that don't set their own.
+
+Editing workflows and the crew is available on web and desktop. **Settings → Project → Crew
+activity** still lets you give the Captain a task and answer, cancel or retry its requests.
+
+To turn a thread into a feature, choose **Make it a feature…** from the thread's ⋯ menu or the
+command palette. On mobile, choose **Workflow…** from the thread's menu. Pick a workflow and the stage
+this thread already covers. Earlier stages are marked skipped, and the thread keeps its history,
+branch and worktree. If the thread's last turn finished, its last reply is handed to the next
+stage, after approval if this stage has a gate. Otherwise this happens when the turn ends.
+**Detach from workflow** in a stage thread's menu turns it back into a plain thread and cancels
+the rest of the feature. Reopening the feature reattaches the thread.
+
+The mobile app runs features but does not edit workflows. Choose a workflow in the new task sheet
+to start a feature with your prompt as its brief. The header's Features icon lists every feature,
+with the ones waiting on you first. In a stage thread, the card above the composer approves,
+retries or recovers the stage, and the composer text goes with the action as your note.
+
+The project checkout and provider account belong to the connected environment shown in Settings.
+If that environment is offline, reconnect it to see current bot status or send an action.
+
 ## Worktree branch names
 
 In **Settings → Source Control → Worktree branch naming**, choose a static prefix,

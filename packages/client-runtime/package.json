@@ -11,6 +11,30 @@
       "types": "./src/handoff.ts",
       "default": "./src/handoff.ts"
     },
+    "./state/workflows": {
+      "types": "./src/state/workflows.ts",
+      "default": "./src/state/workflows.ts"
+    },
+    "./state/features": {
+      "types": "./src/state/features.ts",
+      "default": "./src/state/features.ts"
+    },
+    "./state/featureThreads": {
+      "types": "./src/state/featureThreads.ts",
+      "default": "./src/state/featureThreads.ts"
+    },
+    "./crew-stage": {
+      "types": "./src/crewStage.ts",
+      "default": "./src/crewStage.ts"
+    },
+    "./state/crew": {
+      "types": "./src/state/crew.ts",
+      "default": "./src/state/crew.ts"
+    },
+    "./state/crew-board": {
+      "types": "./src/state/crewBoard.ts",
+      "default": "./src/state/crewBoard.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"
@@ -390,6 +414,14 @@
     "./state/mcp-apps": {
       "types": "./src/state/mcpApps.ts",
       "default": "./src/state/mcpApps.ts"
+    },
+    "./bot-message-origin": {
+      "types": "./src/botMessageOrigin.ts",
+      "default": "./src/botMessageOrigin.ts"
+    },
+    "./state/bots": {
+      "types": "./src/state/bots.ts",
+      "default": "./src/state/bots.ts"
     }
   },
   "scripts": {
