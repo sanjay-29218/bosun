@@ -453,6 +453,14 @@ import {
 import { ChatHeader } from "./chat/ChatHeader";
 import { BotRunStatusStrip } from "./chat/BotRunStatusStrip";
 import { CrewHandoffCard } from "./crew/CrewHandoffCard";
+import {
+  ComposerCrewControl,
+  ComposerWorkflowPicker,
+  useDraftWorkflow,
+} from "./crew/ComposerWorkflowPicker";
+import { useCrewDraftStore } from "./crew/crewDraftStore";
+import type { ComposerControlSize } from "./chat/ComposerControl";
+import { featuresEnvironment } from "../state/features";
 import { CrewStageBanner } from "./crew/CrewStageBanner";
 import { FeaturePanel } from "./crew/FeaturePanel";
 import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
@@ -2638,6 +2646,81 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [activeProject, navigate, projectGroupingSettings]);
+  // A new thread with a workflow picked starts a feature; its first message is the brief.
+  const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
+  const draftWorkflow = useDraftWorkflow({ environmentId, projectId: draftProjectId, draftId });
+  const createFeature = useAtomCommand(featuresEnvironment.create);
+  const startFeature = useAtomCommand(featuresEnvironment.start);
+  const renderWorkflowPicker = useMemo(
+    () =>
+      draftWorkflow.supported && draftId && draftProjectId
+        ? (size: ComposerControlSize) => (
+            <ComposerWorkflowPicker
+              environmentId={environmentId}
+              projectId={draftProjectId}
+              draftId={draftId}
+              size={size}
+              onManageWorkflows={handleEditCrewWorkflow}
+            />
+          )
+        : undefined,
+    [draftId, draftProjectId, draftWorkflow.supported, environmentId, handleEditCrewWorkflow],
+  );
+  const draftWorkflowId = draftWorkflow.workflow?.id ?? null;
+  const renderCrewControl = useMemo(
+    () =>
+      draftWorkflowId && draftId && draftProjectId
+        ? (size: ComposerControlSize) => (
+            <ComposerCrewControl
+              environmentId={environmentId}
+              projectId={draftProjectId}
+              draftId={draftId}
+              size={size}
+              onEditCrew={handleEditCrewWorkflow}
+            />
+          )
+        : null,
+    [draftId, draftProjectId, draftWorkflowId, environmentId, handleEditCrewWorkflow],
+  );
+  const startCrewFeature = async (workflowId: string, brief: string) => {
+    if (!draftProjectId || !draftId) return;
+    const featureId = `feature:${randomUUID()}`;
+    const created = await createFeature({
+      environmentId,
+      input: {
+        id: featureId,
+        projectId: draftProjectId,
+        title: brief.split("\n")[0]!.trim().slice(0, 120) || "New feature",
+        brief: brief.slice(0, 16_000),
+        workflowId,
+      },
+    });
+    if (created._tag !== "Success") return;
+    const started = await startFeature({
+      environmentId,
+      input: { projectId: draftProjectId, featureId },
+    });
+    if (started._tag !== "Success") return;
+    promptRef.current = "";
+    setComposerDraftPrompt(composerDraftTarget, "");
+    useCrewDraftStore.getState().setWorkflow(draftId, null);
+    const snapshot = started.value;
+    const firstThreadId = snapshot.steps.find(
+      (step) => step.id === snapshot.activeStepId,
+    )?.threadId;
+    if (firstThreadId) {
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(environmentId, firstThreadId)),
+      });
+    } else {
+      toastManager.add({
+        type: "info",
+        title: "Feature queued",
+        description: "Its first stage starts when an agent slot frees up.",
+      });
+    }
+  };
   const handleOpenDraftProjectSettings = useCallback(() => {
     if (!activeDraftLogicalProjectKey) return;
     void navigate({
@@ -8848,6 +8931,11 @@ export default function ChatView(props: ChatViewProps) {
       onAdvanceActivePendingUserInput();
       return;
     }
+    if (draftWorkflowId && !directAnnotation) {
+      const brief = promptRef.current.trim();
+      if (brief.length > 0) await startCrewFeature(draftWorkflowId, brief);
+      return;
+    }
     const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) {
       notifyDirectAnnotationAttached();
@@ -11627,6 +11715,8 @@ export default function ChatView(props: ChatViewProps) {
                             {!composerMounted ? null : (
                               <ChatComposer
                                 crewBanner={crewStage?.prompt ? <CrewStageBanner /> : null}
+                                renderWorkflowPicker={renderWorkflowPicker}
+                                renderCrewControl={renderCrewControl}
                                 canOperateThread={canOperateThread}
                                 reportedModelSelection={reportedModelSelection}
                                 multipleModelSelections={multipleModelSelections}

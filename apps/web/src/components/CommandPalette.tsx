@@ -67,7 +67,19 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  WorkflowIcon,
 } from "lucide-react";
+import {
+  formatStageName,
+  sendBackTargets,
+  type CrewAction,
+} from "@t3tools/client-runtime/crew-stage";
+import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
+import { workflowsEnvironment } from "../state/workflows";
+import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
+import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
+import { useCrewDraftStore } from "./crew/crewDraftStore";
+import { useCrewStage } from "./crew/useCrewStage";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
   useCallback,
@@ -1140,6 +1152,21 @@ function OpenCommandPaletteDialog(props: {
   );
 
   const activeThreadId = activeThread?.id;
+  // Stage actions for an open stage thread, and New feature… where workflows run.
+  const crewStage = useCrewStage(activeThread);
+  const currentProjectSupportsWorkflows = useEnvironmentSupportsWorkflows(
+    activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null,
+  );
+  const currentProjectWorkflows = useEnvironmentQuery(
+    currentProjectSupportsWorkflows &&
+      (activeThread ?? activeDraftThread) &&
+      (activeThread?.projectId ?? activeDraftThread?.projectId)
+      ? workflowsEnvironment.definitions({
+          environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
+          input: { projectId: (activeThread?.projectId ?? activeDraftThread?.projectId)! },
+        })
+      : null,
+  ).data;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -1986,6 +2013,90 @@ function OpenCommandPaletteDialog(props: {
         icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
         run: async () => {
           useRightPanelStore.getState().open(threadRef, "pull-requests");
+        },
+      });
+    }
+  }
+
+  const firstWorkflow = currentProjectWorkflows?.[0];
+  if (firstWorkflow && currentProjectEnvironmentId && currentProjectId) {
+    const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
+    actionItems.push({
+      kind: "action",
+      value: "action:crew:new-feature",
+      searchTerms: ["new feature", "workflow", "crew", "brief"],
+      title: "New feature…",
+      description: "A new thread whose first message is the brief",
+      icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        const created = await handleNewThread(projectRef);
+        if (created) useCrewDraftStore.getState().setWorkflow(created.draftId, firstWorkflow.id);
+      },
+    });
+  }
+
+  if (crewStage?.snapshot) {
+    const stage = crewStage;
+    const snapshot = crewStage.snapshot;
+    const threadRef = scopeThreadRef(stage.thread.environmentId, stage.thread.id);
+    // Notes come from the stage thread's composer, as in its banner.
+    const note = () =>
+      getComposerDraftState(useComposerDraftStore.getState(), threadRef)?.prompt.trim() ?? "";
+    const runStage = async (
+      action: CrewAction,
+      input: Parameters<typeof stage.run>[1] = {},
+    ): Promise<void> => {
+      await stage.run(action, input);
+    };
+    for (const action of stage.actions) {
+      // Mark stage done needs an outcome, which only the banner asks for.
+      if (action === "mark-done") continue;
+      const copy = CREW_ACTION_COPY[action];
+      if (action === "send-back") {
+        actionItems.push({
+          kind: "submenu",
+          value: "action:crew:send-back",
+          searchTerms: ["send back", "stage", "rework", "feature"],
+          title: copy.label,
+          description: copy.description,
+          icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+          addonIcon: <WorkflowIcon className={ADDON_ICON_CLASS} />,
+          groups: [
+            {
+              value: "crew-send-back",
+              label: "Send back to",
+              items: sendBackTargets(snapshot).map((stepId) => ({
+                kind: "action" as const,
+                value: `action:crew:send-back:${stepId}`,
+                searchTerms: [stepId],
+                title: formatStageName(stepId),
+                icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+                run: () => runStage("send-back", { stepId, text: note() }),
+              })),
+            },
+          ],
+        });
+        continue;
+      }
+      actionItems.push({
+        kind: "action",
+        value: `action:crew:${action}`,
+        searchTerms: [copy.label, "stage", "feature", "crew"],
+        title: action === "approve" ? "Approve gate" : copy.label,
+        description: copy.description,
+        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          if (action === "request-changes" && !note()) {
+            toastManager.add({
+              type: "info",
+              title: "Describe the changes you want in the composer first",
+            });
+            return;
+          }
+          await runStage(
+            action,
+            action === "request-changes" || action === "retry" ? { text: note() } : {},
+          );
         },
       });
     }

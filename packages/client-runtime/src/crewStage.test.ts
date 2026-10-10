@@ -14,6 +14,7 @@ import {
   formatStageName,
   isHiddenStageThread,
   sendBackTargets,
+  workflowSummaryLine,
 } from "./crewStage.ts";
 
 const step = (
@@ -84,6 +85,12 @@ describe("stage formatting", () => {
     expect(isHiddenStageThread({})).toBe(false);
     expect(isHiddenStageThread({ crew: { current: true } })).toBe(false);
     expect(isHiddenStageThread({ crew: { current: false } })).toBe(true);
+  });
+});
+
+describe("workflowSummaryLine", () => {
+  it("follows the first route from the start and marks gates", () => {
+    expect(workflowSummaryLine(snapshot([]).definition)).toBe("Plan → approve → Design → QA check");
   });
 });
 

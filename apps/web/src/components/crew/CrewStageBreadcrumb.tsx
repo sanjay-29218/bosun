@@ -33,8 +33,13 @@ export function CrewStageBreadcrumb({ stage }: { readonly stage: CrewStage }) {
   return (
     <Menu>
       <MenuTrigger
-        aria-label={`Stage ${name}, switch stage thread`}
-        className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        render={
+          <button
+            type="button"
+            aria-label={`Stage ${name}, switch stage thread`}
+            className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        }
       >
         <WorkspaceBreadcrumbText>{name}</WorkspaceBreadcrumbText>
         <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

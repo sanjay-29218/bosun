@@ -215,3 +215,23 @@ export function featureStageRows(
     ];
   });
 }
+
+/**
+ * One line for the composer's Workflow picker: "Plan → approve → Design → Build → Review".
+ * Follows each stage's first route from the start, so loops and rework branches are left out.
+ */
+export function workflowSummaryLine(definition: WorkflowFeatureSnapshot["definition"]): string {
+  const parts: Array<string> = [];
+  const seen = new Set<string>();
+  let stepId: string | undefined = definition.start;
+  while (stepId !== undefined && !seen.has(stepId)) {
+    seen.add(stepId);
+    const step: WorkflowFeatureSnapshot["definition"]["steps"][string] | undefined =
+      definition.steps[stepId];
+    if (step?.type !== "task") break;
+    parts.push(formatStageName(stepId));
+    if (step.gate) parts.push("approve");
+    stepId = Object.values(step.next)[0];
+  }
+  return parts.join(" → ");
+}
