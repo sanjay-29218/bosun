@@ -15,7 +15,6 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
-import { BotConfigurationPanel } from "./BotConfigurationPanel";
 
 export function BotsProjectSection(props: { readonly project: SidebarProjectGroupMember }) {
   const navigate = useNavigate();
@@ -146,7 +145,7 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
   };
 
   return (
-    <SettingsSection title={`Bots · ${environmentLabel}`}>
+    <SettingsSection title={`Crew activity · ${environmentLabel}`}>
       <Tooltip>
         <TooltipTrigger render={<p className="truncate px-3 pb-2 text-xs text-muted-foreground" />}>
           {props.project.workspaceRoot}
@@ -289,12 +288,6 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
           ))}
         </div>
       ) : null}
-      <BotConfigurationPanel
-        environmentId={environmentId}
-        projectId={projectId}
-        defaultModelSelection={defaultModelSelection}
-        bots={snapshot.data?.definitions ?? []}
-      />
     </SettingsSection>
   );
 }
