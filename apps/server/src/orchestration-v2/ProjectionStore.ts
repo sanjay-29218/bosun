@@ -204,6 +204,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "activityRunStatus"
   | "pendingRuntimeRequest"
   | "pendingBackgroundTasks"
+  | "crew"
 > & { readonly latestUserAuthoredMessageAt: DateTime.Utc | null };
 
 const ProjectionCheckpointContext = Schema.Struct({

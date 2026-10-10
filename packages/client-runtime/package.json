@@ -19,6 +19,10 @@
       "types": "./src/state/features.ts",
       "default": "./src/state/features.ts"
     },
+    "./crew-stage": {
+      "types": "./src/crewStage.ts",
+      "default": "./src/crewStage.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

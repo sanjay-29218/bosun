@@ -486,6 +486,8 @@ interface MessagesTimelineProps {
     readonly threadId: ThreadId;
     readonly title: string;
   } | null;
+  /** Pinned above the first message, such as a stage thread's handoff card. */
+  headerContent?: ReactNode;
   onForkFromRun: (input: {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
@@ -597,6 +599,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenTurnDiff,
   onOpenThread,
   parentThreadLink = null,
+  headerContent = null,
   onForkFromRun,
   onRollbackCheckpoint,
   supportsConversationRollback,
@@ -1433,9 +1436,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {parentThreadLink === null ? leadingContent : null}
         {historyControls ? <TimelineHistoryControl {...historyControls} /> : null}
         {parentThreadLink !== null ? leadingContent : null}
+        {headerContent}
       </>
     );
-  }, [historyControls, onOpenThread, parentThreadLink, topFadeEnabled]);
+  }, [headerContent, historyControls, onOpenThread, parentThreadLink, topFadeEnabled]);
 
   const canvas = useChatCanvas();
   const registerTimeline = canvas?.registerTimeline;
@@ -1544,6 +1548,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     rows.length === 0 &&
     !isWorking &&
     parentThreadLink === null &&
+    headerContent === null &&
     historyControls === undefined &&
     // A status line (settled, snoozed) still needs the list, whose footer renders it.
     footer === null

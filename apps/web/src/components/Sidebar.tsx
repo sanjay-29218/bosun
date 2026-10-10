@@ -1,4 +1,5 @@
 import { type EnvironmentId } from "@t3tools/contracts";
+import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { setThreadChangeRequestSnapshot } from "./ThreadStatusIndicators";
@@ -2159,7 +2160,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
-                  branch, so the row lost its most stable identifier. */}
+                  branch, so the row lost its most stable identifier. A feature's
+                  row leads with its stage. */}
+              {thread.crew ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {formatCrewStageLine(thread.crew)}
+                </span>
+              ) : null}
               {thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />

@@ -1535,6 +1535,8 @@ export interface ChatComposerProps {
   activeThread: Thread | undefined;
   /** The routed server thread's shell, present before its detail loads. */
   activeThreadShell: ThreadShell | null;
+  /** A stage thread's gate, failure or take-over banner; shown when no request blocks it. */
+  crewBanner?: ReactNode;
   /** Timeline messages including optimistic sends, for ArrowUp prompt recall. */
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   isServerThread: boolean;
@@ -6725,6 +6727,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
+          {hasBlockingComposerTopDrawer ? null : props.crewBanner}
           {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
