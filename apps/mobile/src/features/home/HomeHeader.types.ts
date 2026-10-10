@@ -17,5 +17,7 @@ export interface HomeHeaderProps {
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
+  /** Opens the Features screen; null when no connected environment runs Crew mode. */
+  readonly onOpenFeatures: (() => void) | null;
   readonly onStartNewTask: () => void;
 }

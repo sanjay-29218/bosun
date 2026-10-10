@@ -10,6 +10,7 @@ import {
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
 import { LegendList } from "@legendapp/list/react-native";
+import { useNavigation } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +35,7 @@ import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
+import { useCrewHiddenThreadKeys, useCrewProjects } from "../../state/features";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
@@ -365,11 +367,16 @@ function ThreadNavigationSidebarPane(
     nowMinute,
     snoozeWakeTick,
   ]);
+  const crewHiddenThreadKeys = useCrewHiddenThreadKeys();
   const threadListV2Layout = useMemo(() => {
     threadListInboxReturns.observe(workingShelfEnabled ? threads : null);
     return buildThreadListV2Items({
       pendingOrder,
-      threads: threads.filter((thread) => thread.archivedAt === null),
+      threads: threads.filter(
+        (thread) =>
+          thread.archivedAt === null &&
+          !crewHiddenThreadKeys.has(scopedThreadKey(thread.environmentId, thread.id)),
+      ),
       environmentId: options.selectedEnvironmentId,
       projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
       searchQuery: props.searchQuery,
@@ -387,6 +394,7 @@ function ThreadNavigationSidebarPane(
       selectedThreadKey: props.selectedThreadKey ?? null,
     });
   }, [
+    crewHiddenThreadKeys,
     workingShelfEnabled,
     workingShelfExpanded,
     pendingOrder,
@@ -855,14 +863,21 @@ function ThreadNavigationSidebarPane(
       }),
     [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
   );
+  const sidebarNavigation = useNavigation();
+  const hasCrewProjects = useCrewProjects().length > 0;
+  const openFeatures = useMemo(
+    () => (hasCrewProjects ? () => sidebarNavigation.navigate("Features") : null),
+    [hasCrewProjects, sidebarNavigation],
+  );
   const nativeHeaderItems = useMemo(
     () =>
       createSidebarHeaderItems({
         filterIcon,
         filterMenu,
         onOpenSettings: props.onOpenSettings,
+        onOpenFeatures: openFeatures,
       }),
-    [filterIcon, filterMenu, props.onOpenSettings],
+    [filterIcon, filterMenu, props.onOpenSettings, openFeatures],
   );
   // Snoozed threads need no special case: the shelf header is a list row
   // even while collapsed.
@@ -1036,6 +1051,7 @@ function ThreadNavigationSidebarPane(
           filterCustomized={filterCustomized}
           onFilterAction={handleListMenuAction}
           onOpenSettings={props.onOpenSettings}
+          onOpenFeatures={openFeatures}
           onOpenEnvironments={props.onOpenEnvironmentSettings}
           onRequestVisibility={props.onRequestVisibility}
         />

@@ -59,6 +59,7 @@ import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScree
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
+import { FeaturesRouteScreen } from "./features/crew/FeaturesRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
@@ -694,6 +695,11 @@ const RootStackConfig = createWorkspaceStackNavigator({
       screen: ThreadRouteScreen,
       linking: THREAD_LINKING_PREFIX,
       options: GLASS_HEADER_OPTIONS,
+    }),
+    Features: createNativeStackScreen({
+      screen: FeaturesRouteScreen,
+      linking: "features",
+      options: { ...GLASS_HEADER_OPTIONS, title: "Features" },
     }),
     ThreadTerminal: createNativeStackScreen({
       screen: ThreadTerminalRouteScreen,

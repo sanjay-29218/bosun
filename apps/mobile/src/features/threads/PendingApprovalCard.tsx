@@ -4,10 +4,48 @@ import type {
   ProviderApprovalOption,
   RuntimeRequestId,
 } from "@t3tools/contracts";
+import type { ReactNode } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import { cn } from "../../lib/cn";
 import type { PendingApproval } from "../../lib/threadActivity";
+
+/**
+ * The layout of every card that waits on the user above the composer: tool approvals,
+ * Crew gates, failures and Your call. `danger` turns the kicker red for failures.
+ */
+export function ApprovalCardLayout(props: {
+  readonly kicker: string;
+  readonly title: string;
+  readonly detail?: string | null;
+  readonly note?: ReactNode;
+  readonly tone?: "default" | "danger";
+  readonly children: ReactNode;
+}) {
+  // Opaque for the same reason as PendingUserInputCard: nothing blurs the feed
+  // behind this card, so a translucent surface bleeds messages through it.
+  return (
+    <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
+      <Text
+        className={cn(
+          "font-t3-bold text-2xs uppercase tracking-[1.1px]",
+          props.tone === "danger" ? "text-danger-foreground" : "text-foreground-secondary",
+        )}
+      >
+        {props.kicker}
+      </Text>
+      <Text className="font-t3-bold text-lg text-foreground">{props.title}</Text>
+      {props.detail ? (
+        <Text className="font-sans text-sm leading-normal text-foreground-secondary">
+          {props.detail}
+        </Text>
+      ) : null}
+      {props.note}
+      <View className="flex-row flex-wrap gap-2.5">{props.children}</View>
+    </View>
+  );
+}
 
 export interface PendingApprovalCardProps {
   readonly canOperateThread: boolean;
@@ -29,54 +67,49 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const options: ReadonlyArray<ProviderApprovalOption> =
     props.approval.options ?? DEFAULT_APPROVAL_OPTIONS;
   const warning = options.find((option) => option.warning)?.warning;
-  // Opaque for the same reason as PendingUserInputCard: nothing blurs the feed
-  // behind this card, so a translucent surface bleeds messages through it.
   const canRespond = props.approval.responseCapability === "live";
   const disabled = !canRespond || props.respondingApprovalId === props.approval.requestId;
   return (
-    <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
-      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-        Approval needed
-      </Text>
-      <Text className="font-t3-bold text-lg text-foreground">
-        {props.approval.appName ?? props.approval.requestKind}
-      </Text>
-      {props.approval.detail ? (
-        <Text className="font-sans text-sm leading-normal text-foreground-secondary">
-          {props.approval.detail}
-        </Text>
-      ) : null}
-      {!canRespond ? (
-        <Text className="font-sans text-sm leading-5 text-adaptive-neutral-600-400">
-          The provider process for this request is no longer available. Interrupt or restart the run
-          to continue.
-        </Text>
-      ) : null}
-      {warning ? (
-        <Text className="font-sans text-xs leading-normal text-warning-foreground">{warning}</Text>
-      ) : null}
-      <View className="flex-row flex-wrap gap-2.5">
-        {options.map((option) => (
-          <RequestActionButton
-            key={option.decision}
-            label={option.label}
-            tone={
-              option.decision === "accept"
-                ? "primary"
-                : option.decision === "decline"
-                  ? "danger"
-                  : "secondary"
-            }
-            disabled={disabled || !props.canOperateThread}
-            onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
-          />
-        ))}
-      </View>
+    <ApprovalCardLayout
+      kicker="Approval needed"
+      title={props.approval.appName ?? props.approval.requestKind}
+      detail={props.approval.detail}
+      note={
+        <>
+          {!canRespond ? (
+            <Text className="font-sans text-sm leading-5 text-adaptive-neutral-600-400">
+              The provider process for this request is no longer available. Interrupt or restart the
+              run to continue.
+            </Text>
+          ) : null}
+          {warning ? (
+            <Text className="font-sans text-xs leading-normal text-warning-foreground">
+              {warning}
+            </Text>
+          ) : null}
+        </>
+      }
+    >
+      {options.map((option) => (
+        <RequestActionButton
+          key={option.decision}
+          label={option.label}
+          tone={
+            option.decision === "accept"
+              ? "primary"
+              : option.decision === "decline"
+                ? "danger"
+                : "secondary"
+          }
+          disabled={disabled || !props.canOperateThread}
+          onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
+        />
+      ))}
       {!props.canOperateThread ? (
-        <Text className="font-sans text-xs text-adaptive-neutral-500-400">
+        <Text className="w-full font-sans text-xs text-adaptive-neutral-500-400">
           This connection cannot respond to approvals.
         </Text>
       ) : null}
-    </View>
+    </ApprovalCardLayout>
   );
 }

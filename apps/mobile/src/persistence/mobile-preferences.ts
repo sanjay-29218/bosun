@@ -52,6 +52,11 @@ export interface Preferences {
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
+  /**
+   * Features screen Workflow switch, by scope (a project key, or "all"): the workflow whose
+   * stages group the list. Absent means grouped by phase.
+   */
+  readonly crewWorkflowView?: Readonly<Record<string, string>>;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -115,6 +120,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     threadListWorkingShelfExpanded?: boolean;
+    crewWorkflowView?: Readonly<Record<string, string>>;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -207,6 +213,11 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
     preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
+  }
+  if (typeof parsed.crewWorkflowView === "object" && parsed.crewWorkflowView !== null) {
+    preferences.crewWorkflowView = Object.fromEntries(
+      Object.entries(parsed.crewWorkflowView).filter(([, value]) => typeof value === "string"),
+    );
   }
   return preferences;
 }
