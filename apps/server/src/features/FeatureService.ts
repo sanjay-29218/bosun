@@ -2,6 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import {
+  type FeatureBoardCard,
   type FeatureCreateInput,
   type FeatureRecord as FeatureRecordSchema,
   type ProjectId,
@@ -20,6 +21,9 @@ import { BotStore } from "../bots/BotStore.ts";
 import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
+import { projectWorkflowState } from "../workflows/WorkflowState.ts";
+import { WorkflowStore } from "../workflows/WorkflowStore.ts";
+import { featureBoardCard, featureBoardRunId } from "./featureBoard.ts";
 import {
   WorkflowExecutionService,
   type WorkflowExecutionError,
@@ -70,6 +74,10 @@ export interface FeatureServiceShape {
   readonly listByProject: (
     projectId: ProjectId,
   ) => Effect.Effect<ReadonlyArray<FeatureRecord>, PersistenceSqlError>;
+  /** Board cards for the project's features that run a workflow, newest first. */
+  readonly board: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<FeatureBoardCard>, PersistenceSqlError>;
 }
 
 export class FeatureService extends Context.Service<FeatureService, FeatureServiceShape>()(
@@ -114,6 +122,7 @@ export const FeatureServiceLive = Layer.effect(
     const botStore = yield* BotStore;
     const runtime = yield* BotThreadRuntime;
     const workflows = yield* WorkflowService;
+    const workflowStore = yield* WorkflowStore;
     const executions = yield* WorkflowExecutionStore;
     const execution = yield* WorkflowExecutionService;
     const queryError = toPersistenceSqlError("FeatureService.query");
@@ -183,6 +192,20 @@ export const FeatureServiceLive = Layer.effect(
         }
         return bindings;
       });
+
+    const listByProject: FeatureServiceShape["listByProject"] = (projectId) =>
+      sql<FeatureRow>`
+        SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
+          f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
+        w.workflow_revision AS workflowRevision,
+          f.bot_assignments_json AS botAssignmentsJson
+        FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
+        WHERE f.project_id = ${projectId}
+        ORDER BY f.created_at DESC, f.id DESC
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.flatMap((rows) => Effect.forEach(rows, decodeRow)),
+      );
 
     return FeatureService.of({
       start: (id, projectId) =>
@@ -257,19 +280,56 @@ export const FeatureServiceLive = Layer.effect(
             }),
           )
           .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) })),
-      listByProject: (projectId) =>
-        sql<FeatureRow>`
-          SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
-            f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
-          w.workflow_revision AS workflowRevision,
-            f.bot_assignments_json AS botAssignmentsJson
-          FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
-          WHERE f.project_id = ${projectId}
-          ORDER BY f.created_at DESC, f.id DESC
-        `.pipe(
-          Effect.mapError(queryError),
-          Effect.flatMap((rows) => Effect.forEach(rows, decodeRow)),
-        ),
+      listByProject,
+      board: (projectId) =>
+        Effect.gen(function* () {
+          const records = yield* listByProject(projectId);
+          const latest = new Map(
+            (yield* workflowStore.listLatestDefinitions(projectId)).map((definition) => [
+              definition.id,
+              definition.revision,
+            ]),
+          );
+          const cards = yield* Effect.forEach(
+            records,
+            (feature) =>
+              Effect.gen(function* () {
+                const copy = yield* workflowStore.getFeatureCopy(feature.id);
+                if (!copy) return null;
+                const events = yield* workflowStore.listEvents(feature.id);
+                // One unreadable history must not hide the rest of the board.
+                const state = yield* Effect.try(() =>
+                  projectWorkflowState(copy.definition, events),
+                ).pipe(
+                  Effect.tapError((error) =>
+                    Effect.logWarning("Skipping feature with an unreadable workflow", {
+                      featureId: feature.id,
+                      error: String(error),
+                    }),
+                  ),
+                  Effect.option,
+                );
+                if (state._tag === "None") return null;
+                const runId = featureBoardRunId(
+                  state.value,
+                  events,
+                  state.value.activeStepId ?? state.value.stoppedStepId,
+                );
+                const run = runId ? yield* botStore.getRun(runId) : null;
+                return featureBoardCard({
+                  feature,
+                  copy,
+                  state: state.value,
+                  events,
+                  execution: yield* workflowStore.getExecutionStatus(feature.id),
+                  latestRevision: latest.get(copy.definition.id) ?? null,
+                  threadId: run?.threadId ?? null,
+                });
+              }),
+            { concurrency: 8 },
+          );
+          return cards.filter((card) => card !== null);
+        }),
       create: (input) =>
         Effect.gen(function* () {
           if (

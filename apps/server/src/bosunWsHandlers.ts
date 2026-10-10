@@ -72,6 +72,10 @@ export const layerBosunWsRpc = (
           features
             .listByProject(input.projectId)
             .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresBoard]: (input) =>
+          features
+            .board(input.projectId)
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
         [WS_METHODS.featuresGet]: (input) =>
           Effect.gen(function* () {
             const feature = yield* features.get(input.featureId);
