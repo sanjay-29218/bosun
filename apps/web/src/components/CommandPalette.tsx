@@ -67,6 +67,8 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  UnlinkIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
@@ -193,6 +195,8 @@ import { Checkbox } from "./ui/checkbox";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
+import { runFeatureThreadAction } from "./features/featureThreadActions";
+import { featureThreadsEnvironment } from "../state/featureThreads";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -760,6 +764,14 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
+  const activeThreadFeatureLink = useEnvironmentQuery(
+    activeThread
+      ? featureThreadsEnvironment.link({
+          environmentId: activeThread.environmentId,
+          input: { projectId: activeThread.projectId, threadId: activeThread.id },
+        })
+      : null,
+  ).data;
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
@@ -1987,6 +1999,30 @@ function OpenCommandPaletteDialog(props: {
         run: async () => {
           useRightPanelStore.getState().open(threadRef, "pull-requests");
         },
+      });
+    }
+  }
+
+  if (activeThread !== null && activeThreadFeatureLink) {
+    const thread = activeThread;
+    const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+    if (activeThreadFeatureLink.stage?.current) {
+      actionItems.push({
+        kind: "action",
+        value: "action:detach-feature",
+        searchTerms: ["detach", "workflow", "feature", "crew", "plain thread"],
+        title: "Detach from workflow",
+        icon: <UnlinkIcon className={ITEM_ICON_CLASS} />,
+        run: () => runFeatureThreadAction("detach-feature", threadRef, thread),
+      });
+    } else if (activeThreadFeatureLink.attachable) {
+      actionItems.push({
+        kind: "action",
+        value: "action:make-feature",
+        searchTerms: ["make", "feature", "workflow", "crew", "attach", "stage"],
+        title: "Make it a feature…",
+        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+        run: () => runFeatureThreadAction("make-feature", threadRef, thread),
       });
     }
   }

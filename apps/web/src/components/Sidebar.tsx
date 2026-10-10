@@ -174,6 +174,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
+import { readFeatureMenuState, runFeatureThreadAction } from "./features/featureThreadActions";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
@@ -4602,6 +4603,7 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const feature = await readFeatureMenuState(threadRef, thread.projectId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -4639,6 +4641,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              feature,
             }),
             position,
           ),
@@ -4768,6 +4771,10 @@ export default function Sidebar() {
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "make-feature":
+          case "detach-feature":
+            await runFeatureThreadAction(clicked.value, threadRef, thread);
             return;
           case "archive": {
             if (confirmThreadArchive) {
