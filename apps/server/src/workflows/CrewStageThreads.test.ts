@@ -37,6 +37,7 @@ describe("stageThreadSummaries", () => {
         started("3", "design", "run-design-2"),
       ],
       state: "approval",
+      revision: 7,
       runThreads,
     });
     expect(summaries).toEqual([
@@ -57,7 +58,12 @@ describe("stageThreadSummaries", () => {
       },
       {
         threadId: "thread-design-2",
-        summary: expect.objectContaining({ stepId: "design", index: 2, current: true }),
+        summary: expect.objectContaining({
+          stepId: "design",
+          index: 2,
+          current: true,
+          revision: 7,
+        }),
       },
     ]);
   });
@@ -73,6 +79,7 @@ describe("stageThreadSummaries", () => {
         started("3", "plan", "run-plan"),
       ],
       state: "working",
+      revision: 7,
       runThreads,
     });
     expect(summaries.map(({ threadId, summary }) => [threadId, summary.current])).toEqual([
@@ -88,6 +95,7 @@ describe("stageThreadSummaries", () => {
         definition,
         events: [started("1", "plan", "run-missing")],
         state: "working",
+        revision: 7,
         runThreads,
       }),
     ).toEqual([]);

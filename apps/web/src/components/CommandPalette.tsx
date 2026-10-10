@@ -70,6 +70,7 @@ import {
   WorkflowIcon,
 } from "lucide-react";
 import {
+  featureStageRows,
   formatStageName,
   sendBackTargets,
   type CrewAction,
@@ -2052,6 +2053,33 @@ function OpenCommandPaletteDialog(props: {
       // Mark stage done needs an outcome, which only the banner asks for.
       if (action === "mark-done") continue;
       const copy = CREW_ACTION_COPY[action];
+      if (action === "reopen" && snapshot.completed) {
+        // A finished feature reopens as a follow-up at a stage you pick.
+        actionItems.push({
+          kind: "submenu",
+          value: "action:crew:reopen",
+          searchTerms: ["reopen", "follow up", "feature"],
+          title: copy.label,
+          description: copy.description,
+          icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+          addonIcon: <WorkflowIcon className={ADDON_ICON_CLASS} />,
+          groups: [
+            {
+              value: "crew-reopen",
+              label: "Reopen at",
+              items: featureStageRows(snapshot).map((row) => ({
+                kind: "action" as const,
+                value: `action:crew:reopen:${row.stepId}`,
+                searchTerms: [row.stepId],
+                title: row.name,
+                icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+                run: () => runStage("reopen", { stepId: row.stepId }),
+              })),
+            },
+          ],
+        });
+        continue;
+      }
       if (action === "send-back") {
         actionItems.push({
           kind: "submenu",
@@ -2093,10 +2121,7 @@ function OpenCommandPaletteDialog(props: {
             });
             return;
           }
-          await runStage(
-            action,
-            action === "request-changes" || action === "retry" ? { text: note() } : {},
-          );
+          await runStage(action, action === "request-changes" ? { text: note() } : {});
         },
       });
     }

@@ -13,6 +13,7 @@ import { cn } from "../../lib/utils";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { CREW_ACTION_COPY } from "./crewActionCopy";
 import { useCrewStageContext } from "./useCrewStage";
 
@@ -52,10 +53,13 @@ export function FeaturePanel(props: { readonly onEditWorkflow: () => void }) {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, threadId)),
     });
-  const run = async (action: Parameters<typeof stage.run>[0]) => {
+  const run = async (
+    action: Parameters<typeof stage.run>[0],
+    input?: Parameters<typeof stage.run>[1],
+  ) => {
     setBusy(true);
     try {
-      await stage.run(action);
+      await stage.run(action, input);
     } finally {
       setBusy(false);
     }
@@ -189,18 +193,41 @@ export function FeaturePanel(props: { readonly onEditWorkflow: () => void }) {
         </section>
 
         <footer className="flex flex-wrap gap-2 px-1">
-          {footer.map((action) => (
-            <Button
-              key={action}
-              size="sm"
-              variant={action === "cancel" ? "destructive-outline" : "outline"}
-              disabled={busy}
-              title={CREW_ACTION_COPY[action].description}
-              onClick={() => void run(action)}
-            >
-              {CREW_ACTION_COPY[action].label}
-            </Button>
-          ))}
+          {footer.map((action) =>
+            // A finished feature reopens as a follow-up, at a stage you pick.
+            action === "reopen" && snapshot.completed ? (
+              <Menu key={action}>
+                <MenuTrigger
+                  disabled={busy}
+                  render={<Button size="sm" variant="outline" />}
+                  title={CREW_ACTION_COPY.reopen.description}
+                >
+                  Reopen at…
+                </MenuTrigger>
+                <MenuPopup align="start">
+                  {rows.map((row) => (
+                    <MenuItem
+                      key={row.stepId}
+                      onClick={() => void run("reopen", { stepId: row.stepId })}
+                    >
+                      {row.name}
+                    </MenuItem>
+                  ))}
+                </MenuPopup>
+              </Menu>
+            ) : (
+              <Button
+                key={action}
+                size="sm"
+                variant={action === "cancel" ? "destructive-outline" : "outline"}
+                disabled={busy}
+                title={CREW_ACTION_COPY[action].description}
+                onClick={() => void run(action)}
+              >
+                {CREW_ACTION_COPY[action].label}
+              </Button>
+            ),
+          )}
           <Button size="sm" variant="ghost" onClick={props.onEditWorkflow}>
             Edit workflow
           </Button>

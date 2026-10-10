@@ -17,6 +17,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -104,7 +105,9 @@ export class WorkflowExecutionService extends Context.Service<
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 const outcomeJson = Schema.fromJsonString(WorkflowHandoffOutcome);
-const encodeStageSummary = Schema.encodeSync(Schema.fromJsonString(CrewStageSummary));
+const stageSummaryJson = Schema.fromJsonString(CrewStageSummary);
+const encodeStageSummary = Schema.encodeSync(stageSummaryJson);
+const decodeStageSummary = Schema.decodeUnknownOption(stageSummaryJson);
 
 export const WorkflowExecutionServiceLive = Layer.effect(
   WorkflowExecutionService,
@@ -458,13 +461,23 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           definition: copy.definition,
           events,
           state: featureCardState(state, execution?.queuedAt != null),
+          revision: copy.eventVersion,
           runThreads,
         });
         yield* Effect.forEach(
           summaries,
           ({ threadId, summary }) => {
             const json = encodeStageSummary(summary);
-            if (written.get(threadId) === json) return Effect.void;
+            const previous = written.get(threadId);
+            if (previous === json) return Effect.void;
+            // A thread that handed on keeps the summary it had then; only the current one
+            // follows every decision, so long features don't rewrite their history.
+            if (
+              !summary.current &&
+              previous !== undefined &&
+              Option.exists(decodeStageSummary(previous), (stored) => !stored.current)
+            )
+              return Effect.void;
             return engine
               .dispatch({
                 type: "thread.crew-stage.set",
@@ -535,6 +548,25 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       reconcileFeatureUnlocked(featureId).pipe(lock.withPermits(1));
     const reconcile = (projectId?: ProjectId) =>
       executions.listActive(projectId).pipe(
+        // A settled feature whose last summary write was lost gets it now.
+        Effect.tap(() =>
+          executions
+            .listUnsyncedSettledFeatures(projectId)
+            .pipe(
+              Effect.flatMap((ids) =>
+                Effect.forEach(
+                  ids,
+                  (id) =>
+                    syncStageThreads(id).pipe(
+                      Effect.catch((error) =>
+                        Effect.logWarning("Stage thread sync failed", { featureId: id, error }),
+                      ),
+                    ),
+                  { discard: true },
+                ),
+              ),
+            ),
+        ),
         Effect.flatMap((ids) =>
           Effect.forEach(
             ids,

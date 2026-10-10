@@ -2682,43 +2682,71 @@ export default function ChatView(props: ChatViewProps) {
         : null,
     [draftId, draftProjectId, draftWorkflowId, environmentId, handleEditCrewWorkflow],
   );
+  // The feature a draft created, kept until it starts, so retrying a failed start (or a
+  // second Enter) reuses it instead of creating another. Create is idempotent per id.
+  const pendingCrewFeatureRef = useRef<{
+    readonly key: string;
+    readonly featureId: string;
+  } | null>(null);
   const startCrewFeature = async (workflowId: string, brief: string) => {
     if (!draftProjectId || !draftId) return;
-    const featureId = `feature:${randomUUID()}`;
-    const created = await createFeature({
-      environmentId,
-      input: {
-        id: featureId,
-        projectId: draftProjectId,
-        title: brief.split("\n")[0]!.trim().slice(0, 120) || "New feature",
-        brief: brief.slice(0, 16_000),
-        workflowId,
-      },
-    });
-    if (created._tag !== "Success") return;
-    const started = await startFeature({
-      environmentId,
-      input: { projectId: draftProjectId, featureId },
-    });
-    if (started._tag !== "Success") return;
-    promptRef.current = "";
-    setComposerDraftPrompt(composerDraftTarget, "");
-    useCrewDraftStore.getState().setWorkflow(draftId, null);
-    const snapshot = started.value;
-    const firstThreadId = snapshot.steps.find(
-      (step) => step.id === snapshot.activeStepId,
-    )?.threadId;
-    if (firstThreadId) {
-      await navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(environmentId, firstThreadId)),
-      });
-    } else {
+    if (composerHasNonPromptContent) {
       toastManager.add({
-        type: "info",
-        title: "Feature queued",
-        description: "Its first stage starts when an agent slot frees up.",
+        type: "warning",
+        title: "A brief is text only",
+        description: "Remove attachments and context before starting a feature.",
       });
+      return;
+    }
+    if (brief.length > 16_000) {
+      toastManager.add({
+        type: "warning",
+        title: "The brief is too long",
+        description: "Keep it under 16,000 characters.",
+      });
+      return;
+    }
+    const title = brief.split("\n")[0]!.trim().slice(0, 120) || "New feature";
+    const key = JSON.stringify([draftId, draftProjectId, workflowId, brief]);
+    const featureId =
+      pendingCrewFeatureRef.current?.key === key
+        ? pendingCrewFeatureRef.current.featureId
+        : `feature:${randomUUID()}`;
+    pendingCrewFeatureRef.current = { key, featureId };
+    sendInFlightRef.current = true;
+    try {
+      const created = await createFeature({
+        environmentId,
+        input: { id: featureId, projectId: draftProjectId, title, brief, workflowId },
+      });
+      if (created._tag !== "Success") return;
+      const started = await startFeature({
+        environmentId,
+        input: { projectId: draftProjectId, featureId },
+      });
+      if (started._tag !== "Success") return;
+      pendingCrewFeatureRef.current = null;
+      promptRef.current = "";
+      setComposerDraftPrompt(composerDraftTarget, "");
+      useCrewDraftStore.getState().setWorkflow(draftId, null);
+      const snapshot = started.value;
+      const firstThreadId = snapshot.steps.find(
+        (step) => step.id === snapshot.activeStepId,
+      )?.threadId;
+      if (firstThreadId) {
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(scopeThreadRef(environmentId, firstThreadId)),
+        });
+      } else {
+        toastManager.add({
+          type: "info",
+          title: "Feature queued",
+          description: "Its first stage starts when an agent slot frees up.",
+        });
+      }
+    } finally {
+      sendInFlightRef.current = false;
     }
   };
   const handleOpenDraftProjectSettings = useCallback(() => {

@@ -18,6 +18,8 @@ export const stageThreadSummaries = (input: {
   readonly definition: WorkflowDefinition;
   readonly events: ReadonlyArray<WorkflowStepEvent>;
   readonly state: FeatureCardState;
+  /** The feature's event version, carried by the current thread only. */
+  readonly revision: number;
   readonly runThreads: ReadonlyMap<string, ThreadId>;
 }): ReadonlyArray<{ readonly threadId: ThreadId; readonly summary: CrewStageSummary }> => {
   const stepByThread = new Map<ThreadId, string>();
@@ -42,6 +44,8 @@ export const stageThreadSummaries = (input: {
           ...position,
           state: input.state,
           current: threadId === currentThreadId,
+          // Only the current thread follows the feature; see syncStageThreads.
+          ...(threadId === currentThreadId ? { revision: input.revision } : {}),
         },
       },
     ];

@@ -100,7 +100,7 @@ export function CrewStageBanner() {
       primary = (
         <>
           {has("send-back") ? <SendBackMenu stage={stage} busy={busy} onPick={withNote} /> : null}
-          <Button size="xs" disabled={busy} onClick={() => withNote("retry")}>
+          <Button size="xs" disabled={busy} onClick={() => void act("retry")}>
             Retry
           </Button>
         </>
@@ -226,7 +226,7 @@ export function CrewStageBanner() {
                     <ActionItem
                       key={action}
                       {...CREW_ACTION_COPY[action]}
-                      onClick={() => (action === "retry" ? withNote("retry") : void act(action))}
+                      onClick={() => void act(action)}
                     />
                   ),
                 )}

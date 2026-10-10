@@ -37,8 +37,8 @@ export interface CrewStage {
 const EMPTY_ACTIONS: ReadonlyArray<CrewAction> = [];
 
 /**
- * Loads a stage thread's feature only while the thread is open. Nothing streams: the shell's
- * `crew` summary changes whenever the feature does, and that refreshes the snapshot.
+ * Loads a stage thread's feature only while the thread is open. Nothing streams: the current
+ * stage thread's `crew.revision` changes with every decision, and that refreshes the snapshot.
  */
 export function useCrewStage(thread: EnvironmentThreadShell | null): CrewStage | null {
   const crew = thread?.crew ?? null;
@@ -51,7 +51,7 @@ export function useCrewStage(thread: EnvironmentThreadShell | null): CrewStage |
       : null,
   );
   const changeKey = crew
-    ? `${crew.featureId}:${crew.stepId}:${crew.state}:${crew.current}:${thread?.latestRun?.status}`
+    ? `${crew.featureId}:${crew.stepId}:${crew.state}:${crew.current}:${crew.revision}:${thread?.latestRun?.status}`
     : null;
   const lastKey = useRef(changeKey);
   const { refresh } = query;

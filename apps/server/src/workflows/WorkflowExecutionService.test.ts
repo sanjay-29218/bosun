@@ -907,6 +907,7 @@ describe("Workflow execution", () => {
           total: 3,
           state: "working",
           current: true,
+          revision: expect.any(Number),
         });
 
         // A person's rename survives later stage updates.
@@ -942,6 +943,18 @@ describe("Workflow execution", () => {
           kind: "cancelled",
         });
         expect((yield* engine.getThreadShell(review.run.threadId))?.crew?.state).toBe("cancelled");
+        // The earlier thread kept the summary it handed on with.
+        expect((yield* engine.getThreadShell(plan.run.threadId))?.crew?.state).toBe("working");
+
+        // A summary write lost after the feature settled is repaired by the next reconcile.
+        yield* sql`UPDATE crew_stage_threads
+          SET summary_json = json_set(summary_json, '$.state', 'working')
+          WHERE thread_id = ${review.run.threadId}`;
+        yield* execution.reconcile();
+        const repaired = yield* sql<{ readonly state: string }>`
+          SELECT json_extract(summary_json, '$.state') AS state FROM crew_stage_threads
+          WHERE thread_id = ${review.run.threadId}`;
+        expect(repaired[0]?.state).toBe("cancelled");
       }).pipe(Effect.provide(system.layer));
     }),
   );

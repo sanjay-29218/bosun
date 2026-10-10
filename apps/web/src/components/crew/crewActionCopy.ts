@@ -10,7 +10,7 @@ export const CREW_ACTION_COPY: Record<
     label: "Request changes",
     description: "Run the stage again with your note from the composer",
   },
-  retry: { label: "Retry stage", description: "Runs the stage again with the error and your note" },
+  retry: { label: "Retry stage", description: "Runs the stage again with the error attached" },
   "take-over": {
     label: "Take over",
     description: "You drive this thread, then choose Mark stage done",
