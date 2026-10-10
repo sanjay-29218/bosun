@@ -66,7 +66,8 @@ Roles belong to a project, so pick a project at the top of the page to see them.
 starter crew** for a Manager, Planner, Designer, Builder, QA Tester and Reviewer. Each role has
 instructions, crew tools and a default model. **Act** lets it work on its own; **Ask first**
 asks before changes. Use **Add role** for another role, and the **⋯** menu to edit a role or turn
-it off. The Captain is environment-wide and shown read-only.
+it off. Only roles with **Workflow stages can use this role** switched on can be picked for a
+stage. The Captain is environment-wide and shown read-only.
 
 **Limits** are environment-wide:
 

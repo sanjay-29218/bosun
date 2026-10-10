@@ -69,7 +69,7 @@ export function LimitField({
       max={max}
       step={1}
       size="sm"
-      className="w-auto"
+      className="w-32"
       onValueChange={setDraft}
       onValueCommitted={(next) => {
         if (next === null) {
@@ -84,11 +84,7 @@ export function LimitField({
     >
       <NumberFieldGroup>
         <NumberFieldDecrement aria-label={`Decrease ${label}`} />
-        <NumberFieldInput
-          aria-label={label}
-          placeholder={placeholder}
-          className="w-12 text-right"
-        />
+        <NumberFieldInput aria-label={label} placeholder={placeholder} />
         <NumberFieldIncrement aria-label={`Increase ${label}`} />
       </NumberFieldGroup>
     </NumberField>
@@ -100,7 +96,13 @@ export function LimitField({
  * show the inherited values and go read-only, like other environment settings.
  */
 export function CrewLimitsSettings() {
-  const { target } = useSettingsScope();
+  const { scope, target, connectedEnvironments } = useSettingsScope();
+  // Caps are keyed by provider instance, which is per machine, and a patch replaces the whole
+  // map. Editing them for several environments at once would overwrite each one's caps.
+  const capsEnvironment =
+    scope.kind === "environment" || (scope.kind === "all" && connectedEnvironments.length === 1)
+      ? target
+      : null;
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const mixed = useScopedSettingsMixed(["crew"]);
@@ -152,13 +154,17 @@ export function CrewLimitsSettings() {
           ) : null
         }
       >
-        {target ? (
+        {capsEnvironment ? (
           <ProviderLimitRows
-            environmentId={target.environmentId}
+            environmentId={capsEnvironment.environmentId}
             limits={crew.providerLimits}
             onChange={(providerLimits) => update({ providerLimits })}
           />
-        ) : null}
+        ) : (
+          <p className="pb-2 text-xs text-muted-foreground">
+            Caps are set per environment. Choose one environment above to change them.
+          </p>
+        )}
       </SettingsRow>
       <SettingsRow
         serverScoped

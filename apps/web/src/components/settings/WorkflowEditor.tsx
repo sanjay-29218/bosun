@@ -196,9 +196,10 @@ function WorkflowEditor({
     setBusy(true);
     setError(null);
     try {
-      const name = `${saved.name} copy`;
+      const name = `${draft.name} copy`;
       const definition = pruneUnusedRoles({
-        ...refreshed.definition,
+        ...draft,
+        // The copy takes unpublished edits along; the original keeps its published version.
         id: workflowIdFromName(name, allWorkflowIds),
         name,
         revision: 1,
@@ -265,7 +266,7 @@ function WorkflowEditor({
         </Alert>
       ) : null}
 
-      <SettingsSection title="Workflow">
+      <SettingsSection title="Workflow" inert={busy}>
         <SettingsRow
           title="Name"
           control={
@@ -303,6 +304,7 @@ function WorkflowEditor({
 
       <SettingsSection
         title="Stages"
+        inert={busy}
         headerAction={
           <Button size="xs" variant="ghost-muted" onClick={() => setStageDialog({ stepId: null })}>
             <PlusIcon className="size-3" />
@@ -384,7 +386,7 @@ function WorkflowEditor({
         })}
       </SettingsSection>
 
-      <SettingsSection title="Routes">
+      <SettingsSection title="Routes" inert={busy}>
         {stages.flatMap((stepId) => {
           const step = draft.steps[stepId];
           if (step?.type !== "task") return [];

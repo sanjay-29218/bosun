@@ -45,6 +45,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { CrewLimitsSettings } from "./CrewLimitsSettings";
@@ -335,7 +336,13 @@ function CrewRolesSection({
 type TemplateChange = Partial<
   Pick<
     BotTemplateConfig,
-    "name" | "instructions" | "allowedTools" | "modelSelection" | "runtimeMode" | "enabled"
+    | "name"
+    | "instructions"
+    | "allowedTools"
+    | "modelSelection"
+    | "runtimeMode"
+    | "enabled"
+    | "autoCreateForFeature"
   >
 >;
 
@@ -367,7 +374,7 @@ function useSaveRole(environmentId: EnvironmentId, projectId: ProjectId) {
       });
       return false;
     }
-    if (template.autoCreateForFeature) {
+    if (next.autoCreateForFeature) {
       toastManager.add({
         type: "info",
         title: `${next.name} saved`,
@@ -405,6 +412,12 @@ function CrewRoleRow({
   const summary = template.instructions.split("\n")[0]?.trim() ?? "";
   const status = [
     environmentWide ? "Environment-wide" : null,
+    // The Manager joins workflows as the project's own bot, not as a stage role.
+    !environmentWide &&
+    !template.autoCreateForFeature &&
+    template.id !== `template:manager:${projectId}`
+      ? "Not available to workflow stages"
+      : null,
     template.allowedTools.length > 0 ? `tools: ${template.allowedTools.join(", ")}` : null,
   ]
     .filter(Boolean)
@@ -494,6 +507,8 @@ function CrewRoleDialog({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     template?.runtimeMode ?? "auto-accept-edits",
   );
+  // Stages pick roles directly, so a role a person adds is available to workflows by default.
+  const [workflowStages, setWorkflowStages] = useState(template?.autoCreateForFeature ?? true);
   const [saving, setSaving] = useState(false);
   const canSave = name.trim().length > 0 && instructions.trim().length > 0 && !saving;
 
@@ -507,6 +522,7 @@ function CrewRoleDialog({
         allowedTools: parseList(tools),
         modelSelection,
         runtimeMode,
+        autoCreateForFeature: workflowStages,
       };
       if (template) {
         if (await save(template, fields)) onClose();
@@ -518,8 +534,6 @@ function CrewRoleDialog({
           id: `bot-template:${randomUUID()}`,
           projectId,
           ...fields,
-          // Stages pick roles directly, so every role a person adds is available to workflows.
-          autoCreateForFeature: true,
         },
       });
       if (result._tag === "Success") onClose();
@@ -590,6 +604,14 @@ function CrewRoleDialog({
                 label="When this role acts"
                 value={roleMode(runtimeMode)}
                 onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <Label htmlFor="crew-role-workflow-stages">Workflow stages can use this role</Label>
+              <Switch
+                id="crew-role-workflow-stages"
+                checked={workflowStages}
+                onCheckedChange={setWorkflowStages}
               />
             </div>
           </fieldset>

@@ -167,6 +167,17 @@ describe("stage edits", () => {
   });
 });
 
+describe("ensureWorkflowRole", () => {
+  it("keeps generated bot ids within the server's 80 characters, suffix included", () => {
+    const long = template("planner", { id: "template:long", name: "Very long role ".repeat(10) });
+    const first = ensureWorkflowRole(workflow(), long);
+    const second = ensureWorkflowRole(first.definition, { ...long, id: "template:long-2" });
+    expect(first.botId.length).toBeLessThanOrEqual(80);
+    expect(second.botId).toBe(`${first.botId}-2`);
+    expect(second.botId.length).toBeLessThanOrEqual(80);
+  });
+});
+
 describe("sameWorkflow", () => {
   it("ignores key order", () => {
     expect(sameWorkflow({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);

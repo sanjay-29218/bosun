@@ -210,7 +210,10 @@ export function ensureWorkflowRole(
     template.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^[^a-z]+|-+$/g, "") || "role";
+      .replace(/^[^a-z]+|-+$/g, "")
+      // Bot ids are at most 80 characters; leave room for a uniqueness suffix.
+      .slice(0, 72)
+      .replace(/-+$/, "") || "role";
   let botId = base;
   for (let suffix = 2; Object.hasOwn(definition.bots, botId); suffix++) botId = `${base}-${suffix}`;
   const supervisor =
