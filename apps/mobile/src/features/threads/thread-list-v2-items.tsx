@@ -17,7 +17,16 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
-import { AuthOrchestrationOperateScope, type EnvironmentMachineKind } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  type EnvironmentMachineKind,
+  type FeatureCardState,
+} from "@t3tools/contracts";
+import {
+  crewFailureDetail,
+  crewStageLine,
+  humanizeCrewId,
+} from "@t3tools/client-runtime/state/crew";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
@@ -37,6 +46,7 @@ import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useEnvironmentScope } from "../../state/session";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
+import { useCrewThreadStage, type CrewThreadStage } from "../../state/features";
 import { useThreadPr } from "../../state/use-thread-pr";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
@@ -102,6 +112,30 @@ const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> =
     icon: "exclamationmark.circle",
     className: "text-warning-foreground",
     iconTintClassName: "accent-warning-foreground",
+  },
+};
+// Crew states a plain thread doesn't have. Approval, Input and Failed reuse the thread labels.
+const CREW_STATUS_LABEL_BY_STATE: Partial<Record<FeatureCardState, StatusLabel>> = {
+  approval: STATUS_LABEL_BY_STATUS.approval!,
+  input: STATUS_LABEL_BY_STATUS.input!,
+  failed: STATUS_LABEL_BY_STATUS.failed!,
+  "your-call": {
+    label: "Your call",
+    icon: "exclamationmark.triangle",
+    className: "text-warning-foreground",
+    iconTintClassName: "accent-warning-foreground",
+  },
+  queued: {
+    label: "Queued",
+    icon: "list.number",
+    className: "text-foreground-secondary",
+    iconTintClassName: "accent-foreground-secondary",
+  },
+  paused: {
+    label: "Paused",
+    icon: "stop.fill",
+    className: "text-foreground-secondary",
+    iconTintClassName: "accent-foreground-secondary",
   },
 };
 const DONE_STATUS_LABEL: StatusLabel = {
@@ -488,6 +522,16 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   );
 });
 
+/** Line 3 of a stage thread's row: where the feature is, or why its stage failed. */
+function crewStageRowLine(stage: CrewThreadStage | null): string | null {
+  const snapshot = stage?.feature.snapshot;
+  if (!stage || !snapshot) return null;
+  const failure = stage.summary.state === "failed" ? crewFailureDetail(snapshot) : null;
+  return failure === null
+    ? crewStageLine(snapshot.definition, stage.summary)
+    : `${humanizeCrewId(stage.summary.stepId)} · ${failure}`;
+}
+
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly thread: EnvironmentThreadShell;
   readonly variant: "card" | "slim";
@@ -627,11 +671,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   // so checking a thread on any device clears it everywhere.
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
+  const crewStage = useCrewThreadStage(thread.environmentId, thread.id);
+  const crewLine = useMemo(() => crewStageRowLine(crewStage), [crewStage]);
   const statusLabel =
+    (crewStage ? CREW_STATUS_LABEL_BY_STATE[crewStage.summary.state] : undefined) ??
     // A native /goal keeps the agent going across turns until it is met.
     (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
       ? { ...workingLabel, label: "Goal" }
-      : workingLabel) ?? (isUnread ? DONE_STATUS_LABEL : undefined);
+      : workingLabel) ??
+    (isUnread ? DONE_STATUS_LABEL : undefined);
   const recede = shouldRecedeThreadRow({ status, selected });
   // The timestamp is precomputed on the list item (same stamps the settled
   // tail sorts by) so a minute tick only re-renders rows that draw it.
@@ -1063,7 +1111,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2">
-        {(status === "failed" || status === "limited") && thread.runtime?.lastError ? (
+        {crewLine !== null ? (
+          <Text
+            className={cn(
+              "flex-1 text-xs",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : crewStage?.summary.state === "failed"
+                  ? "text-danger-foreground"
+                  : rowAppearance.mutedForegroundClassName,
+            )}
+            numberOfLines={1}
+          >
+            {crewLine}
+          </Text>
+        ) : (status === "failed" || status === "limited") && thread.runtime?.lastError ? (
           <Text
             className={cn(
               "flex-1 text-xs",

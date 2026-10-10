@@ -273,6 +273,8 @@ export interface ThreadFeedHistoryControls {
 }
 
 export interface ThreadFeedProps {
+  /** Pinned above the history, such as a stage thread's handoff card. */
+  readonly headerAccessory?: ReactNode;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
@@ -3228,6 +3230,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             ListHeaderComponent={
               <>
                 {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                {props.headerAccessory}
                 {setupAnchorIndex < 0 && props.worktreeSetup ? (
                   <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
                 ) : null}

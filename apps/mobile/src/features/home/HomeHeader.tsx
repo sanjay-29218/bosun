@@ -36,7 +36,7 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[filterMenu.items, props.onOpenFeatures !== null]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
@@ -49,8 +49,21 @@ export function HomeHeader(props: HomeHeaderProps) {
                     : "line.3.horizontal.decrease.circle",
                   filterMenu,
                   onOpenSettings: props.onOpenSettings,
+                  onOpenFeatures: props.onOpenFeatures,
                 })
               : [
+                  ...(props.onOpenFeatures
+                    ? [
+                        withNativeGlassHeaderItem({
+                          accessibilityLabel: "Open features",
+                          icon: { name: "square.3.layers.3d", type: "sfSymbol" } as const,
+                          identifier: "home-features",
+                          label: "",
+                          onPress: props.onOpenFeatures,
+                          type: "button",
+                        }),
+                      ]
+                    : []),
                   withNativeGlassHeaderItem({
                     accessibilityLabel: "Open settings",
                     icon: { name: "ellipsis", type: "sfSymbol" } as const,

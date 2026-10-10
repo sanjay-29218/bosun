@@ -40,8 +40,20 @@ export function createSidebarHeaderItems(input: {
   readonly filterIcon: string;
   readonly filterMenu: HomeListFilterMenu;
   readonly onOpenSettings: () => void;
+  readonly onOpenFeatures?: (() => void) | null;
 }): NativeStackHeaderItem[] {
   return [
+    ...(input.onOpenFeatures
+      ? [
+          withNativeGlassHeaderItem({
+            type: "button",
+            label: "",
+            accessibilityLabel: "Open features",
+            icon: sfSymbolIcon("square.3.layers.3d"),
+            onPress: input.onOpenFeatures,
+          }),
+        ]
+      : []),
     withNativeGlassHeaderItem({
       type: "menu",
       label: "",

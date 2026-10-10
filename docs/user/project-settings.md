@@ -88,6 +88,11 @@ stage, after approval if this stage has a gate. Otherwise this happens when the 
 **Detach from workflow** in a stage thread's menu turns it back into a plain thread and cancels
 the rest of the feature. Reopening the feature reattaches the thread.
 
+The mobile app runs features but does not edit workflows. Choose a workflow in the new task sheet
+to start a feature with your prompt as its brief. The header's Features icon lists every feature,
+with the ones waiting on you first. In a stage thread, the card above the composer approves,
+retries or recovers the stage, and the composer text goes with the action as your note.
+
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current bot status or send an action.
 

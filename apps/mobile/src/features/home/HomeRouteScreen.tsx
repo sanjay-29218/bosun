@@ -10,6 +10,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useProjects } from "../../state/entities";
+import { useCrewProjects } from "../../state/features";
 import { environmentThreadShells } from "../../state/threads";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
@@ -49,6 +50,7 @@ export function HomeRouteScreen() {
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
+  const hasCrewProjects = useCrewProjects().length > 0;
   const [searchQuery, setSearchQuery] = useState("");
   const handleSelectThread = useHomeThreadSelection();
   const handleNewThreadOnBranch = useCallback(
@@ -218,6 +220,7 @@ export function HomeRouteScreen() {
               params: { screen: "Settings" },
             })
           }
+          onOpenFeatures={hasCrewProjects ? () => navigation.navigate("Features") : null}
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
         />

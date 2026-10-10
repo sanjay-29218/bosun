@@ -24,6 +24,7 @@ import type {
   RuntimeMode,
   RuntimeRequestId,
   ServerConfig as T3ServerConfig,
+  ServerProvider,
   ThreadId,
   UsageLimitsReport,
 } from "@t3tools/contracts";
@@ -140,6 +141,9 @@ import {
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { MobileBotRunStatusStrip } from "./MobileBotRunStatusStrip";
+import { CrewHandoffCard } from "../crew/CrewHandoffCard";
+import { CrewStageCard, crewComposerMode } from "../crew/CrewStageCard";
+import { useCrewThreadStage, useRefreshCrewBoardsWhileFocused } from "../../state/features";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -312,6 +316,8 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
     void Haptics.selectionAsync();
   }, [threadId, feed]);
 }
+
+const EMPTY_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
@@ -1083,9 +1089,27 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     feedTouchStartRef.current = null;
   }, []);
 
+  const isBotThread = isBotThreadId(props.selectedThread.id);
+  const crewStage = useCrewThreadStage(props.environmentId, props.selectedThread.id);
+  const crewComposer = crewComposerMode(crewStage);
+  // The hook keys on the target ids, so a fresh array each render is fine.
+  useRefreshCrewBoardsWhileFocused(
+    crewStage === null
+      ? []
+      : [{ environmentId: props.environmentId, projectId: props.selectedThread.projectId }],
+  );
+  const onChangeDraftMessage = props.onChangeDraftMessage;
+  const clearCrewNote = useCallback(() => onChangeDraftMessage(""), [onChangeDraftMessage]);
+  const openCrewDiff = useCallback(() => {
+    navigation.navigate("ThreadReview", {
+      environmentId: props.environmentId,
+      threadId: props.selectedThread.id,
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
+
   return (
     <View className="flex-1">
-      {isBotThreadId(props.selectedThread.id) ? (
+      {isBotThread ? (
         <MobileBotRunStatusStrip
           environmentId={props.environmentId}
           projectId={props.selectedThread.projectId}
@@ -1124,6 +1148,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               threadId={props.selectedThread.id}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
+              headerAccessory={
+                isBotThread ? (
+                  <CrewHandoffCard
+                    environmentId={props.environmentId}
+                    projectId={props.selectedThread.projectId}
+                    threadId={props.selectedThread.id}
+                  />
+                ) : null
+              }
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}
@@ -1297,6 +1330,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       />
                     </Animated.View>
                   ) : null}
+                  {crewStage !== null ? (
+                    <View className="shrink-0 px-4 pb-3">
+                      <CrewStageCard
+                        environmentId={props.environmentId}
+                        stage={crewStage}
+                        canOperate={props.canOperateThread}
+                        note={props.draftMessage}
+                        onNoteSent={clearCrewNote}
+                        providers={props.serverConfig?.providers ?? EMPTY_PROVIDERS}
+                        onViewDiff={openCrewDiff}
+                      />
+                    </View>
+                  ) : null}
                   {props.activePendingApproval || props.activePendingUserInput ? (
                     <Animated.View
                       className="shrink-0 gap-3 px-4 pb-3"
@@ -1387,7 +1433,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         editorRef={composerEditorRef}
                         draftMessage={props.draftMessage}
                         draftAttachments={props.draftAttachments}
-                        placeholder="Ask the repo agent, or run a command…"
+                        placeholder={
+                          crewComposer?.placeholder ?? "Ask the repo agent, or run a command…"
+                        }
                         contentMaxWidth={contentMaxWidth}
                         connectionState={props.connectionStateLabel}
                         environmentLabel={props.environmentLabel}
@@ -1405,7 +1453,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         // them against a thread id the server may still reject
                         // would strand them in the outbox.
                         sendBlockedReason={
-                          props.creationState?.kind === "preparing" ? "Starting the task…" : null
+                          props.creationState?.kind === "preparing"
+                            ? "Starting the task…"
+                            : (crewComposer?.sendBlockedReason ?? null)
                         }
                         draftKey={props.composerDraftKey ?? undefined}
                         followUpBehavior={props.followUpBehavior}
