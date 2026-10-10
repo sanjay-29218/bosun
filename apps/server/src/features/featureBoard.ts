@@ -6,7 +6,7 @@ import { featureCardState, featureStage, type WorkflowState } from "../workflows
 
 const DETAIL_MAX = 280;
 
-/** The event kinds whose detail explains a state, newest first wins. */
+/** The event kinds that put a feature in a waiting state and explain it, newest first wins. */
 const DETAIL_EVENTS: Partial<Record<FeatureCardState, ReadonlyArray<WorkflowStepEvent["kind"]>>> = {
   input: ["question"],
   failed: ["failed"],
@@ -63,10 +63,11 @@ export const featureBoardCard = (input: {
     },
     state: cardState,
     started: execution !== null || state.executionCount > 0,
+    // A waiting state counts from the event that entered it, so pausing doesn't reset it.
     stateSince:
       cardState === "queued" && queuedAt !== null
         ? queuedAt
-        : (events.at(-1)?.occurredAt ?? copy.createdAt),
+        : (detailEvent?.occurredAt ?? events.at(-1)?.occurredAt ?? copy.createdAt),
     stage:
       position && step?.type === "task"
         ? {
@@ -74,6 +75,7 @@ export const featureBoardCard = (input: {
             role: step.bot,
             attempt: stepState?.attempt ?? 0,
             gate: step.gate === true,
+            takenOver: stepState?.status === "taken-over",
           }
         : null,
     threadId: input.threadId,

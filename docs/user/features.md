@@ -17,7 +17,9 @@ The board has a column per phase: Plan, Design, Build, Verify, Ship and Done. Ea
 its project and state, the stage that owns it, and its branch or pull request. A small `v2` tag
 means the feature runs an older version of its workflow. Click a card to open its current stage
 thread. Right-click it for the same actions as the stage's menu, such as Approve, Retry stage,
-Send back to…, Skip stage, Pause and Cancel feature.
+Send back to…, Skip stage, Pause and Cancel feature. After you take over a stage, its card
+reads Taken over until you choose Mark done…, which asks for the route and a summary for the
+next stage, or hand it back with Retry stage.
 
 Cards move when the workflow moves them. The only moves you can drag are into Done, which
 cancels the feature, and out of Done, which reopens it. Reopening a finished feature asks which

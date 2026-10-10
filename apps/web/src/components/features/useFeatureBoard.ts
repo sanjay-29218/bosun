@@ -4,7 +4,7 @@ import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { featuresEnvironment } from "../../state/features";
@@ -16,6 +16,8 @@ export interface FeatureBoardTarget {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
 }
+
+const BOARD_REFRESH_MS = 30_000;
 
 const targetKey = (target: FeatureBoardTarget) => `${target.environmentId}:${target.projectId}`;
 
@@ -105,6 +107,24 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
     }
   }, [activity, stableTargets]);
 
+  // Another client's decision (a cancel, an approval) may change no thread shell here, so an
+  // open, visible board also refetches on a slow timer.
+  const refresh = useCallback(() => {
+    for (const target of stableTargets)
+      appAtomRegistry.refresh(
+        featuresEnvironment.board({
+          environmentId: target.environmentId,
+          input: { projectId: target.projectId },
+        }),
+      );
+  }, [stableTargets]);
+  useEffect(() => {
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, BOARD_REFRESH_MS);
+    return () => window.clearInterval(handle);
+  }, [refresh]);
+
   return useMemo(() => {
     const cards: EnvironmentFeatureCard[] = [];
     const errors: string[] = [];
@@ -126,15 +146,7 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
       /** True until every project has answered at least once. */
       pending,
       loaded: loaded === results.length,
-      refresh: () => {
-        for (const target of stableTargets)
-          appAtomRegistry.refresh(
-            featuresEnvironment.board({
-              environmentId: target.environmentId,
-              input: { projectId: target.projectId },
-            }),
-          );
-      },
+      refresh,
     };
-  }, [results, stableTargets]);
+  }, [refresh, results]);
 }

@@ -238,7 +238,8 @@ export type NeedsYouShell = Pick<
 /** A thread waiting on you: a tool approval or question, or a current stage that needs you. */
 export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
   if (shell.archivedAt !== null) return null;
-  if (shell.crew) return shell.crew.current ? needsYouKindForState(shell.crew.state) : null;
+  const stageKind = shell.crew?.current ? needsYouKindForState(shell.crew.state) : null;
+  if (stageKind) return stageKind;
   if (shell.hasPendingApprovals) return "approval";
   if (shell.hasPendingUserInput) return "question";
   return null;
@@ -275,8 +276,9 @@ const threadKey = (shell: { readonly environmentId: EnvironmentId; readonly id: 
   `${shell.environmentId}:${shell.id}`;
 
 /**
- * Everything waiting on you, grouped by kind and oldest first. A feature card stands in for
- * its own stage thread; every other waiting thread is listed as itself.
+ * Everything waiting on you, grouped by kind and oldest first. A feature card that waits
+ * stands in for its own stage thread; every other waiting thread is listed as itself, so a
+ * tool approval in a working stage still shows.
  */
 export function collectNeedsYou<
   Card extends EnvironmentFeatureCard,
@@ -289,17 +291,17 @@ export function collectNeedsYou<
   const coveredThreads = new Set<string>();
   const coveredFeatures = new Set<string>();
   for (const card of input.cards) {
+    const kind = needsYouKindForState(card.state);
+    if (!kind) continue;
     if (card.threadId) coveredThreads.add(threadKey({ ...card, id: card.threadId }));
     coveredFeatures.add(featureCardKey(card));
-    const kind = needsYouKindForState(card.state);
-    if (kind)
-      items.push({
-        type: "feature",
-        key: featureCardKey(card),
-        kind,
-        since: card.stateSince,
-        card,
-      });
+    items.push({
+      type: "feature",
+      key: featureCardKey(card),
+      kind,
+      since: card.stateSince,
+      card,
+    });
   }
   for (const shell of input.shells) {
     if (coveredThreads.has(threadKey(shell))) continue;
@@ -422,6 +424,7 @@ export type FeatureCardActionId =
   | "answer"
   | "retry"
   | "take-over"
+  | "mark-done"
   | "send-back"
   | "skip"
   | "accept-as-is"
@@ -436,6 +439,9 @@ export type FeatureCardActionId =
 export function featureCardActions(card: FeatureBoardCard): ReadonlyArray<FeatureCardActionId> {
   if (isClosedState(card.state)) return ["reopen"];
   if (!card.started) return ["start", "cancel"];
+  // A taken-over stage waits for you to finish it by hand or hand it back to a bot.
+  if (card.stage?.takenOver && card.state === "working")
+    return ["mark-done", "retry", "send-back", "cancel"];
   switch (card.state) {
     case "working":
       return ["pause", "cancel"];
@@ -461,6 +467,7 @@ export const FEATURE_CARD_ACTION_LABELS: Record<FeatureCardActionId, string> = {
   answer: "Answer…",
   retry: "Retry stage",
   "take-over": "Take over",
+  "mark-done": "Mark done…",
   "send-back": "Send back to…",
   skip: "Skip stage",
   "accept-as-is": "Accept as is",
@@ -472,14 +479,27 @@ export const FEATURE_CARD_ACTION_LABELS: Record<FeatureCardActionId, string> = {
   reopen: "Reopen feature",
 };
 
-/** Earlier stages a failed feature can be sent back to, in workflow order. */
+/**
+ * Stages a feature can be sent back to, in workflow order: the server takes only a stage
+ * this run completed or skipped, which a branching workflow may not have visited.
+ */
 export function sendBackTargets(
   definition: WorkflowDefinition,
+  steps: ReadonlyArray<{ readonly id: string; readonly status: string }>,
   stepId: string,
 ): ReadonlyArray<string> {
-  const order = taskStepIds(definition);
-  const index = order.indexOf(stepId);
-  return index <= 0 ? [] : order.slice(0, index);
+  const finished = new Set(
+    steps
+      .filter((step) => step.status === "completed" || step.status === "skipped")
+      .map((step) => step.id),
+  );
+  return taskStepIds(definition).filter((id) => id !== stepId && finished.has(id));
+}
+
+/** The routes out of a stage, which Mark done asks you to pick from. */
+export function stageOutcomes(definition: WorkflowDefinition, stepId: string) {
+  const step = definition.steps[stepId];
+  return step?.type === "task" ? Object.keys(step.next) : [];
 }
 
 /** "Design" from "design", "Change review" from "change_review". */

@@ -4,6 +4,7 @@ import {
   featureCardActions,
   sendBackTargets,
   stageLabel,
+  stageOutcomes,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
 } from "@t3tools/client-runtime/state/crew-board";
@@ -12,7 +13,7 @@ import {
   type AtomCommand,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ContextMenuItem, WorkflowDefinition } from "@t3tools/contracts";
+import type { ContextMenuItem, WorkflowFeatureSnapshot } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -29,10 +30,12 @@ import { workflowsEnvironment } from "../../state/workflows";
 import { toastManager } from "../ui/toast";
 
 /** Actions that need text from you first: the page opens a note dialog for them. */
-export type FeatureNoteAction = "request-changes" | "answer";
+export type FeatureNoteAction = "request-changes" | "answer" | "mark-done";
 export interface FeatureNoteRequest {
   readonly card: EnvironmentFeatureCard;
   readonly action: FeatureNoteAction;
+  /** The route Mark done takes. */
+  readonly outcome?: string;
 }
 
 type MenuId =
@@ -40,10 +43,11 @@ type MenuId =
   | "copy-branch"
   | FeatureCardActionId
   | `send-back:${string}`
+  | `mark-done:${string}`
   | `reopen-at:${string}`;
 
-/** The workflow a feature runs, pinned at its version, for stage pickers. */
-function readFeatureDefinition(card: EnvironmentFeatureCard) {
+/** The feature's workflow snapshot (pinned definition and step states), for stage pickers. */
+function readFeatureSnapshot(card: EnvironmentFeatureCard) {
   return Effect.runPromise(
     AtomRegistry.getResult(
       // A one-shot read reuses a cached snapshot when the stage thread already loaded one.
@@ -55,7 +59,7 @@ function readFeatureDefinition(card: EnvironmentFeatureCard) {
       { suspendOnWaiting: true },
     ).pipe(
       Effect.timeout("10 seconds"),
-      Effect.map((snapshot): WorkflowDefinition | null => snapshot?.definition ?? null),
+      Effect.map((snapshot): WorkflowFeatureSnapshot | null => snapshot ?? null),
       Effect.orElseSucceed(() => null),
     ),
   );
@@ -95,7 +99,7 @@ export function useFeatureActions(options: {
     async (
       card: EnvironmentFeatureCard,
       action: FeatureCardActionId,
-      extra: { readonly text?: string; readonly stepId?: string } = {},
+      extra: { readonly text?: string; readonly stepId?: string; readonly outcome?: string } = {},
     ): Promise<boolean> => {
       const target = { projectId: card.projectId, featureId: card.featureId };
       const environmentId = card.environmentId;
@@ -140,6 +144,16 @@ export function useFeatureActions(options: {
           return command(label, featuresEnvironment.retry, withRequest);
         case "take-over":
           return command(label, featuresEnvironment.takeOver, withRequest);
+        case "mark-done":
+          if (!extra.outcome) return false;
+          if (!extra.text) {
+            onNoteRequest({ card, action, outcome: extra.outcome });
+            return false;
+          }
+          return command(label, featuresEnvironment.markDone, {
+            environmentId,
+            input: { ...target, requestId, outcome: extra.outcome, summary: extra.text },
+          });
         case "send-back":
           if (!extra.stepId) return false;
           return command(label, featuresEnvironment.sendBack, {
@@ -179,7 +193,7 @@ export function useFeatureActions(options: {
   const reopenStageItems = useCallback(
     async (card: EnvironmentFeatureCard): Promise<ContextMenuItem<MenuId>[] | null> => {
       if (card.state !== "done") return null;
-      const definition = await readFeatureDefinition(card);
+      const definition = (await readFeatureSnapshot(card))?.definition;
       if (!definition) return null;
       return Object.keys(definition.steps)
         .filter((id) => definition.steps[id]?.type === "task")
@@ -193,8 +207,10 @@ export function useFeatureActions(options: {
       const api = readLocalApi();
       if (!api) return;
       const actions = featureCardActions(card);
-      const definition =
-        actions.includes("send-back") && card.stage ? await readFeatureDefinition(card) : null;
+      const snapshot =
+        (actions.includes("send-back") || actions.includes("mark-done")) && card.stage
+          ? await readFeatureSnapshot(card)
+          : null;
       const items: ContextMenuItem<MenuId>[] = [];
       if (card.threadId)
         items.push({
@@ -203,17 +219,22 @@ export function useFeatureActions(options: {
         });
       for (const action of actions) {
         const separatorBefore = action === "cancel" || (items.length > 0 && action === actions[0]);
-        if (action === "send-back") {
+        if (action === "send-back" || action === "mark-done") {
+          const prefix = action === "send-back" ? "send-back" : "mark-done";
           const targets =
-            definition && card.stage ? sendBackTargets(definition, card.stage.stepId) : [];
+            snapshot && card.stage
+              ? action === "send-back"
+                ? sendBackTargets(snapshot.definition, snapshot.steps, card.stage.stepId)
+                : stageOutcomes(snapshot.definition, card.stage.stepId)
+              : [];
           items.push({
             id: action,
             label: FEATURE_CARD_ACTION_LABELS[action],
             disabled: targets.length === 0,
             ...(separatorBefore ? { separatorBefore } : {}),
-            children: targets.map((stepId) => ({
-              id: `send-back:${stepId}` as const,
-              label: stageLabel(stepId),
+            children: targets.map((target) => ({
+              id: `${prefix}:${target}` as const,
+              label: action === "send-back" ? stageLabel(target) : target.replace(/_/g, " "),
             })),
           });
           continue;
@@ -252,6 +273,8 @@ export function useFeatureActions(options: {
         if (branch) void writeTextToClipboard(branch, "branch name").catch(() => undefined);
       } else if (clicked.startsWith("send-back:"))
         void run(card, "send-back", { stepId: clicked.slice("send-back:".length) });
+      else if (clicked.startsWith("mark-done:"))
+        void run(card, "mark-done", { outcome: clicked.slice("mark-done:".length) });
       else if (clicked.startsWith("reopen-at:"))
         void run(card, "reopen", { stepId: clicked.slice("reopen-at:".length) });
       else void run(card, clicked as FeatureCardActionId);

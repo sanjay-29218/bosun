@@ -15,7 +15,15 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ListFilterIcon, PlusIcon, SearchIcon, WorkflowIcon } from "lucide-react";
-import { useCallback, useEffect, useEffectEvent, useMemo, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
@@ -215,10 +223,27 @@ export function FeaturesPage(props: {
   }, [board.cards, definitions.data]);
   const selectedDefinition =
     definitions.data?.find((definition) => definition.id === selectedWorkflowId) ?? null;
-  const stageBoard = useMemo(
-    () => (selectedDefinition ? buildFeatureStageBoard(selectedDefinition, visibleCards) : null),
-    [selectedDefinition, visibleCards],
-  );
+  // Definitions are per project, so the stage board draws only the source project's cards;
+  // the same workflow id elsewhere may be a different graph, and is counted as hidden.
+  const stageBoard = useMemo(() => {
+    if (!selectedDefinition || !definitionSource) return null;
+    const inSource = (card: EnvironmentFeatureCard) =>
+      card.environmentId === definitionSource.environmentId &&
+      card.projectId === definitionSource.id;
+    const stages = buildFeatureStageBoard(selectedDefinition, visibleCards.filter(inSource));
+    const elsewhere = new Map<string, number>();
+    for (const card of visibleCards) {
+      if (inSource(card)) continue;
+      const title = projectFor(card)?.title ?? "Other projects";
+      elsewhere.set(title, (elsewhere.get(title) ?? 0) + 1);
+    }
+    return elsewhere.size === 0
+      ? stages
+      : {
+          ...stages,
+          hidden: [...stages.hidden, ...[...elsewhere].map(([name, count]) => ({ name, count }))],
+        };
+  }, [definitionSource, projectFor, selectedDefinition, visibleCards]);
 
   const actions = useFeatureActions({ onNoteRequest: setNoteRequest });
   const handlers = useMemo<FeatureBoardHandlers>(
@@ -277,9 +302,13 @@ export function FeaturesPage(props: {
     if (needsYou) props.onSearchChange({ needsYou: undefined });
   };
   const toggleNeedsYou = () => props.onSearchChange({ needsYou: needsYou ? undefined : true });
+  // One write: from List or Needs you, Workflow opens the stage board; on it, it closes it.
   const toggleWorkflow = () => {
-    if (preferences.view !== "board") updatePreferences({ view: "board" });
-    updateScopePreferences({ workflow: !scopePreferences.workflow });
+    const on = !workflowToggle;
+    updatePreferences({
+      view: on ? "board" : preferences.view,
+      scopes: { ...preferences.scopes, [scopeKey]: { ...scopePreferences, workflow: on } },
+    });
     if (needsYou) props.onSearchChange({ needsYou: undefined });
   };
 
@@ -307,11 +336,21 @@ export function FeaturesPage(props: {
   }, []);
 
   // Keep the URL's query in step with the field, without a history entry per keystroke.
+  // A URL change that isn't our own write (back, a link) replaces the field instead.
   const { onSearchChange } = props;
   const urlQuery = props.search.q ?? "";
+  const writtenQuery = useRef(urlQuery);
+  useEffect(() => {
+    if (urlQuery === writtenQuery.current) return;
+    writtenQuery.current = urlQuery;
+    setQuery(urlQuery);
+  }, [urlQuery]);
   useEffect(() => {
     if (urlQuery === query) return;
-    const handle = window.setTimeout(() => onSearchChange({ q: query || undefined }), 300);
+    const handle = window.setTimeout(() => {
+      writtenQuery.current = query;
+      onSearchChange({ q: query || undefined });
+    }, 300);
     return () => window.clearTimeout(handle);
   }, [onSearchChange, query, urlQuery]);
 
@@ -565,7 +604,12 @@ export function FeaturesPage(props: {
       <FeatureNoteDialog
         request={noteRequest}
         onClose={() => setNoteRequest(null)}
-        onSubmit={(request, text) => actions.run(request.card, request.action, { text })}
+        onSubmit={(request, text) =>
+          actions.run(request.card, request.action, {
+            text,
+            ...(request.outcome === undefined ? {} : { outcome: request.outcome }),
+          })
+        }
       />
     </SidebarInset>
   );
