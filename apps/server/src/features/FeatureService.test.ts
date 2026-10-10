@@ -554,23 +554,8 @@ const setRun = (id: string, status: OrchestrationV2Run["status"]) =>
   });
 
 describe("making a thread a feature", () => {
-  // Stage bots report through bots_respond; the crew's starter templates grant no tools.
-  const grantStageTools = Effect.gen(function* () {
-    const bots = yield* BotService;
-    const store = yield* BotStore;
-    for (const role of ["planner", "designer", "builder", "qa-tester", "reviewer"]) {
-      const template = (yield* store.getTemplate(`template:${role}:${projectId}`))!;
-      if (template.allowedTools.includes("bots.respond")) continue;
-      yield* bots.updateTemplate({
-        ...template,
-        expectedRevision: template.revision,
-        allowedTools: ["bots.respond", "bots.ask"],
-      });
-    }
-  });
   const attach = (threadId: ThreadId, stageId: string, featureId = "attached") =>
     Effect.gen(function* () {
-      yield* grantStageTools;
       const workflow = yield* (yield* WorkflowService).ensureStarterDefinition(projectId);
       return yield* (yield* FeatureService).attachThread({
         featureId,

@@ -408,42 +408,60 @@ export const BotServiceLive = Layer.effect(
               projectId: null,
               name: "Captain",
               autoCreateForFeature: false,
+              allowedTools: ["bots.delegate", "bots.status"],
             },
             {
               id: `template:manager:${projectId}`,
               projectId,
               name: "Manager",
               autoCreateForFeature: false,
+              allowedTools: [
+                "bots.delegate",
+                "bots.respond",
+                "bots.ask",
+                "bots.status",
+                "bots.answer",
+              ],
             },
             {
               id: `template:planner:${projectId}`,
               projectId,
               name: "Planner",
               autoCreateForFeature: true,
+              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
+              allowedTools: ["bots.respond", "bots.ask"],
             },
             {
               id: `template:designer:${projectId}`,
               projectId,
               name: "Designer",
               autoCreateForFeature: true,
+              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
+              allowedTools: ["bots.respond", "bots.ask"],
             },
             {
               id: `template:builder:${projectId}`,
               projectId,
               name: "Builder",
               autoCreateForFeature: true,
+              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
+              allowedTools: ["bots.respond", "bots.ask"],
             },
             {
               id: `template:qa-tester:${projectId}`,
               projectId,
               name: "QA Tester",
               autoCreateForFeature: true,
+              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
+              allowedTools: ["bots.respond", "bots.ask"],
             },
             {
               id: `template:reviewer:${projectId}`,
               projectId,
               name: "Reviewer",
               autoCreateForFeature: true,
+              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
+              allowedTools: ["bots.respond", "bots.ask"],
             },
           ];
           for (const template of templates) {
@@ -451,7 +469,6 @@ export const BotServiceLive = Layer.effect(
               yield* createTemplate({
                 ...template,
                 instructions: `You are the ${template.name} bot. Follow the assigned feature task and report a structured result.`,
-                allowedTools: [],
                 modelSelection,
                 runtimeMode: "approval-required",
               }).pipe(
