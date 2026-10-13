@@ -596,6 +596,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
+        // Held keys repeat; a toggle that fires on each repeat flickers between views.
+        if (event.repeat) return;
         if (command === "board.toggle") void toggleMainView();
         else openNextNeedsYou(navigate);
         return;
