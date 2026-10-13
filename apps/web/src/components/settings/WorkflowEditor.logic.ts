@@ -150,7 +150,10 @@ export function canRemoveStage(definition: WorkflowDefinition, stepId: string): 
 export function removeStage(definition: WorkflowDefinition, stepId: string): WorkflowDefinition {
   const steps = { ...definition.steps };
   delete steps[stepId];
-  return normalizeReceives({ ...definition, steps });
+  const { layout, ...rest } = definition;
+  if (!layout || !Object.hasOwn(layout, stepId)) return normalizeReceives({ ...rest, steps });
+  const { [stepId]: _removed, ...positions } = layout;
+  return normalizeReceives({ ...rest, steps, layout: positions });
 }
 
 /** After stages or outputs change, later stages' picks only name what still exists. */

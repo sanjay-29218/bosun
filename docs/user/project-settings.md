@@ -52,6 +52,10 @@ starter workflow** for Feature delivery, then **Edit** to open a workflow's page
   changes. Give a route a number to stop the feature at **Your call** after it has been taken that
   many times. Questions go to the Manager first, then to you. A failed stage retries the number of
   times you set (empty uses the Crew setting), then pauses and notifies you.
+- **Canvas** and **Form** switch between two views of the same workflow. On the canvas, drag from
+  an outcome on a stage's right edge to another stage to route it there, and select a stage or
+  route to edit it in the panel beside the canvas. Where you place stages is saved with the
+  workflow. Narrow screens always show the form.
 - **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
   keep the version they began with. Use the **⋯** menu to duplicate a workflow.
 

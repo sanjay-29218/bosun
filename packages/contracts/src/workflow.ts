@@ -38,6 +38,13 @@ export const WorkflowStep = Schema.Union([
 ]);
 export type WorkflowStep = typeof WorkflowStep.Type;
 
+/** Where the canvas editor draws each step, by step id. Steps without one are placed automatically. */
+export const WorkflowLayout = Schema.Record(
+  Schema.String,
+  Schema.Struct({ x: Schema.Number, y: Schema.Number }),
+);
+export type WorkflowLayout = typeof WorkflowLayout.Type;
+
 export const WorkflowDefinition = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   id: Schema.String,
@@ -55,6 +62,7 @@ export const WorkflowDefinition = Schema.Struct({
     /** Automatic retries before a stage fails. Absent uses the environment's Crew setting. */
     retries: Schema.optionalKey(Schema.Int),
   }),
+  layout: Schema.optionalKey(WorkflowLayout),
 });
 export type WorkflowDefinition = typeof WorkflowDefinition.Type;
 

@@ -134,6 +134,17 @@ describe("workflow graph", () => {
     ).toThrow(/no step produces/);
   });
 
+  it("accepts canvas positions only for steps that exist", () => {
+    const layout = { build: { x: 0, y: 0 }, review: { x: 280, y: -40 }, end: { x: 560, y: 0 } };
+    expect(() => validateWorkflowDefinition({ ...definition, layout })).not.toThrow();
+    expect(() =>
+      validateWorkflowDefinition({ ...definition, layout: { ...layout, gone: { x: 0, y: 0 } } }),
+    ).toThrow(/Invalid layout/);
+    expect(() =>
+      validateWorkflowDefinition({ ...definition, layout: { build: { x: Number.NaN, y: 0 } } }),
+    ).toThrow(/Invalid layout/);
+  });
+
   it("rejects unsupported step kinds at the contract boundary", () => {
     const decode = Schema.decodeUnknownSync(WorkflowDefinition);
     expect(() => decode(definition)).not.toThrow();

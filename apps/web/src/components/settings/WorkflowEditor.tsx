@@ -6,9 +6,12 @@ import {
 } from "@t3tools/contracts";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { useMemo, useState } from "react";
+import * as Schema from "effect/Schema";
+import { lazy, Suspense, useMemo, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { botsEnvironment } from "../../state/bots";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
@@ -17,11 +20,13 @@ import { workflowsEnvironment } from "../../state/workflows";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { WorkflowStageSelect } from "../workflows/WorkflowStageSelect";
 import { LimitField } from "./CrewLimitsSettings";
+import { SettingsGroup } from "./SettingsGroup";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import {
@@ -40,6 +45,11 @@ import {
   type WorkflowRoleIssue,
 } from "./WorkflowEditor.logic";
 import { WorkflowStageDialog } from "./WorkflowStageDialog";
+
+// React Flow only loads once someone opens the canvas.
+const WorkflowCanvas = lazy(() => import("../workflows/WorkflowCanvas"));
+const EDITOR_VIEW_KEY = "t3code:workflow-editor-view";
+const EditorView = Schema.Literals(["canvas", "form"]);
 
 /** Search params of `/settings/workflow`, for links from Project settings and the Features page. */
 export interface WorkflowEditorTarget {
@@ -138,7 +148,14 @@ function WorkflowEditor({
   const [draft, setDraft] = useState(refreshed.definition);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stageDialog, setStageDialog] = useState<{ stepId: string | null } | null>(null);
+  const [stageDialog, setStageDialog] = useState<{
+    stepId: string | null;
+    after?: string;
+  } | null>(null);
+  const [storedView, setView] = useLocalStorage(EDITOR_VIEW_KEY, "canvas", EditorView);
+  // The canvas needs room to work in, so narrow screens always get the form.
+  const canvasAvailable = useMediaQuery("md");
+  const view = canvasAvailable ? storedView : "form";
   const edited = !sameWorkflow(draft, refreshed.definition);
   const publishable = !sameWorkflow(draft, saved);
   const stages = orderWorkflowStages(draft);
@@ -219,14 +236,75 @@ function WorkflowEditor({
     }
   };
 
+  const questionAndLimitRows = (
+    <>
+      <SettingsRow
+        title="When a bot asks a question"
+        description="The Manager answers first and asks you only when it can't."
+        control={<span className="text-sm text-muted-foreground">Manager first, then you</span>}
+      />
+      <SettingsRow
+        title="When a stage fails"
+        description={`Pause and notify me after its automatic retries. Empty uses the Crew setting (${crewRetries}).`}
+        control={
+          <LimitField
+            label="Retries before a stage fails"
+            value={draft.defaults.retries ?? null}
+            min={0}
+            max={10}
+            placeholder={String(crewRetries)}
+            allowEmpty
+            onCommit={(value) => {
+              const { retries: _retries, ...defaults } = draft.defaults;
+              setDraft({
+                ...draft,
+                defaults: value === null ? defaults : { ...defaults, retries: value },
+              });
+            }}
+          />
+        }
+      />
+      <SettingsRow
+        title="Stage runs per feature"
+        description="A feature stops at Your call after this many stage runs in total."
+        control={
+          <LimitField
+            label="Stage runs per feature"
+            value={draft.defaults.maxStepExecutions}
+            min={1}
+            max={500}
+            onCommit={(value) => {
+              if (value !== null)
+                setDraft({ ...draft, defaults: { ...draft.defaults, maxStepExecutions: value } });
+            }}
+          />
+        }
+      />
+    </>
+  );
+
   return (
-    <SettingsPageContainer>
+    <SettingsPageContainer width={view === "canvas" ? "expanded" : "readable"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button size="xs" variant="ghost" onClick={onBack}>
           <ArrowLeftIcon />
           Project settings
         </Button>
         <div className="flex items-center gap-2">
+          {canvasAvailable ? (
+            <ToggleGroup
+              aria-label="Workflow editor view"
+              variant="segmented"
+              value={[view]}
+              onValueChange={(value) => {
+                const next = value[0];
+                if (next === "canvas" || next === "form") setView(next);
+              }}
+            >
+              <Toggle value="canvas">Canvas</Toggle>
+              <Toggle value="form">Form</Toggle>
+            </ToggleGroup>
+          ) : null}
           <Button
             size="xs"
             variant="outline"
@@ -291,7 +369,7 @@ function WorkflowEditor({
         <SettingsRow
           title="First stage"
           control={
-            <StageSelect
+            <WorkflowStageSelect
               label="First stage"
               value={draft.start}
               options={stages}
@@ -302,184 +380,180 @@ function WorkflowEditor({
         />
       </SettingsSection>
 
-      <SettingsSection
-        title="Stages"
-        inert={busy}
-        headerAction={
-          <Button size="xs" variant="ghost-muted" onClick={() => setStageDialog({ stepId: null })}>
-            <PlusIcon className="size-3" />
-            Add stage
-          </Button>
-        }
-      >
-        {stages.map((stepId, index) => {
-          const step = draft.steps[stepId];
-          if (step?.type !== "task") return null;
-          const description = [
-            roleName(step.bot),
-            step.scope ? `scope ${step.scope}` : null,
-            step.task,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          const status = [
-            describeStageInputs(draft, stepId),
-            step.outputs?.length ? `writes ${step.outputs.join(", ")}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          return (
-            <div key={stepId}>
-              <SettingsRow
-                title={`${index + 1}. ${stageName(stepId)}`}
-                description={description}
-                status={status}
-                control={
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label={`Actions for ${stageName(stepId)}`}
-                        />
-                      }
-                    >
-                      <MoreHorizontalIcon className="size-4" />
-                    </MenuTrigger>
-                    <MenuPopup align="end">
-                      <MenuItem onClick={() => setStageDialog({ stepId })}>
-                        <PencilIcon />
-                        Edit
-                      </MenuItem>
-                      <MenuItem
-                        disabled={!canRemoveStage(draft, stepId)}
-                        onClick={() => setDraft(removeStage(draft, stepId))}
-                      >
-                        <Trash2Icon />
-                        Remove
-                      </MenuItem>
-                    </MenuPopup>
-                  </Menu>
+      {view === "canvas" ? (
+        <>
+          <SettingsSection title="Stages and routes" variant="plain" inert={busy}>
+            <Suspense
+              fallback={
+                <SettingsGroup>
+                  <SettingsRow title="Loading canvas…" role="status" />
+                </SettingsGroup>
+              }
+            >
+              <WorkflowCanvas
+                definition={draft}
+                roleName={roleName}
+                stageName={stageName}
+                onChange={setDraft}
+                onEditStage={(stepId) => setStageDialog({ stepId })}
+                onAddStage={(after) =>
+                  setStageDialog(after ? { stepId: null, after } : { stepId: null })
                 }
               />
-              <SettingsRow
-                className="ps-8 sm:ps-10"
-                title={`Approve ${stageName(stepId).toLowerCase()}`}
-                description="You approve or request changes before the feature moves on."
-                control={
-                  <Switch
-                    aria-label={`Approve ${stageName(stepId)}`}
-                    checked={step.gate === true}
-                    onCheckedChange={(gate) =>
-                      setDraft(
-                        updateTask(draft, stepId, ({ gate: _gate, ...rest }) =>
-                          gate ? { ...rest, gate: true } : rest,
-                        ),
-                      )
+            </Suspense>
+          </SettingsSection>
+          <SettingsSection title="Questions and limits" inert={busy}>
+            {questionAndLimitRows}
+          </SettingsSection>
+        </>
+      ) : (
+        <>
+          <SettingsSection
+            title="Stages"
+            inert={busy}
+            headerAction={
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                onClick={() => setStageDialog({ stepId: null })}
+              >
+                <PlusIcon className="size-3" />
+                Add stage
+              </Button>
+            }
+          >
+            {stages.map((stepId, index) => {
+              const step = draft.steps[stepId];
+              if (step?.type !== "task") return null;
+              const description = [
+                roleName(step.bot),
+                step.scope ? `scope ${step.scope}` : null,
+                step.task,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              const status = [
+                describeStageInputs(draft, stepId),
+                step.outputs?.length ? `writes ${step.outputs.join(", ")}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <div key={stepId}>
+                  <SettingsRow
+                    title={`${index + 1}. ${stageName(stepId)}`}
+                    description={description}
+                    status={status}
+                    control={
+                      <Menu>
+                        <MenuTrigger
+                          render={
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label={`Actions for ${stageName(stepId)}`}
+                            />
+                          }
+                        >
+                          <MoreHorizontalIcon className="size-4" />
+                        </MenuTrigger>
+                        <MenuPopup align="end">
+                          <MenuItem onClick={() => setStageDialog({ stepId })}>
+                            <PencilIcon />
+                            Edit
+                          </MenuItem>
+                          <MenuItem
+                            disabled={!canRemoveStage(draft, stepId)}
+                            onClick={() => setDraft(removeStage(draft, stepId))}
+                          >
+                            <Trash2Icon />
+                            Remove
+                          </MenuItem>
+                        </MenuPopup>
+                      </Menu>
                     }
                   />
-                }
-              />
-            </div>
-          );
-        })}
-      </SettingsSection>
+                  <SettingsRow
+                    className="ps-8 sm:ps-10"
+                    title={`Approve ${stageName(stepId).toLowerCase()}`}
+                    description="You approve or request changes before the feature moves on."
+                    control={
+                      <Switch
+                        aria-label={`Approve ${stageName(stepId)}`}
+                        checked={step.gate === true}
+                        onCheckedChange={(gate) =>
+                          setDraft(
+                            updateTask(draft, stepId, ({ gate: _gate, ...rest }) =>
+                              gate ? { ...rest, gate: true } : rest,
+                            ),
+                          )
+                        }
+                      />
+                    }
+                  />
+                </div>
+              );
+            })}
+          </SettingsSection>
 
-      <SettingsSection title="Routes" inert={busy}>
-        {stages.flatMap((stepId) => {
-          const step = draft.steps[stepId];
-          if (step?.type !== "task") return [];
-          return Object.entries(step.next).map(([outcome, target]) => {
-            const limit = step.limits?.[outcome] ?? null;
-            return (
-              <SettingsRow
-                key={`${stepId}:${outcome}`}
-                title={`When ${stageName(stepId)} reports “${humanizeWorkflowId(outcome).toLowerCase()}”`}
-                description={
-                  limit === null
-                    ? "Empty means no limit on how often this route is taken."
-                    : `After ${limit} ${limit === 1 ? "time" : "times"}, the feature stops at Your call.`
-                }
-                control={
-                  <>
-                    <StageSelect
-                      label={`Next stage after ${stageName(stepId)} ${outcome}`}
-                      value={target}
-                      options={[...stages, endId]}
-                      stageName={(id) => (id === endId ? "Finish" : `Go to ${stageName(id)}`)}
-                      onChange={(next) =>
-                        setDraft(
-                          updateTask(draft, stepId, (task) => ({
-                            ...task,
-                            next: { ...task.next, [outcome]: next },
-                          })),
-                        )
-                      }
-                    />
-                    <LimitField
-                      label={`Most times ${stageName(stepId)} ${outcome} is taken`}
-                      value={limit}
-                      min={1}
-                      max={20}
-                      placeholder="–"
-                      allowEmpty
-                      onCommit={(value) => setDraft(setRouteLimit(draft, stepId, outcome, value))}
-                    />
-                  </>
-                }
-              />
-            );
-          });
-        })}
-        <SettingsRow
-          title="When a bot asks a question"
-          description="The Manager answers first and asks you only when it can't."
-          control={<span className="text-sm text-muted-foreground">Manager first, then you</span>}
-        />
-        <SettingsRow
-          title="When a stage fails"
-          description={`Pause and notify me after its automatic retries. Empty uses the Crew setting (${crewRetries}).`}
-          control={
-            <LimitField
-              label="Retries before a stage fails"
-              value={draft.defaults.retries ?? null}
-              min={0}
-              max={10}
-              placeholder={String(crewRetries)}
-              allowEmpty
-              onCommit={(value) => {
-                const { retries: _retries, ...defaults } = draft.defaults;
-                setDraft({
-                  ...draft,
-                  defaults: value === null ? defaults : { ...defaults, retries: value },
-                });
-              }}
-            />
-          }
-        />
-        <SettingsRow
-          title="Stage runs per feature"
-          description="A feature stops at Your call after this many stage runs in total."
-          control={
-            <LimitField
-              label="Stage runs per feature"
-              value={draft.defaults.maxStepExecutions}
-              min={1}
-              max={500}
-              onCommit={(value) => {
-                if (value !== null)
-                  setDraft({ ...draft, defaults: { ...draft.defaults, maxStepExecutions: value } });
-              }}
-            />
-          }
-        />
-      </SettingsSection>
+          <SettingsSection title="Routes" inert={busy}>
+            {stages.flatMap((stepId) => {
+              const step = draft.steps[stepId];
+              if (step?.type !== "task") return [];
+              return Object.entries(step.next).map(([outcome, target]) => {
+                const limit = step.limits?.[outcome] ?? null;
+                return (
+                  <SettingsRow
+                    key={`${stepId}:${outcome}`}
+                    title={`When ${stageName(stepId)} reports “${humanizeWorkflowId(outcome).toLowerCase()}”`}
+                    description={
+                      limit === null
+                        ? "Empty means no limit on how often this route is taken."
+                        : `After ${limit} ${limit === 1 ? "time" : "times"}, the feature stops at Your call.`
+                    }
+                    control={
+                      <>
+                        <WorkflowStageSelect
+                          label={`Next stage after ${stageName(stepId)} ${outcome}`}
+                          value={target}
+                          options={[...stages, endId]}
+                          stageName={(id) => (id === endId ? "Finish" : `Go to ${stageName(id)}`)}
+                          onChange={(next) =>
+                            setDraft(
+                              updateTask(draft, stepId, (task) => ({
+                                ...task,
+                                next: { ...task.next, [outcome]: next },
+                              })),
+                            )
+                          }
+                        />
+                        <LimitField
+                          label={`Most times ${stageName(stepId)} ${outcome} is taken`}
+                          value={limit}
+                          min={1}
+                          max={20}
+                          placeholder="–"
+                          allowEmpty
+                          onCommit={(value) =>
+                            setDraft(setRouteLimit(draft, stepId, outcome, value))
+                          }
+                        />
+                      </>
+                    }
+                  />
+                );
+              });
+            })}
+            {questionAndLimitRows}
+          </SettingsSection>
+        </>
+      )}
 
       {stageDialog ? (
         <WorkflowStageDialog
           definition={draft}
           stepId={stageDialog.stepId}
+          after={stageDialog.after}
           templates={templates}
           roleName={roleName}
           stageName={stageName}
@@ -509,38 +583,4 @@ function roleIssueText(issues: readonly WorkflowRoleIssue[], revision: number): 
   ]
     .filter(Boolean)
     .join(" ");
-}
-
-function StageSelect({
-  label,
-  value,
-  options,
-  stageName,
-  onChange,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly options: readonly string[];
-  readonly stageName: (stepId: string) => string;
-  readonly onChange: (stepId: string) => void;
-}) {
-  return (
-    <Select
-      value={value}
-      onValueChange={(next) => {
-        if (typeof next === "string") onChange(next);
-      }}
-    >
-      <SelectTrigger size="sm" aria-label={label}>
-        <SelectValue>{(next: string) => stageName(next)}</SelectValue>
-      </SelectTrigger>
-      <SelectPopup align="end" alignItemWithTrigger={false}>
-        {options.map((option) => (
-          <SelectItem key={option} value={option}>
-            {stageName(option)}
-          </SelectItem>
-        ))}
-      </SelectPopup>
-    </Select>
-  );
 }

@@ -117,6 +117,15 @@ export const validateWorkflowDefinition = (definition: WorkflowDefinition): void
       throw new WorkflowValidationError(`Step ${id} receives an output no step produces`);
     }
   }
+  for (const [id, position] of Object.entries(definition.layout ?? {})) {
+    if (
+      !Object.hasOwn(definition.steps, id) ||
+      !Number.isFinite(position.x) ||
+      !Number.isFinite(position.y)
+    ) {
+      throw new WorkflowValidationError(`Invalid layout for step ${id}`);
+    }
+  }
   const reachable = new Set<string>();
   const visit = (id: string) => {
     if (reachable.has(id)) return;
