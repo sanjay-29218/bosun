@@ -1,13 +1,14 @@
 # Features
 
-A feature is a brief that a crew of bots takes through a workflow. The **Features** page shows
-every feature across your projects and everything waiting on you. Open it from the sidebar
-footer, with `mod+shift+b`, or with **Open features** in the command palette. It appears when a
-connected environment runs workflows.
+A feature is a brief that a crew of bots takes through a workflow. The board shows every feature
+across your projects and everything waiting on you. Flip the **List / Board** toggle at the top
+of the sidebar, press `mod+shift+b`, or choose **Switch to Board** in the command palette; the
+same toggle returns to your threads. The toggle appears when a connected environment runs
+workflows, and the app opens on whichever view you used last.
 
 ## Start a feature
 
-The first time the page opens, **Start a feature** adds the starter workflow, "Feature
+The first time the board opens, **Start a feature** adds the starter workflow, "Feature
 delivery", to the project and opens a new thread. **New feature** opens a new thread in the
 scoped project. Change workflows in **Settings → Project → Workflows**.
 
@@ -25,8 +26,8 @@ Cards move when the workflow moves them. The only moves you can drag are into Do
 cancels the feature, and out of Done, which reopens it. Reopening a finished feature asks which
 stage the follow-up starts at; a cancelled one resumes where it stopped.
 
-Use **List** for the same features grouped by phase. Search matches titles, stages and
-projects, and `workflow:feature-delivery` limits it to one workflow.
+Search matches titles, stages and projects, and `workflow:feature-delivery` limits the board to
+one workflow.
 
 ## The Workflow toggle
 
@@ -45,4 +46,4 @@ question are included.
 The same threads appear in the **Needs you** shelf at the top of the sidebar, and
 `mod+shift+y` opens the one that has waited longest.
 
-On the page, `l` shows the list, `b` the board, `w` toggles Workflow and `n` toggles Needs you.
+On the board, `w` toggles Workflow and `n` toggles Needs you.

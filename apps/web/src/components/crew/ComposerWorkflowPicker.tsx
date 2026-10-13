@@ -25,7 +25,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
-import { useCrewDraftStore } from "./crewDraftStore";
+import { resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
 
 const NO_WORKFLOW = "";
 
@@ -35,16 +35,25 @@ export function useEnvironmentSupportsWorkflows(environmentId: EnvironmentId | n
   return config?.environment.capabilities.workflows === true;
 }
 
-/** The workflow a draft will start, if one is picked and still exists. */
+/**
+ * The workflow a new thread starts on until one is picked. This is the seam for bots
+ * (#16): it becomes the active bot's default workflow. Until then there is none.
+ */
+function useDefaultWorkflowId(): string | null {
+  return null;
+}
+
+/** The workflow a draft will start, picked or default, if it still exists. */
 export function useDraftWorkflow(input: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId | null;
   readonly draftId: DraftId | null;
 }) {
   const supported = useEnvironmentSupportsWorkflows(input.environmentId);
-  const workflowId = useCrewDraftStore((state) =>
-    input.draftId ? (state.workflowByDraftId[input.draftId] ?? null) : null,
+  const picked = useCrewDraftStore((state) =>
+    input.draftId ? state.workflowByDraftId[input.draftId] : null,
   );
+  const workflowId = resolveDraftWorkflowId(picked, useDefaultWorkflowId());
   const definitions = useEnvironmentQuery(
     supported && input.projectId
       ? workflowsEnvironment.definitions({

@@ -28,17 +28,11 @@ const key = (value: string, target: EventTarget | null, modifiers = false) => ({
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("Features page shortcuts", () => {
-  it("switches views with page letters, but not while typing", () => {
+describe("Board shortcuts", () => {
+  it("toggles board filters with letters, but not while typing", () => {
     vi.stubGlobal("HTMLElement", TestElement);
     vi.stubGlobal("navigator", { platform: "Linux" });
     const body = new TestElement("BODY");
-    expect(resolveFeaturesShortcut(key("l", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
-      "features.list",
-    );
-    expect(resolveFeaturesShortcut(key("b", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
-      "features.board",
-    );
     expect(resolveFeaturesShortcut(key("w", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
       "features.workflow",
     );
@@ -46,21 +40,23 @@ describe("Features page shortcuts", () => {
       "features.needsYou",
     );
     expect(
-      resolveFeaturesShortcut(key("b", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
+      resolveFeaturesShortcut(key("w", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
     ).toBeNull();
-    // Off the page, a bare letter is not a shortcut, and Mod+B still toggles the sidebar.
+    // The sidebar toggle owns List / Board, so the board no longer takes `l` and `b`.
+    expect(resolveFeaturesShortcut(key("b", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBeNull();
+    // Off the board, a bare letter is not a shortcut.
     expect(
-      resolveShortcutCommand(key("b", body), DEFAULT_RESOLVED_KEYBINDINGS, { platform: "Linux" }),
+      resolveShortcutCommand(key("w", body), DEFAULT_RESOLVED_KEYBINDINGS, { platform: "Linux" }),
     ).toBeNull();
   });
 
-  it("opens the page and the next item that needs you from anywhere", () => {
+  it("flips List / Board and opens the next item that needs you from anywhere", () => {
     vi.stubGlobal("navigator", { platform: "Linux" });
     expect(
       resolveShortcutCommand(key("B", null, true), DEFAULT_RESOLVED_KEYBINDINGS, {
         platform: "Linux",
       }),
-    ).toBe("features.open");
+    ).toBe("board.toggle");
     expect(
       resolveShortcutCommand(key("Y", null, true), DEFAULT_RESOLVED_KEYBINDINGS, {
         platform: "Linux",

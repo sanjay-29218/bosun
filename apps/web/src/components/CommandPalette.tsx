@@ -50,6 +50,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   KanbanIcon,
+  ListIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -231,6 +232,7 @@ import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { openNextNeedsYou } from "./features/featuresNavigation";
+import { BOARD_PATH, useToggleMainView } from "./sidebar/mainAppLocation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -504,6 +506,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openNewThreadIn = useCallback(() => dispatch({ _tag: "OpenNewThreadIn" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const toggleMainView = useToggleMainView();
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
   const routeTarget = useParams({
@@ -589,11 +592,11 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
-      if (command === "features.open" || command === "needsYou.next") {
+      if (command === "board.toggle" || command === "needsYou.next") {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
-        if (command === "features.open") void navigate({ to: "/features" });
+        if (command === "board.toggle") void toggleMainView();
         else openNextNeedsYou(navigate);
         return;
       }
@@ -618,6 +621,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     terminalOpen,
     theme,
     themeHalves,
+    toggleMainView,
     toggleMode,
   ]);
 
@@ -724,6 +728,7 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const toggleMainView = useToggleMainView();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
@@ -2436,7 +2441,9 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  const onBoard = pathname === BOARD_PATH;
   if (
+    onBoard ||
     environments.some(
       (environment) => environment.serverConfig?.environment.capabilities.workflows === true,
     )
@@ -2444,13 +2451,17 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push(
       {
         kind: "action",
-        value: "action:features",
-        searchTerms: ["features", "board", "kanban", "crew", "workflow", "bosun"],
-        title: "Open features",
-        icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
-        shortcutCommand: "features.open",
+        value: "action:board-toggle",
+        searchTerms: ["board", "list", "features", "kanban", "threads", "crew", "workflow", "view"],
+        title: onBoard ? "Switch to List" : "Switch to Board",
+        icon: onBoard ? (
+          <ListIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <KanbanIcon className={ITEM_ICON_CLASS} />
+        ),
+        shortcutCommand: "board.toggle",
         run: async () => {
-          await navigate({ to: "/features" });
+          await toggleMainView();
         },
       },
       {
