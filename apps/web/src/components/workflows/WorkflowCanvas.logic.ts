@@ -8,9 +8,19 @@ import {
 
 export type CanvasPosition = WorkflowLayout[string];
 
-/** Spacing of placed stages, sized for a stage node with a few outcomes. */
+/** Distance between columns, and the space kept between nodes stacked in one column. */
 export const CANVAS_COLUMN_WIDTH = 300;
-export const CANVAS_ROW_HEIGHT = 170;
+export const CANVAS_ROW_GAP = 40;
+
+/**
+ * A node's drawn height, estimated from what it shows: a stage's header plus
+ * one row per outcome, or the Finish label. Layout only needs it to keep
+ * stacked nodes apart, so it errs on the tall side.
+ */
+export function canvasNodeHeight(definition: WorkflowDefinition, stepId: string): number {
+  const step = definition.steps[stepId];
+  return step?.type === "task" ? 64 + 20 * Object.keys(step.next).length : 40;
+}
 
 /** One outcome route of a stage, drawn as an edge from the stage's outcome handle. */
 export interface WorkflowRoute {
@@ -45,7 +55,7 @@ export function workflowRoutes(definition: WorkflowDefinition): WorkflowRoute[] 
 }
 
 /**
- * Columns by distance from the first stage, each centred on y = 0. Stages
+ * Columns by distance from the first stage, each stacked around y = 0. Stages
  * nothing routes to get a column after the reachable ones, and the end step
  * always sits in the last column.
  */
@@ -76,11 +86,12 @@ export function autoLayoutWorkflow(definition: WorkflowDefinition): Record<strin
   }
   const positions: Record<string, CanvasPosition> = {};
   columns.forEach((ids, column) => {
+    const heights = ids.map((id) => canvasNodeHeight(definition, id));
+    let y =
+      -(heights.reduce((sum, height) => sum + height, 0) + CANVAS_ROW_GAP * (ids.length - 1)) / 2;
     ids.forEach((id, row) => {
-      positions[id] = {
-        x: column * CANVAS_COLUMN_WIDTH,
-        y: (row - (ids.length - 1) / 2) * CANVAS_ROW_HEIGHT,
-      };
+      positions[id] = { x: column * CANVAS_COLUMN_WIDTH, y };
+      y += heights[row]! + CANVAS_ROW_GAP;
     });
   });
   return positions;
@@ -105,12 +116,16 @@ export function workflowNodePositions(
     const saved = layout[id];
     if (saved) placed[id] = saved;
   }
-  const overlaps = (candidate: CanvasPosition) =>
-    Object.values(placed).some(
-      (other) =>
+  // The placed node a candidate would overlap, keeping a row gap above and below.
+  const overlapping = (id: string, candidate: CanvasPosition) => {
+    const height = canvasNodeHeight(definition, id);
+    return Object.entries(placed).find(
+      ([otherId, other]) =>
         Math.abs(other.x - candidate.x) < CANVAS_COLUMN_WIDTH / 2 &&
-        Math.abs(other.y - candidate.y) < CANVAS_ROW_HEIGHT / 2,
+        candidate.y < other.y + canvasNodeHeight(definition, otherId) + CANVAS_ROW_GAP &&
+        other.y < candidate.y + height + CANVAS_ROW_GAP,
     );
+  };
   for (const id of ids) {
     if (placed[id]) continue;
     const from = ids.find((source) => {
@@ -123,7 +138,13 @@ export function workflowNodePositions(
     });
     const origin = from ? placed[from]! : auto[id]!;
     let candidate = from ? { x: origin.x + CANVAS_COLUMN_WIDTH, y: origin.y } : origin;
-    while (overlaps(candidate)) candidate = { x: candidate.x, y: candidate.y + CANVAS_ROW_HEIGHT };
+    for (let hit = overlapping(id, candidate); hit; hit = overlapping(id, candidate)) {
+      const [otherId, other] = hit;
+      candidate = {
+        x: candidate.x,
+        y: other.y + canvasNodeHeight(definition, otherId) + CANVAS_ROW_GAP,
+      };
+    }
     placed[id] = candidate;
   }
   return placed;

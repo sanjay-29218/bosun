@@ -4,9 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { removeStage } from "../settings/WorkflowEditor.logic";
 import {
   CANVAS_COLUMN_WIDTH,
-  CANVAS_ROW_HEIGHT,
+  CANVAS_ROW_GAP,
   autoLayoutWorkflow,
   canRemoveRoute,
+  canvasNodeHeight,
   connectRoute,
   removeRoute,
   stagesRoutingTo,
@@ -61,26 +62,42 @@ describe("workflowRoutes", () => {
 
 describe("autoLayoutWorkflow", () => {
   it("puts stages in columns by distance from the start, unreachable ones next, and Finish last", () => {
-    const positions = autoLayoutWorkflow(workflow());
-    expect(positions.plan).toEqual({ x: column(0), y: 0 });
-    expect(positions.build).toEqual({ x: column(1), y: 0 });
-    expect(positions.review).toEqual({ x: column(2), y: 0 });
-    expect(positions.orphan).toEqual({ x: column(3), y: 0 });
-    expect(positions.end).toEqual({ x: column(4), y: 0 });
+    const definition = workflow();
+    const positions = autoLayoutWorkflow(definition);
+    // A node alone in its column is centred on y = 0.
+    const centred = (id: string) => -canvasNodeHeight(definition, id) / 2;
+    expect(positions.plan).toEqual({ x: column(0), y: centred("plan") });
+    expect(positions.build).toEqual({ x: column(1), y: centred("build") });
+    expect(positions.review).toEqual({ x: column(2), y: centred("review") });
+    expect(positions.orphan).toEqual({ x: column(3), y: centred("orphan") });
+    expect(positions.end).toEqual({ x: column(4), y: centred("end") });
   });
 
-  it("centres stages that share a column", () => {
+  it("stacks stages that share a column by their height, so a tall stage never overlaps", () => {
     const definition = workflow();
-    const positions = autoLayoutWorkflow({
+    const outcomes = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const branched: WorkflowDefinition = {
       ...definition,
       steps: {
         ...definition.steps,
         plan: { type: "task", bot: "builder", task: "Plan", next: { a: "build", b: "orphan" } },
+        build: {
+          type: "task",
+          bot: "builder",
+          task: "Build",
+          next: Object.fromEntries(outcomes.map((outcome) => [outcome, "review"])),
+        },
       },
-    });
-    expect(positions.build).toEqual({ x: column(1), y: -CANVAS_ROW_HEIGHT / 2 });
-    expect(positions.orphan).toEqual({ x: column(1), y: CANVAS_ROW_HEIGHT / 2 });
-    expect(positions.end).toEqual({ x: column(3), y: 0 });
+    };
+    const positions = autoLayoutWorkflow(branched);
+    const buildHeight = canvasNodeHeight(branched, "build");
+    expect(positions.build!.x).toBe(column(1));
+    expect(positions.orphan!.x).toBe(column(1));
+    expect(positions.orphan!.y - positions.build!.y).toBe(buildHeight + CANVAS_ROW_GAP);
+    // The column is centred on y = 0.
+    expect(positions.build!.y).toBe(
+      -(buildHeight + CANVAS_ROW_GAP + canvasNodeHeight(branched, "orphan")) / 2,
+    );
   });
 });
 
@@ -90,18 +107,20 @@ describe("workflowNodePositions", () => {
   });
 
   it("keeps saved positions and places a new stage beside one that routes to it", () => {
+    const definition = workflow();
     const layout = {
       plan: { x: 0, y: 0 },
       build: { x: 400, y: 0 },
-      // Taken: the new spot right of build moves down a row.
       review: { x: 700, y: 0 },
       end: { x: 1000, y: 0 },
     };
-    const positions = workflowNodePositions({ ...workflow(), layout });
+    const positions = workflowNodePositions({ ...definition, layout });
     expect(positions.build).toEqual(layout.build);
-    // Nothing routes to the orphan: its automatic spot overlaps Finish, so it moves down.
-    expect(positions.orphan).toEqual({ x: column(3), y: CANVAS_ROW_HEIGHT });
-    const definition = workflow();
+    // Nothing routes to the orphan: its automatic spot overlaps Finish, so it moves below it.
+    expect(positions.orphan).toEqual({
+      x: column(3),
+      y: canvasNodeHeight(definition, "end") + CANVAS_ROW_GAP,
+    });
     const added = workflowNodePositions({
       ...definition,
       layout,
@@ -111,7 +130,11 @@ describe("workflowNodePositions", () => {
         lint: { type: "task", bot: "builder", task: "Lint", next: { done: "review" } },
       },
     });
-    expect(added.lint).toEqual({ x: 400 + CANVAS_COLUMN_WIDTH, y: CANVAS_ROW_HEIGHT });
+    // Right of build is taken by review, so lint goes below review.
+    expect(added.lint).toEqual({
+      x: 400 + CANVAS_COLUMN_WIDTH,
+      y: canvasNodeHeight(definition, "review") + CANVAS_ROW_GAP,
+    });
   });
 });
 
@@ -130,12 +153,15 @@ describe("withNodePositions", () => {
     expect(withNodePositions(definition, { plan: { x: 10.2, y: 0 } })).toBe(definition);
   });
 
-  it("drops a removed stage's position", () => {
+  it("drops a removed stage's position and keeps the others", () => {
     const definition = withNodePositions(workflow(), {
       plan: { x: 0, y: 0 },
       orphan: { x: 1, y: 1 },
     });
     expect(removeStage(definition, "orphan").layout).toEqual({ plan: { x: 0, y: 0 } });
+    // A stage added since the layout was saved has no position of its own.
+    const unplaced = withNodePositions(workflow(), { plan: { x: 0, y: 0 } });
+    expect(removeStage(unplaced, "orphan").layout).toEqual({ plan: { x: 0, y: 0 } });
   });
 });
 

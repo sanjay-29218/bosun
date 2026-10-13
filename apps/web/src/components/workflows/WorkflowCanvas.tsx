@@ -18,7 +18,6 @@ import {
   type NodeChange,
   type NodeProps,
   type OnDelete,
-  type OnNodeDrag,
 } from "@xyflow/react";
 import { Maximize2Icon, PlusIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { createContext, use, useCallback, useMemo, useState, type CSSProperties } from "react";
@@ -178,13 +177,29 @@ export default function WorkflowCanvas({
     });
   }
   const labels = useMemo(() => ({ roleName, stageName }), [roleName, stageName]);
-  const selection: CanvasSelection | null = canvasSelection(graph.nodes, graph.edges);
+  // Rebuilt only when what is selected changes, so dragging does not re-render the inspector.
+  const selected = canvasSelection(graph.nodes, graph.edges);
+  const selectedKind = selected?.kind;
+  const selectedStep = selected?.stepId;
+  const selectedOutcome = selected?.kind === "route" ? selected.outcome : undefined;
+  const selection = useMemo((): CanvasSelection | null => {
+    if (!selectedKind || !selectedStep) return null;
+    if (selectedKind !== "route") return { kind: selectedKind, stepId: selectedStep };
+    return selectedOutcome === undefined
+      ? null
+      : { kind: "route", stepId: selectedStep, outcome: selectedOutcome };
+  }, [selectedKind, selectedStep, selectedOutcome]);
 
-  const onNodesChange = useCallback(
-    (changes: NodeChange<CanvasNode>[]) =>
-      setGraph((current) => ({ ...current, nodes: applyNodeChanges(changes, current.nodes) })),
-    [],
-  );
+  const onNodesChange = (changes: NodeChange<CanvasNode>[]) => {
+    setGraph((current) => ({ ...current, nodes: applyNodeChanges(changes, current.nodes) }));
+    // A drag ending and an arrow-key move both settle with `dragging: false`. Saving
+    // every node's position keeps the drawing stable as stages come and go.
+    if (changes.some((change) => change.type === "position" && change.dragging === false)) {
+      const positions: Record<string, CanvasPosition> = {};
+      for (const node of applyNodeChanges(changes, graph.nodes)) positions[node.id] = node.position;
+      onChange(withNodePositions(definition, positions));
+    }
+  };
   const onEdgesChange = useCallback(
     (changes: EdgeChange<CanvasEdge>[]) =>
       setGraph((current) => ({ ...current, edges: applyEdgeChanges(changes, current.edges) })),
@@ -196,12 +211,6 @@ export default function WorkflowCanvas({
         connectRoute(definition, connection.source, connection.sourceHandle, connection.target),
       );
     }
-  };
-  const onNodeDragStop: OnNodeDrag<CanvasNode> = (_event, _node, dragged) => {
-    // Saving every node's position keeps the drawing stable as stages come and go.
-    const positions: Record<string, CanvasPosition> = {};
-    for (const node of [...graph.nodes, ...dragged]) positions[node.id] = node.position;
-    onChange(withNodePositions(definition, positions));
   };
   const onDelete: OnDelete<CanvasNode, CanvasEdge> = ({ nodes, edges }) => {
     const removed = new Set(nodes.map((node) => node.id));
@@ -228,7 +237,6 @@ export default function WorkflowCanvas({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             isValidConnection={(connection) => connection.source !== connection.target}
-            onNodeDragStop={onNodeDragStop}
             onDelete={onDelete}
             deleteKeyCode={DELETE_KEYS}
             fitView

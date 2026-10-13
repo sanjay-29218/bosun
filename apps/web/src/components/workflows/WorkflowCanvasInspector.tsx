@@ -1,5 +1,6 @@
 import type { WorkflowDefinition } from "@t3tools/contracts";
 import { PencilIcon, Trash2Icon } from "lucide-react";
+import { memo } from "react";
 
 import { LimitField } from "../settings/CrewLimitsSettings";
 import { SettingsGroup } from "../settings/SettingsGroup";
@@ -31,7 +32,7 @@ interface InspectorProps {
 }
 
 /** Settings for the stage, route or end step selected on the canvas. */
-export function WorkflowCanvasInspector({
+export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
   selection,
   onEditStage,
   ...props
@@ -180,7 +181,7 @@ export function WorkflowCanvasInspector({
       />
     </SettingsGroup>
   );
-}
+});
 
 /** Where one outcome leads and how often it may be taken, as in the form's Routes section. */
 function RouteRow({
