@@ -177,6 +177,46 @@ describe("Bot foundation", () => {
     }),
   );
 
+  effectIt.effect("completes a manager whose setup stopped on a disabled role", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-partial-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
+        Effect.gen(function* () {
+          yield* createProject(engine);
+          yield* bots.ensureDefaults(modelSelection);
+          const builderRole = (yield* store.getRole("role:builder"))!;
+          const disabled = yield* bots.updateRole({
+            ...builderRole,
+            expectedRevision: builderRole.revision,
+            enabled: false,
+          });
+          const failed = yield* Effect.exit(bots.ensureProjectManager(projectId));
+          expect(failed._tag).toBe("Failure");
+          // The manager was made; the builder and its grant were not.
+          expect(yield* store.getMember(projectManagerMemberId(projectId))).not.toBeNull();
+          expect(yield* store.getMember(projectBuilderMemberId(projectId))).toBeNull();
+
+          yield* bots.updateRole({
+            ...disabled,
+            expectedRevision: disabled.revision,
+            enabled: true,
+          });
+          const manager = yield* bots.ensureProjectManager(projectId);
+          expect(yield* store.getMember(projectBuilderMemberId(projectId))).not.toBeNull();
+          expect(
+            yield* store.canDelegate(manager.id, projectBuilderMemberId(projectId), projectId),
+          ).toBe(true);
+        }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
   effectIt.effect("creates a project's manager once, and its owning bot may delegate to it", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>

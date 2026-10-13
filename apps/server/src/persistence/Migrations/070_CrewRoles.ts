@@ -30,8 +30,16 @@ const globalRoleId = (templateId: string): string | null => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Rewrites a version 1 definition; anything else is returned untouched. */
-const toVersion2 = (json: string, managerRevision: number, id?: string): string => {
+/**
+ * Rewrites a version 1 definition; anything else is returned untouched. `pins` gives library
+ * definitions the revision to pin per template; feature copies keep theirs, as their members do.
+ */
+const toVersion2 = (
+  json: string,
+  managerRevision: number,
+  id?: string,
+  pins?: ReadonlyMap<string, number>,
+): string => {
   let definition: unknown;
   try {
     definition = JSON.parse(json);
@@ -56,7 +64,7 @@ const toVersion2 = (json: string, managerRevision: number, id?: string): string 
         ? { roleId: PROJECT_MANAGER_ROLE_ID, roleRevision: managerRevision }
         : {
             roleId: globalRoleId(String(source.id)) ?? source.id,
-            roleRevision: source.revision,
+            roleRevision: pins?.get(String(source.id)) ?? source.revision,
           };
     (roles[slot] as Record<string, unknown>).supervisor = bot.supervisor ?? null;
   }
@@ -179,6 +187,10 @@ export default Effect.gen(function* () {
 
   // Each default role keeps the most recently edited project's copy of its template.
   let managerRevision = 1;
+  // What library workflows pin per template: the merged role's revision when the template
+  // matched it, else 0, which no role has, so the workflow asks to be published again rather
+  // than silently running another project's role.
+  const libraryPins = new Map<string, number>();
   if (tables.has("bot_templates")) {
     const templates = yield* sql<{
       readonly id: string;
@@ -205,6 +217,18 @@ export default Effect.gen(function* () {
       if (roleId === null || roleId === template.id) continue;
       const current = winners.get(roleId);
       if (!current || template.updatedAt > current.updatedAt) winners.set(roleId, template);
+    }
+    const sameConfig = (a: (typeof templates)[number], b: (typeof templates)[number]) =>
+      a.instructions === b.instructions &&
+      a.allowedToolsJson === b.allowedToolsJson &&
+      a.modelSelectionJson === b.modelSelectionJson &&
+      a.runtimeMode === b.runtimeMode &&
+      a.enabled === b.enabled &&
+      a.autoCreateForFeature === b.autoCreateForFeature;
+    for (const template of templates) {
+      const roleId = globalRoleId(template.id);
+      const winner = roleId === null ? undefined : winners.get(roleId);
+      if (winner) libraryPins.set(template.id, sameConfig(template, winner) ? winner.revision : 0);
     }
     for (const [roleId, template] of winners) {
       const name =
@@ -335,14 +359,22 @@ export default Effect.gen(function* () {
     // One library entry per ID: the most recently published project's. Other projects'
     // starter copies are dropped; any other clash keeps its history under `<id>:<project>`.
     const libraryId = new Map<string, string | null>();
+    // A generated ID must not take one a project already uses, or one generated before it.
+    const taken = new Set(heads.map((head) => head.id));
     const claimed = new Set<string>();
     for (const head of heads) {
       const key = `${head.projectId}\u0000${head.id}`;
       if (!claimed.has(head.id)) {
         claimed.add(head.id);
         libraryId.set(key, head.id);
+      } else if (head.id === STARTER_WORKFLOW_ID) {
+        libraryId.set(key, null);
       } else {
-        libraryId.set(key, head.id === STARTER_WORKFLOW_ID ? null : `${head.id}:${head.projectId}`);
+        let id = `${head.id}:${head.projectId}`;
+        for (let suffix = 2; taken.has(id); suffix++) id = `${head.id}:${head.projectId}:${suffix}`;
+        taken.add(id);
+        claimed.add(id);
+        libraryId.set(key, id);
       }
     }
 
@@ -393,7 +425,7 @@ export default Effect.gen(function* () {
       yield* sql`
         INSERT INTO workflow_definition_revisions (id, revision, definition_json, created_at)
         VALUES (${id}, ${revision.revision},
-          ${toVersion2(revision.json, managerRevision, id === revision.id ? undefined : id)},
+          ${toVersion2(revision.json, managerRevision, id === revision.id ? undefined : id, libraryPins)},
           ${revision.createdAt})
       `;
     }

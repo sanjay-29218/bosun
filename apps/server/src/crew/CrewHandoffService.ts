@@ -7,7 +7,7 @@ import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
-import { CrewStore, type CrewRun } from "./CrewStore.ts";
+import { CrewStore, type CrewMember, type CrewRun, type CrewRunSummary } from "./CrewStore.ts";
 import { CrewHandoffStore, type CrewHandoff } from "./CrewHandoffStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 
@@ -15,11 +15,12 @@ export class CrewHandoffError extends Error {
   readonly _tag = "CrewHandoffError";
 }
 
-export interface DelegateBotInput {
+export interface DelegateCrewInput {
   readonly id: string;
   readonly sourceThreadId: ThreadId;
   readonly targetMemberId: string;
-  readonly projectId: ProjectId;
+  /** Checked against the source run's project; the run's project when omitted. */
+  readonly projectId?: ProjectId;
   readonly taskText: string;
   readonly contextText?: string;
   /** Runs the target bot on another model, as Retry with another model does. */
@@ -28,7 +29,7 @@ export interface DelegateBotInput {
 
 export interface CrewHandoffServiceShape {
   readonly delegate: (
-    input: DelegateBotInput,
+    input: DelegateCrewInput,
   ) => Effect.Effect<CrewHandoff, CrewServiceError | CrewHandoffError>;
   readonly respond: (
     threadId: ThreadId,
@@ -50,6 +51,26 @@ export interface CrewHandoffServiceShape {
   ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly cancel: (id: string) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly retry: (id: string) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  /** A person's answer, cancel or retry on a request, refused unless it is on `projectId`. */
+  readonly actInProject: (input: {
+    readonly projectId: ProjectId;
+    readonly requestId: string;
+    readonly action: "answer" | "cancel" | "retry";
+    readonly text?: string | undefined;
+  }) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  /** A project's crew, its recent runs and requests, after settling finished work. */
+  readonly projectSnapshot: (projectId: ProjectId) => Effect.Effect<
+    {
+      readonly members: ReadonlyArray<CrewMember>;
+      readonly runs: ReadonlyArray<CrewRunSummary>;
+      readonly handoffs: ReadonlyArray<CrewHandoff>;
+    },
+    CrewHandoffError | CrewServiceError
+  >;
+  /** The requests the calling thread's run delegated, for runs granted crew.status. */
+  readonly listForThread: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, CrewHandoffError | CrewServiceError>;
   readonly get: (id: string) => Effect.Effect<CrewHandoff | null, CrewServiceError>;
   readonly listByRun: (
     runId: string,
@@ -76,10 +97,10 @@ const bounded = (value: string, name: string, max: number) => {
   return text;
 };
 
-const sameRequest = (handoff: CrewHandoff, input: DelegateBotInput, sourceRunId: string) =>
-  handoff.sourceRunId === sourceRunId &&
+const sameRequest = (handoff: CrewHandoff, input: DelegateCrewInput, source: CrewRun) =>
+  handoff.sourceRunId === source.id &&
   handoff.targetMemberId === input.targetMemberId &&
-  handoff.projectId === input.projectId &&
+  handoff.projectId === source.projectId &&
   handoff.taskText === input.taskText.trim() &&
   handoff.contextText === (input.contextText?.trim() ?? "") &&
   JSON.stringify(handoff.modelSelection ?? null) === JSON.stringify(input.modelSelection ?? null);
@@ -192,12 +213,12 @@ export const CrewHandoffServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewHandoffError("Context exceeds 4,000 characters"));
         }
         const source = yield* requireRun(input.sourceThreadId, "crew.delegate");
-        if (source.projectId !== input.projectId) {
+        if (input.projectId !== undefined && source.projectId !== input.projectId) {
           return yield* Effect.fail(new CrewHandoffError("Source run belongs to another project"));
         }
         const existing = yield* handoffs.get(id);
         if (existing) {
-          if (!sameRequest(existing, { ...input, taskText, contextText }, source.id)) {
+          if (!sameRequest(existing, { ...input, taskText, contextText }, source)) {
             return yield* Effect.fail(
               new CrewHandoffError("Request ID belongs to another handoff"),
             );
@@ -206,7 +227,11 @@ export const CrewHandoffServiceLive = Layer.effect(
         }
         const sourceMember = yield* runs.getActor(source.memberId);
         const targetMember = yield* runs.getMember(input.targetMemberId);
-        if (!sourceMember || !targetMember?.enabled || targetMember.projectId !== input.projectId) {
+        if (
+          !sourceMember ||
+          !targetMember?.enabled ||
+          targetMember.projectId !== source.projectId
+        ) {
           return yield* Effect.fail(
             new CrewHandoffError("Target crew member is unavailable for this project"),
           );
@@ -232,7 +257,7 @@ export const CrewHandoffServiceLive = Layer.effect(
           sourceRunId: source.id,
           targetMemberId: targetMember.id,
           targetRunId: `bot-handoff:${id}`,
-          projectId: input.projectId,
+          projectId: source.projectId,
           taskText,
           contextText,
           depth,
@@ -249,7 +274,7 @@ export const CrewHandoffServiceLive = Layer.effect(
         };
         yield* handoffs.insert(handoff);
         const persisted = yield* handoffs.get(id);
-        if (!persisted || !sameRequest(persisted, { ...input, taskText, contextText }, source.id)) {
+        if (!persisted || !sameRequest(persisted, { ...input, taskText, contextText }, source)) {
           return yield* Effect.fail(new CrewHandoffError("Request ID belongs to another handoff"));
         }
         return yield* startQueued(persisted);
@@ -347,6 +372,68 @@ export const CrewHandoffServiceLive = Layer.effect(
         if (changed) yield* PubSub.publish(changes, handoff.id);
       });
 
+    const cancel = (id: string) =>
+      Effect.gen(function* () {
+        const handoff = yield* handoffs.get(id);
+        if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
+        if (handoff.status === "cancelled") return handoff;
+        if (handoff.status === "completed") {
+          return yield* Effect.fail(new CrewHandoffError("Completed handoff cannot be cancelled"));
+        }
+        const now = DateTime.formatIso(yield* DateTime.now);
+        const target = yield* runs.getRun(handoff.targetRunId);
+        if (
+          target &&
+          ["running", "pending"].includes(yield* runtime.getTurnState(target.threadId))
+        ) {
+          yield* runtime.interrupt(target.threadId, id, now);
+        }
+        yield* handoffs.transition(id, [handoff.status], "cancelled", now, undefined, true);
+        const updated = (yield* handoffs.get(id))!;
+        yield* PubSub.publish(changes, id);
+        yield* deliver(updated).pipe(Effect.result);
+        return (yield* handoffs.get(id))!;
+      });
+
+    const retry = (id: string) =>
+      Effect.gen(function* () {
+        const handoff = yield* handoffs.get(id);
+        if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
+        if (handoff.status === "queued" || handoff.status === "running") return handoff;
+        if (handoff.status !== "failed" && handoff.status !== "cancelled") {
+          return yield* Effect.fail(
+            new CrewHandoffError("Only failed or cancelled handoffs can retry"),
+          );
+        }
+        const sourceRun = yield* runs.getRun(handoff.sourceRunId);
+        const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
+        const targetMember = yield* runs.getMember(handoff.targetMemberId);
+        if (
+          !sourceRun ||
+          !sourceMember?.enabled ||
+          !targetMember?.enabled ||
+          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, sourceRun.projectId))
+        ) {
+          return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
+        }
+        const now = DateTime.formatIso(yield* DateTime.now);
+        const changed = yield* handoffs.retry(id, now);
+        if (!changed)
+          return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
+        return yield* startQueued((yield* handoffs.get(id))!);
+      });
+
+    const refreshProject = (projectId: ProjectId) =>
+      Effect.gen(function* () {
+        const running = yield* handoffs.listRunningByProject(projectId);
+        yield* Effect.forEach(running, settleIfExited, { concurrency: 1, discard: true });
+        const notifications = yield* handoffs.listUndeliveredByProject(projectId);
+        yield* Effect.forEach(notifications, (handoff) => deliver(handoff).pipe(Effect.result), {
+          concurrency: 1,
+          discard: true,
+        });
+      });
+
     return {
       delegate,
       respond: (threadId, outcome, summary) =>
@@ -363,57 +450,37 @@ export const CrewHandoffServiceLive = Layer.effect(
           }
           return yield* answer(id, answerText);
         }),
-      cancel: (id) =>
+      cancel,
+      retry,
+      actInProject: ({ projectId, requestId, action, text }) =>
         Effect.gen(function* () {
-          const handoff = yield* handoffs.get(id);
-          if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
-          if (handoff.status === "cancelled") return handoff;
-          if (handoff.status === "completed") {
-            return yield* Effect.fail(
-              new CrewHandoffError("Completed handoff cannot be cancelled"),
-            );
+          const handoff = yield* handoffs.get(requestId);
+          if (handoff?.projectId !== projectId) {
+            return yield* Effect.fail(new CrewHandoffError("Handoff not found in project"));
           }
-          const now = DateTime.formatIso(yield* DateTime.now);
-          const target = yield* runs.getRun(handoff.targetRunId);
-          if (
-            target &&
-            ["running", "pending"].includes(yield* runtime.getTurnState(target.threadId))
-          ) {
-            yield* runtime.interrupt(target.threadId, id, now);
+          if (action === "answer") {
+            if (!text) return yield* Effect.fail(new CrewHandoffError("Answer is required"));
+            return yield* answer(requestId, text);
           }
-          yield* handoffs.transition(id, [handoff.status], "cancelled", now, undefined, true);
-          const updated = (yield* handoffs.get(id))!;
-          yield* PubSub.publish(changes, id);
-          yield* deliver(updated).pipe(Effect.result);
-          return (yield* handoffs.get(id))!;
+          return yield* action === "cancel" ? cancel(requestId) : retry(requestId);
         }),
-      retry: (id) =>
+      projectSnapshot: (projectId) =>
         Effect.gen(function* () {
-          const handoff = yield* handoffs.get(id);
-          if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
-          if (handoff.status === "queued" || handoff.status === "running") return handoff;
-          if (handoff.status !== "failed" && handoff.status !== "cancelled") {
-            return yield* Effect.fail(
-              new CrewHandoffError("Only failed or cancelled handoffs can retry"),
-            );
+          if (!(yield* runtime.projectExists(projectId))) {
+            return yield* Effect.fail(new CrewHandoffError("Project not found"));
           }
-          const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-          const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
-          const targetMember = yield* runs.getMember(handoff.targetMemberId);
-          if (
-            !sourceRun ||
-            !sourceMember?.enabled ||
-            !targetMember?.enabled ||
-            !(yield* runs.canDelegate(sourceMember.id, targetMember.id, sourceRun.projectId))
-          ) {
-            return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
-          }
-          const now = DateTime.formatIso(yield* DateTime.now);
-          const changed = yield* handoffs.retry(id, now);
-          if (!changed)
-            return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
-          return yield* startQueued((yield* handoffs.get(id))!);
+          yield* refreshProject(projectId);
+          const [members, runSummaries, recent] = yield* Effect.all([
+            runs.listMembersForProject(projectId),
+            crew.listRunSummaries(projectId, 50),
+            handoffs.listByProject(projectId, 100),
+          ]);
+          return { members, runs: runSummaries, handoffs: recent };
         }),
+      listForThread: (threadId) =>
+        requireRun(threadId, "crew.status").pipe(
+          Effect.flatMap((run) => handoffs.listBySourceRun(run.id)),
+        ),
       get: handoffs.get,
       listByRun: handoffs.listBySourceRun,
       waitFor: (threadId, id) =>
@@ -459,16 +526,7 @@ export const CrewHandoffServiceLive = Layer.effect(
             discard: true,
           });
         }),
-      refreshProject: (projectId) =>
-        Effect.gen(function* () {
-          const running = yield* handoffs.listRunningByProject(projectId);
-          yield* Effect.forEach(running, settleIfExited, { concurrency: 1, discard: true });
-          const notifications = yield* handoffs.listUndeliveredByProject(projectId);
-          yield* Effect.forEach(notifications, (handoff) => deliver(handoff).pipe(Effect.result), {
-            concurrency: 1,
-            discard: true,
-          });
-        }),
+      refreshProject,
       refreshRun: (runId) =>
         Effect.gen(function* () {
           const handoff = yield* handoffs.getForTargetRun(runId);

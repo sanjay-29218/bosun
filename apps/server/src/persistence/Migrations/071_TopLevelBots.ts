@@ -37,7 +37,9 @@ export default Effect.gen(function* () {
       position INTEGER NOT NULL,
       revision INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      -- A deleted bot keeps its row so runs it started can still act and be read.
+      deleted_at TEXT
     )
   `;
   const captain = tables.has("crew_members")

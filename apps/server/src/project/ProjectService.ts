@@ -375,21 +375,28 @@ export const make = Effect.gen(function* () {
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
       const botId = input.botId ?? CAPTAIN_BOT_ID;
-      yield* requireBot(input.projectId, botId);
       const workspaceRoot = yield* normalizeWorkspaceRoot({
         projectId: input.projectId,
         workspaceRoot: input.workspaceRoot,
         createIfMissing: input.createWorkspaceRootIfMissing ?? false,
       });
-      yield* commit({
-        type: "project.create",
-        commandId: input.commandId,
-        projectId: input.projectId,
-        title: input.title,
-        workspaceRoot,
-        ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
-        botId,
-      });
+      // The bot is checked and the project committed as one step, so the bot can't be deleted
+      // in between.
+      yield* bots.withOwnership(
+        requireBot(input.projectId, botId).pipe(
+          Effect.andThen(
+            commit({
+              type: "project.create",
+              commandId: input.commandId,
+              projectId: input.projectId,
+              title: input.title,
+              workspaceRoot,
+              ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+              botId,
+            }),
+          ),
+        ),
+      );
       yield* projectEnrichment.invalidate([workspaceRoot]);
       return yield* readCommitted(input.projectId);
     },
@@ -438,13 +445,18 @@ export const make = Effect.gen(function* () {
       if (Option.isNone(yield* readRow(input.projectId))) {
         return yield* new ProjectNotFoundError({ projectId: input.projectId });
       }
-      yield* requireBot(input.projectId, input.botId);
-      yield* commit({
-        type: "project.meta.update",
-        commandId: input.commandId,
-        projectId: input.projectId,
-        botId: input.botId,
-      });
+      yield* bots.withOwnership(
+        requireBot(input.projectId, input.botId).pipe(
+          Effect.andThen(
+            commit({
+              type: "project.meta.update",
+              commandId: input.commandId,
+              projectId: input.projectId,
+              botId: input.botId,
+            }),
+          ),
+        ),
+      );
       return yield* readCommitted(input.projectId);
     },
   );

@@ -45,21 +45,12 @@ const make = Effect.gen(function* () {
         readonly contextText?: string | undefined;
       }) =>
         asCrewMember((threadId) =>
-          Effect.gen(function* () {
-            const runId = yield* handoffStore.getRunByThread(threadId);
-            const run = runId ? yield* crewStore.getRun(runId) : null;
-            if (!run)
-              return yield* Effect.fail(
-                new CrewToolFailedError({ reason: "Caller is not a crew run" }),
-              );
-            return yield* handoffs.delegate({
-              id: input.requestId,
-              sourceThreadId: threadId,
-              targetMemberId: input.targetMemberId,
-              projectId: run.projectId,
-              taskText: input.taskText,
-              ...(input.contextText !== undefined ? { contextText: input.contextText } : {}),
-            });
+          handoffs.delegate({
+            id: input.requestId,
+            sourceThreadId: threadId,
+            targetMemberId: input.targetMemberId,
+            taskText: input.taskText,
+            ...(input.contextText !== undefined ? { contextText: input.contextText } : {}),
           }),
         ),
     ),
@@ -72,16 +63,7 @@ const make = Effect.gen(function* () {
     ),
     crew_list_handoffs: McpToolAccess.readsAsCaller(() =>
       asCrewMember((threadId) =>
-        Effect.gen(function* () {
-          const runId = yield* handoffStore.getRunByThread(threadId);
-          const run = runId ? yield* crewStore.getRun(runId) : null;
-          if (!run?.allowedTools.includes("crew.status")) {
-            return yield* Effect.fail(
-              new CrewToolFailedError({ reason: "Caller cannot inspect crew requests" }),
-            );
-          }
-          return { handoffs: yield* handoffs.listByRun(run.id) };
-        }),
+        handoffs.listForThread(threadId).pipe(Effect.map((list) => ({ handoffs: list }))),
       ),
     ),
     crew_wait_handoff: McpToolAccess.readsAsCaller((input: { readonly requestId: string }) =>

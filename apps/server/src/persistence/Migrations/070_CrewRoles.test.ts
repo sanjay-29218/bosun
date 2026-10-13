@@ -142,6 +142,20 @@ it.effect("turns per-project bot templates into global roles and workflows", () 
           (${projectId}, 'custom', 1, ${templateDefinition(projectId, revision)}, ${createdAt})
       `;
     }
+    // A third project already uses the ID the clash would generate for p1's "custom".
+    yield* sql`INSERT INTO workflow_definition_heads VALUES ('p3', 'custom:p1', 1)`;
+    yield* sql`
+      INSERT INTO workflow_definition_revisions VALUES
+        ('p3', 'custom:p1', 1, ${templateDefinition("p3", 1)}, '2026-09-01')
+    `;
+    // p3's planner was edited away from the planner the merge keeps.
+    yield* sql`
+      INSERT INTO bot_templates (
+        id, project_id, name, instructions, allowed_tools_json, model_selection_json,
+        runtime_mode, enabled, auto_create_for_feature, revision, created_at, updated_at
+      ) VALUES ('template:planner:p3', 'p3', 'Planner', 'Plan differently', '["bots.respond"]',
+        ${model}, 'approval-required', 1, 1, 3, '2026-09-01', '2026-09-01')
+    `;
     yield* sql`
       INSERT INTO features (id, project_id, title, brief, created_at, updated_at, bot_assignments_json)
       VALUES ('feature-1', 'p1', 'Feature', 'Brief', '2026-10-01', '2026-10-01',
@@ -286,7 +300,7 @@ it.effect("turns per-project bot templates into global roles and workflows", () 
     `;
     assert.deepStrictEqual(
       library.map((row) => row.id),
-      ["custom", "custom:p1", "feature-delivery"],
+      ["custom", "custom:p1", "custom:p1:2", "feature-delivery"],
     );
     const starter = decodeDefinition(library.find((row) => row.id === "feature-delivery")!.json);
     assert.deepStrictEqual(starter.roles, {
@@ -294,14 +308,17 @@ it.effect("turns per-project bot templates into global roles and workflows", () 
       planner: { roleId: "role:planner", roleRevision: 3, supervisor: "manager" },
     });
     assert.strictEqual(starter.steps.plan?.type === "task" && starter.steps.plan.role, "planner");
-    assert.strictEqual(
-      decodeDefinition(library.find((row) => row.id === "custom:p1")!.json).id,
-      "custom:p1",
-    );
+    // p1's planner matched the kept one, so its workflow pins the merged revision; p3's
+    // differed, so its workflow must be published again before a feature can start on it.
+    const renamed = decodeDefinition(library.find((row) => row.id === "custom:p1:2")!.json);
+    assert.strictEqual(renamed.id, "custom:p1:2");
+    assert.strictEqual(renamed.roles.planner?.roleRevision, 3);
+    const edited = decodeDefinition(library.find((row) => row.id === "custom:p1")!.json);
+    assert.strictEqual(edited.roles.planner?.roleRevision, 0);
     const copy = (yield* sql<{ readonly workflowId: string; readonly json: string }>`
       SELECT workflow_id AS workflowId, definition_json AS json FROM feature_workflows
     `)[0]!;
-    assert.strictEqual(copy.workflowId, "custom:p1");
+    assert.strictEqual(copy.workflowId, "custom:p1:2");
     assert.deepStrictEqual(decodeDefinition(copy.json).roles.planner, {
       roleId: "role:planner",
       roleRevision: 1,

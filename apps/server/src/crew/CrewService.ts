@@ -18,6 +18,7 @@ import type { PersistenceSqlError, ProjectionRepositoryError } from "../persiste
 import {
   CrewStore,
   type CrewMember,
+  type CrewDelegationGrant,
   type CrewHierarchyNode,
   type Role,
   type CrewRun,
@@ -160,6 +161,28 @@ export interface CrewServiceShape {
     parentMemberId: string | null,
     position?: number,
   ) => Effect.Effect<void, CrewServiceError>;
+  /** The project's crew hierarchy and explicit delegation grants. */
+  readonly projectConfiguration: (projectId: ProjectId) => Effect.Effect<
+    {
+      readonly hierarchy: ReadonlyArray<CrewHierarchyNode>;
+      readonly delegationGrants: ReadonlyArray<CrewDelegationGrant>;
+    },
+    CrewServiceError
+  >;
+  /** Places a member of the project under another member, or at the top. */
+  readonly placeInProject: (input: {
+    readonly projectId: ProjectId;
+    readonly memberId: string;
+    readonly parentMemberId: string | null;
+    readonly position: number;
+  }) => Effect.Effect<void, CrewServiceError>;
+  /** Grants or revokes delegation to a member of the project. */
+  readonly setDelegationInProject: (input: {
+    readonly projectId: ProjectId;
+    readonly sourceMemberId: string;
+    readonly targetMemberId: string;
+    readonly allowed: boolean;
+  }) => Effect.Effect<void, CrewServiceError>;
   readonly createRun: (input: CreateCrewRunInput) => Effect.Effect<CrewRun, CrewServiceError>;
   readonly getRun: (
     id: string,
@@ -278,6 +301,10 @@ export const CrewServiceLive = Layer.effect(
         }
         if (input.projectId !== null && !(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+        }
+        // Bots act in runs too, so a member can't take a bot's ID.
+        if (yield* bots.idTaken(id)) {
+          return yield* Effect.fail(new CrewValidationError("Crew member ID is in use"));
         }
         const now = DateTime.formatIso(yield* DateTime.now);
         const member: CrewMember = {
@@ -408,6 +435,9 @@ export const CrewServiceLive = Layer.effect(
       context: string,
     ) =>
       Effect.gen(function* () {
+        // An existing member keeps working even if its role was turned off since.
+        const existing = yield* store.getMember(id);
+        if (existing?.projectId === projectId) return { member: existing, created: false };
         const role = yield* store.getRole(roleId);
         if (!role?.enabled) {
           return yield* Effect.fail(
@@ -433,8 +463,8 @@ export const CrewServiceLive = Layer.effect(
         }
         const managerId = projectManagerMemberId(projectId);
         const builderId = projectBuilderMemberId(projectId);
-        const existing = yield* store.getMember(managerId);
-        if (existing) return existing;
+        // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
+        // disabled role) is completed by the next request once the role is back.
         const manager = yield* projectMemberFromRole(
           managerId,
           projectId,
@@ -448,10 +478,8 @@ export const CrewServiceLive = Layer.effect(
           `You work on project ${projectId}.`,
         );
         // The project's bot may delegate to the manager because it owns the project.
-        if (manager.created || builder.created) {
-          yield* store.grantDelegation(managerId, builderId);
-          yield* store.setParent(builderId, managerId, 0);
-        }
+        yield* store.grantDelegation(managerId, builderId);
+        if (builder.created) yield* store.setParent(builderId, managerId, 0);
         return manager.member;
       });
 
@@ -543,6 +571,50 @@ export const CrewServiceLive = Layer.effect(
         return (yield* store.getRun(id))!;
       });
 
+    const setHierarchyParent: CrewServiceShape["setHierarchyParent"] = (
+      memberId,
+      parentMemberId,
+      position = 0,
+    ) =>
+      Effect.gen(function* () {
+        const child = yield* store.getMember(memberId);
+        const parent = parentMemberId === null ? null : yield* store.getMember(parentMemberId);
+        if (!child?.enabled || (parentMemberId !== null && !parent?.enabled)) {
+          return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
+        }
+        if (
+          !Number.isSafeInteger(position) ||
+          position < 0 ||
+          position > 10_000 ||
+          (parent &&
+            ((child.projectId === null && parent.projectId !== null) ||
+              (parent.projectId !== null && parent.projectId !== child.projectId) ||
+              (parent.featureId !== null && parent.featureId !== child.featureId)))
+        ) {
+          return yield* Effect.fail(new CrewValidationError("Invalid hierarchy placement"));
+        }
+        if (!(yield* store.setParent(memberId, parentMemberId, position))) {
+          return yield* Effect.fail(new CrewValidationError("Hierarchy cycle rejected"));
+        }
+      });
+
+    const allowDelegation: CrewServiceShape["allowDelegation"] = (sourceMemberId, targetMemberId) =>
+      Effect.gen(function* () {
+        const source = yield* store.getMember(sourceMemberId);
+        const target = yield* store.getMember(targetMemberId);
+        if (
+          !source ||
+          !target ||
+          !source.enabled ||
+          !target.enabled ||
+          sourceMemberId === targetMemberId ||
+          (source.projectId !== null && target.projectId !== source.projectId)
+        ) {
+          return yield* Effect.fail(new CrewValidationError("Invalid delegation grant"));
+        }
+        yield* store.grantDelegation(sourceMemberId, targetMemberId);
+      });
+
     return {
       ensureDefaults: (modelSelection) =>
         Effect.gen(function* () {
@@ -614,44 +686,36 @@ export const CrewServiceLive = Layer.effect(
       listDelegationGrantsForProject: store.listDelegationGrantsForProject,
       revokeDelegation: store.revokeDelegation,
       listHierarchyForProject: store.listHierarchyForProject,
-      setHierarchyParent: (memberId, parentMemberId, position = 0) =>
+      setHierarchyParent,
+      projectConfiguration: (projectId) =>
         Effect.gen(function* () {
-          const child = yield* store.getMember(memberId);
-          const parent = parentMemberId === null ? null : yield* store.getMember(parentMemberId);
-          if (!child?.enabled || (parentMemberId !== null && !parent?.enabled)) {
-            return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
+          if (!(yield* runtime.projectExists(projectId))) {
+            return yield* Effect.fail(new CrewValidationError("Project not found"));
           }
-          if (
-            !Number.isSafeInteger(position) ||
-            position < 0 ||
-            position > 10_000 ||
-            (parent &&
-              ((child.projectId === null && parent.projectId !== null) ||
-                (parent.projectId !== null && parent.projectId !== child.projectId) ||
-                (parent.featureId !== null && parent.featureId !== child.featureId)))
-          ) {
-            return yield* Effect.fail(new CrewValidationError("Invalid hierarchy placement"));
-          }
-          if (!(yield* store.setParent(memberId, parentMemberId, position))) {
-            return yield* Effect.fail(new CrewValidationError("Hierarchy cycle rejected"));
-          }
+          const [hierarchy, delegationGrants] = yield* Effect.all([
+            store.listHierarchyForProject(projectId),
+            store.listDelegationGrantsForProject(projectId),
+          ]);
+          return { hierarchy, delegationGrants };
         }),
-      allowDelegation: (sourceMemberId, targetMemberId) =>
+      placeInProject: (input) =>
         Effect.gen(function* () {
-          const source = yield* store.getMember(sourceMemberId);
-          const target = yield* store.getMember(targetMemberId);
-          if (
-            !source ||
-            !target ||
-            !source.enabled ||
-            !target.enabled ||
-            sourceMemberId === targetMemberId ||
-            (source.projectId !== null && target.projectId !== source.projectId)
-          ) {
-            return yield* Effect.fail(new CrewValidationError("Invalid delegation grant"));
+          const child = yield* store.getMember(input.memberId);
+          if (child?.projectId !== input.projectId) {
+            return yield* Effect.fail(new CrewValidationError("Crew member not found in project"));
           }
-          yield* store.grantDelegation(sourceMemberId, targetMemberId);
+          yield* setHierarchyParent(input.memberId, input.parentMemberId, input.position);
         }),
+      setDelegationInProject: (input) =>
+        Effect.gen(function* () {
+          const target = yield* store.getMember(input.targetMemberId);
+          if (target?.projectId !== input.projectId) {
+            return yield* Effect.fail(new CrewValidationError("Crew member not found in project"));
+          }
+          if (input.allowed) yield* allowDelegation(input.sourceMemberId, input.targetMemberId);
+          else yield* store.revokeDelegation(input.sourceMemberId, input.targetMemberId);
+        }),
+      allowDelegation,
       createRun,
       getRun: (id) =>
         store.getRun(id).pipe(

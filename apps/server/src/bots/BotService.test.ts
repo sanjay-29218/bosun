@@ -150,6 +150,24 @@ it.layer(layer)("BotService", (it) => {
       assert.strictEqual(shell._tag === "Some" ? shell.value.botId : null, CAPTAIN_BOT_ID);
       yield* bots.delete(bot.id);
       assert.strictEqual(yield* bots.get(bot.id), null);
+      assert.isFalse((yield* bots.list).some((listed) => listed.id === bot.id));
+      // The row stays, so runs it already started can still act, and its ID stays taken.
+      const store = yield* BotStore.BotStore;
+      assert.isTrue(yield* store.idTaken(bot.id));
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.create({ ...social, id: bot.id }))));
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(
+            projects.create({
+              commandId: CommandId.make("command:deleted-bot"),
+              projectId: ProjectId.make("project:deleted-bot"),
+              title: "Deleted",
+              workspaceRoot: "/work/deleted",
+              botId: bot.id,
+            }),
+          ),
+        ),
+      );
       assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.delete(CAPTAIN_BOT_ID))));
       assert.isTrue(
         Exit.isFailure(

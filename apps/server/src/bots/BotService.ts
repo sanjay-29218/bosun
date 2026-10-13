@@ -38,7 +38,10 @@ export class BotService extends Context.Service<
     /** Adds a bot at the end of the rail. Repeating the same create returns the same bot. */
     readonly create: (input: BotCreateInput) => Effect.Effect<Bot, BotServiceError>;
     readonly update: (input: BotUpdateInput) => Effect.Effect<Bot, BotServiceError>;
-    /** Refused for Captain and for a bot that still owns a project; move its projects first. */
+    /**
+     * Refused for Captain and for a bot that still owns a project; move its projects first.
+     * Runs the bot already started keep working, but it gets no new ones.
+     */
     readonly delete: (id: string) => Effect.Effect<void, BotServiceError>;
     /** Sets the rail order; `botIds` lists every bot exactly once. */
     readonly reorder: (
@@ -179,7 +182,8 @@ const make = Effect.gen(function* () {
         if (id === CAPTAIN_BOT_ID) {
           return yield* new BotValidationError({ reason: "Captain can't be deleted" });
         }
-        const result = yield* store.deleteUnlessOwning(id);
+        const deletedAt = DateTime.formatIso(yield* DateTime.now);
+        const result = yield* store.withOwnership(store.deleteUnlessOwning(id, deletedAt));
         if (result === "owns-projects") {
           return yield* new BotValidationError({
             reason: "Move this bot's projects to another bot before deleting it",
