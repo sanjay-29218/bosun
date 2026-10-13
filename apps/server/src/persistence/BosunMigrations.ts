@@ -26,6 +26,7 @@ import CrewLifecycle from "./Migrations/067_CrewLifecycle.ts";
 import WorkflowStageHandoffs from "./Migrations/068_WorkflowStageHandoffs.ts";
 import AttachedStageThreads from "./Migrations/069_AttachedStageThreads.ts";
 import CrewRoles from "./Migrations/070_CrewRoles.ts";
+import TopLevelBots from "./Migrations/071_TopLevelBots.ts";
 
 export const migrationEntries = [
   [55, "Bots", Bots],
@@ -44,6 +45,7 @@ export const migrationEntries = [
   [68, "WorkflowStageHandoffs", WorkflowStageHandoffs],
   [69, "AttachedStageThreads", AttachedStageThreads],
   [70, "CrewRoles", CrewRoles],
+  [71, "TopLevelBots", TopLevelBots],
 ] as const;
 
 const legacyNames = new Set([

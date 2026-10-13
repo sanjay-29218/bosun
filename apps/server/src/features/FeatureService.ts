@@ -24,7 +24,8 @@ import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
-import { CAPTAIN_MEMBER_ID, CrewService, type CrewServiceError } from "../crew/CrewService.ts";
+import * as BotStore from "../bots/BotStore.ts";
+import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
@@ -127,13 +128,13 @@ const hashed = (prefix: string, featureId: string, id: string) =>
 /** The "feature-bot" prefix predates the Roles rename; existing member IDs keep it. */
 const featureMemberId = (featureId: string, slot: string) => hashed("feature-bot", featureId, slot);
 
-const leadTask = (feature: FeatureRecord, definition: WorkflowDefinition, captain: boolean) =>
+const leadTask = (feature: FeatureRecord, definition: WorkflowDefinition, bot: boolean) =>
   [
-    captain
+    bot
       ? `You keep feature "${feature.title}" (${feature.id}) moving on workflow ${definition.name}.`
       : `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
     "The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-    captain
+    bot
       ? "Stage notices arrive here. Tell the person only what they must decide."
       : "Stage crew members ask you questions here. Answer with crew_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
@@ -152,6 +153,7 @@ export const FeatureServiceLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const crew = yield* CrewService;
     const crewStore = yield* CrewStore;
+    const bots = yield* BotStore.BotStore;
     const runtime = yield* CrewThreadRuntime;
     const workflows = yield* WorkflowService;
     const workflowStore = yield* WorkflowStore;
@@ -191,36 +193,41 @@ export const FeatureServiceLive = Layer.effect(
         ),
       );
 
-    /** One lead run per dispatching member, created once per feature. */
+    /** The bot that owns the project, once it can run: the crew is set up and it has a model. */
+    const readyOwner = (projectId: ProjectId, action: string) =>
+      Effect.gen(function* () {
+        const ownerId = yield* bots.projectOwner(projectId);
+        const owner = ownerId === null ? null : yield* bots.get(ownerId);
+        if (!owner?.modelSelection) {
+          return yield* Effect.fail(new FeatureValidationError(`Set up the crew before ${action}`));
+        }
+        return owner;
+      });
+
+    /**
+     * One lead run per dispatching member, created once per feature. Stages without a
+     * supervisor are led by the bot that owns the project, which may delegate on its projects.
+     */
     const leadBindings = (feature: FeatureRecord, definition: WorkflowDefinition) =>
       Effect.gen(function* () {
         const bindings: Record<string, WorkflowBindings[string]> = {};
         for (const [name, assignment] of Object.entries(definition.roles)) {
           const memberId = feature.crewAssignments[name];
-          const leadMemberId =
+          const owner =
             assignment.supervisor === null
-              ? CAPTAIN_MEMBER_ID
-              : feature.crewAssignments[assignment.supervisor];
+              ? yield* readyOwner(feature.projectId, "starting a feature")
+              : null;
+          const leadMemberId = owner?.id ?? feature.crewAssignments[assignment.supervisor ?? ""];
           if (!memberId || !leadMemberId) {
             return yield* Effect.fail(
               new FeatureValidationError(`Workflow role ${name} has no crew member`),
             );
           }
-          if (leadMemberId === CAPTAIN_MEMBER_ID) {
-            if (!(yield* crewStore.getMember(CAPTAIN_MEMBER_ID))?.enabled) {
-              return yield* Effect.fail(
-                new FeatureValidationError("Set up the crew before starting a feature"),
-              );
-            }
-            if (!(yield* crewStore.canDelegate(CAPTAIN_MEMBER_ID, memberId))) {
-              yield* crew.allowDelegation(CAPTAIN_MEMBER_ID, memberId);
-            }
-          }
           const run = yield* crew.createRun({
             id: hashed("feature-lead", feature.id, leadMemberId),
             memberId: leadMemberId,
             projectId: feature.projectId,
-            taskText: leadTask(feature, definition, leadMemberId === CAPTAIN_MEMBER_ID),
+            taskText: leadTask(feature, definition, owner !== null),
           });
           bindings[name] = { memberId, dispatchRunId: run.id };
         }
@@ -501,11 +508,7 @@ export const FeatureServiceLive = Layer.effect(
             );
           }
           // Check the crew first, so a feature is never left made but unstarted.
-          if (!(yield* crewStore.getMember(CAPTAIN_MEMBER_ID))?.enabled) {
-            return yield* Effect.fail(
-              new FeatureValidationError("Set up the crew before making a feature"),
-            );
-          }
+          yield* readyOwner(input.projectId, "making a feature");
           const { messages } = yield* readThread(
             engine.getThreadRecords(input.threadId, ["messages"], { messageRoles: ["user"] }),
           );

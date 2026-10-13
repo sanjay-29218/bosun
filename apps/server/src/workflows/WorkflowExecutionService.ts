@@ -796,7 +796,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             const binding = bindings[name];
             const member = binding ? yield* crew.getMember(binding.memberId) : null;
             const source = binding ? yield* crew.getRun(binding.dispatchRunId) : null;
-            const sourceMember = source ? yield* crew.getMember(source.memberId) : null;
+            const sourceMember = source ? yield* crew.getActor(source.memberId) : null;
             if (
               !binding ||
               !member?.enabled ||
@@ -808,7 +808,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               !member.allowedTools.includes("crew.respond") ||
               (role.supervisor !== null &&
                 source.memberId !== bindings[role.supervisor]?.memberId) ||
-              !(yield* crew.canDelegate(source.memberId, member.id))
+              !(yield* crew.canDelegate(source.memberId, member.id, projectId))
             ) {
               return yield* Effect.fail(
                 new WorkflowTransitionError(`Unauthorized or mismatched workflow binding: ${name}`),

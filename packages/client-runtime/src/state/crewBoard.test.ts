@@ -8,8 +8,10 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  botNeedsYouKey,
   buildFeatureStageBoard,
   collectNeedsYou,
+  countNeedsYouByBot,
   featureCardActions,
   featureDropAction,
   featurePhase,
@@ -307,5 +309,36 @@ describe("queue, drag and actions", () => {
     expect(sendBackTargets(definition, steps, "review")).toEqual(["plan", "build"]);
     expect(sendBackTargets(definition, [], "plan")).toEqual([]);
     expect(stageOutcomes(definition, "plan")).toEqual(["ready"]);
+  });
+});
+
+describe("countNeedsYouByBot", () => {
+  it("counts waiting threads under the bot that owns their project", () => {
+    const social = ProjectId.make("social-site");
+    const captains = ProjectId.make("legacy");
+    const other = EnvironmentId.make("env-2");
+    const counts = countNeedsYouByBot(
+      [
+        { ...shell("approval", { hasPendingApprovals: true }), projectId: social },
+        { ...shell("question", { hasPendingUserInput: true }), projectId: social },
+        { ...shell("idle"), projectId: social },
+        { ...shell("older-server", { hasPendingApprovals: true }), projectId: captains },
+        {
+          ...shell("elsewhere", { hasPendingApprovals: true, environmentId: other }),
+          projectId: social,
+        },
+      ],
+      [
+        { environmentId, id: social, botId: "bot:social" },
+        // A project from an older server has no botId: Captain owns it.
+        { environmentId, id: captains },
+        { environmentId: other, id: social, botId: "bot:social" },
+      ],
+    );
+    expect(Object.fromEntries(counts)).toEqual({
+      [botNeedsYouKey(environmentId, "bot:social")]: 2,
+      [botNeedsYouKey(environmentId, "bot-captain")]: 1,
+      [botNeedsYouKey(other, "bot:social")]: 1,
+    });
   });
 });

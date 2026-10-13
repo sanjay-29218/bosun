@@ -27,6 +27,15 @@ import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  Bot,
+  BotCreateInput,
+  BotDeleteInput,
+  BotMoveProjectInput,
+  BotOperationError,
+  BotReorderInput,
+  BotUpdateInput,
+} from "./bots.ts";
+import {
   CrewConfigurationSnapshot,
   CrewHandoff,
   CrewHandoffActionInput,
@@ -441,6 +450,12 @@ export const WS_METHODS = {
   workflowsAcceptAsIs: "workflows.acceptAsIs",
   workflowsOneMoreRound: "workflows.oneMoreRound",
   workflowsStartNow: "workflows.startNow",
+  botsList: "bots.list",
+  botsCreate: "bots.create",
+  botsUpdate: "bots.update",
+  botsDelete: "bots.delete",
+  botsReorder: "bots.reorder",
+  botsMoveProject: "bots.moveProject",
   rolesList: "roles.list",
   rolesCreate: "roles.create",
   rolesUpdate: "roles.update",
@@ -1155,6 +1170,37 @@ const WsFeaturesThreadLinkRpc = Rpc.make(WS_METHODS.featuresThreadLink, {
   payload: FeatureThreadInput,
   success: FeatureThreadLink,
   error: FeatureRpcError,
+});
+const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
+const WsBotsListRpc = Rpc.make(WS_METHODS.botsList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(Bot),
+  error: BotRpcError,
+});
+const WsBotsCreateRpc = Rpc.make(WS_METHODS.botsCreate, {
+  payload: BotCreateInput,
+  success: Bot,
+  error: BotRpcError,
+});
+const WsBotsUpdateRpc = Rpc.make(WS_METHODS.botsUpdate, {
+  payload: BotUpdateInput,
+  success: Bot,
+  error: BotRpcError,
+});
+const WsBotsDeleteRpc = Rpc.make(WS_METHODS.botsDelete, {
+  payload: BotDeleteInput,
+  success: Schema.Void,
+  error: BotRpcError,
+});
+const WsBotsReorderRpc = Rpc.make(WS_METHODS.botsReorder, {
+  payload: BotReorderInput,
+  success: Schema.Array(Bot),
+  error: BotRpcError,
+});
+const WsBotsMoveProjectRpc = Rpc.make(WS_METHODS.botsMoveProject, {
+  payload: BotMoveProjectInput,
+  success: Project,
+  error: BotRpcError,
 });
 const WsRolesListRpc = Rpc.make(WS_METHODS.rolesList, {
   payload: Schema.Struct({}),
@@ -2105,7 +2151,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-/** Bosun's features, workflows, roles and crew RPCs, served by their own server handler layer. */
+/** Bosun's bots, features, workflows, roles and crew RPCs, served by their own server handler layer. */
 export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesCreateRpc,
   WsFeaturesListRpc,
@@ -2138,6 +2184,12 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsAcceptAsIsRpc,
   WsWorkflowsOneMoreRoundRpc,
   WsWorkflowsStartNowRpc,
+  WsBotsListRpc,
+  WsBotsCreateRpc,
+  WsBotsUpdateRpc,
+  WsBotsDeleteRpc,
+  WsBotsReorderRpc,
+  WsBotsMoveProjectRpc,
   WsRolesListRpc,
   WsRolesCreateRpc,
   WsRolesUpdateRpc,

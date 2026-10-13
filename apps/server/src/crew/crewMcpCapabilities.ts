@@ -15,9 +15,9 @@ export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (t
   const rows = yield* database.value<{ readonly allowedTools: string }>`
     SELECT allowed_tools_json AS allowedTools FROM crew_runs WHERE thread_id = ${threadId}
   `.pipe(Effect.orElseSucceed(() => []));
-  const grants = yield* Schema.decodeUnknownEffect(
-    Schema.fromJsonString(Schema.Array(Schema.String)),
-  )(rows[0]?.allowedTools ?? "[]").pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+  const grants = yield* decodeGrants(rows[0]?.allowedTools ?? "[]").pipe(
+    Effect.orElseSucceed((): ReadonlyArray<string> => []),
+  );
   const capabilities = new Set<McpCapability>();
   if (grants.some((grant) => grant.startsWith("crew."))) capabilities.add("crew");
   for (const capability of [

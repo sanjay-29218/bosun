@@ -23,6 +23,7 @@ fresh("new bot storage", (it) => {
       assert.deepStrictEqual(
         tables.map((row) => row.name),
         [
+          "bots",
           "crew_delegation_grants",
           "crew_handoff_receipts",
           "crew_handoffs",
@@ -114,21 +115,20 @@ legacy("legacy bot storage", (it) => {
       const oldNames = yield* sql<{ readonly name: string }>`
         SELECT name FROM sqlite_master WHERE name LIKE 'bosun_bot_%' OR name = 'bot_definitions'
       `;
+      // Captain became a top-level bot (071); the project crew stays.
       assert.deepStrictEqual(bots.map((bot) => bot.id).sort(), [
         "bot-builder:project",
-        "bot-captain",
         "bot-manager:project",
       ]);
       assert.deepStrictEqual(
         bots.map((bot) => bot.templateId),
-        [null, null, null],
+        [null, null],
       );
       const grants = yield* sql<{ readonly sourceBotId: string; readonly targetBotId: string }>`
         SELECT source_member_id AS sourceBotId, target_member_id AS targetBotId
         FROM crew_delegation_grants ORDER BY source_member_id
       `;
       assert.deepStrictEqual(grants, [
-        { sourceBotId: "bot-captain", targetBotId: "bot-manager:project" },
         { sourceBotId: "bot-manager:project", targetBotId: "bot-builder:project" },
       ]);
       assert.deepStrictEqual(
@@ -147,8 +147,7 @@ legacy("legacy bot storage", (it) => {
       `;
       assert.deepStrictEqual(hierarchy, [
         { botId: "bot-builder:project", parentBotId: "bot-manager:project" },
-        { botId: "bot-captain", parentBotId: null },
-        { botId: "bot-manager:project", parentBotId: "bot-captain" },
+        { botId: "bot-manager:project", parentBotId: null },
       ]);
       assert.deepStrictEqual(foreignKeyErrors, []);
       assert.deepStrictEqual(oldNames, []);

@@ -161,7 +161,7 @@ it.effect("turns per-project bot templates into global roles and workflows", () 
       VALUES ('feature-1', 'started', ${JSON.stringify({ kind: "started", stepId: "plan", botRunId: "stage" })}, '2026-10-01')
     `;
 
-    yield* runMigrations();
+    yield* BosunMigrations.runMigrations(70);
 
     // Each default role keeps the newest project's template; Captain is no longer a role.
     assert.deepStrictEqual(
@@ -309,6 +309,6 @@ it.effect("turns per-project bot templates into global roles and workflows", () 
     });
 
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-    assert.deepStrictEqual(yield* runMigrations(), []);
+    assert.deepStrictEqual(yield* BosunMigrations.runMigrations(70), []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

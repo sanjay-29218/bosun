@@ -49,6 +49,8 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import * as BotsHandlers from "./toolkits/bots/handlers.ts";
+import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import * as CrewHandlers from "./toolkits/crew/handlers.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
@@ -847,6 +849,7 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
+export const layerBotsToolkit = toolkitRegistration(BotsToolkit, BotsHandlers.layer);
 export const layerCrewToolkit = toolkitRegistration(CrewToolkit, CrewHandlers.layer);
 export const layerFeaturesToolkit = toolkitRegistration(FeaturesToolkit, FeaturesHandlers.layer);
 
@@ -867,6 +870,7 @@ export const layer = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
+  layerBotsToolkit,
   layerCrewToolkit,
   layerFeaturesToolkit,
   layerDeviceToolkit,

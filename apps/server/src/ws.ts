@@ -114,6 +114,7 @@ import { RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
+import * as BotService from "./bots/BotService.ts";
 import { CrewService } from "./crew/CrewService.ts";
 import { CrewStore } from "./crew/CrewStore.ts";
 import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
@@ -3142,6 +3143,7 @@ export const layer = Layer.unwrap(
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const crewServices = {
+      bots: yield* BotService.BotService,
       crew: yield* CrewService,
       crewStore: yield* CrewStore,
       crewHandoffs: yield* CrewHandoffService,

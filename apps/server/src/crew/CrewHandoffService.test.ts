@@ -151,11 +151,14 @@ describe("Bot handoffs", () => {
           );
           const cancelled = yield* handoffs.cancel(managerRequest.id);
           expect(cancelled.status).toBe("cancelled");
-          yield* bots.revokeDelegation("bot-captain", `bot-manager:${projectId}`);
+          // Captain may delegate because it owns the project, so retry rechecks the target instead.
+          const sql = yield* SqlClient.SqlClient;
+          const managerId = `bot-manager:${projectId}`;
+          yield* sql`UPDATE crew_members SET enabled = 0 WHERE id = ${managerId}`;
           expect((yield* handoffs.retry(managerRequest.id).pipe(Effect.result))._tag).toBe(
             "Failure",
           );
-          yield* bots.allowDelegation("bot-captain", `bot-manager:${projectId}`);
+          yield* sql`UPDATE crew_members SET enabled = 1 WHERE id = ${managerId}`;
           const retry = yield* handoffs.retry(managerRequest.id);
           expect(retry.status).toBe("running");
           expect(retry.targetRunId).not.toBe(managerRequest.targetRunId);

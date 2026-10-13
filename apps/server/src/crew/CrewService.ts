@@ -23,6 +23,7 @@ import {
   type CrewRun,
   type CrewRunSummary,
 } from "./CrewStore.ts";
+import * as BotStore from "../bots/BotStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 
 export class CrewValidationError extends Error {
@@ -33,7 +34,6 @@ export class CrewValidationError extends Error {
  * Member IDs below predate the Roles rename. They stay as they are because stored runs,
  * handoffs, grants and feature bindings reference them.
  */
-export const CAPTAIN_MEMBER_ID = "bot-captain";
 /** The member made from the project manager role for one project, created on first use. */
 export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
 /** The builder a project manager hands direct requests to, created with the manager. */
@@ -66,9 +66,6 @@ const DEFAULT_ROLES = [
   instructions: stageInstructions(role.name),
   ...role,
 }));
-
-const CAPTAIN_INSTRUCTIONS =
-  "You are Captain. Coordinate the person's project request. The task names its project manager. Delegate using crew_delegate with a stable request ID. Use crew_wait_handoff until the project manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use crew_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.";
 
 export interface CreateCrewMemberInput {
   readonly id: string;
@@ -112,7 +109,10 @@ export interface CrewRunView {
 }
 
 export interface CrewServiceShape {
-  /** Creates the missing default roles and Captain. Existing ones are left as people edited them. */
+  /**
+   * Creates the missing default roles, and gives bots without a model `modelSelection`. Existing
+   * roles are left as people edited them.
+   */
   readonly ensureDefaults: (
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, CrewServiceError>;
@@ -123,7 +123,7 @@ export interface CrewServiceShape {
   readonly ensureProjectManager: (
     projectId: ProjectId,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
-  /** A person's request to Captain, who hands it to the project's manager. */
+  /** A person's request to the project's bot, which hands it to the project's manager. */
   readonly startRequest: (input: {
     readonly id: string;
     readonly projectId: ProjectId;
@@ -207,6 +207,7 @@ export const CrewServiceLive = Layer.effect(
   Effect.gen(function* () {
     const store = yield* CrewStore;
     const runtime = yield* CrewThreadRuntime;
+    const bots = yield* BotStore.BotStore;
 
     const threadInput = (run: CrewRun) => ({
       runId: run.id,
@@ -446,17 +447,50 @@ export const CrewServiceLive = Layer.effect(
           BUILDER_ROLE_ID,
           `You work on project ${projectId}.`,
         );
-        const captain = yield* store.getMember(CAPTAIN_MEMBER_ID);
-        if (captain && manager.created) {
-          yield* store.grantDelegation(CAPTAIN_MEMBER_ID, managerId);
-          yield* store.setParent(managerId, CAPTAIN_MEMBER_ID, 0);
-        }
+        // The project's bot may delegate to the manager because it owns the project.
         if (manager.created || builder.created) {
           yield* store.grantDelegation(managerId, builderId);
           yield* store.setParent(builderId, managerId, 0);
         }
         return manager.member;
       });
+
+    /**
+     * Who acts in a new run: a crew member on the run's project (or an environment-wide one),
+     * or the top-level bot that owns the project.
+     */
+    const runActor = (id: string, projectId: ProjectId) =>
+      Effect.gen(function* () {
+        // Bots first: Captain's pre-bot member row can survive, disabled, as history.
+        const bot = yield* bots.get(id);
+        if (bot !== null) {
+          if ((yield* bots.projectOwner(projectId)) !== bot.id) {
+            return yield* Effect.fail(
+              new CrewValidationError(`${bot.name} doesn't own this project`),
+            );
+          }
+          return { ...bot, enabled: true };
+        }
+        const member = yield* store.getMember(id);
+        if (member === null || !member.enabled) {
+          return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
+        }
+        if (member.projectId !== null && member.projectId !== projectId) {
+          return yield* Effect.fail(
+            new CrewValidationError("Crew member belongs to another project"),
+          );
+        }
+        return member;
+      });
+    const modelFor = (
+      actor: { readonly name: string; readonly modelSelection: ModelSelection | null },
+      requested: ModelSelection | undefined,
+    ) => {
+      const model = requested ?? actor.modelSelection;
+      return model
+        ? Effect.succeed(model)
+        : Effect.fail(new CrewValidationError(`Choose a default model for ${actor.name}`));
+    };
 
     const createRun: CrewServiceShape["createRun"] = (input) =>
       Effect.gen(function* () {
@@ -477,18 +511,10 @@ export const CrewServiceLive = Layer.effect(
           if (existing.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(existing);
           return (yield* store.getRun(id))!;
         }
-        const member = yield* store.getMember(input.memberId);
-        if (member === null || !member.enabled) {
-          return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
-        }
-        if (member.projectId !== null && member.projectId !== input.projectId) {
-          return yield* Effect.fail(
-            new CrewValidationError("Crew member belongs to another project"),
-          );
-        }
         if (!(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
         }
+        const member = yield* runActor(input.memberId, input.projectId);
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const run: CrewRun = {
           id,
@@ -500,7 +526,7 @@ export const CrewServiceLive = Layer.effect(
           instructions: member.instructions,
           allowedTools: member.allowedTools,
           memberRevision: member.revision,
-          modelSelection: input.modelSelection ?? member.modelSelection,
+          modelSelection: yield* modelFor(member, input.modelSelection),
           runtimeMode: member.runtimeMode,
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
@@ -534,25 +560,29 @@ export const CrewServiceLive = Layer.effect(
               ),
             );
           }
-          yield* ensureMember({
-            id: CAPTAIN_MEMBER_ID,
-            projectId: null,
-            name: "Captain",
-            instructions: CAPTAIN_INSTRUCTIONS,
-            allowedTools: ["crew.delegate", "crew.status"],
-            modelSelection,
-            runtimeMode: "approval-required",
-          });
+          // Bots without a model can't run yet; give them the one the crew was set up with.
+          const now = DateTime.formatIso(yield* DateTime.now);
+          for (const bot of yield* bots.list) {
+            if (bot.modelSelection !== null) continue;
+            yield* bots.update(
+              { ...bot, modelSelection, revision: bot.revision + 1, updatedAt: now },
+              bot.revision,
+            );
+          }
         }),
       ensureProjectManager,
       startRequest: (input) =>
         Effect.gen(function* () {
           const existing = yield* store.getRun(input.id);
-          // A retry of an accepted request must not depend on today's crew configuration.
+          // A retry of an accepted request must not depend on today's crew or owner.
           if (existing === null) yield* ensureProjectManager(input.projectId);
+          const memberId = existing?.memberId ?? (yield* bots.projectOwner(input.projectId));
+          if (memberId === null) {
+            return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+          }
           return yield* createRun({
             id: input.id,
-            memberId: CAPTAIN_MEMBER_ID,
+            memberId,
             projectId: input.projectId,
             taskText: `Project: ${input.projectId}. Project manager: ${projectManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
             modelSelection: input.modelSelection,

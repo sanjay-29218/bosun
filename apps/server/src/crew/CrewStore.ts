@@ -214,10 +214,23 @@ export interface CrewStoreShape {
     sourceMemberId: string,
     targetMemberId: string,
   ) => Effect.Effect<void, PersistenceSqlError>;
+  /**
+   * Whether a run of `sourceId` in `projectId` may delegate to the member: by an explicit
+   * grant, or because the source is a top-level bot and the member is on the run's project.
+   * A bot only gets runs on projects it owns, so a later move does not strand them.
+   */
   readonly canDelegate: (
-    sourceMemberId: string,
+    sourceId: string,
     targetMemberId: string,
+    projectId: ProjectId,
   ) => Effect.Effect<boolean, PersistenceSqlError>;
+  /** A crew member or top-level bot that can act in runs; bots are always enabled. */
+  readonly getActor: (
+    id: string,
+  ) => Effect.Effect<
+    { readonly id: string; readonly enabled: boolean } | null,
+    PersistenceSqlError
+  >;
   readonly listDelegationGrantsForProject: (
     projectId: ProjectId,
   ) => Effect.Effect<ReadonlyArray<CrewDelegationGrant>, PersistenceSqlError>;
@@ -396,12 +409,28 @@ export const CrewStoreLive = Layer.effect(
           INSERT OR IGNORE INTO crew_delegation_grants (source_member_id, target_member_id)
           VALUES (${sourceMemberId}, ${targetMemberId})
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
-      canDelegate: (sourceMemberId, targetMemberId) =>
+      canDelegate: (sourceId, targetMemberId, projectId) =>
         sql<{ readonly allowed: number }>`
           SELECT 1 AS allowed FROM crew_delegation_grants
-          WHERE source_member_id = ${sourceMemberId} AND target_member_id = ${targetMemberId}
+          WHERE source_member_id = ${sourceId} AND target_member_id = ${targetMemberId}
+          UNION ALL
+          SELECT 1 AS allowed FROM bots AS b JOIN crew_members AS m ON m.id = ${targetMemberId}
+          WHERE b.id = ${sourceId} AND m.project_id = ${projectId}
         `.pipe(
           Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
+      getActor: (id) =>
+        sql<{ readonly id: string; readonly enabled: number }>`
+          SELECT id, enabled FROM (
+            SELECT id, 1 AS enabled, 0 AS rank FROM bots WHERE id = ${id}
+            UNION ALL
+            SELECT id, enabled, 1 AS rank FROM crew_members WHERE id = ${id}
+          ) ORDER BY rank LIMIT 1
+        `.pipe(
+          Effect.map((rows) =>
+            rows[0] ? { id: rows[0].id, enabled: rows[0].enabled === 1 } : null,
+          ),
           Effect.mapError(queryError),
         ),
       listDelegationGrantsForProject: (projectId) =>

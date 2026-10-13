@@ -3,6 +3,7 @@ export * from "./assistantCitations.ts";
 export * from "./composerContext.ts";
 export * from "./composerContextClipboard.ts";
 export * from "./background.ts";
+export * from "./bots.ts";
 export * from "./crew.ts";
 export * from "./features.ts";
 export * from "./workflow.ts";

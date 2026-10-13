@@ -27,6 +27,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   defaultModelSelection: null,
   defaultThreadEnvMode: null,
   autoPull: false,
+  botId: "bot-captain",
   faviconPath: null,
   projectIcon: null,
   scripts: [],

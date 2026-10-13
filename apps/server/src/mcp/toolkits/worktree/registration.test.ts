@@ -1,3 +1,4 @@
+import * as BotService from "../../../bots/BotService.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
@@ -87,6 +88,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         Layer.provide(layerStubServices),
         Layer.provide(
           Layer.mergeAll(
+            Layer.mock(BotService.BotService)({}),
             Layer.mock(CrewService)({}),
             Layer.mock(CrewStore)({}),
             Layer.mock(CrewHandoffService)({}),

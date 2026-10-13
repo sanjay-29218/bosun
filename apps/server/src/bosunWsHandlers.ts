@@ -1,5 +1,6 @@
 import {
   type AuthSessionId,
+  BotOperationError,
   CrewOperationError,
   BosunWsRpcGroup,
   FeatureOperationError,
@@ -10,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import type { BotService } from "./bots/BotService.ts";
 import type { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import type { CrewHandoffStore } from "./crew/CrewHandoffStore.ts";
 import type { CrewService } from "./crew/CrewService.ts";
@@ -26,6 +28,7 @@ import type { WorkflowService } from "./workflows/WorkflowService.ts";
 const isCrewOperationError = Schema.is(CrewOperationError);
 
 export interface BosunWsServices {
+  readonly bots: BotService["Service"];
   readonly crew: CrewService["Service"];
   readonly crewStore: CrewStore["Service"];
   readonly crewHandoffs: CrewHandoffService["Service"];
@@ -42,6 +45,7 @@ export interface BosunWsServices {
  */
 export const layerBosunWsRpc = (
   {
+    bots,
     crew,
     crewStore,
     crewHandoffs,
@@ -209,6 +213,30 @@ export const layerBosunWsRpc = (
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
+        [WS_METHODS.botsList]: () =>
+          bots.list.pipe(
+            Effect.mapError((error) => new BotOperationError({ reason: error.message })),
+          ),
+        [WS_METHODS.botsCreate]: (input) =>
+          bots
+            .create(input)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsUpdate]: (input) =>
+          bots
+            .update(input)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsDelete]: (input) =>
+          bots
+            .delete(input.id)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsReorder]: (input) =>
+          bots
+            .reorder(input.botIds)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsMoveProject]: (input) =>
+          bots
+            .moveProject(input)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.rolesList]: () =>
           crew
             .listRoles()

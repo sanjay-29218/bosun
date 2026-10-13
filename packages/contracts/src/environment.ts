@@ -111,6 +111,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server exposes the pull-request list, detail, activity, diff, and mutation APIs. Absent on
       servers from before the pull-request workspace shipped, so clients must not probe them. */
   pullRequests: Schema.optionalKey(Schema.Boolean),
+  /** Server exposes top-level bots and `project.botId`. */
+  bots: Schema.optionalKey(Schema.Boolean),
   /** Server exposes global roles and durable crew members, runs, and handoffs. */
   crew: Schema.optionalKey(Schema.Boolean),
   /** Server exposes the global library of versioned workflows and feature run state. */

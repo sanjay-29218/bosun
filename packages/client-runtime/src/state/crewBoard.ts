@@ -1,9 +1,11 @@
-import type {
-  CrewStageSummary,
-  EnvironmentId,
-  FeatureBoardCard,
-  FeatureCardState,
-  WorkflowDefinition,
+import {
+  CAPTAIN_BOT_ID,
+  type CrewStageSummary,
+  type EnvironmentId,
+  type ProjectId,
+  type FeatureBoardCard,
+  type FeatureCardState,
+  type WorkflowDefinition,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -243,6 +245,39 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
   if (shell.hasPendingApprovals) return "approval";
   if (shell.hasPendingUserInput) return "question";
   return null;
+}
+
+/** The key `countNeedsYouByBot` counts under: bots belong to one environment. */
+export const botNeedsYouKey = (environmentId: EnvironmentId, botId: string) =>
+  `${environmentId}:${botId}`;
+
+/**
+ * Threads waiting on you per bot, keyed by `botNeedsYouKey`, from the shells and project
+ * shells every client already has. A project without a `botId` (an older server) is Captain's.
+ */
+export function countNeedsYouByBot(
+  shells: ReadonlyArray<NeedsYouShell & { readonly projectId: ProjectId }>,
+  projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+    readonly botId?: string | undefined;
+  }>,
+): ReadonlyMap<string, number> {
+  const owners = new Map(
+    projects.map((project) => [
+      `${project.environmentId}:${project.id}`,
+      project.botId ?? CAPTAIN_BOT_ID,
+    ]),
+  );
+  const counts = new Map<string, number>();
+  for (const shell of shells) {
+    if (threadNeedsYouKind(shell) === null) continue;
+    const botId = owners.get(`${shell.environmentId}:${shell.projectId}`);
+    if (botId === undefined) continue;
+    const key = botNeedsYouKey(shell.environmentId, botId);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export type NeedsYouItem<

@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
+  CAPTAIN_BOT_ID,
   CommandId,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
@@ -25,8 +26,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import * as BotStore from "../bots/BotStore.ts";
+import { CrewHandoffService } from "./CrewHandoffService.ts";
 import {
-  CAPTAIN_MEMBER_ID,
   CrewService,
   CrewServiceLive,
   projectBuilderMemberId,
@@ -44,6 +46,7 @@ const withSystem = <A, E>(
   use: (services: {
     readonly bots: CrewService["Service"];
     readonly store: CrewStore["Service"];
+    readonly handoffs: CrewHandoffService["Service"];
     readonly engine: OrchestrationEngineService["Service"];
     readonly sql: SqlClient.SqlClient;
     readonly query: {
@@ -71,6 +74,7 @@ const withSystem = <A, E>(
     return yield* use({
       bots: yield* CrewService,
       store: yield* CrewStore,
+      handoffs: yield* CrewHandoffService,
       engine,
       sql: yield* SqlClient.SqlClient,
       query: {
@@ -146,9 +150,8 @@ describe("Bot foundation", () => {
             parentMemberId: manager.id,
             position: 2,
           });
-          expect(hierarchy.find((node) => node.memberId === manager.id)?.parentMemberId).toBe(
-            CAPTAIN_MEMBER_ID,
-          );
+          // Captain is a top-level bot, not a crew member, so the manager is a hierarchy root.
+          expect(hierarchy.find((node) => node.memberId === manager.id)?.parentMemberId).toBeNull();
           expect(
             (yield* bots.setHierarchyParent(manager.id, member.id).pipe(Effect.result))._tag,
           ).toBe("Failure");
@@ -174,7 +177,7 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("creates a project's manager once, and Captain may delegate to it", () =>
+  effectIt.effect("creates a project's manager once, and its owning bot may delegate to it", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-")),
@@ -183,6 +186,7 @@ describe("Bot foundation", () => {
         Effect.gen(function* () {
           yield* createProject(engine);
           yield* bots.ensureDefaults(modelSelection);
+          expect(yield* store.getMember(CAPTAIN_BOT_ID)).toBeNull();
           expect(yield* store.getMember(projectManagerMemberId(projectId))).toBeNull();
           const first = yield* bots.ensureProjectManager(projectId);
           const second = yield* bots.ensureProjectManager(projectId);
@@ -195,9 +199,154 @@ describe("Bot foundation", () => {
           expect(members.map((member) => member.id).toSorted()).toEqual(
             [projectBuilderMemberId(projectId), projectManagerMemberId(projectId)].toSorted(),
           );
-          expect(yield* store.canDelegate(CAPTAIN_MEMBER_ID, first.id)).toBe(true);
-          expect(yield* store.canDelegate(first.id, projectBuilderMemberId(projectId))).toBe(true);
+          expect(yield* store.canDelegate(CAPTAIN_BOT_ID, first.id, projectId)).toBe(true);
+          expect(
+            yield* store.canDelegate(first.id, projectBuilderMemberId(projectId), projectId),
+          ).toBe(true);
+          // Captain's permission follows from owning the project, not a stored grant.
+          expect(
+            (yield* store.listDelegationGrantsForProject(projectId)).map(
+              (grant) => grant.sourceMemberId,
+            ),
+          ).not.toContain(CAPTAIN_BOT_ID);
         }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
+  effectIt.effect("runs as the project's owning bot, which delegates to the manager", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-owner-")),
+      );
+      yield* withSystem(
+        NodePath.join(directory, "state.sqlite"),
+        ({ bots, store, handoffs, engine, sql }) =>
+          Effect.gen(function* () {
+            yield* createProject(engine);
+            yield* bots.ensureDefaults(modelSelection);
+            const request = yield* bots.startRequest({
+              id: "owner-request",
+              projectId,
+              modelSelection,
+              taskText: "Ship the change",
+            });
+            expect(request.memberId).toBe(CAPTAIN_BOT_ID);
+            // Without a requested model, the run takes the one ensureDefaults gave Captain.
+            const run = yield* bots.createRun({
+              id: "owner-run",
+              memberId: CAPTAIN_BOT_ID,
+              projectId,
+              taskText: "Coordinate",
+            });
+            expect(run.memberId).toBe(CAPTAIN_BOT_ID);
+            expect(run.modelSelection).toEqual(modelSelection);
+            const handoff = yield* handoffs.delegate({
+              id: "owner-to-manager",
+              sourceThreadId: run.threadId,
+              targetMemberId: projectManagerMemberId(projectId),
+              projectId,
+              taskText: "Own the change",
+            });
+            expect(handoff.status).toBe("running");
+            const grants = yield* sql<{ readonly count: number }>`
+              SELECT COUNT(*) AS count FROM crew_delegation_grants
+              WHERE source_member_id = ${CAPTAIN_BOT_ID}
+            `;
+            expect(grants[0]?.count).toBe(0);
+            // Ownership covers the project's members only, not another project's.
+            expect(
+              yield* store.canDelegate(
+                CAPTAIN_BOT_ID,
+                projectManagerMemberId(projectId),
+                ProjectId.make("other-project"),
+              ),
+            ).toBe(false);
+          }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
+  effectIt.effect("refuses new runs for a bot after its project moves, but keeps old ones", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-move-")),
+      );
+      yield* withSystem(
+        NodePath.join(directory, "state.sqlite"),
+        ({ bots, store, handoffs, engine, sql }) =>
+          Effect.gen(function* () {
+            yield* createProject(engine);
+            yield* bots.ensureDefaults(modelSelection);
+            const manager = yield* bots.ensureProjectManager(projectId);
+            const before = yield* bots.createRun({
+              id: "captain-before-move",
+              memberId: CAPTAIN_BOT_ID,
+              projectId,
+              taskText: "Coordinate before the move",
+            });
+            yield* sql`
+              INSERT INTO bots (
+                id, name, emoji, color, instructions, allowed_tools_json, runtime_mode,
+                model_selection_json, default_workflow_id, position, revision, created_at,
+                updated_at
+              ) VALUES (
+                'bot-second', 'Second', 'S', 'blue', 'Coordinate.', '["crew.delegate"]',
+                'approval-required', NULL, NULL, 1, 1, '2026-01-01', '2026-01-01'
+              )
+            `;
+            yield* sql`UPDATE projection_projects SET bot_id = 'bot-second'
+              WHERE project_id = ${projectId}`;
+
+            const refused = yield* bots
+              .createRun({
+                id: "captain-after-move",
+                memberId: CAPTAIN_BOT_ID,
+                projectId,
+                taskText: "Coordinate after the move",
+              })
+              .pipe(Effect.flip);
+            expect(refused.message).toContain("doesn't own this project");
+            // The new owner runs once it has a model.
+            const unready = yield* bots
+              .createRun({
+                id: "second-run",
+                memberId: "bot-second",
+                projectId,
+                taskText: "Coordinate",
+              })
+              .pipe(Effect.flip);
+            expect(unready.message).toContain("Choose a default model for Second");
+            expect(
+              (yield* bots.startRequest({
+                id: "second-request",
+                projectId,
+                modelSelection,
+                taskText: "Ship it",
+              })).memberId,
+            ).toBe("bot-second");
+
+            // A run started before the move still delegates on its project.
+            expect(yield* store.canDelegate(CAPTAIN_BOT_ID, manager.id, before.projectId)).toBe(
+              true,
+            );
+            const handoff = yield* handoffs.delegate({
+              id: "old-run-to-manager",
+              sourceThreadId: before.threadId,
+              targetMemberId: manager.id,
+              projectId,
+              taskText: "Finish the earlier request",
+            });
+            expect(handoff.status).toBe("running");
+          }),
       ).pipe(
         Effect.ensuring(
           Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
@@ -233,6 +382,7 @@ describe("Bot foundation", () => {
       });
       const layer = CrewServiceLive.pipe(
         Layer.provideMerge(CrewStoreLive),
+        Layer.provideMerge(BotStore.layer),
         Layer.provide(fakeRuntime),
         Layer.provide(SqlitePersistence.layerMemory),
       );

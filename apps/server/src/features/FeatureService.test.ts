@@ -142,12 +142,14 @@ describe("feature creation", () => {
             yield* store.canDelegate(
               created.crewAssignments.designer!,
               created.crewAssignments.second_planner!,
+              projectId,
             ),
           ).toBe(true);
           expect(
             yield* store.canDelegate(
               created.crewAssignments.manager!,
               created.crewAssignments.second_planner!,
+              projectId,
             ),
           ).toBe(false);
           const copy = yield* workflows.getFeatureCopy(created.id);
@@ -407,9 +409,9 @@ describe("feature creation", () => {
         expect(featureBots.map((bot) => bot.roleId)).not.toContain(disabled.id);
         expect(featureBots.every((bot) => bot.roleRevision === 1)).toBe(true);
         for (const bot of featureBots) {
-          expect(yield* crewStore.canDelegate(projectManagerMemberId(projectId), bot.id)).toBe(
-            true,
-          );
+          expect(
+            yield* crewStore.canDelegate(projectManagerMemberId(projectId), bot.id, projectId),
+          ).toBe(true);
         }
 
         yield* bots.updateRole({

@@ -20,6 +20,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
 
+import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, CrewServiceLive } from "../crew/CrewService.ts";
 import { CrewStoreLive } from "../crew/CrewStore.ts";
 import { CrewThreadRuntime, type CrewThreadStart } from "../crew/CrewThreadRuntime.ts";
@@ -113,6 +114,7 @@ const fixture = (
   const foundation = CrewServiceLive.pipe(
     Layer.provideMerge(CrewStoreLive),
     Layer.provideMerge(runtime),
+    Layer.provideMerge(BotStore.layer),
   );
   const bots = CrewHandoffServiceLive.pipe(
     Layer.provideMerge(CrewHandoffStoreLive),
@@ -159,6 +161,8 @@ const seed = (featureId = "feature-one") =>
     const bots = yield* CrewService;
     const workflows = yield* WorkflowService;
     const execution = yield* WorkflowExecutionService;
+    // Captain leads the manager's stage because it owns the project.
+    yield* seedCrewProject({ projectId, title: "Execution", workspaceRoot: "/repo" });
     yield* bots.ensureDefaults(modelSelection);
     const managerId = (yield* bots.ensureProjectManager(projectId)).id;
     const roleId = "role:planner";
@@ -871,7 +875,6 @@ describe("Workflow execution", () => {
         const engine = yield* OrchestratorV2;
         const sql = yield* SqlClient.SqlClient;
         const handoffs = yield* CrewHandoffService;
-        yield* seedCrewProject({ projectId, title: "Execution", workspaceRoot: "/repo" });
         const { featureId, execution, bindings } = yield* seed();
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '')`;

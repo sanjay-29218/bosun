@@ -143,12 +143,13 @@ export const CrewHandoffServiceLive = Layer.effect(
       Effect.gen(function* () {
         if (handoff.status !== "queued") return handoff;
         const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-        const sourceMember = sourceRun ? yield* runs.getMember(sourceRun.memberId) : null;
+        const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
         const targetMember = yield* runs.getMember(handoff.targetMemberId);
         if (
+          !sourceRun ||
           !sourceMember?.enabled ||
           !targetMember?.enabled ||
-          !(yield* runs.canDelegate(sourceMember.id, targetMember.id))
+          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, sourceRun.projectId))
         ) {
           const now = DateTime.formatIso(yield* DateTime.now);
           yield* handoffs.transition(
@@ -203,14 +204,14 @@ export const CrewHandoffServiceLive = Layer.effect(
           }
           return yield* startQueued(existing);
         }
-        const sourceMember = yield* runs.getMember(source.memberId);
+        const sourceMember = yield* runs.getActor(source.memberId);
         const targetMember = yield* runs.getMember(input.targetMemberId);
         if (!sourceMember || !targetMember?.enabled || targetMember.projectId !== input.projectId) {
           return yield* Effect.fail(
             new CrewHandoffError("Target crew member is unavailable for this project"),
           );
         }
-        if (!(yield* runs.canDelegate(sourceMember.id, targetMember.id))) {
+        if (!(yield* runs.canDelegate(sourceMember.id, targetMember.id, source.projectId))) {
           return yield* Effect.fail(new CrewHandoffError("Delegation is not permitted"));
         }
         const parent = yield* handoffs.getForTargetRun(source.id);
@@ -397,12 +398,13 @@ export const CrewHandoffServiceLive = Layer.effect(
             );
           }
           const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-          const sourceMember = sourceRun ? yield* runs.getMember(sourceRun.memberId) : null;
+          const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
           const targetMember = yield* runs.getMember(handoff.targetMemberId);
           if (
+            !sourceRun ||
             !sourceMember?.enabled ||
             !targetMember?.enabled ||
-            !(yield* runs.canDelegate(sourceMember.id, targetMember.id))
+            !(yield* runs.canDelegate(sourceMember.id, targetMember.id, sourceRun.projectId))
           ) {
             return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
           }
