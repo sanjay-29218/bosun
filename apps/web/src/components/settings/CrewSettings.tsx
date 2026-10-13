@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
-  type BotTemplateConfig,
+  PROJECT_MANAGER_ROLE_ID,
+  type RoleConfig,
   type EnvironmentId,
   type ModelSelection,
-  type ProjectId,
   type ProviderInstanceId,
   type RuntimeMode,
 } from "@t3tools/contracts";
@@ -23,7 +23,7 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -157,8 +157,8 @@ function RoleModeSelect({
 }
 
 /**
- * Roles, then the limits on running agents. Roles belong to a project, so they
- * follow the project crumb; limits are environment-wide.
+ * Roles, then the limits on running agents. Roles are shared by every project in
+ * an environment; the project crumb picks the environment and the default model.
  */
 export function CrewSettings() {
   const { scope, connectedEnvironments } = useSettingsScope();
@@ -170,7 +170,7 @@ export function CrewSettings() {
         <SettingsSection title="Roles" id={searchableSetting("crew-roles").id}>
           <SettingsRow
             title="Choose a project"
-            description="Each project has its own crew. Pick a project above to edit its roles."
+            description="Roles are shared by every project in an environment. Pick a project above to edit its environment's roles."
           />
         </SettingsSection>
       ) : (
@@ -183,7 +183,7 @@ export function CrewSettings() {
               key={`${member.environmentId}:${member.id}`}
               member={member}
               connected={environment !== undefined}
-              supported={environment?.serverConfig?.environment.capabilities.bots === true}
+              supported={environment?.serverConfig?.environment.capabilities.crew === true}
               environmentLabel={members.length > 1 ? (member.environmentLabel ?? null) : null}
               searchAnchor={index === 0}
             />
@@ -217,35 +217,28 @@ function CrewRolesSection({
     resolveProjectSettings(settings ?? DEFAULT_SERVER_SETTINGS, projectId, member).settings
       .defaultModelSelection,
   );
-  const configuration = useEnvironmentQuery(
-    connected && supported
-      ? botsEnvironment.configuration({ environmentId, input: { projectId } })
-      : null,
+  const rolesQuery = useEnvironmentQuery(
+    connected && supported ? rolesEnvironment.roles({ environmentId, input: {} }) : null,
   );
-  const initialize = useAtomCommand(botsEnvironment.initialize);
-  const [editor, setEditor] = useState<{ template: BotTemplateConfig | null } | null>(null);
+  const initialize = useAtomCommand(rolesEnvironment.initialize);
+  const [editor, setEditor] = useState<{ role: RoleConfig | null } | null>(null);
   const [initializing, setInitializing] = useState(false);
-  const templates = configuration.data?.templates ?? [];
-  // Environment roles (the Captain) lead, as they sit above every project crew.
-  const roles = [
-    ...templates.filter((template) => template.projectId === null),
-    ...templates.filter((template) => template.projectId !== null),
-  ];
-  const hasCrew = templates.some((template) => template.id === `template:manager:${projectId}`);
+  const roles = rolesQuery.data ?? [];
+  const hasRoles = roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
   const title = environmentLabel ? `Roles · ${environmentLabel}` : "Roles";
 
-  const addStarterCrew = async () => {
+  const addStarterRoles = async () => {
     if (!defaultModel) return;
     setInitializing(true);
     try {
       const result = await initialize({
         environmentId,
-        input: { projectId, modelSelection: defaultModel },
+        input: { modelSelection: defaultModel },
       });
       if (result._tag !== "Success") {
         toastManager.add({
           type: "error",
-          title: "Could not add the starter crew",
+          title: "Could not add the starter roles",
           description: formatEnvironmentQueryError(result.cause),
         });
       }
@@ -263,8 +256,8 @@ function CrewRolesSection({
           <Button
             size="xs"
             variant="ghost-muted"
-            disabled={!defaultModel || !configuration.data}
-            onClick={() => setEditor({ template: null })}
+            disabled={!defaultModel || !rolesQuery.data}
+            onClick={() => setEditor({ role: null })}
           >
             <PlusIcon className="size-3" />
             Add role
@@ -275,47 +268,46 @@ function CrewRolesSection({
       {!connected ? (
         <SettingsRow
           title="Environment disconnected"
-          description={`Reconnect ${member.environmentLabel ?? "this environment"} to edit its crew.`}
+          description={`Reconnect ${member.environmentLabel ?? "this environment"} to edit its roles.`}
         />
       ) : !supported ? (
         <SettingsRow
           title="Crew mode unavailable"
           description="Update this environment to configure a crew."
         />
-      ) : configuration.error ? (
-        <SettingsRow title="Could not load roles" description={configuration.error} />
-      ) : !configuration.data ? (
+      ) : rolesQuery.error ? (
+        <SettingsRow title="Could not load roles" description={rolesQuery.error} />
+      ) : !rolesQuery.data ? (
         <SettingsRow title="Loading roles…" role="status" />
       ) : (
         <>
-          {!hasCrew ? (
+          {!hasRoles ? (
             <Empty>
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <UsersIcon />
                 </EmptyMedia>
-                <EmptyTitle>No crew yet</EmptyTitle>
+                <EmptyTitle>No roles yet</EmptyTitle>
                 <EmptyDescription>
-                  Add the starter crew: a Manager, Planner, Designer, Builder, QA Tester and
-                  Reviewer. You can change each one afterwards.
+                  Add the starter roles: a Project manager, Planner, Designer, Builder, QA Tester
+                  and Reviewer. You can change each one afterwards.
                 </EmptyDescription>
               </EmptyHeader>
               <Button
                 size="sm"
                 disabled={!defaultModel || initializing}
-                onClick={() => void addStarterCrew()}
+                onClick={() => void addStarterRoles()}
               >
-                Add the starter crew
+                Add the starter roles
               </Button>
             </Empty>
           ) : null}
-          {roles.map((template) => (
+          {roles.map((role) => (
             <CrewRoleRow
-              key={template.id}
+              key={role.id}
               environmentId={environmentId}
-              projectId={projectId}
-              template={template}
-              onEdit={() => setEditor({ template })}
+              role={role}
+              onEdit={() => setEditor({ role })}
             />
           ))}
         </>
@@ -323,8 +315,7 @@ function CrewRolesSection({
       {editor && defaultModel ? (
         <CrewRoleDialog
           environmentId={environmentId}
-          projectId={projectId}
-          template={editor.template}
+          role={editor.role}
           defaultModel={defaultModel}
           onClose={() => setEditor(null)}
         />
@@ -333,9 +324,9 @@ function CrewRolesSection({
   );
 }
 
-type TemplateChange = Partial<
+type RoleChange = Partial<
   Pick<
-    BotTemplateConfig,
+    RoleConfig,
     | "name"
     | "instructions"
     | "allowedTools"
@@ -347,15 +338,14 @@ type TemplateChange = Partial<
 >;
 
 /** Saves a role. A workflow pins role versions, so it has to be republished to pick this up. */
-function useSaveRole(environmentId: EnvironmentId, projectId: ProjectId) {
-  const updateTemplate = useAtomCommand(botsEnvironment.updateTemplate);
-  return async (template: BotTemplateConfig, change: TemplateChange) => {
-    const next = { ...template, ...change };
-    const result = await updateTemplate({
+function useSaveRole(environmentId: EnvironmentId) {
+  const update = useAtomCommand(rolesEnvironment.update);
+  return async (role: RoleConfig, change: RoleChange) => {
+    const next = { ...role, ...change };
+    const result = await update({
       environmentId,
       input: {
-        id: template.id,
-        projectId,
+        id: role.id,
         name: next.name,
         instructions: next.instructions,
         allowedTools: [...next.allowedTools],
@@ -363,13 +353,13 @@ function useSaveRole(environmentId: EnvironmentId, projectId: ProjectId) {
         runtimeMode: next.runtimeMode,
         autoCreateForFeature: next.autoCreateForFeature,
         enabled: next.enabled,
-        expectedRevision: template.revision,
+        expectedRevision: role.revision,
       },
     });
     if (result._tag !== "Success") {
       toastManager.add({
         type: "error",
-        title: `Could not save ${template.name}`,
+        title: `Could not save ${role.name}`,
         description: formatEnvironmentQueryError(result.cause),
       });
       return false;
@@ -387,48 +377,40 @@ function useSaveRole(environmentId: EnvironmentId, projectId: ProjectId) {
 
 function CrewRoleRow({
   environmentId,
-  projectId,
-  template,
+  role,
   onEdit,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
-  readonly template: BotTemplateConfig;
+  readonly role: RoleConfig;
   readonly onEdit: () => void;
 }) {
-  const save = useSaveRole(environmentId, projectId);
+  const save = useSaveRole(environmentId);
   const [busy, setBusy] = useState(false);
-  // Environment roles are shared by every project; they aren't edited from one.
-  const environmentWide = template.projectId === null;
-  const locked = busy || environmentWide;
-  const run = async (change: TemplateChange) => {
+  const run = async (change: RoleChange) => {
     setBusy(true);
     try {
-      await save(template, change);
+      await save(role, change);
     } finally {
       setBusy(false);
     }
   };
-  const summary = template.instructions.split("\n")[0]?.trim() ?? "";
+  const summary = role.instructions.split("\n")[0]?.trim() ?? "";
   const status = [
-    environmentWide ? "Environment-wide" : null,
-    // The Manager joins workflows as the project's own bot, not as a stage role.
-    !environmentWide &&
-    !template.autoCreateForFeature &&
-    template.id !== `template:manager:${projectId}`
+    // The project manager joins workflows as the project's own manager, not as a stage role.
+    !role.autoCreateForFeature && role.id !== PROJECT_MANAGER_ROLE_ID
       ? "Not available to workflow stages"
       : null,
-    template.allowedTools.length > 0 ? `tools: ${template.allowedTools.join(", ")}` : null,
+    role.allowedTools.length > 0 ? `tools: ${role.allowedTools.join(", ")}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
   return (
     <SettingsRow
-      aria-disabled={!template.enabled || undefined}
+      aria-disabled={!role.enabled || undefined}
       title={
         <span className="flex items-center gap-1.5">
-          {template.name}
-          {!template.enabled ? (
+          {role.name}
+          {!role.enabled ? (
             <Badge size="sm" variant="outline">
               Off
             </Badge>
@@ -441,44 +423,40 @@ function CrewRoleRow({
         <>
           <RoleModelPicker
             environmentId={environmentId}
-            selection={template.modelSelection}
-            disabled={locked}
+            selection={role.modelSelection}
+            disabled={busy}
             onChange={(modelSelection) => void run({ modelSelection })}
           />
           <RoleModeSelect
-            label={`When ${template.name} acts`}
-            value={roleMode(template.runtimeMode)}
-            disabled={locked}
-            onChange={(mode) =>
-              void run({ runtimeMode: runtimeModeFor(mode, template.runtimeMode) })
-            }
+            label={`When ${role.name} acts`}
+            value={roleMode(role.runtimeMode)}
+            disabled={busy}
+            onChange={(mode) => void run({ runtimeMode: runtimeModeFor(mode, role.runtimeMode) })}
           />
-          {!environmentWide ? (
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label={`Actions for ${template.name}`}
-                  />
-                }
-              >
-                <MoreHorizontalIcon className="size-4" />
-              </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem onClick={onEdit}>
-                  <PencilIcon />
-                  Edit
-                </MenuItem>
-                <MenuItem onClick={() => void run({ enabled: !template.enabled })}>
-                  <PowerIcon />
-                  {template.enabled ? "Turn off" : "Turn on"}
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
-          ) : null}
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={busy}
+                  aria-label={`Actions for ${role.name}`}
+                />
+              }
+            >
+              <MoreHorizontalIcon className="size-4" />
+            </MenuTrigger>
+            <MenuPopup align="end">
+              <MenuItem onClick={onEdit}>
+                <PencilIcon />
+                Edit
+              </MenuItem>
+              <MenuItem onClick={() => void run({ enabled: !role.enabled })}>
+                <PowerIcon />
+                {role.enabled ? "Turn off" : "Turn on"}
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
         </>
       }
     />
@@ -487,28 +465,26 @@ function CrewRoleRow({
 
 function CrewRoleDialog({
   environmentId,
-  projectId,
-  template,
+  role,
   defaultModel,
   onClose,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
-  readonly template: BotTemplateConfig | null;
+  readonly role: RoleConfig | null;
   readonly defaultModel: ModelSelection;
   readonly onClose: () => void;
 }) {
-  const createTemplate = useAtomCommand(botsEnvironment.createTemplate);
-  const save = useSaveRole(environmentId, projectId);
-  const [name, setName] = useState(template?.name ?? "");
-  const [instructions, setInstructions] = useState(template?.instructions ?? "");
-  const [tools, setTools] = useState(template?.allowedTools.join(", ") ?? "");
-  const [modelSelection, setModelSelection] = useState(template?.modelSelection ?? defaultModel);
+  const create = useAtomCommand(rolesEnvironment.create);
+  const save = useSaveRole(environmentId);
+  const [name, setName] = useState(role?.name ?? "");
+  const [instructions, setInstructions] = useState(role?.instructions ?? "");
+  const [tools, setTools] = useState(role?.allowedTools.join(", ") ?? "");
+  const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
-    template?.runtimeMode ?? "auto-accept-edits",
+    role?.runtimeMode ?? "auto-accept-edits",
   );
   // Stages pick roles directly, so a role a person adds is available to workflows by default.
-  const [workflowStages, setWorkflowStages] = useState(template?.autoCreateForFeature ?? true);
+  const [workflowStages, setWorkflowStages] = useState(role?.autoCreateForFeature ?? true);
   const [saving, setSaving] = useState(false);
   const canSave = name.trim().length > 0 && instructions.trim().length > 0 && !saving;
 
@@ -524,17 +500,13 @@ function CrewRoleDialog({
         runtimeMode,
         autoCreateForFeature: workflowStages,
       };
-      if (template) {
-        if (await save(template, fields)) onClose();
+      if (role) {
+        if (await save(role, fields)) onClose();
         return;
       }
-      const result = await createTemplate({
+      const result = await create({
         environmentId,
-        input: {
-          id: `bot-template:${randomUUID()}`,
-          projectId,
-          ...fields,
-        },
+        input: { id: `role:${randomUUID()}`, ...fields },
       });
       if (result._tag === "Success") onClose();
       else
@@ -557,7 +529,7 @@ function CrewRoleDialog({
     >
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{template ? `Edit ${template.name}` : "Add role"}</DialogTitle>
+          <DialogTitle>{role ? `Edit ${role.name}` : "Add role"}</DialogTitle>
           <DialogDescription>
             A role is what a workflow stage runs as: its instructions, tools and default model.
           </DialogDescription>
@@ -621,7 +593,7 @@ function CrewRoleDialog({
             Cancel
           </DialogClose>
           <Button size="sm" disabled={!canSave} onClick={() => void submit()}>
-            {template ? "Save role" : "Add role"}
+            {role ? "Save role" : "Add role"}
           </Button>
         </DialogFooter>
       </DialogPopup>

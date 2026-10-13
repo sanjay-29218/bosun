@@ -1,6 +1,6 @@
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
-import { BotService } from "./bots/BotService.ts";
-import { BotHandoffService } from "./bots/BotHandoffService.ts";
+import { CrewService } from "./crew/CrewService.ts";
+import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -423,8 +423,8 @@ const make = (options?: StartupOptions) =>
     const keybindings = yield* Keybindings.Keybindings;
     const workflowExecution = yield* WorkflowExecutionService;
     const workflowScope = yield* Effect.scope;
-    const bots = yield* BotService;
-    const botHandoffs = yield* BotHandoffService;
+    const crew = yield* CrewService;
+    const crewHandoffs = yield* CrewHandoffService;
     const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
     const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
     const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -561,8 +561,8 @@ const make = (options?: StartupOptions) =>
         forkParked,
       );
 
-      yield* runStartupPhase("bots.reconcile", bots.reconcileRuns());
-      yield* runStartupPhase("bots.handoffs.reconcile", botHandoffs.reconcile());
+      yield* runStartupPhase("crew.reconcile", crew.reconcileRuns());
+      yield* runStartupPhase("crew.handoffs.reconcile", crewHandoffs.reconcile());
       yield* runStartupPhase(
         "workflows.start",
         workflowExecution.start().pipe(Scope.provide(workflowScope)),

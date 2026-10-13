@@ -6,19 +6,19 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
-import { BotService, type BotServiceError } from "./BotService.ts";
-import { BotStore, type BotRun } from "./BotStore.ts";
-import { BotHandoffStore, type BotHandoff } from "./BotHandoffStore.ts";
-import { BotThreadRuntime } from "./BotThreadRuntime.ts";
+import { CrewService, type CrewServiceError } from "./CrewService.ts";
+import { CrewStore, type CrewRun } from "./CrewStore.ts";
+import { CrewHandoffStore, type CrewHandoff } from "./CrewHandoffStore.ts";
+import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 
-export class BotHandoffError extends Error {
-  readonly _tag = "BotHandoffError";
+export class CrewHandoffError extends Error {
+  readonly _tag = "CrewHandoffError";
 }
 
 export interface DelegateBotInput {
   readonly id: string;
   readonly sourceThreadId: ThreadId;
-  readonly targetBotId: string;
+  readonly targetMemberId: string;
   readonly projectId: ProjectId;
   readonly taskText: string;
   readonly contextText?: string;
@@ -26,71 +26,74 @@ export interface DelegateBotInput {
   readonly modelSelection?: ModelSelection;
 }
 
-export interface BotHandoffServiceShape {
+export interface CrewHandoffServiceShape {
   readonly delegate: (
     input: DelegateBotInput,
-  ) => Effect.Effect<BotHandoff, BotServiceError | BotHandoffError>;
+  ) => Effect.Effect<CrewHandoff, CrewServiceError | CrewHandoffError>;
   readonly respond: (
     threadId: ThreadId,
     outcome: "completed" | "failed",
     summary: string,
-  ) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
+  ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly ask: (
     threadId: ThreadId,
     question: string,
-  ) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
+  ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly answer: (
     id: string,
     answer: string,
-  ) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
+  ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly answerFromBot: (
     threadId: ThreadId,
     id: string,
     answer: string,
-  ) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
-  readonly cancel: (id: string) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
-  readonly retry: (id: string) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
-  readonly get: (id: string) => Effect.Effect<BotHandoff | null, BotServiceError>;
-  readonly listByRun: (runId: string) => Effect.Effect<ReadonlyArray<BotHandoff>, BotServiceError>;
+  ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  readonly cancel: (id: string) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  readonly retry: (id: string) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  readonly get: (id: string) => Effect.Effect<CrewHandoff | null, CrewServiceError>;
+  readonly listByRun: (
+    runId: string,
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, CrewServiceError>;
   readonly waitFor: (
     threadId: ThreadId,
     id: string,
-  ) => Effect.Effect<BotHandoff, BotHandoffError | BotServiceError>;
-  readonly reconcile: () => Effect.Effect<void, BotServiceError>;
-  readonly refreshProject: (projectId: ProjectId) => Effect.Effect<void, BotServiceError>;
-  readonly refreshRun: (runId: string) => Effect.Effect<void, BotServiceError>;
+  ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  readonly reconcile: () => Effect.Effect<void, CrewServiceError>;
+  readonly refreshProject: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
+  readonly refreshRun: (runId: string) => Effect.Effect<void, CrewServiceError>;
 }
 
-export class BotHandoffService extends Context.Service<BotHandoffService, BotHandoffServiceShape>()(
-  "t3/bots/BotHandoffService",
-) {}
+export class CrewHandoffService extends Context.Service<
+  CrewHandoffService,
+  CrewHandoffServiceShape
+>()("t3/crew/CrewHandoffService") {}
 
 const bounded = (value: string, name: string, max: number) => {
   const text = value.trim();
   if (text.length === 0 || text.length > max) {
-    throw new BotHandoffError(`${name} must contain 1-${max} characters`);
+    throw new CrewHandoffError(`${name} must contain 1-${max} characters`);
   }
   return text;
 };
 
-const sameRequest = (handoff: BotHandoff, input: DelegateBotInput, sourceRunId: string) =>
+const sameRequest = (handoff: CrewHandoff, input: DelegateBotInput, sourceRunId: string) =>
   handoff.sourceRunId === sourceRunId &&
-  handoff.targetBotId === input.targetBotId &&
+  handoff.targetMemberId === input.targetMemberId &&
   handoff.projectId === input.projectId &&
   handoff.taskText === input.taskText.trim() &&
   handoff.contextText === (input.contextText?.trim() ?? "") &&
   JSON.stringify(handoff.modelSelection ?? null) === JSON.stringify(input.modelSelection ?? null);
 
-export const BotHandoffServiceLive = Layer.effect(
-  BotHandoffService,
+export const CrewHandoffServiceLive = Layer.effect(
+  CrewHandoffService,
   Effect.gen(function* () {
-    const handoffs = yield* BotHandoffStore;
-    const runs = yield* BotStore;
-    const bots = yield* BotService;
-    const runtime = yield* BotThreadRuntime;
+    const handoffs = yield* CrewHandoffStore;
+    const runs = yield* CrewStore;
+    const crew = yield* CrewService;
+    const runtime = yield* CrewThreadRuntime;
     const changes = yield* PubSub.unbounded<string>();
 
-    const deliver = (handoff: BotHandoff) =>
+    const deliver = (handoff: CrewHandoff) =>
       Effect.gen(function* () {
         if (handoff.notificationState !== "queued") return;
         const recipientRunId =
@@ -99,10 +102,10 @@ export const BotHandoffServiceLive = Layer.effect(
         if (!recipient) return;
         const prompt =
           handoff.status === "running"
-            ? `Bot answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
+            ? `Crew answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
             : handoff.status === "needs-input"
-              ? `Bot handoff ${handoff.id} needs input from you: ${handoff.questionText ?? ""}`
-              : `Bot handoff ${handoff.id} is ${handoff.status}. ${handoff.responseText ?? ""}`;
+              ? `Crew handoff ${handoff.id} needs input from you: ${handoff.questionText ?? ""}`
+              : `Crew handoff ${handoff.id} is ${handoff.status}. ${handoff.responseText ?? ""}`;
         yield* runtime.notify(
           recipient.threadId,
           handoff.id,
@@ -120,32 +123,32 @@ export const BotHandoffServiceLive = Layer.effect(
         const runId = yield* handoffs.getRunByThread(threadId);
         const run = runId ? yield* runs.getRun(runId) : null;
         if (!run || !run.allowedTools.includes(grant)) {
-          return yield* Effect.fail(new BotHandoffError(`This thread cannot use ${grant}`));
+          return yield* Effect.fail(new CrewHandoffError(`This thread cannot use ${grant}`));
         }
         return run;
       });
 
-    const requireIncoming = (run: BotRun) =>
+    const requireIncoming = (run: CrewRun) =>
       handoffs
         .getForTargetRun(run.id)
         .pipe(
           Effect.flatMap((handoff) =>
             handoff
               ? Effect.succeed(handoff)
-              : Effect.fail(new BotHandoffError("This run has no incoming handoff")),
+              : Effect.fail(new CrewHandoffError("This run has no incoming handoff")),
           ),
         );
 
-    const startQueued = (handoff: BotHandoff) =>
+    const startQueued = (handoff: CrewHandoff) =>
       Effect.gen(function* () {
         if (handoff.status !== "queued") return handoff;
         const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-        const sourceBot = sourceRun ? yield* runs.getDefinition(sourceRun.botId) : null;
-        const targetBot = yield* runs.getDefinition(handoff.targetBotId);
+        const sourceMember = sourceRun ? yield* runs.getMember(sourceRun.memberId) : null;
+        const targetMember = yield* runs.getMember(handoff.targetMemberId);
         if (
-          !sourceBot?.enabled ||
-          !targetBot?.enabled ||
-          !(yield* runs.canDelegate(sourceBot.id, targetBot.id))
+          !sourceMember?.enabled ||
+          !targetMember?.enabled ||
+          !(yield* runs.canDelegate(sourceMember.id, targetMember.id))
         ) {
           const now = DateTime.formatIso(yield* DateTime.now);
           yield* handoffs.transition(
@@ -161,9 +164,9 @@ export const BotHandoffServiceLive = Layer.effect(
           yield* deliver(updated).pipe(Effect.result);
           return updated;
         }
-        yield* bots.createRun({
+        yield* crew.createRun({
           id: handoff.targetRunId,
-          botId: handoff.targetBotId,
+          memberId: handoff.targetMemberId,
           projectId: handoff.projectId,
           taskText: `${handoff.taskText}${handoff.contextText ? `\n\nContext:\n${handoff.contextText}` : ""}`,
           ...(handoff.modelSelection ? { modelSelection: handoff.modelSelection } : {}),
@@ -173,58 +176,60 @@ export const BotHandoffServiceLive = Layer.effect(
         return (yield* handoffs.get(handoff.id))!;
       });
 
-    const delegate: BotHandoffServiceShape["delegate"] = (input) =>
+    const delegate: CrewHandoffServiceShape["delegate"] = (input) =>
       Effect.gen(function* () {
         const id = yield* Effect.try({
           try: () => bounded(input.id, "Request ID", 128),
-          catch: () => new BotHandoffError("Invalid request ID"),
+          catch: () => new CrewHandoffError("Invalid request ID"),
         });
         const taskText = yield* Effect.try({
           try: () => bounded(input.taskText, "Task", 8_000),
-          catch: () => new BotHandoffError("Invalid task"),
+          catch: () => new CrewHandoffError("Invalid task"),
         });
         const contextText = input.contextText?.trim() ?? "";
         if (contextText.length > 4_000) {
-          return yield* Effect.fail(new BotHandoffError("Context exceeds 4,000 characters"));
+          return yield* Effect.fail(new CrewHandoffError("Context exceeds 4,000 characters"));
         }
-        const source = yield* requireRun(input.sourceThreadId, "bots.delegate");
+        const source = yield* requireRun(input.sourceThreadId, "crew.delegate");
         if (source.projectId !== input.projectId) {
-          return yield* Effect.fail(new BotHandoffError("Source run belongs to another project"));
+          return yield* Effect.fail(new CrewHandoffError("Source run belongs to another project"));
         }
         const existing = yield* handoffs.get(id);
         if (existing) {
           if (!sameRequest(existing, { ...input, taskText, contextText }, source.id)) {
-            return yield* Effect.fail(new BotHandoffError("Request ID belongs to another handoff"));
+            return yield* Effect.fail(
+              new CrewHandoffError("Request ID belongs to another handoff"),
+            );
           }
           return yield* startQueued(existing);
         }
-        const sourceBot = yield* runs.getDefinition(source.botId);
-        const targetBot = yield* runs.getDefinition(input.targetBotId);
-        if (!sourceBot || !targetBot?.enabled || targetBot.projectId !== input.projectId) {
+        const sourceMember = yield* runs.getMember(source.memberId);
+        const targetMember = yield* runs.getMember(input.targetMemberId);
+        if (!sourceMember || !targetMember?.enabled || targetMember.projectId !== input.projectId) {
           return yield* Effect.fail(
-            new BotHandoffError("Target bot is unavailable for this project"),
+            new CrewHandoffError("Target crew member is unavailable for this project"),
           );
         }
-        if (!(yield* runs.canDelegate(sourceBot.id, targetBot.id))) {
-          return yield* Effect.fail(new BotHandoffError("Delegation is not permitted"));
+        if (!(yield* runs.canDelegate(sourceMember.id, targetMember.id))) {
+          return yield* Effect.fail(new CrewHandoffError("Delegation is not permitted"));
         }
         const parent = yield* handoffs.getForTargetRun(source.id);
         const depth = (parent?.depth ?? 0) + 1;
         if (depth > 8) {
-          return yield* Effect.fail(new BotHandoffError("Delegation depth exceeded"));
+          return yield* Effect.fail(new CrewHandoffError("Delegation depth exceeded"));
         }
         if (parent) {
           const ancestors = yield* handoffs.listAncestors(parent.id);
-          if (ancestors.some((ancestor) => ancestor.targetBotId === targetBot.id)) {
-            return yield* Effect.fail(new BotHandoffError("Delegation cycle rejected"));
+          if (ancestors.some((ancestor) => ancestor.targetMemberId === targetMember.id)) {
+            return yield* Effect.fail(new CrewHandoffError("Delegation cycle rejected"));
           }
         }
         const now = DateTime.formatIso(yield* DateTime.now);
-        const handoff: BotHandoff = {
+        const handoff: CrewHandoff = {
           id,
           parentId: parent?.id ?? null,
           sourceRunId: source.id,
-          targetBotId: targetBot.id,
+          targetMemberId: targetMember.id,
           targetRunId: `bot-handoff:${id}`,
           projectId: input.projectId,
           taskText,
@@ -244,21 +249,21 @@ export const BotHandoffServiceLive = Layer.effect(
         yield* handoffs.insert(handoff);
         const persisted = yield* handoffs.get(id);
         if (!persisted || !sameRequest(persisted, { ...input, taskText, contextText }, source.id)) {
-          return yield* Effect.fail(new BotHandoffError("Request ID belongs to another handoff"));
+          return yield* Effect.fail(new CrewHandoffError("Request ID belongs to another handoff"));
         }
         return yield* startQueued(persisted);
       });
 
     const updateFromRecipient = (
       threadId: ThreadId,
-      grant: "bots.respond" | "bots.ask",
+      grant: "crew.respond" | "crew.ask",
       status: "completed" | "failed" | "needs-input",
       text: string,
     ) =>
       Effect.gen(function* () {
         const value = yield* Effect.try({
           try: () => bounded(text, status === "needs-input" ? "Question" : "Summary", 8_000),
-          catch: () => new BotHandoffError("Invalid response text"),
+          catch: () => new CrewHandoffError("Invalid response text"),
         });
         const run = yield* requireRun(threadId, grant);
         const handoff = yield* requireIncoming(run);
@@ -266,7 +271,7 @@ export const BotHandoffServiceLive = Layer.effect(
           return handoff;
         }
         if (handoff.status !== "running") {
-          return yield* Effect.fail(new BotHandoffError("Handoff is not running"));
+          return yield* Effect.fail(new CrewHandoffError("Handoff is not running"));
         }
         const now = DateTime.formatIso(yield* DateTime.now);
         const changed = yield* handoffs.transition(
@@ -278,26 +283,26 @@ export const BotHandoffServiceLive = Layer.effect(
           true,
         );
         if (!changed)
-          return yield* Effect.fail(new BotHandoffError("Handoff changed concurrently"));
+          return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
         const updated = (yield* handoffs.get(handoff.id))!;
         yield* PubSub.publish(changes, updated.id);
         yield* deliver(updated).pipe(Effect.result);
         return (yield* handoffs.get(handoff.id))!;
       });
 
-    const answer: BotHandoffServiceShape["answer"] = (id, answerText) =>
+    const answer: CrewHandoffServiceShape["answer"] = (id, answerText) =>
       Effect.gen(function* () {
         const value = yield* Effect.try({
           try: () => bounded(answerText, "Answer", 8_000),
-          catch: () => new BotHandoffError("Invalid answer"),
+          catch: () => new CrewHandoffError("Invalid answer"),
         });
         const current = yield* handoffs.get(id);
         if (current?.status === "running" && current.responseText === value) return current;
         const recipient = current ? yield* runs.getRun(current.targetRunId) : null;
-        if (!recipient) return yield* Effect.fail(new BotHandoffError("Recipient run not found"));
+        if (!recipient) return yield* Effect.fail(new CrewHandoffError("Recipient run not found"));
         const handoff = yield* requireIncoming(recipient);
         if (handoff.status !== "needs-input") {
-          return yield* Effect.fail(new BotHandoffError("Handoff is not waiting for an answer"));
+          return yield* Effect.fail(new CrewHandoffError("Handoff is not waiting for an answer"));
         }
         const now = DateTime.formatIso(yield* DateTime.now);
         const changed = yield* handoffs.transition(
@@ -311,24 +316,24 @@ export const BotHandoffServiceLive = Layer.effect(
           true,
         );
         if (!changed)
-          return yield* Effect.fail(new BotHandoffError("Handoff changed concurrently"));
+          return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
         const updated = (yield* handoffs.get(id))!;
         yield* PubSub.publish(changes, id);
         yield* deliver(updated).pipe(Effect.result);
         return (yield* handoffs.get(id))!;
       });
 
-    const settleIfExited = (handoff: BotHandoff) =>
+    const settleIfExited = (handoff: CrewHandoff) =>
       Effect.gen(function* () {
         // The answer turn may not have reached its recipient yet. The previous
         // completed turn does not settle the newly resumed handoff.
         if (handoff.notificationState === "queued") return;
-        const view = yield* bots.getRun(handoff.targetRunId);
+        const view = yield* crew.getRun(handoff.targetRunId);
         if (!view || !["completed", "failed", "interrupted"].includes(view.status)) return;
         const now = DateTime.formatIso(yield* DateTime.now);
         const detail =
           view.status === "completed"
-            ? "Recipient ended without a structured bots_respond outcome"
+            ? "Recipient ended without a structured crew_respond outcome"
             : `Recipient run ${view.status}`;
         const changed = yield* handoffs.transition(
           handoff.id,
@@ -344,26 +349,28 @@ export const BotHandoffServiceLive = Layer.effect(
     return {
       delegate,
       respond: (threadId, outcome, summary) =>
-        updateFromRecipient(threadId, "bots.respond", outcome, summary),
+        updateFromRecipient(threadId, "crew.respond", outcome, summary),
       ask: (threadId, question) =>
-        updateFromRecipient(threadId, "bots.ask", "needs-input", question),
+        updateFromRecipient(threadId, "crew.ask", "needs-input", question),
       answer,
       answerFromBot: (threadId, id, answerText) =>
         Effect.gen(function* () {
-          const run = yield* requireRun(threadId, "bots.answer");
+          const run = yield* requireRun(threadId, "crew.answer");
           const handoff = yield* handoffs.get(id);
           if (handoff?.sourceRunId !== run.id) {
-            return yield* Effect.fail(new BotHandoffError("Handoff is unavailable to this run"));
+            return yield* Effect.fail(new CrewHandoffError("Handoff is unavailable to this run"));
           }
           return yield* answer(id, answerText);
         }),
       cancel: (id) =>
         Effect.gen(function* () {
           const handoff = yield* handoffs.get(id);
-          if (!handoff) return yield* Effect.fail(new BotHandoffError("Handoff not found"));
+          if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
           if (handoff.status === "cancelled") return handoff;
           if (handoff.status === "completed") {
-            return yield* Effect.fail(new BotHandoffError("Completed handoff cannot be cancelled"));
+            return yield* Effect.fail(
+              new CrewHandoffError("Completed handoff cannot be cancelled"),
+            );
           }
           const now = DateTime.formatIso(yield* DateTime.now);
           const target = yield* runs.getRun(handoff.targetRunId);
@@ -382,27 +389,27 @@ export const BotHandoffServiceLive = Layer.effect(
       retry: (id) =>
         Effect.gen(function* () {
           const handoff = yield* handoffs.get(id);
-          if (!handoff) return yield* Effect.fail(new BotHandoffError("Handoff not found"));
+          if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
           if (handoff.status === "queued" || handoff.status === "running") return handoff;
           if (handoff.status !== "failed" && handoff.status !== "cancelled") {
             return yield* Effect.fail(
-              new BotHandoffError("Only failed or cancelled handoffs can retry"),
+              new CrewHandoffError("Only failed or cancelled handoffs can retry"),
             );
           }
           const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-          const sourceBot = sourceRun ? yield* runs.getDefinition(sourceRun.botId) : null;
-          const targetBot = yield* runs.getDefinition(handoff.targetBotId);
+          const sourceMember = sourceRun ? yield* runs.getMember(sourceRun.memberId) : null;
+          const targetMember = yield* runs.getMember(handoff.targetMemberId);
           if (
-            !sourceBot?.enabled ||
-            !targetBot?.enabled ||
-            !(yield* runs.canDelegate(sourceBot.id, targetBot.id))
+            !sourceMember?.enabled ||
+            !targetMember?.enabled ||
+            !(yield* runs.canDelegate(sourceMember.id, targetMember.id))
           ) {
-            return yield* Effect.fail(new BotHandoffError("Delegation permission is unavailable"));
+            return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
           }
           const now = DateTime.formatIso(yield* DateTime.now);
           const changed = yield* handoffs.retry(id, now);
           if (!changed)
-            return yield* Effect.fail(new BotHandoffError("Handoff retry is unavailable"));
+            return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
           return yield* startQueued((yield* handoffs.get(id))!);
         }),
       get: handoffs.get,
@@ -410,7 +417,7 @@ export const BotHandoffServiceLive = Layer.effect(
       waitFor: (threadId, id) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const run = yield* requireRun(threadId, "bots.status");
+            const run = yield* requireRun(threadId, "crew.status");
             const subscription = yield* PubSub.subscribe(changes);
             const read = () =>
               handoffs
@@ -419,7 +426,7 @@ export const BotHandoffServiceLive = Layer.effect(
                   Effect.flatMap((handoff) =>
                     handoff?.sourceRunId === run.id
                       ? Effect.succeed(handoff)
-                      : Effect.fail(new BotHandoffError("Handoff is unavailable to this run")),
+                      : Effect.fail(new CrewHandoffError("Handoff is unavailable to this run")),
                   ),
                 );
             let handoff = yield* read();
@@ -467,6 +474,6 @@ export const BotHandoffServiceLive = Layer.effect(
           const updated = handoff ? yield* handoffs.get(handoff.id) : null;
           if (updated) yield* deliver(updated).pipe(Effect.result);
         }),
-    } satisfies BotHandoffServiceShape;
+    } satisfies CrewHandoffServiceShape;
   }),
 );

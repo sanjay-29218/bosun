@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { BOT_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { CREW_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import { useMemo, useState } from "react";
@@ -8,7 +8,7 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { uuidv4 } from "../../lib/uuid";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -18,9 +18,9 @@ import {
   resolveNewTaskModelSelection,
 } from "../../lib/modelOptions";
 import { SettingsSection } from "./components/SettingsSection";
-import { MobileBotConfigurationPanel } from "./MobileBotConfigurationPanel";
+import { MobileRoleConfigurationPanel } from "./MobileRoleConfigurationPanel";
 
-export function MobileBotsProjectSection(props: {
+export function MobileCrewProjectSection(props: {
   readonly project: EnvironmentProject;
   readonly environmentLabel: string;
 }) {
@@ -43,22 +43,22 @@ export function MobileBotsProjectSection(props: {
     modelOptions: buildModelOptions(serverConfig, projectDefaultModelSelection),
   });
   const snapshot = useEnvironmentQuery(
-    botsEnvironment.snapshot({
+    rolesEnvironment.snapshot({
       environmentId: project.environmentId,
       input: { projectId: project.id },
     }),
   );
-  const start = useAtomCommand(botsEnvironment.start);
-  const answer = useAtomCommand(botsEnvironment.answer);
-  const cancel = useAtomCommand(botsEnvironment.cancel);
-  const retry = useAtomCommand(botsEnvironment.retry);
+  const start = useAtomCommand(rolesEnvironment.start);
+  const answer = useAtomCommand(rolesEnvironment.answer);
+  const cancel = useAtomCommand(rolesEnvironment.cancel);
+  const retry = useAtomCommand(rolesEnvironment.retry);
   const [taskText, setTaskText] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const botNames = useMemo(
-    () => new Map(snapshot.data?.definitions.map((bot) => [bot.id, bot.name]) ?? []),
-    [snapshot.data?.definitions],
+  const memberNames = useMemo(
+    () => new Map(snapshot.data?.members.map((member) => [member.id, member.name]) ?? []),
+    [snapshot.data?.members],
   );
   const runs = snapshot.data?.runs ?? [];
   const handoffs = snapshot.data?.handoffs ?? [];
@@ -149,7 +149,7 @@ export function MobileBotsProjectSection(props: {
   };
 
   return (
-    <SettingsSection title={`Bots · ${props.environmentLabel}`}>
+    <SettingsSection title={`Crew · ${props.environmentLabel}`}>
       <View className="gap-3 p-4">
         <Text className="text-xs text-foreground-muted">{project.workspaceRoot}</Text>
         <Text className="text-sm text-foreground-muted">
@@ -222,13 +222,13 @@ export function MobileBotsProjectSection(props: {
           <Pressable
             key={run.id}
             accessibilityRole="button"
-            accessibilityLabel={`Open ${botNames.get(run.botId) ?? run.botId} thread`}
+            accessibilityLabel={`Open ${memberNames.get(run.memberId) ?? run.memberId} thread`}
             onPress={() => openThread(run.threadId)}
             className="flex-row items-center justify-between gap-3 py-1.5 active:opacity-70"
           >
             <View className="min-w-0 flex-1">
               <Text className="text-sm text-foreground" numberOfLines={1}>
-                {botNames.get(run.botId) ?? run.botId}
+                {memberNames.get(run.memberId) ?? run.memberId}
               </Text>
               {run.lastError ? (
                 <Text className="text-xs text-red-500" numberOfLines={1}>
@@ -237,8 +237,8 @@ export function MobileBotsProjectSection(props: {
               ) : null}
             </View>
             <Text className="text-xs text-foreground-muted">
-              {run.dispatchState === BOT_DISPATCH_STATE.QUEUED
-                ? BOT_DISPATCH_STATE.QUEUED
+              {run.dispatchState === CREW_DISPATCH_STATE.QUEUED
+                ? CREW_DISPATCH_STATE.QUEUED
                 : run.turnState}
             </Text>
           </Pressable>
@@ -250,7 +250,8 @@ export function MobileBotsProjectSection(props: {
           <View key={handoff.id} className="flex-row items-center justify-between gap-3 py-1">
             <View className="min-w-0 flex-1">
               <Text className="text-sm text-foreground" numberOfLines={1}>
-                {botNames.get(handoff.targetBotId) ?? handoff.targetBotId}: {handoff.taskText}
+                {memberNames.get(handoff.targetMemberId) ?? handoff.targetMemberId}:{" "}
+                {handoff.taskText}
               </Text>
               {handoff.lastError || handoff.responseText ? (
                 <Text className="text-xs text-foreground-muted" numberOfLines={1}>
@@ -278,11 +279,11 @@ export function MobileBotsProjectSection(props: {
             ) : null}
           </View>
         ))}
-        <MobileBotConfigurationPanel
+        <MobileRoleConfigurationPanel
           environmentId={project.environmentId}
           projectId={project.id}
           modelSelection={modelSelection}
-          bots={snapshot.data?.definitions ?? []}
+          members={snapshot.data?.members ?? []}
         />
       </View>
     </SettingsSection>

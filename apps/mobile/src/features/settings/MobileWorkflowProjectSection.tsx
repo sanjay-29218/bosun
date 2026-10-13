@@ -7,7 +7,7 @@ import { workflowsEnvironment } from "../../state/workflows";
 import { SettingsSection } from "./components/SettingsSection";
 
 /**
- * The project's workflows, read-only. Editing workflows and the crew stays on web and
+ * The environment's workflow library, read-only. Editing workflows and the crew stays on web and
  * desktop; running features is done from the Features screen and each stage thread.
  */
 export function MobileWorkflowProjectSection(props: {
@@ -16,10 +16,7 @@ export function MobileWorkflowProjectSection(props: {
 }) {
   const { project } = props;
   const definitions = useEnvironmentQuery(
-    workflowsEnvironment.definitions({
-      environmentId: project.environmentId,
-      input: { projectId: project.id },
-    }),
+    workflowsEnvironment.definitions({ environmentId: project.environmentId, input: {} }),
   );
 
   return (

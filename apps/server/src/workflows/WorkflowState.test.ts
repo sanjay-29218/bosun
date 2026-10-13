@@ -15,19 +15,19 @@ import {
 } from "./WorkflowState.ts";
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "delivery",
   name: "Delivery",
   revision: 1,
   start: "build",
-  bots: {
-    builder: { template: { kind: "template", id: "builder", revision: 1 }, supervisor: null },
+  roles: {
+    builder: { roleId: "builder", roleRevision: 1, supervisor: null },
   },
   steps: {
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
     review: {
       type: "task",
-      bot: "builder",
+      role: "builder",
       task: "Review",
       next: { approved: "end", changes_requested: "build" },
     },
@@ -50,7 +50,7 @@ const event = (
   stepId,
   kind,
   executionId: null,
-  botRunId: null,
+  runId: null,
   outcome: null,
   sourceKind: kind === "question" || kind === "answered" || kind === "failed" ? "handoff" : null,
   sourceId: kind === "question" || kind === "answered" || kind === "failed" ? "handoff-1" : null,
@@ -59,10 +59,10 @@ const event = (
   occurredAt: "2026-09-29T00:00:00Z",
   ...fields,
 });
-const start = (id: string, stepId: string, executionId: string, botRunId: string) =>
+const start = (id: string, stepId: string, executionId: string, runId: string) =>
   event(id, stepId, "started", {
     executionId,
-    botRunId,
+    runId,
     sourceKind: "handoff",
     sourceId: `handoff-${id}`,
   });
@@ -181,11 +181,11 @@ describe("workflow step history", () => {
   const gated: WorkflowDefinition = {
     ...definition,
     steps: {
-      plan: { type: "task", bot: "builder", task: "Plan", next: { ready: "build" }, gate: true },
-      build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+      plan: { type: "task", role: "builder", task: "Plan", next: { ready: "build" }, gate: true },
+      build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
       review: {
         type: "task",
-        bot: "builder",
+        role: "builder",
         task: "Review",
         next: { approved: "end", changes_requested: "build" },
         limits: { changes_requested: 1 },
@@ -427,7 +427,7 @@ describe("workflow step history", () => {
     expect(project(atBuild).steps.get("build")).toMatchObject({
       status: "taken-over",
       threadId: thread,
-      botRunId: null,
+      runId: null,
     });
     expect(status(project(atBuild), "plan")).toBe("skipped");
     expect(project(atBuild).readyStepIds).toEqual([]);

@@ -40,8 +40,9 @@ and other phone-only settings ignore the filter.
 
 ## Workflows
 
-Open **Settings → Project** and find **Workflows** to see a project's workflows. Use **Add
-starter workflow** for Feature delivery, then **Edit** to open a workflow's page.
+Open **Settings → Project** and find **Workflows** to see the environment's workflows. Every
+project on that environment shares them. Use **Add starter workflow** for Feature delivery, then
+**Edit** to open a workflow's page.
 
 - **Stages** run in order from the first stage. Each stage runs as a crew role, has a task, and
   can write files such as `plan.md`. Its last line says what it gets in its handoff: every earlier
@@ -50,7 +51,7 @@ starter workflow** for Feature delivery, then **Edit** to open a workflow's page
   it or routes to it.
 - **Routes** say where each outcome goes next, for example back to Build when Review requests
   changes. Give a route a number to stop the feature at **Your call** after it has been taken that
-  many times. Questions go to the Manager first, then to you. A failed stage retries the number of
+  many times. Questions go to the project manager first, then to you. A failed stage retries the number of
   times you set (empty uses the Crew setting), then pauses and notifies you.
 - **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
   keep the version they began with. Use the **⋯** menu to duplicate a workflow.
@@ -62,12 +63,13 @@ workflow shows that it changed, and new features can't start on it until you pub
 
 **Settings → Crew** holds the roles workflow stages run as, and limits on running agents.
 
-Roles belong to a project, so pick a project at the top of the page to see them. Use **Add the
-starter crew** for a Manager, Planner, Designer, Builder, QA Tester and Reviewer. Each role has
-instructions, crew tools and a default model. **Act** lets it work on its own; **Ask first**
-asks before changes. Use **Add role** for another role, and the **⋯** menu to edit a role or turn
-it off. Only roles with **Workflow stages can use this role** switched on can be picked for a
-stage. The Captain is environment-wide and shown read-only.
+Roles are shared by every project in an environment. Use **Add the starter crew** for a Project
+manager, Planner, Designer, Builder, QA Tester and Reviewer. Each role has instructions, crew
+tools and a default model. **Act** lets it work on its own; **Ask first** asks before changes.
+Use **Add role** for another role, and the **⋯** menu to edit a role or turn it off. Only roles
+with **Workflow stages can use this role** switched on can be picked for a stage. Each project
+gets its own project manager the first time a request or feature needs one; editing a role
+changes the members made from it later, not existing ones.
 
 **Limits** are environment-wide:
 
@@ -94,7 +96,7 @@ with the ones waiting on you first. In a stage thread, the card above the compos
 retries or recovers the stage, and the composer text goes with the action as your note.
 
 The project checkout and provider account belong to the connected environment shown in Settings.
-If that environment is offline, reconnect it to see current bot status or send an action.
+If that environment is offline, reconnect it to see current crew status or send an action.
 
 ## Worktree branch names
 

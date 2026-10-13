@@ -25,8 +25,8 @@ export const stageThreadSummaries = (input: {
   const stepByThread = new Map<ThreadId, string>();
   let currentThreadId: ThreadId | null = null;
   for (const event of input.events) {
-    if (event.kind !== "started" || event.botRunId === null) continue;
-    const threadId = input.runThreads.get(event.botRunId);
+    if (event.kind !== "started" || event.runId === null) continue;
+    const threadId = input.runThreads.get(event.runId);
     if (threadId === undefined) continue;
     // Re-insert so the map keeps the order threads last started in.
     stepByThread.delete(threadId);

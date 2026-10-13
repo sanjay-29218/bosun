@@ -922,7 +922,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Crew roles",
     to: "/settings/crew",
     searchTerms: [
-      "bots agents planner designer builder reviewer manager captain instructions tools model act ask first",
+      "crew members agents planner designer builder reviewer project manager captain instructions tools model act ask first",
     ],
   },
   {
@@ -954,7 +954,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
-  // Roles follow the project crumb and limits the environment; both render at any scope.
+  // Roles and limits belong to the environment; both render at any scope.
   "/settings/crew": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",

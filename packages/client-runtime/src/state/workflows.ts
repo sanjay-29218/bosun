@@ -5,7 +5,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
-/** Definitions and feature state are read from the environment that owns the project. */
+/** Workflow definitions are a global library; feature state is read from the environment that owns the project. */
 export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>) {
   const definitions = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:workflows:definitions",
@@ -27,12 +27,12 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
     idleTtlMs: 60_000,
   });
   const refreshDefinitions = (
-    target: {
-      readonly environmentId: EnvironmentId;
-      readonly input: { readonly projectId: ProjectId };
-    },
+    target: { readonly environmentId: EnvironmentId },
     registry: AtomRegistry.AtomRegistry,
-  ) => Effect.sync(() => registry.refresh(definitions(target)));
+  ) =>
+    Effect.sync(() =>
+      registry.refresh(definitions({ environmentId: target.environmentId, input: {} })),
+    );
   const refreshFeature = (
     target: {
       readonly environmentId: EnvironmentId;
@@ -56,20 +56,12 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workflows:create",
       tag: WS_METHODS.workflowsCreate,
-      onSuccess: (target, registry) =>
-        refreshDefinitions(
-          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
-          registry,
-        ),
+      onSuccess: refreshDefinitions,
     }),
     revise: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workflows:revise",
       tag: WS_METHODS.workflowsRevise,
-      onSuccess: (target, registry) =>
-        refreshDefinitions(
-          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
-          registry,
-        ),
+      onSuccess: refreshDefinitions,
     }),
     answer: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workflows:answer",

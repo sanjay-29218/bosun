@@ -21,8 +21,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { describe, expect } from "vite-plus/test";
 
-import { BotService } from "../bots/BotService.ts";
-import { BotStore } from "../bots/BotStore.ts";
+import { CrewService, projectManagerMemberId } from "../crew/CrewService.ts";
+import { CrewStore } from "../crew/CrewStore.ts";
 import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
 import { WorkflowWorkspaceEmpty } from "../workflows/WorkflowWorkspace.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
@@ -31,9 +31,9 @@ import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
-  BotTestOrchestration as OrchestrationLayerLive,
-  seedBotProject,
-} from "../bots/BotRuntime.testkit.ts";
+  CrewTestOrchestration as OrchestrationLayerLive,
+  seedCrewProject,
+} from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -52,8 +52,8 @@ const withSystem = <E>(
     void,
     E,
     | FeatureService
-    | BotService
-    | BotStore
+    | CrewService
+    | CrewStore
     | WorkflowService
     | WorkflowStore
     | WorkflowExecutionStore
@@ -84,12 +84,12 @@ const withSystem = <E>(
       Layer.provideMerge(NodeServices.layer),
     );
     yield* Effect.gen(function* () {
-      yield* seedBotProject({
+      yield* seedCrewProject({
         projectId,
         title: "Feature project",
         workspaceRoot: directory,
       });
-      yield* (yield* BotService).ensureCrew(projectId, modelSelection);
+      yield* (yield* CrewService).ensureDefaults(modelSelection);
       yield* exercise;
     }).pipe(
       Effect.provide(layer),
@@ -107,26 +107,19 @@ describe("feature creation", () => {
         Effect.gen(function* () {
           const features = yield* FeatureService;
           const workflows = yield* WorkflowService;
-          const bots = yield* BotService;
-          const store = yield* BotStore;
-          const definition = yield* workflows.ensureStarterDefinition(projectId);
+          const bots = yield* CrewService;
+          const store = yield* CrewStore;
+          const definition = yield* workflows.ensureStarterDefinition();
           const selected = {
             ...definition,
             id: "custom-crew",
             name: "Custom crew",
-            bots: {
-              ...definition.bots,
-              second_planner: {
-                template: {
-                  kind: "template" as const,
-                  id: `template:planner:${projectId}`,
-                  revision: 1,
-                },
-                supervisor: "designer",
-              },
+            roles: {
+              ...definition.roles,
+              second_planner: { roleId: "role:planner", roleRevision: 1, supervisor: "designer" },
             },
           };
-          yield* workflows.createDefinition(projectId, selected);
+          yield* workflows.createDefinition(selected);
           const input = {
             id: "selected-feature",
             projectId,
@@ -138,64 +131,58 @@ describe("feature creation", () => {
           expect(created.workflowId).toBe(selected.id);
           expect(created.workflowRevision).toBe(selected.revision);
           expect((yield* features.get(created.id))?.workflowRevision).toBe(selected.revision);
-          expect(created.botAssignments.manager).toBe(`bot-manager:${projectId}`);
-          expect(created.botAssignments.second_planner).not.toBe(created.botAssignments.planner);
-          const crew = (yield* store.listDefinitionsForProject(projectId)).filter(
+          expect(created.crewAssignments.manager).toBe(projectManagerMemberId(projectId));
+          expect(created.crewAssignments.second_planner).not.toBe(created.crewAssignments.planner);
+          const crew = (yield* store.listMembersForProject(projectId)).filter(
             (bot) => bot.featureId === created.id,
           );
           expect(crew).toHaveLength(6);
-          expect(crew.every((bot) => bot.templateRevision === 1)).toBe(true);
+          expect(crew.every((bot) => bot.roleRevision === 1)).toBe(true);
           expect(
             yield* store.canDelegate(
-              created.botAssignments.designer!,
-              created.botAssignments.second_planner!,
+              created.crewAssignments.designer!,
+              created.crewAssignments.second_planner!,
             ),
           ).toBe(true);
           expect(
             yield* store.canDelegate(
-              created.botAssignments.manager!,
-              created.botAssignments.second_planner!,
+              created.crewAssignments.manager!,
+              created.crewAssignments.second_planner!,
             ),
           ).toBe(false);
           const copy = yield* workflows.getFeatureCopy(created.id);
-          const template = (yield* store.getTemplate(`template:planner:${projectId}`))!;
-          yield* bots.updateTemplate({
-            ...template,
-            expectedRevision: template.revision,
+          const role = (yield* store.getRole("role:planner"))!;
+          yield* bots.updateRole({
+            ...role,
+            expectedRevision: role.revision,
             instructions: "Updated planner",
           });
           const revised = {
             ...selected,
             revision: 2,
-            bots: {
-              ...selected.bots,
-              planner: {
-                ...definition.bots.planner!,
-                template: { kind: "template" as const, id: template.id, revision: 2 },
-              },
-              second_planner: {
-                ...selected.bots.second_planner,
-                template: { ...selected.bots.second_planner.template, revision: 2 },
-              },
+            roles: {
+              ...selected.roles,
+              planner: { ...definition.roles.planner!, roleRevision: 2 },
+              second_planner: { ...selected.roles.second_planner, roleRevision: 2 },
             },
           };
-          yield* workflows.reviseDefinition(projectId, revised, 1);
+          yield* workflows.reviseDefinition(revised, 1);
           expect(yield* features.create(input)).toEqual(created);
           expect(yield* features.get(created.id)).toEqual(created);
           expect(yield* workflows.getFeatureCopy(created.id)).toEqual(copy);
-          expect((yield* store.getDefinition(created.botAssignments.planner!))?.instructions).toBe(
-            template.instructions,
+          expect((yield* store.getMember(created.crewAssignments.planner!))?.instructions).toBe(
+            role.instructions,
           );
           expect(
             (yield* features.create({ ...input, workflowId: definition.id }).pipe(Effect.result))
               ._tag,
           ).toBe("Failure");
           expect(
-            (yield* features.setStatus(created.id, projectId, "closed")).botAssignments,
-          ).toEqual(created.botAssignments);
-          expect((yield* features.setStatus(created.id, projectId, "open")).botAssignments).toEqual(
-            created.botAssignments,
-          );
+            (yield* features.setStatus(created.id, projectId, "closed")).crewAssignments,
+          ).toEqual(created.crewAssignments);
+          expect(
+            (yield* features.setStatus(created.id, projectId, "open")).crewAssignments,
+          ).toEqual(created.crewAssignments);
           expect(yield* workflows.getFeatureCopy(created.id)).toEqual(copy);
         }),
       ),
@@ -208,8 +195,8 @@ describe("feature creation", () => {
         Effect.gen(function* () {
           const features = yield* FeatureService;
           const workflows = yield* WorkflowService;
-          const store = yield* BotStore;
-          const bots = yield* BotService;
+          const store = yield* CrewStore;
+          const bots = yield* CrewService;
           const input = {
             id: "recovered-feature",
             projectId,
@@ -220,14 +207,14 @@ describe("feature creation", () => {
           expect((yield* features.create(input).pipe(Effect.result))._tag).toBe("Failure");
           expect(yield* features.get(input.id)).toBeNull();
           expect(yield* workflows.getFeatureCopy(input.id)).toBeNull();
-          yield* workflows.ensureStarterDefinition(projectId);
+          yield* workflows.ensureStarterDefinition();
           // Fail after snapshot creation and the first bot insert to exercise transaction rollback.
           const lateInput = { ...input, id: "late-failure" };
           const collisionId = `feature-bot:${NodeCrypto.createHash("sha256")
             .update(encodeBotIdentity([lateInput.id, "designer"]))
             .digest("hex")
             .slice(0, 32)}`;
-          yield* bots.createDefinition({
+          yield* bots.createMember({
             id: collisionId,
             projectId,
             name: "Existing unrelated bot",
@@ -240,7 +227,7 @@ describe("feature creation", () => {
           expect(yield* features.get(lateInput.id)).toBeNull();
           expect(yield* workflows.getFeatureCopy(lateInput.id)).toBeNull();
           expect(
-            (yield* store.listDefinitionsForProject(projectId)).filter(
+            (yield* store.listMembersForProject(projectId)).filter(
               (bot) => bot.featureId === lateInput.id,
             ),
           ).toHaveLength(0);
@@ -251,13 +238,39 @@ describe("feature creation", () => {
       ),
   );
 
+  effectIt.effect("binds a workflow's project manager role to the project's manager", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const store = yield* CrewStore;
+        yield* (yield* WorkflowService).ensureStarterDefinition();
+        const managerId = projectManagerMemberId(projectId);
+        expect(yield* store.getMember(managerId)).toBeNull();
+        const create = (id: string) =>
+          features.create({
+            id,
+            projectId,
+            title: id,
+            brief: "Run the starter workflow",
+            workflowId: "feature-delivery",
+          });
+        const first = yield* create("managed-one");
+        const second = yield* create("managed-two");
+        expect(first.crewAssignments.manager).toBe(managerId);
+        expect(second.crewAssignments.manager).toBe(managerId);
+        expect((yield* store.getMember(managerId))?.featureId).toBeNull();
+        expect(first.crewAssignments.planner).not.toBe(second.crewAssignments.planner);
+      }),
+    ),
+  );
+
   effectIt.effect("requires a terminal workflow before closing an attached execution", () =>
     withSystem(
       Effect.gen(function* () {
         const features = yield* FeatureService;
         const workflows = yield* WorkflowService;
         const executions = yield* WorkflowExecutionStore;
-        yield* workflows.ensureStarterDefinition(projectId);
+        yield* workflows.ensureStarterDefinition();
         const feature = yield* features.create({
           id: "executing-feature",
           projectId,
@@ -275,7 +288,7 @@ describe("feature creation", () => {
           stepId: "plan",
           executionId: null,
           kind: "cancelled",
-          botRunId: null,
+          runId: null,
           outcome: null,
           sourceKind: null,
           sourceId: null,
@@ -294,7 +307,7 @@ describe("feature creation", () => {
       Effect.gen(function* () {
         const features = yield* FeatureService;
         const workflows = yield* WorkflowService;
-        yield* workflows.ensureStarterDefinition(projectId);
+        yield* workflows.ensureStarterDefinition();
         yield* features.create({
           id: "board-feature",
           projectId,
@@ -328,12 +341,12 @@ describe("feature creation", () => {
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
       const orchestration = OrchestrationLayerLive;
-      const botRuntime = WorkflowRuntimeLive.pipe(
+      const crewRuntime = WorkflowRuntimeLive.pipe(
         Layer.provide(WorkflowWorkspaceEmpty),
         Layer.provide(orchestration),
       );
       const layer = FeatureServiceLive.pipe(
-        Layer.provideMerge(botRuntime),
+        Layer.provideMerge(crewRuntime),
         Layer.provideMerge(orchestration),
         Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
@@ -342,18 +355,17 @@ describe("feature creation", () => {
         Layer.provideMerge(NodeServices.layer),
       );
       const exercise = Effect.gen(function* () {
-        const bots = yield* BotService;
-        const botStore = yield* BotStore;
+        const bots = yield* CrewService;
+        const crewStore = yield* CrewStore;
         const features = yield* FeatureService;
-        yield* seedBotProject({
+        yield* seedCrewProject({
           projectId,
           title: "Workflow feature project",
           workspaceRoot: `/tmp/${projectId}`,
         });
-        yield* bots.ensureCrew(projectId, modelSelection);
-        const extra = yield* bots.createTemplate({
-          id: "template:writer",
-          projectId,
+        yield* bots.ensureDefaults(modelSelection);
+        const extra = yield* bots.createRole({
+          id: "role:writer",
           name: "Writer",
           instructions: "Write the feature copy.",
           allowedTools: [],
@@ -361,9 +373,8 @@ describe("feature creation", () => {
           runtimeMode: "approval-required",
           autoCreateForFeature: true,
         });
-        const disabled = yield* bots.createTemplate({
-          id: "template:disabled",
-          projectId,
+        const disabled = yield* bots.createRole({
+          id: "role:disabled",
           name: "Disabled",
           instructions: "Do not copy me.",
           allowedTools: [],
@@ -371,7 +382,7 @@ describe("feature creation", () => {
           runtimeMode: "approval-required",
           autoCreateForFeature: true,
         });
-        yield* bots.updateTemplate({
+        yield* bots.updateRole({
           ...disabled,
           expectedRevision: disabled.revision,
           enabled: false,
@@ -388,30 +399,31 @@ describe("feature creation", () => {
         expect(created.updatedAt).toBe(created.createdAt);
         expect(created.workflowId).toBeNull();
         expect(created.workflowRevision).toBeNull();
-        const featureBots = (yield* botStore.listDefinitionsForProject(projectId)).filter(
+        const featureBots = (yield* crewStore.listMembersForProject(projectId)).filter(
           (bot) => bot.featureId === input.id,
         );
         expect(featureBots).toHaveLength(6);
-        expect(featureBots.map((bot) => bot.templateId)).toContain(extra.id);
-        expect(featureBots.map((bot) => bot.templateId)).not.toContain(disabled.id);
-        expect(featureBots.every((bot) => bot.templateRevision === 1)).toBe(true);
+        expect(featureBots.map((bot) => bot.roleId)).toContain(extra.id);
+        expect(featureBots.map((bot) => bot.roleId)).not.toContain(disabled.id);
+        expect(featureBots.every((bot) => bot.roleRevision === 1)).toBe(true);
         for (const bot of featureBots) {
-          expect(yield* botStore.canDelegate(`bot-manager:${projectId}`, bot.id)).toBe(true);
+          expect(yield* crewStore.canDelegate(projectManagerMemberId(projectId), bot.id)).toBe(
+            true,
+          );
         }
 
-        yield* bots.updateTemplate({
+        yield* bots.updateRole({
           ...extra,
           expectedRevision: extra.revision,
-          instructions: "New template instructions",
+          instructions: "New role instructions",
         });
         expect(yield* features.create(input)).toEqual(created);
         expect((yield* features.listByProject(projectId)).map((feature) => feature.id)).toEqual([
           input.id,
         ]);
         expect(
-          (yield* botStore.getDefinition(
-            featureBots.find((bot) => bot.templateId === extra.id)!.id,
-          ))?.instructions,
+          (yield* crewStore.getMember(featureBots.find((bot) => bot.roleId === extra.id)!.id))
+            ?.instructions,
         ).toBe("Write the feature copy.");
         expect(
           (yield* features.create({ ...input, title: "Different" }).pipe(Effect.result))._tag,
@@ -432,9 +444,9 @@ describe("feature creation", () => {
         ).toBe("Failure");
         const reopened = yield* features.setStatus(created.id, projectId, "open");
         expect(reopened.status).toBe("open");
-        expect(reopened.botAssignments).toEqual(created.botAssignments);
+        expect(reopened.crewAssignments).toEqual(created.crewAssignments);
         expect(
-          (yield* botStore.listDefinitionsForProject(projectId)).filter(
+          (yield* crewStore.listMembersForProject(projectId)).filter(
             (bot) => bot.featureId === created.id,
           ),
         ).toHaveLength(6);
@@ -556,7 +568,7 @@ const setRun = (id: string, status: OrchestrationV2Run["status"]) =>
 describe("making a thread a feature", () => {
   const attach = (threadId: ThreadId, stageId: string, featureId = "attached") =>
     Effect.gen(function* () {
-      const workflow = yield* (yield* WorkflowService).ensureStarterDefinition(projectId);
+      const workflow = yield* (yield* WorkflowService).ensureStarterDefinition();
       return yield* (yield* FeatureService).attachThread({
         featureId,
         projectId,
@@ -585,7 +597,7 @@ describe("making a thread a feature", () => {
         expect(snapshot.steps.find((step) => step.id === "review")).toMatchObject({
           status: "taken-over",
           threadId,
-          botRunId: null,
+          runId: null,
         });
         expect((yield* features.get("attached"))?.brief).toBe(
           "The socket reconnects twice after the laptop sleeps.",

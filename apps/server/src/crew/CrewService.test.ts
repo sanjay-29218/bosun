@@ -5,13 +5,19 @@ import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import { CommandId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  PROJECT_MANAGER_ROLE_ID,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
-import { BotTestOrchestration, seedBotProject } from "./BotRuntime.testkit.ts";
+import { CrewTestOrchestration, seedCrewProject } from "./CrewRuntime.testkit.ts";
 import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as Option from "effect/Option";
@@ -19,10 +25,16 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import { BotService, BotServiceLive } from "./BotService.ts";
-import { BotStore, BotStoreLive } from "./BotStore.ts";
-import { BotThreadRuntime } from "./BotThreadRuntime.ts";
-import { BotRuntimeLive } from "./runtimeLayer.ts";
+import {
+  CAPTAIN_MEMBER_ID,
+  CrewService,
+  CrewServiceLive,
+  projectBuilderMemberId,
+  projectManagerMemberId,
+} from "./CrewService.ts";
+import { CrewStore, CrewStoreLive } from "./CrewStore.ts";
+import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
+import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
 const projectId = ProjectId.make("bot-test-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
@@ -30,8 +42,8 @@ const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "g
 const withSystem = <A, E>(
   databasePath: string,
   use: (services: {
-    readonly bots: BotService["Service"];
-    readonly store: BotStore["Service"];
+    readonly bots: CrewService["Service"];
+    readonly store: CrewStore["Service"];
     readonly engine: OrchestrationEngineService["Service"];
     readonly sql: SqlClient.SqlClient;
     readonly query: {
@@ -44,10 +56,10 @@ const withSystem = <A, E>(
     };
   }) => Effect.Effect<A, E, ProjectStore.ProjectStoreV2>,
 ) => {
-  const orchestration = BotTestOrchestration;
+  const orchestration = CrewTestOrchestration;
   const layer = Layer.mergeAll(
     orchestration,
-    BotRuntimeLive.pipe(Layer.provide(orchestration)),
+    CrewRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
     Layer.provideMerge(SqlitePersistence.layerFromPath(databasePath)),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-test-" })),
@@ -57,8 +69,8 @@ const withSystem = <A, E>(
   return Effect.gen(function* () {
     const engine = yield* OrchestrationEngineService;
     return yield* use({
-      bots: yield* BotService,
-      store: yield* BotStore,
+      bots: yield* CrewService,
+      store: yield* CrewStore,
       engine,
       sql: yield* SqlClient.SqlClient,
       query: {
@@ -70,25 +82,25 @@ const withSystem = <A, E>(
 };
 
 const createProject = (_engine: OrchestrationEngineService["Service"]) =>
-  seedBotProject({
+  seedCrewProject({
     projectId,
     title: "Bot test project",
     workspaceRoot: "/tmp/bot-test-project",
   });
 
-const createBot = (bots: BotService["Service"]) =>
-  bots.createDefinition({
+const createBot = (bots: CrewService["Service"]) =>
+  bots.createMember({
     id: "execution-1",
     projectId,
     name: "Builder",
     instructions: "Implement the assigned change.",
-    allowedTools: ["bots.delegate"],
+    allowedTools: ["crew.delegate"],
     modelSelection,
     runtimeMode: "approval-required",
   });
 
 describe("Bot foundation", () => {
-  effectIt.effect("keeps custom templates, bot instances, and hierarchy distinct", () =>
+  effectIt.effect("keeps custom roles, crew members, and hierarchy distinct", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-custom-")),
@@ -96,59 +108,56 @@ describe("Bot foundation", () => {
       yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine }) =>
         Effect.gen(function* () {
           yield* createProject(engine);
-          const crews = yield* Effect.all(
-            [
-              bots.ensureCrew(projectId, modelSelection),
-              bots.ensureCrew(projectId, modelSelection),
-            ],
+          yield* Effect.all(
+            [bots.ensureDefaults(modelSelection), bots.ensureDefaults(modelSelection)],
             { concurrency: 2 },
           );
-          expect(crews[0].map((bot) => bot.id)).toEqual(crews[1].map((bot) => bot.id));
-          const template = yield* bots.createTemplate({
-            id: "template:custom",
-            projectId,
+          const defaultRoleIds = (yield* bots.listRoles()).map((role) => role.id);
+          expect(new Set(defaultRoleIds).size).toBe(defaultRoleIds.length);
+          expect(defaultRoleIds).toContain(PROJECT_MANAGER_ROLE_ID);
+          const manager = yield* bots.ensureProjectManager(projectId);
+          const role = yield* bots.createRole({
+            id: "role:custom",
             name: "Researcher",
             instructions: "Research the assigned question.",
             modelSelection,
             runtimeMode: "approval-required",
             autoCreateForFeature: true,
           });
-          const bot = yield* bots.instantiate("bot:researcher", projectId, template.id);
-          expect(bot.templateId).toBe(template.id);
-          expect(bot.templateRevision).toBe(1);
-          expect((yield* bots.getTemplate(template.id))?.autoCreateForFeature).toBe(true);
-          const updatedTemplate = yield* bots.updateTemplate({
-            ...template,
+          const member = yield* bots.instantiate("bot:researcher", projectId, role.id);
+          expect(member.roleId).toBe(role.id);
+          expect(member.roleRevision).toBe(1);
+          expect((yield* bots.getRole(role.id))?.autoCreateForFeature).toBe(true);
+          const updatedRole = yield* bots.updateRole({
+            ...role,
             name: "Investigator",
             instructions: "Investigate a question.",
-            expectedRevision: template.revision,
+            expectedRevision: role.revision,
             enabled: false,
           });
-          expect(updatedTemplate.revision).toBe(2);
-          expect((yield* bots.getDefinition(bot.id))?.name).toBe("Researcher");
+          expect(updatedRole.revision).toBe(2);
+          expect((yield* bots.getMember(member.id))?.name).toBe("Researcher");
           expect(
-            (yield* bots.instantiate("bot:second", projectId, template.id).pipe(Effect.result))
-              ._tag,
+            (yield* bots.instantiate("bot:second", projectId, role.id).pipe(Effect.result))._tag,
           ).toBe("Failure");
-          yield* bots.setHierarchyParent(bot.id, `bot-manager:${projectId}`, 2);
+          yield* bots.setHierarchyParent(member.id, manager.id, 2);
           const hierarchy = yield* bots.listHierarchyForProject(projectId);
-          expect(hierarchy.find((node) => node.botId === bot.id)).toMatchObject({
-            parentBotId: `bot-manager:${projectId}`,
+          expect(hierarchy.find((node) => node.memberId === member.id)).toMatchObject({
+            parentMemberId: manager.id,
             position: 2,
           });
+          expect(hierarchy.find((node) => node.memberId === manager.id)?.parentMemberId).toBe(
+            CAPTAIN_MEMBER_ID,
+          );
           expect(
-            hierarchy.find((node) => node.botId === `bot-manager:${projectId}`)?.parentBotId,
-          ).toBe("bot-captain");
-          expect(
-            (yield* bots.setHierarchyParent(`bot-manager:${projectId}`, bot.id).pipe(Effect.result))
-              ._tag,
+            (yield* bots.setHierarchyParent(manager.id, member.id).pipe(Effect.result))._tag,
           ).toBe("Failure");
           expect(
             (yield* bots
-              .createDefinition({
+              .createMember({
                 id: "bot:wrong-scope",
                 projectId: null,
-                templateId: template.id,
+                roleId: role.id,
                 name: "Wrong scope",
                 instructions: "Invalid.",
                 modelSelection,
@@ -165,10 +174,42 @@ describe("Bot foundation", () => {
     }),
   );
 
+  effectIt.effect("creates a project's manager once, and Captain may delegate to it", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
+        Effect.gen(function* () {
+          yield* createProject(engine);
+          yield* bots.ensureDefaults(modelSelection);
+          expect(yield* store.getMember(projectManagerMemberId(projectId))).toBeNull();
+          const first = yield* bots.ensureProjectManager(projectId);
+          const second = yield* bots.ensureProjectManager(projectId);
+          expect(first.id).toBe(projectManagerMemberId(projectId));
+          expect(first.roleId).toBe(PROJECT_MANAGER_ROLE_ID);
+          expect(second).toEqual(first);
+          const members = (yield* store.listMembersForProject(projectId)).filter(
+            (member) => member.projectId === projectId,
+          );
+          expect(members.map((member) => member.id).toSorted()).toEqual(
+            [projectBuilderMemberId(projectId), projectManagerMemberId(projectId)].toSorted(),
+          );
+          expect(yield* store.canDelegate(CAPTAIN_MEMBER_ID, first.id)).toBe(true);
+          expect(yield* store.canDelegate(first.id, projectBuilderMemberId(projectId))).toBe(true);
+        }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
   effectIt.effect("retains a failed dispatch and retries it without a new run", () =>
     Effect.gen(function* () {
       let attempts = 0;
-      const fakeRuntime = Layer.succeed(BotThreadRuntime, {
+      const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
         projectExists: () => Effect.succeed(true),
         start: () =>
           Effect.sync(() => ++attempts).pipe(
@@ -190,14 +231,14 @@ describe("Bot foundation", () => {
         interrupt: () => Effect.void,
         listPendingStartedRunIds: () => Effect.succeed([]),
       });
-      const layer = BotServiceLive.pipe(
-        Layer.provideMerge(BotStoreLive),
+      const layer = CrewServiceLive.pipe(
+        Layer.provideMerge(CrewStoreLive),
         Layer.provide(fakeRuntime),
         Layer.provide(SqlitePersistence.layerMemory),
       );
       yield* Effect.gen(function* () {
-        const bots = yield* BotService;
-        const bot = yield* bots.createDefinition({
+        const bots = yield* CrewService;
+        const bot = yield* bots.createMember({
           id: "retry-bot",
           projectId,
           name: "Retry bot",
@@ -208,7 +249,7 @@ describe("Bot foundation", () => {
         const first = yield* bots
           .createRun({
             id: "retry-run",
-            botId: bot.id,
+            memberId: bot.id,
             projectId,
             taskText: "Retry after failure",
           })
@@ -238,7 +279,7 @@ describe("Bot foundation", () => {
           yield* createBot(bots);
           const request = {
             id: "run-1",
-            botId: "execution-1",
+            memberId: "execution-1",
             projectId,
             taskText: "Add the small change",
           };
@@ -246,8 +287,8 @@ describe("Bot foundation", () => {
           const replay = yield* bots.createRun(request);
           const detail = yield* query.getThreadDetailById(first.threadId);
           expect(first.dispatchState).toBe("started");
-          expect(first.allowedTools).toEqual(["bots.delegate"]);
-          expect(first.botRevision).toBe(1);
+          expect(first.allowedTools).toEqual(["crew.delegate"]);
+          expect(first.memberRevision).toBe(1);
           expect(replay.threadId).toBe(first.threadId);
           const conflicting = yield* bots
             .createRun({ ...request, taskText: "Another task" })
@@ -266,7 +307,7 @@ describe("Bot foundation", () => {
           expect(summaries).toHaveLength(1);
           expect(summaries[0]).not.toHaveProperty("taskText");
           expect(summaries[0]).not.toHaveProperty("instructions");
-          yield* sql`UPDATE bot_runs SET thread_id = 'bot-run:legacy' WHERE id = 'run-1'`;
+          yield* sql`UPDATE crew_runs SET thread_id = 'bot-run:legacy' WHERE id = 'run-1'`;
           yield* sql`INSERT INTO projection_turns (thread_id, turn_id, state, requested_at, checkpoint_files_json)
             VALUES ('bot-run:legacy', 'old-turn', 'completed', '2026-01-01', '[]')`;
           yield* bots.reconcileRuns();
@@ -296,14 +337,14 @@ describe("Bot foundation", () => {
             const bot = yield* createBot(bots);
             yield* store.insertRun({
               id: "queued-1",
-              botId: bot.id,
+              memberId: bot.id,
               projectId,
               threadId: ThreadId.make("bot-run:queued-1"),
               taskText: "Recover this task",
               title: "Builder: Recover this task",
               instructions: bot.instructions,
               allowedTools: bot.allowedTools,
-              botRevision: bot.revision,
+              memberRevision: bot.revision,
               modelSelection: bot.modelSelection,
               runtimeMode: bot.runtimeMode,
               dispatchState: "queued",

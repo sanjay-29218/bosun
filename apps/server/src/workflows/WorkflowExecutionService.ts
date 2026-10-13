@@ -23,16 +23,16 @@ import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import { BotHandoffService, type BotHandoffError } from "../bots/BotHandoffService.ts";
-import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
-import { BotStore } from "../bots/BotStore.ts";
-import type { BotServiceError } from "../bots/BotService.ts";
+import { CrewHandoffService, type CrewHandoffError } from "../crew/CrewHandoffService.ts";
+import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
+import { CrewStore } from "../crew/CrewStore.ts";
+import type { CrewServiceError } from "../crew/CrewService.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
 import { renderStageHandoff } from "./StageHandoff.ts";
 import { stageThreadSummaries } from "./CrewStageThreads.ts";
-import { WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
+import { memberFillsRole, WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
 import { WorkflowStore } from "./WorkflowStore.ts";
 import {
   defaultForwardOutcome,
@@ -45,8 +45,8 @@ import {
 export type WorkflowExecutionError = ExecutionError;
 type ExecutionError =
   | WorkflowServiceError
-  | BotServiceError
-  | BotHandoffError
+  | CrewServiceError
+  | CrewHandoffError
   | ServerSettingsError;
 
 /** A person's (or agent's) decision on a feature, recorded under its request ID. */
@@ -115,9 +115,9 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     const executions = yield* WorkflowExecutionStore;
     const workflows = yield* WorkflowService;
     const store = yield* WorkflowStore;
-    const bots = yield* BotStore;
-    const handoffs = yield* BotHandoffStore;
-    const delegation = yield* BotHandoffService;
+    const crew = yield* CrewStore;
+    const handoffs = yield* CrewHandoffStore;
+    const delegation = yield* CrewHandoffService;
     const engine = yield* OrchestrationEngineService;
     const settings = yield* ServerSettingsService;
     const lock = yield* Semaphore.make(1);
@@ -218,7 +218,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           stepId: step.id,
           executionId: step.executionId,
           kind: "retry",
-          botRunId: null,
+          runId: null,
           outcome: null,
           sourceKind: "workflow",
           sourceId: failure.id,
@@ -254,7 +254,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             return;
           }
           // An attached stage completes when its thread's turn finishes, through its gate.
-          if (step.status === "taken-over" && step.threadId !== null && step.botRunId === null) {
+          if (step.status === "taken-over" && step.threadId !== null && step.runId === null) {
             const turn = yield* finishedTurn(step.threadId);
             const id = turn && `attached-done:${key(featureId, step.executionId!, turn.runId)}`;
             // A turn completes the stage once. After Reopen or Take over, only a new turn does.
@@ -264,7 +264,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               stepId,
               executionId: step.executionId,
               kind: "completed",
-              botRunId: null,
+              runId: null,
               outcome: defaultForwardOutcome(copy.definition, stepId),
               sourceKind: "workflow",
               sourceId: turn.runId,
@@ -279,14 +279,14 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           const eventIds = new Set(events.map((event) => event.id));
           if (step.status === "pending") {
             if (state.paused) return;
-            const binding = execution.bindings[task.bot];
-            const source = binding ? yield* bots.getRun(binding.dispatchRunId) : null;
-            const bot = binding ? yield* bots.getDefinition(binding.botId) : null;
-            if (!binding || !source || !bot)
+            const binding = execution.bindings[task.role];
+            const source = binding ? yield* crew.getRun(binding.dispatchRunId) : null;
+            const member = binding ? yield* crew.getMember(binding.memberId) : null;
+            if (!binding || !source || !member)
               return yield* Effect.fail(
                 new WorkflowTransitionError("Assigned dispatch run is unavailable"),
               );
-            const instanceId = (step.modelSelection ?? bot.modelSelection).instanceId;
+            const instanceId = (step.modelSelection ?? member.modelSelection).instanceId;
             if (!(yield* acquireSlot(featureId, instanceId, ignoreLimit))) return;
             const executionId =
               step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
@@ -302,14 +302,14 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               }),
             );
             const reserved = yield* handoffs.get(handoffId);
-            const reservedRun = reserved ? yield* bots.getRun(reserved.targetRunId) : null;
+            const reservedRun = reserved ? yield* crew.getRun(reserved.targetRunId) : null;
             const dispatch =
               reserved?.status === "failed" && !reservedRun
                 ? delegation.retry(handoffId)
                 : delegation.delegate({
                     id: handoffId,
                     sourceThreadId: source.threadId,
-                    targetBotId: binding.botId,
+                    targetMemberId: binding.memberId,
                     projectId: execution.projectId,
                     taskText,
                     contextText,
@@ -317,11 +317,11 @@ export const WorkflowExecutionServiceLive = Layer.effect(
                   });
             const result = yield* dispatch.pipe(Effect.result);
             const handoff = yield* handoffs.get(handoffId);
-            const run = handoff ? yield* bots.getRun(handoff.targetRunId) : null;
+            const run = handoff ? yield* crew.getRun(handoff.targetRunId) : null;
             if (!handoff || !run) {
               if (result._tag === "Failure") return yield* Effect.fail(result.failure);
               return yield* Effect.fail(
-                new WorkflowTransitionError("Dispatch did not create a bot run"),
+                new WorkflowTransitionError("Dispatch did not create a crew run"),
               );
             }
             yield* workflows.recordTrustedEvent(featureId, {
@@ -329,7 +329,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               stepId,
               executionId,
               kind: "started",
-              botRunId: run.id,
+              runId: run.id,
               outcome: null,
               sourceKind: "handoff",
               sourceId: handoffId,
@@ -339,7 +339,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             });
             if (result._tag === "Failure" && handoff.status === "queued") {
               yield* handoffs.transition(handoff.id, ["queued"], "failed", handoff.updatedAt, {
-                lastError: "Bot thread dispatch failed; retry the step",
+                lastError: "Crew thread dispatch failed; retry the step",
               });
             }
             // A provider can exit before the start event made the handoff discoverable.
@@ -348,7 +348,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             continue;
           }
           const start = events.findLast(
-            (event) => event.kind === "started" && event.botRunId === step.botRunId,
+            (event) => event.kind === "started" && event.runId === step.runId,
           );
           if (!start?.sourceId)
             return yield* Effect.fail(
@@ -369,7 +369,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           const latestQuestionReceipt = receipts.findLast(
             (receipt) =>
               receipt.handoff.status === "needs-input" &&
-              receipt.handoff.targetRunId === step.botRunId,
+              receipt.handoff.targetRunId === step.runId,
           );
           if (
             answerDecision?.detail &&
@@ -388,7 +388,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           );
           for (const receipt of receipts.slice(lastConsumed + 1)) {
             const handoff = receipt.handoff;
-            if (handoff.targetRunId !== step.botRunId) continue;
+            if (handoff.targetRunId !== step.runId) continue;
             const id = `receipt:${key(featureId, receipt.sequence)}`;
             if (eventIds.has(id)) continue;
             const current = step;
@@ -435,7 +435,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               ["running", "needs-input"].includes(current.status)
             ) {
               kind = "cancelled";
-              detail = "Assigned bot handoff was cancelled";
+              detail = "Assigned crew handoff was cancelled";
               sourceKind = null;
             } else continue;
             yield* workflows.recordTrustedEvent(featureId, {
@@ -443,7 +443,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               stepId,
               executionId: current.executionId,
               kind,
-              botRunId: null,
+              runId: null,
               outcome,
               sourceKind,
               sourceId: sourceKind === null ? null : handoff.id,
@@ -469,7 +469,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         if (!execution.settled && step?.status === "running") {
           if (holding) return;
           // An answered question resumes past the limit; count it so new stages wait.
-          const run = step.botRunId ? yield* bots.getRun(step.botRunId) : null;
+          const run = step.runId ? yield* crew.getRun(step.runId) : null;
           if (run) yield* executions.setSlot(featureId, null, run.modelSelection.instanceId);
           return;
         }
@@ -493,9 +493,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         const execution = yield* executions.get(featureId);
         const runThreads = new Map<string, ThreadId>();
         for (const event of events) {
-          if (event.kind !== "started" || !event.botRunId || runThreads.has(event.botRunId))
-            continue;
-          const run = yield* bots.getRun(event.botRunId);
+          if (event.kind !== "started" || !event.runId || runThreads.has(event.runId)) continue;
+          const run = yield* crew.getRun(event.runId);
           if (run) runThreads.set(run.id, run.threadId);
         }
         const written = yield* executions.listStageThreads(featureId);
@@ -639,7 +638,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         const occurredAt = DateTime.formatIso(yield* DateTime.now);
         const base = {
           id: input.requestId,
-          botRunId: null,
+          runId: null,
           outcome: null,
           sourceKind: null,
           sourceId: null,
@@ -666,10 +665,10 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           return yield* reject("Notes and answers are limited to 8000 characters");
         switch (input.kind) {
           case "answered": {
-            if (!text || step.status !== "needs-input" || !step.botRunId) {
+            if (!text || step.status !== "needs-input" || !step.runId) {
               return yield* reject("The active question needs an answer of 1-8000 characters");
             }
-            const handoff = yield* handoffs.getForTargetRun(step.botRunId);
+            const handoff = yield* handoffs.getForTargetRun(step.runId);
             if (!handoff || handoff.projectId !== input.projectId)
               return yield* reject("Question handoff is unavailable");
             return {
@@ -789,32 +788,27 @@ export const WorkflowExecutionServiceLive = Layer.effect(
                 "Feature workflow belongs to another project or is unavailable",
               ),
             );
-          if (Object.keys(bindings).length !== Object.keys(copy.definition.bots).length)
+          if (Object.keys(bindings).length !== Object.keys(copy.definition.roles).length)
             return yield* Effect.fail(
-              new WorkflowTransitionError("Every workflow bot needs one binding"),
+              new WorkflowTransitionError("Every workflow role needs one binding"),
             );
-          for (const [name, assignment] of Object.entries(copy.definition.bots)) {
+          for (const [name, role] of Object.entries(copy.definition.roles)) {
             const binding = bindings[name];
-            const bot = binding ? yield* bots.getDefinition(binding.botId) : null;
-            const source = binding ? yield* bots.getRun(binding.dispatchRunId) : null;
-            const sourceBot = source ? yield* bots.getDefinition(source.botId) : null;
+            const member = binding ? yield* crew.getMember(binding.memberId) : null;
+            const source = binding ? yield* crew.getRun(binding.dispatchRunId) : null;
+            const sourceMember = source ? yield* crew.getMember(source.memberId) : null;
             if (
               !binding ||
-              !bot?.enabled ||
-              !sourceBot?.enabled ||
+              !member?.enabled ||
+              !sourceMember?.enabled ||
               !source ||
-              bot.projectId !== projectId ||
               source.projectId !== projectId ||
-              (assignment.template.kind === "template"
-                ? bot.featureId !== featureId ||
-                  bot.templateId !== assignment.template.id ||
-                  bot.templateRevision !== assignment.template.revision
-                : bot.id !== assignment.template.id || bot.featureId !== null) ||
-              !source.allowedTools.includes("bots.delegate") ||
-              !bot.allowedTools.includes("bots.respond") ||
-              (assignment.supervisor !== null &&
-                source.botId !== bindings[assignment.supervisor]?.botId) ||
-              !(yield* bots.canDelegate(source.botId, bot.id))
+              !memberFillsRole(member, role, featureId, projectId) ||
+              !source.allowedTools.includes("crew.delegate") ||
+              !member.allowedTools.includes("crew.respond") ||
+              (role.supervisor !== null &&
+                source.memberId !== bindings[role.supervisor]?.memberId) ||
+              !(yield* crew.canDelegate(source.memberId, member.id))
             ) {
               return yield* Effect.fail(
                 new WorkflowTransitionError(`Unauthorized or mismatched workflow binding: ${name}`),
@@ -827,7 +821,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             !persisted ||
             Object.entries(bindings).some(
               ([name, binding]) =>
-                persisted.bindings[name]?.botId !== binding.botId ||
+                persisted.bindings[name]?.memberId !== binding.memberId ||
                 persisted.bindings[name]?.dispatchRunId !== binding.dispatchRunId,
             )
           ) {

@@ -13,14 +13,14 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
-import { BotTestOrchestration, seedBotProject } from "./BotRuntime.testkit.ts";
+import { CrewTestOrchestration, seedCrewProject } from "./CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import { BotService } from "./BotService.ts";
-import { BotHandoffService } from "./BotHandoffService.ts";
-import { BotHandoffStore } from "./BotHandoffStore.ts";
-import { BotRuntimeLive } from "./runtimeLayer.ts";
+import { CrewService } from "./CrewService.ts";
+import { CrewHandoffService } from "./CrewHandoffService.ts";
+import { CrewHandoffStore } from "./CrewHandoffStore.ts";
+import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
 const projectId = ProjectId.make("bot-handoff-test-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6-sol" };
@@ -28,17 +28,17 @@ const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "g
 const withSystem = <A, E>(
   path: string,
   use: (services: {
-    readonly bots: BotService["Service"];
-    readonly handoffs: BotHandoffService["Service"];
-    readonly store: BotHandoffStore["Service"];
+    readonly bots: CrewService["Service"];
+    readonly handoffs: CrewHandoffService["Service"];
+    readonly store: CrewHandoffStore["Service"];
     readonly engine: OrchestrationEngineService["Service"];
     readonly sql: SqlClient.SqlClient;
   }) => Effect.Effect<A, E, SqlClient.SqlClient | ProjectStore.ProjectStoreV2>,
 ) => {
-  const orchestration = BotTestOrchestration;
+  const orchestration = CrewTestOrchestration;
   const layer = Layer.mergeAll(
     orchestration,
-    BotRuntimeLive.pipe(Layer.provide(orchestration)),
+    CrewRuntimeLive.pipe(Layer.provide(orchestration)),
   ).pipe(
     Layer.provideMerge(SqlitePersistence.layerFromPath(path)),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-handoff-test-" })),
@@ -47,9 +47,9 @@ const withSystem = <A, E>(
   );
   return Effect.gen(function* () {
     return yield* use({
-      bots: yield* BotService,
-      handoffs: yield* BotHandoffService,
-      store: yield* BotHandoffStore,
+      bots: yield* CrewService,
+      handoffs: yield* CrewHandoffService,
+      store: yield* CrewHandoffStore,
       engine: yield* OrchestrationEngineService,
       sql: yield* SqlClient.SqlClient,
     });
@@ -64,22 +64,23 @@ describe("Bot handoffs", () => {
       );
       yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, handoffs, store }) =>
         Effect.gen(function* () {
-          yield* seedBotProject({
+          yield* seedCrewProject({
             projectId,
             title: "Handoff questions",
             workspaceRoot: directory,
           });
-          yield* bots.ensureCrew(projectId, modelSelection);
+          yield* bots.ensureDefaults(modelSelection);
+          yield* bots.ensureProjectManager(projectId);
           const captain = yield* bots.createRun({
             id: "captain-question",
-            botId: "bot-captain",
+            memberId: "bot-captain",
             projectId,
             taskText: "Coordinate a question",
           });
           const managerRequest = yield* handoffs.delegate({
             id: "manager-question",
             sourceThreadId: captain.threadId,
-            targetBotId: `bot-manager:${projectId}`,
+            targetMemberId: `bot-manager:${projectId}`,
             projectId,
             taskText: "Clarify and execute",
           });
@@ -87,7 +88,7 @@ describe("Bot handoffs", () => {
           const executionRequest = yield* handoffs.delegate({
             id: "builder-question",
             sourceThreadId: manager.threadId,
-            targetBotId: `bot-builder:${projectId}`,
+            targetMemberId: `bot-builder:${projectId}`,
             projectId,
             taskText: "Implement after clarification",
           });
@@ -97,7 +98,7 @@ describe("Bot handoffs", () => {
               .delegate({
                 id: "forbidden",
                 sourceThreadId: execution.threadId,
-                targetBotId: `bot-manager:${projectId}`,
+                targetMemberId: `bot-manager:${projectId}`,
                 projectId,
                 taskText: "Escalate improperly",
               })
@@ -108,7 +109,7 @@ describe("Bot handoffs", () => {
               .delegate({
                 id: "builder-question",
                 sourceThreadId: manager.threadId,
-                targetBotId: `bot-builder:${projectId}`,
+                targetMemberId: `bot-builder:${projectId}`,
                 projectId,
                 taskText: "Different task",
               })
@@ -119,7 +120,7 @@ describe("Bot handoffs", () => {
               .delegate({
                 id: "oversized",
                 sourceThreadId: manager.threadId,
-                targetBotId: `bot-builder:${projectId}`,
+                targetMemberId: `bot-builder:${projectId}`,
                 projectId,
                 taskText: "x".repeat(8_001),
               })
@@ -178,35 +179,35 @@ describe("Bot handoffs", () => {
       const databasePath = NodePath.join(directory, "state.sqlite");
       yield* withSystem(databasePath, ({ bots, handoffs, engine }) =>
         Effect.gen(function* () {
-          yield* seedBotProject({
+          yield* seedCrewProject({
             projectId,
             title: "Handoff test",
             workspaceRoot: directory,
           });
-          yield* bots.createDefinition({
+          yield* bots.createMember({
             id: "captain",
             projectId: null,
             name: "Captain",
             instructions: "Coordinate.",
-            allowedTools: ["bots.delegate"],
+            allowedTools: ["crew.delegate"],
             modelSelection,
             runtimeMode: "approval-required",
           });
-          yield* bots.createDefinition({
+          yield* bots.createMember({
             id: "manager",
             projectId,
             name: "Manager",
             instructions: "Manage.",
-            allowedTools: ["bots.delegate", "bots.respond", "bots.ask"],
+            allowedTools: ["crew.delegate", "crew.respond", "crew.ask"],
             modelSelection,
             runtimeMode: "approval-required",
           });
-          yield* bots.createDefinition({
+          yield* bots.createMember({
             id: "execution",
             projectId,
             name: "Builder",
             instructions: "Execute.",
-            allowedTools: ["bots.respond", "bots.ask"],
+            allowedTools: ["crew.respond", "crew.ask"],
             modelSelection,
             runtimeMode: "approval-required",
           });
@@ -214,14 +215,14 @@ describe("Bot handoffs", () => {
           yield* bots.allowDelegation("manager", "execution");
           const captain = yield* bots.createRun({
             id: "captain-run",
-            botId: "captain",
+            memberId: "captain",
             projectId,
             taskText: "Coordinate the change",
           });
           const manager = yield* handoffs.delegate({
             id: "captain-to-manager",
             sourceThreadId: captain.threadId,
-            targetBotId: "manager",
+            targetMemberId: "manager",
             projectId,
             taskText: "Own the change",
           });
@@ -230,7 +231,7 @@ describe("Bot handoffs", () => {
             (yield* handoffs.delegate({
               id: "captain-to-manager",
               sourceThreadId: captain.threadId,
-              targetBotId: "manager",
+              targetMemberId: "manager",
               projectId,
               taskText: "Own the change",
             })).targetRunId,
@@ -239,7 +240,7 @@ describe("Bot handoffs", () => {
           const execution = yield* handoffs.delegate({
             id: "manager-to-execution",
             sourceThreadId: managerRun.threadId,
-            targetBotId: "execution",
+            targetMemberId: "execution",
             projectId,
             taskText: "Implement the change",
             contextText: "Keep the patch small.",
@@ -264,7 +265,7 @@ describe("Bot handoffs", () => {
               .delegate({
                 id: "revoked-delegation",
                 sourceThreadId: managerRun.threadId,
-                targetBotId: "execution",
+                targetMemberId: "execution",
                 projectId,
                 taskText: "Another change",
               })

@@ -11,7 +11,7 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 export const WorkflowBindings = Schema.Record(
   Schema.String,
   Schema.Struct({
-    botId: Schema.String,
+    memberId: Schema.String,
     dispatchRunId: Schema.String,
   }),
 );

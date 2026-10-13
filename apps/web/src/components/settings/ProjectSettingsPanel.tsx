@@ -43,7 +43,7 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
-import { BotsProjectSection } from "./BotsProjectSection";
+import { CrewProjectSection } from "./CrewProjectSection";
 import { WorkflowsProjectSection } from "./WorkflowsProjectSection";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
@@ -551,9 +551,9 @@ function ProjectDetail({
           ) : null,
         )}
         {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.bots ===
+          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.crew ===
           true ? (
-            <BotsProjectSection key={memberKey(member)} project={member} />
+            <CrewProjectSection key={memberKey(member)} project={member} />
           ) : null,
         )}
         {hasMultipleCheckouts ? checkoutChoices : null}

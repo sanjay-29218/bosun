@@ -151,7 +151,7 @@ export function buildFeatureStageBoard<Card extends FeatureBoardCard>(
     const stageCards = byStage.get(stepId) ?? [];
     return {
       stepId,
-      role: step?.type === "task" ? step.bot : (stageCards[0]?.stage?.role ?? null),
+      role: step?.type === "task" ? step.role : (stageCards[0]?.stage?.role ?? null),
       gate: step?.type === "task" ? step.gate === true : false,
       onlyInRevision: removed.get(stepId) ?? null,
       waiting: stageCards.filter((card) => card.state === "approval").length,
@@ -439,7 +439,7 @@ export type FeatureCardActionId =
 export function featureCardActions(card: FeatureBoardCard): ReadonlyArray<FeatureCardActionId> {
   if (isClosedState(card.state)) return ["reopen"];
   if (!card.started) return ["start", "cancel"];
-  // A taken-over stage waits for you to finish it by hand or hand it back to a bot.
+  // A taken-over stage waits for you to finish it by hand or hand it back to the crew.
   if (card.stage?.takenOver && card.state === "working")
     return ["mark-done", "retry", "send-back", "cancel"];
   switch (card.state) {

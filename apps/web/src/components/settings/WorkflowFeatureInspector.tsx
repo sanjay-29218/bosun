@@ -41,7 +41,7 @@ function FeatureRun({
     (event) => event.kind === "question" && event.executionId === active?.executionId,
   );
   const task = data?.activeStepId ? data.definition.steps[data.activeStepId] : null;
-  const supervisor = task?.type === "task" ? data?.definition.bots[task.bot]?.supervisor : null;
+  const supervisor = task?.type === "task" ? data?.definition.roles[task.role]?.supervisor : null;
   const invoke = async (
     action: () => Promise<{ readonly _tag: string; readonly cause?: unknown }>,
   ) => {
@@ -94,7 +94,7 @@ function FeatureRun({
                       : active
                         ? `${active.id} · ${active.status === "pending" && active.attempt > 0 ? "ready for another run" : active.status}`
                         : "Ready to start"}
-                {active?.botRunId ? ` · run ${active.botRunId}` : ""}
+                {active?.runId ? ` · run ${active.runId}` : ""}
               </p>
             </div>
             <Button size="sm" variant="outline" onClick={() => snapshot.refresh()}>
@@ -138,7 +138,7 @@ function FeatureRun({
                       });
                     }}
                   >
-                    Open bot thread
+                    Open stage thread
                   </Button>
                 ) : null}
               </div>

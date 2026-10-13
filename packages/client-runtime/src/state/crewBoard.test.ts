@@ -32,19 +32,19 @@ const otherEnvironmentId = EnvironmentId.make("env-2");
 const projectId = ProjectId.make("project-1");
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "feature-delivery",
   name: "Feature delivery",
   revision: 3,
   start: "plan",
-  bots: {},
+  roles: {},
   steps: {
-    plan: { type: "task", bot: "planner", task: "Plan", next: { ready: "design" }, gate: true },
-    design: { type: "task", bot: "designer", task: "Design", next: { ready: "build" } },
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+    plan: { type: "task", role: "planner", task: "Plan", next: { ready: "design" }, gate: true },
+    design: { type: "task", role: "designer", task: "Design", next: { ready: "build" } },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
     review: {
       type: "task",
-      bot: "reviewer",
+      role: "reviewer",
       task: "Review",
       next: { approved: "end", changes_requested: "build" },
       limits: { changes_requested: 3 },
@@ -75,7 +75,7 @@ const card = (
           stepId,
           index: 1,
           total: 4,
-          role: (definition.steps[stepId] as { bot?: string } | undefined)?.bot ?? "builder",
+          role: (definition.steps[stepId] as { role?: string } | undefined)?.role ?? "builder",
           attempt: 1,
           gate: false,
           takenOver: false,

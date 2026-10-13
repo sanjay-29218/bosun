@@ -7,6 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import {
   CommandId,
+  PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ProviderInstanceId,
   type ThreadId,
@@ -19,17 +20,17 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
 
-import { BotService, BotServiceLive } from "../bots/BotService.ts";
-import { BotStoreLive } from "../bots/BotStore.ts";
-import { BotThreadRuntime, type BotThreadStart } from "../bots/BotThreadRuntime.ts";
-import { BotHandoffService, BotHandoffServiceLive } from "../bots/BotHandoffService.ts";
-import { BotHandoffStore, BotHandoffStoreLive } from "../bots/BotHandoffStore.ts";
+import { CrewService, CrewServiceLive } from "../crew/CrewService.ts";
+import { CrewStoreLive } from "../crew/CrewStore.ts";
+import { CrewThreadRuntime, type CrewThreadStart } from "../crew/CrewThreadRuntime.ts";
+import { CrewHandoffService, CrewHandoffServiceLive } from "../crew/CrewHandoffService.ts";
+import { CrewHandoffStore, CrewHandoffStoreLive } from "../crew/CrewHandoffStore.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
-  BotTestOrchestration as OrchestrationLayerLive,
-  seedBotProject,
-} from "../bots/BotRuntime.testkit.ts";
+  CrewTestOrchestration as OrchestrationLayerLive,
+  seedCrewProject,
+} from "../crew/CrewRuntime.testkit.ts";
 import {
   OrchestratorDispatchError as OrchestrationCommandInvariantError,
   OrchestratorV2,
@@ -54,14 +55,14 @@ const fixture = (
   directory: string,
   crew: { readonly maxRunningStageThreads?: number; readonly stageRetries?: number } = {},
 ) => {
-  const starts: Array<BotThreadStart> = [];
+  const starts: Array<CrewThreadStart> = [];
   const interruptions: Array<string> = [];
   let failDispatch = false;
   let failInterrupt = false;
-  let duringDispatch: ((input: BotThreadStart) => Effect.Effect<void>) | null = null;
+  let duringDispatch: ((input: CrewThreadStart) => Effect.Effect<void>) | null = null;
   const runtime = Layer.succeed(
-    BotThreadRuntime,
-    BotThreadRuntime.of({
+    CrewThreadRuntime,
+    CrewThreadRuntime.of({
       projectExists: () => Effect.succeed(true),
       start: (input) =>
         Effect.gen(function* () {
@@ -109,12 +110,12 @@ const fixture = (
       threadDiff: (threadId) => Effect.succeed(diffs.get(threadId) ?? null),
     }),
   );
-  const foundation = BotServiceLive.pipe(
-    Layer.provideMerge(BotStoreLive),
+  const foundation = CrewServiceLive.pipe(
+    Layer.provideMerge(CrewStoreLive),
     Layer.provideMerge(runtime),
   );
-  const bots = BotHandoffServiceLive.pipe(
-    Layer.provideMerge(BotHandoffStoreLive),
+  const bots = CrewHandoffServiceLive.pipe(
+    Layer.provideMerge(CrewHandoffStoreLive),
     Layer.provideMerge(foundation),
   );
   const workflows = WorkflowServiceLive.pipe(
@@ -147,7 +148,7 @@ const fixture = (
     failNextInterrupt: () => {
       failInterrupt = true;
     },
-    onDispatch: (callback: (input: BotThreadStart) => Effect.Effect<void>) => {
+    onDispatch: (callback: (input: CrewThreadStart) => Effect.Effect<void>) => {
       duringDispatch = callback;
     },
   };
@@ -155,66 +156,63 @@ const fixture = (
 
 const seed = (featureId = "feature-one") =>
   Effect.gen(function* () {
-    const bots = yield* BotService;
+    const bots = yield* CrewService;
     const workflows = yield* WorkflowService;
     const execution = yield* WorkflowExecutionService;
-    yield* bots.ensureCrew(projectId, modelSelection);
-    const templateId = `template:planner:${projectId}`;
-    const planner = yield* bots.createDefinition({
+    yield* bots.ensureDefaults(modelSelection);
+    const managerId = (yield* bots.ensureProjectManager(projectId)).id;
+    const roleId = "role:planner";
+    const planner = yield* bots.createMember({
       id: `${featureId}-planner`,
       projectId,
       featureId,
-      templateId,
+      roleId,
       name: "Planner",
       instructions: "Plan",
-      allowedTools: ["bots.respond", "bots.ask"],
+      allowedTools: ["crew.respond", "crew.ask"],
       modelSelection,
       runtimeMode: "approval-required",
     });
-    const managerId = `bot-manager:${projectId}`;
     yield* bots.allowDelegation(managerId, planner.id);
     const captain = yield* bots.createRun({
       id: `${featureId}-captain`,
-      botId: "bot-captain",
+      memberId: "bot-captain",
       projectId,
       taskText: "Coordinate",
     });
     const manager = yield* bots.createRun({
       id: `${featureId}-manager`,
-      botId: managerId,
+      memberId: managerId,
       projectId,
       taskText: "Supervise",
     });
     const definition: WorkflowDefinition = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: featureId,
       name: "Delivery",
       revision: 1,
       start: "plan",
-      bots: {
-        manager: { template: { kind: "existing-project-bot", id: managerId }, supervisor: null },
-        planner: {
-          template: { kind: "template", id: templateId, revision: 1 },
-          supervisor: "manager",
-        },
+      roles: {
+        manager: { roleId: PROJECT_MANAGER_ROLE_ID, roleRevision: 1, supervisor: null },
+        planner: { roleId, roleRevision: 1, supervisor: "manager" },
       },
       steps: {
         plan: {
           type: "task",
-          bot: "planner",
+          role: "planner",
           task: "Plan",
           next: { ready: "review", change: "decision" },
           outputs: ["plan.md"],
         },
         decision: {
           type: "task",
-          bot: "manager",
+          role: "manager",
           task: "Decide whether to revise",
           next: { revise: "plan", reject: "end" },
         },
         review: {
           type: "task",
-          bot: "manager",
+          role: "manager",
           task: "Review",
           next: { approved: "end", revise: "plan" },
         },
@@ -227,11 +225,11 @@ const seed = (featureId = "feature-one") =>
         retries: 0,
       },
     };
-    yield* workflows.createDefinition(projectId, definition);
+    yield* workflows.createDefinition(definition);
     yield* workflows.copyForFeature(featureId, projectId, definition.id);
     const bindings = {
-      manager: { botId: managerId, dispatchRunId: captain.id },
-      planner: { botId: planner.id, dispatchRunId: manager.id },
+      manager: { memberId: managerId, dispatchRunId: captain.id },
+      planner: { memberId: planner.id, dispatchRunId: manager.id },
     };
     return { featureId, definition, bindings, execution, workflows, bots };
   });
@@ -239,11 +237,11 @@ const seed = (featureId = "feature-one") =>
 const activeHandoff = (featureId: string) =>
   Effect.gen(function* () {
     const workflows = yield* WorkflowService;
-    const bots = yield* BotService;
-    const handoffs = yield* BotHandoffStore;
+    const bots = yield* CrewService;
+    const handoffs = yield* CrewHandoffStore;
     const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
     const step = snapshot.steps.find((item) => item.id === snapshot.activeStepId)!;
-    const run = (yield* bots.getRun(step.botRunId!))!.run;
+    const run = (yield* bots.getRun(step.runId!))!.run;
     const handoff = (yield* handoffs.getForTargetRun(run.id))!;
     return { snapshot, step, run, handoff };
   });
@@ -266,7 +264,7 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* BotHandoffService;
+        const handoffs = yield* CrewHandoffService;
         const promptOf = (record: Parameters<typeof renderStageHandoff>[0]) => {
           const { taskText, contextText } = renderStageHandoff(record);
           return `${taskText}\n\nContext:\n${contextText}`;
@@ -395,12 +393,11 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, definition, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* BotHandoffService;
+        const handoffs = yield* CrewHandoffService;
         yield* execution.attach(featureId, projectId, bindings);
         const review = definition.steps.review;
         if (review?.type !== "task") return yield* Effect.die("review is a task step");
         yield* workflows.reviseDefinition(
-          projectId,
           {
             ...definition,
             revision: 2,
@@ -449,7 +446,7 @@ describe("Workflow execution", () => {
             Effect.forkScoped,
           );
           const plan = yield* activeHandoff(featureId);
-          yield* (yield* BotHandoffService).respond(
+          yield* (yield* CrewHandoffService).respond(
             plan.run.threadId,
             "completed",
             '{"outcome":"ready","summary":"Plan ready"}',
@@ -468,7 +465,7 @@ describe("Workflow execution", () => {
         const system = fixture(directory);
         return Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
-          const handoffs = yield* BotHandoffService;
+          const handoffs = yield* CrewHandoffService;
           yield* execution.attach(featureId, projectId, bindings);
           const plan = yield* activeHandoff(featureId);
           yield* handoffs.ask(plan.run.threadId, "Which API?");
@@ -531,12 +528,12 @@ describe("Workflow execution", () => {
         const system = fixture(directory);
         return Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
-          const handoffs = yield* BotHandoffService;
+          const handoffs = yield* CrewHandoffService;
           yield* execution.attach(featureId, projectId, bindings);
           const plan = yield* activeHandoff(featureId);
-          expect(plan.run.botId).toBe(bindings.planner.botId);
+          expect(plan.run.memberId).toBe(bindings.planner.memberId);
           expect(plan.handoff.sourceRunId).toBe(bindings.planner.dispatchRunId);
-          expect(plan.run.taskText).toContain("bots_respond");
+          expect(plan.run.taskText).toContain("crew_respond");
           yield* execution.attach(featureId, projectId, bindings);
           yield* execution.reconcileFeature(featureId);
           expect(system.starts.length).toBe(3);
@@ -548,7 +545,7 @@ describe("Workflow execution", () => {
           yield* execution.reconcileFeature(featureId);
           const decision = yield* activeHandoff(featureId);
           expect(decision.step.id).toBe("decision");
-          expect(decision.run.botId).toBe(bindings.manager.botId);
+          expect(decision.run.memberId).toBe(bindings.manager.memberId);
           yield* handoffs.respond(
             decision.run.threadId,
             "completed",
@@ -583,12 +580,12 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* BotHandoffService;
+        const handoffs = yield* CrewHandoffService;
         yield* execution.attach(featureId, projectId, bindings);
         const plan = yield* activeHandoff(featureId);
         yield* handoffs.ask(plan.run.threadId, "Which API?");
         yield* handoffs.answerFromBot(
-          (yield* (yield* BotService).getRun(bindings.planner.dispatchRunId))!.run.threadId,
+          (yield* (yield* CrewService).getRun(bindings.planner.dispatchRunId))!.run.threadId,
           plan.handoff.id,
           "Current API",
         );
@@ -619,7 +616,7 @@ describe("Workflow execution", () => {
         const system = fixture(directory);
         return Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
-          const handoffs = yield* BotHandoffService;
+          const handoffs = yield* CrewHandoffService;
           yield* execution.attach(featureId, projectId, bindings);
           const first = yield* activeHandoff(featureId);
           yield* handoffs.respond(
@@ -636,7 +633,7 @@ describe("Workflow execution", () => {
             stepId: "plan",
             executionId: first.step.executionId,
             kind: "retry",
-            botRunId: null,
+            runId: null,
             outcome: null,
             sourceKind: null,
             sourceId: null,
@@ -657,7 +654,7 @@ describe("Workflow execution", () => {
               "Completed handoff has an invalid or unrouted outcome; retry the step with a structured result",
           });
           expect(second.run.taskText).toContain("The previous attempt failed:");
-          expect((yield* (yield* BotHandoffStore).get(first.handoff.id))?.responseText).toContain(
+          expect((yield* (yield* CrewHandoffStore).get(first.handoff.id))?.responseText).toContain(
             "unknown",
           );
           yield* handoffs.respond(second.run.threadId, "failed", "Provider unavailable");
@@ -670,7 +667,7 @@ describe("Workflow execution", () => {
                 stepId: "plan",
                 executionId: second.step.executionId,
                 kind: "retry",
-                botRunId: null,
+                runId: null,
                 outcome: null,
                 sourceKind: null,
                 sourceId: null,
@@ -709,11 +706,11 @@ describe("Workflow execution", () => {
           (yield* execution
             .attach(featureId, projectId, {
               ...bindings,
-              planner: { ...bindings.planner, botId: bindings.manager.botId },
+              planner: { ...bindings.planner, memberId: bindings.manager.memberId },
             })
             .pipe(Effect.result))._tag,
         ).toBe("Failure");
-        yield* bots.revokeDelegation(bindings.manager.botId, bindings.planner.botId);
+        yield* bots.revokeDelegation(bindings.manager.memberId, bindings.planner.memberId);
         expect(
           (yield* execution.attach(featureId, projectId, bindings).pipe(Effect.result))._tag,
         ).toBe("Failure");
@@ -731,7 +728,7 @@ describe("Workflow execution", () => {
           const { featureId, execution, bindings } = yield* seed();
           yield* execution.attach(featureId, projectId, bindings);
           const plan = yield* activeHandoff(featureId);
-          yield* (yield* BotHandoffService).respond(
+          yield* (yield* CrewHandoffService).respond(
             plan.run.threadId,
             "completed",
             '{"outcome":"ready","summary":"Plan ready"}',
@@ -744,7 +741,7 @@ describe("Workflow execution", () => {
           expect(restarted.starts.length).toBe(1);
           const review = yield* activeHandoff("feature-one");
           expect(review.step.id).toBe("review");
-          yield* (yield* BotHandoffService).respond(
+          yield* (yield* CrewHandoffService).respond(
             review.run.threadId,
             "completed",
             '{"outcome":"approved","summary":"Reviewed"}',
@@ -768,8 +765,8 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* BotHandoffService;
-        const store = yield* BotHandoffStore;
+        const handoffs = yield* CrewHandoffService;
+        const store = yield* CrewHandoffStore;
         system.onDispatch((input) =>
           Effect.gen(function* () {
             const handoff = yield* store.getForTargetRun(input.runId);
@@ -780,7 +777,7 @@ describe("Workflow execution", () => {
         const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
         expect(snapshot.cancelled).toBe(true);
         expect(snapshot.recentEvents.map((event) => event.kind)).toEqual(["started", "cancelled"]);
-        expect(snapshot.steps.find((step) => step.id === "plan")?.botRunId).not.toBeNull();
+        expect(snapshot.steps.find((step) => step.id === "plan")?.runId).not.toBeNull();
         yield* execution.reconcile();
         expect(system.starts.length).toBe(3);
         expect(system.interruptions.length).toBe(1);
@@ -796,14 +793,14 @@ describe("Workflow execution", () => {
           const { featureId, execution, workflows, bindings } = yield* seed();
           yield* execution.attach(featureId, projectId, bindings);
           const plan = yield* activeHandoff(featureId);
-          yield* (yield* BotHandoffService).ask(plan.run.threadId, "Which API?");
+          yield* (yield* CrewHandoffService).ask(plan.run.threadId, "Which API?");
           yield* execution.reconcileFeature(featureId);
           yield* workflows.recordTrustedEvent(featureId, {
             id: "saved-answer",
             stepId: "plan",
             executionId: plan.step.executionId,
             kind: "answered",
-            botRunId: null,
+            runId: null,
             outcome: null,
             sourceKind: "decision",
             sourceId: plan.handoff.id,
@@ -811,7 +808,7 @@ describe("Workflow execution", () => {
             detail: "Current API",
             occurredAt: "2026-09-30T00:00:00Z",
           });
-          expect((yield* (yield* BotHandoffStore).get(plan.handoff.id))?.status).toBe(
+          expect((yield* (yield* CrewHandoffStore).get(plan.handoff.id))?.status).toBe(
             "needs-input",
           );
         }).pipe(Effect.provide(first.layer));
@@ -822,9 +819,9 @@ describe("Workflow execution", () => {
           const plan = yield* activeHandoff("feature-one");
           expect(plan.handoff.status).toBe("running");
           expect(plan.handoff.responseText).toBe("Current API");
-          yield* (yield* BotHandoffService).ask(plan.run.threadId, "Which version?");
+          yield* (yield* CrewHandoffService).ask(plan.run.threadId, "Which version?");
           yield* execution.reconcile();
-          expect((yield* (yield* BotHandoffStore).get(plan.handoff.id))?.status).toBe(
+          expect((yield* (yield* CrewHandoffStore).get(plan.handoff.id))?.status).toBe(
             "needs-input",
           );
           expect(restarted.starts).toEqual([]);
@@ -859,7 +856,7 @@ describe("Workflow execution", () => {
           const execution = yield* WorkflowExecutionService;
           yield* execution.reconcile();
           yield* execution.reconcile();
-          expect((yield* (yield* BotHandoffStore).listRunning()).length).toBe(0);
+          expect((yield* (yield* CrewHandoffStore).listRunning()).length).toBe(0);
         }).pipe(Effect.provide(restarted.layer));
         expect(restarted.interruptions.length).toBe(1);
         expect(restarted.starts).toEqual([]);
@@ -873,8 +870,8 @@ describe("Workflow execution", () => {
       return Effect.gen(function* () {
         const engine = yield* OrchestratorV2;
         const sql = yield* SqlClient.SqlClient;
-        const handoffs = yield* BotHandoffService;
-        yield* seedBotProject({ projectId, title: "Execution", workspaceRoot: "/repo" });
+        const handoffs = yield* CrewHandoffService;
+        yield* seedCrewProject({ projectId, title: "Execution", workspaceRoot: "/repo" });
         const { featureId, execution, bindings } = yield* seed();
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '')`;

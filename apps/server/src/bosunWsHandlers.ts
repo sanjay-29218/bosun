@@ -1,6 +1,6 @@
 import {
   type AuthSessionId,
-  BotOperationError,
+  CrewOperationError,
   BosunWsRpcGroup,
   FeatureOperationError,
   WorkflowOperationError,
@@ -10,10 +10,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import type { BotHandoffService } from "./bots/BotHandoffService.ts";
-import type { BotHandoffStore } from "./bots/BotHandoffStore.ts";
-import type { BotService } from "./bots/BotService.ts";
-import type { BotStore } from "./bots/BotStore.ts";
+import type { CrewHandoffService } from "./crew/CrewHandoffService.ts";
+import type { CrewHandoffStore } from "./crew/CrewHandoffStore.ts";
+import type { CrewService } from "./crew/CrewService.ts";
+import type { CrewStore } from "./crew/CrewStore.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -23,29 +23,29 @@ import type {
 } from "./workflows/WorkflowExecutionService.ts";
 import type { WorkflowService } from "./workflows/WorkflowService.ts";
 
-const isBotOperationError = Schema.is(BotOperationError);
+const isCrewOperationError = Schema.is(CrewOperationError);
 
 export interface BosunWsServices {
-  readonly bots: BotService["Service"];
-  readonly botStore: BotStore["Service"];
-  readonly botHandoffs: BotHandoffService["Service"];
-  readonly botHandoffStore: BotHandoffStore["Service"];
+  readonly crew: CrewService["Service"];
+  readonly crewStore: CrewStore["Service"];
+  readonly crewHandoffs: CrewHandoffService["Service"];
+  readonly crewHandoffStore: CrewHandoffStore["Service"];
   readonly features: FeatureService["Service"];
   readonly workflows: WorkflowService["Service"];
   readonly workflowExecution: WorkflowExecutionService["Service"];
 }
 
 /**
- * Handlers for Bosun's features, workflows and bots RPCs, merged with the T3
+ * Handlers for Bosun's features, workflows, roles and crew RPCs, merged with the T3
  * handlers in `ws.ts`. A separate group keeps the T3 handler map within the
  * type checker's instantiation depth and keeps upstream merges cheap.
  */
 export const layerBosunWsRpc = (
   {
-    bots,
-    botStore,
-    botHandoffs,
-    botHandoffStore,
+    crew,
+    crewStore,
+    crewHandoffs,
+    crewHandoffStore,
     features,
     workflows,
     workflowExecution,
@@ -81,33 +81,33 @@ export const layerBosunWsRpc = (
             const feature = yield* features.get(input.featureId);
             return feature?.projectId === input.projectId ? feature : null;
           }).pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
-        [WS_METHODS.workflowsList]: (input) =>
+        [WS_METHODS.workflowsList]: () =>
           workflows
-            .listLatestDefinitions(input.projectId)
+            .listLatestDefinitions()
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
-        [WS_METHODS.workflowsEnsureStarter]: (input) =>
+        [WS_METHODS.workflowsEnsureStarter]: () =>
           workflows
-            .ensureStarterDefinition(input.projectId)
+            .ensureStarterDefinition()
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
         [WS_METHODS.workflowsValidate]: (input) =>
           workflows
-            .validateDefinition(input.projectId, input.definition)
+            .validateDefinition(input.definition)
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
         [WS_METHODS.workflowsCreate]: (input) =>
           workflows
-            .createDefinition(input.projectId, input.definition)
+            .createDefinition(input.definition)
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
         [WS_METHODS.workflowsRevise]: (input) =>
           workflows
-            .reviseDefinition(input.projectId, input.definition, input.expectedRevision)
+            .reviseDefinition(input.definition, input.expectedRevision)
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
@@ -209,133 +209,142 @@ export const layerBosunWsRpc = (
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
-        [WS_METHODS.botsSnapshot]: (input) =>
+        [WS_METHODS.rolesList]: () =>
+          crew
+            .listRoles()
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.rolesCreate]: (input) =>
+          crew
+            .createRole(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.rolesUpdate]: (input) =>
+          crew
+            .updateRole(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.crewSnapshot]: (input) =>
           Effect.gen(function* () {
-            yield* botHandoffs.refreshProject(input.projectId);
+            yield* crewHandoffs.refreshProject(input.projectId);
             const project = yield* projectStore.getShell(input.projectId);
             if (Option.isNone(project)) {
-              return yield* new BotOperationError({ reason: "Project not found" });
+              return yield* new CrewOperationError({ reason: "Project not found" });
             }
-            const [definitions, runs, handoffs] = yield* Effect.all([
-              botStore.listDefinitionsForProject(input.projectId),
-              bots.listRunSummaries(input.projectId, 50),
-              botHandoffStore.listByProject(input.projectId, 100),
+            const [members, runs, handoffs] = yield* Effect.all([
+              crewStore.listMembersForProject(input.projectId),
+              crew.listRunSummaries(input.projectId, 50),
+              crewHandoffStore.listByProject(input.projectId, 100),
             ]);
-            return { definitions, runs, handoffs };
+            return { members, runs, handoffs };
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
-        [WS_METHODS.botsConfiguration]: (input) =>
+        [WS_METHODS.crewConfiguration]: (input) =>
           Effect.gen(function* () {
             const project = yield* projectStore.getShell(input.projectId);
             if (Option.isNone(project)) {
-              return yield* new BotOperationError({ reason: "Project not found" });
+              return yield* new CrewOperationError({ reason: "Project not found" });
             }
-            const [templates, hierarchy, delegationGrants] = yield* Effect.all([
-              bots.listTemplatesForProject(input.projectId),
-              bots.listHierarchyForProject(input.projectId),
-              bots.listDelegationGrantsForProject(input.projectId),
+            const [hierarchy, delegationGrants] = yield* Effect.all([
+              crew.listHierarchyForProject(input.projectId),
+              crew.listDelegationGrantsForProject(input.projectId),
             ]);
-            return { templates, hierarchy, delegationGrants };
+            return { hierarchy, delegationGrants };
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
-        [WS_METHODS.botsInitialize]: (input) =>
-          bots.ensureCrew(input.projectId, input.modelSelection).pipe(
-            Effect.asVoid,
-            Effect.mapError((error) => new BotOperationError({ reason: String(error) })),
-          ),
-        [WS_METHODS.botsCreateTemplate]: (input) =>
-          bots
-            .createTemplate(input)
-            .pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
-        [WS_METHODS.botsUpdateTemplate]: (input) =>
-          bots
-            .updateTemplate(input)
-            .pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
-        [WS_METHODS.botsInstantiate]: (input) =>
-          bots
-            .instantiate(input.id, input.projectId, input.templateId)
-            .pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
-        [WS_METHODS.botsSetHierarchy]: (input) =>
+        [WS_METHODS.crewInitialize]: (input) =>
+          crew
+            .ensureDefaults(input.modelSelection)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.crewInstantiate]: (input) =>
+          crew
+            .instantiate(input.id, input.projectId, input.roleId)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.crewSetHierarchy]: (input) =>
           Effect.gen(function* () {
-            const child = yield* bots.getDefinition(input.botId);
+            const child = yield* crew.getMember(input.memberId);
             if (child?.projectId !== input.projectId) {
-              return yield* new BotOperationError({ reason: "Bot not found in project" });
+              return yield* new CrewOperationError({ reason: "Crew member not found in project" });
             }
-            yield* bots.setHierarchyParent(input.botId, input.parentBotId, input.position);
+            yield* crew.setHierarchyParent(input.memberId, input.parentMemberId, input.position);
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
-        [WS_METHODS.botsSetDelegation]: (input) =>
+        [WS_METHODS.crewSetDelegation]: (input) =>
           Effect.gen(function* () {
-            const target = yield* bots.getDefinition(input.targetBotId);
+            const target = yield* crew.getMember(input.targetMemberId);
             if (target?.projectId !== input.projectId) {
-              return yield* new BotOperationError({ reason: "Bot not found in project" });
+              return yield* new CrewOperationError({ reason: "Crew member not found in project" });
             }
             if (input.allowed) {
-              yield* bots.allowDelegation(input.sourceBotId, input.targetBotId);
+              yield* crew.allowDelegation(input.sourceMemberId, input.targetMemberId);
             } else {
-              yield* bots.revokeDelegation(input.sourceBotId, input.targetBotId);
+              yield* crew.revokeDelegation(input.sourceMemberId, input.targetMemberId);
             }
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
-        [WS_METHODS.botsStart]: (input) =>
+        [WS_METHODS.crewStart]: (input) =>
+          crew.startRequest(input).pipe(
+            Effect.map((run) => ({ runId: run.id, threadId: run.threadId })),
+            Effect.mapError((error) => new CrewOperationError({ reason: String(error) })),
+          ),
+        [WS_METHODS.crewAnswer]: (input) =>
           Effect.gen(function* () {
-            yield* bots.ensureCrew(input.projectId, input.modelSelection);
-            const run = yield* bots.createRun({
-              id: input.id,
-              botId: "bot-captain",
-              projectId: input.projectId,
-              taskText: `Project: ${input.projectId}. Manager bot: bot-manager:${input.projectId}. Person's request: ${input.taskText}`,
-              modelSelection: input.modelSelection,
-            });
-            return { runId: run.id, threadId: run.threadId };
-          }).pipe(Effect.mapError((error) => new BotOperationError({ reason: String(error) }))),
-        [WS_METHODS.botsAnswer]: (input) =>
-          Effect.gen(function* () {
-            const handoff = yield* botHandoffs.get(input.requestId);
+            const handoff = yield* crewHandoffs.get(input.requestId);
             if (handoff?.projectId !== input.projectId) {
-              return yield* new BotOperationError({ reason: "Handoff not found in project" });
+              return yield* new CrewOperationError({ reason: "Handoff not found in project" });
             }
-            if (!input.text) return yield* new BotOperationError({ reason: "Answer is required" });
-            return yield* botHandoffs.answer(input.requestId, input.text);
+            if (!input.text) return yield* new CrewOperationError({ reason: "Answer is required" });
+            return yield* crewHandoffs.answer(input.requestId, input.text);
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
-        [WS_METHODS.botsCancel]: (input) =>
+        [WS_METHODS.crewCancel]: (input) =>
           Effect.gen(function* () {
-            const handoff = yield* botHandoffs.get(input.requestId);
+            const handoff = yield* crewHandoffs.get(input.requestId);
             if (handoff?.projectId !== input.projectId) {
-              return yield* new BotOperationError({ reason: "Handoff not found in project" });
+              return yield* new CrewOperationError({ reason: "Handoff not found in project" });
             }
-            return yield* botHandoffs.cancel(input.requestId);
+            return yield* crewHandoffs.cancel(input.requestId);
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
-        [WS_METHODS.botsRetry]: (input) =>
+        [WS_METHODS.crewRetry]: (input) =>
           Effect.gen(function* () {
-            const handoff = yield* botHandoffs.get(input.requestId);
+            const handoff = yield* crewHandoffs.get(input.requestId);
             if (handoff?.projectId !== input.projectId) {
-              return yield* new BotOperationError({ reason: "Handoff not found in project" });
+              return yield* new CrewOperationError({ reason: "Handoff not found in project" });
             }
-            return yield* botHandoffs.retry(input.requestId);
+            return yield* crewHandoffs.retry(input.requestId);
           }).pipe(
             Effect.mapError((error) =>
-              isBotOperationError(error) ? error : new BotOperationError({ reason: String(error) }),
+              isCrewOperationError(error)
+                ? error
+                : new CrewOperationError({ reason: String(error) }),
             ),
           ),
       };

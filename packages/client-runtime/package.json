@@ -415,13 +415,13 @@
       "types": "./src/state/mcpApps.ts",
       "default": "./src/state/mcpApps.ts"
     },
-    "./bot-message-origin": {
-      "types": "./src/botMessageOrigin.ts",
-      "default": "./src/botMessageOrigin.ts"
+    "./crew-message-origin": {
+      "types": "./src/crewMessageOrigin.ts",
+      "default": "./src/crewMessageOrigin.ts"
     },
-    "./state/bots": {
-      "types": "./src/state/bots.ts",
-      "default": "./src/state/bots.ts"
+    "./state/roles": {
+      "types": "./src/state/roles.ts",
+      "default": "./src/state/roles.ts"
     }
   },
   "scripts": {

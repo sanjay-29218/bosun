@@ -4,30 +4,31 @@ import { describe, expect, it } from "vite-plus/test";
 import { makeFeatureDraft } from "./featureThreads.ts";
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "bug-fix",
   name: "Bug fix",
   revision: 1,
   start: "reproduce",
-  bots: {
+  roles: {
     builder: {
-      template: { kind: "template", id: "template:builder", revision: 1 },
+      roleId: "role:builder",
+      roleRevision: 1,
       supervisor: null,
     },
-    qa: { template: { kind: "template", id: "template:qa", revision: 1 }, supervisor: null },
+    qa: { roleId: "role:qa", roleRevision: 1, supervisor: null },
   },
   steps: {
-    reproduce: { type: "task", bot: "builder", task: "Reproduce", next: { reproduced: "fix" } },
+    reproduce: { type: "task", role: "builder", task: "Reproduce", next: { reproduced: "fix" } },
     fix: {
       type: "task",
-      bot: "builder",
+      role: "builder",
       task: "Fix",
       next: { needs_rework: "reproduce", fixed: "verify" },
       limits: { needs_rework: 2 },
       gate: true,
     },
-    verify: { type: "task", bot: "qa", task: "Verify", next: { passed: "end", failed: "rework" } },
-    rework: { type: "task", bot: "builder", task: "Rework", next: { done: "verify" } },
+    verify: { type: "task", role: "qa", task: "Verify", next: { passed: "end", failed: "rework" } },
+    rework: { type: "task", role: "builder", task: "Rework", next: { done: "verify" } },
     end: { type: "end" },
   },
   defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 10 },
@@ -35,7 +36,7 @@ const definition: WorkflowDefinition = {
 
 describe("makeFeatureDraft", () => {
   it("lists the stages on the forward path and previews the next one", () => {
-    const roles = new Map([["template:qa", { name: "QA Tester", model: "Sonnet 5.5" }]]);
+    const roles = new Map([["role:qa", { name: "QA Tester", model: "Sonnet 5.5" }]]);
     const draft = makeFeatureDraft(definition, "fix", roles);
     // Rework is only reachable through a failure, so a thread can't start there.
     expect(draft.stages.map((stage) => stage.stepId)).toEqual(["reproduce", "fix", "verify"]);

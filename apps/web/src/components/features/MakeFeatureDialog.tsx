@@ -10,7 +10,7 @@ import { Atom } from "effect/reactivity";
 import { useId, useMemo, useState } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { randomUUID } from "../../lib/utils";
 import { useThreadShell } from "../../state/entities";
 import { featureThreadsEnvironment } from "../../state/featureThreads";
@@ -63,9 +63,9 @@ function MakeFeatureDialog({
   readonly thread: ThreadShell;
 }) {
   const id = useId();
-  const target = { environmentId: threadRef.environmentId, input: { projectId: thread.projectId } };
-  const definitions = useEnvironmentQuery(workflowsEnvironment.definitions(target));
-  const configuration = useEnvironmentQuery(botsEnvironment.configuration(target));
+  const library = { environmentId: threadRef.environmentId, input: {} };
+  const definitions = useEnvironmentQuery(workflowsEnvironment.definitions(library));
+  const roleConfigs = useEnvironmentQuery(rolesEnvironment.roles(library));
   const workflows = definitions.data ?? [];
   const canAttach = useAtomValue(
     featureThreadsEnvironment.attach.permissionAtom(threadRef.environmentId),
@@ -82,12 +82,12 @@ function MakeFeatureDialog({
   const roles = useMemo(
     () =>
       new Map(
-        (configuration.data?.templates ?? []).map((template) => [
-          template.id,
-          { name: template.name, model: template.modelSelection.model },
+        (roleConfigs.data ?? []).map((role) => [
+          role.id,
+          { name: role.name, model: role.modelSelection.model },
         ]),
       ),
-    [configuration.data],
+    [roleConfigs.data],
   );
   const draft = workflow
     ? makeFeatureDraft(workflow, stageId ?? workflow.start, roles)

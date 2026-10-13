@@ -1,6 +1,7 @@
 import {
+  PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
-  type BotTemplateConfig,
+  type RoleConfig,
   type EnvironmentId,
   type ModelSelection,
   type ProjectId,
@@ -12,7 +13,7 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { uuidv4 } from "../../lib/uuid";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -44,7 +45,7 @@ function Action(props: {
 }
 
 function Editor(props: {
-  readonly template: BotTemplateConfig | null;
+  readonly role: RoleConfig | null;
   readonly modelSelection: ModelSelection | null;
   readonly busy: boolean;
   readonly onSave: (value: {
@@ -59,73 +60,63 @@ function Editor(props: {
     readonly expectedRevision?: number;
   }) => void;
 }) {
-  const initialModel = props.template?.modelSelection ?? props.modelSelection;
-  const [name, setName] = useState(props.template?.name ?? "");
-  const [instructions, setInstructions] = useState(props.template?.instructions ?? "");
-  const [allowedTools, setAllowedTools] = useState(props.template?.allowedTools.join(", ") ?? "");
+  const initialModel = props.role?.modelSelection ?? props.modelSelection;
+  const [name, setName] = useState(props.role?.name ?? "");
+  const [instructions, setInstructions] = useState(props.role?.instructions ?? "");
+  const [allowedTools, setAllowedTools] = useState(props.role?.allowedTools.join(", ") ?? "");
   const [instanceId, setInstanceId] = useState(initialModel?.instanceId ?? "");
   const [model, setModel] = useState(initialModel?.model ?? "");
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
-    props.template?.runtimeMode ?? "approval-required",
+    props.role?.runtimeMode ?? "approval-required",
   );
   const [autoCreateForFeature, setAutoCreateForFeature] = useState(
-    props.template?.autoCreateForFeature ?? false,
+    props.role?.autoCreateForFeature ?? false,
   );
-  const [enabled, setEnabled] = useState(props.template?.enabled ?? true);
-  const readOnly = props.template?.projectId === null;
+  const [enabled, setEnabled] = useState(props.role?.enabled ?? true);
   const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
-        {props.template?.name ?? "New template"}
+        {props.role?.name ?? "New role"}
       </Text>
-      {readOnly ? (
-        <Text className="text-xs text-foreground-muted">Environment template</Text>
-      ) : null}
       <AppTextInput
-        accessibilityLabel="Bot template name"
+        accessibilityLabel="Role name"
         placeholder="Name"
         value={name}
         onChangeText={setName}
         maxLength={200}
-        editable={!readOnly}
       />
       <AppTextInput
-        accessibilityLabel="Bot template instructions"
+        accessibilityLabel="Role instructions"
         placeholder="Instructions"
         value={instructions}
         onChangeText={setInstructions}
         maxLength={16000}
-        editable={!readOnly}
         multiline
         textAlignVertical="top"
         className="min-h-28"
       />
       <AppTextInput
-        accessibilityLabel="Bot provider instance"
+        accessibilityLabel="Role provider instance"
         placeholder="Provider instance"
         value={instanceId}
         onChangeText={setInstanceId}
-        editable={!readOnly}
       />
       <AppTextInput
-        accessibilityLabel="Bot model"
+        accessibilityLabel="Role model"
         placeholder="Model"
         value={model}
         onChangeText={setModel}
-        editable={!readOnly}
       />
       <AppTextInput
-        accessibilityLabel="Allowed bot tools"
-        placeholder="Allowed bot tools, separated by commas"
+        accessibilityLabel="Allowed crew tools"
+        placeholder="Allowed crew tools, separated by commas"
         value={allowedTools}
         onChangeText={setAllowedTools}
-        editable={!readOnly}
       />
       <Action
         label={`T3 runtime: ${runtimeMode}`}
-        disabled={readOnly}
         onPress={() =>
           setRuntimeMode(
             RUNTIME_MODES[(RUNTIME_MODES.indexOf(runtimeMode) + 1) % RUNTIME_MODES.length]!,
@@ -134,91 +125,84 @@ function Editor(props: {
       />
       <Action
         label={`Feature default: ${autoCreateForFeature ? "on" : "off"}`}
-        disabled={readOnly}
         onPress={() => setAutoCreateForFeature(!autoCreateForFeature)}
       />
-      {props.template ? (
-        <Action
-          label={`Enabled: ${enabled ? "on" : "off"}`}
-          disabled={readOnly}
-          onPress={() => setEnabled(!enabled)}
-        />
+      {props.role ? (
+        <Action label={`Enabled: ${enabled ? "on" : "off"}`} onPress={() => setEnabled(!enabled)} />
       ) : null}
-      {!readOnly ? (
-        <Action
-          label="Save template"
-          disabled={!canSave || props.busy}
-          onPress={() => {
-            const modelSelection: ModelSelection = {
-              instanceId: ProviderInstanceId.make(instanceId.trim()),
-              model: model.trim(),
-              ...(props.template?.modelSelection.instanceId === instanceId.trim() &&
-              props.template.modelSelection.model === model.trim() &&
-              props.template.modelSelection.options
-                ? { options: props.template.modelSelection.options }
-                : {}),
-            };
-            props.onSave({
-              id: props.template?.id ?? `bot-template:${uuidv4()}`,
-              name: name.trim(),
-              instructions: instructions.trim(),
-              allowedTools: [
-                ...new Set(
-                  allowedTools
-                    .split(",")
-                    .map((tool) => tool.trim())
-                    .filter(Boolean),
-                ),
-              ],
-              modelSelection,
-              runtimeMode,
-              autoCreateForFeature,
-              enabled,
-              ...(props.template ? { expectedRevision: props.template.revision } : {}),
-            });
-          }}
-        />
-      ) : null}
+      <Action
+        label="Save role"
+        disabled={!canSave || props.busy}
+        onPress={() => {
+          const modelSelection: ModelSelection = {
+            instanceId: ProviderInstanceId.make(instanceId.trim()),
+            model: model.trim(),
+            ...(props.role?.modelSelection.instanceId === instanceId.trim() &&
+            props.role.modelSelection.model === model.trim() &&
+            props.role.modelSelection.options
+              ? { options: props.role.modelSelection.options }
+              : {}),
+          };
+          props.onSave({
+            id: props.role?.id ?? `role:${uuidv4()}`,
+            name: name.trim(),
+            instructions: instructions.trim(),
+            allowedTools: [
+              ...new Set(
+                allowedTools
+                  .split(",")
+                  .map((tool) => tool.trim())
+                  .filter(Boolean),
+              ),
+            ],
+            modelSelection,
+            runtimeMode,
+            autoCreateForFeature,
+            enabled,
+            ...(props.role ? { expectedRevision: props.role.revision } : {}),
+          });
+        }}
+      />
     </View>
   );
 }
 
-export function MobileBotConfigurationPanel(props: {
+export function MobileRoleConfigurationPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly modelSelection: ModelSelection | null;
-  readonly bots: ReadonlyArray<{
+  readonly members: ReadonlyArray<{
     readonly id: string;
     readonly name: string;
     readonly projectId: ProjectId | null;
   }>;
 }) {
   const { environmentId, projectId } = props;
+  const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
   const configuration = useEnvironmentQuery(
-    botsEnvironment.configuration({ environmentId, input: { projectId } }),
+    rolesEnvironment.configuration({ environmentId, input: { projectId } }),
   );
-  const initialize = useAtomCommand(botsEnvironment.initialize);
-  const createTemplate = useAtomCommand(botsEnvironment.createTemplate);
-  const updateTemplate = useAtomCommand(botsEnvironment.updateTemplate);
-  const instantiate = useAtomCommand(botsEnvironment.instantiate);
-  const setHierarchy = useAtomCommand(botsEnvironment.setHierarchy);
-  const setDelegation = useAtomCommand(botsEnvironment.setDelegation);
-  const [templateId, setTemplateId] = useState<string | null>(null);
-  const [botId, setBotId] = useState<string | null>(null);
+  const initialize = useAtomCommand(rolesEnvironment.initialize);
+  const create = useAtomCommand(rolesEnvironment.create);
+  const update = useAtomCommand(rolesEnvironment.update);
+  const instantiate = useAtomCommand(rolesEnvironment.instantiate);
+  const setHierarchy = useAtomCommand(rolesEnvironment.setHierarchy);
+  const setDelegation = useAtomCommand(rolesEnvironment.setDelegation);
+  const [roleId, setRoleId] = useState<string | null>(null);
+  const [memberId, setMemberId] = useState<string | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const templates = configuration.data?.templates ?? [];
-  const needsStarter = !templates.some(
-    (template) => template.id === `template:manager:${projectId}`,
-  );
-  const template = templates.find((item) => item.id === templateId) ?? null;
+  const roles = rolesQuery.data ?? [];
+  const needsStarter =
+    rolesQuery.data !== undefined && !roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
+  const role = roles.find((item) => item.id === roleId) ?? null;
   const nodes = configuration.data?.hierarchy ?? [];
   const grants = configuration.data?.delegationGrants ?? [];
-  const selectedBot = props.bots.find((bot) => bot.id === botId);
-  const parentId = nodes.find((node) => node.botId === botId)?.parentBotId ?? null;
+  const selectedMember = props.members.find((member) => member.id === memberId);
+  const parentId = nodes.find((node) => node.memberId === memberId)?.parentMemberId ?? null;
   const granted = grants.some(
-    (grant) => grant.sourceBotId === botId && grant.targetBotId === targetId,
+    (grant) => grant.sourceMemberId === memberId && grant.targetMemberId === targetId,
   );
   const run = async (
     action: () => Promise<{ readonly _tag: string; readonly cause?: unknown }>,
@@ -228,7 +212,10 @@ export function MobileBotConfigurationPanel(props: {
     try {
       const result = await action();
       if (result._tag !== "Success") setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
-      else configuration.refresh();
+      else {
+        rolesQuery.refresh();
+        configuration.refresh();
+      }
       return result._tag === "Success";
     } finally {
       setBusy(false);
@@ -237,99 +224,95 @@ export function MobileBotConfigurationPanel(props: {
 
   return (
     <View className="gap-3 border-t border-border-subtle pt-4">
-      <Text className="text-sm font-t3-medium text-foreground">Templates and permissions</Text>
+      <Text className="text-sm font-t3-medium text-foreground">Roles and permissions</Text>
       <Text className="text-xs text-foreground-muted">
-        Template edits affect future bots. Hierarchy and delegation are separate settings.
+        Roles are shared by every project. Role edits affect future crew members. Hierarchy and
+        delegation are separate settings.
       </Text>
       {needsStarter ? (
         <Action
-          label="Add starter bots"
+          label="Add starter roles"
           disabled={busy || !props.modelSelection}
           onPress={() => {
             if (props.modelSelection)
               void run(() =>
                 initialize({
                   environmentId,
-                  input: { projectId, modelSelection: props.modelSelection! },
+                  input: { modelSelection: props.modelSelection! },
                 }),
               );
           }}
         />
       ) : null}
-      {configuration.error ? (
-        <Text className="text-sm text-red-500">{configuration.error}</Text>
+      {rolesQuery.error || configuration.error ? (
+        <Text className="text-sm text-red-500">{rolesQuery.error ?? configuration.error}</Text>
       ) : null}
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
       <View className="flex-row flex-wrap gap-2">
-        <Action
-          label="New template"
-          selected={templateId === null}
-          onPress={() => setTemplateId(null)}
-        />
-        {templates.map((item) => (
+        <Action label="New role" selected={roleId === null} onPress={() => setRoleId(null)} />
+        {roles.map((item) => (
           <Action
             key={item.id}
             label={item.name}
-            selected={templateId === item.id}
-            onPress={() => setTemplateId(item.id)}
+            selected={roleId === item.id}
+            onPress={() => setRoleId(item.id)}
           />
         ))}
       </View>
       <Editor
-        key={template?.id ?? "new"}
-        template={template}
+        key={role?.id ?? "new"}
+        role={role}
         modelSelection={props.modelSelection}
         busy={busy}
         onSave={(value) => {
-          const input = { ...value, projectId };
           if (value.expectedRevision !== undefined) {
             void run(() =>
-              updateTemplate({
+              update({
                 environmentId,
-                input: { ...input, expectedRevision: value.expectedRevision! },
+                input: { ...value, expectedRevision: value.expectedRevision! },
               }),
             );
           } else {
-            void run(() => createTemplate({ environmentId, input })).then((saved) => {
-              if (saved) setTemplateId(value.id);
+            void run(() => create({ environmentId, input: value })).then((saved) => {
+              if (saved) setRoleId(value.id);
             });
           }
         }}
       />
-      {template?.enabled ? (
+      {role?.enabled ? (
         <Action
-          label="Add bot from template"
+          label="Add crew member with this role"
           disabled={busy}
           onPress={() =>
             void run(() =>
               instantiate({
                 environmentId,
-                input: { id: `bot:${uuidv4()}`, projectId, templateId: template.id },
+                input: { id: `member:${uuidv4()}`, projectId, roleId: role.id },
               }),
             )
           }
         />
       ) : null}
-      {props.bots.length > 0 ? (
+      {props.members.length > 0 ? (
         <View className="gap-2 border-t border-border-subtle pt-3">
           <Text className="text-sm font-t3-medium text-foreground">Hierarchy</Text>
           <Text className="text-xs text-foreground-muted">
-            Choose a bot, then its parent. Peers share a parent.
+            Choose a crew member, then its parent. Peers share a parent.
           </Text>
           <View className="flex-row flex-wrap gap-2">
-            {props.bots.map((bot) => (
+            {props.members.map((member) => (
               <Action
-                key={bot.id}
-                label={bot.name}
-                selected={botId === bot.id}
+                key={member.id}
+                label={member.name}
+                selected={memberId === member.id}
                 onPress={() => {
-                  setBotId(bot.id);
+                  setMemberId(member.id);
                   setTargetId(null);
                 }}
               />
             ))}
           </View>
-          {selectedBot?.projectId === projectId ? (
+          {selectedMember?.projectId === projectId ? (
             <View className="flex-row flex-wrap gap-2">
               <Action
                 label="Root"
@@ -339,13 +322,18 @@ export function MobileBotConfigurationPanel(props: {
                   void run(() =>
                     setHierarchy({
                       environmentId,
-                      input: { projectId, botId: selectedBot.id, parentBotId: null, position: 0 },
+                      input: {
+                        projectId,
+                        memberId: selectedMember.id,
+                        parentMemberId: null,
+                        position: 0,
+                      },
                     }),
                   )
                 }
               />
-              {props.bots
-                .filter((bot) => bot.id !== selectedBot.id)
+              {props.members
+                .filter((member) => member.id !== selectedMember.id)
                 .map((parent) => (
                   <Action
                     key={parent.id}
@@ -358,8 +346,8 @@ export function MobileBotConfigurationPanel(props: {
                           environmentId,
                           input: {
                             projectId,
-                            botId: selectedBot.id,
-                            parentBotId: parent.id,
+                            memberId: selectedMember.id,
+                            parentMemberId: parent.id,
                             position: 0,
                           },
                         }),
@@ -369,20 +357,22 @@ export function MobileBotConfigurationPanel(props: {
                 ))}
             </View>
           ) : null}
-          {selectedBot ? (
+          {selectedMember ? (
             <View className="gap-2 border-t border-border-subtle pt-3">
               <Text className="text-xs text-foreground-muted">
-                {selectedBot.name} can delegate to
+                {selectedMember.name} can delegate to
               </Text>
               <View className="flex-row flex-wrap gap-2">
-                {props.bots
-                  .filter((bot) => bot.projectId === projectId && bot.id !== selectedBot.id)
-                  .map((bot) => (
+                {props.members
+                  .filter(
+                    (member) => member.projectId === projectId && member.id !== selectedMember.id,
+                  )
+                  .map((member) => (
                     <Action
-                      key={bot.id}
-                      label={bot.name}
-                      selected={targetId === bot.id}
-                      onPress={() => setTargetId(bot.id)}
+                      key={member.id}
+                      label={member.name}
+                      selected={targetId === member.id}
+                      onPress={() => setTargetId(member.id)}
                     />
                   ))}
               </View>
@@ -396,8 +386,8 @@ export function MobileBotConfigurationPanel(props: {
                         environmentId,
                         input: {
                           projectId,
-                          sourceBotId: selectedBot.id,
-                          targetBotId: targetId,
+                          sourceMemberId: selectedMember.id,
+                          targetMemberId: targetId,
                           allowed: !granted,
                         },
                       }),

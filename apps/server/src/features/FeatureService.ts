@@ -9,6 +9,7 @@ import {
   type FeatureCreateInput,
   type FeatureRecord as FeatureRecordSchema,
   type FeatureThreadLink,
+  PROJECT_MANAGER_ROLE_ID,
   type ProjectId,
   type ThreadId,
   type WorkflowDefinition,
@@ -22,10 +23,10 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
-import { BotService, type BotServiceError } from "../bots/BotService.ts";
-import { BotStore } from "../bots/BotStore.ts";
-import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
+import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
+import { CAPTAIN_MEMBER_ID, CrewService, type CrewServiceError } from "../crew/CrewService.ts";
+import { CrewStore } from "../crew/CrewStore.ts";
+import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
@@ -51,7 +52,7 @@ export type CreateFeatureInput = typeof FeatureCreateInput.Type;
 
 export type FeatureServiceError =
   | FeatureValidationError
-  | BotServiceError
+  | CrewServiceError
   | PersistenceSqlError
   | WorkflowServiceError
   | WorkflowExecutionError;
@@ -123,48 +124,47 @@ const hashed = (prefix: string, featureId: string, id: string) =>
     .update(JSON.stringify([featureId, id]))
     .digest("hex")
     .slice(0, 32)}`;
-const featureBotId = (featureId: string, templateId: string) =>
-  hashed("feature-bot", featureId, templateId);
-const CAPTAIN_BOT_ID = "bot-captain";
+/** The "feature-bot" prefix predates the Roles rename; existing member IDs keep it. */
+const featureMemberId = (featureId: string, slot: string) => hashed("feature-bot", featureId, slot);
 
 const leadTask = (feature: FeatureRecord, definition: WorkflowDefinition, captain: boolean) =>
   [
     captain
       ? `You keep feature "${feature.title}" (${feature.id}) moving on workflow ${definition.name}.`
       : `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
-    "The workflow sends each stage to its bot, so never delegate stage work yourself.",
+    "The workflow sends each stage to its crew member, so never delegate stage work yourself.",
     captain
       ? "Stage notices arrive here. Tell the person only what they must decide."
-      : "Stage bots ask you questions here. Answer with bots_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
+      : "Stage crew members ask you questions here. Answer with crew_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
   ].join("\n\n");
 
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
 const decodeAssignments = Schema.decodeSync(assignmentsJson);
-interface FeatureRow extends Omit<FeatureRecord, "botAssignments"> {
-  readonly botAssignmentsJson: string;
+interface FeatureRow extends Omit<FeatureRecord, "crewAssignments"> {
+  readonly crewAssignmentsJson: string;
 }
 
 export const FeatureServiceLive = Layer.effect(
   FeatureService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const bots = yield* BotService;
-    const botStore = yield* BotStore;
-    const runtime = yield* BotThreadRuntime;
+    const crew = yield* CrewService;
+    const crewStore = yield* CrewStore;
+    const runtime = yield* CrewThreadRuntime;
     const workflows = yield* WorkflowService;
     const workflowStore = yield* WorkflowStore;
     const executions = yield* WorkflowExecutionStore;
     const execution = yield* WorkflowExecutionService;
-    const handoffStore = yield* BotHandoffStore;
+    const handoffStore = yield* CrewHandoffStore;
     const engine = yield* OrchestratorV2;
     const queryError = toPersistenceSqlError("FeatureService.query");
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
         try: () => {
-          const { botAssignmentsJson, ...feature } = row;
-          return { ...feature, botAssignments: decodeAssignments(botAssignmentsJson) };
+          const { crewAssignmentsJson, ...feature } = row;
+          return { ...feature, crewAssignments: decodeAssignments(crewAssignmentsJson) };
         },
         catch: toPersistenceSqlError("FeatureService.decode"),
       });
@@ -174,7 +174,7 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
           w.workflow_revision AS workflowRevision,
-          f.bot_assignments_json AS botAssignmentsJson
+          f.crew_assignments_json AS crewAssignmentsJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.id = ${id}
       `.pipe(
@@ -191,38 +191,38 @@ export const FeatureServiceLive = Layer.effect(
         ),
       );
 
-    /** One lead run per dispatching bot, created once per feature. */
+    /** One lead run per dispatching member, created once per feature. */
     const leadBindings = (feature: FeatureRecord, definition: WorkflowDefinition) =>
       Effect.gen(function* () {
         const bindings: Record<string, WorkflowBindings[string]> = {};
-        for (const [name, assignment] of Object.entries(definition.bots)) {
-          const botId = feature.botAssignments[name];
-          const leadBotId =
+        for (const [name, assignment] of Object.entries(definition.roles)) {
+          const memberId = feature.crewAssignments[name];
+          const leadMemberId =
             assignment.supervisor === null
-              ? CAPTAIN_BOT_ID
-              : feature.botAssignments[assignment.supervisor];
-          if (!botId || !leadBotId) {
+              ? CAPTAIN_MEMBER_ID
+              : feature.crewAssignments[assignment.supervisor];
+          if (!memberId || !leadMemberId) {
             return yield* Effect.fail(
-              new FeatureValidationError(`Workflow bot ${name} has no feature bot`),
+              new FeatureValidationError(`Workflow role ${name} has no crew member`),
             );
           }
-          if (leadBotId === CAPTAIN_BOT_ID) {
-            if (!(yield* botStore.getDefinition(CAPTAIN_BOT_ID))?.enabled) {
+          if (leadMemberId === CAPTAIN_MEMBER_ID) {
+            if (!(yield* crewStore.getMember(CAPTAIN_MEMBER_ID))?.enabled) {
               return yield* Effect.fail(
                 new FeatureValidationError("Set up the crew before starting a feature"),
               );
             }
-            if (!(yield* botStore.canDelegate(CAPTAIN_BOT_ID, botId))) {
-              yield* bots.allowDelegation(CAPTAIN_BOT_ID, botId);
+            if (!(yield* crewStore.canDelegate(CAPTAIN_MEMBER_ID, memberId))) {
+              yield* crew.allowDelegation(CAPTAIN_MEMBER_ID, memberId);
             }
           }
-          const run = yield* bots.createRun({
-            id: hashed("feature-lead", feature.id, leadBotId),
-            botId: leadBotId,
+          const run = yield* crew.createRun({
+            id: hashed("feature-lead", feature.id, leadMemberId),
+            memberId: leadMemberId,
             projectId: feature.projectId,
-            taskText: leadTask(feature, definition, leadBotId === CAPTAIN_BOT_ID),
+            taskText: leadTask(feature, definition, leadMemberId === CAPTAIN_MEMBER_ID),
           });
-          bindings[name] = { botId, dispatchRunId: run.id };
+          bindings[name] = { memberId, dispatchRunId: run.id };
         }
         return bindings;
       });
@@ -267,103 +267,104 @@ export const FeatureServiceLive = Layer.effect(
                 input.workflowId === undefined
                   ? null
                   : yield* workflows.copyForFeature(input.id, input.projectId, input.workflowId);
-              const templates =
+              // A member per role for this feature. The project manager role is the exception:
+              // every feature shares the project's manager.
+              const roles =
                 copy === null
-                  ? (yield* botStore.listTemplatesForProject(input.projectId))
-                      .filter((template) => template.enabled && template.autoCreateForFeature)
-                      .map((template) => ({ name: template.id, template }))
+                  ? (yield* crewStore.listRoles())
+                      .filter((role) => role.enabled && role.autoCreateForFeature)
+                      .map((role) => ({ name: role.id, role }))
                   : yield* Effect.forEach(
-                      Object.entries(copy.definition.bots).filter(
-                        ([, assignment]) => assignment.template.kind === "template",
+                      Object.entries(copy.definition.roles).filter(
+                        ([, slot]) => slot.roleId !== PROJECT_MANAGER_ROLE_ID,
                       ),
-                      ([name, assignment]) =>
+                      ([name, slot]) =>
                         Effect.gen(function* () {
-                          const template = yield* botStore.getTemplate(assignment.template.id);
+                          const role = yield* crewStore.getRole(slot.roleId);
                           if (
-                            !template?.enabled ||
-                            !template.autoCreateForFeature ||
-                            (template.projectId !== null &&
-                              template.projectId !== input.projectId) ||
-                            template.revision !==
-                              (assignment.template.kind === "template"
-                                ? assignment.template.revision
-                                : 0)
+                            !role?.enabled ||
+                            !role.autoCreateForFeature ||
+                            role.revision !== slot.roleRevision
                           ) {
                             return yield* Effect.fail(
                               new FeatureValidationError(
-                                "Workflow bot template changed; revise the workflow",
+                                "Workflow role changed; revise the workflow",
                               ),
                             );
                           }
-                          return { name, template };
+                          return { name, role };
                         }),
                     );
-              const managerId = `bot-manager:${input.projectId}`;
-              const manager = yield* botStore.getDefinition(managerId);
+              const managerSlots =
+                copy === null
+                  ? []
+                  : Object.entries(copy.definition.roles).filter(
+                      ([, slot]) => slot.roleId === PROJECT_MANAGER_ROLE_ID,
+                    );
+              // A feature without a workflow reports to the manager when the crew has one.
+              const manager =
+                copy === null
+                  ? yield* crew
+                      .ensureProjectManager(input.projectId)
+                      .pipe(Effect.catchTags({ CrewValidationError: () => Effect.succeed(null) }))
+                  : managerSlots.length > 0
+                    ? yield* crew.ensureProjectManager(input.projectId)
+                    : null;
               const bindings = new Map<string, string>();
-              if (copy)
-                for (const [name, assignment] of Object.entries(copy.definition.bots)) {
-                  if (assignment.template.kind === "existing-project-bot") {
-                    const bot = yield* botStore.getDefinition(assignment.template.id);
-                    if (
-                      !bot?.enabled ||
-                      bot.projectId !== input.projectId ||
-                      bot.featureId !== null
-                    ) {
-                      return yield* Effect.fail(
-                        new FeatureValidationError("Workflow project bot is unavailable"),
-                      );
-                    }
-                    bindings.set(name, assignment.template.id);
-                  }
-                }
-              for (const { name, template } of templates) {
-                const id = featureBotId(input.id, name);
-                const existingBot = yield* botStore.getDefinition(id);
-                if (existingBot) {
+              for (const [name] of managerSlots) {
+                if (!manager?.enabled) {
                   return yield* Effect.fail(
-                    new FeatureValidationError("Feature bot ID is already in use"),
+                    new FeatureValidationError("The project manager is unavailable"),
                   );
                 }
-                yield* bots.createDefinition({
+                bindings.set(name, manager.id);
+              }
+              for (const { name, role } of roles) {
+                const id = featureMemberId(input.id, name);
+                if (yield* crewStore.getMember(id)) {
+                  return yield* Effect.fail(
+                    new FeatureValidationError("Feature crew member ID is already in use"),
+                  );
+                }
+                yield* crew.createMember({
                   id,
                   projectId: input.projectId,
                   featureId: input.id,
-                  templateId: template.id,
-                  name: template.name,
-                  instructions: template.instructions,
-                  allowedTools: template.allowedTools,
-                  modelSelection: template.modelSelection,
-                  runtimeMode: template.runtimeMode,
+                  roleId: role.id,
+                  name: role.name,
+                  instructions: role.instructions,
+                  allowedTools: role.allowedTools,
+                  modelSelection: role.modelSelection,
+                  runtimeMode: role.runtimeMode,
                 });
                 bindings.set(name, id);
               }
-              for (const [position, { name }] of templates.entries()) {
+              for (const [position, { name }] of roles.entries()) {
                 const id = bindings.get(name)!;
-                const supervisor = copy?.definition.bots[name]?.supervisor;
+                const supervisor = copy?.definition.roles[name]?.supervisor;
                 const parentId = copy
                   ? supervisor
                     ? bindings.get(supervisor)
                     : null
-                  : manager?.enabled && manager.projectId === input.projectId
+                  : manager?.enabled
                     ? manager.id
                     : null;
                 if (parentId) {
-                  yield* bots.setHierarchyParent(id, parentId, position);
-                  yield* bots.allowDelegation(parentId, id);
+                  yield* crew.setHierarchyParent(id, parentId, position);
+                  yield* crew.allowDelegation(parentId, id);
                 }
               }
               const createdAt = DateTime.formatIso(yield* DateTime.now);
-              const botAssignments = Object.fromEntries(bindings);
+              const crewAssignments = Object.fromEntries(bindings);
               yield* sql`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, bot_assignments_json)
-              VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(botAssignments)})
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json)
+              VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)})
             `;
               return {
                 ...input,
                 workflowId: input.workflowId ?? null,
                 workflowRevision: copy?.definition.revision ?? null,
-                botAssignments,
+                crewAssignments,
                 createdAt,
                 updatedAt: createdAt,
                 status: "open" as const,
@@ -405,7 +406,7 @@ export const FeatureServiceLive = Layer.effect(
           copy?.projectId === projectId ? yield* workflows.getFeatureState(featureId) : null;
         if (!copy || !state) return null;
         const step = [...state.steps.values()].find((candidate) =>
-          runId === null ? candidate.threadId === threadId : candidate.botRunId === runId,
+          runId === null ? candidate.threadId === threadId : candidate.runId === runId,
         );
         const position = step ? stagePosition(copy.definition, step.id) : null;
         if (!step || !position) return null;
@@ -451,7 +452,7 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
         w.workflow_revision AS workflowRevision,
-          f.bot_assignments_json AS botAssignmentsJson
+          f.crew_assignments_json AS crewAssignmentsJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.project_id = ${projectId}
         ORDER BY f.created_at DESC, f.id DESC
@@ -476,7 +477,7 @@ export const FeatureServiceLive = Layer.effect(
           }
           if (yield* handoffStore.getRunByThread(input.threadId)) {
             return yield* Effect.fail(
-              new FeatureValidationError("A bot's thread can't become a feature"),
+              new FeatureValidationError("A crew thread can't become a feature"),
             );
           }
           const attachId = hashed("attach", input.featureId, input.threadId);
@@ -500,7 +501,7 @@ export const FeatureServiceLive = Layer.effect(
             );
           }
           // Check the crew first, so a feature is never left made but unstarted.
-          if (!(yield* botStore.getDefinition(CAPTAIN_BOT_ID))?.enabled) {
+          if (!(yield* crewStore.getMember(CAPTAIN_MEMBER_ID))?.enabled) {
             return yield* Effect.fail(
               new FeatureValidationError("Set up the crew before making a feature"),
             );
@@ -515,7 +516,7 @@ export const FeatureServiceLive = Layer.effect(
               .slice(0, 16_000) || input.title;
           const occurredAt = DateTime.formatIso(yield* DateTime.now);
           const event = {
-            botRunId: null,
+            runId: null,
             outcome: null,
             sourceKind: null,
             sourceId: null,
@@ -581,11 +582,11 @@ export const FeatureServiceLive = Layer.effect(
               return yield* detach(featureId);
           }
           const { stage, attachable } = yield* threadLink(projectId, threadId);
-          // Cancelling a bot's stage stops its run, so the thread could not carry on.
+          // Cancelling a crew stage stops its run, so the thread could not carry on.
           if (!attachable) {
             return yield* Effect.fail(
               new FeatureValidationError(
-                "A bot's stage thread can't be detached; cancel the feature",
+                "A crew stage thread can't be detached; cancel the feature",
               ),
             );
           }
@@ -666,7 +667,7 @@ export const FeatureServiceLive = Layer.effect(
         Effect.gen(function* () {
           const records = yield* listByProject(projectId);
           const latest = new Map(
-            (yield* workflowStore.listLatestDefinitions(projectId)).map((definition) => [
+            (yield* workflowStore.listLatestDefinitions()).map((definition) => [
               definition.id,
               definition.revision,
             ]),
@@ -696,7 +697,7 @@ export const FeatureServiceLive = Layer.effect(
                   events,
                   state.value.activeStepId ?? state.value.stoppedStepId,
                 );
-                const run = runId ? yield* botStore.getRun(runId) : null;
+                const run = runId ? yield* crewStore.getRun(runId) : null;
                 return featureBoardCard({
                   feature,
                   copy,

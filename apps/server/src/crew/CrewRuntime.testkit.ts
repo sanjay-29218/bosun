@@ -111,7 +111,7 @@ const TestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-export const BotTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectStore.layer).pipe(
+export const CrewTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectStore.layer).pipe(
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(CheckpointStoreTestLayer),
   Layer.provide(ServerConfigLayer),
@@ -122,7 +122,7 @@ export const BotTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectSt
   Layer.provide(PlatformTestLayer),
 );
 
-export const seedBotProject = (input: {
+export const seedCrewProject = (input: {
   readonly projectId: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;

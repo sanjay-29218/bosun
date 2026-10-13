@@ -21,7 +21,7 @@ const COPY = {
   },
   answer: {
     title: "Answer",
-    description: "Your answer goes to the bot that asked, and the stage carries on.",
+    description: "Your answer goes to the crew member that asked, and the stage carries on.",
     submit: "Answer",
   },
   "mark-done": {

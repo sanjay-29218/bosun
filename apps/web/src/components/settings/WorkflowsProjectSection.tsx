@@ -3,7 +3,7 @@ import { WorkflowIcon } from "lucide-react";
 import { useState } from "react";
 
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
@@ -14,7 +14,7 @@ import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { orderWorkflowStages, refreshWorkflowRoles } from "./WorkflowEditor.logic";
 import { WorkflowFeatureInspector } from "./WorkflowFeatureInspector";
 
-/** The project's workflows; each opens its own editor page. */
+/** The environment's workflow library, shown from a project; each opens its own editor page. */
 export function WorkflowsProjectSection({
   project,
   showEnvironment,
@@ -26,21 +26,18 @@ export function WorkflowsProjectSection({
   const environmentId = project.environmentId;
   const projectId = project.id;
   const definitions = useEnvironmentQuery(
-    workflowsEnvironment.definitions({ environmentId, input: { projectId } }),
+    workflowsEnvironment.definitions({ environmentId, input: {} }),
   );
-  const configuration = useEnvironmentQuery(
-    botsEnvironment.configuration({ environmentId, input: { projectId } }),
-  );
+  const roles = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
   const ensureStarter = useAtomCommand(workflowsEnvironment.ensureStarter);
   const [adding, setAdding] = useState(false);
   const saved = definitions.data ?? [];
-  const templates = configuration.data?.templates ?? [];
   const hasStarter = saved.some((definition) => definition.id === "feature-delivery");
 
   const addStarter = async () => {
     setAdding(true);
     try {
-      const result = await ensureStarter({ environmentId, input: { projectId } });
+      const result = await ensureStarter({ environmentId, input: {} });
       if (result._tag !== "Success")
         toastManager.add({
           type: "error",
@@ -94,8 +91,8 @@ export function WorkflowsProjectSection({
       ) : (
         saved.map((definition) => {
           const stageCount = orderWorkflowStages(definition).length;
-          const { issues } = configuration.data
-            ? refreshWorkflowRoles(definition, templates)
+          const { issues } = roles.data
+            ? refreshWorkflowRoles(definition, roles.data)
             : { issues: [] };
           return (
             <SettingsRow

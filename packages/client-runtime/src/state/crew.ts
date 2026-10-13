@@ -47,7 +47,7 @@ export function humanizeCrewId(id: string): string {
 
 export function crewStageRole(definition: WorkflowDefinition, stepId: string): string | null {
   const step = definition.steps[stepId];
-  return step?.type === "task" ? humanizeCrewId(step.bot) : null;
+  return step?.type === "task" ? humanizeCrewId(step.role) : null;
 }
 
 /**
@@ -59,16 +59,15 @@ function earlierStageThreads(
   snapshot: WorkflowFeatureSnapshot,
 ): ReadonlyArray<{ readonly threadId: ThreadId; readonly stepId: string }> {
   const sample = snapshot.steps.find(
-    (step) =>
-      step.botRunId !== null && step.threadId !== null && step.threadId.endsWith(step.botRunId),
+    (step) => step.runId !== null && step.threadId !== null && step.threadId.endsWith(step.runId),
   );
-  if (!sample?.botRunId || !sample.threadId) return [];
-  const prefix = sample.threadId.slice(0, sample.threadId.length - sample.botRunId.length);
-  const latest = new Set(snapshot.steps.map((step) => step.botRunId));
+  if (!sample?.runId || !sample.threadId) return [];
+  const prefix = sample.threadId.slice(0, sample.threadId.length - sample.runId.length);
+  const latest = new Set(snapshot.steps.map((step) => step.runId));
   const earlier = new Map<string, string>();
   for (const event of snapshot.recentEvents) {
-    if (event.kind === "started" && event.botRunId !== null && !latest.has(event.botRunId)) {
-      earlier.set(event.botRunId, event.stepId);
+    if (event.kind === "started" && event.runId !== null && !latest.has(event.runId)) {
+      earlier.set(event.runId, event.stepId);
     }
   }
   return [...earlier].map(([runId, stepId]) => ({
@@ -318,8 +317,8 @@ export function crewGateCopy(snapshot: WorkflowFeatureSnapshot): CrewGateCopy | 
         ? null
         : next.type === "end"
           ? "Approving finishes the feature."
-          : `Approving starts ${humanizeCrewId(nextId!)} with the ${humanizeCrewId(next.bot)}.`,
-    noteRecipient: next?.type === "task" ? humanizeCrewId(next.bot) : null,
+          : `Approving starts ${humanizeCrewId(nextId!)} with the ${humanizeCrewId(next.role)}.`,
+    noteRecipient: next?.type === "task" ? humanizeCrewId(next.role) : null,
   };
 }
 

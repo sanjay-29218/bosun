@@ -1,5 +1,5 @@
 import {
-  type BotTemplateConfig,
+  type RoleConfig,
   type EnvironmentId,
   type ProjectId,
   type WorkflowDefinition,
@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
@@ -56,22 +56,21 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
     (candidate) => candidate.environmentId === target.environment,
   );
   const connected = environment?.serverConfig?.environment.capabilities.workflows === true;
-  const input = { projectId: target.projectId };
   const definitions = useEnvironmentQuery(
     connected
-      ? workflowsEnvironment.definitions({ environmentId: target.environment, input })
+      ? workflowsEnvironment.definitions({ environmentId: target.environment, input: {} })
       : null,
   );
-  const configuration = useEnvironmentQuery(
-    connected ? botsEnvironment.configuration({ environmentId: target.environment, input }) : null,
+  const roles = useEnvironmentQuery(
+    connected ? rolesEnvironment.roles({ environmentId: target.environment, input: {} }) : null,
   );
   const saved = definitions.data?.find((definition) => definition.id === target.workflow);
   const back = () => void navigate({ to: "/settings/projects" });
 
   const message = !connected
     ? "Reconnect this workflow's environment to edit it."
-    : (definitions.error ?? configuration.error ?? null);
-  if (message || !definitions.data || !configuration.data || !saved) {
+    : (definitions.error ?? roles.error ?? null);
+  if (message || !definitions.data || !roles.data || !saved) {
     return (
       <SettingsPageContainer>
         <div>
@@ -85,7 +84,7 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
             title={
               message
                 ? "Workflow unavailable"
-                : definitions.data && configuration.data
+                : definitions.data && roles.data
                   ? "Workflow not found"
                   : "Loading workflow…"
             }
@@ -104,7 +103,7 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
       projectId={target.projectId}
       saved={saved}
       allWorkflowIds={definitions.data.map((definition) => definition.id)}
-      templates={configuration.data.templates}
+      roles={roles.data}
       onBack={back}
     />
   );
@@ -115,14 +114,14 @@ function WorkflowEditor({
   projectId,
   saved,
   allWorkflowIds,
-  templates,
+  roles,
   onBack,
 }: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly saved: WorkflowDefinition;
   readonly allWorkflowIds: readonly string[];
-  readonly templates: readonly BotTemplateConfig[];
+  readonly roles: readonly RoleConfig[];
   readonly onBack: () => void;
 }) {
   const navigate = useNavigate();
@@ -134,7 +133,7 @@ function WorkflowEditor({
     (settings) => settings.crew.stageRetries,
   );
   // Roles edited since this version are picked up here; publishing records them.
-  const refreshed = useMemo(() => refreshWorkflowRoles(saved, templates), [saved, templates]);
+  const refreshed = useMemo(() => refreshWorkflowRoles(saved, roles), [saved, roles]);
   const [draft, setDraft] = useState(refreshed.definition);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,18 +152,14 @@ function WorkflowEditor({
     enableBeforeUnload: () => edited,
   });
 
-  const roleName = (botId: string) => {
-    const bot = draft.bots[botId];
-    const template =
-      bot?.template.kind === "template"
-        ? templates.find((candidate) => candidate.id === bot.template.id)
-        : undefined;
-    return template?.name ?? humanizeWorkflowId(botId);
+  const roleName = (slot: string) => {
+    const roleId = draft.roles[slot]?.roleId;
+    return roles.find((candidate) => candidate.id === roleId)?.name ?? humanizeWorkflowId(slot);
   };
   const stageName = (stepId: string) => (stepId === endId ? "Finish" : humanizeWorkflowId(stepId));
 
   const check = async (definition: WorkflowDefinition) => {
-    const result = await validate({ environmentId, input: { projectId, definition } });
+    const result = await validate({ environmentId, input: { definition } });
     if (result._tag === "Success") return true;
     setError(formatEnvironmentQueryError(result.cause));
     return false;
@@ -179,7 +174,7 @@ function WorkflowEditor({
       if (!(await check(definition))) return;
       const result = await revise({
         environmentId,
-        input: { projectId, definition, expectedRevision: saved.revision },
+        input: { definition, expectedRevision: saved.revision },
       });
       if (result._tag !== "Success") {
         setError(formatEnvironmentQueryError(result.cause));
@@ -205,7 +200,7 @@ function WorkflowEditor({
         revision: 1,
       });
       if (!(await check(definition))) return;
-      const result = await create({ environmentId, input: { projectId, definition } });
+      const result = await create({ environmentId, input: { definition } });
       if (result._tag !== "Success") {
         setError(formatEnvironmentQueryError(result.cause));
         return;
@@ -316,7 +311,7 @@ function WorkflowEditor({
           const step = draft.steps[stepId];
           if (step?.type !== "task") return null;
           const description = [
-            roleName(step.bot),
+            roleName(step.role),
             step.scope ? `scope ${step.scope}` : null,
             step.task,
           ]
@@ -433,7 +428,7 @@ function WorkflowEditor({
           });
         })}
         <SettingsRow
-          title="When a bot asks a question"
+          title="When a crew member asks a question"
           description="The Manager answers first and asks you only when it can't."
           control={<span className="text-sm text-muted-foreground">Manager first, then you</span>}
         />
@@ -480,7 +475,7 @@ function WorkflowEditor({
         <WorkflowStageDialog
           definition={draft}
           stepId={stageDialog.stepId}
-          templates={templates}
+          roles={roles}
           roleName={roleName}
           stageName={stageName}
           onSave={(definition) => {
