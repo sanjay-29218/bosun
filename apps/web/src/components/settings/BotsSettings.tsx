@@ -55,6 +55,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Toggle } from "../ui/toggle";
+import { Toggle as TabToggle, ToggleGroup } from "../ui/toggle-group";
 import { toastManager } from "../ui/toast";
 import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 import { CrewModeToggle, CrewToolPicker, EditorField } from "./CrewAgentFields";
@@ -544,6 +545,7 @@ function BotDialog({
   );
   const [defaultWorkflowId, setDefaultWorkflowId] = useState(bot?.defaultWorkflowId ?? null);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<"behavior" | "tools" | "look">("behavior");
   // A new bot may leave instructions empty to start from the server's defaults.
   const canSave =
     name.trim().length > 0 &&
@@ -610,7 +612,7 @@ function BotDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <fieldset disabled={saving} className="space-y-6">
+          <fieldset disabled={saving} className="space-y-5">
             <div className="flex items-end gap-4">
               <BotAvatar avatar={avatar} color={color} size="lg" />
               <div className="min-w-0 flex-1 space-y-1.5">
@@ -624,85 +626,116 @@ function BotDialog({
                 />
               </div>
             </div>
-            <EditorField label="Look" hint="Mix the parts, or shuffle for a surprise.">
-              <BotAvatarPicker value={avatar} color={color} onChange={setAvatar} />
-            </EditorField>
-            <EditorField label="Color">
-              <BotColorPicker value={color} onChange={setColor} />
-            </EditorField>
-            <EditorField
-              label="Instructions"
-              htmlFor="bot-instructions"
-              hint="How it handles requests for its projects."
+            <ToggleGroup
+              aria-label="Bot settings"
+              className="w-full"
+              value={[tab]}
+              onValueChange={(next) => {
+                const value = next[0];
+                if (value === "behavior" || value === "tools" || value === "look") setTab(value);
+              }}
             >
-              <Textarea
-                id="bot-instructions"
-                value={instructions}
-                maxLength={16_000}
-                rows={5}
-                placeholder={
-                  bot
-                    ? "What this bot does for its projects"
-                    : "Leave empty to coordinate its projects' managers"
-                }
-                onChange={(event) => setInstructions(event.target.value)}
-              />
-            </EditorField>
-            <EditorField label="Tools" hint="What it can use while it works.">
-              <CrewToolPicker value={tools} onChange={setTools} forBot />
-            </EditorField>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <EditorField label="Model" hint="Every run starts with it.">
-                {modelSelection ? (
-                  <RoleModelPicker
-                    environmentId={environmentId}
-                    selection={modelSelection}
-                    onChange={setModelSelection}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No model available. Set up a provider first.
-                  </p>
-                )}
-              </EditorField>
-              <EditorField label="Approvals">
-                <CrewModeToggle
-                  value={roleMode(runtimeMode)}
-                  onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
-                />
-              </EditorField>
+              <TabToggle value="behavior" className="flex-1">
+                Behavior
+              </TabToggle>
+              <TabToggle value="tools" className="flex-1">
+                Tools · {tools.length}
+              </TabToggle>
+              <TabToggle value="look" className="flex-1">
+                Look
+              </TabToggle>
+            </ToggleGroup>
+            {/* One height for every tab, so switching doesn't resize the dialog. */}
+            <div className="min-h-[26rem] space-y-6">
+              {tab === "behavior" ? (
+                <>
+                  <EditorField
+                    label="Instructions"
+                    htmlFor="bot-instructions"
+                    hint="How it handles requests for its projects."
+                  >
+                    <Textarea
+                      id="bot-instructions"
+                      value={instructions}
+                      maxLength={16_000}
+                      rows={7}
+                      placeholder={
+                        bot
+                          ? "What this bot does for its projects"
+                          : "Leave empty to coordinate its projects' managers"
+                      }
+                      onChange={(event) => setInstructions(event.target.value)}
+                    />
+                  </EditorField>
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <EditorField label="Model" hint="Every run starts with it.">
+                      {modelSelection ? (
+                        <RoleModelPicker
+                          environmentId={environmentId}
+                          selection={modelSelection}
+                          onChange={setModelSelection}
+                        />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No model available. Set up a provider first.
+                        </p>
+                      )}
+                    </EditorField>
+                    <EditorField label="Approvals">
+                      <CrewModeToggle
+                        value={roleMode(runtimeMode)}
+                        onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
+                      />
+                    </EditorField>
+                  </div>
+                  <EditorField
+                    label="Default workflow"
+                    hint="Features in its projects start with this workflow."
+                  >
+                    <Select
+                      value={defaultWorkflowId ?? NO_WORKFLOW}
+                      onValueChange={(next) =>
+                        setDefaultWorkflowId(
+                          typeof next === "string" && next !== NO_WORKFLOW ? next : null,
+                        )
+                      }
+                    >
+                      <SelectTrigger aria-label="Default workflow">
+                        <SelectValue>
+                          {(value: string) =>
+                            value === NO_WORKFLOW
+                              ? "None"
+                              : (workflowOptions.find((workflow) => workflow.id === value)?.name ??
+                                value)
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup>
+                        <SelectItem value={NO_WORKFLOW}>None</SelectItem>
+                        {workflowOptions.map((workflow) => (
+                          <SelectItem key={workflow.id} value={workflow.id}>
+                            {workflow.name}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </EditorField>
+                </>
+              ) : tab === "tools" ? (
+                <EditorField label="Tools" hint="What it can use while it works.">
+                  <CrewToolPicker value={tools} onChange={setTools} forBot />
+                </EditorField>
+              ) : (
+                <>
+                  <EditorField label="Look" hint="Mix the parts, or shuffle for a surprise.">
+                    <BotAvatarPicker value={avatar} color={color} onChange={setAvatar} />
+                  </EditorField>
+                  <EditorField label="Color">
+                    <BotColorPicker value={color} onChange={setColor} />
+                  </EditorField>
+                </>
+              )}
             </div>
-            <EditorField
-              label="Default workflow"
-              hint="Features in its projects start with this workflow."
-            >
-              <Select
-                value={defaultWorkflowId ?? NO_WORKFLOW}
-                onValueChange={(next) =>
-                  setDefaultWorkflowId(
-                    typeof next === "string" && next !== NO_WORKFLOW ? next : null,
-                  )
-                }
-              >
-                <SelectTrigger aria-label="Default workflow">
-                  <SelectValue>
-                    {(value: string) =>
-                      value === NO_WORKFLOW
-                        ? "None"
-                        : (workflowOptions.find((workflow) => workflow.id === value)?.name ?? value)
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value={NO_WORKFLOW}>None</SelectItem>
-                  {workflowOptions.map((workflow) => (
-                    <SelectItem key={workflow.id} value={workflow.id}>
-                      {workflow.name}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </EditorField>
           </fieldset>
         </DialogPanel>
         <DialogFooter>
