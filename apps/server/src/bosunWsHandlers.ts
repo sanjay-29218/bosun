@@ -90,6 +90,15 @@ export const layerBosunWsRpc = (
             .pipe(
               Effect.mapError((error) => new WorkflowOperationError({ reason: String(error) })),
             ),
+        [WS_METHODS.workflowsDelete]: (input) =>
+          workflows.deleteDefinition(input.id).pipe(
+            Effect.mapError(
+              (error) =>
+                new WorkflowOperationError({
+                  reason: error instanceof Error ? error.message : String(error),
+                }),
+            ),
+          ),
         [WS_METHODS.workflowsRevise]: (input) =>
           workflows
             .reviseDefinition(input.definition, input.expectedRevision)

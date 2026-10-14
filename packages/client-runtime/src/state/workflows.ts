@@ -58,6 +58,11 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
       tag: WS_METHODS.workflowsCreate,
       onSuccess: refreshDefinitions,
     }),
+    delete: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:delete",
+      tag: WS_METHODS.workflowsDelete,
+      onSuccess: refreshDefinitions,
+    }),
     revise: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:workflows:revise",
       tag: WS_METHODS.workflowsRevise,

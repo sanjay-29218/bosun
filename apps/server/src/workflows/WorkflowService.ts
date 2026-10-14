@@ -63,6 +63,11 @@ export interface WorkflowServiceShape {
     featureId: string,
     eventId: string,
   ) => Effect.Effect<WorkflowStepEvent | null, WorkflowServiceError>;
+  /**
+   * Deletes a workflow from the library, refused while a feature that hasn't finished runs on
+   * it or a bot starts its features on it. Finished features keep their own copy.
+   */
+  readonly deleteDefinition: (id: string) => Effect.Effect<void, WorkflowServiceError>;
   readonly getLatestDefinition: WorkflowStore["Service"]["getLatestDefinition"];
   readonly listLatestDefinitions: WorkflowStore["Service"]["listLatestDefinitions"];
   readonly getFeatureState: (
@@ -324,6 +329,37 @@ export const WorkflowServiceLive = Layer.effect(
         store
           .listEvents(featureId)
           .pipe(Effect.map((events) => events.find((event) => event.id === eventId) ?? null)),
+      deleteDefinition: (id) =>
+        Effect.gen(function* () {
+          const running: string[] = [];
+          for (const feature of yield* store.listOpenFeaturesUsing(id)) {
+            const copy = yield* store.getFeatureCopy(feature.id);
+            if (copy === null) continue;
+            const state = yield* projectState(copy.definition, yield* store.listEvents(feature.id));
+            if (!state.completed && !state.cancelled) running.push(feature.title);
+          }
+          const bots = yield* store.listBotsDefaultingTo(id);
+          const uses = [
+            ...(running.length > 0
+              ? [
+                  `${running.length === 1 ? "feature" : "features"} ${running.map((title) => `"${title}"`).join(", ")} still ${running.length === 1 ? "runs" : "run"} on it`,
+                ]
+              : []),
+            ...(bots.length > 0
+              ? [
+                  `${bots.join(", ")} ${bots.length === 1 ? "starts its" : "start their"} features with it`,
+                ]
+              : []),
+          ];
+          if (uses.length > 0) {
+            return yield* Effect.fail(
+              new WorkflowValidationError(`Can't delete this workflow: ${uses.join("; ")}.`),
+            );
+          }
+          if (!(yield* store.deleteDefinition(id))) {
+            return yield* Effect.fail(new WorkflowValidationError("Workflow not found"));
+          }
+        }),
       getLatestDefinition: store.getLatestDefinition,
       listLatestDefinitions: store.listLatestDefinitions,
       getFeatureState: (featureId) =>

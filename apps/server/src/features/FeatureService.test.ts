@@ -435,6 +435,62 @@ describe("feature creation", () => {
       ),
   );
 
+  effectIt.effect("deletes a workflow only once nothing still runs or starts on it", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const workflows = yield* WorkflowService;
+        const bots = yield* BotStore.BotStore;
+        yield* workflows.ensureStarterDefinition();
+        yield* features.create({
+          id: "uses-starter",
+          projectId,
+          title: "Ship the thing",
+          brief: "Run the starter workflow",
+          workflowId: "feature-delivery",
+        });
+        const refused = yield* workflows.deleteDefinition("feature-delivery").pipe(Effect.flip);
+        expect(refused.message).toContain('"Ship the thing" still runs on it');
+
+        // A finished feature keeps its own copy, so it no longer holds the workflow.
+        yield* workflows.recordTrustedEvent("uses-starter", {
+          id: "cancel",
+          stepId: "plan",
+          executionId: null,
+          kind: "cancelled",
+          runId: null,
+          outcome: null,
+          sourceKind: null,
+          sourceId: null,
+          actorId: "user",
+          detail: null,
+          occurredAt: "2026-10-14T00:00:00.000Z",
+        });
+        const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;
+        yield* bots.update(
+          { ...captain, defaultWorkflowId: "feature-delivery", revision: captain.revision + 1 },
+          captain.revision,
+        );
+        expect(
+          (yield* workflows.deleteDefinition("feature-delivery").pipe(Effect.flip)).message,
+        ).toContain("Captain starts its features with it");
+
+        const current = (yield* bots.get(CAPTAIN_BOT_ID))!;
+        yield* bots.update(
+          { ...current, defaultWorkflowId: null, revision: current.revision + 1 },
+          current.revision,
+        );
+        yield* workflows.deleteDefinition("feature-delivery");
+        expect(yield* workflows.getLatestDefinition("feature-delivery")).toBeNull();
+        expect((yield* workflows.getFeatureCopy("uses-starter"))?.definition.id).toBe(
+          "feature-delivery",
+        );
+        // The starter can come back after it was deleted.
+        expect((yield* workflows.ensureStarterDefinition()).revision).toBe(1);
+      }),
+    ),
+  );
+
   effectIt.effect("requires a terminal workflow before closing an attached execution", () =>
     withSystem(
       Effect.gen(function* () {

@@ -446,6 +446,7 @@ export const WS_METHODS = {
   workflowsValidate: "workflows.validate",
   workflowsCreate: "workflows.create",
   workflowsRevise: "workflows.revise",
+  workflowsDelete: "workflows.delete",
   workflowsGetFeature: "workflows.getFeature",
   workflowsGetStageHandoff: "workflows.getStageHandoff",
   workflowsAnswer: "workflows.answer",
@@ -1120,6 +1121,12 @@ const WsWorkflowsValidateRpc = Rpc.make(WS_METHODS.workflowsValidate, {
 const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
   payload: WorkflowCreateInput,
   success: WorkflowDefinition,
+  error: WorkflowRpcError,
+});
+// Refused while an unfinished feature or a bot's default still uses the workflow.
+const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
+  payload: Schema.Struct({ id: Schema.String }),
+  success: Schema.Void,
   error: WorkflowRpcError,
 });
 const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
@@ -2242,6 +2249,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsValidateRpc,
   WsWorkflowsCreateRpc,
   WsWorkflowsReviseRpc,
+  WsWorkflowsDeleteRpc,
   WsWorkflowsGetFeatureRpc,
   WsWorkflowsGetStageHandoffRpc,
   WsWorkflowsAnswerRpc,

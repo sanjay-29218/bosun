@@ -83,6 +83,22 @@ export interface WorkflowStoreShape {
   readonly getFeatureCopy: (
     featureId: string,
   ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
+  /** Open features started on the workflow; whether each is still running is the caller's call. */
+  readonly listOpenFeaturesUsing: (
+    workflowId: string,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly id: string; readonly title: string }>,
+    PersistenceSqlError
+  >;
+  /** Names of the bots whose features start on the workflow. */
+  readonly listBotsDefaultingTo: (
+    workflowId: string,
+  ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
+  /**
+   * Removes the workflow and its versions from the library. Features keep the copy they started
+   * with, so they are unaffected. False when there was no such workflow.
+   */
+  readonly deleteDefinition: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly listEvents: (
     featureId: string,
   ) => Effect.Effect<ReadonlyArray<WorkflowStepEventType>, PersistenceSqlError>;
@@ -208,6 +224,34 @@ export const WorkflowStoreLive = Layer.effect(
                   ${encodeDefinition(definition)}, ${createdAt})
               `;
               return true;
+            }),
+          )
+          .pipe(Effect.mapError(queryError)),
+      listOpenFeaturesUsing: (workflowId) =>
+        sql<{ readonly id: string; readonly title: string }>`
+          SELECT f.id, f.title FROM feature_workflows AS w
+          JOIN features AS f ON f.id = w.feature_id
+          WHERE w.workflow_id = ${workflowId} AND f.status = 'open'
+          ORDER BY f.created_at, f.id
+        `.pipe(Effect.mapError(queryError)),
+      listBotsDefaultingTo: (workflowId) =>
+        sql<{ readonly name: string }>`
+          SELECT name FROM bots
+          WHERE default_workflow_id = ${workflowId} AND deleted_at IS NULL
+          ORDER BY position, id
+        `.pipe(
+          Effect.map((rows) => rows.map((row) => row.name)),
+          Effect.mapError(queryError),
+        ),
+      deleteDefinition: (id) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* sql`DELETE FROM workflow_definition_revisions WHERE id = ${id}`;
+              const deleted = yield* sql<{ readonly id: string }>`
+                DELETE FROM workflow_definition_heads WHERE id = ${id} RETURNING id
+              `;
+              return deleted.length > 0;
             }),
           )
           .pipe(Effect.mapError(queryError)),

@@ -70,7 +70,7 @@ roles too if they're missing), then **Edit** to open a workflow's page.
   settings page; **Esc** shrinks it back. Where you place stages is saved with the workflow.
   Narrow screens always show the form.
 - **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
-  keep the version they began with. Use the **⋯** menu to duplicate a workflow.
+  keep the version they began with. Use the **⋯** menu to duplicate or delete a workflow; deleting waits until no unfinished feature runs on it and no bot starts its features with it.
 
 Workflows record the version of each role they use. After you edit or turn off a role in Roles, the
 workflow shows that it changed, and new features can't start on it until you publish a new version.

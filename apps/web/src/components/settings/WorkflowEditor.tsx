@@ -39,6 +39,7 @@ import {
   workflowIdFromName,
   type WorkflowRoleIssue,
 } from "./WorkflowEditor.logic";
+import { useDeleteWorkflow } from "./WorkflowsSettings";
 import { WorkflowStageDialog } from "./WorkflowStageDialog";
 
 // React Flow only loads once someone opens the canvas.
@@ -129,6 +130,7 @@ function WorkflowEditor({
   const validate = useAtomCommand(workflowsEnvironment.validate);
   const revise = useAtomCommand(workflowsEnvironment.revise);
   const create = useAtomCommand(workflowsEnvironment.create);
+  const deleteWorkflow = useDeleteWorkflow(environmentId);
   const crewRetries = useEnvironmentSettings(
     environmentId,
     (settings) => settings.crew.stageRetries,
@@ -320,6 +322,16 @@ function WorkflowEditor({
             </MenuTrigger>
             <MenuPopup align="end">
               <MenuItem onClick={() => void duplicate()}>Duplicate as new workflow</MenuItem>
+              <MenuItem
+                variant="destructive"
+                onClick={() =>
+                  void deleteWorkflow(draft).then((deleted) => {
+                    if (deleted) void navigate({ to: "/settings/workflows" });
+                  })
+                }
+              >
+                Delete workflow
+              </MenuItem>
             </MenuPopup>
           </Menu>
         </div>

@@ -5,14 +5,16 @@ import {
   type WorkflowDefinition,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { PlusIcon, WorkflowIcon } from "lucide-react";
+import { MoreHorizontalIcon, PlusIcon, Trash2Icon, WorkflowIcon } from "lucide-react";
 import { useState } from "react";
 
 import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
+import { requestConfirmDialog } from "../../confirmDialog";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { toastManager } from "../ui/toast";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
@@ -24,6 +26,29 @@ import {
   refreshWorkflowRoles,
   workflowIdFromName,
 } from "./WorkflowEditor.logic";
+
+/**
+ * Deletes a workflow after confirming. The server refuses while an unfinished feature runs on
+ * it or a bot starts its features with it, and says which. Resolves true once deleted.
+ */
+export function useDeleteWorkflow(environmentId: EnvironmentId) {
+  const remove = useAtomCommand(workflowsEnvironment.delete);
+  return async (definition: Pick<WorkflowDefinition, "id" | "name">) => {
+    const confirmed = await requestConfirmDialog(
+      `Delete ${definition.name}?\nFeatures that already finished keep their copy of it.`,
+      { variant: "destructive" },
+    );
+    if (confirmed !== true) return false;
+    const result = await remove({ environmentId, input: { id: definition.id } });
+    if (result._tag === "Success") return true;
+    toastManager.add({
+      type: "error",
+      title: `Could not delete ${definition.name}`,
+      description: formatEnvironmentQueryError(result.cause),
+    });
+    return false;
+  };
+}
 
 /** The environment's workflow library; each workflow opens its own editor page. */
 export function WorkflowsSettings() {
@@ -59,6 +84,8 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const canAdd = useAtomValue(workflowsEnvironment.ensureStarter.permissionAtom(environmentId));
   const create = useAtomCommand(workflowsEnvironment.create);
+  const deleteWorkflow = useDeleteWorkflow(environmentId);
+  const canDelete = useAtomValue(workflowsEnvironment.delete.permissionAtom(environmentId));
   const canCreate = useAtomValue(workflowsEnvironment.create.permissionAtom(environmentId));
   const [adding, setAdding] = useState(false);
   const saved = definitions.data ?? [];
@@ -205,18 +232,43 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
                   : undefined
               }
               control={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void navigate({
-                      to: "/settings/workflow",
-                      search: { environment: environmentId, workflow: definition.id },
-                    })
-                  }
-                >
-                  Edit
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void navigate({
+                        to: "/settings/workflow",
+                        search: { environment: environmentId, workflow: definition.id },
+                      })
+                    }
+                  >
+                    Edit
+                  </Button>
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          disabled={!canDelete}
+                          aria-label={`Actions for ${definition.name}`}
+                        />
+                      }
+                    >
+                      <MoreHorizontalIcon className="size-4" />
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <MenuItem
+                        variant="destructive"
+                        onClick={() => void deleteWorkflow(definition)}
+                      >
+                        <Trash2Icon />
+                        Delete
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
+                </div>
               }
             />
           );
