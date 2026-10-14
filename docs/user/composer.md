@@ -245,6 +245,31 @@ row above the composer shows the goal and its progress.
 - Stopping Claude ends the current turn, but the goal stays set. Claude checks it
   again at the end of your next message.
 
+## Start a feature with a workflow
+
+In a project whose environment runs workflows, a new thread's composer has a **Workflow** picker
+next to the model picker. **No workflow** keeps it a normal thread. Pick a workflow and the model
+picker becomes **Crew defaults**, because each role brings its own model (change them under the
+project's crew settings). Your first message becomes the feature's brief, and you land in its
+first stage thread. **New feature…** in the command palette opens the same composer.
+
+Each stage runs in an ordinary thread. The sidebar shows one row per feature, with the stage on
+its third line (`Design · 2/6`); earlier stage threads open from the stage name in the title bar
+or from the **Feature** tab in the right panel, which also lists outputs and lets you pause,
+resume, cancel or reopen the feature. A stage thread opens with a handoff card listing exactly
+what it was given.
+
+When a stage needs you, its composer shows a banner:
+
+- **Approval**: **Approve**, or **Request changes**. Write the change or an approval note in the
+  composer first; the note travels to the next stage.
+- **Failed**: **Retry**, **Send back…** to an earlier stage, or from **⋯** retry with another
+  model, skip the stage, or take over.
+- **Take over** hands the thread to you. When you're done, **Mark stage done** passes your result
+  on; the composer text is the summary.
+
+The same actions are in the command palette while a stage thread is open.
+
 ## Context in your message
 
 Context you attach lands where your cursor is, as a chip inside your text: a terminal excerpt,

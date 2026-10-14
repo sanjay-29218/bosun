@@ -1,4 +1,5 @@
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
+import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import {
@@ -138,6 +139,12 @@ import {
 } from "../sidebarProjectGrouping";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import {
+  useBotRailProjectKeys,
+  useVisibleActiveLogicalBot,
+  useVisibleLogicalBots,
+} from "../state/botRail";
+import { useMoveProjectToBotMenu } from "./sidebar/moveProjectToBot";
+import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
@@ -182,6 +189,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
+import { readFeatureMenuState, runFeatureThreadAction } from "./features/featureThreadActions";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
@@ -280,8 +288,10 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
@@ -2161,7 +2171,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
-                  branch, so the row lost its most stable identifier. */}
+                  branch, so the row lost its most stable identifier. A feature's
+                  row leads with its stage. */}
+              {thread.crew ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {formatCrewStageLine(thread.crew)}
+                </span>
+              ) : null}
               {thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
@@ -2418,12 +2434,27 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
-  const projects = useProjects();
+  const allProjects = useProjects();
+  // The bot rail narrows the sidebar to the active bot's projects on the shown environments.
+  const railProjectKeys = useBotRailProjectKeys();
+  const activeBotKey = useVisibleActiveLogicalBot()?.key ?? null;
+  const sidebarEnvironmentIds = useUiStateStore((store) => store.sidebarEnvironmentIds);
+  const projects = useMemo(
+    () =>
+      railProjectKeys === null
+        ? allProjects
+        : allProjects.filter((project) =>
+            railProjectKeys.has(`${project.environmentId}:${project.id}`),
+          ),
+    [allProjects, railProjectKeys],
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  // Several bots move thread jumps off Mod+1-9, which then switches bots.
+  const multipleBots = useVisibleLogicalBots().length > 1;
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -2596,8 +2627,9 @@ export default function Sidebar() {
   // Rows read the project record for its icon and cwd. Group labels can include
   // a repository owner or a different title, so they travel separately.
   const projectByKey = useMemo(
-    () => new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project])),
-    [projects],
+    () =>
+      new Map(allProjects.map((project) => [`${project.environmentId}:${project.id}`, project])),
+    [allProjects],
   );
   const projectDisplayNameByKey = useMemo(
     () =>
@@ -2710,13 +2742,13 @@ export default function Sidebar() {
   const scopedProjectKeys = useMemo(
     () =>
       scopedProjectGroup === null
-        ? null
+        ? railProjectKeys
         : new Set(
             scopedProjectGroup.memberProjectRefs.map(
               (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
             ),
           ),
-    [scopedProjectGroup],
+    [railProjectKeys, scopedProjectGroup],
   );
   // Configs identify scratch projects, so both they and live project snapshots
   // must arrive before a persisted scope can be considered missing.
@@ -2770,7 +2802,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [activeBotKey, clearSelection, projectScopeKey, sidebarEnvironmentIds]);
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot, projectRef?: ScopedProjectRef) => {
@@ -2809,6 +2841,39 @@ export default function Sidebar() {
       openProjectSettings(projectGroup);
     },
     [openProjectSettings],
+  );
+  // Right-click on a project in the picker: its settings, and moving it to another bot.
+  // With nowhere to move it (one bot), right-click opens settings as before.
+  const moveProjectToBotMenu = useMoveProjectToBotMenu();
+  const handleProjectContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, projectGroup: SidebarProjectSnapshot) => {
+      const api = readLocalApi();
+      const moveItem = moveProjectToBotMenu.build(projectGroup.memberProjects);
+      if (!api || moveItem === null) {
+        handleProjectSettings(event, projectGroup);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      suppressNextScopeChangeRef.current = true;
+      const position = { x: event.clientX, y: event.clientY };
+      void (async () => {
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            [{ id: "project-settings", label: "Project settings", icon: "settings" }, moveItem],
+            position,
+          ),
+        );
+        if (clicked._tag === "Failure" || !clicked.value) return;
+        if (clicked.value === "project-settings") {
+          dispatchProjectScopeMenu({ type: "project-settings-opened" });
+          openProjectSettings(projectGroup);
+          return;
+        }
+        moveProjectToBotMenu.run(clicked.value, projectGroup.memberProjects);
+      })();
+    },
+    [handleProjectSettings, moveProjectToBotMenu, openProjectSettings],
   );
 
   // Keep a dropped row at its destination while its server applies the
@@ -3196,11 +3261,13 @@ export default function Sidebar() {
     for (const [index, threadKey] of orderedThreadKeys.entries()) {
       const jumpCommand = threadJumpCommandForIndex(index);
       if (!jumpCommand) break;
-      const label = shortcutLabelForCommand(keybindings, jumpCommand);
+      const label = shortcutLabelForCommand(keybindings, jumpCommand, {
+        context: { multipleBots },
+      });
       if (label) mapping.set(threadKey, label);
     }
     return mapping;
-  }, [keybindings, orderedThreadKeys]);
+  }, [keybindings, multipleBots, orderedThreadKeys]);
   const { showThreadJumpHints: showJumpHints, updateThreadJumpHintsVisibility } =
     useThreadJumpHintVisibility();
 
@@ -4672,6 +4739,7 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const feature = await readFeatureMenuState(threadRef, thread.projectId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -4709,6 +4777,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              feature,
             }),
             position,
           ),
@@ -4843,6 +4912,10 @@ export default function Sidebar() {
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
             return;
+          case "make-feature":
+          case "detach-feature":
+            await runFeatureThreadAction(clicked.value, threadRef, thread);
+            return;
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
@@ -4951,6 +5024,7 @@ export default function Sidebar() {
           modelPickerOpen: isModelPickerOpen(),
           isWeb: !isElectron,
           isDesktop: isElectron,
+          multipleBots,
         },
       });
       const navigateToThreadKey = (targetThreadKey: string | null) => {
@@ -4981,6 +5055,7 @@ export default function Sidebar() {
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
     keybindings,
+    multipleBots,
     navigateToThread,
     orderedThreadKeys,
     routeTerminalOpen,
@@ -5004,6 +5079,7 @@ export default function Sidebar() {
         modelPickerOpen: isModelPickerOpen(),
         isWeb: !isElectron,
         isDesktop: isElectron,
+        multipleBots,
       },
     },
   );
@@ -5058,6 +5134,7 @@ export default function Sidebar() {
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
+            <SidebarViewToggle />
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
@@ -5154,7 +5231,7 @@ export default function Sidebar() {
                             hideIndicator
                             value={item}
                             onContextMenu={(event) => {
-                              if (project) handleProjectSettings(event, project);
+                              if (project) handleProjectContextMenu(event, project);
                             }}
                           >
                             {project ? (
@@ -5283,6 +5360,7 @@ export default function Sidebar() {
               </p>
             )
           ) : null}
+          {!isSearchingThreads ? <SidebarNeedsYouShelf /> : null}
           {!isSearchingThreads ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"

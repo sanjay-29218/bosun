@@ -13,6 +13,7 @@ import {
   ArchiveIcon,
   BlocksIcon,
   BotIcon,
+  BotMessageSquareIcon,
   createLucideIcon,
   CalendarClockIcon,
   GitBranchIcon,
@@ -23,6 +24,8 @@ import {
   PaletteIcon,
   SearchIcon,
   Settings2Icon,
+  UsersIcon,
+  WorkflowIcon,
   XIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -84,6 +87,9 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
+  "/settings/bots": BotMessageSquareIcon,
+  "/settings/workflows": WorkflowIcon,
+  "/settings/roles": UsersIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
@@ -339,13 +345,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               <SidebarMenu>
                 {navItems.map((item) => {
                   const Icon = item.icon;
-                  const isGeneralDetailPage =
-                    item.to === "/settings/general" &&
-                    pathname === "/settings/open-source-licenses";
+                  const isDetailPage =
+                    (item.to === "/settings/general" &&
+                      pathname === "/settings/open-source-licenses") ||
+                    (item.to === "/settings/workflows" && pathname === "/settings/workflow");
                   const isActive =
-                    isGeneralDetailPage ||
-                    pathname === item.to ||
-                    pathname.startsWith(`${item.to}/`);
+                    isDetailPage || pathname === item.to || pathname.startsWith(`${item.to}/`);
                   return (
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton

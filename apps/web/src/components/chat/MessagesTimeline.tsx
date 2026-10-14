@@ -33,6 +33,7 @@ import {
   ThreadId,
   type ToolActivityIcon,
 } from "@t3tools/contracts";
+import { crewMessageOrigin } from "@t3tools/client-runtime/crew-message-origin";
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { environmentThreadDetails } from "../../state/threads";
@@ -490,6 +491,8 @@ interface MessagesTimelineProps {
     readonly threadId: ThreadId;
     readonly title: string;
   } | null;
+  /** Pinned above the first message, such as a stage thread's handoff card. */
+  headerContent?: ReactNode;
   onForkFromRun: (input: {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
@@ -602,6 +605,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenTurnDiff,
   onOpenThread,
   parentThreadLink = null,
+  headerContent = null,
   onForkFromRun,
   onRollbackCheckpoint,
   supportsConversationRollback,
@@ -1483,9 +1487,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {parentThreadLink === null ? leadingContent : null}
         {historyControls ? <TimelineHistoryControl {...historyControls} /> : null}
         {parentThreadLink !== null ? leadingContent : null}
+        {headerContent}
       </>
     );
-  }, [historyControls, onOpenThread, parentThreadLink, topFadeEnabled]);
+  }, [headerContent, historyControls, onOpenThread, parentThreadLink, topFadeEnabled]);
 
   const canvas = useChatCanvas();
   const registerTimeline = canvas?.registerTimeline;
@@ -1602,6 +1607,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     rows.length === 0 &&
     !isWorking &&
     parentThreadLink === null &&
+    headerContent === null &&
     historyControls === undefined &&
     // A status line (settled, snoozed) still needs the list, whose footer renders it.
     footer === null
@@ -2271,6 +2277,7 @@ function MessageAuthorHeading({ children }: { children: string }) {
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
+  const crewOrigin = crewMessageOrigin(row.message.context);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
   const resources = useMemo(
@@ -2483,7 +2490,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading>You</MessageAuthorHeading>
+        <MessageAuthorHeading>
+          {crewOrigin ? `Crew · ${crewOrigin.memberId}` : "You"}
+        </MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (

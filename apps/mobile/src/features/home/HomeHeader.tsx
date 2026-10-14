@@ -11,7 +11,10 @@ import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
 import { useNativeMailSearchToolbar } from "../../native/use-native-mail-search-toolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
-import { createSidebarHeaderItems } from "../threads/sidebar-native-header-items";
+import {
+  createSidebarHeaderItems,
+  createThreadListHeaderItems,
+} from "../threads/sidebar-native-header-items";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 
@@ -64,7 +67,12 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={[filterMenu.items, showsCompactCompose]}
+        optionsVersion={[
+          filterMenu.items,
+          showsCompactCompose,
+          props.botSwitcher,
+          props.viewToggle,
+        ]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
@@ -78,6 +86,8 @@ export function HomeHeader(props: HomeHeaderProps) {
                       : "line.3.horizontal.decrease.circle",
                     filterMenu,
                     onOpenSettings: props.onOpenSettings,
+                    botSwitcher: props.botSwitcher,
+                    viewToggle: props.viewToggle,
                   }),
                   ...(showsCompactCompose
                     ? [
@@ -94,6 +104,7 @@ export function HomeHeader(props: HomeHeaderProps) {
                     : []),
                 ]
               : [
+                  ...createThreadListHeaderItems(props),
                   withNativeGlassHeaderItem({
                     accessibilityLabel: "Open settings",
                     icon: { name: "ellipsis", type: "sfSymbol" } as const,

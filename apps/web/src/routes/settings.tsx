@@ -147,6 +147,15 @@ function SettingsContentLayout() {
   );
 }
 
+// Pages that edit one environment's own records, so the scope picks exactly one.
+const SINGLE_ENVIRONMENT_PATHS: ReadonlySet<string> = new Set([
+  "/settings/providers",
+  "/settings/bots",
+  "/settings/workflows",
+  "/settings/workflow",
+  "/settings/roles",
+]);
+
 function SettingsRouteLayout() {
   const rawSearch = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -154,7 +163,7 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      singleEnvironment={SINGLE_ENVIRONMENT_PATHS.has(pathname)}
       onChange={(next) => {
         // Send every axis so the retain middleware sees an explicit target
         // even when the choice is "all", which is the absence of a key.

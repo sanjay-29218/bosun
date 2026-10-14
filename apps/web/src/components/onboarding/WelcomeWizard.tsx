@@ -57,6 +57,7 @@ import {
 } from "../../onboarding/providerReadiness.logic";
 import { newProjectId, randomUUID } from "../../lib/utils";
 import { agentSessionImport } from "../../state/agentSessions";
+import { activeBotInput } from "../../state/botRail";
 import { readProjects, useProjects } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import {
@@ -1365,6 +1366,7 @@ function ImportStep({
             workspaceRoot: candidate.path,
             createWorkspaceRootIfMissing: false,
             defaultModelSelection: null,
+            ...activeBotInput(environmentId),
           },
         });
         if (

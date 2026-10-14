@@ -20,7 +20,9 @@ function projectFailure(error: Project.ProjectServiceError) {
       ? "The project was not found."
       : error._tag === "ProjectConflictError"
         ? "The workspace is already registered to a project."
-        : "The project is not empty; force=true is required to delete it.";
+        : error._tag === "ProjectBotNotFoundError"
+          ? "The bot was not found; t3_bot_list shows this environment's bots."
+          : "The project is not empty; force=true is required to delete it.";
   return new OrchestratorMcpFailure({ code: "invalid_request", message });
 }
 
@@ -224,7 +226,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           });
         const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
         const created = yield* folders
-          .createNamedProject({ name: input.title })
+          .createNamedProject({
+            name: input.title,
+            ...(input.botId === undefined ? {} : { botId: input.botId }),
+          })
           .pipe(
             Effect.mapError(
               (error) =>

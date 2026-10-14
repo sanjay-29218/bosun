@@ -45,6 +45,7 @@ import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import {
   DEFAULT_KEYBINDINGS,
+  MULTIPLE_BOTS_THREAD_JUMP_KEYBINDINGS,
   mergeWithDefaultKeybindings,
   compileResolvedKeybindingRule,
   compileResolvedKeybindingsConfig,
@@ -127,6 +128,16 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
       when: "composerFocus && draftThreadRoute",
     },
   },
+  // Bots take Mod+1-9 when there are several, so thread jumps gain a second chord.
+  ...MULTIPLE_BOTS_THREAD_JUMP_KEYBINDINGS.map((rule) => ({
+    id: `${rule.command}:${rule.key}`,
+    alongside: {
+      key: rule.key.replace(/^mod\+(ctrl|alt)\+/, "mod+"),
+      command: rule.command,
+      when: "isDesktop",
+    },
+    rule,
+  })),
 ];
 
 function keybindingShortcutContext(rule: KeybindingRule): string | null {

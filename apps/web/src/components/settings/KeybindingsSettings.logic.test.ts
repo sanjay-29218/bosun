@@ -64,6 +64,7 @@ describe("KeybindingsSettings.logic", () => {
     expect(groups.map((group) => group.title)).toEqual([
       "Navigation",
       "Threads",
+      "Bots",
       "Composer",
       "Terminal",
       "Preview & diff",

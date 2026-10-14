@@ -24,10 +24,14 @@ import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { cn } from "../../lib/cn";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
+import { useActiveBot } from "../../state/bots";
 import { useProjects, useThreadShell, useThreadShells } from "../../state/entities";
+import { useBoardProjects } from "../../state/features";
 import { useThreadSearch } from "../../state/queries";
 import { useWorkspaceEnvironments } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import { needsYouLabel } from "../home/thread-list-chrome";
+import { useThreadListView } from "../home/use-thread-list-view";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { ThreadSearchMatchExcerpt } from "../threads/thread-search-match";
@@ -147,6 +151,11 @@ export function CommandPalette(props: {
   const activeThread = useThreadShell(activeThreadRef);
   const environments = useWorkspaceEnvironments();
   const { savedConnectionsById } = useSavedRemoteConnections();
+  const activeBot = useActiveBot();
+  const viewToggle = useThreadListView(
+    activeBot.viewKey,
+    useBoardProjects(activeBot.projectKeys).length > 0,
+  );
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
@@ -193,6 +202,32 @@ export function CommandPalette(props: {
         searchTerms: ["folder", "clone", "repository", "git"],
         run: () => navigation.navigate("NewTaskSheet", { screen: "AddProject" }),
       },
+      ...(viewToggle
+        ? [
+            {
+              key: "toggleBoard",
+              kind: "action" as const,
+              title: viewToggle.view === "list" ? "Show board" : "Show threads",
+              searchTerms: ["board", "features", "list", "threads", "kanban"],
+              run: viewToggle.onToggle,
+            },
+          ]
+        : []),
+      ...(activeBot.projectKeys === null
+        ? []
+        : activeBot.bots
+            .filter((bot) => bot.key !== activeBot.active?.key)
+            .map((bot) => {
+              const waiting = activeBot.needsYou.get(bot.key) ?? 0;
+              return {
+                key: `bot:${bot.key}`,
+                kind: "action" as const,
+                title: `Switch to ${bot.emoji} ${bot.name}`,
+                ...(waiting > 0 ? { detail: needsYouLabel(waiting) } : {}),
+                searchTerms: ["bot", bot.name],
+                run: () => activeBot.select(bot),
+              };
+            })),
       {
         key: "settings",
         kind: "action",
@@ -343,6 +378,7 @@ export function CommandPalette(props: {
       });
     return [...actions, ...projectItems, ...threadItems];
   }, [
+    activeBot,
     activeThread,
     activeThreadRef,
     navigation,
@@ -351,6 +387,7 @@ export function CommandPalette(props: {
     savedConnectionsById,
     selectThread,
     threads,
+    viewToggle,
   ]);
   const results = useMemo(
     () => filterCommandPaletteItems(items, query, matchedThreadKeys),

@@ -72,6 +72,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { CrewStageSummary } from "./workflow.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -437,6 +438,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ),
   ),
+  /** The feature stage this thread runs; absent for threads outside a workflow. */
+  crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -2020,6 +2023,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
       }),
     ),
   ),
+  /** The feature stage this thread runs; omitted for plain threads and older servers. */
+  crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
@@ -3191,6 +3196,17 @@ const OrchestrationV2InternalCommand = Schema.Union([
         notification: OrchestrationV2Notification,
       }),
     ),
+  }),
+  /**
+   * Links a stage thread to its feature, or updates the stage summary it shows. Internal so
+   * only the workflow runtime decides what a thread belongs to. `title` renames it on first link.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.crew-stage.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    crew: Schema.NullOr(CrewStageSummary),
+    title: Schema.optional(TrimmedNonEmptyString),
   }),
   /** Records that the provider rollback `requestId` failed for good. */
   Schema.Struct({

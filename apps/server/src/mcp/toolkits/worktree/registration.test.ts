@@ -1,3 +1,10 @@
+import * as BotService from "../../../bots/BotService.ts";
+import { CrewService } from "../../../crew/CrewService.ts";
+import { CrewStore } from "../../../crew/CrewStore.ts";
+import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
+import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
+import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -96,6 +103,17 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         Layer.provide(PreviewAutomationBroker.layer),
         Layer.provide(PreviewBrowser.layer),
         Layer.provide(layerStubServices),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(BotService.BotService)({}),
+            Layer.mock(CrewService)({}),
+            Layer.mock(CrewStore)({}),
+            Layer.mock(CrewHandoffService)({}),
+            Layer.mock(CrewHandoffStore)({}),
+            Layer.mock(FeatureService)({}),
+            Layer.mock(WorkflowService)({}),
+          ),
+        ),
         Layer.build,
       );
 

@@ -222,6 +222,20 @@ describe("buildThreadActionMenuItems", () => {
     );
     expect(archiveItem?.disabled).toBe(true);
   });
+
+  it("offers either Make it a feature or Detach, and neither outside Crew", () => {
+    const featureIds = (feature: { readonly isStage: boolean } | null) =>
+      ids({ ...baseState, feature }).filter((id) => id.endsWith("-feature"));
+    expect(featureIds({ isStage: false })).toEqual(["make-feature"]);
+    expect(featureIds({ isStage: true })).toEqual(["detach-feature"]);
+    expect(featureIds(null)).toEqual([]);
+    const detach = buildThreadActionMenuItems({
+      ...baseState,
+      canOperate: false,
+      feature: { isStage: true },
+    }).find((item) => item.id === "detach-feature");
+    expect(detach).toMatchObject({ destructive: true, disabled: true });
+  });
 });
 
 describe("buildDraftActionMenuItems", () => {
