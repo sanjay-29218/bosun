@@ -81,11 +81,6 @@ export function CrewToolPicker({
   );
 }
 
-const MODE_DESCRIPTIONS: Record<RoleMode, string> = {
-  ask: "Asks you before it edits files or runs commands.",
-  act: "Edits files and runs commands without asking.",
-};
-
 /** Whether a bot or role asks before acting, with what that means. */
 export function CrewModeToggle({
   value,
@@ -95,21 +90,18 @@ export function CrewModeToggle({
   readonly onChange: (mode: RoleMode) => void;
 }) {
   return (
-    <div className="space-y-1.5">
-      <ToggleGroup
-        aria-label="Approvals"
-        className="w-full *:flex-1"
-        value={[value]}
-        onValueChange={(next) => {
-          const mode = next[0];
-          if (mode === "ask" || mode === "act") onChange(mode);
-        }}
-      >
-        <ToggleGroupItem value="ask">Ask first</ToggleGroupItem>
-        <ToggleGroupItem value="act">Act on its own</ToggleGroupItem>
-      </ToggleGroup>
-      <p className="text-xs text-muted-foreground">{MODE_DESCRIPTIONS[value]}</p>
-    </div>
+    <ToggleGroup
+      aria-label="Approvals"
+      className="w-full *:flex-1"
+      value={[value]}
+      onValueChange={(next) => {
+        const mode = next[0];
+        if (mode === "ask" || mode === "act") onChange(mode);
+      }}
+    >
+      <ToggleGroupItem value="ask">Ask first</ToggleGroupItem>
+      <ToggleGroupItem value="act">Act on its own</ToggleGroupItem>
+    </ToggleGroup>
   );
 }
 
@@ -124,7 +116,8 @@ export function EditorField({
   readonly children: ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    // A grid, so an inline control (the model picker) still sits under its label.
+    <div className="grid gap-2">
       <Label {...(htmlFor ? { htmlFor } : {})}>{label}</Label>
       {children}
     </div>

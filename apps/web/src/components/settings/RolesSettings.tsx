@@ -527,11 +527,13 @@ function RoleDialog({
                 </EditorField>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <EditorField label="Model">
-                    <RoleModelPicker
-                      environmentId={environmentId}
-                      selection={modelSelection}
-                      onChange={setModelSelection}
-                    />
+                    <div>
+                      <RoleModelPicker
+                        environmentId={environmentId}
+                        selection={modelSelection}
+                        onChange={setModelSelection}
+                      />
+                    </div>
                   </EditorField>
                   <EditorField label="Approvals">
                     <CrewModeToggle

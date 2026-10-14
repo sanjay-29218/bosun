@@ -648,17 +648,19 @@ function BotDialog({
                 </EditorField>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <EditorField label="Model">
-                    {modelSelection ? (
-                      <RoleModelPicker
-                        environmentId={environmentId}
-                        selection={modelSelection}
-                        onChange={setModelSelection}
-                      />
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No model available. Set up a provider first.
-                      </p>
-                    )}
+                    <div>
+                      {modelSelection ? (
+                        <RoleModelPicker
+                          environmentId={environmentId}
+                          selection={modelSelection}
+                          onChange={setModelSelection}
+                        />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No model available. Set up a provider first.
+                        </p>
+                      )}
+                    </div>
                   </EditorField>
                   <EditorField label="Approvals">
                     <CrewModeToggle
