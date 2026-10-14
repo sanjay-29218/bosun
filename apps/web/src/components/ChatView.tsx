@@ -2718,7 +2718,14 @@ export default function ChatView(props: ChatViewProps) {
     try {
       const created = await createFeature({
         environmentId,
-        input: { id: featureId, projectId: draftProjectId, title, brief, workflowId },
+        input: {
+          id: featureId,
+          projectId: draftProjectId,
+          title,
+          brief,
+          workflowId,
+          autoTitle: true,
+        },
       });
       if (created._tag !== "Success") return;
       const started = await startFeature({

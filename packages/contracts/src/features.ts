@@ -8,15 +8,23 @@ import {
   WorkflowYourCall,
 } from "./workflow.ts";
 
-export const FeatureCreateInput = Schema.Struct({
+const FeatureFields = {
   id: Schema.String,
   projectId: ProjectId,
   title: Schema.String,
   brief: Schema.String,
   workflowId: Schema.optionalKey(Schema.String),
+};
+export const FeatureCreateInput = Schema.Struct({
+  ...FeatureFields,
+  /**
+   * `title` is a stand-in taken from the brief: the server replaces it with a short generated
+   * title, as it does for thread titles. A retry may then send the stand-in again.
+   */
+  autoTitle: Schema.optionalKey(Schema.Boolean),
 });
 export const FeatureRecord = Schema.Struct({
-  ...FeatureCreateInput.fields,
+  ...FeatureFields,
   workflowId: Schema.NullOr(Schema.String),
   /** The workflow version this feature runs on. Publishing later versions never changes it. */
   workflowRevision: Schema.NullOr(Schema.Int),

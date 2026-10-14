@@ -16,10 +16,14 @@ import {
   type WorkflowDefinition,
   type WorkflowFeatureSnapshot,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -30,6 +34,9 @@ import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
 import { projectWorkflowState } from "../workflows/WorkflowState.ts";
@@ -145,6 +152,70 @@ interface FeatureRow extends Omit<FeatureRecord, "crewAssignments"> {
   readonly crewAssignmentsJson: string;
 }
 
+/**
+ * Replaces a feature's stand-in title, the start of its brief, with a short generated one,
+ * as a new thread's first message gets. Threads already tagged with the feature follow, and
+ * those still named after the stand-in take the new title.
+ */
+export const generateFeatureTitle = (feature: FeatureRecord) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const engine = yield* OrchestratorV2;
+    const projects = yield* ProjectStore.ProjectStoreV2;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    const textGeneration = yield* TextGeneration.TextGeneration;
+    const project = yield* projects.get(feature.projectId);
+    if (Option.isNone(project)) return;
+    const settings = resolveProjectSettings(
+      yield* serverSettings.getSettings,
+      feature.projectId,
+    ).settings;
+    const result = yield* textGeneration
+      .generateThreadTitle({
+        cwd: project.value.workspaceRoot,
+        message: feature.brief,
+        attachments: [],
+        modelSelection: settings.textGenerationModelSelection,
+      })
+      .pipe(Effect.retry({ times: 2, schedule: Schedule.exponential("2 seconds") }));
+    const title = result.title.trim().slice(0, 200);
+    if (!title || title === "New thread" || title === feature.title) return;
+    const updatedAt = DateTime.formatIso(yield* DateTime.now);
+    // Only while the stand-in is still there.
+    const renamed = yield* sql`
+      UPDATE features SET title = ${title}, updated_at = ${updatedAt}
+      WHERE id = ${feature.id} AND title = ${feature.title}
+      RETURNING id
+    `;
+    if (renamed.length === 0) return;
+    const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
+      SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
+      WHERE project_id = ${feature.projectId} AND deleted_at IS NULL
+        AND json_extract(payload_json, '$.feature.id') = ${feature.id}
+    `;
+    yield* Effect.forEach(
+      threads,
+      (thread) =>
+        engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make(`feature-title:${NodeCrypto.randomUUID()}`),
+          threadId: thread.threadId,
+          feature: { id: feature.id, title },
+          ...(thread.title === feature.title ? { title } : {}),
+        }),
+      { discard: true },
+    );
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.interrupt
+        : Effect.logWarning("Feature title generation failed", {
+            featureId: feature.id,
+            cause,
+          }),
+    ),
+  );
+
 export const FeatureServiceLive = Layer.effect(
   FeatureService,
   Effect.gen(function* () {
@@ -159,6 +230,12 @@ export const FeatureServiceLive = Layer.effect(
     const execution = yield* WorkflowExecutionService;
     const handoffStore = yield* CrewHandoffStore;
     const engine = yield* OrchestratorV2;
+    const titleServices = yield* Effect.context<
+      | ProjectStore.ProjectStoreV2
+      | ServerSettings.ServerSettingsService
+      | TextGeneration.TextGeneration
+    >();
+    const scope = yield* Effect.scope;
     const queryError = toPersistenceSqlError("FeatureService.query");
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
@@ -265,14 +342,15 @@ export const FeatureServiceLive = Layer.effect(
         if (!(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new FeatureValidationError("Project does not exist"));
         }
-        return yield* sql
+        const { feature, created } = yield* sql
           .withTransaction(
             Effect.gen(function* () {
               const existing = yield* get(input.id);
               if (existing) {
                 if (
                   existing.projectId !== input.projectId ||
-                  existing.title !== input.title ||
+                  // A generated title has replaced the stand-in a retry sends again.
+                  (!input.autoTitle && existing.title !== input.title) ||
                   existing.brief !== input.brief ||
                   existing.workflowId !== (input.workflowId ?? null)
                 ) {
@@ -280,7 +358,7 @@ export const FeatureServiceLive = Layer.effect(
                     new FeatureValidationError("Feature ID belongs to another request"),
                   );
                 }
-                return existing;
+                return { feature: existing, created: false };
               }
 
               if (input.workflowId === undefined && (yield* workflows.getFeatureCopy(input.id))) {
@@ -386,18 +464,29 @@ export const FeatureServiceLive = Layer.effect(
               INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json)
               VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)})
             `;
-              return {
-                ...input,
+              const { autoTitle: _autoTitle, ...fields } = input;
+              const feature: FeatureRecord = {
+                ...fields,
                 workflowId: input.workflowId ?? null,
                 workflowRevision: copy?.definition.revision ?? null,
                 crewAssignments,
                 createdAt,
                 updatedAt: createdAt,
-                status: "open" as const,
+                status: "open",
               };
+              return { feature, created: true };
             }),
           )
           .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
+        if (input.autoTitle && created) {
+          yield* generateFeatureTitle(feature).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.provideService(OrchestratorV2, engine),
+            Effect.provideContext(titleServices),
+            Effect.forkIn(scope),
+          );
+        }
+        return feature;
       });
 
     const start: FeatureServiceShape["start"] = (id, projectId) =>

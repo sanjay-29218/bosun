@@ -22,6 +22,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
@@ -46,11 +47,17 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 
 const projectId = ProjectId.make("workflow-feature-project");
 const scratchProjectId = ProjectId.make("workflow-feature-scratch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+/** Title generation that never finishes, so a test decides when a title arrives. */
+const TextGenerationPending = Layer.mock(TextGeneration.TextGeneration)({
+  generateThreadTitle: () => Effect.never,
+});
+
 const encodeBotIdentity = Schema.encodeSync(
   Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
 );
@@ -71,6 +78,9 @@ const withSystem = <E>(
     | CrewHandoffService
     | BotStore.BotStore
     | ProjectStore.ProjectStoreV2
+    | ServerSettingsService
+    | SqlClient.SqlClient
+    | TextGeneration.TextGeneration
   >,
 ) =>
   Effect.gen(function* () {
@@ -88,9 +98,10 @@ const withSystem = <E>(
       Layer.provideMerge(orchestration),
       // Stateless over SQLite, so seeded threads read back through the orchestrator.
       Layer.provideMerge(ProjectionStore.layer),
-      Layer.provide(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
+      Layer.provideMerge(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
       Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(TextGenerationPending),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
       Layer.provideMerge(NodeServices.layer),
       // Bots keep their headquarters in the Scratch project.
@@ -261,6 +272,55 @@ describe("feature creation", () => {
           expect(yield* features.create(input)).toEqual(created);
         }),
       ),
+  );
+
+  effectIt.effect("swaps a composer feature's stand-in title for a generated one", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const crew = yield* CrewService;
+        const executions = yield* WorkflowExecutionStore;
+        const engine = yield* OrchestrationEngineService;
+        yield* (yield* WorkflowService).ensureStarterDefinition();
+        const standIn = "Um so let's add uh a dark mode toggle";
+        const input = {
+          id: "titled-feature",
+          projectId,
+          title: standIn,
+          brief: `${standIn} to the settings page`,
+          workflowId: "feature-delivery",
+          autoTitle: true,
+        };
+        const feature = yield* features.create(input);
+        expect(feature).not.toHaveProperty("autoTitle");
+        // A retry may send a different stand-in once the title was replaced.
+        expect(yield* features.create({ ...input, title: "Dark mode" })).toEqual(feature);
+        yield* features.start(input.id, projectId);
+        const managerRun = yield* crew.getRun(
+          (yield* executions.get(input.id))!.bindings.planner!.dispatchRunId,
+        );
+        const managerThreadId = managerRun!.run.threadId;
+        // A stage thread is named after the feature when it starts.
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make("titled-feature:stage-title"),
+          threadId: managerThreadId,
+          title: standIn,
+        });
+
+        yield* generateFeatureTitle(feature).pipe(
+          Effect.provideService(TextGeneration.TextGeneration, {
+            ...(yield* TextGeneration.TextGeneration),
+            generateThreadTitle: () => Effect.succeed({ title: "  Dark mode toggle " }),
+          }),
+        );
+
+        expect((yield* features.get(input.id))?.title).toBe("Dark mode toggle");
+        const thread = (yield* engine.getThreadShell(managerThreadId))!;
+        expect(thread.feature).toEqual({ id: input.id, title: "Dark mode toggle" });
+        expect(thread.title).toBe("Dark mode toggle");
+      }),
+    ),
   );
 
   effectIt.effect("binds a workflow's project manager role to the project's manager", () =>
@@ -578,6 +638,7 @@ describe("feature creation", () => {
         Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
         Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(TextGenerationPending),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
         Layer.provideMerge(NodeServices.layer),
       );

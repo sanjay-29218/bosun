@@ -1298,6 +1298,7 @@ export function NewTaskDraftScreen(props: {
           title: firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine,
           brief,
           workflowId,
+          autoTitle: true,
         },
       });
       if (created._tag !== "Success") return;
