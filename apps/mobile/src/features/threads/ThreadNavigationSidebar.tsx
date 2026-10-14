@@ -11,7 +11,6 @@ import {
 } from "@t3tools/client-runtime/state/thread-search";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
-import { useNavigation } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -36,7 +35,7 @@ import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
-import { useActiveBot } from "../../state/bots";
+import { useActiveBot, useRefreshBotsWhileOpen } from "../../state/bots";
 import { useBoardProjects } from "../../state/features";
 import { FeatureBoard } from "../crew/FeatureBoard";
 import { buildBotSwitcherMenu } from "../home/thread-list-chrome";
@@ -101,7 +100,8 @@ interface ThreadNavigationSidebarProps {
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onSearchQueryChange: (query: string) => void;
-  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
+  readonly onStartNewTask: () => void;
   readonly onRequestVisibility: () => void;
   readonly searchQuery: string;
 }
@@ -148,6 +148,7 @@ function ThreadNavigationSidebarPane(
   const allThreads = useNavigationThreadShells();
   // The list shows the active bot's projects; with one bot it shows everything.
   const activeBot = useActiveBot();
+  useRefreshBotsWhileOpen();
   const botProjectKeys = activeBot.projectKeys;
   const projects = useMemo(
     () =>
@@ -462,6 +463,8 @@ function ThreadNavigationSidebarPane(
     const v2SearchQuery = props.searchQuery.trim().toLocaleLowerCase();
     const v2PendingTasks = pendingTasks.filter(
       (pendingTask) =>
+        (botProjectKeys === null ||
+          botProjectKeys.has(scopedProjectKey(pendingTask.environmentId, pendingTask.projectId))) &&
         (options.selectedEnvironmentId === null ||
           pendingTask.environmentId === options.selectedEnvironmentId) &&
         (selectedProjectRefs === null ||
@@ -498,6 +501,7 @@ function ThreadNavigationSidebarPane(
     }
     return items;
   }, [
+    botProjectKeys,
     nowMinute,
     options.selectedEnvironmentId,
     pendingTasks,
@@ -614,7 +618,7 @@ function ThreadNavigationSidebarPane(
     }
   }, []);
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
       props.onSelectThread(thread);
       openSwipeableRef.current?.close();
     },
@@ -889,7 +893,6 @@ function ThreadNavigationSidebarPane(
       }),
     [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
   );
-  const sidebarNavigation = useNavigation();
   const nativeHeaderItems = useMemo(
     () =>
       createSidebarHeaderItems({
@@ -913,22 +916,21 @@ function ThreadNavigationSidebarPane(
       ),
     [boardProjects, options.selectedEnvironmentId, selectedProjectRefs],
   );
+  // Board cards open by id: a finished feature's stage thread may be archived.
   const openBoardThread = useCallback(
-    (environmentId: EnvironmentId, threadId: ThreadId) => {
-      const thread = allThreads.find(
-        (candidate) => candidate.environmentId === environmentId && candidate.id === threadId,
-      );
-      if (thread) handleSelectThread(thread);
-    },
-    [allThreads, handleSelectThread],
+    (environmentId: EnvironmentId, threadId: ThreadId) =>
+      handleSelectThread({ environmentId, id: threadId }),
+    [handleSelectThread],
   );
   const renderBoard = (contentContainerStyle: StyleProp<ViewStyle>, automaticInsets: boolean) => (
     <FeatureBoard
       projects={filteredBoardProjects}
+      threads={threads}
+      active={props.visible}
       searchQuery={props.searchQuery}
       scopeKey={`${activeBot.viewKey}|${options.selectedEnvironmentId ?? "all"}|${selectedProjectKey ?? "all"}`}
       onOpenThread={openBoardThread}
-      onStartFeature={() => sidebarNavigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+      onStartFeature={props.onStartNewTask}
       contentContainerStyle={contentContainerStyle}
       automaticInsets={automaticInsets}
     />

@@ -46,6 +46,7 @@ import {
   resolveSelectableModelSelection,
 } from "../../lib/modelOptions";
 import { scopedProjectKey } from "../../lib/scopedEntities";
+import { useActiveBot } from "../../state/bots";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
@@ -266,11 +267,18 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const { enabled: legacyPlanModeEnabled, loaded: planModePreferenceLoaded } =
     useLegacyPlanModeState();
 
+  // The picker offers the active bot's projects; a draft opened for another project keeps it.
+  const botProjectKeys = useActiveBot().projectKeys;
   const projectScopes = useMemo(
     () =>
       sortHomeProjectScopes({
         scopes: buildHomeProjectScopes({
-          projects,
+          projects:
+            botProjectKeys === null
+              ? projects
+              : projects.filter((project) =>
+                  botProjectKeys.has(scopedProjectKey(project.environmentId, project.id)),
+                ),
           environmentId: null,
           projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,
         }),
@@ -278,7 +286,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         pendingTasks: [],
         projectSortOrder: "updated_at",
       }),
-    [groupingSettings.sidebarProjectGroupingMode, projects, threads],
+    [botProjectKeys, groupingSettings.sidebarProjectGroupingMode, projects, threads],
   );
 
   const [selectedEnvironmentIdOverride, setSelectedEnvironmentId] = useState<EnvironmentId | null>(

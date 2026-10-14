@@ -501,7 +501,7 @@ function AdaptiveWorkspaceLayoutContent(
   );
 
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
       const params = {
         environmentId: String(thread.environmentId),
         threadId: String(thread.id),
@@ -620,6 +620,7 @@ function AdaptiveWorkspaceLayoutContent(
                       onNewThreadInProject={handleNewThreadInProject}
                       onNewThreadOnBranch={handleNewThreadOnBranch}
                       onSelectThread={handleSelectThread}
+                      onStartNewTask={handleStartNewTask}
                       onSearchQueryChange={setPrimarySidebarSearchQuery}
                       searchQuery={primarySidebarSearchQuery}
                     />

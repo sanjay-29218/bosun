@@ -3,6 +3,7 @@ import type { MenuAction } from "@react-native-menu/menu";
 import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import {
   buildFeatureStageBoard,
+  collectNeedsYou,
   DONE_COLUMN_ID,
   FEATURE_CARD_ACTION_LABELS,
   FEATURE_PHASE_LABELS,
@@ -11,14 +12,17 @@ import {
   groupFeaturesByPhase,
   matchesFeatureSearch,
   mostUsedWorkflowId,
-  needsYouKindForState,
   parseFeatureSearch,
+  type NeedsYouKind,
   stageLabel,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
 } from "@t3tools/client-runtime/state/crew-board";
-import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, FeatureCardState, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId, FeatureCardState, ProjectId, ThreadId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
@@ -149,6 +153,41 @@ function FeatureRow(props: {
   );
 }
 
+const NEEDS_YOU_THREAD_LABEL: Record<NeedsYouKind, { label: string; className: string }> = {
+  approval: { label: "Approval", className: "text-warning-foreground" },
+  question: { label: "Input", className: "text-adaptive-indigo-600-300" },
+  problem: { label: "Problem", className: "text-danger-foreground" },
+};
+
+/** A thread that waits on you outside a feature card: a tool approval or a question. */
+function NeedsYouThreadRow(props: {
+  readonly shell: EnvironmentThreadShell;
+  readonly kind: NeedsYouKind;
+  readonly projectTitle: string | null;
+  readonly onOpenThread: (environmentId: EnvironmentId, threadId: ThreadId) => void;
+}) {
+  const label = NEEDS_YOU_THREAD_LABEL[props.kind];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => props.onOpenThread(props.shell.environmentId, props.shell.id)}
+      className="gap-0.5 border-b border-border px-4 py-3 active:opacity-70"
+    >
+      <View className="flex-row items-center gap-2">
+        {props.projectTitle !== null ? (
+          <Text className="text-xs text-foreground-secondary" numberOfLines={1}>
+            {props.projectTitle}
+          </Text>
+        ) : null}
+        <Text className={cn("font-t3-bold text-xs", label.className)}>{label.label}</Text>
+      </View>
+      <Text className="font-t3-medium text-base text-foreground" numberOfLines={2}>
+        {props.shell.title || "Untitled thread"}
+      </Text>
+    </Pressable>
+  );
+}
+
 function GroupHeader(props: {
   readonly label: string;
   readonly count: number;
@@ -176,6 +215,10 @@ function GroupHeader(props: {
  */
 export function FeatureBoard(props: {
   readonly projects: ReadonlyArray<EnvironmentProject>;
+  /** Thread shells the list shows; those in `projects` that wait on you join Needs you. */
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  /** False while another screen covers the board, which then stops re-reading. */
+  readonly active: boolean;
   readonly searchQuery: string;
   /** Where the Workflow switch is remembered, such as the active bot and project filter. */
   readonly scopeKey: string;
@@ -190,6 +233,7 @@ export function FeatureBoard(props: {
       environmentId: project.environmentId,
       projectId: project.id,
     })),
+    props.active,
   );
   const preferences = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
@@ -214,6 +258,17 @@ export function FeatureBoard(props: {
       ]),
     );
   }, [board.cards, projectTitles, props.searchQuery]);
+  const needsYou = useMemo(() => {
+    const text = parseFeatureSearch(props.searchQuery).text;
+    const shells = props.threads.filter(
+      (shell) =>
+        projectTitles.has(scopedProjectKey(shell.environmentId, shell.projectId)) &&
+        (!text || shell.title.toLowerCase().includes(text)),
+    );
+    return collectNeedsYou({ cards, shells })
+      .flatMap((group) => group.items)
+      .sort((a, b) => a.since.localeCompare(b.since) || a.key.localeCompare(b.key));
+  }, [cards, projectTitles, props.searchQuery, props.threads]);
   const workflows = useMemo(() => {
     const byId = new Map<string, { name: string; environmentId: EnvironmentId }>();
     for (const card of board.cards) {
@@ -252,19 +307,17 @@ export function FeatureBoard(props: {
       },
     });
 
-  const rows = (list: ReadonlyArray<EnvironmentFeatureCard>) =>
-    list.map((card) => (
-      <FeatureRow
-        key={featureCardKey(card)}
-        card={card}
-        projectTitle={
-          showProject
-            ? (projectTitles.get(scopedProjectKey(card.environmentId, card.projectId)) ?? null)
-            : null
-        }
-        onOpenThread={props.onOpenThread}
-      />
-    ));
+  const projectTitleFor = (environmentId: EnvironmentId, projectId: ProjectId) =>
+    showProject ? (projectTitles.get(scopedProjectKey(environmentId, projectId)) ?? null) : null;
+  const row = (card: EnvironmentFeatureCard) => (
+    <FeatureRow
+      key={featureCardKey(card)}
+      card={card}
+      projectTitle={projectTitleFor(card.environmentId, card.projectId)}
+      onOpenThread={props.onOpenThread}
+    />
+  );
+  const rows = (list: ReadonlyArray<EnvironmentFeatureCard>) => list.map(row);
   const doneGroup = (list: ReadonlyArray<EnvironmentFeatureCard>) => (
     <View key={DONE_COLUMN_ID}>
       <GroupHeader
@@ -301,7 +354,7 @@ export function FeatureBoard(props: {
   };
 
   let body: ReactNode;
-  if (board.cards.length === 0) {
+  if (board.cards.length === 0 && needsYou.length === 0) {
     body = board.pending ? (
       <Text className="px-4 py-6 text-sm text-foreground-secondary">Loading features…</Text>
     ) : (
@@ -366,19 +419,30 @@ export function FeatureBoard(props: {
       </>
     );
   } else {
-    const needsYou = cards
-      .filter((card) => needsYouKindForState(card.state) !== null)
-      .sort((a, b) => a.stateSince.localeCompare(b.stateSince));
-    const waiting = new Set(needsYou);
+    const waitingCards = new Set(
+      needsYou.flatMap((item) => (item.type === "feature" ? [item.card] : [])),
+    );
     body = (
       <>
         {needsYou.length > 0 ? (
           <View>
             <GroupHeader label="Needs you" count={needsYou.length} />
-            {rows(needsYou)}
+            {needsYou.map((item) =>
+              item.type === "feature" ? (
+                row(item.card)
+              ) : (
+                <NeedsYouThreadRow
+                  key={item.key}
+                  shell={item.shell}
+                  kind={item.kind}
+                  projectTitle={projectTitleFor(item.shell.environmentId, item.shell.projectId)}
+                  onOpenThread={props.onOpenThread}
+                />
+              ),
+            )}
           </View>
         ) : null}
-        {groupFeaturesByPhase(cards.filter((card) => !waiting.has(card))).map((group) =>
+        {groupFeaturesByPhase(cards.filter((card) => !waitingCards.has(card))).map((group) =>
           group.cards.length === 0 ? null : group.phase === "done" ? (
             doneGroup(group.cards)
           ) : (
@@ -388,7 +452,7 @@ export function FeatureBoard(props: {
             </View>
           ),
         )}
-        {cards.length === 0 ? (
+        {cards.length === 0 && needsYou.length === 0 ? (
           <Text className="px-4 py-6 text-sm text-foreground-secondary">No matching features</Text>
         ) : null}
       </>

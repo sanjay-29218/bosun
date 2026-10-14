@@ -1,5 +1,4 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { useFocusEffect } from "@react-navigation/native";
 import { crewStageRefreshKey } from "@t3tools/client-runtime/crew-stage";
 import {
   threadBoardSignal,
@@ -21,6 +20,7 @@ import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { AppState } from "react-native";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { environmentProjects } from "./projects";
@@ -96,16 +96,16 @@ export function useBoardProjects(
   );
 }
 
-/** How often a focused board re-reads. */
-const FOCUSED_BOARD_REFRESH_MS = 30_000;
+/** How often an on-screen board re-reads. */
+const ACTIVE_BOARD_REFRESH_MS = 30_000;
 
 /**
  * The server-built board cards of every target, merged. Each project loads and fails on its
- * own. Boards re-read when the screen gains focus and every 30 seconds while it keeps it: a
- * decision made on another device (a pause, or an approval that starts no run yet) moves no
- * thread here, so the thread signal alone would miss it.
+ * own. While `active` (on screen, app in the foreground) boards re-read on arrival and every
+ * 30 seconds: a decision made on another device (a pause, or an approval that starts no run
+ * yet) moves no thread here, so the thread signal alone would miss it.
  */
-export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
+export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, active: boolean) {
   const registry = useContext(RegistryContext);
   const key = JSON.stringify(targets.map(boardKey));
   // Callers rebuild `targets` every render; the key is what identifies the set.
@@ -122,14 +122,20 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
   const refresh = useCallback(() => {
     for (const target of stableTargets) registry.refresh(boardAtom(target));
   }, [registry, stableTargets]);
-  useFocusEffect(
-    useCallback(() => {
-      if (stableTargets.length === 0) return undefined;
-      refresh();
-      const timer = setInterval(refresh, FOCUSED_BOARD_REFRESH_MS);
-      return () => clearInterval(timer);
-    }, [refresh, stableTargets.length]),
-  );
+  useEffect(() => {
+    if (!active || stableTargets.length === 0) return undefined;
+    refresh();
+    const timer = setInterval(() => {
+      if (AppState.currentState === "active") refresh();
+    }, ACTIVE_BOARD_REFRESH_MS);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, [active, refresh, stableTargets.length]);
 
   return useMemo(() => {
     const cards: EnvironmentFeatureCard[] = [];

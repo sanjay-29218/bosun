@@ -10,7 +10,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { scopedProjectKey } from "../../lib/scopedEntities";
-import { useActiveBot } from "../../state/bots";
+import { useActiveBot, useRefreshBotsWhileOpen } from "../../state/bots";
 import { useProjects } from "../../state/entities";
 import { useBoardProjects } from "../../state/features";
 import { FeatureBoard } from "../crew/FeatureBoard";
@@ -54,6 +54,7 @@ export function HomeRouteScreen() {
   );
   // The list shows the active bot's projects; with one bot it shows everything.
   const activeBot = useActiveBot();
+  useRefreshBotsWhileOpen();
   const botProjectKeys = activeBot.projectKeys;
   const projects = useMemo(
     () =>
@@ -115,7 +116,16 @@ export function HomeRouteScreen() {
     regenerateThreadTitle,
     unsettleThread,
   } = useThreadListActions();
-  const pendingTasks = usePendingNewTasks();
+  const allPendingTasks = usePendingNewTasks();
+  const pendingTasks = useMemo(
+    () =>
+      botProjectKeys === null
+        ? allPendingTasks
+        : allPendingTasks.filter((task) =>
+            botProjectKeys.has(scopedProjectKey(task.environmentId, task.projectId)),
+          ),
+    [allPendingTasks, botProjectKeys],
+  );
   const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
   const environments = useMemo(() => {
     const connectionStateByEnvironmentId = new Map(
@@ -275,6 +285,8 @@ export function HomeRouteScreen() {
         {viewToggle?.view === "board" ? (
           <FeatureBoard
             projects={filteredBoardProjects}
+            threads={threads}
+            active={visible}
             searchQuery={searchQuery}
             scopeKey={`${activeBot.viewKey}|${selectedEnvironmentId ?? "all"}|${selectedProjectKey ?? "all"}`}
             onOpenThread={(environmentId, threadId) =>

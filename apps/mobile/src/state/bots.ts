@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
   buildLogicalBots,
   countNeedsYouByLogicalBot,
@@ -12,7 +12,8 @@ import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useMemo } from "react";
+import { useCallback, useContext, useEffect, useMemo } from "react";
+import { AppState } from "react-native";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "./preferences";
@@ -63,6 +64,53 @@ const needsYouByBotKeyAtom = Atom.make((get) => {
     .sort()
     .join(",");
 }).pipe(Atom.withLabel("mobile-bots:needs-you"));
+
+/**
+ * Environments where a project names a bot their loaded list doesn't have, as a stable key:
+ * a bot made on another device. A project moving to it arrives as a project update.
+ */
+const unknownBotEnvironmentsKeyAtom = Atom.make((get) => {
+  const known = new Map<string, ReadonlySet<string>>();
+  for (const environmentId of botEnvironmentIds(get(botEnvironmentIdsKeyAtom))) {
+    const list = AsyncResult.value(get(botsEnvironment.list({ environmentId, input: {} })));
+    if (Option.isSome(list)) known.set(environmentId, new Set(list.value.map((bot) => bot.id)));
+  }
+  const stale = new Set<string>();
+  for (const project of get(environmentProjects.projectsAtom)) {
+    const botIds = known.get(project.environmentId);
+    if (botIds && project.botId !== undefined && !botIds.has(project.botId)) {
+      stale.add(project.environmentId);
+    }
+  }
+  return [...stale].sort().join(",");
+}).pipe(Atom.withLabel("mobile-bots:unknown"));
+
+/**
+ * Bots are fetched, not streamed. Re-read them when the app returns to the foreground (a bot
+ * renamed or deleted elsewhere) and when a project names a bot this client hasn't loaded.
+ * Mount once per visible thread list.
+ */
+export function useRefreshBotsWhileOpen() {
+  const registry = useContext(RegistryContext);
+  const environmentKey = useAtomValue(botEnvironmentIdsKeyAtom);
+  const unknownKey = useAtomValue(unknownBotEnvironmentsKeyAtom);
+  useEffect(() => {
+    const refresh = () => {
+      for (const environmentId of botEnvironmentIds(environmentKey)) {
+        registry.refresh(botsEnvironment.list({ environmentId, input: {} }));
+      }
+    };
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => subscription.remove();
+  }, [environmentKey, registry]);
+  useEffect(() => {
+    for (const environmentId of botEnvironmentIds(unknownKey)) {
+      registry.refresh(botsEnvironment.list({ environmentId, input: {} }));
+    }
+  }, [registry, unknownKey]);
+}
 
 const EMPTY_ACTIVE_BOTS: Readonly<Record<string, string>> = {};
 
