@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { EnvironmentId } from "@t3tools/contracts";
 
 import { WorkflowEditorPage } from "../components/settings/WorkflowEditor";
@@ -19,5 +19,20 @@ export const Route = createFileRoute("/settings/workflow")({
       : {}),
     ...(typeof raw.workflow === "string" && raw.workflow.trim() ? { workflow: raw.workflow } : {}),
   }),
+  // The settings scope pins one environment here; make it the workflow's, so a link to a
+  // workflow on another environment doesn't open against the primary one.
+  beforeLoad: ({ search }) => {
+    if (search.environment && search.machine !== search.environment) {
+      throw redirect({
+        to: "/settings/workflow",
+        search: {
+          environment: search.environment,
+          ...(search.workflow ? { workflow: search.workflow } : {}),
+          machine: search.environment,
+        },
+        replace: true,
+      });
+    }
+  },
   component: SettingsWorkflowRoute,
 });

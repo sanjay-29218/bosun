@@ -110,10 +110,12 @@ function BotsSections({
   const canEdit = useAtomValue(botsEnvironment.update.permissionAtom(environmentId));
   const reorder = useAtomCommand(botsEnvironment.reorder);
   const remove = useAtomCommand(botsEnvironment.delete);
-  const [editor, setEditor] = useState<{ bot: Bot | null } | null>(null);
+  // The dialog follows the listed bot, so a refresh after a conflict gives it the latest revision.
+  const [editor, setEditor] = useState<{ botId: string | null } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const bots = botsQuery.data ?? [];
   const workflows = workflowsQuery.data ?? [];
+  const editingBot = editor?.botId ? (bots.find((bot) => bot.id === editor.botId) ?? null) : null;
 
   const move = async (bot: Bot, offset: -1 | 1) => {
     const botIds = moveBotInOrder(
@@ -166,7 +168,7 @@ function BotsSections({
             size="xs"
             variant="ghost-muted"
             disabled={!botsQuery.data || !canEdit}
-            onClick={() => setEditor({ bot: null })}
+            onClick={() => setEditor({ botId: null })}
           >
             <PlusIcon className="size-3" />
             Add bot
@@ -193,12 +195,12 @@ function BotsSections({
               key={bot.id}
               environmentId={environmentId}
               bot={bot}
-              defaultModel={defaultModel}
               ownedProjects={projectCounts.get(bot.id) ?? 0}
               first={index === 0}
               last={index === bots.length - 1}
               disabled={!canEdit || busyId !== null}
-              onEdit={() => setEditor({ bot })}
+              onConflict={botsQuery.refresh}
+              onEdit={() => setEditor({ botId: bot.id })}
               onMove={(offset) => void move(bot, offset)}
               onDelete={() => void deleteBot(bot)}
             />
@@ -230,10 +232,12 @@ function BotsSections({
           ))
         )}
       </SettingsSection>
-      {editor ? (
+      {/* A bot deleted elsewhere while open closes its dialog rather than turning it into Add. */}
+      {editor && (editor.botId === null || editingBot) ? (
         <BotDialog
           environmentId={environmentId}
-          bot={editor.bot}
+          bot={editingBot}
+          onConflict={botsQuery.refresh}
           defaultModel={defaultModel}
           workflows={workflows}
           onClose={() => setEditor(null)}
@@ -305,7 +309,6 @@ export function BotOwnerSelect({
 function BotRow({
   environmentId,
   bot,
-  defaultModel,
   ownedProjects,
   first,
   last,
@@ -313,10 +316,10 @@ function BotRow({
   onEdit,
   onMove,
   onDelete,
+  onConflict,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: Bot;
-  readonly defaultModel: ModelSelection | null;
   readonly ownedProjects: number;
   readonly first: boolean;
   readonly last: boolean;
@@ -324,8 +327,9 @@ function BotRow({
   readonly onEdit: () => void;
   readonly onMove: (offset: -1 | 1) => void;
   readonly onDelete: () => void;
+  readonly onConflict: () => void;
 }) {
-  const save = useSaveBot(environmentId);
+  const save = useSaveBot(environmentId, onConflict);
   const [busy, setBusy] = useState(false);
   const locked = busy || disabled;
   const run = async (change: BotChange) => {
@@ -338,23 +342,24 @@ function BotRow({
   };
   const summary = bot.instructions.split("\n")[0]?.trim() ?? "";
   const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects);
-  const model = bot.modelSelection ?? defaultModel;
+
   return (
     <SettingsRow
       title={`${bot.emoji} ${bot.name}`}
       description={summary.length > 160 ? `${summary.slice(0, 157)}…` : summary}
       status={[
         ownedProjects === 1 ? "1 project" : `${ownedProjects} projects`,
-        bot.modelSelection ? null : "Uses the default model until you pick one",
+        // Runs need a model; the server doesn't fall back to the environment's default.
+        bot.modelSelection ? null : "No model yet. Edit it to choose one before it can run.",
       ]
         .filter(Boolean)
         .join(" · ")}
       control={
         <>
-          {model ? (
+          {bot.modelSelection ? (
             <RoleModelPicker
               environmentId={environmentId}
-              selection={model}
+              selection={bot.modelSelection}
               disabled={locked}
               onChange={(modelSelection) => void run({ modelSelection })}
             />
@@ -423,7 +428,8 @@ type BotChange = Partial<
   >
 >;
 
-function useSaveBot(environmentId: EnvironmentId) {
+/** Saves a bot. A failed save reloads the list, so another try uses the latest revision. */
+function useSaveBot(environmentId: EnvironmentId, onFailure: () => void) {
   const update = useAtomCommand(botsEnvironment.update);
   return async (bot: Bot, change: BotChange) => {
     const result = await update({
@@ -431,6 +437,7 @@ function useSaveBot(environmentId: EnvironmentId) {
       input: { id: bot.id, expectedRevision: bot.revision, ...change },
     });
     if (result._tag === "Success") return true;
+    onFailure();
     toastManager.add({
       type: "error",
       title: `Could not save ${bot.name}`,
@@ -448,15 +455,19 @@ function BotDialog({
   defaultModel,
   workflows,
   onClose,
+  onConflict,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: Bot | null;
   readonly defaultModel: ModelSelection | null;
   readonly workflows: ReadonlyArray<{ readonly id: string; readonly name: string }>;
   readonly onClose: () => void;
+  readonly onConflict: () => void;
 }) {
   const create = useAtomCommand(botsEnvironment.create);
-  const save = useSaveBot(environmentId);
+  const save = useSaveBot(environmentId, onConflict);
+  // One id per dialog: retrying after a lost response returns the bot already made.
+  const [newBotId] = useState(() => `bot-${randomUUID()}`);
   const [name, setName] = useState(bot?.name ?? "");
   const [emojiText, setEmojiText] = useState(bot?.emoji ?? "🤖");
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
@@ -473,6 +484,7 @@ function BotDialog({
   const canSave =
     name.trim().length > 0 &&
     emoji !== null &&
+    modelSelection !== null &&
     (bot === null || instructions.trim().length > 0) &&
     !saving;
   // A default workflow that was deleted still shows, so saving doesn't drop it silently.
@@ -507,7 +519,7 @@ function BotDialog({
       const result = await create({
         environmentId,
         input: {
-          id: `bot-${randomUUID()}`,
+          id: newBotId,
           ...fields,
           ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
           ...(tools.trim() ? { allowedTools: parseList(tools) } : {}),
@@ -619,7 +631,11 @@ function BotDialog({
                   selection={modelSelection}
                   onChange={setModelSelection}
                 />
-              ) : null}
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  No model available. Set up a provider first.
+                </span>
+              )}
               <RoleModeSelect
                 label="When this bot acts"
                 value={roleMode(runtimeMode)}
