@@ -1,9 +1,4 @@
-import {
-  type RoleConfig,
-  type EnvironmentId,
-  type ProjectId,
-  type WorkflowDefinition,
-} from "@t3tools/contracts";
+import { type RoleConfig, type EnvironmentId, type WorkflowDefinition } from "@t3tools/contracts";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -41,10 +36,9 @@ import {
 } from "./WorkflowEditor.logic";
 import { WorkflowStageDialog } from "./WorkflowStageDialog";
 
-/** Search params of `/settings/workflow`, for links from Project settings and the Features page. */
+/** Search params of `/settings/workflow`, for links from the Workflows page. */
 export interface WorkflowEditorTarget {
   readonly environment: EnvironmentId;
-  readonly projectId: ProjectId;
   readonly workflow: string;
 }
 
@@ -65,7 +59,7 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
     connected ? rolesEnvironment.roles({ environmentId: target.environment, input: {} }) : null,
   );
   const saved = definitions.data?.find((definition) => definition.id === target.workflow);
-  const back = () => void navigate({ to: "/settings/projects" });
+  const back = () => void navigate({ to: "/settings/workflows" });
 
   const message = !connected
     ? "Reconnect this workflow's environment to edit it."
@@ -76,7 +70,7 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
         <div>
           <Button size="xs" variant="ghost" onClick={back}>
             <ArrowLeftIcon />
-            Project settings
+            Workflows
           </Button>
         </div>
         <SettingsSection title="Workflow">
@@ -100,7 +94,6 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
       // A new version replaces the draft, so the editor starts again from it.
       key={`${saved.id}:${saved.revision}`}
       environmentId={target.environment}
-      projectId={target.projectId}
       saved={saved}
       allWorkflowIds={definitions.data.map((definition) => definition.id)}
       roles={roles.data}
@@ -111,14 +104,12 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
 
 function WorkflowEditor({
   environmentId,
-  projectId,
   saved,
   allWorkflowIds,
   roles,
   onBack,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
   readonly saved: WorkflowDefinition;
   readonly allWorkflowIds: readonly string[];
   readonly roles: readonly RoleConfig[];
@@ -207,7 +198,7 @@ function WorkflowEditor({
       }
       void navigate({
         to: "/settings/workflow",
-        search: { environment: environmentId, projectId, workflow: result.value.id },
+        search: { environment: environmentId, workflow: result.value.id },
       });
     } finally {
       setBusy(false);
@@ -219,7 +210,7 @@ function WorkflowEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button size="xs" variant="ghost" onClick={onBack}>
           <ArrowLeftIcon />
-          Project settings
+          Workflows
         </Button>
         <div className="flex items-center gap-2">
           <Button

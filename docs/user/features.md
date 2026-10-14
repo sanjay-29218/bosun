@@ -9,7 +9,7 @@ connected environment runs workflows.
 
 The first time the page opens, **Start a feature** adds the starter workflow, "Feature
 delivery", to the environment's workflows and opens a new thread. **New feature** opens a new thread in the
-scoped project. Change workflows in **Settings → Project → Workflows**.
+scoped project. Change workflows in **Settings → Workflows**.
 
 ## The board
 

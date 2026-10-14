@@ -1,6 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
-  DEFAULT_SERVER_SETTINGS,
   PROJECT_MANAGER_ROLE_ID,
   type RoleConfig,
   type EnvironmentId,
@@ -9,7 +8,6 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { MoreHorizontalIcon, PencilIcon, PlusIcon, PowerIcon, UsersIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -22,7 +20,6 @@ import {
   resolveDefaultProviderModelSelection,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
-import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
 import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
@@ -50,7 +47,7 @@ import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { CrewLimitsSettings } from "./CrewLimitsSettings";
 import { parseList } from "./WorkflowEditor.logic";
-import { useSettingsScope } from "./SettingsScopeContext";
+import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
   SettingsPageContainer,
@@ -66,7 +63,7 @@ export function roleMode(runtimeMode: RuntimeMode): RoleMode {
   return runtimeMode === "approval-required" ? "ask" : "act";
 }
 
-function runtimeModeFor(mode: RoleMode, current: RuntimeMode): RuntimeMode {
+export function runtimeModeFor(mode: RoleMode, current: RuntimeMode): RuntimeMode {
   if (mode === "ask") return "approval-required";
   return current === "approval-required" ? "auto-accept-edits" : current;
 }
@@ -74,7 +71,7 @@ function runtimeModeFor(mode: RoleMode, current: RuntimeMode): RuntimeMode {
 const ROLE_MODE_LABELS: Record<RoleMode, string> = { act: "Act", ask: "Ask first" };
 
 /** The composer's provider and model choices for one environment. */
-function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
+export function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
   const settings = useEnvironmentSettings(environmentId);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
@@ -93,7 +90,7 @@ function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelect
   return { settings, providers, entries, modelOptions };
 }
 
-function RoleModelPicker({
+export function RoleModelPicker({
   environmentId,
   selection,
   disabled,
@@ -126,7 +123,7 @@ function RoleModelPicker({
   );
 }
 
-function RoleModeSelect({
+export function RoleModeSelect({
   value,
   disabled,
   label,
@@ -156,76 +153,42 @@ function RoleModeSelect({
   );
 }
 
-/**
- * Roles, then the limits on running agents. Roles are shared by every project in
- * an environment; the project crumb picks the environment and the default model.
- */
-export function CrewSettings() {
-  const { scope, connectedEnvironments } = useSettingsScope();
-  const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
-  const members = isProjectScope ? scope.members : [];
+/** Roles workflow stages run as, then the limits on running agents. Both are environment-wide. */
+export function RolesSettings() {
+  const { environment, supported } = useCrewSettingsEnvironment("crew");
   return (
     <SettingsPageContainer>
-      {members.length === 0 ? (
-        <SettingsSection title="Roles" id={searchableSetting("crew-roles").id}>
-          <SettingsRow
-            title="Choose a project"
-            description="Roles are shared by every project in an environment. Pick a project above to edit its environment's roles."
+      {environment && supported ? (
+        <RolesSection key={environment.environmentId} environmentId={environment.environmentId} />
+      ) : (
+        <SettingsSection title="Roles" id={searchableSetting("roles").id}>
+          <CrewEnvironmentNotice
+            connected={environment !== null}
+            supported={supported}
+            noun="roles"
           />
         </SettingsSection>
-      ) : (
-        members.map((member, index) => {
-          const environment = connectedEnvironments.find(
-            (candidate) => candidate.environmentId === member.environmentId,
-          );
-          return (
-            <CrewRolesSection
-              key={`${member.environmentId}:${member.id}`}
-              member={member}
-              connected={environment !== undefined}
-              supported={environment?.serverConfig?.environment.capabilities.crew === true}
-              environmentLabel={members.length > 1 ? (member.environmentLabel ?? null) : null}
-              searchAnchor={index === 0}
-            />
-          );
-        })
       )}
       <CrewLimitsSettings />
     </SettingsPageContainer>
   );
 }
 
-function CrewRolesSection({
-  member,
-  connected,
-  supported,
-  environmentLabel,
-  searchAnchor,
-}: {
-  readonly member: SidebarProjectGroupMember;
-  readonly connected: boolean;
-  readonly supported: boolean;
-  readonly environmentLabel: string | null;
-  /** Only the first section carries the search anchor, so its id stays unique. */
-  readonly searchAnchor: boolean;
-}) {
-  const environmentId = member.environmentId;
-  const projectId = member.id;
+/** The environment's default model, which new roles and bots start from. */
+export function useEnvironmentDefaultModel(environmentId: EnvironmentId) {
   const { settings, providers } = useModelPickerData(environmentId, null);
-  const defaultModel = resolveDefaultProviderModelSelection(
-    providers,
-    resolveProjectSettings(settings ?? DEFAULT_SERVER_SETTINGS, projectId, member).settings
-      .defaultModelSelection,
-  );
-  const rolesQuery = useEnvironmentQuery(
-    connected && supported ? rolesEnvironment.roles({ environmentId, input: {} }) : null,
-  );
+  return resolveDefaultProviderModelSelection(providers, settings.defaultModelSelection);
+}
+
+function RolesSection({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const defaultModel = useEnvironmentDefaultModel(environmentId);
+  const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
   const initialize = useAtomCommand(rolesEnvironment.initialize);
+  const canEdit = useAtomValue(rolesEnvironment.update.permissionAtom(environmentId));
   const [editor, setEditor] = useState<{ role: RoleConfig | null } | null>(null);
   const [initializing, setInitializing] = useState(false);
   const roles = rolesQuery.data ?? [];
   const hasRoles = roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
-  const title = environmentLabel ? `Roles · ${environmentLabel}` : "Roles";
 
   const addStarterRoles = async () => {
     if (!defaultModel) return;
@@ -249,33 +212,21 @@ function CrewRolesSection({
 
   return (
     <SettingsSection
-      title={title}
-      {...(searchAnchor ? { id: searchableSetting("crew-roles").id } : {})}
+      title="Roles"
+      id={searchableSetting("roles").id}
       headerAction={
-        connected && supported ? (
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            disabled={!defaultModel || !rolesQuery.data}
-            onClick={() => setEditor({ role: null })}
-          >
-            <PlusIcon className="size-3" />
-            Add role
-          </Button>
-        ) : null
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          disabled={!defaultModel || !rolesQuery.data || !canEdit}
+          onClick={() => setEditor({ role: null })}
+        >
+          <PlusIcon className="size-3" />
+          Add role
+        </Button>
       }
     >
-      {!connected ? (
-        <SettingsRow
-          title="Environment disconnected"
-          description={`Reconnect ${member.environmentLabel ?? "this environment"} to edit its roles.`}
-        />
-      ) : !supported ? (
-        <SettingsRow
-          title="Crew mode unavailable"
-          description="Update this environment to configure a crew."
-        />
-      ) : rolesQuery.error ? (
+      {rolesQuery.error ? (
         <SettingsRow title="Could not load roles" description={rolesQuery.error} />
       ) : !rolesQuery.data ? (
         <SettingsRow title="Loading roles…" role="status" />
@@ -295,7 +246,7 @@ function CrewRolesSection({
               </EmptyHeader>
               <Button
                 size="sm"
-                disabled={!defaultModel || initializing}
+                disabled={!defaultModel || initializing || !canEdit}
                 onClick={() => void addStarterRoles()}
               >
                 Add the starter roles
@@ -303,17 +254,18 @@ function CrewRolesSection({
             </Empty>
           ) : null}
           {roles.map((role) => (
-            <CrewRoleRow
+            <RoleRow
               key={role.id}
               environmentId={environmentId}
               role={role}
+              disabled={!canEdit}
               onEdit={() => setEditor({ role })}
             />
           ))}
         </>
       )}
       {editor && defaultModel ? (
-        <CrewRoleDialog
+        <RoleDialog
           environmentId={environmentId}
           role={editor.role}
           defaultModel={defaultModel}
@@ -375,17 +327,20 @@ function useSaveRole(environmentId: EnvironmentId) {
   };
 }
 
-function CrewRoleRow({
+function RoleRow({
   environmentId,
   role,
+  disabled,
   onEdit,
 }: {
   readonly environmentId: EnvironmentId;
   readonly role: RoleConfig;
+  readonly disabled: boolean;
   readonly onEdit: () => void;
 }) {
   const save = useSaveRole(environmentId);
   const [busy, setBusy] = useState(false);
+  const locked = busy || disabled;
   const run = async (change: RoleChange) => {
     setBusy(true);
     try {
@@ -424,13 +379,13 @@ function CrewRoleRow({
           <RoleModelPicker
             environmentId={environmentId}
             selection={role.modelSelection}
-            disabled={busy}
+            disabled={locked}
             onChange={(modelSelection) => void run({ modelSelection })}
           />
           <RoleModeSelect
             label={`When ${role.name} acts`}
             value={roleMode(role.runtimeMode)}
-            disabled={busy}
+            disabled={locked}
             onChange={(mode) => void run({ runtimeMode: runtimeModeFor(mode, role.runtimeMode) })}
           />
           <Menu>
@@ -439,7 +394,7 @@ function CrewRoleRow({
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  disabled={busy}
+                  disabled={locked}
                   aria-label={`Actions for ${role.name}`}
                 />
               }
@@ -463,7 +418,7 @@ function CrewRoleRow({
   );
 }
 
-function CrewRoleDialog({
+function RoleDialog({
   environmentId,
   role,
   defaultModel,

@@ -18,7 +18,9 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
-  | "/settings/crew"
+  | "/settings/bots"
+  | "/settings/workflows"
+  | "/settings/roles"
   | "/settings/integrations"
   | "/settings/scheduled-tasks"
   | "/settings/source-control"
@@ -94,7 +96,9 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
-  "/settings/crew": "Crew",
+  "/settings/bots": "Bots",
+  "/settings/workflows": "Workflows",
+  "/settings/roles": "Roles",
   "/settings/integrations": "Integrations",
   "/settings/scheduled-tasks": "Scheduled Tasks",
   "/settings/source-control": "Source Control",
@@ -817,6 +821,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
   },
   {
+    id: "project-bot",
+    title: "Project bot",
+    to: "/settings/projects",
+    searchTerms: ["owner move project to another bot captain"],
+  },
+  {
     id: "environment-icon",
     title: "Environment icon",
     to: "/settings/connections",
@@ -918,17 +928,39 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["pull request trusted environments shared credentials permissions read actions"],
   },
   {
-    id: "crew-roles",
-    title: "Crew roles",
-    to: "/settings/crew",
+    id: "bots",
+    title: "Bots",
+    to: "/settings/bots",
     searchTerms: [
-      "crew members agents planner designer builder reviewer project manager captain instructions tools model act ask first",
+      "captain social finance owner emoji avatar color instructions tools model act ask first default workflow rail order delete",
     ],
   },
   {
-    id: "crew-limits",
+    id: "bot-projects",
+    title: "Projects by bot",
+    to: "/settings/bots",
+    searchTerms: ["move project to another bot owner owns"],
+  },
+  {
+    id: "workflows",
+    title: "Workflows",
+    to: "/settings/workflows",
+    searchTerms: [
+      "stages gates approve publish version starter feature delivery plan design build test review routes",
+    ],
+  },
+  {
+    id: "roles",
+    title: "Roles",
+    to: "/settings/roles",
+    searchTerms: [
+      "crew planner designer builder qa tester reviewer project manager instructions tools model act ask first starter",
+    ],
+  },
+  {
+    id: "role-limits",
     title: "Crew limits",
-    to: "/settings/crew",
+    to: "/settings/roles",
     searchTerms: [
       "agents running at once concurrency queued per provider caps rate limit retries stage fails",
     ],
@@ -954,8 +986,10 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
-  // Roles and limits belong to the environment; both render at any scope.
-  "/settings/crew": null,
+  // Environment-local; the page pins one environment, like Providers.
+  "/settings/bots": null,
+  "/settings/workflows": null,
+  "/settings/roles": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",

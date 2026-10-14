@@ -44,7 +44,7 @@ import {
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { CrewProjectSection } from "./CrewProjectSection";
-import { WorkflowsProjectSection } from "./WorkflowsProjectSection";
+import { ProjectBotSection } from "./BotsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -540,16 +540,13 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
-        {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
-            .workflows === true ? (
-            <WorkflowsProjectSection
-              key={memberKey(member)}
-              project={member}
-              showEnvironment={group.memberProjects.length > 1}
-            />
-          ) : null,
-        )}
+        <ProjectBotSection
+          members={group.memberProjects.filter(
+            (member) =>
+              environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+                .bots === true,
+          )}
+        />
         {group.memberProjects.map((member) =>
           environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.crew ===
           true ? (
