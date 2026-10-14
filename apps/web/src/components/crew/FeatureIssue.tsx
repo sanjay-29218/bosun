@@ -24,7 +24,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 
-/** Open issues in green, closed ones in purple, as GitHub shows them. */
+/** Open issues in green and closed ones in the primary color, close to how GitHub shows them. */
 export function FeatureIssueIcon(props: {
   readonly issue: FeatureIssue;
   readonly className?: string;
@@ -35,7 +35,7 @@ export function FeatureIssueIcon(props: {
       aria-label={props.issue.state === "open" ? "Open issue" : "Closed issue"}
       className={cn(
         "shrink-0",
-        props.issue.state === "open" ? "text-success" : "text-violet-500",
+        props.issue.state === "open" ? "text-success" : "text-primary",
         props.className,
       )}
     />

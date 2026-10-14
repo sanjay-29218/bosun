@@ -15,6 +15,16 @@ import { useRef, useState, type DragEvent, type MouseEvent, type ReactNode } fro
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { FeatureCard } from "./FeatureCard";
+import { PhaseIcon } from "./PhaseIcon";
+
+const PHASE_PROGRESS: Record<FeaturePhaseGroup["phase"], number | "done"> = {
+  plan: 0,
+  design: 0.25,
+  build: 0.5,
+  verify: 0.75,
+  ship: 0.9,
+  done: "done",
+};
 
 /** Done keeps its newest few visible, like the Settled shelf. */
 const DONE_PAGE = 10;
@@ -73,6 +83,7 @@ function useCardDrag(handlers: FeatureBoardHandlers) {
 }
 
 function Column(props: {
+  readonly icon: number | "done";
   readonly title: ReactNode;
   readonly count: number;
   readonly subtitle?: ReactNode;
@@ -84,17 +95,18 @@ function Column(props: {
     <section
       {...props.dropProps}
       className={cn(
-        "flex h-full min-h-[60vh] min-w-0 flex-col gap-2 rounded-xl border border-transparent bg-muted/40 p-1.5",
+        "flex h-full min-h-[calc(100dvh-11rem)] min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
         props.highlighted && "border-dashed border-border bg-accent/40",
       )}
     >
-      <header className="flex min-w-0 flex-col gap-0.5 px-1.5 pt-1">
-        <span className="flex items-center gap-1.5 text-sm font-medium">
+      <header className="flex min-w-0 flex-col gap-0.5 px-1.5 py-1">
+        <span className="flex h-6 items-center gap-2 text-sm font-medium">
+          <PhaseIcon progress={props.icon} />
           {props.title}
-          <span className="text-xs text-muted-foreground tabular-nums">{props.count}</span>
+          <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
         </span>
         {props.subtitle ? (
-          <span className="truncate text-xs text-muted-foreground">{props.subtitle}</span>
+          <span className="truncate ps-5.5 text-xs text-muted-foreground">{props.subtitle}</span>
         ) : null}
       </header>
       {props.count === 0 ? (
@@ -150,12 +162,13 @@ export function FeaturePhaseBoard(props: {
   const drag = useCardDrag(props.handlers);
   return (
     // Columns share the width, and scroll sideways only once they can't fit.
-    <div className="grid min-h-0 flex-1 auto-cols-[minmax(13rem,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2">
+    <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2">
       {props.groups.map((group) => {
         const target = group.phase === "done" ? "done" : "open";
         return (
           <Column
             key={group.phase}
+            icon={PHASE_PROGRESS[group.phase]}
             title={FEATURE_PHASE_LABELS[group.phase]}
             count={group.cards.length}
             highlighted={drag.over === group.phase}
@@ -196,7 +209,7 @@ export function FeatureStageBoardView(props: {
       <div className="min-h-0 flex-1 overflow-x-auto pb-2">
         <div
           className="grid w-max min-w-full gap-x-6 gap-y-1"
-          style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(14rem, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(17rem, 1fr))` }}
         >
           {loops.map((loop, loopIndex) => {
             const from = columnIndex.get(loop.from);
@@ -233,6 +246,7 @@ export function FeatureStageBoardView(props: {
                   />
                 ) : null}
                 <Column
+                  icon={isDone ? "done" : index / Math.max(1, columns.length - 1)}
                   title={
                     isDone ? (
                       "Done"

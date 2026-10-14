@@ -5,7 +5,7 @@ import {
 } from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { GitBranchIcon } from "lucide-react";
-import { memo, type DragEvent, type MouseEvent } from "react";
+import { memo, type ComponentProps, type DragEvent, type MouseEvent } from "react";
 
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 
@@ -81,6 +81,19 @@ const WAITING_STATES = new Set<EnvironmentFeatureCard["state"]>([
   "failed",
 ]);
 
+/** One property on a board card, in the bordered pill Linear-style boards use. */
+function CardChip(props: ComponentProps<"span">) {
+  return (
+    <span
+      {...props}
+      className={cn(
+        "inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-md border border-border/70 px-1.5 text-2xs text-muted-foreground",
+        props.className,
+      )}
+    />
+  );
+}
+
 export const FeatureCard = memo(function FeatureCard(props: {
   readonly card: EnvironmentFeatureCard;
   readonly project: EnvironmentProject | null;
@@ -105,25 +118,97 @@ export const FeatureCard = memo(function FeatureCard(props: {
       : waitingLabel(card.stateSince);
   const outdated =
     card.workflow.latestRevision !== null && card.workflow.revision < card.workflow.latestRevision;
+  const interaction = {
+    type: "button" as const,
+    draggable: props.draggable,
+    onDragStart: props.onDragStart
+      ? (event: DragEvent) => props.onDragStart!(card, event)
+      : undefined,
+    onClick: () => props.onOpen(card),
+    onContextMenu: (event: MouseEvent) => {
+      event.preventDefault();
+      props.onMenu(card, event);
+    },
+  };
+  if (layout === "card") {
+    const issueMeta = card.issue ? featureIssueMeta(card.issue) : null;
+    return (
+      <button
+        {...interaction}
+        className={cn(
+          // Off-screen cards skip layout and paint, like sidebar rows.
+          "flex w-full min-w-0 cursor-default flex-col gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-left text-xs shadow-xs/5 outline-hidden ring-ring [contain-intrinsic-size:auto_104px] [content-visibility:auto] hover:border-border hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+          {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
+          <span className="truncate">{project?.title ?? "Project"}</span>
+          {card.issue ? (
+            <span className="flex shrink-0 items-center gap-1">
+              <FeatureIssueIcon issue={card.issue} className="size-3" />#{card.issue.number}
+            </span>
+          ) : null}
+          {waiting ? <span className="ms-auto shrink-0 tabular-nums">{waiting}</span> : null}
+        </span>
+        <span className="line-clamp-2 min-w-0 text-sm font-medium leading-snug text-foreground">
+          {card.title}
+        </span>
+        {card.detail && WAITING_STATES.has(card.state) ? (
+          <span className="line-clamp-2 min-w-0 text-muted-foreground">{card.detail}</span>
+        ) : null}
+        <span className="flex min-w-0 flex-wrap items-center gap-1">
+          <CardChip>
+            <span
+              aria-hidden
+              className={cn("size-1.5 rounded-full bg-current", status.className)}
+            />
+            <span className={status.className}>{status.label}</span>
+          </CardChip>
+          {card.stage && card.state !== "done" ? (
+            <CardChip>
+              <span className="truncate">{featureOwnerLine(card)}</span>
+            </CardChip>
+          ) : null}
+          {pullRequest !== null ? (
+            <CardChip>
+              <PullRequestGlyph.pullRequest aria-hidden className="size-3 shrink-0" />#
+              {pullRequest.number}
+            </CardChip>
+          ) : shell?.branch ? (
+            <CardChip>
+              <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+              <MiddleTruncate value={shell.branch} />
+            </CardChip>
+          ) : null}
+          {issueMeta ? (
+            <CardChip>
+              <span className="truncate">{issueMeta}</span>
+            </CardChip>
+          ) : null}
+          {model ? (
+            <CardChip>
+              <span className="truncate">{model}</span>
+            </CardChip>
+          ) : null}
+          {outdated ? (
+            <Tooltip>
+              <TooltipTrigger render={<CardChip />}>v{card.workflow.revision}</TooltipTrigger>
+              <TooltipPopup>
+                Runs {card.workflow.name} version {card.workflow.revision}; the latest is{" "}
+                {card.workflow.latestRevision}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+        </span>
+      </button>
+    );
+  }
   return (
     <button
-      type="button"
-      draggable={props.draggable}
-      onDragStart={props.onDragStart ? (event) => props.onDragStart!(card, event) : undefined}
-      onClick={() => props.onOpen(card)}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        props.onMenu(card, event);
-      }}
-      className={cn(
-        // Off-screen cards skip layout and paint, like sidebar rows.
-        "flex w-full min-w-0 cursor-default gap-1 rounded-lg border border-border bg-card text-left text-xs outline-hidden ring-ring [contain-intrinsic-size:auto_92px] [content-visibility:auto] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset",
-        layout === "card" ? "flex-col p-2.5" : "items-center gap-3 px-3 py-2",
-      )}
+      {...interaction}
+      className="flex w-full min-w-0 cursor-default items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs outline-hidden ring-ring [contain-intrinsic-size:auto_40px] [content-visibility:auto] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset"
     >
-      <span
-        className={cn("flex min-w-0 items-center gap-1.5", layout === "row" && "w-40 shrink-0")}
-      >
+      <span className="flex w-40 min-w-0 shrink-0 items-center gap-1.5">
         {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
         <span className="truncate text-muted-foreground">{project?.title ?? "Project"}</span>
         <span className={cn("ms-auto shrink-0 font-medium", status.className)}>
@@ -133,20 +218,10 @@ export const FeatureCard = memo(function FeatureCard(props: {
           ) : null}
         </span>
       </span>
-      <span
-        className={cn(
-          "min-w-0 font-medium text-foreground text-sm",
-          layout === "card" ? "line-clamp-2" : "flex-1 truncate",
-        )}
-      >
+      <span className="min-w-0 flex-1 truncate font-medium text-foreground text-sm">
         {card.title}
       </span>
-      <span
-        className={cn(
-          "flex min-w-0 items-center gap-1.5 text-muted-foreground",
-          layout === "row" && "w-56 shrink-0",
-        )}
-      >
+      <span className="flex w-56 min-w-0 shrink-0 items-center gap-1.5 text-muted-foreground">
         <span className="truncate">{featureOwnerLine(card)}</span>
         {model ? <span className="shrink-0 truncate">· {model}</span> : null}
         {outdated ? (
@@ -165,16 +240,8 @@ export const FeatureCard = memo(function FeatureCard(props: {
           </Tooltip>
         ) : null}
       </span>
-      {layout === "card" && card.detail && WAITING_STATES.has(card.state) ? (
-        <span className="line-clamp-2 min-w-0 text-muted-foreground">{card.detail}</span>
-      ) : null}
       {card.issue ? (
-        <span
-          className={cn(
-            "flex min-w-0 items-center gap-1 text-muted-foreground",
-            layout === "row" && "w-40 shrink-0",
-          )}
-        >
+        <span className="flex w-40 min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
           <FeatureIssueIcon issue={card.issue} className="size-3.5" />
           <span className="shrink-0">#{card.issue.number}</span>
           {featureIssueMeta(card.issue) ? (
@@ -188,12 +255,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
           {pullRequest.number}
         </span>
       ) : shell?.branch ? (
-        <span
-          className={cn(
-            "flex min-w-0 items-center gap-1 text-muted-foreground",
-            layout === "row" && "w-48 shrink-0",
-          )}
-        >
+        <span className="flex w-48 min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
           <GitBranchIcon aria-hidden className="size-3.5 shrink-0" />
           <MiddleTruncate value={shell.branch} />
         </span>
