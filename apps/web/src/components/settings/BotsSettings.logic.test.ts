@@ -1,19 +1,7 @@
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  botDeleteBlocker,
-  countProjectsByBot,
-  moveBotInOrder,
-  projectBotId,
-} from "./BotsSettings.logic";
-
-describe("projectBotId", () => {
-  it("treats a project without an owner as Captain's", () => {
-    expect(projectBotId({})).toBe(CAPTAIN_BOT_ID);
-    expect(projectBotId({ botId: "bot-social" })).toBe("bot-social");
-  });
-});
+import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 
 describe("countProjectsByBot", () => {
   it("counts projects per owner, including unowned ones for Captain", () => {

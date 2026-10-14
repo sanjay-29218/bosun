@@ -30,6 +30,7 @@ import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
+import { useBotRailProjectKeys } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { needsYouThreadsAtom } from "../../state/needsYou";
 import { useEnvironmentQuery } from "../../state/query";
@@ -122,12 +123,18 @@ export function FeaturesPage(props: {
   // Projects on servers that run workflows; the scope picker lists only these.
   const workflowEnvironmentIds = useWorkflowEnvironmentIds();
   const allProjects = useProjects();
+  // The board follows the bot rail like the sidebar does.
+  const railProjectKeys = useBotRailProjectKeys();
   const projects = useMemo(
     () =>
       allProjects
-        .filter((project) => workflowEnvironmentIds.has(project.environmentId))
+        .filter(
+          (project) =>
+            workflowEnvironmentIds.has(project.environmentId) &&
+            (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
+        )
         .toSorted((a, b) => a.title.localeCompare(b.title)),
-    [allProjects, workflowEnvironmentIds],
+    [allProjects, railProjectKeys, workflowEnvironmentIds],
   );
   const projectByKey = useMemo(
     () => new Map(projects.map((project) => [projectKey(project), project])),
@@ -184,13 +191,14 @@ export function FeaturesPage(props: {
       waitingThreads.filter(
         (shell) =>
           (scopedProject === null
-            ? true
+            ? railProjectKeys === null ||
+              railProjectKeys.has(`${shell.environmentId}:${shell.projectId}`)
             : shell.environmentId === scopedProject.environmentId &&
               shell.projectId === scopedProject.id) &&
           (!parsedSearch.text || shell.title.toLowerCase().includes(parsedSearch.text)) &&
           parsedSearch.workflows.length === 0,
       ),
-    [parsedSearch, scopedProject, waitingThreads],
+    [parsedSearch, railProjectKeys, scopedProject, waitingThreads],
   );
   const needsYouGroups = useMemo(
     () => collectNeedsYou({ cards: visibleCards, shells: scopedWaitingThreads }),

@@ -34,6 +34,19 @@ export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
 export type ModelPickerJumpKeybindingCommand =
   (typeof MODEL_PICKER_JUMP_KEYBINDING_COMMANDS)[number];
 
+export const BOT_JUMP_KEYBINDING_COMMANDS = [
+  "bot.jump.1",
+  "bot.jump.2",
+  "bot.jump.3",
+  "bot.jump.4",
+  "bot.jump.5",
+  "bot.jump.6",
+  "bot.jump.7",
+  "bot.jump.8",
+  "bot.jump.9",
+] as const;
+export type BotJumpKeybindingCommand = (typeof BOT_JUMP_KEYBINDING_COMMANDS)[number];
+
 const THREAD_KEYBINDING_COMMANDS = [
   "thread.stop",
   "thread.steerQueuedMessage",
@@ -115,6 +128,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "features.needsYou",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
+  ...BOT_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([

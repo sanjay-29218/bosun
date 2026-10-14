@@ -306,6 +306,42 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("gives an untouched thread jump its chords for several bots", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const existing = { key: "mod+1", command: "thread.jump.1", when: "isDesktop" } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.command === "thread.jump.1"),
+        [
+          existing,
+          {
+            key: "mod+ctrl+1",
+            command: "thread.jump.1",
+            when: "isDesktop && multipleBots && isMac",
+          },
+          {
+            key: "mod+alt+1",
+            command: "thread.jump.1",
+            when: "isDesktop && multipleBots && !isMac",
+          },
+        ],
+      );
+      assert.isTrue(
+        persisted.some(
+          (entry) =>
+            entry.command === "bot.jump.1" &&
+            entry.key === "mod+1" &&
+            entry.when === "isDesktop && multipleBots",
+        ),
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("leaves a customized command without the late default", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;

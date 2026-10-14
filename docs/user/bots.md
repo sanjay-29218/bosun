@@ -19,6 +19,21 @@ project; work that already started keeps running as the bot that started it. You
 a project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no
 projects, and Captain can't be deleted.
 
+### The bot rail
+
+With two or more bots, or two connected environments, a rail of bot avatars sits at the left edge
+of the window. Pick a bot to see only its projects in the sidebar, Needs you and the board; the
+List / Board choice is remembered per bot. A badge on an avatar counts the threads waiting on you
+there. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or **Switch
+to …** in the command palette. With several bots, jumping to a thread moves to **Ctrl+Cmd+1–9**
+(**Ctrl+Alt+1–9**).
+
+Bots with the same name on different environments share one avatar, and new projects go to the
+bot you're looking at. **+** adds a bot, and the gear opens Settings → Bots. The server icon
+filters the rail and sidebar to some environments; pick **All environments** to show every one
+again. To move a project, right-click it in the sidebar's project picker and choose **Move to
+bot**.
+
 ## Workflows
 
 **Settings → Workflows** lists the environment's workflows. Use **Add starter workflow** for

@@ -65,6 +65,7 @@ import {
   MoonIcon,
   PaletteIcon,
   RotateCcwIcon,
+  ServerIcon,
   SettingsIcon,
   SquarePenIcon,
   SunIcon,
@@ -131,7 +132,11 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useConnectedEnvironmentIds,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -227,7 +232,20 @@ import {
   deriveProviderInstanceEntries,
   type ProviderInstanceEntry,
 } from "../providerInstances";
-import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
+import {
+  botJumpCommandForIndex,
+  botJumpIndexFromCommand,
+  resolveShortcutCommand,
+  threadJumpIndexFromCommand,
+} from "../keybindings";
+import {
+  activeBotInput,
+  useEnvironmentFilter,
+  useSelectLogicalBot,
+  useVisibleActiveLogicalBot,
+  useVisibleLogicalBots,
+} from "../state/botRail";
+import { useFollowBotMainView } from "./sidebar/mainAppLocation";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -843,6 +861,14 @@ function OpenCommandPaletteDialog(props: {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const railBots = useVisibleLogicalBots();
+  const activeRailBot = useVisibleActiveLogicalBot();
+  const selectRailBot = useSelectLogicalBot();
+  const followBotMainView = useFollowBotMainView();
+  const multipleBots = railBots.length > 1;
+  const environmentFilter = useEnvironmentFilter();
+  const setSidebarEnvironmentIds = useUiStateStore((store) => store.setSidebarEnvironmentIds);
+  const connectedEnvironmentIds = useConnectedEnvironmentIds();
   const {
     theme,
     themeHalves,
@@ -2571,7 +2597,68 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
+  // The bot rail's switches; Mod+1-9 runs them while the palette is open too.
+  const botItems: CommandPaletteActionItem[] = multipleBots
+    ? railBots.map((bot, index) => {
+        const shortcutCommand = botJumpCommandForIndex(index);
+        return {
+          kind: "action",
+          value: `bot:${bot.key}`,
+          searchTerms: [bot.name, "bot", "switch"],
+          title: (
+            <>
+              Switch to <span className="font-semibold">{bot.name}</span>
+            </>
+          ),
+          ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
+          icon: (
+            <span aria-hidden className="flex size-4 items-center justify-center">
+              {bot.emoji}
+            </span>
+          ),
+          ...(shortcutCommand ? { shortcutCommand } : {}),
+          run: async () => {
+            if (bot.key === activeRailBot?.key) return;
+            selectRailBot(bot);
+            followBotMainView();
+          },
+        };
+      })
+    : [];
+  if (connectedEnvironmentIds.length > 1) {
+    const environmentItems: CommandPaletteActionItem[] = [
+      {
+        kind: "action",
+        value: "environments:all",
+        searchTerms: ["all environments"],
+        title: "All environments",
+        ...(environmentFilter === null ? { description: "Shown" } : {}),
+        icon: <ServerIcon className={ITEM_ICON_CLASS} />,
+        run: async () => setSidebarEnvironmentIds(null),
+      },
+      ...connectedEnvironmentIds.map((environmentId): CommandPaletteActionItem => ({
+        kind: "action",
+        value: `environments:only:${environmentId}`,
+        searchTerms: [environmentLabelById.get(environmentId) ?? environmentId, "only"],
+        title: `Only ${environmentLabelById.get(environmentId) ?? environmentId}`,
+        ...(environmentFilter?.size === 1 && environmentFilter.has(environmentId)
+          ? { description: "Shown" }
+          : {}),
+        icon: <ServerIcon className={ITEM_ICON_CLASS} />,
+        run: async () => setSidebarEnvironmentIds([environmentId]),
+      })),
+    ];
+    actionItems.push({
+      kind: "submenu",
+      value: "action:filter-environments",
+      searchTerms: ["filter", "environments", "machines", "show", "hide"],
+      title: environmentFilter === null ? "Filter environments..." : "Change environment filter...",
+      icon: <ServerIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <ServerIcon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "environments", label: "Environments", items: environmentItems }],
+    });
+  }
+  const rootGroups = buildRootGroups({ actionItems, botItems, recentThreadItems });
   const settingsSearchItems: CommandPaletteActionItem[] = searchSettings(
     deferredQuery,
     availableSettingsSearchItems,
@@ -2733,6 +2820,7 @@ function OpenCommandPaletteDialog(props: {
           workspaceRoot: cwd,
           createWorkspaceRootIfMissing: true,
           defaultModelSelection: null,
+          ...activeBotInput(input.environmentId),
         },
       });
       if (createResult._tag === "Failure") {
@@ -3353,9 +3441,12 @@ function OpenCommandPaletteDialog(props: {
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     const command = resolveShortcutCommand(event, keybindings, {
       platform: navigator.platform,
-      context: { modelPickerOpen: false },
+      context: { modelPickerOpen: false, multipleBots },
     });
-    if (threadJumpIndexFromCommand(command ?? "") !== null) {
+    if (
+      threadJumpIndexFromCommand(command ?? "") !== null ||
+      botJumpIndexFromCommand(command ?? "") !== null
+    ) {
       event.preventDefault();
       event.stopPropagation();
       const matchingItem = displayedGroups

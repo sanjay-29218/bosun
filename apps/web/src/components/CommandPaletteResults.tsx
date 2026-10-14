@@ -3,7 +3,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon } from "lucide-react";
 import { type RefObject, useCallback, useState } from "react";
 import { cn } from "~/lib/utils";
-import { shortcutLabelForCommand } from "../keybindings";
+import { botJumpIndexFromCommand, shortcutLabelForCommand } from "../keybindings";
 import {
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
@@ -195,7 +195,10 @@ function CommandPaletteResultRow(props: {
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }) {
   const shortcutLabel = props.item.shortcutCommand
-    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand)
+    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand, {
+        // Bot switches are only listed while there are several bots.
+        context: { multipleBots: botJumpIndexFromCommand(props.item.shortcutCommand) !== null },
+      })
     : null;
 
   return (

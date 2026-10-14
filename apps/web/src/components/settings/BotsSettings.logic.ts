@@ -1,9 +1,5 @@
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
-
-/** A project's owner. Projects from older servers have no `botId` and belong to Captain. */
-export function projectBotId(project: { readonly botId?: string | undefined }): string {
-  return project.botId ?? CAPTAIN_BOT_ID;
-}
 
 /** How many of the given projects each bot owns. */
 export function countProjectsByBot(

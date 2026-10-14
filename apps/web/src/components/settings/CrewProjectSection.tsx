@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import { CREW_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
@@ -15,7 +16,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { projectBotId } from "./BotsSettings.logic";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 export function CrewProjectSection(props: { readonly project: SidebarProjectGroupMember }) {

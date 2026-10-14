@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { useCallback, useEffect } from "react";
 
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
+import { readActiveLogicalBotKey } from "../../state/botRail";
 import { readActiveEnvironmentId, useActiveEnvironmentId } from "../../state/entities";
 
 // Settings, Usage, and Pull Requests replace the sidebar utility row with a
@@ -49,24 +50,25 @@ function readMainViews(): Record<string, MainView> {
   }
 }
 
-/**
- * The view an environment last showed. Opening the app at `/` lands there.
- * Bots (#16) key this per bot instead.
- */
+// Each bot remembers its view; before the rail knows a bot, the environment does.
+function mainViewKey(environmentId: EnvironmentId | null): string | null {
+  const botKey = readActiveLogicalBotKey();
+  return botKey === null ? environmentId : `bot:${botKey}`;
+}
+
+/** The view the active bot last showed. Opening the app at `/` lands there. */
 export function readMainView(environmentId: EnvironmentId | null): MainView {
-  return (environmentId && readMainViews()[environmentId]) || "list";
+  const key = mainViewKey(environmentId);
+  return (key && readMainViews()[key]) || "list";
 }
 
 function rememberMainView(environmentId: EnvironmentId | null, view: MainView) {
-  if (environmentId === null) return;
+  const key = mainViewKey(environmentId);
+  if (key === null) return;
   const views = readMainViews();
-  if (views[environmentId] === view) return;
+  if (views[key] === view) return;
   try {
-    setLocalStorageItem(
-      MAIN_VIEW_STORAGE_KEY,
-      { ...views, [environmentId]: view },
-      MainViewsSchema,
-    );
+    setLocalStorageItem(MAIN_VIEW_STORAGE_KEY, { ...views, [key]: view }, MainViewsSchema);
   } catch (error) {
     console.error("Could not save the main view.", error);
   }
@@ -127,5 +129,21 @@ export function useToggleMainView() {
     return showMainView(
       toggledMainView(isSidebarUtilityPage(pathname) ? null : mainViewForPathname(pathname)),
     );
+  }, [router, showMainView]);
+}
+
+/**
+ * After switching bots, shows the view the new bot was left on (List or Board). A bot
+ * without one, or a utility page, stays where it is.
+ */
+export function useFollowBotMainView() {
+  const router = useRouter();
+  const showMainView = useShowMainView();
+  return useCallback(() => {
+    const { pathname } = router.state.location;
+    if (pathname === "/" || isSidebarUtilityPage(pathname)) return;
+    const key = mainViewKey(readActiveEnvironmentId());
+    const remembered = key === null ? undefined : readMainViews()[key];
+    if (remembered && remembered !== mainViewForPathname(pathname)) void showMainView(remembered);
   }, [router, showMainView]);
 }

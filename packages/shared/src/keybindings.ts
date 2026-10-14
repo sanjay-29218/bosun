@@ -1,4 +1,5 @@
 import {
+  BOT_JUMP_KEYBINDING_COMMANDS,
   type KeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
@@ -120,6 +121,16 @@ type WhenToken =
   | { type: "lparen" }
   | { type: "rparen" };
 
+/**
+ * With several bots, Mod+1-9 switches bots and thread jumps move to Ctrl+Cmd+1-9 on macOS,
+ * Ctrl+Alt+1-9 elsewhere (where Mod is already Ctrl).
+ */
+export const MULTIPLE_BOTS_THREAD_JUMP_KEYBINDINGS: ReadonlyArray<KeybindingRule> =
+  THREAD_JUMP_KEYBINDING_COMMANDS.flatMap((command, index) => [
+    { key: `mod+ctrl+${index + 1}`, command, when: "isDesktop && multipleBots && isMac" },
+    { key: `mod+alt+${index + 1}`, command, when: "isDesktop && multipleBots && !isMac" },
+  ]);
+
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle" },
   { key: "mod+[", command: "navigation.back", when: "!terminalFocus" },
@@ -195,6 +206,13 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
     key: `mod+${index + 1}`,
     command,
     when: "isDesktop",
+  })),
+  ...MULTIPLE_BOTS_THREAD_JUMP_KEYBINDINGS,
+  // Listed after the thread jumps so, with several bots, Mod+1-9 switches bots.
+  ...BOT_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index + 1}`,
+    command,
+    when: "isDesktop && multipleBots",
   })),
   ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `mod+${index + 1}`,

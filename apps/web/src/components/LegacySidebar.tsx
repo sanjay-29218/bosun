@@ -110,6 +110,8 @@ import {
   resolveProjectExpanded,
   useUiStateStore,
 } from "../uiStateStore";
+import { useBotRailProjectKeys, useVisibleLogicalBots } from "../state/botRail";
+import { useMoveProjectToBotMenu } from "./sidebar/moveProjectToBot";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -297,6 +299,7 @@ function buildThreadJumpLabelMap(input: {
   keybindings: ResolvedKeybindingsConfig;
   platform: string;
   terminalOpen: boolean;
+  multipleBots: boolean;
   threadJumpCommandByKey: ReadonlyMap<
     string,
     NonNullable<ReturnType<typeof threadJumpCommandForIndex>>
@@ -311,6 +314,7 @@ function buildThreadJumpLabelMap(input: {
     context: {
       terminalFocus: false,
       terminalOpen: input.terminalOpen,
+      multipleBots: input.multipleBots,
     },
   } as const;
   const mapping = new Map<string, string>();
@@ -1713,6 +1717,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [memberThreadCountByPhysicalKey, removeProject],
   );
 
+  const moveProjectToBotMenu = useMoveProjectToBotMenu();
   const handleProjectButtonContextMenu = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -1796,6 +1801,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           });
         });
 
+        const moveItem = moveProjectToBotMenu.build(project.memberProjects);
         const clicked = await api.contextMenu.show(
           [
             buildTargetedItem("rename", "Rename", {
@@ -1805,6 +1811,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             buildTargetedItem("grouping", "Group into..."),
             buildTargetedItem("copy-path", "Copy Path"),
             { id: "project-settings", label: "Project settings", icon: "settings" },
+            ...(moveItem ? [moveItem] : []),
             buildTargetedItem("delete", "Remove", {
               destructive: true,
               isDisabled: (member) =>
@@ -1820,6 +1827,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         if (!clicked) {
           return;
         }
+        if (moveProjectToBotMenu.run(clicked, project.memberProjects)) return;
 
         await actionHandlers.get(clicked)?.();
       })();
@@ -1828,6 +1836,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       copyPathToClipboard,
       handleRemoveProject,
       isMobile,
+      moveProjectToBotMenu,
       openProjectGroupingDialog,
       openProjectRenameDialog,
       project.groupedProjectCount,
@@ -3229,7 +3238,19 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 });
 
 export default function LegacySidebar() {
-  const projects = useProjects();
+  const allProjects = useProjects();
+  // The bot rail narrows the tree to the active bot's projects on the shown environments.
+  const railProjectKeys = useBotRailProjectKeys();
+  const multipleBots = useVisibleLogicalBots().length > 1;
+  const projects = useMemo(
+    () =>
+      railProjectKeys === null
+        ? allProjects
+        : allProjects.filter((project) =>
+            railProjectKeys.has(`${project.environmentId}:${project.id}`),
+          ),
+    [allProjects, railProjectKeys],
+  );
   const sidebarThreads = useThreadShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
@@ -3410,8 +3431,9 @@ export default function LegacySidebar() {
       terminalFocus: isTerminalFocused(),
       terminalOpen: routeTerminalOpen,
       modelPickerOpen: isModelPickerOpen(),
+      multipleBots,
     }),
-    [routeTerminalOpen],
+    [multipleBots, routeTerminalOpen],
   );
   const newThreadShortcutLabelOptions = useMemo(
     () => ({
@@ -3615,6 +3637,7 @@ export default function LegacySidebar() {
     terminalFocus: terminalFocused,
     terminalOpen: routeTerminalOpen,
     modelPickerOpen: isModelPickerOpen(),
+    multipleBots,
   };
   const threadJumpLabelByKey = useMemo(
     () =>
@@ -3622,9 +3645,16 @@ export default function LegacySidebar() {
         keybindings,
         platform,
         terminalOpen: sidebarShortcutContext.terminalOpen,
+        multipleBots,
         threadJumpCommandByKey,
       }),
-    [keybindings, platform, sidebarShortcutContext.terminalOpen, threadJumpCommandByKey],
+    [
+      keybindings,
+      multipleBots,
+      platform,
+      sidebarShortcutContext.terminalOpen,
+      threadJumpCommandByKey,
+    ],
   );
   const shouldShowThreadJumpHintsNow = shouldShowThreadJumpHintsForModifiers(
     shortcutModifiers,
