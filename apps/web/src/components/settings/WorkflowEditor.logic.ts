@@ -238,6 +238,45 @@ export function ensureWorkflowRole(
   };
 }
 
+/**
+ * A stage run by `role`, dropped on the canvas at `position`. It routes `done` to Finish and
+ * nothing routes to it yet; connecting an outcome to it puts it in the flow. Its task is
+ * empty, so publishing waits until the stage is described.
+ */
+export function addStageForRole(
+  definition: WorkflowDefinition,
+  role: RoleConfig,
+  position: { readonly x: number; readonly y: number },
+): { definition: WorkflowDefinition; stepId: string } {
+  const { definition: withRole, slot } = ensureWorkflowRole(definition, role);
+  const taken = Object.keys(withRole.steps);
+  const named = workflowIdFromName(role.name, taken);
+  const stepId = WORKFLOW_ID_PATTERN.test(named) ? named : workflowIdFromName("stage", taken);
+  return {
+    stepId,
+    definition: {
+      ...withRole,
+      steps: {
+        ...withRole.steps,
+        [stepId]: {
+          type: "task",
+          role: slot,
+          task: "",
+          next: { done: workflowEndStepId(withRole) },
+        },
+      },
+      layout: { ...withRole.layout, [stepId]: { x: position.x, y: position.y } },
+    },
+  };
+}
+
+/** Roles a stage can run as: enabled roles that can run stages, and the project manager. */
+export function stageCapableRoles(roles: readonly RoleConfig[]): RoleConfig[] {
+  return roles.filter(
+    (role) => role.enabled && (role.autoCreateForFeature || role.id === PROJECT_MANAGER_ROLE_ID),
+  );
+}
+
 /** Drops roles no stage uses and nobody answers to, so a removed role can't block publishing. */
 export function pruneUnusedRoles(definition: WorkflowDefinition): WorkflowDefinition {
   const slots = { ...definition.roles };

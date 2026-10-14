@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  addStageForRole,
   canRemoveStage,
   describeStageInputs,
   ensureWorkflowRole,
@@ -176,5 +177,28 @@ describe("sameWorkflow", () => {
   it("ignores key order", () => {
     expect(sameWorkflow({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);
     expect(sameWorkflow({ a: 1 }, { a: 1, b: undefined })).toBe(false);
+  });
+});
+
+describe("addStageForRole", () => {
+  it("drops a stage run by the role where it lands, routing done to Finish", () => {
+    const first = addStageForRole(workflow(), role("designer"), { x: 120, y: -40 });
+    expect(first.stepId).toBe("designer");
+    expect(first.definition.steps.designer).toEqual({
+      type: "task",
+      role: "designer",
+      task: "",
+      next: { done: "end" },
+    });
+    expect(first.definition.layout?.designer).toEqual({ x: 120, y: -40 });
+    expect(first.definition.roles.designer?.roleId).toBe("role:designer");
+
+    // A second drop of the same role reuses its slot and takes the next free stage id.
+    const second = addStageForRole(first.definition, role("designer"), { x: 0, y: 0 });
+    expect(second.stepId).toBe("designer-2");
+    expect(second.definition.steps["designer-2"]).toMatchObject({ role: "designer" });
+    expect(
+      Object.keys(second.definition.roles).filter((slot) => slot.startsWith("designer")),
+    ).toEqual(["designer"]);
   });
 });

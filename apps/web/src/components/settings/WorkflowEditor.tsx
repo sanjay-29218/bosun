@@ -385,6 +385,7 @@ function WorkflowEditor({
                 onAddStage={(after) =>
                   setStageDialog(after ? { stepId: null, after } : { stepId: null })
                 }
+                roles={roles}
               />
             </Suspense>
           </SettingsSection>

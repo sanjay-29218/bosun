@@ -1,6 +1,6 @@
 import "@xyflow/react/dist/style.css";
 
-import type { WorkflowDefinition } from "@t3tools/contracts";
+import type { RoleConfig, WorkflowDefinition } from "@t3tools/contracts";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -18,6 +18,7 @@ import {
   type NodeChange,
   type NodeProps,
   type OnDelete,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import {
   ExpandIcon,
@@ -33,14 +34,22 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
 } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "../../lib/utils";
 import { SettingsGroup } from "../settings/SettingsGroup";
-import { canRemoveStage, humanizeWorkflowId, removeStage } from "../settings/WorkflowEditor.logic";
+import {
+  addStageForRole,
+  canRemoveStage,
+  humanizeWorkflowId,
+  removeStage,
+  stageCapableRoles,
+} from "../settings/WorkflowEditor.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Group } from "../ui/group";
@@ -54,7 +63,11 @@ import {
   workflowRoutes,
   type CanvasPosition,
 } from "./WorkflowCanvas.logic";
-import { WorkflowCanvasInspector, type CanvasSelection } from "./WorkflowCanvasInspector";
+import {
+  WORKFLOW_ROLE_DRAG_TYPE,
+  WorkflowCanvasInspector,
+  type CanvasSelection,
+} from "./WorkflowCanvasInspector";
 
 type StageNodeData = {
   readonly role: string;
@@ -75,6 +88,8 @@ export interface WorkflowCanvasProps {
   readonly onEditStage: (stepId: string) => void;
   /** Opens the add-stage dialog, placing the new stage after `after` when given. */
   readonly onAddStage: (after: string | undefined) => void;
+  /** The environment's roles; the stage-capable ones can be dragged onto the canvas. */
+  readonly roles: readonly RoleConfig[];
 }
 
 const CanvasLabels = createContext<Pick<WorkflowCanvasProps, "roleName" | "stageName">>({
@@ -180,7 +195,31 @@ export default function WorkflowCanvas({
   onChange,
   onEditStage,
   onAddStage,
+  roles,
 }: WorkflowCanvasProps) {
+  const stageRoles = useMemo(() => stageCapableRoles(roles), [roles]);
+  // Set once React Flow mounts; drops need it to turn screen points into canvas points.
+  const flow = useRef<ReactFlowInstance<CanvasNode, CanvasEdge> | null>(null);
+  const onDragOver = (event: DragEvent) => {
+    if (!event.dataTransfer.types.includes(WORKFLOW_ROLE_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  // A role dropped on the canvas becomes a stage there, and its dialog opens for the task.
+  const onDrop = (event: DragEvent) => {
+    const role = stageRoles.find(
+      (candidate) => candidate.id === event.dataTransfer.getData(WORKFLOW_ROLE_DRAG_TYPE),
+    );
+    if (!role || !flow.current) return;
+    event.preventDefault();
+    const added = addStageForRole(
+      definition,
+      role,
+      flow.current.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+    );
+    onChange(added.definition);
+    onEditStage(added.stepId);
+  };
   const [graph, setGraph] = useState(() => ({
     definition,
     nodes: canvasNodes(definition, []),
@@ -272,6 +311,11 @@ export default function WorkflowCanvas({
             onConnect={onConnect}
             isValidConnection={(connection) => connection.source !== connection.target}
             onDelete={onDelete}
+            onInit={(instance) => {
+              flow.current = instance;
+            }}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
             deleteKeyCode={DELETE_KEYS}
             fitView
             fitViewOptions={FIT_VIEW_OPTIONS}
@@ -317,6 +361,7 @@ export default function WorkflowCanvas({
           stageName={stageName}
           onChange={onChange}
           onEditStage={onEditStage}
+          roles={stageRoles}
         />
       </div>
     </CanvasLabels>

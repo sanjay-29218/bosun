@@ -1,5 +1,5 @@
-import type { WorkflowDefinition } from "@t3tools/contracts";
-import { PencilIcon, Trash2Icon } from "lucide-react";
+import type { RoleConfig, WorkflowDefinition } from "@t3tools/contracts";
+import { GripVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { memo } from "react";
 
 import { LimitField } from "../settings/CrewLimitsSettings";
@@ -20,6 +20,9 @@ import { Switch } from "../ui/switch";
 import { canRemoveRoute, connectRoute, removeRoute, stagesRoutingTo } from "./WorkflowCanvas.logic";
 import { WorkflowStageSelect } from "./WorkflowStageSelect";
 
+/** What a role dragged from the inspector carries: its role id. */
+export const WORKFLOW_ROLE_DRAG_TYPE = "application/x-t3-workflow-role";
+
 export type CanvasSelection =
   | { readonly kind: "stage" | "end"; readonly stepId: string }
   | { readonly kind: "route"; readonly stepId: string; readonly outcome: string };
@@ -35,10 +38,13 @@ interface InspectorProps {
 export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
   selection,
   onEditStage,
+  roles,
   ...props
 }: InspectorProps & {
   readonly selection: CanvasSelection | null;
   readonly onEditStage: (stepId: string) => void;
+  /** Roles that can run a stage, offered to drag onto the canvas. */
+  readonly roles: readonly RoleConfig[];
 }) {
   const { definition, stageName } = props;
   const step = selection ? definition.steps[selection.stepId] : undefined;
@@ -46,9 +52,25 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
     return (
       <SettingsGroup className="self-start">
         <SettingsRow
-          title="Select a stage or route"
-          description="Drag from an outcome on a stage's right edge to another stage to route it there. Delete removes what's selected."
+          title="Add a stage"
+          description="Drag a role onto the canvas. Then drag from an outcome on a stage's right edge to the new stage to route work to it."
         />
+        <div className="grid gap-1 px-3 pb-3 sm:px-4">
+          {roles.map((role) => (
+            <div
+              key={role.id}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData(WORKFLOW_ROLE_DRAG_TYPE, role.id);
+                event.dataTransfer.effectAllowed = "copy";
+              }}
+              className="flex cursor-grab items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent active:cursor-grabbing"
+            >
+              <GripVerticalIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">{role.name}</span>
+            </div>
+          ))}
+        </div>
       </SettingsGroup>
     );
   }

@@ -63,7 +63,8 @@ roles too if they're missing), then **Edit** to open a workflow's page.
   changes. Give a route a number to stop the feature at **Your call** after it has been taken that
   many times. Questions go to the project manager first, then to you. A failed stage retries the number of
   times you set (empty uses **Retries before a stage fails** in Roles), then pauses and notifies you.
-- **Canvas** and **Form** switch between two views of the same workflow. On the canvas, drag from
+- **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the
+  canvas, drag a role from the panel beside it onto the canvas and describe its task. Drag from
   an outcome on a stage's right edge to another stage to route it there, and select a stage or
   route to edit it in the panel beside the canvas. The expand button gives the canvas the whole
   settings page; **Esc** shrinks it back. Where you place stages is saved with the workflow.
