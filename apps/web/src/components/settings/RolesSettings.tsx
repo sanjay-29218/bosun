@@ -45,7 +45,8 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { CrewLimitsSettings } from "./CrewLimitsSettings";
-import { CrewModeToggle, CrewToolPicker, crewToolLabel, EditorField } from "./CrewAgentFields";
+import { CrewToolPicker, crewToolLabel, EditorField } from "./CrewAgentFields";
+import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -54,20 +55,6 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-
-export type RoleMode = "act" | "ask";
-
-/** "Ask first" is approval-required; any other runtime mode acts on its own. */
-export function roleMode(runtimeMode: RuntimeMode): RoleMode {
-  return runtimeMode === "approval-required" ? "ask" : "act";
-}
-
-export function runtimeModeFor(mode: RoleMode, current: RuntimeMode): RuntimeMode {
-  if (mode === "ask") return "approval-required";
-  return current === "approval-required" ? "auto-accept-edits" : current;
-}
-
-const ROLE_MODE_LABELS: Record<RoleMode, string> = { act: "Act", ask: "Ask first" };
 
 /** The composer's provider and model choices for one environment. */
 export function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
@@ -123,31 +110,55 @@ export function RoleModelPicker({
   );
 }
 
-export function RoleModeSelect({
+/**
+ * How freely a role's or bot's threads act: the same access levels, names and descriptions as
+ * the composer's, from asking before every change to full access.
+ */
+export function RuntimeModeSelect({
   value,
   disabled,
   label,
+  size,
   onChange,
 }: {
-  readonly value: RoleMode;
+  readonly value: RuntimeMode;
   readonly disabled?: boolean;
   readonly label: string;
-  readonly onChange: (mode: RoleMode) => void;
+  readonly size?: "sm";
+  readonly onChange: (mode: RuntimeMode) => void;
 }) {
+  const current = runtimeModeConfig[value];
   return (
     <Select
       value={value}
       {...(disabled ? { disabled } : {})}
       onValueChange={(next) => {
-        if (next === "act" || next === "ask") onChange(next);
+        if (typeof next === "string" && next in runtimeModeConfig) onChange(next as RuntimeMode);
       }}
     >
-      <SelectTrigger size="sm" aria-label={label}>
-        <SelectValue>{(next: RoleMode) => ROLE_MODE_LABELS[next]}</SelectValue>
+      <SelectTrigger {...(size ? { size } : {})} aria-label={label}>
+        <SelectValue>
+          <span className="flex min-w-0 items-center gap-2">
+            <current.icon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{current.label}</span>
+          </span>
+        </SelectValue>
       </SelectTrigger>
       <SelectPopup align="end" alignItemWithTrigger={false}>
-        <SelectItem value="act">{ROLE_MODE_LABELS.act}</SelectItem>
-        <SelectItem value="ask">{ROLE_MODE_LABELS.ask}</SelectItem>
+        {runtimeModeOptions.map((mode) => {
+          const option = runtimeModeConfig[mode];
+          return (
+            <SelectItem key={mode} value={mode}>
+              <span className="flex min-w-0 items-start gap-2">
+                <option.icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                <span className="flex min-w-0 flex-col">
+                  <span>{option.label}</span>
+                  <span className="text-xs text-muted-foreground">{option.description}</span>
+                </span>
+              </span>
+            </SelectItem>
+          );
+        })}
       </SelectPopup>
     </Select>
   );
@@ -384,11 +395,12 @@ function RoleRow({
             disabled={locked}
             onChange={(modelSelection) => void run({ modelSelection })}
           />
-          <RoleModeSelect
+          <RuntimeModeSelect
             label={`When ${role.name} acts`}
-            value={roleMode(role.runtimeMode)}
+            value={role.runtimeMode}
             disabled={locked}
-            onChange={(mode) => void run({ runtimeMode: runtimeModeFor(mode, role.runtimeMode) })}
+            size="sm"
+            onChange={(mode) => void run({ runtimeMode: mode })}
           />
           <Menu>
             <MenuTrigger
@@ -534,10 +546,11 @@ function RoleDialog({
                       />
                     </div>
                   </EditorField>
-                  <EditorField label="Approvals">
-                    <CrewModeToggle
-                      value={roleMode(runtimeMode)}
-                      onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
+                  <EditorField label="Access">
+                    <RuntimeModeSelect
+                      label="Access"
+                      value={runtimeMode}
+                      onChange={setRuntimeMode}
                     />
                   </EditorField>
                   <EditorField label="Workflow stages" htmlFor="crew-role-workflow-stages">

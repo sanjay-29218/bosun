@@ -52,15 +52,9 @@ import { Toggle } from "../ui/toggle";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from "../ui/wizard";
 import { toastManager } from "../ui/toast";
 import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
-import { CrewModeToggle, CrewToolPicker, EditorField } from "./CrewAgentFields";
+import { CrewToolPicker, EditorField } from "./CrewAgentFields";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
-import {
-  RoleModelPicker,
-  RoleModeSelect,
-  roleMode,
-  runtimeModeFor,
-  useEnvironmentDefaultModel,
-} from "./RolesSettings";
+import { RoleModelPicker, RuntimeModeSelect, useEnvironmentDefaultModel } from "./RolesSettings";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
@@ -381,11 +375,12 @@ function BotRow({
               onChange={(modelSelection) => void run({ modelSelection })}
             />
           ) : null}
-          <RoleModeSelect
+          <RuntimeModeSelect
             label={`When ${bot.name} acts`}
-            value={roleMode(bot.runtimeMode)}
+            value={bot.runtimeMode}
             disabled={locked}
-            onChange={(mode) => void run({ runtimeMode: runtimeModeFor(mode, bot.runtimeMode) })}
+            size="sm"
+            onChange={(mode) => void run({ runtimeMode: mode })}
           />
           <Menu>
             <MenuTrigger
@@ -662,10 +657,11 @@ function BotDialog({
                       )}
                     </div>
                   </EditorField>
-                  <EditorField label="Approvals">
-                    <CrewModeToggle
-                      value={roleMode(runtimeMode)}
-                      onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
+                  <EditorField label="Access">
+                    <RuntimeModeSelect
+                      label="Access"
+                      value={runtimeMode}
+                      onChange={setRuntimeMode}
                     />
                   </EditorField>
                 </div>

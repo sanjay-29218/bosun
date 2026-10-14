@@ -4,8 +4,6 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import type { RoleMode } from "./RolesSettings";
 
 const KNOWN_TOOLS: ReadonlySet<string> = new Set(CREW_TOOL_GRANTS.map((grant) => grant.id));
 
@@ -78,30 +76,6 @@ export function CrewToolPicker({
         </div>
       ))}
     </div>
-  );
-}
-
-/** Whether a bot or role asks before acting, with what that means. */
-export function CrewModeToggle({
-  value,
-  onChange,
-}: {
-  readonly value: RoleMode;
-  readonly onChange: (mode: RoleMode) => void;
-}) {
-  return (
-    <ToggleGroup
-      aria-label="Approvals"
-      className="w-full *:flex-1"
-      value={[value]}
-      onValueChange={(next) => {
-        const mode = next[0];
-        if (mode === "ask" || mode === "act") onChange(mode);
-      }}
-    >
-      <ToggleGroupItem value="ask">Ask first</ToggleGroupItem>
-      <ToggleGroupItem value="act">Act on its own</ToggleGroupItem>
-    </ToggleGroup>
   );
 }
 

@@ -12,7 +12,7 @@ top of the page.
 
 Use **Add bot** for another bot. A bot has a name, a robot avatar you build from parts (or
 **Shuffle**), a color, instructions, tools, a default model and the workflow its features start
-with. **Act** lets it work on its own; **Ask first** asks before changes. Use the **⋯** menu to
+with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Use the **⋯** menu to
 edit a bot, move it up or down, or delete it.
 
 **Projects** on the same page shows which bot owns each project. Pick another bot to move a
@@ -28,7 +28,7 @@ manager, and answer their questions. With **Create projects** ticked in its tool
 projects from a name or by cloning a Git URL. Features report to the headquarters too. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
 
-The headquarters follows the bot's current tools, model and **Act** / **Ask first** setting. Its
+The headquarters follows the bot's current tools, model and **Access**. Its
 instructions are the ones it started with; to give it new ones, delete the thread and open it
 again. Opening it also brings back a deleted or archived headquarters.
 
@@ -81,8 +81,8 @@ workflow shows that it changed, and new features can't start on it until you pub
 
 Use **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA Tester and
 Reviewer. The Builder can split its work into subagents that run at the same time; give any role
-**Threads and subagents** to let it do the same. Each role has instructions, crew tools and a default model. **Act** lets it work on its
-own; **Ask first** asks before changes. Use **Add role** for another role, and the **⋯** menu to
+**Threads and subagents** to let it do the same. Each role has instructions, crew tools and a default model. **Access** sets how freely its
+threads work, from **Supervised** to **Full access**. Use **Add role** for another role, and the **⋯** menu to
 edit a role or turn it off. Only roles with **Workflow stages can use this role** switched on can
 be picked for a stage. Each project gets its own project manager the first time a request or
 feature needs one; editing a role changes the members made from it later, not existing ones.
