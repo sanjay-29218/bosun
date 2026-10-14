@@ -245,7 +245,7 @@ import {
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../state/botRail";
-import { useFollowBotMainView } from "./sidebar/mainAppLocation";
+import { useSwitchBotMainView } from "./sidebar/mainAppLocation";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -864,7 +864,7 @@ function OpenCommandPaletteDialog(props: {
   const railBots = useVisibleLogicalBots();
   const activeRailBot = useVisibleActiveLogicalBot();
   const selectRailBot = useSelectLogicalBot();
-  const followBotMainView = useFollowBotMainView();
+  const switchBotMainView = useSwitchBotMainView();
   const multipleBots = railBots.length > 1;
   const environmentFilter = useEnvironmentFilter();
   const setSidebarEnvironmentIds = useUiStateStore((store) => store.setSidebarEnvironmentIds);
@@ -2618,9 +2618,7 @@ function OpenCommandPaletteDialog(props: {
           ),
           ...(shortcutCommand ? { shortcutCommand } : {}),
           run: async () => {
-            if (bot.key === activeRailBot?.key) return;
-            selectRailBot(bot);
-            followBotMainView();
+            if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
           },
         };
       })
@@ -3088,6 +3086,7 @@ function OpenCommandPaletteDialog(props: {
         createdAt: new Date().toISOString(),
         remoteUrl: addProjectCloneFlow.remoteUrl,
         destinationPath,
+        ...activeBotInput(addProjectCloneFlow.environmentId),
       },
     });
     setIsRemoteProjectCloning(false);
@@ -3920,6 +3919,7 @@ function OpenCommandPaletteDialog(props: {
         highlightedItemValue={highlightedItemValue}
         isActionsOnly={isActionsOnly}
         keybindings={keybindings}
+        multipleBots={multipleBots}
         onExecuteItem={executeItem}
         {...(addProjectCloneFlow?.step === "repository"
           ? {

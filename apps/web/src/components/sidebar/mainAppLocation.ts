@@ -133,17 +133,26 @@ export function useToggleMainView() {
 }
 
 /**
- * After switching bots, shows the view the new bot was left on (List or Board). A bot
- * without one, or a utility page, stays where it is.
+ * Switches bots through `select`, keeping List / Board per bot: the view on screen is saved
+ * for the bot being left, then the new bot's saved view shows. A bot without one keeps the
+ * current view and saves it. A utility page stays where it is.
  */
-export function useFollowBotMainView() {
+export function useSwitchBotMainView() {
   const router = useRouter();
   const showMainView = useShowMainView();
-  return useCallback(() => {
-    const { pathname } = router.state.location;
-    if (pathname === "/" || isSidebarUtilityPage(pathname)) return;
-    const key = mainViewKey(readActiveEnvironmentId());
-    const remembered = key === null ? undefined : readMainViews()[key];
-    if (remembered && remembered !== mainViewForPathname(pathname)) void showMainView(remembered);
-  }, [router, showMainView]);
+  return useCallback(
+    (select: () => void) => {
+      const { pathname } = router.state.location;
+      const current =
+        pathname === "/" || isSidebarUtilityPage(pathname) ? null : mainViewForPathname(pathname);
+      if (current) rememberMainView(readActiveEnvironmentId(), current);
+      select();
+      if (!current) return;
+      const key = mainViewKey(readActiveEnvironmentId());
+      const remembered = key === null ? undefined : readMainViews()[key];
+      if (!remembered) rememberMainView(readActiveEnvironmentId(), current);
+      else if (remembered !== current) void showMainView(remembered);
+    },
+    [router, showMainView],
+  );
 }

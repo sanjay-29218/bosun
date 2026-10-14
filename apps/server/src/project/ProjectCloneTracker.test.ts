@@ -30,10 +30,12 @@ function makeHarness(options?: {
   const created: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
   const cloned: Array<ProjectId> = [];
   const discarded: Array<string> = [];
+  const ownerBotIds: Array<string | undefined> = [];
   const hooks: ProjectCloneTracker.ProjectCloneHooks = {
     createProject: (input) =>
       Effect.sync(() => {
         created.push({ projectId: input.projectId, workspaceRoot: input.workspaceRoot });
+        ownerBotIds.push(input.botId);
       }),
     onCloned: (input) => Effect.sync(() => void cloned.push(input.projectId)),
   };
@@ -59,7 +61,7 @@ function makeHarness(options?: {
       }),
     ),
   );
-  return { layer, hooks, created, cloned, discarded };
+  return { layer, hooks, created, cloned, discarded, ownerBotIds };
 }
 
 describe("ProjectCloneTracker", () => {
@@ -103,6 +105,15 @@ describe("ProjectCloneTracker", () => {
       // Done clones drop out after the grace window so the toast can settle.
       yield* TestClock.adjust("31 seconds");
       expect(yield* tracker.get(projectId)).toBeNull();
+    }).pipe(Effect.provide(harness.layer));
+  });
+
+  it.effect("gives the cloned project to the requested bot", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const tracker = yield* ProjectCloneTracker.ProjectCloneTracker;
+      yield* tracker.start({ ...startInput, botId: "bot-social" }, harness.hooks);
+      expect(harness.ownerBotIds).toEqual(["bot-social"]);
     }).pipe(Effect.provide(harness.layer));
   });
 

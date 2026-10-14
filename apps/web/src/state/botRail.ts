@@ -61,13 +61,9 @@ export const logicalBotsAtom = Atom.make((get): ReadonlyArray<LogicalBot> => {
     : next;
 }).pipe(Atom.withLabel("web-bot-rail:logical-bots"));
 
-/** Threads waiting on you per rail entry key. */
-export const needsYouByLogicalBotAtom = Atom.make((get): ReadonlyMap<string, number> => {
-  const bots = get(logicalBotsAtom);
-  const next = countNeedsYouByLogicalBot(
-    bots,
-    countNeedsYouByBot(get(needsYouThreadsAtom), get(environmentProjects.projectsAtom)),
-  );
+/** Threads waiting on you per environment's bot, keyed by `botNeedsYouKey`. */
+const needsYouByBotAtom = Atom.make((get): ReadonlyMap<string, number> => {
+  const next = countNeedsYouByBot(get(needsYouThreadsAtom), get(environmentProjects.projectsAtom));
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, number>>());
   return previous !== null &&
     previous.size === next.size &&
@@ -75,6 +71,29 @@ export const needsYouByLogicalBotAtom = Atom.make((get): ReadonlyMap<string, num
     ? previous
     : next;
 }).pipe(Atom.withLabel("web-bot-rail:needs-you"));
+
+/** Threads waiting on you per rail entry key, on the environments the filter shows. */
+export function useNeedsYouByLogicalBot(): ReadonlyMap<string, number> {
+  const counts = useAtomValue(needsYouByBotAtom);
+  const bots = useLogicalBots();
+  const environmentFilter = useEnvironmentFilter();
+  return useMemo(
+    () =>
+      countNeedsYouByLogicalBot(
+        bots,
+        environmentFilter === null
+          ? counts
+          : new Map(
+              [...counts].filter(([memberKey]) =>
+                [...environmentFilter].some((environmentId) =>
+                  memberKey.startsWith(`${environmentId}:`),
+                ),
+              ),
+            ),
+      ),
+    [bots, counts, environmentFilter],
+  );
+}
 
 export function useLogicalBots(): ReadonlyArray<LogicalBot> {
   return useAtomValue(logicalBotsAtom);

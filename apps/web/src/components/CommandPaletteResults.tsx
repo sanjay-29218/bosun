@@ -3,7 +3,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon } from "lucide-react";
 import { type RefObject, useCallback, useState } from "react";
 import { cn } from "~/lib/utils";
-import { botJumpIndexFromCommand, shortcutLabelForCommand } from "../keybindings";
+import { shortcutLabelForCommand } from "../keybindings";
 import {
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
@@ -29,6 +29,8 @@ interface CommandPaletteResultsProps {
   highlightedItemValue?: string | null;
   isActionsOnly: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  /** Shortcut labels follow the bot rail: with several bots, Mod+1-9 switches bots. */
+  multipleBots?: boolean | undefined;
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }
 
@@ -62,6 +64,7 @@ export function CommandPaletteResults(props: CommandPaletteResultsProps) {
                   item={item}
                   key={item.value}
                   keybindings={props.keybindings}
+                  multipleBots={props.multipleBots}
                   isActive={props.highlightedItemValue === item.value}
                   onExecuteItem={props.onExecuteItem}
                 />
@@ -136,6 +139,7 @@ export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualize
               index={row.itemIndex}
               item={row.item}
               keybindings={props.keybindings}
+              multipleBots={props.multipleBots}
               isActive={props.highlightedItemValue === row.item.value}
               onExecuteItem={props.onExecuteItem}
             />
@@ -192,12 +196,12 @@ function CommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
   isActive: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  multipleBots?: boolean | undefined;
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }) {
   const shortcutLabel = props.item.shortcutCommand
     ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand, {
-        // Bot switches are only listed while there are several bots.
-        context: { multipleBots: botJumpIndexFromCommand(props.item.shortcutCommand) !== null },
+        context: { multipleBots: props.multipleBots ?? false },
       })
     : null;
 

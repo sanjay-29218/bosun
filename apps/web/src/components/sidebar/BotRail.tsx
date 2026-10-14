@@ -14,9 +14,9 @@ import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { botsEnvironment } from "../../state/bots";
 import {
-  needsYouByLogicalBotAtom,
   useBotEnvironmentIds,
   useEnvironmentFilter,
+  useNeedsYouByLogicalBot,
   useSelectLogicalBot,
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
@@ -30,7 +30,7 @@ import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { useFollowBotMainView } from "./mainAppLocation";
+import { useSwitchBotMainView } from "./mainAppLocation";
 
 /** The rail's width; the sidebar sits right of it. */
 export const BOT_RAIL_WIDTH = "3.5rem";
@@ -49,26 +49,27 @@ export const BotRail = memo(function BotRail({
   const { isMobile, setOpenMobile } = useSidebar();
   const bots = useVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
-  const needsYou = useAtomValue(needsYouByLogicalBotAtom);
+  const needsYou = useNeedsYouByLogicalBot();
   const selectBot = useSelectLogicalBot();
-  const followBotMainView = useFollowBotMainView();
+  const switchBotMainView = useSwitchBotMainView();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const botEnvironmentIds = useBotEnvironmentIds();
   const environmentFilter = useEnvironmentFilter();
   const [addingOn, setAddingOn] = useState<EnvironmentId | null>(null);
   const multipleBots = bots.length > 1;
 
-  // New bots go to the first shown environment with bots, primary first.
+  // New bots go to the first connected, shown environment with bots, primary first.
+  const connectedEnvironmentIds = useConnectedEnvironmentIds();
   const addEnvironmentId =
     botEnvironmentIds.find(
-      (environmentId) => environmentFilter === null || environmentFilter.has(environmentId),
+      (environmentId) =>
+        connectedEnvironmentIds.includes(environmentId) &&
+        (environmentFilter === null || environmentFilter.has(environmentId)),
     ) ?? null;
   const canAdd = useAtomValue(botsEnvironment.create.permissionAtom(addEnvironmentId));
 
   const select = (bot: LogicalBot) => {
-    if (bot.key === active?.key) return;
-    selectBot(bot);
-    followBotMainView();
+    if (bot.key !== active?.key) switchBotMainView(() => selectBot(bot));
   };
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
@@ -86,14 +87,11 @@ export const BotRail = memo(function BotRail({
       if (!bot) return;
       event.preventDefault();
       event.stopPropagation();
-      if (bot.key !== active?.key) {
-        selectBot(bot);
-        followBotMainView();
-      }
+      if (bot.key !== active?.key) switchBotMainView(() => selectBot(bot));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active?.key, bots, followBotMainView, keybindings, multipleBots, selectBot]);
+  }, [active?.key, bots, keybindings, multipleBots, selectBot, switchBotMainView]);
 
   const openBotSettings = () => {
     if (isMobile) setOpenMobile(false);
@@ -178,12 +176,14 @@ export const BotRail = memo(function BotRail({
           environmentId={addingOn}
           onClose={() => setAddingOn(null)}
           onCreated={(bot) =>
-            selectBot({
-              key: logicalBotKey(bot),
-              name: bot.name,
-              emoji: bot.emoji,
-              members: [{ environmentId: addingOn, botId: bot.id }],
-            })
+            switchBotMainView(() =>
+              selectBot({
+                key: logicalBotKey(bot),
+                name: bot.name,
+                emoji: bot.emoji,
+                members: [{ environmentId: addingOn, botId: bot.id }],
+              }),
+            )
           }
         />
       ) : null}
