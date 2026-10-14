@@ -117,20 +117,15 @@ export function CrewModeToggle({
 export function EditorField({
   label,
   htmlFor,
-  hint,
   children,
 }: {
   readonly label: string;
   readonly htmlFor?: string;
-  readonly hint?: string;
   readonly children: ReactNode;
 }) {
   return (
     <div className="space-y-2">
-      <div className="space-y-0.5">
-        <Label {...(htmlFor ? { htmlFor } : {})}>{label}</Label>
-        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-      </div>
+      <Label {...(htmlFor ? { htmlFor } : {})}>{label}</Label>
       {children}
     </div>
   );

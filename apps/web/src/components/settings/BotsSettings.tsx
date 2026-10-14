@@ -22,9 +22,12 @@ import {
   CheckIcon,
   DicesIcon,
   MoreHorizontalIcon,
+  PaletteIcon,
   PencilIcon,
   PlusIcon,
+  SlidersHorizontalIcon,
   Trash2Icon,
+  WrenchIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -38,16 +41,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { BotAvatar } from "../BotAvatar";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
+import { Dialog, DialogClose } from "../ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -55,7 +49,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Toggle } from "../ui/toggle";
-import { Toggle as TabToggle, ToggleGroup } from "../ui/toggle-group";
+import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from "../ui/wizard";
 import { toastManager } from "../ui/toast";
 import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 import { CrewModeToggle, CrewToolPicker, EditorField } from "./CrewAgentFields";
@@ -604,18 +598,28 @@ function BotDialog({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{bot ? `Edit ${bot.name}` : "New bot"}</DialogTitle>
-          <DialogDescription>
-            A bot owns projects and runs their work with the tools and model you give it.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
+      <WizardPopup size="wide">
+        <WizardHeader
+          title={bot ? `Edit ${bot.name}` : "New bot"}
+          description="A bot owns projects and runs their work with the tools and model you give it."
+        >
+          <WizardTabs
+            label="Bot settings"
+            value={tab}
+            onValueChange={setTab}
+            tabs={[
+              { value: "behavior", label: "Behavior", icon: <SlidersHorizontalIcon /> },
+              { value: "tools", label: `Tools · ${tools.length}`, icon: <WrenchIcon /> },
+              { value: "look", label: "Look", icon: <PaletteIcon /> },
+            ]}
+          />
+        </WizardHeader>
+        {/* One height for every tab, so switching doesn't resize the dialog. */}
+        <WizardPanel className="min-h-[30rem]">
           <fieldset disabled={saving} className="space-y-5">
-            <div className="flex items-end gap-4">
+            <div className="flex items-center gap-4">
               <BotAvatar avatar={avatar} color={color} size="lg" />
-              <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-2">
                 <Label htmlFor="bot-name">Name</Label>
                 <Input
                   id="bot-name"
@@ -626,127 +630,98 @@ function BotDialog({
                 />
               </div>
             </div>
-            <ToggleGroup
-              aria-label="Bot settings"
-              className="w-full"
-              value={[tab]}
-              onValueChange={(next) => {
-                const value = next[0];
-                if (value === "behavior" || value === "tools" || value === "look") setTab(value);
-              }}
-            >
-              <TabToggle value="behavior" className="flex-1">
-                Behavior
-              </TabToggle>
-              <TabToggle value="tools" className="flex-1">
-                Tools · {tools.length}
-              </TabToggle>
-              <TabToggle value="look" className="flex-1">
-                Look
-              </TabToggle>
-            </ToggleGroup>
-            {/* One height for every tab, so switching doesn't resize the dialog. */}
-            <div className="min-h-[26rem] space-y-6">
-              {tab === "behavior" ? (
-                <>
-                  <EditorField
-                    label="Instructions"
-                    htmlFor="bot-instructions"
-                    hint="How it handles requests for its projects."
-                  >
-                    <Textarea
-                      id="bot-instructions"
-                      value={instructions}
-                      maxLength={16_000}
-                      rows={7}
-                      placeholder={
-                        bot
-                          ? "What this bot does for its projects"
-                          : "Leave empty to coordinate its projects' managers"
-                      }
-                      onChange={(event) => setInstructions(event.target.value)}
+            {tab === "behavior" ? (
+              <>
+                <EditorField label="Instructions" htmlFor="bot-instructions">
+                  <Textarea
+                    id="bot-instructions"
+                    value={instructions}
+                    maxLength={16_000}
+                    rows={6}
+                    placeholder={
+                      bot
+                        ? "What this bot does for its projects"
+                        : "Leave empty to coordinate its projects' managers"
+                    }
+                    onChange={(event) => setInstructions(event.target.value)}
+                  />
+                </EditorField>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <EditorField label="Model">
+                    {modelSelection ? (
+                      <RoleModelPicker
+                        environmentId={environmentId}
+                        selection={modelSelection}
+                        onChange={setModelSelection}
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No model available. Set up a provider first.
+                      </p>
+                    )}
+                  </EditorField>
+                  <EditorField label="Approvals">
+                    <CrewModeToggle
+                      value={roleMode(runtimeMode)}
+                      onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
                     />
                   </EditorField>
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <EditorField label="Model" hint="Every run starts with it.">
-                      {modelSelection ? (
-                        <RoleModelPicker
-                          environmentId={environmentId}
-                          selection={modelSelection}
-                          onChange={setModelSelection}
-                        />
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          No model available. Set up a provider first.
-                        </p>
-                      )}
-                    </EditorField>
-                    <EditorField label="Approvals">
-                      <CrewModeToggle
-                        value={roleMode(runtimeMode)}
-                        onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
-                      />
-                    </EditorField>
-                  </div>
-                  <EditorField
-                    label="Default workflow"
-                    hint="Features in its projects start with this workflow."
+                </div>
+                <EditorField label="Default workflow">
+                  <Select
+                    value={defaultWorkflowId ?? NO_WORKFLOW}
+                    onValueChange={(next) =>
+                      setDefaultWorkflowId(
+                        typeof next === "string" && next !== NO_WORKFLOW ? next : null,
+                      )
+                    }
                   >
-                    <Select
-                      value={defaultWorkflowId ?? NO_WORKFLOW}
-                      onValueChange={(next) =>
-                        setDefaultWorkflowId(
-                          typeof next === "string" && next !== NO_WORKFLOW ? next : null,
-                        )
-                      }
-                    >
-                      <SelectTrigger aria-label="Default workflow">
-                        <SelectValue>
-                          {(value: string) =>
-                            value === NO_WORKFLOW
-                              ? "None"
-                              : (workflowOptions.find((workflow) => workflow.id === value)?.name ??
-                                value)
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup>
-                        <SelectItem value={NO_WORKFLOW}>None</SelectItem>
-                        {workflowOptions.map((workflow) => (
-                          <SelectItem key={workflow.id} value={workflow.id}>
-                            {workflow.name}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </EditorField>
-                </>
-              ) : tab === "tools" ? (
-                <EditorField label="Tools" hint="What it can use while it works.">
-                  <CrewToolPicker value={tools} onChange={setTools} forBot />
+                    <SelectTrigger aria-label="Default workflow">
+                      <SelectValue>
+                        {(value: string) =>
+                          value === NO_WORKFLOW
+                            ? "None"
+                            : (workflowOptions.find((workflow) => workflow.id === value)?.name ??
+                              value)
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value={NO_WORKFLOW}>None</SelectItem>
+                      {workflowOptions.map((workflow) => (
+                        <SelectItem key={workflow.id} value={workflow.id}>
+                          {workflow.name}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
                 </EditorField>
-              ) : (
-                <>
-                  <EditorField label="Look" hint="Mix the parts, or shuffle for a surprise.">
-                    <BotAvatarPicker value={avatar} color={color} onChange={setAvatar} />
-                  </EditorField>
-                  <EditorField label="Color">
-                    <BotColorPicker value={color} onChange={setColor} />
-                  </EditorField>
-                </>
-              )}
-            </div>
+              </>
+            ) : tab === "tools" ? (
+              <EditorField label="Tools">
+                <CrewToolPicker value={tools} onChange={setTools} forBot />
+              </EditorField>
+            ) : (
+              <>
+                <EditorField label="Look">
+                  <BotAvatarPicker value={avatar} color={color} onChange={setAvatar} />
+                </EditorField>
+                <EditorField label="Color">
+                  <BotColorPicker value={color} onChange={setColor} />
+                </EditorField>
+              </>
+            )}
           </fieldset>
-        </DialogPanel>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" size="sm" disabled={saving} />}>
+        </WizardPanel>
+        <WizardFooter>
+          <DialogClose render={<Button variant="ghost-muted" size="sm" disabled={saving} />}>
             Cancel
           </DialogClose>
           <Button size="sm" disabled={!canSave} onClick={() => void submit()}>
             {bot ? "Save" : "Add bot"}
           </Button>
-        </DialogFooter>
-      </DialogPopup>
+        </WizardFooter>
+      </WizardPopup>
     </Dialog>
   );
 }

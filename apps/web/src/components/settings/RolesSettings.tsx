@@ -8,7 +8,15 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { MoreHorizontalIcon, PencilIcon, PlusIcon, PowerIcon, UsersIcon } from "lucide-react";
+import {
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  PowerIcon,
+  SlidersHorizontalIcon,
+  UsersIcon,
+  WrenchIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -27,16 +35,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
+import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from "../ui/wizard";
+import { Dialog, DialogClose } from "../ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -444,6 +444,7 @@ function RoleDialog({
   // Stages pick roles directly, so a role a person adds is available to workflows by default.
   const [workflowStages, setWorkflowStages] = useState(role?.autoCreateForFeature ?? true);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<"behavior" | "tools">("behavior");
   const canSave = name.trim().length > 0 && instructions.trim().length > 0 && !saving;
 
   const submit = async () => {
@@ -485,17 +486,25 @@ function RoleDialog({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>{role ? `Edit ${role.name}` : "Add role"}</DialogTitle>
-          <DialogDescription>
-            A role is what a workflow stage runs as: its instructions, tools and default model.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          <fieldset disabled={saving} className="space-y-6">
-            <div className="space-y-1.5">
-              <Label htmlFor="crew-role-name">Name</Label>
+      <WizardPopup size="wide">
+        <WizardHeader
+          title={role ? `Edit ${role.name}` : "Add role"}
+          description="A role is what a workflow stage runs as: its instructions, tools and default model."
+        >
+          <WizardTabs
+            label="Role settings"
+            value={tab}
+            onValueChange={setTab}
+            tabs={[
+              { value: "behavior", label: "Behavior", icon: <SlidersHorizontalIcon /> },
+              { value: "tools", label: `Tools · ${tools.length}`, icon: <WrenchIcon /> },
+            ]}
+          />
+        </WizardHeader>
+        {/* One height for both tabs, so switching doesn't resize the dialog. */}
+        <WizardPanel className="min-h-[30rem]">
+          <fieldset disabled={saving} className="space-y-5">
+            <EditorField label="Name" htmlFor="crew-role-name">
               <Input
                 id="crew-role-name"
                 value={name}
@@ -503,55 +512,61 @@ function RoleDialog({
                 placeholder="Security reviewer"
                 onChange={(event) => setName(event.target.value)}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="crew-role-instructions">Instructions</Label>
-              <Textarea
-                id="crew-role-instructions"
-                value={instructions}
-                maxLength={16_000}
-                rows={6}
-                placeholder="What this role does and how it reports back"
-                onChange={(event) => setInstructions(event.target.value)}
-              />
-            </div>
-            <EditorField label="Tools" hint="What it can use while it works.">
-              <CrewToolPicker value={tools} onChange={setTools} />
             </EditorField>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <EditorField label="Model" hint="Members made from this role start with it.">
-                <RoleModelPicker
-                  environmentId={environmentId}
-                  selection={modelSelection}
-                  onChange={setModelSelection}
-                />
+            {tab === "behavior" ? (
+              <>
+                <EditorField label="Instructions" htmlFor="crew-role-instructions">
+                  <Textarea
+                    id="crew-role-instructions"
+                    value={instructions}
+                    maxLength={16_000}
+                    rows={6}
+                    placeholder="What this role does and how it reports back"
+                    onChange={(event) => setInstructions(event.target.value)}
+                  />
+                </EditorField>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <EditorField label="Model">
+                    <RoleModelPicker
+                      environmentId={environmentId}
+                      selection={modelSelection}
+                      onChange={setModelSelection}
+                    />
+                  </EditorField>
+                  <EditorField label="Approvals">
+                    <CrewModeToggle
+                      value={roleMode(runtimeMode)}
+                      onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
+                    />
+                  </EditorField>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="crew-role-workflow-stages">
+                    Workflow stages can use this role
+                  </Label>
+                  <Switch
+                    id="crew-role-workflow-stages"
+                    checked={workflowStages}
+                    onCheckedChange={setWorkflowStages}
+                  />
+                </div>
+              </>
+            ) : (
+              <EditorField label="Tools">
+                <CrewToolPicker value={tools} onChange={setTools} />
               </EditorField>
-              <EditorField label="Approvals">
-                <CrewModeToggle
-                  value={roleMode(runtimeMode)}
-                  onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
-                />
-              </EditorField>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="crew-role-workflow-stages">Workflow stages can use this role</Label>
-              <Switch
-                id="crew-role-workflow-stages"
-                checked={workflowStages}
-                onCheckedChange={setWorkflowStages}
-              />
-            </div>
+            )}
           </fieldset>
-        </DialogPanel>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" size="sm" disabled={saving} />}>
+        </WizardPanel>
+        <WizardFooter>
+          <DialogClose render={<Button variant="ghost-muted" size="sm" disabled={saving} />}>
             Cancel
           </DialogClose>
           <Button size="sm" disabled={!canSave} onClick={() => void submit()}>
             {role ? "Save role" : "Add role"}
           </Button>
-        </DialogFooter>
-      </DialogPopup>
+        </WizardFooter>
+      </WizardPopup>
     </Dialog>
   );
 }
