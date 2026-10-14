@@ -1203,14 +1203,18 @@ function OpenCommandPaletteDialog(props: {
         })
       : null,
   ).data;
-  const currentProjectBots = useEnvironmentQuery(
-    currentProjectWorkflows && (activeThread ?? activeDraftThread)
+  const currentProjectBotsQuery = useEnvironmentQuery(
+    currentProjectSupportsWorkflows && (activeThread ?? activeDraftThread)
       ? botsEnvironment.list({
           environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
           input: {},
         })
       : null,
-  ).data;
+  );
+  const currentProjectBots = currentProjectBotsQuery.data;
+  // Until bots load, the bot's default is unknown; an older server without bots fails instead.
+  const currentProjectBotsSettled =
+    currentProjectBots !== null || currentProjectBotsQuery.error !== null;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -2100,7 +2104,13 @@ function OpenCommandPaletteDialog(props: {
   const firstWorkflow =
     currentProjectWorkflows?.find((workflow) => workflow.id === botWorkflowId) ??
     currentProjectWorkflows?.[0];
-  if (firstWorkflow && currentProjectEnvironmentId && currentProjectId) {
+  // Waits for bots, or picking it early would pin the first workflow over the bot's default.
+  if (
+    firstWorkflow &&
+    currentProjectBotsSettled &&
+    currentProjectEnvironmentId &&
+    currentProjectId
+  ) {
     const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
     actionItems.push({
       kind: "action",

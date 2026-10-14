@@ -11,10 +11,17 @@ import { create } from "zustand";
 export const useCrewDraftStore = create<{
   readonly workflowByDraftId: Readonly<Record<string, string | null>>;
   readonly setWorkflow: (draftId: DraftId, workflowId: string | null) => void;
+  /** Drops the pick, so a reused draft follows the default again. */
+  readonly clearWorkflow: (draftId: DraftId) => void;
 }>((set) => ({
   workflowByDraftId: {},
   setWorkflow: (draftId, workflowId) =>
     set((state) => ({ workflowByDraftId: { ...state.workflowByDraftId, [draftId]: workflowId } })),
+  clearWorkflow: (draftId) =>
+    set((state) => {
+      const { [draftId]: _previous, ...rest } = state.workflowByDraftId;
+      return { workflowByDraftId: rest };
+    }),
 }));
 
 /** A draft's workflow: what was picked, or the default until something is. */

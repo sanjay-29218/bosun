@@ -18,6 +18,10 @@ describe("draft workflow", () => {
     useCrewDraftStore.getState().setWorkflow(draftId, "bug-fix");
     expect(resolveDraftWorkflowId(pickFor(draftId), "ship-a-feature")).toBe("bug-fix");
     expect(resolveDraftWorkflowId(pickFor("draft-2"), null)).toBeNull();
+
+    // Starting a feature clears the pick: the emptied draft is reused and follows the default.
+    useCrewDraftStore.getState().clearWorkflow(draftId);
+    expect(resolveDraftWorkflowId(pickFor(draftId), "ship-a-feature")).toBe("ship-a-feature");
   });
 });
 
