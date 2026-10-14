@@ -75,10 +75,14 @@ stage, after approval if this stage has a gate. Otherwise this happens when the 
 **Detach from workflow** in a stage thread's menu turns it back into a plain thread and cancels
 the rest of the feature. Reopening the feature reattaches the thread.
 
-The mobile app runs features but does not edit workflows. Choose a workflow in the new task sheet
-to start a feature with your prompt as its brief. The header's Features icon lists every feature,
-with the ones waiting on you first. In a stage thread, the card above the composer approves,
-retries or recovers the stage, and the composer text goes with the action as your note.
+The mobile app runs features but does not edit workflows. With more than one bot, the emoji
+button in the thread list header switches bots, and its menu shows how many threads wait on you
+under each one. The List / Board button beside it flips to the bot's features, with the ones
+waiting on you first. Choose a workflow in the new task sheet to start a feature with your prompt
+as its brief; it starts on the bot's default workflow. In a stage thread, the card above the
+composer approves, retries or recovers the stage, and the composer text goes with the action as
+your note. **Settings → Workflows** shows each workflow's stages, **Settings → Roles** edits
+roles, and **Settings → Project** shows and changes the project's bot.
 
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current crew status or send an action.
