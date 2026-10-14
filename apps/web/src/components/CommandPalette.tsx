@@ -50,6 +50,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   KanbanIcon,
+  ListIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -78,10 +79,11 @@ import {
   type CrewAction,
 } from "@t3tools/client-runtime/crew-stage";
 import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
+import { botsEnvironment } from "../state/bots";
 import { workflowsEnvironment } from "../state/workflows";
 import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
 import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
-import { useCrewDraftStore } from "./crew/crewDraftStore";
+import { botDefaultWorkflowId, useCrewDraftStore } from "./crew/crewDraftStore";
 import { useCrewStage } from "./crew/useCrewStage";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
@@ -231,6 +233,7 @@ import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { openNextNeedsYou } from "./features/featuresNavigation";
+import { BOARD_PATH, useToggleMainView } from "./sidebar/mainAppLocation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -504,6 +507,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openNewThreadIn = useCallback(() => dispatch({ _tag: "OpenNewThreadIn" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const toggleMainView = useToggleMainView();
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
   const routeTarget = useParams({
@@ -589,11 +593,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
-      if (command === "features.open" || command === "needsYou.next") {
+      if (command === "board.toggle" || command === "needsYou.next") {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
-        if (command === "features.open") void navigate({ to: "/features" });
+        // Held keys repeat; a toggle that fires on each repeat flickers between views.
+        if (event.repeat) return;
+        if (command === "board.toggle") void toggleMainView();
         else openNextNeedsYou(navigate);
         return;
       }
@@ -618,6 +624,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     terminalOpen,
     theme,
     themeHalves,
+    toggleMainView,
     toggleMode,
   ]);
 
@@ -724,6 +731,7 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const toggleMainView = useToggleMainView();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
@@ -1195,6 +1203,18 @@ function OpenCommandPaletteDialog(props: {
         })
       : null,
   ).data;
+  const currentProjectBotsQuery = useEnvironmentQuery(
+    currentProjectSupportsWorkflows && (activeThread ?? activeDraftThread)
+      ? botsEnvironment.list({
+          environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
+          input: {},
+        })
+      : null,
+  );
+  const currentProjectBots = currentProjectBotsQuery.data;
+  // Until bots load, the bot's default is unknown; an older server without bots fails instead.
+  const currentProjectBotsSettled =
+    currentProjectBots !== null || currentProjectBotsQuery.error !== null;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -2072,8 +2092,25 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
-  const firstWorkflow = currentProjectWorkflows?.[0];
-  if (firstWorkflow && currentProjectEnvironmentId && currentProjectId) {
+  // New feature… starts on the project's bot's default workflow, else the first one.
+  const currentProject =
+    currentProjectEnvironmentId && currentProjectId
+      ? projectByKey.get(`${currentProjectEnvironmentId}:${currentProjectId}`)
+      : undefined;
+  const botWorkflowId =
+    currentProject && currentProjectBots
+      ? botDefaultWorkflowId(currentProjectBots, currentProject)
+      : null;
+  const firstWorkflow =
+    currentProjectWorkflows?.find((workflow) => workflow.id === botWorkflowId) ??
+    currentProjectWorkflows?.[0];
+  // Waits for bots, or picking it early would pin the first workflow over the bot's default.
+  if (
+    firstWorkflow &&
+    currentProjectBotsSettled &&
+    currentProjectEnvironmentId &&
+    currentProjectId
+  ) {
     const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
     actionItems.push({
       kind: "action",
@@ -2436,7 +2473,9 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  const onBoard = pathname === BOARD_PATH;
   if (
+    onBoard ||
     environments.some(
       (environment) => environment.serverConfig?.environment.capabilities.workflows === true,
     )
@@ -2444,13 +2483,17 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push(
       {
         kind: "action",
-        value: "action:features",
-        searchTerms: ["features", "board", "kanban", "crew", "workflow", "bosun"],
-        title: "Open features",
-        icon: <KanbanIcon className={ITEM_ICON_CLASS} />,
-        shortcutCommand: "features.open",
+        value: "action:board-toggle",
+        searchTerms: ["board", "list", "features", "kanban", "threads", "crew", "workflow", "view"],
+        title: onBoard ? "Switch to List" : "Switch to Board",
+        icon: onBoard ? (
+          <ListIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <KanbanIcon className={ITEM_ICON_CLASS} />
+        ),
+        shortcutCommand: "board.toggle",
         run: async () => {
-          await navigate({ to: "/features" });
+          await toggleMainView();
         },
       },
       {

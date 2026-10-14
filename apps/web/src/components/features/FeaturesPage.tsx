@@ -28,7 +28,6 @@ import {
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
-import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useProjects } from "../../state/entities";
@@ -53,7 +52,6 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
@@ -63,7 +61,7 @@ import {
   FeatureStageBoardView,
   type FeatureBoardHandlers,
 } from "./FeatureBoards";
-import { FeatureListView, NeedsYouListView } from "./FeatureLists";
+import { NeedsYouListView } from "./FeatureLists";
 import { FeatureNoteDialog } from "./FeatureNoteDialog";
 import {
   ALL_PROJECTS_SCOPE,
@@ -104,6 +102,7 @@ type StateFilter = (typeof STATE_FILTERS)[number] | "not-started";
 const cardFilterState = (card: EnvironmentFeatureCard): StateFilter =>
   !card.started && card.state !== "done" && card.state !== "cancelled" ? "not-started" : card.state;
 
+/** The board: the main area's Board view, flipped from the sidebar's List / Board toggle. */
 export function FeaturesPage(props: {
   readonly search: FeaturesSearch;
   /** `undefined` removes a key. */
@@ -111,7 +110,6 @@ export function FeaturesPage(props: {
     readonly [Key in keyof FeaturesSearch]?: FeaturesSearch[Key] | undefined;
   }) => void;
 }) {
-  useEscapeToGoBack();
   const navigate = useNavigate();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const [preferences, setPreferences] = useState(readFeaturesPagePreferences);
@@ -201,7 +199,7 @@ export function FeaturesPage(props: {
   const needsYouCount = needsYouGroups.reduce((total, group) => total + group.items.length, 0);
 
   // The Workflow toggle draws one workflow's stages; definitions load only while it is on.
-  const workflowToggle = scopePreferences.workflow && preferences.view === "board" && !needsYou;
+  const workflowToggle = scopePreferences.workflow && !needsYou;
   const selectedWorkflowId = scopePreferences.workflowId ?? mostUsedWorkflowId(board.cards);
   // Workflows are an environment-wide library; read them where the chosen workflow runs.
   const definitionCard = board.cards.find((card) => card.workflow.id === selectedWorkflowId);
@@ -297,18 +295,10 @@ export function FeaturesPage(props: {
     });
     return shortcut ? `${label} (${shortcut})` : label;
   };
-  const setView = (view: FeaturesPagePreferences["view"]) => {
-    updatePreferences({ view });
-    if (needsYou) props.onSearchChange({ needsYou: undefined });
-  };
   const toggleNeedsYou = () => props.onSearchChange({ needsYou: needsYou ? undefined : true });
-  // One write: from List or Needs you, Workflow opens the stage board; on it, it closes it.
+  // From Needs you, Workflow opens the stage board; on it, it closes it.
   const toggleWorkflow = () => {
-    const on = !workflowToggle;
-    updatePreferences({
-      view: on ? "board" : preferences.view,
-      scopes: { ...preferences.scopes, [scopeKey]: { ...scopePreferences, workflow: on } },
-    });
+    updateScopePreferences({ workflow: !workflowToggle });
     if (needsYou) props.onSearchChange({ needsYou: undefined });
   };
 
@@ -325,9 +315,7 @@ export function FeaturesPage(props: {
     if (!command) return;
     event.preventDefault();
     event.stopPropagation();
-    if (command === "features.list") setView("list");
-    else if (command === "features.board") setView("board");
-    else if (command === "features.workflow") toggleWorkflow();
+    if (command === "features.workflow") toggleWorkflow();
     else toggleNeedsYou();
   });
   useEffect(() => {
@@ -377,22 +365,6 @@ export function FeaturesPage(props: {
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
       </InputGroup>
-      <ToggleGroup
-        aria-label="Features view"
-        variant="segmented"
-        value={needsYou ? [] : [preferences.view]}
-        onValueChange={(next) => {
-          const value = next[0];
-          if (value === "list" || value === "board") setView(value);
-        }}
-      >
-        <Toggle value="list" title={shortcutTitle("List", "features.list")}>
-          List
-        </Toggle>
-        <Toggle value="board" title={shortcutTitle("Board", "features.board")}>
-          Board
-        </Toggle>
-      </ToggleGroup>
       <Button
         variant={needsYou ? "default" : "outline"}
         aria-pressed={needsYou}
@@ -544,8 +516,6 @@ export function FeaturesPage(props: {
         onOpenThread={openNeedsYouItem}
       />
     );
-  } else if (preferences.view === "list") {
-    body = <FeatureListView groups={phaseGroups} handlers={handlers} />;
   } else if (workflowToggle) {
     body = stageBoard ? (
       <FeatureStageBoardView
@@ -565,20 +535,18 @@ export function FeaturesPage(props: {
     body = <FeaturePhaseBoard groups={phaseGroups} handlers={handlers} />;
   }
 
-  // The list view scrolls itself (it is virtualized); every other view scrolls the page.
-  const ownScroll = !needsYou && !firstRun && preferences.view === "list";
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
-          <WorkspaceBreadcrumb ariaLabel="Features breadcrumb">
+          <WorkspaceBreadcrumb ariaLabel="Board breadcrumb">
             <WorkspaceBreadcrumbItem current>
-              <h1>Features</h1>
+              <h1>Board</h1>
             </WorkspaceBreadcrumbItem>
           </WorkspaceBreadcrumb>
         </WorkspacePageHeader>
-        {ownScroll ? (
-          <WorkspacePageContainer width="expanded" className="min-h-0 flex-1 gap-3">
+        <ScrollArea className="min-h-0 flex-1">
+          <WorkspacePageContainer width="expanded" className="gap-3">
             {controls}
             {board.errors.length > 0 ? (
               <p role="alert" className="text-sm text-destructive">
@@ -587,19 +555,7 @@ export function FeaturesPage(props: {
             ) : null}
             {body}
           </WorkspacePageContainer>
-        ) : (
-          <ScrollArea className="min-h-0 flex-1">
-            <WorkspacePageContainer width="expanded" className="gap-3">
-              {controls}
-              {board.errors.length > 0 ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {board.errors[0]}
-                </p>
-              ) : null}
-              {body}
-            </WorkspacePageContainer>
-          </ScrollArea>
-        )}
+        </ScrollArea>
       </div>
       <FeatureNoteDialog
         request={noteRequest}

@@ -13,14 +13,13 @@ const ScopePreferences = Schema.Struct({
 export type FeaturesScopePreferences = typeof ScopePreferences.Type;
 
 const FeaturesPagePreferencesSchema = Schema.Struct({
-  view: Schema.Literals(["list", "board"]),
   /** Keyed by the scoped project, or "all". The Workflow toggle is remembered per project. */
   scopes: Schema.Record(Schema.String, ScopePreferences),
 });
 export type FeaturesPagePreferences = typeof FeaturesPagePreferencesSchema.Type;
 
 export const ALL_PROJECTS_SCOPE = "all";
-const DEFAULT_PREFERENCES: FeaturesPagePreferences = { view: "board", scopes: {} };
+const DEFAULT_PREFERENCES: FeaturesPagePreferences = { scopes: {} };
 export const DEFAULT_SCOPE_PREFERENCES: FeaturesScopePreferences = {
   workflow: false,
   workflowId: null,

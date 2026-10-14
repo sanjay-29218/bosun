@@ -3,7 +3,7 @@ import { useCallback, type ComponentProps } from "react";
 
 import { FeaturesPage, type FeaturesSearch } from "../components/features/FeaturesPage";
 
-export const Route = createFileRoute("/_chat/features")({
+export const Route = createFileRoute("/_chat/board")({
   validateSearch: (raw: Record<string, unknown>): FeaturesSearch => ({
     ...(raw.needsYou === true || raw.needsYou === "1" || raw.needsYou === 1
       ? { needsYou: true }
@@ -11,10 +11,10 @@ export const Route = createFileRoute("/_chat/features")({
     ...(typeof raw.q === "string" && raw.q ? { q: raw.q } : {}),
     ...(typeof raw.project === "string" && raw.project ? { project: raw.project } : {}),
   }),
-  component: FeaturesRouteView,
+  component: BoardRouteView,
 });
 
-function FeaturesRouteView() {
+function BoardRouteView() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const onSearchChange = useCallback<ComponentProps<typeof FeaturesPage>["onSearchChange"]>(

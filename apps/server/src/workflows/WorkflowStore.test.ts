@@ -52,7 +52,13 @@ it.effect("keeps revisions and feature copies independent across later edits", (
     );
     assert.strictEqual(featureOne?.definition.revision, 1);
 
-    const second: WorkflowDefinition = { ...first, name: "Delivery revised", revision: 2 };
+    // A revision can carry where the canvas draws each step; it round-trips with the rest.
+    const second: WorkflowDefinition = {
+      ...first,
+      name: "Delivery revised",
+      revision: 2,
+      layout: { [first.start]: { x: 120, y: -40 } },
+    };
     assert.isTrue(yield* store.updateDefinition(second, 1, "2026-09-29T00:02:00Z"));
     assert.isFalse(yield* store.updateDefinition(second, 1, "2026-09-29T00:02:00Z"));
     assert.deepEqual(yield* store.getDefinition(first.id, 1), first);
