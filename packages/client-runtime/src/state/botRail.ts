@@ -36,19 +36,21 @@ export function logicalBotKey(bot: { readonly id: string; readonly name: string 
 
 /**
  * Rail entries across environments, given in priority order (primary first). The first
- * environment that has a bot decides its name, avatar and place in the rail.
+ * environment that has a bot decides its name, avatar and place in the rail. Two bots with
+ * the same name on one environment stay separate entries; only the first one merges.
  */
 export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): LogicalBot[] {
   const byKey = new Map<string, { name: string; emoji: string; members: LogicalBotMember[] }>();
   for (const { environmentId, bots } of environments) {
     for (const bot of [...bots].sort((left, right) => left.position - right.position)) {
-      const key = logicalBotKey(bot);
+      let key = logicalBotKey(bot);
       const existing = byKey.get(key);
       if (existing) {
         if (!existing.members.some((member) => member.environmentId === environmentId)) {
           existing.members.push({ environmentId, botId: bot.id });
+          continue;
         }
-        continue;
+        key = `id:${environmentId}:${bot.id}`;
       }
       byKey.set(key, {
         name: bot.name,
