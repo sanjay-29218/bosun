@@ -2565,6 +2565,7 @@ const layerWsRpc = (
                   title: project.title,
                   workspaceRoot: project.workspaceRoot,
                   createWorkspaceRootIfMissing: true,
+                  ...(project.botId === undefined ? {} : { botId: project.botId }),
                 })
                 .pipe(
                   Effect.asVoid,

@@ -59,6 +59,21 @@ describe("buildLogicalBots", () => {
   });
 });
 
+describe("buildLogicalBots with a repeated name", () => {
+  it("keeps a second same-named bot on one environment as its own entry", () => {
+    const bots = buildLogicalBots([
+      { environmentId: local, bots: [bot("bot-a", "Social", 0), bot("bot-b", "social", 1)] },
+    ]);
+    expect(bots.map((entry) => entry.members.map((member) => member.botId))).toEqual([
+      ["bot-a"],
+      ["bot-b"],
+    ]);
+    expect(
+      logicalBotProjectKeys(bots[1]!, bots, [{ environmentId: local, id: "p", botId: "bot-b" }]),
+    ).toEqual(new Set(["local:p"]));
+  });
+});
+
 describe("resolveActiveLogicalBot", () => {
   const bots = buildLogicalBots(environments);
 

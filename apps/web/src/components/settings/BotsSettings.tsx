@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import type {
   Bot,
   EnvironmentId,
@@ -22,7 +23,7 @@ import { requestConfirmDialog } from "../../confirmDialog";
 import { cn, randomUUID } from "../../lib/utils";
 import { firstEmoji, PROJECT_ICON_COLORS } from "../../projectIconOptions";
 import { botsEnvironment } from "../../state/bots";
-import { useProjects } from "../../state/entities";
+import { useProjects, useServerConfigs } from "../../state/entities";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
@@ -44,12 +45,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
-import {
-  botDeleteBlocker,
-  countProjectsByBot,
-  moveBotInOrder,
-  projectBotId,
-} from "./BotsSettings.logic";
+import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import {
   RoleModelPicker,
@@ -449,6 +445,36 @@ function useSaveBot(environmentId: EnvironmentId, onFailure: () => void) {
 
 const NO_WORKFLOW = "none";
 
+/** Add bot outside Settings: the bot rail's +. `onCreated` gets the new bot. */
+export function AddBotDialog({
+  environmentId,
+  onClose,
+  onCreated,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly onClose: () => void;
+  readonly onCreated: (bot: Bot) => void;
+}) {
+  const workflowsSupported =
+    useServerConfigs().get(environmentId)?.environment.capabilities.workflows === true;
+  const workflowsQuery = useEnvironmentQuery(
+    workflowsSupported ? workflowsEnvironment.definitions({ environmentId, input: {} }) : null,
+  );
+  const botsQuery = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
+  const defaultModel = useEnvironmentDefaultModel(environmentId);
+  return (
+    <BotDialog
+      environmentId={environmentId}
+      bot={null}
+      defaultModel={defaultModel}
+      workflows={workflowsQuery.data ?? []}
+      onConflict={botsQuery.refresh}
+      onClose={onClose}
+      onCreated={onCreated}
+    />
+  );
+}
+
 function BotDialog({
   environmentId,
   bot,
@@ -456,6 +482,7 @@ function BotDialog({
   workflows,
   onClose,
   onConflict,
+  onCreated,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: Bot | null;
@@ -463,6 +490,7 @@ function BotDialog({
   readonly workflows: ReadonlyArray<{ readonly id: string; readonly name: string }>;
   readonly onClose: () => void;
   readonly onConflict: () => void;
+  readonly onCreated?: (bot: Bot) => void;
 }) {
   const create = useAtomCommand(botsEnvironment.create);
   const save = useSaveBot(environmentId, onConflict);
@@ -525,8 +553,10 @@ function BotDialog({
           ...(tools.trim() ? { allowedTools: parseList(tools) } : {}),
         },
       });
-      if (result._tag === "Success") onClose();
-      else
+      if (result._tag === "Success") {
+        onCreated?.(result.value);
+        onClose();
+      } else
         toastManager.add({
           type: "error",
           title: "Could not add the bot",

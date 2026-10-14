@@ -2,10 +2,11 @@ import { useAtomValue } from "@effect/atom-react";
 import { collectNeedsYou, type NeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { cn } from "../../lib/utils";
+import { useBotRailProjectKeys } from "../../state/botRail";
 import { needsYouThreadsAtom } from "../../state/needsYou";
 import { formatRelativeTime } from "../../timestampFormat";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
@@ -22,10 +23,21 @@ const KIND_LABELS: Record<NeedsYouKind, { readonly label: string; readonly class
 /**
  * Everything waiting on you, oldest first, at the top of the sidebar. It disappears when
  * nothing waits. Rows repeat threads that also sit in their own shelf; this one is a queue.
+ * It follows the bot rail; other bots' waiting threads show as badges on the rail.
  */
 export const SidebarNeedsYouShelf = memo(function SidebarNeedsYouShelf() {
   const navigate = useNavigate();
-  const shells = useAtomValue(needsYouThreadsAtom);
+  const waitingShells = useAtomValue(needsYouThreadsAtom);
+  const railProjectKeys = useBotRailProjectKeys();
+  const shells = useMemo(
+    () =>
+      railProjectKeys === null
+        ? waitingShells
+        : waitingShells.filter((shell) =>
+            railProjectKeys.has(`${shell.environmentId}:${shell.projectId}`),
+          ),
+    [railProjectKeys, waitingShells],
+  );
   const [expanded, setExpanded] = useLocalStorage(EXPANDED_KEY, true, Schema.Boolean);
   if (shells.length === 0) return null;
   const items = collectNeedsYou({ cards: [], shells })

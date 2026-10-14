@@ -215,6 +215,7 @@ const KEYBINDING_GROUPS = [
     prefixes: ["sidebar", "rightPanel", "commandPalette", "filePicker", "projectSearch", "editor"],
   },
   { id: "threads", title: "Threads", prefixes: ["thread", "chat", "pullRequest"] },
+  { id: "bots", title: "Bots", prefixes: ["bot"] },
   { id: "composer", title: "Composer", prefixes: ["composer", "modelPicker"] },
   { id: "terminal", title: "Terminal", prefixes: ["terminal"] },
   { id: "preview", title: "Preview & diff", prefixes: ["preview", "diff"] },
@@ -370,6 +371,8 @@ export function commandLabel(command: KeybindingCommand): string {
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);
   if (usagePeriod) return `Usage: Period: ${usagePeriod.label}`;
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
+  const botJump = /^bot\.jump\.(\d)$/.exec(command);
+  if (botJump) return `Bots: Switch to Bot ${botJump[1]}`;
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;

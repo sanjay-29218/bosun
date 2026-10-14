@@ -111,13 +111,15 @@ toggles Needs you. See [Features](./features.md).
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
 `previewOpen`, `modelPickerOpen`, `usagePageOpen`, `featuresPageOpen`, `composerFocus`, `composerDraft`,
-`turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`turnRunning`, `editableFocus`, `isWeb`, `isDesktop`, `isMac`, and `multipleBots`.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
-model picker is open. Those defaults use `isDesktop` so they do not steal the
+model picker is open. With two or more bots (`multipleBots`) they switch bots
+instead, and thread jumps move to `mod+ctrl+1` through `mod+ctrl+9` on macOS
+(`mod+alt+1` through `mod+alt+9` elsewhere). Those defaults use `isDesktop` so they do not steal the
 browser's tab-switch shortcuts. Remove that condition in Settings if you want
 the same jumps in a browser.
 
