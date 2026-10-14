@@ -70,6 +70,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.botsOpenHeadquarters]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresReopen]: AuthOrchestrationOperateScope,
+  [WS_METHODS.featuresSetIssue]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresAttachThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresDetachThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsApprove]: AuthOrchestrationOperateScope,

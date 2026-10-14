@@ -87,6 +87,8 @@ export function createFeatureAtoms<R, ER>(
     start: action(WS_METHODS.featuresStart),
     /** From Done, pass `stepId` to pick the stage the follow-up starts at. */
     reopen: action(WS_METHODS.featuresReopen),
+    /** Links an issue by its URL; null unlinks it. */
+    setIssue: action(WS_METHODS.featuresSetIssue),
     approve: action(WS_METHODS.workflowsApprove),
     requestChanges: action(WS_METHODS.workflowsRequestChanges),
     answer: action(WS_METHODS.workflowsAnswer),
@@ -109,6 +111,7 @@ type FeatureActionTag =
   | typeof WS_METHODS.featuresSetStatus
   | typeof WS_METHODS.featuresStart
   | typeof WS_METHODS.featuresReopen
+  | typeof WS_METHODS.featuresSetIssue
   | typeof WS_METHODS.workflowsApprove
   | typeof WS_METHODS.workflowsRequestChanges
   | typeof WS_METHODS.workflowsAnswer

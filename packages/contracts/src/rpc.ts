@@ -61,6 +61,7 @@ import {
   FeatureProjectInput,
   FeatureRecord,
   FeatureReopenInput,
+  FeatureSetIssueInput,
   FeatureSetStatusInput,
   FeatureStartInput,
   FeatureAttachThreadInput,
@@ -437,6 +438,7 @@ export const WS_METHODS = {
   featuresSetStatus: "features.setStatus",
   featuresStart: "features.start",
   featuresReopen: "features.reopen",
+  featuresSetIssue: "features.setIssue",
   featuresAttachThread: "features.attachThread",
   featuresDetachThread: "features.detachThread",
   featuresThreadLink: "features.threadLink",
@@ -1099,6 +1101,11 @@ const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
 });
 const WsFeaturesSetStatusRpc = Rpc.make(WS_METHODS.featuresSetStatus, {
   payload: FeatureSetStatusInput,
+  success: FeatureRecord,
+  error: FeatureRpcError,
+});
+const WsFeaturesSetIssueRpc = Rpc.make(WS_METHODS.featuresSetIssue, {
+  payload: FeatureSetIssueInput,
   success: FeatureRecord,
   error: FeatureRpcError,
 });
@@ -2240,6 +2247,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesSetStatusRpc,
   WsFeaturesStartRpc,
   WsFeaturesReopenRpc,
+  WsFeaturesSetIssueRpc,
   WsFeaturesAttachThreadRpc,
   WsFeaturesDetachThreadRpc,
   WsFeaturesThreadLinkRpc,

@@ -1130,6 +1130,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             </Text>
           </View>
         ) : null}
+        {thread.feature?.issue ? (
+          <Text
+            className={cn(
+              "shrink-0 text-2xs font-t3-medium",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : rowAppearance.mutedForegroundClassName,
+            )}
+          >
+            #{thread.feature.issue.number}
+          </Text>
+        ) : null}
         {crewLine !== null ? (
           <Text
             className={cn(

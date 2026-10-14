@@ -161,6 +161,10 @@ export const layerBosunWsRpc = (
               ...(input.stepId === undefined ? {} : { stepId: input.stepId }),
             })
             .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresSetIssue]: (input) =>
+          features
+            .setIssue({ id: input.featureId, projectId: input.projectId, url: input.url })
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
         [WS_METHODS.featuresAttachThread]: (input) =>
           features
             .attachThread({ ...input, actorId: currentSessionId })

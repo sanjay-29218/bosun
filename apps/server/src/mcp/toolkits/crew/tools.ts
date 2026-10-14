@@ -11,6 +11,7 @@ import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
@@ -162,6 +163,18 @@ const CreateProject = Tool.make("crew_create_project", {
   dependencies: [...dependencies, BotProjects],
 }).annotate(Tool.Destructive, false);
 
+const LinkIssue = Tool.make("crew_link_issue", {
+  description:
+    "Link the issue the feature you work on tracks, such as one you just created with gh. A feature has one issue: linking another replaces it, and null unlinks it. Every thread of the feature shows it.",
+  parameters: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
+  success: Schema.Struct({
+    featureId: Schema.String,
+    issue: Schema.NullOr(Schema.Struct({ number: Schema.Int, title: Schema.String })),
+  }),
+  failure,
+  dependencies: [...dependencies, FeatureService],
+}).annotate(Tool.Destructive, false);
+
 export const CrewToolkit = Toolkit.make(
   Delegate,
   Respond,
@@ -172,4 +185,5 @@ export const CrewToolkit = Toolkit.make(
   StageHandoff,
   ListProjects,
   CreateProject,
+  LinkIssue,
 );

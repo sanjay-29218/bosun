@@ -228,6 +228,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.workflowsResume]: "workflows",
   [WS_METHODS.featuresStart]: "features",
   [WS_METHODS.featuresReopen]: "features",
+  [WS_METHODS.featuresSetIssue]: "features",
   [WS_METHODS.featuresAttachThread]: "features",
   [WS_METHODS.featuresDetachThread]: "features",
   [WS_METHODS.featuresThreadLink]: "features",

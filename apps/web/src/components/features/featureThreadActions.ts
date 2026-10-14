@@ -5,7 +5,12 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { FeatureCardState, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  FeatureCardState,
+  ProjectId,
+  ScopedThreadRef,
+  ThreadFeatureTag,
+} from "@t3tools/contracts";
 
 import { randomUUID } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
@@ -14,6 +19,7 @@ import { featureThreadsEnvironment } from "../../state/featureThreads";
 import { featuresEnvironment } from "../../state/features";
 import { workflowsEnvironment } from "../../state/workflows";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { openFeatureIssueDialog } from "../crew/FeatureIssue";
 import { openMakeFeatureDialog } from "./MakeFeatureDialog";
 
 /** Menus wait this long for the thread's feature link before showing without it. */
@@ -152,6 +158,29 @@ export async function runFeatureLifecycleAction(
   }
 }
 
+/** Opens a feature's issue on GitHub, or the dialog that links, changes or unlinks it. */
+export function runFeatureIssueAction(
+  action: "feature-issue" | "feature-open-issue",
+  thread: {
+    readonly environmentId: ScopedThreadRef["environmentId"];
+    readonly projectId: ProjectId;
+    readonly feature: ThreadFeatureTag;
+  },
+): void {
+  const issue = thread.feature.issue ?? null;
+  if (action === "feature-open-issue") {
+    if (issue) void readLocalApi()?.shell.openExternal(issue.url);
+    return;
+  }
+  openFeatureIssueDialog({
+    environmentId: thread.environmentId,
+    projectId: thread.projectId,
+    featureId: thread.feature.id,
+    featureTitle: thread.feature.title,
+    issue,
+  });
+}
+
 /**
  * Where a thread's feature stands, read from its current stage thread: the thread itself, or
  * one of `threads`. Null outside a feature or when the stage thread isn't loaded.
@@ -159,20 +188,21 @@ export async function runFeatureLifecycleAction(
 export function featureLifecycleFor(
   thread: {
     readonly environmentId: string;
-    readonly feature?: { readonly id: string } | null;
+    readonly feature?: Pick<ThreadFeatureTag, "id" | "issue"> | null;
     readonly crew?: { readonly current: boolean; readonly state: FeatureCardState } | null;
   },
   threads: Iterable<typeof thread>,
-): { readonly state: FeatureCardState } | null {
+): { readonly state: FeatureCardState; readonly issueNumber: number | null } | null {
   if (!thread.feature) return null;
-  if (thread.crew?.current) return { state: thread.crew.state };
+  const issueNumber = thread.feature.issue?.number ?? null;
+  if (thread.crew?.current) return { state: thread.crew.state, issueNumber };
   for (const other of threads) {
     if (
       other.environmentId === thread.environmentId &&
       other.feature?.id === thread.feature.id &&
       other.crew?.current
     ) {
-      return { state: other.crew.state };
+      return { state: other.crew.state, issueNumber };
     }
   }
   return null;

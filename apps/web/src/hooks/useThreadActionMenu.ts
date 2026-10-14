@@ -18,6 +18,7 @@ import { useCallback, useMemo } from "react";
 import {
   featureLifecycleFor,
   readFeatureMenuState,
+  runFeatureIssueAction,
   runFeatureLifecycleAction,
   runFeatureThreadAction,
 } from "../components/features/featureThreadActions";
@@ -277,6 +278,16 @@ export function useThreadActionMenu(input: {
                 projectId: thread.projectId,
                 featureId: thread.feature.id,
                 title: thread.feature.title,
+              });
+            }
+            return;
+          case "feature-issue":
+          case "feature-open-issue":
+            if (thread.feature) {
+              runFeatureIssueAction(action, {
+                environmentId: threadRef.environmentId,
+                projectId: thread.projectId,
+                feature: thread.feature,
               });
             }
             return;

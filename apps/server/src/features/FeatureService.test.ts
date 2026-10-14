@@ -47,6 +47,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 
@@ -57,6 +58,22 @@ const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "g
 const TextGenerationPending = Layer.mock(TextGeneration.TextGeneration)({
   generateThreadTitle: () => Effect.never,
 });
+
+/** GitHub, answering for any github.com link. */
+const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)(
+  {
+    resolveLink: ({ url }) =>
+      url.host === "github.com"
+        ? Effect.succeed({
+            title: "Dark mode toggle",
+            body: null,
+            state: "open" as const,
+            milestone: "v0.4",
+            subIssues: { completed: 1, total: 3 },
+          })
+        : undefined,
+  },
+);
 
 const encodeBotIdentity = Schema.encodeSync(
   Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
@@ -81,6 +98,7 @@ const withSystem = <E>(
     | ServerSettingsService
     | SqlClient.SqlClient
     | TextGeneration.TextGeneration
+    | SourceControlProviderRegistry.SourceControlProviderRegistry
   >,
 ) =>
   Effect.gen(function* () {
@@ -102,6 +120,7 @@ const withSystem = <E>(
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(TextGenerationPending),
+      Layer.provideMerge(SourceControlIssues),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
       Layer.provideMerge(NodeServices.layer),
       // Bots keep their headquarters in the Scratch project.
@@ -319,6 +338,56 @@ describe("feature creation", () => {
         const thread = (yield* engine.getThreadShell(managerThreadId))!;
         expect(thread.feature).toEqual({ id: input.id, title: "Dark mode toggle" });
         expect(thread.title).toBe("Dark mode toggle");
+      }),
+    ),
+  );
+
+  effectIt.effect("links an issue that the feature's threads show, and unlinks it", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const crew = yield* CrewService;
+        const executions = yield* WorkflowExecutionStore;
+        const engine = yield* OrchestrationEngineService;
+        yield* (yield* WorkflowService).ensureStarterDefinition();
+        const target = { id: "issue-feature", projectId };
+        yield* features.create({
+          ...target,
+          title: "Dark mode",
+          brief: "Add dark mode",
+          workflowId: "feature-delivery",
+        });
+        yield* features.start(target.id, projectId);
+        const run = yield* crew.getRun(
+          (yield* executions.get(target.id))!.bindings.planner!.dispatchRunId,
+        );
+        const tagOf = () =>
+          engine.getThreadShell(run!.run.threadId).pipe(Effect.map((shell) => shell!.feature));
+
+        const linked = yield* features.setIssue({
+          ...target,
+          url: " https://github.com/owner/repo/issues/42#issuecomment-1 ",
+        });
+        const issue = {
+          url: "https://github.com/owner/repo/issues/42",
+          number: 42,
+          title: "Dark mode toggle",
+          state: "open",
+          milestone: "v0.4",
+          subIssues: { completed: 1, total: 3 },
+        };
+        expect(linked.issue).toEqual(issue);
+        expect((yield* features.get(target.id))?.issue).toEqual(issue);
+        expect(yield* tagOf()).toEqual({ id: target.id, title: "Dark mode", issue });
+        expect((yield* features.board(projectId))[0]?.issue).toEqual(issue);
+
+        const notAnIssue = yield* Effect.flip(
+          features.setIssue({ ...target, url: "https://github.com/owner/repo/pull/7" }),
+        );
+        expect(notAnIssue.message).toBe("Paste a link to an issue");
+
+        expect((yield* features.setIssue({ ...target, url: null })).issue).toBeNull();
+        expect(yield* tagOf()).toEqual({ id: target.id, title: "Dark mode" });
       }),
     ),
   );
@@ -639,6 +708,7 @@ describe("feature creation", () => {
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
         Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provideMerge(TextGenerationPending),
+        Layer.provideMerge(SourceControlIssues),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
         Layer.provideMerge(NodeServices.layer),
       );

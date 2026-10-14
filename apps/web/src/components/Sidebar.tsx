@@ -194,10 +194,12 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { featureIssueMeta, FeatureIssueIcon } from "./crew/FeatureIssue";
 import { FeatureTag } from "./crew/FeatureTag";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
   featureLifecycleFor,
+  runFeatureIssueAction,
   runFeatureLifecycleAction,
   readFeatureMenuState,
   runFeatureThreadAction,
@@ -527,6 +529,21 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-center gap-2 ps-5 text-muted-foreground">
             <div className="min-w-0 truncate">
               {formatCrewStageLine(thread.crew)} · {CREW_STATE_LABELS[thread.crew.state]}
+            </div>
+          </div>
+        ) : null}
+        {thread.feature?.issue ? (
+          <div className="flex min-w-0 items-start gap-2">
+            <FeatureIssueIcon issue={thread.feature.issue} className="mt-0.5 size-3" />
+            <div className="min-w-0">
+              <div className="truncate text-foreground/75">
+                #{thread.feature.issue.number} {thread.feature.issue.title}
+              </div>
+              {featureIssueMeta(thread.feature.issue) ? (
+                <div className="truncate text-muted-foreground">
+                  {featureIssueMeta(thread.feature.issue)}
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -2218,6 +2235,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   branch, so the row lost its most stable identifier. A feature's
                   threads lead with its tag, and its stage thread with the stage. */}
               {thread.feature ? <FeatureTag feature={thread.feature} /> : null}
+              {thread.feature?.issue ? (
+                <span className="shrink-0 text-muted-foreground tabular-nums">
+                  #{thread.feature.issue.number}
+                </span>
+              ) : null}
               {props.featureGroup ? (
                 <button
                   type="button"
@@ -5005,6 +5027,16 @@ export default function Sidebar() {
                 projectId: thread.projectId,
                 featureId: thread.feature.id,
                 title: thread.feature.title,
+              });
+            }
+            return;
+          case "feature-issue":
+          case "feature-open-issue":
+            if (thread.feature) {
+              runFeatureIssueAction(clicked.value, {
+                environmentId: thread.environmentId,
+                projectId: thread.projectId,
+                feature: thread.feature,
               });
             }
             return;

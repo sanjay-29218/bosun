@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import { BotProjects } from "../../../bots/BotProjects.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
@@ -70,6 +71,7 @@ const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
             }),
             Layer.mock(CrewHandoffService)({}),
             Layer.mock(BotProjects)({}),
+            Layer.mock(FeatureService)({}),
             Layer.mock(CrewHandoffStore)({
               getRunByThread: (id) => Effect.succeed(id === stageThread ? "run:stage" : null),
             }),

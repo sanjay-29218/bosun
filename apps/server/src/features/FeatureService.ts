@@ -36,12 +36,20 @@ import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
 import { projectWorkflowState } from "../workflows/WorkflowState.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import { featureBoardCard, featureBoardRunId } from "./featureBoard.ts";
+import {
+  decodeFeatureIssue,
+  encodeFeatureIssue,
+  featureTag,
+  firstIssueUrl,
+  issueNumberFromUrl,
+} from "./featureIssue.ts";
 import {
   WorkflowExecutionService,
   type WorkflowExecutionError,
@@ -113,6 +121,20 @@ export interface FeatureServiceShape {
     projectId: ProjectId,
     threadId: ThreadId,
   ) => Effect.Effect<FeatureThreadLink, FeatureServiceError>;
+  /**
+   * Links the issue at `url`, read through the project's source control, replacing any other;
+   * null unlinks it. The feature's threads show it from their feature tag.
+   */
+  readonly setIssue: (input: {
+    readonly id: string;
+    readonly projectId: ProjectId;
+    readonly url: string | null;
+  }) => Effect.Effect<FeatureRecord, FeatureServiceError>;
+  /** `setIssue` for the feature a crew thread works on, from its feature tag. */
+  readonly setIssueForThread: (
+    threadId: ThreadId,
+    url: string | null,
+  ) => Effect.Effect<FeatureRecord, FeatureServiceError>;
   readonly get: (id: string) => Effect.Effect<FeatureRecord | null, PersistenceSqlError>;
   readonly listByProject: (
     projectId: ProjectId,
@@ -148,9 +170,51 @@ const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition)
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
 const decodeAssignments = Schema.decodeSync(assignmentsJson);
-interface FeatureRow extends Omit<FeatureRecord, "crewAssignments"> {
+interface FeatureRow extends Omit<FeatureRecord, "crewAssignments" | "issue"> {
   readonly crewAssignmentsJson: string;
+  readonly issueJson: string | null;
 }
+
+/**
+ * Re-tags the threads working on a feature from its stored title and issue. With `renamedFrom`,
+ * threads still named after that earlier title take the new one.
+ */
+const syncFeatureThreads = (featureId: string, renamedFrom: string | null) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const engine = yield* OrchestratorV2;
+    const [feature] = yield* sql<{
+      readonly projectId: string;
+      readonly title: string;
+      readonly issueJson: string | null;
+    }>`
+      SELECT project_id AS projectId, title, issue_json AS issueJson FROM features
+      WHERE id = ${featureId}
+    `;
+    if (!feature) return;
+    const tag = featureTag({
+      id: featureId,
+      title: feature.title,
+      issue: decodeFeatureIssue(feature.issueJson),
+    });
+    const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
+      SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
+      WHERE project_id = ${feature.projectId} AND deleted_at IS NULL
+        AND json_extract(payload_json, '$.feature.id') = ${featureId}
+    `;
+    yield* Effect.forEach(
+      threads,
+      (thread) =>
+        engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make(`feature-tag:${NodeCrypto.randomUUID()}`),
+          threadId: thread.threadId,
+          feature: tag,
+          ...(renamedFrom !== null && thread.title === renamedFrom ? { title: feature.title } : {}),
+        }),
+      { discard: true },
+    );
+  });
 
 /**
  * Replaces a feature's stand-in title, the start of its brief, with a short generated one,
@@ -160,7 +224,6 @@ interface FeatureRow extends Omit<FeatureRecord, "crewAssignments"> {
 export const generateFeatureTitle = (feature: FeatureRecord) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const engine = yield* OrchestratorV2;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const textGeneration = yield* TextGeneration.TextGeneration;
@@ -188,23 +251,7 @@ export const generateFeatureTitle = (feature: FeatureRecord) =>
       RETURNING id
     `;
     if (renamed.length === 0) return;
-    const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
-      SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
-      WHERE project_id = ${feature.projectId} AND deleted_at IS NULL
-        AND json_extract(payload_json, '$.feature.id') = ${feature.id}
-    `;
-    yield* Effect.forEach(
-      threads,
-      (thread) =>
-        engine.dispatch({
-          type: "thread.crew-stage.set",
-          commandId: CommandId.make(`feature-title:${NodeCrypto.randomUUID()}`),
-          threadId: thread.threadId,
-          feature: { id: feature.id, title },
-          ...(thread.title === feature.title ? { title } : {}),
-        }),
-      { discard: true },
-    );
+    yield* syncFeatureThreads(feature.id, feature.title);
   }).pipe(
     Effect.catchCause((cause) =>
       Cause.hasInterruptsOnly(cause)
@@ -236,12 +283,18 @@ export const FeatureServiceLive = Layer.effect(
       | TextGeneration.TextGeneration
     >();
     const scope = yield* Effect.scope;
+    const projects = yield* ProjectStore.ProjectStoreV2;
+    const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
     const queryError = toPersistenceSqlError("FeatureService.query");
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
         try: () => {
-          const { crewAssignmentsJson, ...feature } = row;
-          return { ...feature, crewAssignments: decodeAssignments(crewAssignmentsJson) };
+          const { crewAssignmentsJson, issueJson, ...feature } = row;
+          return {
+            ...feature,
+            crewAssignments: decodeAssignments(crewAssignmentsJson),
+            issue: decodeFeatureIssue(issueJson),
+          };
         },
         catch: toPersistenceSqlError("FeatureService.decode"),
       });
@@ -251,7 +304,7 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
           w.workflow_revision AS workflowRevision,
-          f.crew_assignments_json AS crewAssignmentsJson
+          f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.id = ${id}
       `.pipe(
@@ -318,7 +371,7 @@ export const FeatureServiceLive = Layer.effect(
               type: "thread.crew-stage.set",
               commandId: CommandId.make(`feature-lead:${run.id}:feature`),
               threadId: run.threadId,
-              feature: { id: feature.id, title: feature.title },
+              feature: featureTag(feature),
             })
             .pipe(
               Effect.catch((error) =>
@@ -470,6 +523,7 @@ export const FeatureServiceLive = Layer.effect(
                 workflowId: input.workflowId ?? null,
                 workflowRevision: copy?.definition.revision ?? null,
                 crewAssignments,
+                issue: null,
                 createdAt,
                 updatedAt: createdAt,
                 status: "open",
@@ -478,15 +532,84 @@ export const FeatureServiceLive = Layer.effect(
             }),
           )
           .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
-        if (input.autoTitle && created) {
-          yield* generateFeatureTitle(feature).pipe(
-            Effect.provideService(SqlClient.SqlClient, sql),
-            Effect.provideService(OrchestratorV2, engine),
-            Effect.provideContext(titleServices),
-            Effect.forkIn(scope),
-          );
+        // An issue linked in the brief comes first, so a generated title can read it.
+        const issueUrl = created ? firstIssueUrl(feature.brief) : null;
+        if (issueUrl !== null || (input.autoTitle && created)) {
+          yield* Effect.gen(function* () {
+            if (issueUrl !== null) {
+              yield* setIssue({ id: feature.id, projectId: feature.projectId, url: issueUrl }).pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Linking the brief's issue failed", {
+                    featureId: feature.id,
+                    error,
+                  }),
+                ),
+              );
+            }
+            if (input.autoTitle) {
+              yield* generateFeatureTitle(feature).pipe(
+                Effect.provideService(SqlClient.SqlClient, sql),
+                Effect.provideService(OrchestratorV2, engine),
+                Effect.provideContext(titleServices),
+              );
+            }
+          }).pipe(Effect.forkIn(scope));
         }
         return feature;
+      });
+
+    const setIssue: FeatureServiceShape["setIssue"] = (input) =>
+      Effect.gen(function* () {
+        const feature = yield* requireFeature(input.id, input.projectId);
+        let issue: FeatureRecord["issue"] = null;
+        if (input.url !== null) {
+          const candidate = input.url.trim();
+          const url = URL.canParse(candidate) ? new URL(candidate) : null;
+          const number = url ? issueNumberFromUrl(url) : null;
+          if (!url || number === null) {
+            return yield* Effect.fail(new FeatureValidationError("Paste a link to an issue"));
+          }
+          url.hash = "";
+          url.search = "";
+          const project = yield* projects
+            .get(feature.projectId)
+            .pipe(Effect.mapError(toPersistenceSqlError("FeatureService.setIssue")));
+          const lookup = Option.isSome(project)
+            ? sourceControl.resolveLink({ cwd: project.value.workspaceRoot, url })
+            : undefined;
+          if (!lookup) {
+            return yield* Effect.fail(
+              new FeatureValidationError("Issues from this host can't be linked"),
+            );
+          }
+          const subject = yield* lookup.pipe(
+            Effect.mapError(
+              () => new FeatureValidationError("The issue could not be read. Check the link"),
+            ),
+          );
+          issue = {
+            url: url.href,
+            number,
+            title: subject.title.slice(0, 300),
+            state: subject.state ?? "open",
+            milestone: subject.milestone ?? null,
+            subIssues: subject.subIssues ?? null,
+          };
+        }
+        const updatedAt = DateTime.formatIso(yield* DateTime.now);
+        yield* sql`
+          UPDATE features SET issue_json = ${issue ? encodeFeatureIssue(issue) : null},
+            updated_at = ${updatedAt}
+          WHERE id = ${feature.id}
+        `.pipe(Effect.mapError(queryError));
+        yield* syncFeatureThreads(feature.id, null).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Effect.provideService(OrchestratorV2, engine),
+          Effect.catch((error) =>
+            Effect.logWarning("Feature issue tag failed", { featureId: feature.id, error }),
+          ),
+        );
+        return { ...feature, issue, updatedAt };
       });
 
     const start: FeatureServiceShape["start"] = (id, projectId) =>
@@ -567,7 +690,7 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
         w.workflow_revision AS workflowRevision,
-          f.crew_assignments_json AS crewAssignmentsJson
+          f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.project_id = ${projectId}
         ORDER BY f.created_at DESC, f.id DESC
@@ -578,6 +701,23 @@ export const FeatureServiceLive = Layer.effect(
 
     return FeatureService.of({
       start,
+      setIssue,
+      setIssueForThread: (threadId, url) =>
+        Effect.gen(function* () {
+          const [thread] = yield* sql<{
+            readonly projectId: ProjectId;
+            readonly featureId: string | null;
+          }>`
+            SELECT project_id AS projectId, json_extract(payload_json, '$.feature.id') AS featureId
+            FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}
+          `.pipe(Effect.mapError(queryError));
+          if (!thread?.featureId) {
+            return yield* Effect.fail(
+              new FeatureValidationError("This thread doesn't work on a feature"),
+            );
+          }
+          return yield* setIssue({ id: thread.featureId, projectId: thread.projectId, url });
+        }),
       threadLink,
       attachThread: (input) =>
         Effect.gen(function* () {

@@ -10,6 +10,7 @@ import { memo, type DragEvent, type MouseEvent } from "react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 
 import { cn } from "../../lib/utils";
+import { featureIssueMeta, FeatureIssueIcon } from "../crew/FeatureIssue";
 import { useThreadShell } from "../../state/entities";
 import { formatRelativeTime } from "../../timestampFormat";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -166,6 +167,20 @@ export const FeatureCard = memo(function FeatureCard(props: {
       </span>
       {layout === "card" && card.detail && WAITING_STATES.has(card.state) ? (
         <span className="line-clamp-2 min-w-0 text-muted-foreground">{card.detail}</span>
+      ) : null}
+      {card.issue ? (
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-1 text-muted-foreground",
+            layout === "row" && "w-40 shrink-0",
+          )}
+        >
+          <FeatureIssueIcon issue={card.issue} className="size-3.5" />
+          <span className="shrink-0">#{card.issue.number}</span>
+          {featureIssueMeta(card.issue) ? (
+            <span className="truncate">· {featureIssueMeta(card.issue)}</span>
+          ) : null}
+        </span>
       ) : null}
       {pullRequest !== null ? (
         <span className="flex min-w-0 items-center gap-1 text-muted-foreground">

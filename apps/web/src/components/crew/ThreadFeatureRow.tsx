@@ -2,11 +2,14 @@ import { CREW_STATE_LABELS, formatCrewStageLine } from "@t3tools/client-runtime/
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, WorkflowIcon } from "lucide-react";
+import { ChevronRightIcon, CircleDotIcon, PencilIcon, WorkflowIcon } from "lucide-react";
 
+import { readLocalApi } from "../../localApi";
 import { useThreadShell, useThreadShells } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
+import { THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS } from "../chat/threadDetailsPanelStyles";
+import { FeatureIssueIcon, openFeatureIssueDialog } from "./FeatureIssue";
 import { FeatureTag } from "./FeatureTag";
 
 /**
@@ -42,23 +45,56 @@ export function ThreadFeatureRow(props: {
               params: buildThreadRouteParams(scopeThreadRef(stage.environmentId, stage.id)),
             })
         : undefined;
+  const editIssue = () =>
+    openFeatureIssueDialog({
+      environmentId: thread.environmentId,
+      projectId: thread.projectId,
+      featureId: feature.id,
+      featureTitle: feature.title,
+      issue: feature.issue ?? null,
+    });
+  const issue = feature.issue;
   return (
-    <ThreadDetailsControl
-      part="row"
-      aria-label={`Feature ${feature.title}`}
-      disabled={!open}
-      onClick={open}
-    >
-      <WorkflowIcon className="text-muted-foreground" />
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        <FeatureTag feature={feature} />
-        {stage?.crew ? (
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
-            {formatCrewStageLine(stage.crew)} · {CREW_STATE_LABELS[stage.crew.state]}
-          </span>
-        ) : null}
-      </span>
-      {open ? <ChevronRightIcon className="text-muted-foreground" /> : null}
-    </ThreadDetailsControl>
+    <>
+      <ThreadDetailsControl
+        part="row"
+        aria-label={`Feature ${feature.title}`}
+        disabled={!open}
+        onClick={open}
+      >
+        <WorkflowIcon className="text-muted-foreground" />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <FeatureTag feature={feature} />
+          {stage?.crew ? (
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {formatCrewStageLine(stage.crew)} · {CREW_STATE_LABELS[stage.crew.state]}
+            </span>
+          ) : null}
+        </span>
+        {open ? <ChevronRightIcon className="text-muted-foreground" /> : null}
+      </ThreadDetailsControl>
+      {issue ? (
+        <div className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}>
+          <ThreadDetailsControl
+            part="primary"
+            aria-label={`Open issue #${issue.number} ${issue.title}`}
+            onClick={() => void readLocalApi()?.shell.openExternal(issue.url)}
+          >
+            <FeatureIssueIcon issue={issue} />
+            <span className="min-w-0 truncate">
+              #{issue.number} {issue.title}
+            </span>
+          </ThreadDetailsControl>
+          <ThreadDetailsControl part="secondary" aria-label="Change issue" onClick={editIssue}>
+            <PencilIcon className="size-3.5 text-muted-foreground" />
+          </ThreadDetailsControl>
+        </div>
+      ) : (
+        <ThreadDetailsControl part="row" tone="muted" onClick={editIssue}>
+          <CircleDotIcon />
+          Link issue…
+        </ThreadDetailsControl>
+      )}
+    </>
   );
 }

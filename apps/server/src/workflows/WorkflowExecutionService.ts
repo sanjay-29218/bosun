@@ -24,6 +24,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as BotStore from "../bots/BotStore.ts";
+import { featureTag } from "../features/featureIssue.ts";
 import { CrewHandoffService, type CrewHandoffError } from "../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -540,7 +541,15 @@ export const WorkflowExecutionServiceLive = Layer.effect(
                 commandId: CommandId.make(`workflow:crew-stage:${NodeCrypto.randomUUID()}`),
                 threadId,
                 crew: summary,
-                ...(title === null ? {} : { feature: { id: featureId, title } }),
+                ...(title === null
+                  ? {}
+                  : {
+                      feature: featureTag({
+                        id: featureId,
+                        title,
+                        issue: execution?.brief?.issue ?? null,
+                      }),
+                    }),
                 ...(written.has(threadId) || title === null ? {} : { title: title.slice(0, 200) }),
               })
               .pipe(

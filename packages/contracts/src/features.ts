@@ -4,6 +4,7 @@ import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import {
   CrewStageSummary,
   FeatureCardState,
+  FeatureIssue,
   WorkflowStagePosition,
   WorkflowYourCall,
 } from "./workflow.ts";
@@ -33,6 +34,7 @@ export const FeatureRecord = Schema.Struct({
   status: Schema.Literals(["open", "closed"]),
   /** The crew member bound to each of the workflow's roles. */
   crewAssignments: Schema.Record(Schema.String, Schema.String),
+  issue: Schema.NullOr(FeatureIssue),
 });
 export const FeatureProjectInput = Schema.Struct({ projectId: ProjectId });
 export const FeatureGetInput = Schema.Struct({
@@ -42,6 +44,11 @@ export const FeatureGetInput = Schema.Struct({
 export const FeatureSetStatusInput = Schema.Struct({
   ...FeatureGetInput.fields,
   status: Schema.Literals(["open", "closed"]),
+});
+/** Links the issue at `url` to the feature, replacing any other; null unlinks it. */
+export const FeatureSetIssueInput = Schema.Struct({
+  ...FeatureGetInput.fields,
+  url: Schema.NullOr(Schema.String),
 });
 
 export const FeatureStartInput = FeatureGetInput;
@@ -86,6 +93,7 @@ export const FeatureBoardCard = Schema.Struct({
   featureId: Schema.String,
   projectId: ProjectId,
   title: Schema.String,
+  issue: Schema.NullOr(FeatureIssue),
   workflow: Schema.Struct({
     id: Schema.String,
     name: Schema.String,

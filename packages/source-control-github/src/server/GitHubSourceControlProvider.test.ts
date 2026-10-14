@@ -897,7 +897,14 @@ it.effect.each(["pull", "issues"])(
           assert.strictEqual(input.host, "github.com");
           assert.strictEqual(input.path, "repos/owner/repo/issues/42");
           return Effect.succeed(
-            restResponse({ title: "Pairing expiry", body: "Preserve remote access", id: 1 }),
+            restResponse({
+              title: "Pairing expiry",
+              body: "Preserve remote access",
+              id: 1,
+              state: "closed",
+              milestone: { title: "v0.4", number: 3 },
+              sub_issues_summary: { total: 7, completed: 3, percent_completed: 42 },
+            }),
           );
         },
       });
@@ -909,6 +916,9 @@ it.effect.each(["pull", "issues"])(
       assert.deepStrictEqual(yield* lookup, {
         title: "Pairing expiry",
         body: "Preserve remote access",
+        state: "closed",
+        milestone: "v0.4",
+        subIssues: { total: 7, completed: 3 },
       });
       assert.strictEqual(
         provider.resolveLink?.({

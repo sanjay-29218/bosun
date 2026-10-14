@@ -217,10 +217,23 @@ export const CrewStageSummary = Schema.Struct({
 });
 export type CrewStageSummary = typeof CrewStageSummary.Type;
 
+/** The issue a feature works on, as it read when linked. */
+export const FeatureIssue = Schema.Struct({
+  url: Schema.String,
+  number: Schema.Int,
+  title: Schema.String,
+  state: Schema.Literals(["open", "closed"]),
+  milestone: Schema.NullOr(Schema.String),
+  /** Its sub-issues, closed and in all; null when it has none. */
+  subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
+});
+export type FeatureIssue = typeof FeatureIssue.Type;
+
 /** The feature a crew thread works on: its stage threads and its lead's thread. */
 export const ThreadFeatureTag = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
+  issue: Schema.optionalKey(FeatureIssue),
 });
 export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
 /**

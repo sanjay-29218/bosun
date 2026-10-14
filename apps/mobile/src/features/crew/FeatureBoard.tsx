@@ -69,11 +69,13 @@ function rowActions(card: EnvironmentFeatureCard): FeatureCardActionId[] {
 }
 
 function featureLine(card: EnvironmentFeatureCard): string | null {
-  if (!card.stage) return null;
-  if (card.state === "failed" && card.detail) {
-    return `${stageLabel(card.stage.stepId)} · ${card.detail}`;
-  }
-  return `${formatCrewStageLine(card.stage)} · ${stageLabel(card.stage.role)}`;
+  const issue = card.issue ? `#${card.issue.number}` : null;
+  if (!card.stage) return issue;
+  const stage =
+    card.state === "failed" && card.detail
+      ? `${stageLabel(card.stage.stepId)} · ${card.detail}`
+      : `${formatCrewStageLine(card.stage)} · ${stageLabel(card.stage.role)}`;
+  return issue ? `${issue} · ${stage}` : stage;
 }
 
 function FeatureRow(props: {

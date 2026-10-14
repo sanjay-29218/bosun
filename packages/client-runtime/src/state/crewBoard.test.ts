@@ -67,6 +67,7 @@ const card = (
   featureId,
   projectId,
   title: `Feature ${featureId}`,
+  issue: null,
   workflow: { id: definition.id, name: definition.name, revision: 3, latestRevision: 3 },
   state,
   started: true,

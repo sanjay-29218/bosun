@@ -27,6 +27,7 @@ import { readLocalApi } from "../../localApi";
 import { featuresEnvironment } from "../../state/features";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
+import { openFeatureIssueDialog } from "../crew/FeatureIssue";
 import { toastManager } from "../ui/toast";
 
 /** Actions that need text from you first: the page opens a note dialog for them. */
@@ -41,6 +42,8 @@ export interface FeatureNoteRequest {
 type MenuId =
   | "open"
   | "copy-branch"
+  | "issue"
+  | "open-issue"
   | FeatureCardActionId
   | `send-back:${string}`
   | `mark-done:${string}`
@@ -260,6 +263,17 @@ export function useFeatureActions(options: {
           if (branch) items.push({ id: "copy-branch", label: "Copy branch name" });
         }
       }
+      if (card.issue)
+        items.push({
+          id: "open-issue",
+          label: `Open issue #${card.issue.number}`,
+          separatorBefore: true,
+        });
+      items.push({
+        id: "issue",
+        label: card.issue ? "Change issue…" : "Link issue…",
+        ...(card.issue ? {} : { separatorBefore: true }),
+      });
       let clicked: MenuId | null = null;
       try {
         clicked = await api.contextMenu.show(items, position);
@@ -268,6 +282,15 @@ export function useFeatureActions(options: {
       }
       if (clicked === null) return;
       if (clicked === "open") openCard(card);
+      else if (clicked === "open-issue" && card.issue) void api.shell.openExternal(card.issue.url);
+      else if (clicked === "issue")
+        openFeatureIssueDialog({
+          environmentId: card.environmentId,
+          projectId: card.projectId,
+          featureId: card.featureId,
+          featureTitle: card.title,
+          issue: card.issue,
+        });
       else if (clicked === "copy-branch") {
         const branch = branchFor?.(card);
         if (branch) void writeTextToClipboard(branch, "branch name").catch(() => undefined);

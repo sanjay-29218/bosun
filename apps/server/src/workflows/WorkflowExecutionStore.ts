@@ -1,10 +1,11 @@
-import { ProjectId } from "@t3tools/contracts";
+import { type FeatureIssue, ProjectId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { decodeFeatureIssue } from "../features/featureIssue.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 
 /** Feature supplies existing instances and the runs authorized to dispatch their work. */
@@ -23,8 +24,12 @@ export interface WorkflowExecution {
   readonly bindings: WorkflowBindings;
   readonly lastError: string | null;
   readonly settled: boolean;
-  /** The feature's title and brief, when it was created through FeatureService. */
-  readonly brief: { readonly title: string; readonly text: string } | null;
+  /** The feature's title, brief and issue, when it was created through FeatureService. */
+  readonly brief: {
+    readonly title: string;
+    readonly text: string;
+    readonly issue: FeatureIssue | null;
+  } | null;
   /** Set while the feature waits for a stage slot. */
   readonly queuedAt: string | null;
   /** The provider instance whose slot it holds, or, while queued, the one it waits for. */
@@ -129,12 +134,13 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           readonly settled: number;
           readonly title: string | null;
           readonly brief: string | null;
+          readonly issueJson: string | null;
           readonly queuedAt: string | null;
           readonly slotInstanceId: string | null;
         }>`
       SELECT e.feature_id AS featureId, w.project_id AS projectId,
         e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled,
-        f.title, f.brief, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId
+        f.title, f.brief, f.issue_json AS issueJson, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId
       FROM workflow_executions AS e JOIN feature_workflows AS w ON w.feature_id = e.feature_id
       LEFT JOIN features AS f ON f.id = e.feature_id
       WHERE e.feature_id = ${featureId}
@@ -153,7 +159,11 @@ export const WorkflowExecutionStoreLive = Layer.effect(
                       brief:
                         rows[0].title === null
                           ? null
-                          : { title: rows[0].title, text: rows[0].brief ?? "" },
+                          : {
+                              title: rows[0].title,
+                              text: rows[0].brief ?? "",
+                              issue: decodeFeatureIssue(rows[0].issueJson),
+                            },
                       queuedAt: rows[0].queuedAt,
                       slotInstanceId: rows[0].slotInstanceId,
                     }

@@ -39,6 +39,7 @@ const feature: FeatureRecord = {
   updatedAt: "2026-10-01T00:00:00.000Z",
   status: "open",
   crewAssignments: {},
+  issue: null,
 };
 const copy = {
   featureId: feature.id,

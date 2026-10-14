@@ -6,6 +6,7 @@ import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -27,6 +28,7 @@ const make = Effect.gen(function* () {
   const crewStore = yield* CrewStore;
   const workflows = yield* WorkflowService;
   const botProjects = yield* BotProjects;
+  const features = yield* FeatureService;
 
   const asCrewMember = <A, E, R>(
     effect: (threadId: McpInvocationContext.McpThreadCaller["threadId"]) => Effect.Effect<A, E, R>,
@@ -65,6 +67,16 @@ const make = Effect.gen(function* () {
             Effect.flatMap((botId) => botProjects.create({ botId, ...input })),
           ),
         ),
+    ),
+    crew_link_issue: McpToolAccess.actsAsCaller((input: { readonly url: string | null }) =>
+      asCrewMember((threadId) =>
+        features.setIssueForThread(threadId, input.url).pipe(
+          Effect.map((feature) => ({
+            featureId: feature.id,
+            issue: feature.issue && { number: feature.issue.number, title: feature.issue.title },
+          })),
+        ),
+      ),
     ),
     crew_delegate: McpToolAccess.actsAsCaller(
       (input: {

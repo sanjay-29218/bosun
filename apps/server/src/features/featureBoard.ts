@@ -55,6 +55,7 @@ export const featureBoardCard = (input: {
     featureId: feature.id,
     projectId: feature.projectId,
     title: feature.title,
+    issue: feature.issue,
     workflow: {
       id: copy.definition.id,
       name: copy.definition.name,

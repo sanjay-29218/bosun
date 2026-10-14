@@ -34,6 +34,8 @@ export type ThreadActionMenuId =
   | "feature-resume"
   | "feature-cancel"
   | "feature-reopen"
+  | "feature-issue"
+  | "feature-open-issue"
   | "archive"
   | "delete";
 
@@ -111,8 +113,14 @@ export interface ThreadActionMenuState {
    * become one. Absent for crew threads and servers without features.
    */
   readonly feature?: { readonly isStage: boolean } | null;
-  /** Where the thread's feature stands, for pausing, resuming, cancelling or reopening it. */
-  readonly featureLifecycle?: { readonly state: FeatureCardState } | null;
+  /**
+   * Where the thread's feature stands, for pausing, resuming, cancelling or reopening it, and
+   * the number of the issue it links, for opening or changing it.
+   */
+  readonly featureLifecycle?: {
+    readonly state: FeatureCardState;
+    readonly issueNumber: number | null;
+  } | null;
 }
 
 /** The feature-wide actions that apply in `state`. */
@@ -253,11 +261,28 @@ export function buildThreadActionMenuItems(
             label: "Feature",
             icon: "workflow",
             separatorBefore: true,
-            children: featureLifecycleActions(state.featureLifecycle.state).map((id) => ({
-              id,
-              label: FEATURE_LIFECYCLE_LABELS[id],
-              ...(id === "feature-cancel" ? { destructive: true } : {}),
-            })),
+            children: [
+              ...featureLifecycleActions(state.featureLifecycle.state).map((id) => ({
+                id,
+                label: FEATURE_LIFECYCLE_LABELS[id],
+                ...(id === "feature-cancel" ? { destructive: true } : {}),
+              })),
+              ...(state.featureLifecycle.issueNumber === null
+                ? []
+                : [
+                    {
+                      id: "feature-open-issue" as const,
+                      label: `Open issue #${state.featureLifecycle.issueNumber}`,
+                      separatorBefore: true,
+                    },
+                  ]),
+              {
+                id: "feature-issue" as const,
+                label:
+                  state.featureLifecycle.issueNumber === null ? "Link issue…" : "Change issue…",
+                ...(state.featureLifecycle.issueNumber === null ? { separatorBefore: true } : {}),
+              },
+            ],
           },
         ]
       : []),

@@ -31,6 +31,14 @@ stage the follow-up starts at; a cancelled one resumes where it stopped.
 Search matches titles, stages and projects, and `workflow:feature-delivery` limits the board to
 one workflow.
 
+## Issues
+
+A feature can link one issue. Every thread of the feature shows its number, and the thread's
+details panel and hover card show its title, milestone and sub-issue progress. A brief that
+contains an issue link links it when the feature starts, and the crew can link the issue it opens.
+To link, change or unlink one yourself, choose **Link issue…** in a card's menu, in a thread's
+**Feature** menu, or in the thread's details panel. Issue links work for GitHub.
+
 ## The Workflow toggle
 
 **Workflow** turns the columns into one workflow's stages, with each stage's role, its gate and

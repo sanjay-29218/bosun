@@ -237,6 +237,19 @@ describe("buildThreadActionMenuItems", () => {
     }).find((item) => item.id === "detach-feature");
     expect(detach).toMatchObject({ destructive: true, disabled: true });
   });
+
+  it("opens or changes the feature's issue, and links one when it has none", () => {
+    const issueItems = (issueNumber: number | null) =>
+      buildThreadActionMenuItems({
+        ...baseState,
+        featureLifecycle: { state: "working", issueNumber },
+      })
+        .find((item) => item.id === "feature")
+        ?.children?.filter((item) => item.id.includes("issue"))
+        .map((item) => item.label);
+    expect(issueItems(42)).toEqual(["Open issue #42", "Change issue…"]);
+    expect(issueItems(null)).toEqual(["Link issue…"]);
+  });
 });
 
 describe("buildDraftActionMenuItems", () => {
