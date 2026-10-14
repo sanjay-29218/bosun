@@ -84,20 +84,26 @@ function Column(props: {
     <section
       {...props.dropProps}
       className={cn(
-        "flex w-64 shrink-0 flex-col gap-2 rounded-xl border border-transparent p-1",
-        props.highlighted && "border-dashed border-border bg-accent/30",
+        "flex h-full min-h-[60vh] min-w-0 flex-col gap-2 rounded-xl border border-transparent bg-muted/40 p-1.5",
+        props.highlighted && "border-dashed border-border bg-accent/40",
       )}
     >
-      <header className="flex min-w-0 flex-col px-1.5 pt-1">
+      <header className="flex min-w-0 flex-col gap-0.5 px-1.5 pt-1">
         <span className="flex items-center gap-1.5 text-sm font-medium">
           {props.title}
-          <span className="text-muted-foreground tabular-nums">{props.count}</span>
+          <span className="text-xs text-muted-foreground tabular-nums">{props.count}</span>
         </span>
         {props.subtitle ? (
           <span className="truncate text-xs text-muted-foreground">{props.subtitle}</span>
         ) : null}
       </header>
-      {props.children}
+      {props.count === 0 ? (
+        <p className="flex flex-1 items-center justify-center px-2 text-xs text-muted-foreground/70">
+          No features
+        </p>
+      ) : (
+        props.children
+      )}
     </section>
   );
 }
@@ -143,7 +149,8 @@ export function FeaturePhaseBoard(props: {
 }) {
   const drag = useCardDrag(props.handlers);
   return (
-    <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto pb-4">
+    // Columns share the width, and scroll sideways only once they can't fit.
+    <div className="grid min-h-0 flex-1 auto-cols-[minmax(13rem,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2">
       {props.groups.map((group) => {
         const target = group.phase === "done" ? "done" : "open";
         return (
@@ -186,10 +193,10 @@ export function FeatureStageBoardView(props: {
   const hiddenCount = hidden.reduce((total, entry) => total + entry.count, 0);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="min-h-0 flex-1 overflow-x-auto pb-4">
+      <div className="min-h-0 flex-1 overflow-x-auto pb-2">
         <div
-          className="grid w-max gap-x-6 gap-y-1"
-          style={{ gridTemplateColumns: `repeat(${columns.length}, 16rem)` }}
+          className="grid w-max min-w-full gap-x-6 gap-y-1"
+          style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(14rem, 1fr))` }}
         >
           {loops.map((loop, loopIndex) => {
             const from = columnIndex.get(loop.from);
