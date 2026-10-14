@@ -38,6 +38,19 @@ export function isHiddenStageThread(thread: {
   return thread.crew != null && !thread.crew.current;
 }
 
+/**
+ * Changes whenever an open stage thread should reload its feature. Nothing streams: the current
+ * stage thread's `crew.revision` moves with every decision, and its run status with every run.
+ */
+export function crewStageRefreshKey(
+  crew: CrewStageSummary | null | undefined,
+  latestRunStatus: string | undefined,
+): string | null {
+  return crew
+    ? `${crew.featureId}:${crew.stepId}:${crew.state}:${crew.current}:${crew.revision}:${latestRunStatus}`
+    : null;
+}
+
 /** The board states that wait on a person, in the words the sidebar shows. */
 export const CREW_STATE_LABELS: Record<FeatureCardState, string> = {
   working: "Working",
@@ -234,4 +247,37 @@ export function workflowSummaryLine(definition: WorkflowFeatureSnapshot["definit
     stepId = Object.values(step.next)[0];
   }
   return parts.join(" → ");
+}
+
+export interface WorkflowStageOverview {
+  readonly stepId: string;
+  readonly name: string;
+  readonly role: string;
+  readonly gate: boolean;
+  /** Where each outcome goes: "ready → Design", "passed → Done", with any route limit. */
+  readonly routes: ReadonlyArray<string>;
+}
+
+/** A workflow's stages in definition order, for a read-only view of the workflow. */
+export function workflowStageOverview(
+  definition: WorkflowFeatureSnapshot["definition"],
+): ReadonlyArray<WorkflowStageOverview> {
+  return Object.entries(definition.steps).flatMap(([stepId, step]) => {
+    if (step.type !== "task") return [];
+    return [
+      {
+        stepId,
+        name: formatStageName(stepId),
+        role: formatStageName(step.role),
+        gate: step.gate === true,
+        routes: Object.entries(step.next).map(([outcome, target]) => {
+          const to = definition.steps[target]?.type === "end" ? "Done" : formatStageName(target);
+          const limit = step.limits?.[outcome];
+          return limit === undefined
+            ? `${outcome} → ${to}`
+            : `${outcome} → ${to} (up to ${limit}×)`;
+        }),
+      },
+    ];
+  });
 }

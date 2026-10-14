@@ -8,6 +8,8 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { uuidv4 } from "../../lib/uuid";
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
+import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
@@ -18,7 +20,7 @@ import {
   resolveNewTaskModelSelection,
 } from "../../lib/modelOptions";
 import { SettingsSection } from "./components/SettingsSection";
-import { MobileRoleConfigurationPanel } from "./MobileRoleConfigurationPanel";
+import { MobileCrewMembersPanel } from "./MobileRoleConfigurationPanel";
 
 export function MobileCrewProjectSection(props: {
   readonly project: EnvironmentProject;
@@ -48,6 +50,13 @@ export function MobileCrewProjectSection(props: {
       input: { projectId: project.id },
     }),
   );
+  // Work started here runs as the bot that owns the project.
+  const bots = useEnvironmentQuery(
+    serverConfig?.environment.capabilities.bots === true
+      ? botsEnvironment.list({ environmentId: project.environmentId, input: {} })
+      : null,
+  );
+  const ownerName = bots.data?.find((bot) => bot.id === projectBotId(project))?.name ?? "Captain";
   const start = useAtomCommand(rolesEnvironment.start);
   const answer = useAtomCommand(rolesEnvironment.answer);
   const cancel = useAtomCommand(rolesEnvironment.cancel);
@@ -69,7 +78,7 @@ export function MobileCrewProjectSection(props: {
       threadId,
     });
 
-  const startCaptain = async () => {
+  const startOwner = async () => {
     const task = taskText.trim();
     if (!task || !modelSelection || busyId) return;
     setActionError(null);
@@ -149,17 +158,17 @@ export function MobileCrewProjectSection(props: {
   };
 
   return (
-    <SettingsSection title={`Crew · ${props.environmentLabel}`}>
+    <SettingsSection title={`Crew activity · ${props.environmentLabel}`}>
       <View className="gap-3 p-4">
         <Text className="text-xs text-foreground-muted">{project.workspaceRoot}</Text>
         <Text className="text-sm text-foreground-muted">
-          Ask Captain to coordinate this project. Manager and Builder runs appear below.
+          Give {ownerName} a project task. Its Manager and Builder runs appear below.
         </Text>
         {!modelSelection ? (
           <Text className="text-sm text-foreground-muted">No available model.</Text>
         ) : null}
         <AppTextInput
-          accessibilityLabel={`Task for Captain on ${props.environmentLabel}`}
+          accessibilityLabel={`Task for ${ownerName} on ${props.environmentLabel}`}
           multiline
           className="min-h-24 rounded-xl border-continuous bg-card px-3 py-2 text-base text-foreground"
           placeholder="What should the crew do?"
@@ -171,12 +180,12 @@ export function MobileCrewProjectSection(props: {
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Start Captain"
+          accessibilityLabel={`Start ${ownerName}`}
           disabled={!modelSelection || !taskText.trim() || busyId !== null}
-          onPress={() => void startCaptain()}
+          onPress={() => void startOwner()}
           className="self-start rounded-full bg-subtle-strong px-4 py-2 active:opacity-70 disabled:opacity-40"
         >
-          <Text className="text-sm font-t3-medium text-foreground">Start Captain</Text>
+          <Text className="text-sm font-t3-medium text-foreground">Start {ownerName}</Text>
         </Pressable>
         {snapshot.error ? <Text className="text-sm text-red-500">{snapshot.error}</Text> : null}
         {actionError ? <Text className="text-sm text-red-500">{actionError}</Text> : null}
@@ -279,10 +288,9 @@ export function MobileCrewProjectSection(props: {
             ) : null}
           </View>
         ))}
-        <MobileRoleConfigurationPanel
+        <MobileCrewMembersPanel
           environmentId={project.environmentId}
           projectId={project.id}
-          modelSelection={modelSelection}
           members={snapshot.data?.members ?? []}
         />
       </View>

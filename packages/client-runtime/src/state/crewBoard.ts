@@ -25,6 +25,19 @@ export const featureCardKey = (card: {
 
 const isClosedState = (state: FeatureCardState) => state === "done" || state === "cancelled";
 
+/**
+ * A thread's part in its project's board signal: it changes when the thread starts, stops, or
+ * starts waiting on you, never on streamed messages. Stage threads move cards, so a board
+ * re-reads when the joined signal of its project's threads changes.
+ */
+export const threadBoardSignal = (
+  shell: Pick<
+    EnvironmentThreadShell,
+    "id" | "runtime" | "latestRun" | "hasPendingApprovals" | "hasPendingUserInput"
+  >,
+) =>
+  `${shell.id}/${shell.runtime?.status ?? "-"}/${shell.latestRun?.status ?? "-"}/${shell.hasPendingApprovals ? 1 : 0}${shell.hasPendingUserInput ? 1 : 0}`;
+
 // ── Phases ───────────────────────────────────────────────────────────
 
 export const FEATURE_PHASES = ["plan", "design", "build", "verify", "ship", "done"] as const;

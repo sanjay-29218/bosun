@@ -59,6 +59,7 @@ import * as Cause from "effect/Cause";
 import * as Order from "effect/Order";
 import { AsyncResult } from "effect/reactivity";
 import { cn } from "../../lib/cn";
+import { activeBotIdOn, useActiveBot } from "../../state/bots";
 import { useProjects, useServerConfigs, waitForProject } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { projectEnvironment } from "../../state/projects";
@@ -693,6 +694,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
   const navigation = useNavigation();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const projects = useProjects();
+  const activeBot = useActiveBot();
 
   return useCallback(
     async (workspaceRoot: string) => {
@@ -739,9 +741,10 @@ function useCreateProject(environment: EnvironmentOption | null) {
         projectId,
         workspaceRoot,
       });
+      const botId = activeBotIdOn(activeBot, environment.environmentId);
       const result = await createProject({
         environmentId: environment.environmentId,
-        input: command,
+        input: botId === undefined ? command : { ...command, botId },
       });
       if (AsyncResult.isFailure(result)) {
         return result;
@@ -763,7 +766,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
       );
       return result;
     },
-    [createProject, environment, projects, navigation],
+    [activeBot, createProject, environment, projects, navigation],
   );
 }
 
@@ -992,6 +995,7 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
   );
   const environment = resolveAddProjectEnvironment(environmentOptions, selectedEnvironmentId);
   const createNew = useAtomCommand(projectEnvironment.createNew, { reportFailure: false });
+  const activeBot = useActiveBot();
   const publishRepository = useAtomCommand(sourceControlEnvironment.publishRepository, {
     reportFailure: false,
   });
@@ -1062,9 +1066,10 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
     setError(null);
     setIsSubmitting(true);
     try {
+      const botId = activeBotIdOn(activeBot, environment.environmentId);
       const result = await createNew({
         environmentId: environment.environmentId,
-        input: { name: trimmedName },
+        input: botId === undefined ? { name: trimmedName } : { name: trimmedName, botId },
       });
       if (AsyncResult.isFailure(result)) {
         setError(errorMessage(Cause.squash(result.cause)));

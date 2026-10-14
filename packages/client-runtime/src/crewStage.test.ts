@@ -14,6 +14,7 @@ import {
   formatStageName,
   isHiddenStageThread,
   sendBackTargets,
+  workflowStageOverview,
   workflowSummaryLine,
 } from "./crewStage.ts";
 
@@ -91,6 +92,43 @@ describe("stage formatting", () => {
 describe("workflowSummaryLine", () => {
   it("follows the first route from the start and marks gates", () => {
     expect(workflowSummaryLine(snapshot([]).definition)).toBe("Plan → approve → Design → QA check");
+  });
+});
+
+describe("workflowStageOverview", () => {
+  it("lists every stage with its role, gate and where each outcome routes", () => {
+    const definition = snapshot([]).definition;
+    expect(
+      workflowStageOverview({
+        ...definition,
+        steps: {
+          ...definition.steps,
+          qa_check: {
+            type: "task",
+            role: "qa_tester",
+            task: "Test",
+            next: { passed: "end", failed: "design" },
+            limits: { failed: 2 },
+          },
+        },
+      }),
+    ).toEqual([
+      { stepId: "plan", name: "Plan", role: "Planner", gate: true, routes: ["ready → Design"] },
+      {
+        stepId: "design",
+        name: "Design",
+        role: "Designer",
+        gate: false,
+        routes: ["ready → QA check"],
+      },
+      {
+        stepId: "qa_check",
+        name: "QA check",
+        role: "QA tester",
+        gate: false,
+        routes: ["passed → Done", "failed → Design (up to 2×)"],
+      },
+    ]);
   });
 });
 

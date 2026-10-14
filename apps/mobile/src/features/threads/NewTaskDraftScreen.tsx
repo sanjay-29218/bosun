@@ -110,7 +110,10 @@ import { useProjectClone } from "../../state/projectClones";
 import { projectEnvironment } from "../../state/projects";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
+import { botsEnvironment, useActiveBot } from "../../state/bots";
 import { featuresEnvironment } from "../../state/features";
+import { useSetThreadListView } from "../home/use-thread-list-view";
 import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
 import { ControlPillMenu } from "../../components/ControlPill";
@@ -243,15 +246,34 @@ export function NewTaskDraftScreen(props: {
         })
       : null,
   ).data;
+  // Until you pick one, the workflow is the default of the bot that owns the project.
+  const projectBots = useEnvironmentQuery(
+    crewEnabled &&
+      selectedProject &&
+      selectedEnvironmentServerConfig?.environment.capabilities.bots === true
+      ? botsEnvironment.list({ environmentId: selectedProject.environmentId, input: {} })
+      : null,
+  ).data;
+  const botDefaultWorkflowId =
+    selectedProject === null
+      ? null
+      : (projectBots?.find((bot) => bot.id === projectBotId(selectedProject))?.defaultWorkflowId ??
+        null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<{
     readonly projectKey: string;
-    readonly workflowId: string;
+    /** Null when you chose No workflow. */
+    readonly workflowId: string | null;
   } | null>(null);
-  const workflow =
+  const workflowId =
     selectedWorkflow !== null && selectedWorkflow.projectKey === selectedProjectKey
-      ? (workflowDefinitions?.find((definition) => definition.id === selectedWorkflow.workflowId) ??
-        null)
-      : null;
+      ? selectedWorkflow.workflowId
+      : botDefaultWorkflowId;
+  const workflow =
+    workflowId === null
+      ? null
+      : (workflowDefinitions?.find((definition) => definition.id === workflowId) ?? null);
+  const activeBotViewKey = useActiveBot().viewKey;
+  const setThreadListView = useSetThreadListView();
   const createFeature = useAtomCommand(featuresEnvironment.create);
   const startFeature = useAtomCommand(featuresEnvironment.start);
   // A project added by cloning exists before its files do: the prompt can be
@@ -1263,7 +1285,7 @@ export function NewTaskDraftScreen(props: {
         },
       });
       if (created._tag !== "Success") return;
-      // A feature that fails to start stays on the Features screen, which offers Start.
+      // A feature that fails to start waits on the board, whose row offers Start.
       const started = await startFeature({
         environmentId: project.environmentId,
         input: { projectId: project.id, featureId },
@@ -1275,9 +1297,10 @@ export function NewTaskDraftScreen(props: {
       const snapshot = started._tag === "Success" ? started.value : null;
       const threadId =
         snapshot?.steps.find((step) => step.id === snapshot.activeStepId)?.threadId ?? null;
+      if (threadId === null) void setThreadListView(activeBotViewKey, "board");
       setSubmitNavigationAction(
         threadId === null
-          ? StackActions.replace("Features")
+          ? CommonActions.goBack()
           : StackActions.replace("Thread", {
               environmentId: String(project.environmentId),
               threadId: String(threadId),
@@ -1862,9 +1885,12 @@ export function NewTaskDraftScreen(props: {
                         ]}
                         onPressAction={({ nativeEvent }) =>
                           setSelectedWorkflow(
-                            nativeEvent.event === "" || selectedProjectKey === null
+                            selectedProjectKey === null
                               ? null
-                              : { projectKey: selectedProjectKey, workflowId: nativeEvent.event },
+                              : {
+                                  projectKey: selectedProjectKey,
+                                  workflowId: nativeEvent.event === "" ? null : nativeEvent.event,
+                                },
                           )
                         }
                       >

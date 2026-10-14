@@ -4,16 +4,7 @@ import { AtomRegistry } from "effect/reactivity";
 import type { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import { request } from "../rpc/client.ts";
-import type { CrewFeature } from "./crew.ts";
-import {
-  createEnvironmentQueryAtomFamily,
-  createEnvironmentRpcCommand,
-  createEnvironmentRpcQueryAtomFamily,
-} from "./runtime.ts";
-
-/** Closed features the snapshot board keeps for its Done shelf, most recently updated first. */
-const BOARD_CLOSED_LIMIT = 20;
+import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 interface FeatureTarget {
   readonly environmentId: EnvironmentId;
@@ -28,7 +19,7 @@ export function createFeatureAtoms<R, ER>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
   options: {
     readonly workflowFeature?: (target: FeatureTarget) => Atom.Atom<unknown>;
-    /** Re-reads a project's snapshot board when this signal changes, such as its stage threads' status. */
+    /** Re-reads a project's board while it is read, whenever this signal changes. */
     readonly boardRefreshTrigger?: (target: {
       readonly environmentId: EnvironmentId;
       readonly input: { readonly projectId: ProjectId };
@@ -47,46 +38,15 @@ export function createFeatureAtoms<R, ER>(
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
   });
-  /** One project's board cards. Clients refresh it when that project's stage threads change. */
+  /** One project's board cards. Pass `boardRefreshTrigger` to re-read it when its threads move. */
   const board = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:features:board",
     tag: WS_METHODS.featuresBoard,
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
-  });
-  /**
-   * Each feature with its full workflow snapshot, read only while a view shows them.
-   * Mobile's board still reads this; `board` is the slimmer server-built replacement.
-   */
-  const snapshotBoard = createEnvironmentQueryAtomFamily(runtime, {
-    label: "environment-data:features:snapshot-board",
-    staleTimeMs: 5_000,
-    idleTtlMs: 60_000,
     ...(options.boardRefreshTrigger === undefined
       ? {}
       : { refreshTrigger: options.boardRefreshTrigger }),
-    execute: (input: { readonly projectId: ProjectId }) =>
-      request(WS_METHODS.featuresList, input).pipe(
-        Effect.flatMap((records) =>
-          Effect.forEach(
-            [
-              ...records.filter((record) => record.status === "open"),
-              ...records
-                .filter((record) => record.status === "closed")
-                .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-                .slice(0, BOARD_CLOSED_LIMIT),
-            ],
-            (record) =>
-              record.workflowId === null
-                ? Effect.succeed<CrewFeature>({ record, snapshot: null })
-                : request(WS_METHODS.workflowsGetFeature, {
-                    projectId: input.projectId,
-                    featureId: record.id,
-                  }).pipe(Effect.map((snapshot): CrewFeature => ({ record, snapshot }))),
-            { concurrency: 4 },
-          ),
-        ),
-      ),
   });
   const refresh = (
     environmentId: EnvironmentId,
@@ -97,7 +57,6 @@ export function createFeatureAtoms<R, ER>(
     Effect.sync(() => {
       registry.refresh(list({ environmentId, input: { projectId } }));
       registry.refresh(board({ environmentId, input: { projectId } }));
-      registry.refresh(snapshotBoard({ environmentId, input: { projectId } }));
       registry.refresh(detail({ environmentId, input: { projectId, featureId } }));
       const workflowFeature = options.workflowFeature?.({
         environmentId,
@@ -118,7 +77,6 @@ export function createFeatureAtoms<R, ER>(
     list,
     detail,
     board,
-    snapshotBoard,
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:features:create",
       tag: WS_METHODS.featuresCreate,

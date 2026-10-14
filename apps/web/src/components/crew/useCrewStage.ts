@@ -1,6 +1,7 @@
 import {
   availableCrewActions,
   crewStagePrompt,
+  crewStageRefreshKey,
   type CrewAction,
   type CrewStagePrompt,
 } from "@t3tools/client-runtime/crew-stage";
@@ -50,9 +51,7 @@ export function useCrewStage(thread: EnvironmentThreadShell | null): CrewStage |
         })
       : null,
   );
-  const changeKey = crew
-    ? `${crew.featureId}:${crew.stepId}:${crew.state}:${crew.current}:${crew.revision}:${thread?.latestRun?.status}`
-    : null;
+  const changeKey = crewStageRefreshKey(crew, thread?.latestRun?.status);
   const lastKey = useRef(changeKey);
   const { refresh } = query;
   useEffect(() => {

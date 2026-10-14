@@ -167,43 +167,9 @@ function Editor(props: {
   );
 }
 
-export function MobileRoleConfigurationPanel(props: {
-  readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
-  readonly modelSelection: ModelSelection | null;
-  readonly members: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly projectId: ProjectId | null;
-  }>;
-}) {
-  const { environmentId, projectId } = props;
-  const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
-  const configuration = useEnvironmentQuery(
-    rolesEnvironment.configuration({ environmentId, input: { projectId } }),
-  );
-  const initialize = useAtomCommand(rolesEnvironment.initialize);
-  const create = useAtomCommand(rolesEnvironment.create);
-  const update = useAtomCommand(rolesEnvironment.update);
-  const instantiate = useAtomCommand(rolesEnvironment.instantiate);
-  const setHierarchy = useAtomCommand(rolesEnvironment.setHierarchy);
-  const setDelegation = useAtomCommand(rolesEnvironment.setDelegation);
-  const [roleId, setRoleId] = useState<string | null>(null);
-  const [memberId, setMemberId] = useState<string | null>(null);
-  const [targetId, setTargetId] = useState<string | null>(null);
+function useRun(onSuccess: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const roles = rolesQuery.data ?? [];
-  const needsStarter =
-    rolesQuery.data !== undefined && !roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
-  const role = roles.find((item) => item.id === roleId) ?? null;
-  const nodes = configuration.data?.hierarchy ?? [];
-  const grants = configuration.data?.delegationGrants ?? [];
-  const selectedMember = props.members.find((member) => member.id === memberId);
-  const parentId = nodes.find((node) => node.memberId === memberId)?.parentMemberId ?? null;
-  const granted = grants.some(
-    (grant) => grant.sourceMemberId === memberId && grant.targetMemberId === targetId,
-  );
   const run = async (
     action: () => Promise<{ readonly _tag: string; readonly cause?: unknown }>,
   ) => {
@@ -212,22 +178,37 @@ export function MobileRoleConfigurationPanel(props: {
     try {
       const result = await action();
       if (result._tag !== "Success") setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
-      else {
-        rolesQuery.refresh();
-        configuration.refresh();
-      }
+      else onSuccess();
       return result._tag === "Success";
     } finally {
       setBusy(false);
     }
   };
+  return { busy, error, run };
+}
+
+/** An environment's roles, shared by every project: the starter set and the role editor. */
+export function MobileRolesPanel(props: {
+  readonly environmentId: EnvironmentId;
+  /** The model new roles and the starter set default to. */
+  readonly modelSelection: ModelSelection | null;
+}) {
+  const { environmentId } = props;
+  const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
+  const initialize = useAtomCommand(rolesEnvironment.initialize);
+  const create = useAtomCommand(rolesEnvironment.create);
+  const update = useAtomCommand(rolesEnvironment.update);
+  const [roleId, setRoleId] = useState<string | null>(null);
+  const { busy, error, run } = useRun(rolesQuery.refresh);
+  const roles = rolesQuery.data ?? [];
+  const needsStarter =
+    rolesQuery.data !== null && !roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
+  const role = roles.find((item) => item.id === roleId) ?? null;
 
   return (
-    <View className="gap-3 border-t border-border-subtle pt-4">
-      <Text className="text-sm font-t3-medium text-foreground">Roles and permissions</Text>
+    <View className="gap-3 p-4">
       <Text className="text-xs text-foreground-muted">
-        Roles are shared by every project. Role edits affect future crew members. Hierarchy and
-        delegation are separate settings.
+        Roles are shared by every project. Edits apply to crew members created afterwards.
       </Text>
       {needsStarter ? (
         <Action
@@ -244,9 +225,7 @@ export function MobileRoleConfigurationPanel(props: {
           }}
         />
       ) : null}
-      {rolesQuery.error || configuration.error ? (
-        <Text className="text-sm text-red-500">{rolesQuery.error ?? configuration.error}</Text>
-      ) : null}
+      {rolesQuery.error ? <Text className="text-sm text-red-500">{rolesQuery.error}</Text> : null}
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
       <View className="flex-row flex-wrap gap-2">
         <Action label="New role" selected={roleId === null} onPress={() => setRoleId(null)} />
@@ -279,19 +258,71 @@ export function MobileRoleConfigurationPanel(props: {
           }
         }}
       />
-      {role?.enabled ? (
-        <Action
-          label="Add crew member with this role"
-          disabled={busy}
-          onPress={() =>
-            void run(() =>
-              instantiate({
-                environmentId,
-                input: { id: `member:${uuidv4()}`, projectId, roleId: role.id },
-              }),
-            )
-          }
-        />
+    </View>
+  );
+}
+
+/**
+ * One project's crew: add a member from a role, then place it in the hierarchy and choose
+ * whom it may delegate to. Roles themselves are edited in Settings › Roles.
+ */
+export function MobileCrewMembersPanel(props: {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly members: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly projectId: ProjectId | null;
+  }>;
+}) {
+  const { environmentId, projectId } = props;
+  const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
+  const configuration = useEnvironmentQuery(
+    rolesEnvironment.configuration({ environmentId, input: { projectId } }),
+  );
+  const instantiate = useAtomCommand(rolesEnvironment.instantiate);
+  const setHierarchy = useAtomCommand(rolesEnvironment.setHierarchy);
+  const setDelegation = useAtomCommand(rolesEnvironment.setDelegation);
+  const [memberId, setMemberId] = useState<string | null>(null);
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const { busy, error, run } = useRun(configuration.refresh);
+  const enabledRoles = (rolesQuery.data ?? []).filter((role) => role.enabled);
+  const nodes = configuration.data?.hierarchy ?? [];
+  const grants = configuration.data?.delegationGrants ?? [];
+  const selectedMember = props.members.find((member) => member.id === memberId);
+  const parentId = nodes.find((node) => node.memberId === memberId)?.parentMemberId ?? null;
+  const granted = grants.some(
+    (grant) => grant.sourceMemberId === memberId && grant.targetMemberId === targetId,
+  );
+
+  return (
+    <View className="gap-3 border-t border-border-subtle pt-4">
+      <Text className="text-sm font-t3-medium text-foreground">Crew members</Text>
+      <Text className="text-xs text-foreground-muted">
+        Add a crew member from a role, then choose its parent and whom it can delegate to.
+      </Text>
+      {rolesQuery.error || configuration.error ? (
+        <Text className="text-sm text-red-500">{rolesQuery.error ?? configuration.error}</Text>
+      ) : null}
+      {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
+      {enabledRoles.length > 0 ? (
+        <View className="flex-row flex-wrap gap-2">
+          {enabledRoles.map((role) => (
+            <Action
+              key={role.id}
+              label={`Add ${role.name}`}
+              disabled={busy}
+              onPress={() =>
+                void run(() =>
+                  instantiate({
+                    environmentId,
+                    input: { id: `member:${uuidv4()}`, projectId, roleId: role.id },
+                  }),
+                )
+              }
+            />
+          ))}
+        </View>
       ) : null}
       {props.members.length > 0 ? (
         <View className="gap-2 border-t border-border-subtle pt-3">

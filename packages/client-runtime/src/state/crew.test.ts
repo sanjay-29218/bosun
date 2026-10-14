@@ -11,14 +11,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   crewCurrentThreadId,
   crewGateCopy,
-  crewGroupByPhase,
-  crewGroupByStage,
-  crewNeedsYou,
   crewOpenQuestion,
   crewSendBackTargets,
-  crewStageLine,
-  crewStageThreads,
-  type CrewFeature,
 } from "./crew.ts";
 
 const projectId = ProjectId.make("project");
@@ -68,8 +62,7 @@ const feature = (input: {
   readonly stage: string | null;
   readonly steps: ReadonlyArray<WorkflowStepSnapshot>;
   readonly since?: string;
-  readonly workflowId?: string;
-}): CrewFeature => {
+}): WorkflowFeatureSnapshot => {
   const index = input.stage === null ? -1 : ["plan", "design", "build"].indexOf(input.stage);
   const snapshot: WorkflowFeatureSnapshot = {
     featureId: input.id,
@@ -111,21 +104,7 @@ const feature = (input: {
       },
     ],
   };
-  return {
-    record: {
-      id: input.id,
-      projectId,
-      title: input.id,
-      brief: "",
-      workflowId: input.workflowId ?? definition.id,
-      workflowRevision: 1,
-      createdAt: "2026-10-01T00:00:00.000Z",
-      updatedAt: input.since ?? "2026-10-01T00:00:00.000Z",
-      status: input.state === "done" || input.state === "cancelled" ? "closed" : "open",
-      crewAssignments: {},
-    },
-    snapshot,
-  };
+  return snapshot;
 };
 
 const atDesign = feature({
@@ -140,14 +119,8 @@ const atDesign = feature({
   since: "2026-10-02T00:00:00.000Z",
 });
 
-describe("crew stage threads", () => {
-  it("summarizes every stage thread and marks only the current one", () => {
-    const threads = crewStageThreads(atDesign);
-    expect(threads.map((thread) => [thread.threadId, thread.summary.current])).toEqual([
-      ["thread-plan", false],
-      ["thread-design", true],
-    ]);
-    expect(crewStageLine(definition, threads[1]!.summary)).toBe("Design · 2/3 · Designer");
+describe("crew current thread", () => {
+  it("is the current stage's thread while a stage runs", () => {
     expect(crewCurrentThreadId(atDesign)).toBe("thread-design");
   });
 
@@ -166,47 +139,6 @@ describe("crew stage threads", () => {
   });
 });
 
-describe("crew rows across rework and finished features", () => {
-  it("keeps exactly one current thread for a done feature", () => {
-    const done = feature({
-      id: "done-rows",
-      state: "done",
-      stage: null,
-      steps: [step("plan", "completed", "thread-plan"), step("build", "completed", "thread-build")],
-    });
-    expect(
-      crewStageThreads(done)
-        .filter((thread) => thread.summary.current)
-        .map((thread) => thread.threadId),
-    ).toEqual(["thread-build"]);
-  });
-
-  it("recovers a reworked stage's earlier thread from its started run", () => {
-    const reworked = feature({
-      id: "reworked",
-      state: "working",
-      stage: "design",
-      steps: [step("design", "running", "bot-run:run-2", { runId: "run-2" })],
-    });
-    const snapshot = {
-      ...reworked.snapshot!,
-      recentEvents: [
-        { ...reworked.snapshot!.recentEvents[0]!, stepId: "design", runId: "run-1" },
-        { ...reworked.snapshot!.recentEvents[0]!, id: "e2", stepId: "design", runId: "run-2" },
-      ],
-    };
-    expect(
-      crewStageThreads({ ...reworked, snapshot }).map((thread) => [
-        thread.threadId,
-        thread.summary.current,
-      ]),
-    ).toEqual([
-      ["bot-run:run-2", true],
-      ["bot-run:run-1", false],
-    ]);
-  });
-});
-
 describe("crew questions", () => {
   it("returns the question the current stage is waiting on, and nothing once it moved on", () => {
     const asking = feature({
@@ -216,10 +148,10 @@ describe("crew questions", () => {
       steps: [step("plan", "needs-input", "t-plan")],
     });
     const snapshot = {
-      ...asking.snapshot!,
+      ...asking,
       recentEvents: [
         {
-          ...asking.snapshot!.recentEvents[0]!,
+          ...asking.recentEvents[0]!,
           kind: "question" as const,
           stepId: "plan",
           executionId: "exec-plan",
@@ -228,13 +160,13 @@ describe("crew questions", () => {
       ],
     };
     expect(crewOpenQuestion(snapshot)).toBe("Drag between columns, or buttons only?");
-    expect(crewOpenQuestion(atDesign.snapshot!)).toBeNull();
+    expect(crewOpenQuestion(atDesign)).toBeNull();
   });
 });
 
 describe("crew gate wording", () => {
   it("names the artifact, what approving starts, and who reads the note", () => {
-    expect(crewGateCopy(atDesign.snapshot!)).toEqual({
+    expect(crewGateCopy(atDesign)).toEqual({
       stepId: "design",
       kicker: "Design approval",
       title: "design.md v2",
@@ -254,92 +186,7 @@ describe("crew gate wording", () => {
         step("build", "failed", "t3"),
       ],
     });
-    expect(crewSendBackTargets(building.snapshot!, "build").map((t) => t.stepId)).toEqual([
-      "design",
-      "plan",
-    ]);
-    expect(crewSendBackTargets(atDesign.snapshot!, "plan")).toEqual([]);
-  });
-});
-
-describe("crew grouping", () => {
-  const failed = feature({
-    id: "failed",
-    state: "failed",
-    stage: "build",
-    steps: [step("build", "failed", "t-failed")],
-    since: "2026-10-01T00:00:00.000Z",
-  });
-  const working = feature({
-    id: "working",
-    state: "working",
-    stage: "build",
-    steps: [step("build", "running", "t-working")],
-  });
-  const planning = feature({
-    id: "planning",
-    state: "working",
-    stage: "plan",
-    steps: [step("plan", "running", "t-plan")],
-  });
-  const done = feature({ id: "done", state: "done", stage: null, steps: [] });
-  const other = feature({
-    id: "other",
-    state: "working",
-    stage: "plan",
-    steps: [],
-    workflowId: "bug-fix",
-  });
-  const features = [atDesign, failed, working, planning, done, other];
-
-  it("lists what needs a person, oldest first", () => {
-    expect(crewNeedsYou(features).map((item) => item.record.id)).toEqual(["failed", "kanban"]);
-  });
-
-  it("groups the rest by stage in order, with Done last", () => {
-    expect(
-      crewGroupByPhase(features).map((group) => [
-        group.label,
-        group.features.map((item) => item.record.id),
-      ]),
-    ).toEqual([
-      ["Plan", ["planning", "other"]],
-      ["Build", ["working"]],
-      ["Done", ["done"]],
-    ]);
-  });
-
-  it("groups one workflow by stage with gate rows and counts the hidden features", () => {
-    const { items, hiddenCount } = crewGroupByStage(features, definition);
-    expect(hiddenCount).toBe(1);
-    expect(
-      items.map((item) =>
-        item.kind === "gate"
-          ? `${item.label} · ${item.waiting}`
-          : `${item.label} (${item.features.length})`,
-      ),
-    ).toEqual([
-      "Plan (1)",
-      "Approve plan · 0",
-      "Design (1)",
-      "Approve design · 1",
-      "Build (2)",
-      "Done (1)",
-    ]);
-  });
-
-  it("keeps features at a stage only another version of the workflow has", () => {
-    const legacy = feature({
-      id: "legacy",
-      state: "working",
-      stage: "plan",
-      steps: [],
-    });
-    const atLegacyStage = {
-      ...legacy,
-      snapshot: { ...legacy.snapshot!, stage: { stepId: "spec", index: 1, total: 3 } },
-    };
-    const { items } = crewGroupByStage([atLegacyStage], definition);
-    expect(items.map((item) => item.label)).toContain("Spec (other version)");
+    expect(crewSendBackTargets(building, "build").map((t) => t.stepId)).toEqual(["design", "plan"]);
+    expect(crewSendBackTargets(atDesign, "plan")).toEqual([]);
   });
 });

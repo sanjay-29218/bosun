@@ -37,8 +37,8 @@ export interface CrewComposerMode {
 
 /** Composer behavior for the current stage thread, or null to leave the composer alone. */
 export function crewComposerMode(stage: CrewThreadStage | null): CrewComposerMode | null {
-  const snapshot = stage?.feature.snapshot;
-  if (!stage?.summary.current || !snapshot) return null;
+  if (!stage?.summary.current) return null;
+  const snapshot = stage.snapshot;
   const role = crewStageRole(snapshot.definition, stage.summary.stepId) ?? "crew";
   switch (stage.summary.state) {
     case "approval": {
@@ -99,7 +99,7 @@ function cardKind(stage: CrewThreadStage, snapshot: WorkflowFeatureSnapshot): Ca
       return stage.summary.current ? "cancelled" : null;
     case "done":
       // Done features have no current stage; the last stage thread offers the follow-up.
-      return crewCurrentThreadId(stage.feature) === stage.threadId ? "done" : null;
+      return crewCurrentThreadId(stage.snapshot) === stage.threadId ? "done" : null;
     default:
       return null;
   }
@@ -155,8 +155,7 @@ export function CrewStageCard(props: {
   const reopen = useAtomCommand(featuresEnvironment.reopen);
   const answer = useAtomCommand(featuresEnvironment.answer);
 
-  const snapshot = props.stage.feature.snapshot;
-  if (!snapshot) return null;
+  const snapshot = props.stage.snapshot;
   const kind = cardKind(props.stage, snapshot);
   if (kind === null) return null;
 
@@ -440,7 +439,7 @@ export function CrewStageCard(props: {
       );
     case "cancelled":
       return (
-        <ApprovalCardLayout kicker="Cancelled" title={props.stage.feature.record.title}>
+        <ApprovalCardLayout kicker="Cancelled" title={props.stage.title}>
           <RequestActionButton
             label="Reopen"
             disabled={disabled}
@@ -452,7 +451,7 @@ export function CrewStageCard(props: {
       return (
         <ApprovalCardLayout
           kicker="Done"
-          title={props.stage.feature.record.title}
+          title={props.stage.title}
           detail="Reopen to start a follow-up at a stage."
         >
           <ControlPillMenu

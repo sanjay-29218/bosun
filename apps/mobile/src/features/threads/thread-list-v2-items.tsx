@@ -22,11 +22,7 @@ import {
   type EnvironmentMachineKind,
   type FeatureCardState,
 } from "@t3tools/contracts";
-import {
-  crewFailureDetail,
-  crewStageLine,
-  humanizeCrewId,
-} from "@t3tools/client-runtime/state/crew";
+import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
@@ -46,7 +42,6 @@ import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useEnvironmentScope } from "../../state/session";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
-import { useCrewThreadStage, type CrewThreadStage } from "../../state/features";
 import { useThreadPr } from "../../state/use-thread-pr";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
@@ -522,16 +517,6 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   );
 });
 
-/** Line 3 of a stage thread's row: where the feature is, or why its stage failed. */
-function crewStageRowLine(stage: CrewThreadStage | null): string | null {
-  const snapshot = stage?.feature.snapshot;
-  if (!stage || !snapshot) return null;
-  const failure = stage.summary.state === "failed" ? crewFailureDetail(snapshot) : null;
-  return failure === null
-    ? crewStageLine(snapshot.definition, stage.summary)
-    : `${humanizeCrewId(stage.summary.stepId)} · ${failure}`;
-}
-
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly thread: EnvironmentThreadShell;
   readonly variant: "card" | "slim";
@@ -671,10 +656,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   // so checking a thread on any device clears it everywhere.
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
-  const crewStage = useCrewThreadStage(thread.environmentId, thread.id);
-  const crewLine = useMemo(() => crewStageRowLine(crewStage), [crewStage]);
+  // Line 3 of a stage thread: "Design · 2/6". Only the current stage carries the feature's state.
+  const crewStage = thread.crew ?? null;
+  const crewLine = crewStage ? formatCrewStageLine(crewStage) : null;
   const statusLabel =
-    (crewStage ? CREW_STATUS_LABEL_BY_STATE[crewStage.summary.state] : undefined) ??
+    (crewStage?.current ? CREW_STATUS_LABEL_BY_STATE[crewStage.state] : undefined) ??
     // A native /goal keeps the agent going across turns until it is met.
     (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
       ? { ...workingLabel, label: "Goal" }
@@ -1117,7 +1103,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               "flex-1 text-xs",
               selected
                 ? selectedThreadRowColors.mutedForegroundClassName
-                : crewStage?.summary.state === "failed"
+                : crewStage?.current && crewStage.state === "failed"
                   ? "text-danger-foreground"
                   : rowAppearance.mutedForegroundClassName,
             )}

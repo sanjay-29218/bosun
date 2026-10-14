@@ -11,7 +11,10 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
-import { createSidebarHeaderItems } from "../threads/sidebar-native-header-items";
+import {
+  createSidebarHeaderItems,
+  createThreadListHeaderItems,
+} from "../threads/sidebar-native-header-items";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -36,7 +39,7 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={[filterMenu.items, props.onOpenFeatures !== null]}
+        optionsVersion={[filterMenu.items, props.botSwitcher, props.viewToggle]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
@@ -49,21 +52,11 @@ export function HomeHeader(props: HomeHeaderProps) {
                     : "line.3.horizontal.decrease.circle",
                   filterMenu,
                   onOpenSettings: props.onOpenSettings,
-                  onOpenFeatures: props.onOpenFeatures,
+                  botSwitcher: props.botSwitcher,
+                  viewToggle: props.viewToggle,
                 })
               : [
-                  ...(props.onOpenFeatures
-                    ? [
-                        withNativeGlassHeaderItem({
-                          accessibilityLabel: "Open features",
-                          icon: { name: "square.3.layers.3d", type: "sfSymbol" } as const,
-                          identifier: "home-features",
-                          label: "",
-                          onPress: props.onOpenFeatures,
-                          type: "button",
-                        }),
-                      ]
-                    : []),
+                  ...createThreadListHeaderItems(props),
                   withNativeGlassHeaderItem({
                     accessibilityLabel: "Open settings",
                     icon: { name: "ellipsis", type: "sfSymbol" } as const,

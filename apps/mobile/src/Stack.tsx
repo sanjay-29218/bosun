@@ -60,7 +60,6 @@ import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScree
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
-import { FeaturesRouteScreen } from "./features/crew/FeaturesRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
@@ -82,6 +81,8 @@ import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppea
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
+import { SettingsRolesRouteScreen } from "./features/settings/SettingsRolesRouteScreen";
+import { SettingsWorkflowsRouteScreen } from "./features/settings/SettingsWorkflowsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -314,6 +315,16 @@ const SettingsContentStack = createV5SheetStackNavigator({
       options: {
         title: "Follow-ups",
       },
+    }),
+    SettingsWorkflows: createNativeStackScreen({
+      screen: SettingsWorkflowsRouteScreen,
+      linking: "workflows",
+      options: { title: "Workflows" },
+    }),
+    SettingsRoles: createNativeStackScreen({
+      screen: SettingsRolesRouteScreen,
+      linking: "roles",
+      options: { title: "Roles" },
     }),
     SettingsScheduledTasks: createNativeStackScreen({
       screen: SettingsScheduledTasksRouteScreen,
@@ -697,11 +708,6 @@ const RootStackConfig = createWorkspaceStackNavigator({
       screen: ThreadRouteScreen,
       linking: THREAD_LINKING_PREFIX,
       options: GLASS_HEADER_OPTIONS,
-    }),
-    Features: createNativeStackScreen({
-      screen: FeaturesRouteScreen,
-      linking: "features",
-      options: { ...GLASS_HEADER_OPTIONS, title: "Features" },
     }),
     ThreadTerminal: createNativeStackScreen({
       screen: ThreadTerminalRouteScreen,

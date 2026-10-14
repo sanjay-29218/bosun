@@ -44,7 +44,7 @@ import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
-import { useCrewHiddenThreadKeys } from "../../state/features";
+import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import {
   ThreadListV2PendingRow,
   ThreadListV2Row,
@@ -564,7 +564,6 @@ export function HomeScreen(props: HomeScreenProps) {
     nowMinute,
     snoozeWakeTick,
   ]);
-  const crewHiddenThreadKeys = useCrewHiddenThreadKeys();
   const threadListV2Layout = useMemo(() => {
     threadListInboxReturns.observe(workingShelfEnabled ? props.threads : null);
     // Settled threads are live shells; archived threads keep their original
@@ -572,9 +571,7 @@ export function HomeScreen(props: HomeScreenProps) {
     return buildThreadListV2Items({
       pendingOrder,
       threads: props.threads.filter(
-        (thread) =>
-          thread.archivedAt === null &&
-          !crewHiddenThreadKeys.has(scopedThreadKey(thread.environmentId, thread.id)),
+        (thread) => thread.archivedAt === null && !isHiddenStageThread(thread),
       ),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
@@ -593,7 +590,6 @@ export function HomeScreen(props: HomeScreenProps) {
       selectedThreadKey,
     });
   }, [
-    crewHiddenThreadKeys,
     workingShelfEnabled,
     workingShelfExpanded,
     pendingOrder,

@@ -13,6 +13,7 @@ import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
+import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
@@ -20,6 +21,11 @@ import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
 import { useWorkspaceState } from "../../state/workspace";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
+import {
+  threadListViewToggleButton,
+  type BotSwitcherMenu,
+  type ThreadListViewToggle,
+} from "./thread-list-chrome";
 
 /** One toolbar height for the compact list and expanded sidebar, including search. */
 export function MaterialThreadListToolbar(props: {
@@ -30,13 +36,14 @@ export function MaterialThreadListToolbar(props: {
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironments: () => void;
-  readonly onOpenFeatures?: (() => void) | null;
+  readonly botSwitcher: BotSwitcherMenu | null;
+  readonly viewToggle: ThreadListViewToggle | null;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { fabSize } = useAndroidControlSizing();
+  const { fabSize, buttonSize, iconSize } = useAndroidControlSizing();
   const { height: toolbarHeight, ...headerPadding } = useMaterialToolbarLayout();
   const { state } = useWorkspaceState();
   const { onRequestVisibility, onSearchQueryChange } = props;
@@ -114,11 +121,17 @@ export function MaterialThreadListToolbar(props: {
                 icon="magnifyingglass"
                 onPress={openSearch}
               />
-              {props.onOpenFeatures ? (
+              {props.botSwitcher ? (
+                <BotSwitcherButton
+                  menu={props.botSwitcher}
+                  buttonSize={buttonSize}
+                  iconSize={iconSize}
+                />
+              ) : null}
+              {props.viewToggle ? (
                 <AndroidHeaderIconButton
-                  accessibilityLabel="Open features"
-                  icon="square.3.layers.3d"
-                  onPress={props.onOpenFeatures}
+                  {...threadListViewToggleButton(props.viewToggle.view)}
+                  onPress={props.viewToggle.onToggle}
                 />
               ) : null}
               <AndroidHeaderIconButton
@@ -153,5 +166,38 @@ export function MaterialThreadListToolbar(props: {
         </View>
       ) : null}
     </>
+  );
+}
+
+/** The active bot's emoji in an icon-button slot; the menu lists every bot and what waits. */
+function BotSwitcherButton(props: {
+  readonly menu: BotSwitcherMenu;
+  readonly buttonSize: number;
+  readonly iconSize: number;
+}) {
+  const { menu } = props;
+  return (
+    <AndroidAnchoredMenu
+      title="Bots"
+      actions={menu.items.map((item) => ({
+        id: item.key,
+        title: item.title,
+        ...(item.subtitle ? { subtitle: item.subtitle } : {}),
+        state: item.state,
+      }))}
+      onPressAction={({ nativeEvent }) =>
+        menu.items.find((item) => item.key === nativeEvent.event)?.onPress()
+      }
+    >
+      <View
+        accessible
+        accessibilityLabel={menu.accessibilityLabel}
+        accessibilityRole="button"
+        className="items-center justify-center"
+        style={{ width: props.buttonSize, height: props.buttonSize }}
+      >
+        <Text style={{ fontSize: props.iconSize }}>{menu.emoji}</Text>
+      </View>
+    </AndroidAnchoredMenu>
   );
 }

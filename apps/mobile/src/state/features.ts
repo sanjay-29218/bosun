@@ -1,54 +1,78 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
-import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
+import { crewStageRefreshKey } from "@t3tools/client-runtime/crew-stage";
 import {
-  crewStageThreads,
-  type CrewFeature,
-  type CrewStageThread,
-} from "@t3tools/client-runtime/state/crew";
+  threadBoardSignal,
+  type EnvironmentFeatureCard,
+} from "@t3tools/client-runtime/state/crew-board";
 import { createFeatureAtoms } from "@t3tools/client-runtime/state/features";
-import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, type ProjectId, type ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
+import type {
+  EnvironmentId,
+  CrewStageSummary,
+  ProjectId,
+  ThreadId,
+  WorkflowFeatureSnapshot,
+} from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { useCallback, useContext } from "react";
 import { AsyncResult, Atom } from "effect/reactivity";
+import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
 
 import { connectionAtomRuntime } from "../connection/runtime";
-import { scopedThreadKey } from "../lib/scopedEntities";
 import { environmentProjects } from "./projects";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "./query";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
+import { workflowsEnvironment } from "./workflows";
 
-const boardKey = (environmentId: EnvironmentId, projectId: ProjectId) =>
-  JSON.stringify([environmentId, projectId]);
-
-/**
- * Changes when a crew thread in the project starts or finishes a run, or a new one appears.
- * Stage moves happen at those points, so the board re-reads then instead of polling.
- */
-const boardSignalAtom = Atom.family((key: string) => {
-  const [environmentId, projectId] = JSON.parse(key) as [string, string];
-  return Atom.make((get) =>
-    get(environmentThreadShells.environmentThreadsAtom(EnvironmentId.make(environmentId)))
-      .filter((thread) => thread.projectId === projectId && isCrewThreadId(thread.id))
-      .map((thread) => `${thread.id}:${thread.status}:${thread.latestRunId ?? ""}`)
-      .join("|"),
-  ).pipe(Atom.withLabel(`crew-board-signal:${key}`));
-});
-
-export const featuresEnvironment = createFeatureAtoms(connectionAtomRuntime, {
-  boardRefreshTrigger: ({ environmentId, input }) =>
-    boardSignalAtom(boardKey(environmentId, input.projectId)),
-});
-
-export function crewBoardAtom(project: { environmentId: EnvironmentId; projectId: ProjectId }) {
-  return featuresEnvironment.snapshotBoard({
-    environmentId: project.environmentId,
-    input: { projectId: project.projectId },
-  });
+export interface FeatureBoardTarget {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
 }
 
-/** Projects on environments whose server runs Crew mode. */
+const boardKey = (target: FeatureBoardTarget) =>
+  JSON.stringify([target.environmentId, target.projectId]);
+
+/** Every project's board signal, keyed by `boardKey`, computed once per shell update. */
+const boardSignalsAtom = Atom.make((get) => {
+  const parts = new Map<string, string[]>();
+  for (const thread of get(environmentThreadShells.threadShellsAtom)) {
+    if (thread.archivedAt !== null) continue;
+    const key = boardKey({ environmentId: thread.environmentId, projectId: thread.projectId });
+    const list = parts.get(key) ?? [];
+    list.push(threadBoardSignal(thread));
+    parts.set(key, list);
+  }
+  return new Map([...parts].map(([key, list]) => [key, [...list].sort().join(",")]));
+}).pipe(Atom.withLabel("feature-board-signals"));
+
+/**
+ * Changes when a thread in the project starts, stops, or starts waiting on you. Stage moves
+ * happen at those points, so a board that is on screen re-reads then instead of polling.
+ */
+const boardSignalAtom = Atom.family((key: string) =>
+  Atom.make((get) => get(boardSignalsAtom).get(key) ?? "").pipe(
+    Atom.withLabel(`feature-board-signal:${key}`),
+  ),
+);
+
+export const featuresEnvironment = createFeatureAtoms(connectionAtomRuntime, {
+  workflowFeature: workflowsEnvironment.feature,
+  boardRefreshTrigger: ({ environmentId, input }) =>
+    boardSignalAtom(boardKey({ environmentId, projectId: input.projectId })),
+});
+
+const boardAtom = (target: FeatureBoardTarget) =>
+  featuresEnvironment.board({
+    environmentId: target.environmentId,
+    input: { projectId: target.projectId },
+  });
+
+/** Projects on environments whose server runs workflows. */
 export const crewProjectsAtom = Atom.make((get) => {
   const configs = get(environmentServerConfigsAtom);
   return get(environmentProjects.projectsAtom).filter(
@@ -56,114 +80,112 @@ export const crewProjectsAtom = Atom.make((get) => {
   );
 }).pipe(Atom.withLabel("crew-projects"));
 
-export interface CrewBoardEntry {
-  readonly project: EnvironmentProject;
-  readonly features: ReadonlyArray<CrewFeature>;
+/** Workflow projects the board can show: the active bot's, or every one without a switcher. */
+export function useBoardProjects(
+  botProjectKeys: ReadonlySet<string> | null,
+): ReadonlyArray<EnvironmentProject> {
+  const projects = useAtomValue(crewProjectsAtom);
+  return useMemo(
+    () =>
+      botProjectKeys === null
+        ? projects
+        : projects.filter((project) =>
+            botProjectKeys.has(`${project.environmentId}:${project.id}`),
+          ),
+    [botProjectKeys, projects],
+  );
 }
 
-const EMPTY_FEATURES: ReadonlyArray<CrewFeature> = [];
-
-/** Every Crew project's loaded board. A board that is still loading or failed counts as empty. */
-export const crewBoardsAtom = Atom.make((get): ReadonlyArray<CrewBoardEntry> =>
-  get(crewProjectsAtom).map((project) => ({
-    project,
-    features: Option.getOrElse(
-      AsyncResult.value(
-        get(crewBoardAtom({ environmentId: project.environmentId, projectId: project.id })),
-      ),
-      () => EMPTY_FEATURES,
-    ),
-  })),
-).pipe(Atom.withLabel("crew-boards"));
-
-export interface CrewThreadStage extends CrewStageThread {
-  readonly environmentId: EnvironmentId;
-}
-
-/** Stage threads by `environmentId:threadId`. */
-export const crewStageIndexAtom = Atom.make((get) => {
-  const index = new Map<string, CrewThreadStage>();
-  for (const board of get(crewBoardsAtom)) {
-    for (const feature of board.features) {
-      for (const stage of crewStageThreads(feature)) {
-        index.set(scopedThreadKey(board.project.environmentId, stage.threadId), {
-          ...stage,
-          environmentId: board.project.environmentId,
-        });
-      }
-    }
-  }
-  return index;
-}).pipe(Atom.withLabel("crew-stage-index"));
-
-let previousHiddenThreadKeys: ReadonlySet<string> = new Set();
-/** Earlier stage threads of a feature: lists show one row per feature, its current stage. */
-export const crewHiddenThreadKeysAtom = Atom.make((get) => {
-  const hidden = new Set<string>();
-  for (const [key, stage] of get(crewStageIndexAtom)) {
-    if (!stage.summary.current) hidden.add(key);
-  }
-  // Keep the previous set when nothing moved, so thread lists don't rebuild on every refresh.
-  const unchanged =
-    hidden.size === previousHiddenThreadKeys.size &&
-    [...hidden].every((key) => previousHiddenThreadKeys.has(key));
-  if (!unchanged) previousHiddenThreadKeys = hidden;
-  return previousHiddenThreadKeys;
-}).pipe(Atom.withLabel("crew-hidden-thread-keys"));
-
-const crewThreadStageAtom = Atom.family((key: string) =>
-  Atom.make((get) => get(crewStageIndexAtom).get(key) ?? null).pipe(
-    Atom.withLabel(`crew-thread-stage:${key}`),
-  ),
-);
-
-export function useCrewThreadStage(
-  environmentId: EnvironmentId,
-  threadId: ThreadId,
-): CrewThreadStage | null {
-  return useAtomValue(crewThreadStageAtom(scopedThreadKey(environmentId, threadId)));
-}
-
-export function useCrewHiddenThreadKeys(): ReadonlySet<string> {
-  return useAtomValue(crewHiddenThreadKeysAtom);
-}
-
-export function useCrewBoards(): ReadonlyArray<CrewBoardEntry> {
-  return useAtomValue(crewBoardsAtom);
-}
-
-export function useCrewProjects(): ReadonlyArray<EnvironmentProject> {
-  return useAtomValue(crewProjectsAtom);
-}
-
-/** How often a focused Crew view re-reads its boards. */
+/** How often a focused board re-reads. */
 const FOCUSED_BOARD_REFRESH_MS = 30_000;
 
 /**
- * Re-reads boards when the screen gains focus and every 30 seconds while it keeps it. A
- * decision made on another device (a pause, or an approval that starts no new run yet) moves
- * no crew thread here, so the board's thread signal alone would miss it.
+ * The server-built board cards of every target, merged. Each project loads and fails on its
+ * own. Boards re-read when the screen gains focus and every 30 seconds while it keeps it: a
+ * decision made on another device (a pause, or an approval that starts no run yet) moves no
+ * thread here, so the thread signal alone would miss it.
  */
-export function useRefreshCrewBoardsWhileFocused(
-  projects: ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly projectId: ProjectId }>,
-) {
+export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
   const registry = useContext(RegistryContext);
-  const key = JSON.stringify(projects.map((project) => [project.environmentId, project.projectId]));
+  const key = JSON.stringify(targets.map(boardKey));
+  // Callers rebuild `targets` every render; the key is what identifies the set.
+  const stableTargets = useMemo(() => targets, [key]);
+  const resultsAtom = useMemo(
+    () =>
+      Atom.make((get) =>
+        stableTargets.map((target) => ({ target, result: get(boardAtom(target)) })),
+      ).pipe(Atom.withLabel(`feature-board:${key}`)),
+    [key, stableTargets],
+  );
+  const results = useAtomValue(resultsAtom);
+
+  const refresh = useCallback(() => {
+    for (const target of stableTargets) registry.refresh(boardAtom(target));
+  }, [registry, stableTargets]);
   useFocusEffect(
     useCallback(() => {
-      const targets = (JSON.parse(key) as Array<[string, string]>).map(
-        ([environmentId, projectId]) => ({
-          environmentId: environmentId as EnvironmentId,
-          projectId: projectId as ProjectId,
-        }),
-      );
-      if (targets.length === 0) return undefined;
-      const refresh = () => {
-        for (const target of targets) registry.refresh(crewBoardAtom(target));
-      };
+      if (stableTargets.length === 0) return undefined;
       refresh();
       const timer = setInterval(refresh, FOCUSED_BOARD_REFRESH_MS);
       return () => clearInterval(timer);
-    }, [key, registry]),
+    }, [refresh, stableTargets.length]),
+  );
+
+  return useMemo(() => {
+    const cards: EnvironmentFeatureCard[] = [];
+    const errors: string[] = [];
+    let pending = false;
+    for (const { target, result } of results) {
+      const value = Option.getOrNull(AsyncResult.value(result));
+      if (value !== null) {
+        for (const card of value) cards.push({ ...card, environmentId: target.environmentId });
+      }
+      if (result.waiting && value === null) pending = true;
+      if (result._tag === "Failure" && !Cause.hasInterruptsOnly(result.cause))
+        errors.push(formatEnvironmentQueryError(result.cause));
+    }
+    return { cards, errors, pending, refresh };
+  }, [refresh, results]);
+}
+
+/** An open stage thread with its feature's workflow snapshot. */
+export interface CrewThreadStage {
+  readonly threadId: ThreadId;
+  readonly summary: CrewStageSummary;
+  readonly snapshot: WorkflowFeatureSnapshot;
+  /** The stage thread's title, which names the feature. */
+  readonly title: string;
+}
+
+/**
+ * Loads a stage thread's feature only while the thread is open, and reloads it when the
+ * shell's `crew` summary or run status says something moved.
+ */
+export function useCrewThreadStage(thread: EnvironmentThreadShell): CrewThreadStage | null {
+  const crew = thread.crew ?? null;
+  const query = useEnvironmentQuery(
+    crew
+      ? workflowsEnvironment.feature({
+          environmentId: thread.environmentId,
+          input: { projectId: thread.projectId, featureId: crew.featureId },
+        })
+      : null,
+  );
+  const changeKey = crewStageRefreshKey(crew, thread.latestRun?.status);
+  const lastKey = useRef(changeKey);
+  const { refresh } = query;
+  useEffect(() => {
+    if (changeKey === lastKey.current) return;
+    lastKey.current = changeKey;
+    if (changeKey !== null) refresh();
+  }, [changeKey, refresh]);
+
+  const snapshot = query.data;
+  return useMemo(
+    () =>
+      crew && snapshot && snapshot.featureId === crew.featureId
+        ? { threadId: thread.id, summary: crew, snapshot, title: thread.title }
+        : null,
+    [crew, snapshot, thread.id, thread.title],
   );
 }

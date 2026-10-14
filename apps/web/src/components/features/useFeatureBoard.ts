@@ -1,5 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-board";
+import {
+  threadBoardSignal,
+  type EnvironmentFeatureCard,
+} from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
@@ -45,9 +48,7 @@ const threadActivityKeysAtom = Atom.make((get) => {
     if (shell.archivedAt !== null) continue;
     const key = `${shell.environmentId}:${shell.projectId}`;
     const parts = keys.get(key) ?? [];
-    parts.push(
-      `${shell.id}/${shell.runtime?.status ?? "-"}/${shell.latestRun?.status ?? "-"}/${shell.hasPendingApprovals ? 1 : 0}${shell.hasPendingUserInput ? 1 : 0}`,
-    );
+    parts.push(threadBoardSignal(shell));
     keys.set(key, parts);
   }
   return [...keys]

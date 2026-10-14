@@ -9,12 +9,13 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LayoutChangeEvent, TextInputInstance } from "react-native";
+import type { LayoutChangeEvent, StyleProp, TextInputInstance, ViewStyle } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
 import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -35,7 +36,12 @@ import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
-import { useCrewHiddenThreadKeys, useCrewProjects } from "../../state/features";
+import { useActiveBot } from "../../state/bots";
+import { useBoardProjects } from "../../state/features";
+import { FeatureBoard } from "../crew/FeatureBoard";
+import { buildBotSwitcherMenu } from "../home/thread-list-chrome";
+import { useThreadListView } from "../home/use-thread-list-view";
+import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
@@ -138,8 +144,32 @@ function ThreadNavigationSidebarPane(
 
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
-  const projects = useProjects();
-  const threads = useNavigationThreadShells();
+  const allProjects = useProjects();
+  const allThreads = useNavigationThreadShells();
+  // The list shows the active bot's projects; with one bot it shows everything.
+  const activeBot = useActiveBot();
+  const botProjectKeys = activeBot.projectKeys;
+  const projects = useMemo(
+    () =>
+      botProjectKeys === null
+        ? allProjects
+        : allProjects.filter((project) =>
+            botProjectKeys.has(scopedProjectKey(project.environmentId, project.id)),
+          ),
+    [allProjects, botProjectKeys],
+  );
+  const threads = useMemo(
+    () =>
+      botProjectKeys === null
+        ? allThreads
+        : allThreads.filter((thread) =>
+            botProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+          ),
+    [allThreads, botProjectKeys],
+  );
+  const botSwitcher = useMemo(() => buildBotSwitcherMenu(activeBot), [activeBot]);
+  const boardProjects = useBoardProjects(botProjectKeys);
+  const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const searchInputRef = useRef<TextInputInstance>(null);
@@ -367,15 +397,12 @@ function ThreadNavigationSidebarPane(
     nowMinute,
     snoozeWakeTick,
   ]);
-  const crewHiddenThreadKeys = useCrewHiddenThreadKeys();
   const threadListV2Layout = useMemo(() => {
     threadListInboxReturns.observe(workingShelfEnabled ? threads : null);
     return buildThreadListV2Items({
       pendingOrder,
       threads: threads.filter(
-        (thread) =>
-          thread.archivedAt === null &&
-          !crewHiddenThreadKeys.has(scopedThreadKey(thread.environmentId, thread.id)),
+        (thread) => thread.archivedAt === null && !isHiddenStageThread(thread),
       ),
       environmentId: options.selectedEnvironmentId,
       projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
@@ -394,7 +421,6 @@ function ThreadNavigationSidebarPane(
       selectedThreadKey: props.selectedThreadKey ?? null,
     });
   }, [
-    crewHiddenThreadKeys,
     workingShelfEnabled,
     workingShelfExpanded,
     pendingOrder,
@@ -864,20 +890,48 @@ function ThreadNavigationSidebarPane(
     [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
   );
   const sidebarNavigation = useNavigation();
-  const hasCrewProjects = useCrewProjects().length > 0;
-  const openFeatures = useMemo(
-    () => (hasCrewProjects ? () => sidebarNavigation.navigate("Features") : null),
-    [hasCrewProjects, sidebarNavigation],
-  );
   const nativeHeaderItems = useMemo(
     () =>
       createSidebarHeaderItems({
         filterIcon,
         filterMenu,
         onOpenSettings: props.onOpenSettings,
-        onOpenFeatures: openFeatures,
+        botSwitcher,
+        viewToggle,
       }),
-    [filterIcon, filterMenu, props.onOpenSettings, openFeatures],
+    [botSwitcher, filterIcon, filterMenu, props.onOpenSettings, viewToggle],
+  );
+  // The board follows the same environment and project filters as the list.
+  const filteredBoardProjects = useMemo(
+    () =>
+      boardProjects.filter(
+        (project) =>
+          (options.selectedEnvironmentId === null ||
+            project.environmentId === options.selectedEnvironmentId) &&
+          (selectedProjectRefs === null ||
+            selectedProjectRefs.has(scopedProjectKey(project.environmentId, project.id))),
+      ),
+    [boardProjects, options.selectedEnvironmentId, selectedProjectRefs],
+  );
+  const openBoardThread = useCallback(
+    (environmentId: EnvironmentId, threadId: ThreadId) => {
+      const thread = allThreads.find(
+        (candidate) => candidate.environmentId === environmentId && candidate.id === threadId,
+      );
+      if (thread) handleSelectThread(thread);
+    },
+    [allThreads, handleSelectThread],
+  );
+  const renderBoard = (contentContainerStyle: StyleProp<ViewStyle>, automaticInsets: boolean) => (
+    <FeatureBoard
+      projects={filteredBoardProjects}
+      searchQuery={props.searchQuery}
+      scopeKey={`${activeBot.viewKey}|${options.selectedEnvironmentId ?? "all"}|${selectedProjectKey ?? "all"}`}
+      onOpenThread={openBoardThread}
+      onStartFeature={() => sidebarNavigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+      contentContainerStyle={contentContainerStyle}
+      automaticInsets={automaticInsets}
+    />
   );
   // Snoozed threads need no special case: the shelf header is a list row
   // even while collapsed.
@@ -939,40 +993,47 @@ function ThreadNavigationSidebarPane(
           }}
         />
         <View className="flex-1">
-          <SwipeableScrollGateProvider enabled={swipeEnabled}>
-            <GestureDetector gesture={sidebarScrollGesture}>
-              <LegendList
-                data={listItems}
-                drawDistance={500}
-                estimatedItemSize={64}
-                extraData={listExtraData}
-                getItemType={(item) => item.type}
-                itemsAreEqual={sidebarItemsAreEqual}
-                keyExtractor={(item) => item.key}
-                renderItem={renderListItem}
-                automaticallyAdjustsScrollIndicatorInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
-                contentInsetAdjustmentBehavior={
-                  NATIVE_LIQUID_GLASS_SUPPORTED ? "automatic" : "never"
-                }
-                contentContainerStyle={[
-                  styles.threadListContent,
-                  Platform.OS === "android" ? { paddingHorizontal: 0 } : null,
-                  {
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                    paddingTop: 6,
-                  },
-                ]}
-                keyboardDismissMode="on-drag"
-                keyboardShouldPersistTaps="handled"
-                {...scrollGateHandlers}
-                recycleItems
-                scrollEventThrottle={16}
-                showsVerticalScrollIndicator={false}
-                style={styles.threadList}
-                ListEmptyComponent={listEmpty}
-              />
-            </GestureDetector>
-          </SwipeableScrollGateProvider>
+          {viewToggle?.view === "board" ? (
+            renderBoard(
+              { paddingBottom: Math.max(insets.bottom, 16) + 16 },
+              NATIVE_LIQUID_GLASS_SUPPORTED,
+            )
+          ) : (
+            <SwipeableScrollGateProvider enabled={swipeEnabled}>
+              <GestureDetector gesture={sidebarScrollGesture}>
+                <LegendList
+                  data={listItems}
+                  drawDistance={500}
+                  estimatedItemSize={64}
+                  extraData={listExtraData}
+                  getItemType={(item) => item.type}
+                  itemsAreEqual={sidebarItemsAreEqual}
+                  keyExtractor={(item) => item.key}
+                  renderItem={renderListItem}
+                  automaticallyAdjustsScrollIndicatorInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
+                  contentInsetAdjustmentBehavior={
+                    NATIVE_LIQUID_GLASS_SUPPORTED ? "automatic" : "never"
+                  }
+                  contentContainerStyle={[
+                    styles.threadListContent,
+                    Platform.OS === "android" ? { paddingHorizontal: 0 } : null,
+                    {
+                      paddingBottom: Math.max(insets.bottom, 16) + 16,
+                      paddingTop: 6,
+                    },
+                  ]}
+                  keyboardDismissMode="on-drag"
+                  keyboardShouldPersistTaps="handled"
+                  {...scrollGateHandlers}
+                  recycleItems
+                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={false}
+                  style={styles.threadList}
+                  ListEmptyComponent={listEmpty}
+                />
+              </GestureDetector>
+            </SwipeableScrollGateProvider>
+          )}
         </View>
       </>
     );
@@ -1002,7 +1063,18 @@ function ThreadNavigationSidebarPane(
             : { paddingBottom: insets.bottom }
         }
       >
-        {Platform.OS === "android" && listItems.length === 0 ? (
+        {viewToggle?.view === "board" ? (
+          renderBoard(
+            {
+              paddingBottom:
+                Platform.OS === "android"
+                  ? Math.max(insets.bottom, 16) + fabClearance - insets.bottom
+                  : 16 + insets.bottom,
+              paddingTop: Platform.OS === "android" ? 0 : topListInset - 12,
+            },
+            false,
+          )
+        ) : Platform.OS === "android" && listItems.length === 0 ? (
           <View className="flex-1 items-center justify-center">{listEmpty}</View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
@@ -1051,7 +1123,8 @@ function ThreadNavigationSidebarPane(
           filterCustomized={filterCustomized}
           onFilterAction={handleListMenuAction}
           onOpenSettings={props.onOpenSettings}
-          onOpenFeatures={openFeatures}
+          botSwitcher={botSwitcher}
+          viewToggle={viewToggle}
           onOpenEnvironments={props.onOpenEnvironmentSettings}
           onRequestVisibility={props.onRequestVisibility}
         />
@@ -1081,7 +1154,11 @@ function ThreadNavigationSidebarPane(
               <ControlPillMenu actions={listMenuActions} onPressAction={handleListMenuAction}>
                 <SidebarFilterButton accessibilityLabel="Filter threads" icon={filterIcon} />
               </ControlPillMenu>
-              <SidebarHeaderActions onOpenSettings={props.onOpenSettings} />
+              <SidebarHeaderActions
+                onOpenSettings={props.onOpenSettings}
+                botSwitcher={botSwitcher}
+                viewToggle={viewToggle}
+              />
             </View>
           </View>
 
