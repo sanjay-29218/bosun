@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { logicalBotKey, type LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { PlusIcon, ServerIcon } from "lucide-react";
+import { useLocation } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -29,7 +30,7 @@ import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { useSwitchBotMainView } from "./mainAppLocation";
+import { isSidebarUtilityPage, useSwitchBotMainView } from "./mainAppLocation";
 import { useOpenBotHeadquarters } from "./openBotHeadquarters";
 
 /** The rail's width; the sidebar sits right of it. */
@@ -68,9 +69,12 @@ export const BotRail = memo(function BotRail({
   const canAdd = useAtomValue(botsEnvironment.create.permissionAtom(addEnvironmentId));
 
   const openHeadquarters = useOpenBotHeadquarters();
-  // Picking the picked bot again opens its headquarters, where it oversees its projects.
+  const onUtilityPage = useLocation({
+    select: (location) => isSidebarUtilityPage(location.pathname),
+  });
+  // Picking a bot shows its threads; picking it again there opens its headquarters.
   const select = (bot: LogicalBot) => {
-    if (bot.key !== active?.key) switchBotMainView(() => selectBot(bot));
+    if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
     else {
       if (isMobile) setOpenMobile(false);
       openHeadquarters(bot);
@@ -92,11 +96,11 @@ export const BotRail = memo(function BotRail({
       if (!bot) return;
       event.preventDefault();
       event.stopPropagation();
-      if (bot.key !== active?.key) switchBotMainView(() => selectBot(bot));
+      if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active?.key, bots, keybindings, multipleBots, selectBot, switchBotMainView]);
+  }, [active?.key, bots, keybindings, multipleBots, onUtilityPage, selectBot, switchBotMainView]);
 
   return (
     <nav

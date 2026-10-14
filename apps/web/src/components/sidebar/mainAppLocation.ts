@@ -135,7 +135,7 @@ export function useToggleMainView() {
 /**
  * Switches bots through `select`, keeping List / Board per bot: the view on screen is saved
  * for the bot being left, then the new bot's saved view shows. A bot without one keeps the
- * current view and saves it. A utility page stays where it is.
+ * current view and saves it. From a utility page it opens the new bot's view.
  */
 export function useSwitchBotMainView() {
   const router = useRouter();
@@ -143,10 +143,16 @@ export function useSwitchBotMainView() {
   return useCallback(
     (select: () => void) => {
       const { pathname } = router.state.location;
-      const current =
-        pathname === "/" || isSidebarUtilityPage(pathname) ? null : mainViewForPathname(pathname);
+      const utility = isSidebarUtilityPage(pathname);
+      const current = pathname === "/" || utility ? null : mainViewForPathname(pathname);
       if (current) rememberMainView(readActiveEnvironmentId(), current);
       select();
+      // From Settings and other utility pages, picking a bot opens its list or board.
+      if (utility) {
+        const key = mainViewKey(readActiveEnvironmentId());
+        void showMainView((key === null ? undefined : readMainViews()[key]) ?? "list");
+        return;
+      }
       if (!current) return;
       const key = mainViewKey(readActiveEnvironmentId());
       const remembered = key === null ? undefined : readMainViews()[key];
