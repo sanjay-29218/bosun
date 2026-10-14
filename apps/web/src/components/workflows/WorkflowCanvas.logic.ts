@@ -8,14 +8,17 @@ import {
 
 export type CanvasPosition = WorkflowLayout[string];
 
-/** Distance between columns, and the space kept between nodes stacked in one column. */
+/**
+ * Distance between columns: a stage node's width (`w-56`, 224px; Finish is
+ * narrower) plus a gap. Also the space kept between nodes stacked in one column.
+ */
 export const CANVAS_COLUMN_WIDTH = 300;
 export const CANVAS_ROW_GAP = 40;
 
 /**
- * A node's drawn height, estimated from what it shows: a stage's header plus
- * one row per outcome, or the Finish label. Layout only needs it to keep
- * stacked nodes apart, so it errs on the tall side.
+ * A node's drawn height, from what it shows: a stage's header plus one
+ * single-line row per outcome, or the Finish label. Layout only needs it to
+ * keep stacked nodes apart, so it errs on the tall side.
  */
 export function canvasNodeHeight(definition: WorkflowDefinition, stepId: string): number {
   const step = definition.steps[stepId];
@@ -116,12 +119,13 @@ export function workflowNodePositions(
     const saved = layout[id];
     if (saved) placed[id] = saved;
   }
-  // The placed node a candidate would overlap, keeping a row gap above and below.
+  // The placed node a candidate would overlap: closer than a column apart
+  // sideways, and without a row gap between them vertically.
   const overlapping = (id: string, candidate: CanvasPosition) => {
     const height = canvasNodeHeight(definition, id);
     return Object.entries(placed).find(
       ([otherId, other]) =>
-        Math.abs(other.x - candidate.x) < CANVAS_COLUMN_WIDTH / 2 &&
+        Math.abs(other.x - candidate.x) < CANVAS_COLUMN_WIDTH &&
         candidate.y < other.y + canvasNodeHeight(definition, otherId) + CANVAS_ROW_GAP &&
         other.y < candidate.y + height + CANVAS_ROW_GAP,
     );

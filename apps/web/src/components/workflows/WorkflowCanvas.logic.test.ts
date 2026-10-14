@@ -116,10 +116,11 @@ describe("workflowNodePositions", () => {
     };
     const positions = workflowNodePositions({ ...definition, layout });
     expect(positions.build).toEqual(layout.build);
-    // Nothing routes to the orphan: its automatic spot overlaps Finish, so it moves below it.
+    // Nothing routes to the orphan. Its automatic spot overlaps Finish and then Review
+    // (700 to 924 wide), so it ends up below Review, the taller of the two.
     expect(positions.orphan).toEqual({
       x: column(3),
-      y: canvasNodeHeight(definition, "end") + CANVAS_ROW_GAP,
+      y: canvasNodeHeight(definition, "review") + CANVAS_ROW_GAP,
     });
     const added = workflowNodePositions({
       ...definition,
@@ -133,6 +134,27 @@ describe("workflowNodePositions", () => {
     // Right of build is taken by review, so lint goes below review.
     expect(added.lint).toEqual({
       x: 400 + CANVAS_COLUMN_WIDTH,
+      y: canvasNodeHeight(definition, "review") + CANVAS_ROW_GAP,
+    });
+  });
+});
+
+describe("workflowNodePositions with a dragged layout", () => {
+  it("moves a new stage clear of a node that sits less than a column to its right", () => {
+    const definition = workflow();
+    const layout = { plan: { x: -300, y: 0 }, build: { x: 0, y: 0 }, review: { x: 480, y: 0 } };
+    const positions = workflowNodePositions({
+      ...definition,
+      layout,
+      steps: {
+        ...definition.steps,
+        build: { type: "task", role: "builder", task: "Build", next: { built: "lint" } },
+        lint: { type: "task", role: "builder", task: "Lint", next: { done: "review" } },
+      },
+    });
+    // Right of build is (300, 0), which would cover review's left edge at 480.
+    expect(positions.lint).toEqual({
+      x: CANVAS_COLUMN_WIDTH,
       y: canvasNodeHeight(definition, "review") + CANVAS_ROW_GAP,
     });
   });

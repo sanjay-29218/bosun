@@ -332,7 +332,8 @@ function StageNodeView({ id, data, selected }: NodeProps<StageNode>) {
             key={outcome}
             className="relative px-3 py-0.5 text-right text-xs text-muted-foreground"
           >
-            {humanizeWorkflowId(outcome)}
+            {/* One line per outcome keeps the node as tall as layout expects. */}
+            <span className="block truncate">{humanizeWorkflowId(outcome)}</span>
             <Handle type="source" position={Position.Right} id={outcome} />
           </div>
         ))}
