@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, useWindowDimensions } from "react-native";
 
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { logicalBotProjectKeys } from "@t3tools/client-runtime/state/bot-rail";
+import { headquartersBotId } from "@t3tools/contracts";
 import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
@@ -30,6 +32,8 @@ import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
 import { useAtomValueWhileVisible, useHomeRouteVisible } from "./home-route-visibility";
 import { useHomeThreadSelection } from "./home-thread-navigation";
+import { BotHeaderRow } from "./BotHeaderRow";
+import { useOpenBotHeadquarters } from "./useOpenBotHeadquarters";
 import { buildHomeProjectScopes, findHomeProjectScope } from "./homeThreadList";
 import { buildBotSwitcherMenu } from "./thread-list-chrome";
 import { useThreadListView } from "./use-thread-list-view";
@@ -68,16 +72,46 @@ export function HomeRouteScreen() {
           ),
     [allProjects, botProjectKeys],
   );
+  // Headquarters open from the bot row above the list instead.
   const threads = useMemo(
     () =>
-      botProjectKeys === null
-        ? allThreads
-        : allThreads.filter((thread) =>
-            botProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
-          ),
+      allThreads.filter(
+        (thread) =>
+          headquartersBotId(thread.id) === null &&
+          (botProjectKeys === null ||
+            botProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId))),
+      ),
     [allThreads, botProjectKeys],
   );
-  const botSwitcher = useMemo(() => buildBotSwitcherMenu(activeBot), [activeBot]);
+  const handleSelectThread = useHomeThreadSelection();
+  const openHeadquarters = useOpenBotHeadquarters(handleSelectThread);
+  const botProjectCount = useMemo(
+    () =>
+      activeBot.active === null
+        ? 0
+        : logicalBotProjectKeys(
+            activeBot.active,
+            activeBot.bots,
+            allProjects.filter((project) => !project.isScratch),
+          ).size,
+    [activeBot.active, activeBot.bots, allProjects],
+  );
+  const botHeader = activeBot.active ? (
+    <BotHeaderRow
+      bot={activeBot.active}
+      threads={allThreads}
+      projectCount={botProjectCount}
+      onOpen={(bot) => void openHeadquarters(bot)}
+    />
+  ) : null;
+  const botSwitcher = useMemo(
+    () =>
+      buildBotSwitcherMenu({
+        ...activeBot,
+        openHeadquarters: (bot) => void openHeadquarters(bot),
+      }),
+    [activeBot, openHeadquarters],
+  );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
@@ -94,7 +128,6 @@ export function HomeRouteScreen() {
   };
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);
-  const handleSelectThread = useHomeThreadSelection();
   const handleNewThreadOnBranch = useCallback(
     (thread: EnvironmentThreadShell) => {
       navigation.navigate("NewTaskSheet", {
@@ -331,6 +364,7 @@ export function HomeRouteScreen() {
           />
         ) : (
           <HomeScreen
+            botHeader={botHeader}
             catalogState={catalogState}
             environments={environments}
             onAddConnection={() =>

@@ -1,4 +1,9 @@
-import { type ModelSelection, type ProjectId, type ThreadId } from "@t3tools/contracts";
+import {
+  headquartersBotId,
+  type ModelSelection,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -6,7 +11,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
-import { CrewService, type CrewServiceError } from "./CrewService.ts";
+import * as BotStore from "../bots/BotStore.ts";
+import { CrewService, managedProjectId, type CrewServiceError } from "./CrewService.ts";
 import { CrewStore, type CrewMember, type CrewRun, type CrewRunSummary } from "./CrewStore.ts";
 import { CrewHandoffStore, type CrewHandoff } from "./CrewHandoffStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
@@ -19,10 +25,18 @@ export interface DelegateCrewInput {
   readonly id: string;
   readonly sourceThreadId: ThreadId;
   readonly targetMemberId: string;
-  /** Checked against the source run's project; the run's project when omitted. */
+  /**
+   * The project the work runs on, checked against the target's. A bot may delegate into any
+   * project it owns; everyone else only into their own run's project.
+   */
   readonly projectId?: ProjectId;
   readonly taskText: string;
   readonly contextText?: string;
+  /**
+   * The workflow bound this source to the project when the feature started, so the bot's
+   * headquarters keeps leading it after the project moves to another bot.
+   */
+  readonly boundByWorkflow?: boolean;
   /** Runs the target bot on another model, as Retry with another model does. */
   readonly modelSelection?: ModelSelection;
 }
@@ -100,7 +114,7 @@ const bounded = (value: string, name: string, max: number) => {
 const sameRequest = (handoff: CrewHandoff, input: DelegateCrewInput, source: CrewRun) =>
   handoff.sourceRunId === source.id &&
   handoff.targetMemberId === input.targetMemberId &&
-  handoff.projectId === source.projectId &&
+  (input.projectId === undefined || handoff.projectId === input.projectId) &&
   handoff.taskText === input.taskText.trim() &&
   handoff.contextText === (input.contextText?.trim() ?? "") &&
   JSON.stringify(handoff.modelSelection ?? null) === JSON.stringify(input.modelSelection ?? null);
@@ -112,6 +126,7 @@ export const CrewHandoffServiceLive = Layer.effect(
     const runs = yield* CrewStore;
     const crew = yield* CrewService;
     const runtime = yield* CrewThreadRuntime;
+    const bots = yield* BotStore.BotStore;
     const changes = yield* PubSub.unbounded<string>();
 
     const deliver = (handoff: CrewHandoff) =>
@@ -121,12 +136,22 @@ export const CrewHandoffServiceLive = Layer.effect(
           handoff.status === "running" ? handoff.targetRunId : handoff.sourceRunId;
         const recipient = yield* runs.getRun(recipientRunId);
         if (!recipient) return;
+        // A headquarters follows its bot's current settings, so its next turn uses them.
+        if (headquartersBotId(recipient.threadId) !== null) {
+          yield* runtime.syncSettings(
+            recipient.threadId,
+            recipient.runtimeMode,
+            recipient.modelSelection,
+          );
+        }
+        // A lead thread can follow many handoffs, so name the task each notice is about.
+        const about = `${handoff.id} (${handoff.taskText.split("\n", 1)[0]!.slice(0, 160)})`;
         const prompt =
           handoff.status === "running"
             ? `Crew answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
             : handoff.status === "needs-input"
-              ? `Crew handoff ${handoff.id} needs input from you: ${handoff.questionText ?? ""}`
-              : `Crew handoff ${handoff.id} is ${handoff.status}. ${handoff.responseText ?? ""}`;
+              ? `Crew handoff ${about} needs input from you: ${handoff.questionText ?? ""}`
+              : `Crew handoff ${about} is ${handoff.status}. ${handoff.responseText ?? ""}`;
         yield* runtime.notify(
           recipient.threadId,
           handoff.id,
@@ -170,7 +195,7 @@ export const CrewHandoffServiceLive = Layer.effect(
           !sourceRun ||
           !sourceMember?.enabled ||
           !targetMember?.enabled ||
-          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, sourceRun.projectId))
+          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, handoff.projectId))
         ) {
           const now = DateTime.formatIso(yield* DateTime.now);
           yield* handoffs.transition(
@@ -213,9 +238,6 @@ export const CrewHandoffServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewHandoffError("Context exceeds 4,000 characters"));
         }
         const source = yield* requireRun(input.sourceThreadId, "crew.delegate");
-        if (input.projectId !== undefined && source.projectId !== input.projectId) {
-          return yield* Effect.fail(new CrewHandoffError("Source run belongs to another project"));
-        }
         const existing = yield* handoffs.get(id);
         if (existing) {
           if (!sameRequest(existing, { ...input, taskText, contextText }, source)) {
@@ -226,17 +248,31 @@ export const CrewHandoffServiceLive = Layer.effect(
           return yield* startQueued(existing);
         }
         const sourceMember = yield* runs.getActor(source.memberId);
+        // A bot reaches into the other projects it owns; everyone else stays on its run's
+        // project, as does a bot run started before its project moved away.
+        const bot = sourceMember ? yield* bots.get(sourceMember.id) : null;
+        const managed = managedProjectId(input.targetMemberId);
+        if (bot && managed && (yield* bots.projectOwner(managed)) === bot.id) {
+          yield* crew.ensureProjectManager(managed);
+        }
         const targetMember = yield* runs.getMember(input.targetMemberId);
+        const projectId = targetMember?.projectId ?? null;
         if (
           !sourceMember ||
           !targetMember?.enabled ||
-          targetMember.projectId !== source.projectId
+          projectId === null ||
+          (input.projectId !== undefined && input.projectId !== projectId) ||
+          // A headquarters lives outside the projects it leads (or in one that may move), so
+          // it always needs to own the target project, unless its workflow bound it there.
+          ((projectId !== source.projectId || headquartersBotId(source.threadId) !== null) &&
+            !input.boundByWorkflow &&
+            (!bot || (yield* bots.projectOwner(projectId)) !== bot.id))
         ) {
           return yield* Effect.fail(
             new CrewHandoffError("Target crew member is unavailable for this project"),
           );
         }
-        if (!(yield* runs.canDelegate(sourceMember.id, targetMember.id, source.projectId))) {
+        if (!(yield* runs.canDelegate(sourceMember.id, targetMember.id, projectId))) {
           return yield* Effect.fail(new CrewHandoffError("Delegation is not permitted"));
         }
         const parent = yield* handoffs.getForTargetRun(source.id);
@@ -257,7 +293,7 @@ export const CrewHandoffServiceLive = Layer.effect(
           sourceRunId: source.id,
           targetMemberId: targetMember.id,
           targetRunId: `bot-handoff:${id}`,
-          projectId: source.projectId,
+          projectId,
           taskText,
           contextText,
           depth,
@@ -412,7 +448,7 @@ export const CrewHandoffServiceLive = Layer.effect(
           !sourceRun ||
           !sourceMember?.enabled ||
           !targetMember?.enabled ||
-          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, sourceRun.projectId))
+          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, handoff.projectId))
         ) {
           return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
         }

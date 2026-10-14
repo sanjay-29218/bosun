@@ -1,17 +1,20 @@
 import {
+  botHeadquartersRunId,
+  botHeadquartersThreadId,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
   PROJECT_MANAGER_ROLE_ID,
+  ProjectId,
   ThreadId,
   type CrewTurnState,
   type ModelSelection,
-  type ProjectId,
   type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Semaphore from "effect/Semaphore";
 
 import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
@@ -37,9 +40,20 @@ export class CrewValidationError extends Error {
  */
 /** The member made from the project manager role for one project, created on first use. */
 export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
+/** The project whose manager `memberId` names, so a bot can reach one before it exists. */
+export const managedProjectId = (memberId: string) =>
+  memberId.startsWith("bot-manager:")
+    ? ProjectId.make(memberId.slice("bot-manager:".length))
+    : null;
 /** The builder a project manager hands direct requests to, created with the manager. */
 export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
 export const BUILDER_ROLE_ID = "role:builder";
+
+const HEADQUARTERS_TASK = [
+  "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand project work to a project's manager with crew_delegate, and start a new project with crew_create_project when you're allowed to.",
+  "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
+  "Tell the person only what they must decide.",
+].join("\n\n");
 
 const STAGE_TOOLS = ["crew.respond", "crew.ask"];
 const stageInstructions = (name: string) =>
@@ -101,6 +115,8 @@ export interface CreateCrewRunInput {
   readonly projectId: ProjectId;
   readonly taskText: string;
   readonly modelSelection?: ModelSelection;
+  /** The thread's title; defaults to the member's name and the start of the task. */
+  readonly title?: string;
 }
 
 export interface CrewRunView {
@@ -184,6 +200,18 @@ export interface CrewServiceShape {
     readonly allowed: boolean;
   }) => Effect.Effect<void, CrewServiceError>;
   readonly createRun: (input: CreateCrewRunInput) => Effect.Effect<CrewRun, CrewServiceError>;
+  /**
+   * The bot's headquarters run, created and pinned on first use, and restored if its thread
+   * was deleted or archived. It lives in the Scratch project, or where there is none (a data
+   * dir inside a checkout) in `fallbackProjectId` or another project the bot owns. It only
+   * delegates into projects the bot owns, wherever it lives.
+   */
+  readonly ensureHeadquarters: (
+    botId: string,
+    fallbackProjectId?: ProjectId,
+  ) => Effect.Effect<CrewRun, CrewServiceError>;
+  /** Points an open headquarters at its bot's current runtime mode and model. */
+  readonly syncHeadquarters: (botId: string) => Effect.Effect<void, CrewServiceError>;
   readonly getRun: (
     id: string,
   ) => Effect.Effect<CrewRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
@@ -550,7 +578,7 @@ export const CrewServiceLive = Layer.effect(
           projectId: input.projectId,
           threadId: ThreadId.make(`bot-run:${id}`),
           taskText,
-          title: `${member.name}: ${taskText.slice(0, 80)}`,
+          title: input.title ?? `${member.name}: ${taskText.slice(0, 80)}`,
           instructions: member.instructions,
           allowedTools: member.allowedTools,
           memberRevision: member.revision,
@@ -569,6 +597,79 @@ export const CrewServiceLive = Layer.effect(
         }
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
         return (yield* store.getRun(id))!;
+      });
+
+    // One at a time, so two opens of a deleted headquarters restore it once.
+    const headquartersLock = yield* Semaphore.make(1);
+    const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = (botId, fallbackProjectId) =>
+      Effect.gen(function* () {
+        const id = botHeadquartersRunId(botId);
+        const bot = yield* bots.get(botId);
+        if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
+        // The run keeps its last model for decoding, so a bot without one is refused here.
+        const modelSelection = yield* modelFor(bot, undefined);
+        const home = Effect.gen(function* () {
+          const ownedProject = yield* bots.firstOwnedProject(bot.id);
+          const projectId =
+            (yield* runtime.headquartersProjectId) ??
+            fallbackProjectId ??
+            (ownedProject === null ? null : ProjectId.make(ownedProject));
+          if (projectId === null) {
+            return yield* Effect.fail(new CrewValidationError(`Give ${bot.name} a project first`));
+          }
+          return projectId;
+        });
+        const existing = yield* store.getRun(id);
+        // A headquarters whose project was deleted moves, and `restore` restarts it there.
+        if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
+          yield* store.moveRun(id, yield* home);
+        }
+        if (existing === null) {
+          const projectId = yield* home;
+          yield* store.insertRun({
+            id,
+            memberId: bot.id,
+            projectId,
+            threadId: botHeadquartersThreadId(bot.id),
+            taskText: HEADQUARTERS_TASK,
+            title: bot.name,
+            instructions: bot.instructions,
+            allowedTools: bot.allowedTools,
+            memberRevision: bot.revision,
+            modelSelection,
+            runtimeMode: bot.runtimeMode,
+            dispatchState: CREW_DISPATCH_STATE.QUEUED,
+            recoveryAttempt: 0,
+            lastError: null,
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+            dispatchedAt: null,
+          });
+        }
+        const run = (yield* store.getRun(id))!;
+        if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
+          yield* dispatch(run);
+        } else {
+          // A deleted thread restarts with the bot's instructions as they are now.
+          yield* runtime.restore({
+            ...threadInput(run),
+            prompt: `${bot.instructions}\n\nTask:\n${run.taskText}`,
+          });
+          yield* runtime.syncSettings(run.threadId, bot.runtimeMode, modelSelection);
+        }
+        yield* runtime
+          .pin(run.threadId, `${id}:pin`)
+          .pipe(
+            Effect.catch((error) => Effect.logWarning("Headquarters pin failed", { id, error })),
+          );
+        return (yield* store.getRun(id))!;
+      }).pipe(headquartersLock.withPermits(1));
+
+    const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = (botId) =>
+      Effect.gen(function* () {
+        const bot = yield* bots.get(botId);
+        const run = yield* store.getRun(botHeadquartersRunId(botId));
+        if (!bot?.modelSelection || run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
+        yield* runtime.syncSettings(run.threadId, bot.runtimeMode, bot.modelSelection);
       });
 
     const setHierarchyParent: CrewServiceShape["setHierarchyParent"] = (
@@ -717,6 +818,8 @@ export const CrewServiceLive = Layer.effect(
         }),
       allowDelegation,
       createRun,
+      ensureHeadquarters,
+      syncHeadquarters,
       getRun: (id) =>
         store.getRun(id).pipe(
           Effect.flatMap((run) =>

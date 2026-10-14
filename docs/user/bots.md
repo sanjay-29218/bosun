@@ -10,14 +10,27 @@ top of the page.
 **Settings → Bots** lists the environment's bots in rail order. Every environment starts with
 **Captain**, which owns projects that were never given to another bot.
 
-Use **Add bot** for another bot. A bot has a name, an emoji and a color, instructions, crew tools,
-a default model and the workflow its features start with. **Act** lets it work on its own; **Ask
-first** asks before changes. Use the **⋯** menu to edit a bot, move it up or down, or delete it.
+Use **Add bot** for another bot. A bot has a name, a robot avatar you build from parts (or
+**Shuffle**), a color, instructions, tools, a default model and the workflow its features start
+with. **Act** lets it work on its own; **Ask first** asks before changes. Use the **⋯** menu to
+edit a bot, move it up or down, or delete it.
 
 **Projects** on the same page shows which bot owns each project. Pick another bot to move a
 project; work that already started keeps running as the bot that started it. You can also change
 a project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no
 projects, and Captain can't be deleted.
+
+Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
+bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
+rail again, or with **Open …'s thread** in the command palette. A dot there shows when it's
+working or needs you. From there the bot can list its projects, hand work to any project's
+manager, and answer their questions. With **Create projects** ticked in its tools, it can also start
+projects from a name or by cloning a Git URL. Features report to the headquarters too. A feature's
+own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
+
+The headquarters follows the bot's current tools, model and **Act** / **Ask first** setting. Its
+instructions are the ones it started with; to give it new ones, delete the thread and open it
+again. Opening it also brings back a deleted or archived headquarters.
 
 ### The bot rail
 
@@ -37,7 +50,8 @@ bot**.
 ## Workflows
 
 **Settings → Workflows** lists the environment's workflows. Use **Add starter workflow** for
-Feature delivery, then **Edit** to open a workflow's page.
+Feature delivery (it adds the starter roles too if they're missing), then **Edit** to open a
+workflow's page.
 
 - **Stages** run in order from the first stage. Each stage runs as a crew role, has a task, and
   can write files such as `plan.md`. Its last line says what it gets in its handoff: every earlier
@@ -90,9 +104,9 @@ stage, after approval if this stage has a gate. Otherwise this happens when the 
 **Detach from workflow** in a stage thread's menu turns it back into a plain thread and cancels
 the rest of the feature. Reopening the feature reattaches the thread.
 
-The mobile app runs features but does not edit workflows. With more than one bot, the emoji
-button in the thread list header switches bots, and its menu shows how many threads wait on you
-under each one. The List / Board button beside it flips to the bot's features, with the ones
+The mobile app runs features but does not edit workflows. The bot button in the thread list
+header opens the bot's headquarters. With more than one bot it also switches bots, and its menu
+shows how many threads wait on you under each one. The List / Board button beside it flips to the bot's features, with the ones
 waiting on you first. Choose a workflow in the new task sheet to start a feature with your prompt
 as its brief; it starts on the bot's default workflow. In a stage thread, the card above the
 composer approves, retries or recovers the stage, and the composer text goes with the action as

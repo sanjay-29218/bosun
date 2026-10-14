@@ -46,7 +46,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { CrewLimitsSettings } from "./CrewLimitsSettings";
-import { parseList } from "./WorkflowEditor.logic";
+import { CrewModeToggle, CrewToolPicker, crewToolLabel, EditorField } from "./CrewAgentFields";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -56,7 +56,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-type RoleMode = "act" | "ask";
+export type RoleMode = "act" | "ask";
 
 /** "Ask first" is approval-required; any other runtime mode acts on its own. */
 export function roleMode(runtimeMode: RuntimeMode): RoleMode {
@@ -356,7 +356,9 @@ function RoleRow({
     !role.autoCreateForFeature && role.id !== PROJECT_MANAGER_ROLE_ID
       ? "Not available to workflow stages"
       : null,
-    role.allowedTools.length > 0 ? `tools: ${role.allowedTools.join(", ")}` : null,
+    role.allowedTools.length > 0
+      ? `Tools: ${role.allowedTools.map(crewToolLabel).join(", ")}`
+      : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -434,7 +436,7 @@ function RoleDialog({
   const save = useSaveRole(environmentId);
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
-  const [tools, setTools] = useState(role?.allowedTools.join(", ") ?? "");
+  const [tools, setTools] = useState<ReadonlyArray<string>>(role?.allowedTools ?? []);
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     role?.runtimeMode ?? "auto-accept-edits",
@@ -451,7 +453,7 @@ function RoleDialog({
       const fields = {
         name: name.trim(),
         instructions: instructions.trim(),
-        allowedTools: parseList(tools),
+        allowedTools: tools,
         modelSelection,
         runtimeMode,
         autoCreateForFeature: workflowStages,
@@ -491,7 +493,7 @@ function RoleDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <fieldset disabled={saving} className="space-y-4">
+          <fieldset disabled={saving} className="space-y-6">
             <div className="space-y-1.5">
               <Label htmlFor="crew-role-name">Name</Label>
               <Input
@@ -513,26 +515,23 @@ function RoleDialog({
                 onChange={(event) => setInstructions(event.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="crew-role-tools">Crew tools</Label>
-              <Input
-                id="crew-role-tools"
-                value={tools}
-                placeholder="Separate with commas"
-                onChange={(event) => setTools(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <RoleModelPicker
-                environmentId={environmentId}
-                selection={modelSelection}
-                onChange={setModelSelection}
-              />
-              <RoleModeSelect
-                label="When this role acts"
-                value={roleMode(runtimeMode)}
-                onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
-              />
+            <EditorField label="Tools" hint="What it can use while it works.">
+              <CrewToolPicker value={tools} onChange={setTools} />
+            </EditorField>
+            <div className="grid gap-6 sm:grid-cols-2">
+              <EditorField label="Model" hint="Members made from this role start with it.">
+                <RoleModelPicker
+                  environmentId={environmentId}
+                  selection={modelSelection}
+                  onChange={setModelSelection}
+                />
+              </EditorField>
+              <EditorField label="Approvals">
+                <CrewModeToggle
+                  value={roleMode(runtimeMode)}
+                  onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
+                />
+              </EditorField>
             </div>
             <div className="flex items-center justify-between gap-4">
               <Label htmlFor="crew-role-workflow-stages">Workflow stages can use this role</Label>

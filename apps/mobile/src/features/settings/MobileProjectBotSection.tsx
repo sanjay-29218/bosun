@@ -5,6 +5,7 @@ import { useState } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import { BotAvatar } from "../../components/BotAvatar";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { botsEnvironment } from "../../state/bots";
 import { useEnvironmentQuery } from "../../state/query";
@@ -46,14 +47,15 @@ export function MobileProjectBotSection(props: {
             title="Move to bot"
             actions={list.map((bot) => ({
               id: bot.id,
-              title: `${bot.emoji} ${bot.name}`,
+              title: bot.name,
               state: bot.id === ownerId ? "on" : "off",
             }))}
             onPressAction={({ nativeEvent }) => void move(nativeEvent.event)}
           >
-            <View className="rounded-full bg-subtle-strong px-3.5 py-2">
+            <View className="flex-row items-center gap-2 rounded-full bg-subtle-strong py-1.5 pr-3.5 pl-1.5">
+              {owner ? <BotAvatar avatar={owner.avatar} color={owner.color} size={24} /> : null}
               <Text className="text-sm font-t3-medium text-foreground">
-                {owner ? `${owner.emoji} ${owner.name}` : "Captain"} ▾
+                {owner?.name ?? "Captain"} ▾
               </Text>
             </View>
           </ControlPillMenu>

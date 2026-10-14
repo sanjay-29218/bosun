@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
+import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
@@ -68,6 +69,7 @@ const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
               getThreadShell: (id) => Effect.succeed(liveThreadShell(id)),
             }),
             Layer.mock(CrewHandoffService)({}),
+            Layer.mock(BotProjects)({}),
             Layer.mock(CrewHandoffStore)({
               getRunByThread: (id) => Effect.succeed(id === stageThread ? "run:stage" : null),
             }),

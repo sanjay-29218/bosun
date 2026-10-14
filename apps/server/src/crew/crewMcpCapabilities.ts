@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { BOT_HEADQUARTERS_RUN_PREFIX, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -7,13 +7,20 @@ import type { McpCapability } from "../mcp/McpInvocationContext.ts";
 
 const decodeGrants = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
 
-/** Ordinary threads use the harness defaults; crew threads use their run's saved grants. */
+/**
+ * Ordinary threads use the harness defaults; crew threads use their run's saved grants, and a
+ * bot's headquarters uses the bot's current ones.
+ */
 export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (threadId: ThreadId) {
   if (!threadId.startsWith("bot-run:") && !threadId.startsWith("bosun-run:")) return undefined;
   const database = yield* Effect.serviceOption(SqlClient.SqlClient);
   if (Option.isNone(database)) return new Set<McpCapability>();
   const rows = yield* database.value<{ readonly allowedTools: string }>`
-    SELECT allowed_tools_json AS allowedTools FROM crew_runs WHERE thread_id = ${threadId}
+    SELECT COALESCE(b.allowed_tools_json, r.allowed_tools_json) AS allowedTools
+    FROM crew_runs AS r
+    LEFT JOIN bots AS b
+      ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
+    WHERE r.thread_id = ${threadId}
   `.pipe(Effect.orElseSucceed(() => []));
   const grants = yield* decodeGrants(rows[0]?.allowedTools ?? "[]").pipe(
     Effect.orElseSucceed((): ReadonlyArray<string> => []),

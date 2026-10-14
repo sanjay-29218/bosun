@@ -1,5 +1,6 @@
 import {
   CAPTAIN_BOT_ID,
+  headquartersBotId,
   type CrewStageSummary,
   type EnvironmentId,
   type ProjectId,
@@ -285,7 +286,9 @@ export function countNeedsYouByBot(
   const counts = new Map<string, number>();
   for (const shell of shells) {
     if (threadNeedsYouKind(shell) === null) continue;
-    const botId = owners.get(`${shell.environmentId}:${shell.projectId}`);
+    // A headquarters belongs to its bot, not to the project it lives in.
+    const botId =
+      headquartersBotId(shell.id) ?? owners.get(`${shell.environmentId}:${shell.projectId}`);
     if (botId === undefined) continue;
     const key = botNeedsYouKey(shell.environmentId, botId);
     counts.set(key, (counts.get(key) ?? 0) + 1);

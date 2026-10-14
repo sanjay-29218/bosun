@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { botRailShowsThread } from "@t3tools/client-runtime/state/bot-rail";
 import { collectNeedsYou, type NeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
@@ -6,7 +7,7 @@ import { memo, useMemo } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { cn } from "../../lib/utils";
-import { useBotRailProjectKeys } from "../../state/botRail";
+import { useBotRailHeadquartersKeys, useBotRailProjectKeys } from "../../state/botRail";
 import { needsYouThreadsAtom } from "../../state/needsYou";
 import { formatRelativeTime } from "../../timestampFormat";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
@@ -29,14 +30,11 @@ export const SidebarNeedsYouShelf = memo(function SidebarNeedsYouShelf() {
   const navigate = useNavigate();
   const waitingShells = useAtomValue(needsYouThreadsAtom);
   const railProjectKeys = useBotRailProjectKeys();
+  const railHeadquarters = useBotRailHeadquartersKeys();
   const shells = useMemo(
     () =>
-      railProjectKeys === null
-        ? waitingShells
-        : waitingShells.filter((shell) =>
-            railProjectKeys.has(`${shell.environmentId}:${shell.projectId}`),
-          ),
-    [railProjectKeys, waitingShells],
+      waitingShells.filter((shell) => botRailShowsThread(shell, railProjectKeys, railHeadquarters)),
+    [railHeadquarters, railProjectKeys, waitingShells],
   );
   const [expanded, setExpanded] = useLocalStorage(EXPANDED_KEY, true, Schema.Boolean);
   if (shells.length === 0) return null;

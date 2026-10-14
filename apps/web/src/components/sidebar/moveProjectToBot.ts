@@ -39,7 +39,7 @@ export function buildMoveToBotMenuItem(
       return [
         {
           id: `${MOVE_PREFIX}${JSON.stringify([member.environmentId, member.id, target.botId])}`,
-          label: `${bot.emoji} ${bot.name}`,
+          label: bot.name,
           ...(target.botId === owner ? { checked: true, disabled: true } : {}),
         },
       ];

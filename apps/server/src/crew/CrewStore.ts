@@ -1,4 +1,5 @@
 import {
+  BOT_HEADQUARTERS_RUN_PREFIX,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
   ModelSelection,
@@ -216,8 +217,9 @@ export interface CrewStoreShape {
   ) => Effect.Effect<void, PersistenceSqlError>;
   /**
    * Whether a run of `sourceId` in `projectId` may delegate to the member: by an explicit
-   * grant, or because the source is a top-level bot and the member is on the run's project.
-   * A bot only gets runs on projects it owns, so a later move does not strand them.
+   * grant, or because the source is a top-level bot and the member is on `projectId`. New
+   * delegations also check that the bot owns the project, so a later move does not strand
+   * work that already started.
    */
   readonly canDelegate: (
     sourceId: string,
@@ -257,6 +259,8 @@ export interface CrewStoreShape {
     id: string,
     dispatchedAt: string,
   ) => Effect.Effect<void, PersistenceSqlError>;
+  /** Moves a long-lived run to another project, for a headquarters whose project was deleted. */
+  readonly moveRun: (id: string, projectId: ProjectId) => Effect.Effect<void, PersistenceSqlError>;
   readonly nextRecoveryAttempt: (id: string) => Effect.Effect<number, PersistenceSqlError>;
   readonly markDispatchError: (
     id: string,
@@ -307,16 +311,23 @@ export const CrewStoreLive = Layer.effect(
         ),
       );
 
+    // A bot's headquarters run lasts as long as the bot, so it follows the bot's current grants,
+    // runtime mode and model. Its instructions only ever reach the thread's first message.
     const getRun = (id: string) =>
       sql<CrewRunRow>`
-        SELECT id, member_id AS memberId, project_id AS projectId, thread_id AS threadId,
-          task_text AS taskText, title, instructions,
-          allowed_tools_json AS allowedToolsJson, member_revision AS memberRevision,
-          model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-          dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
-          last_error AS lastError,
-          created_at AS createdAt, dispatched_at AS dispatchedAt
-        FROM crew_runs WHERE id = ${id}
+        SELECT r.id, r.member_id AS memberId, r.project_id AS projectId, r.thread_id AS threadId,
+          r.task_text AS taskText, r.title, r.instructions,
+          COALESCE(b.allowed_tools_json, r.allowed_tools_json) AS allowedToolsJson,
+          r.member_revision AS memberRevision,
+          COALESCE(b.model_selection_json, r.model_selection_json) AS modelSelectionJson,
+          COALESCE(b.runtime_mode, r.runtime_mode) AS runtimeMode,
+          r.dispatch_state AS dispatchState, r.recovery_attempt AS recoveryAttempt,
+          r.last_error AS lastError,
+          r.created_at AS createdAt, r.dispatched_at AS dispatchedAt
+        FROM crew_runs AS r
+        LEFT JOIN bots AS b
+          ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
+        WHERE r.id = ${id}
       `.pipe(
         Effect.mapError(queryError),
         Effect.flatMap((rows) =>
@@ -544,6 +555,11 @@ export const CrewStoreLive = Layer.effect(
               threadId: ThreadId.make(row.threadId),
             })),
           ),
+        ),
+      moveRun: (id, projectId) =>
+        sql`UPDATE crew_runs SET project_id = ${projectId} WHERE id = ${id}`.pipe(
+          Effect.asVoid,
+          Effect.mapError(queryError),
         ),
       markStarted: (id, dispatchedAt) =>
         sql`

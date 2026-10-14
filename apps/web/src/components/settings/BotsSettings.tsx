@@ -1,17 +1,26 @@
 import { useAtomValue } from "@effect/atom-react";
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
-import type {
-  Bot,
-  EnvironmentId,
-  ModelSelection,
-  ProjectIconColor,
-  ProjectId,
-  RuntimeMode,
+import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
+import {
+  BOT_EYES,
+  BOT_FACES,
+  BOT_HEADS,
+  BOT_TOPS,
+  DEFAULT_BOT_TOOLS,
+  type Bot,
+  type BotAvatar as BotAvatarParts,
+  type EnvironmentId,
+  type ModelSelection,
+  type ProjectIconColor,
+  type ProjectId,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   BotMessageSquareIcon,
+  CheckIcon,
+  DicesIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
@@ -21,12 +30,13 @@ import { useMemo, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { cn, randomUUID } from "../../lib/utils";
-import { firstEmoji, PROJECT_ICON_COLORS } from "../../projectIconOptions";
+import { PROJECT_ICON_COLORS } from "../../projectIconOptions";
 import { botsEnvironment } from "../../state/bots";
 import { useProjects, useServerConfigs } from "../../state/entities";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
+import { BotAvatar } from "../BotAvatar";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -44,8 +54,10 @@ import { Label } from "../ui/label";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { Toggle } from "../ui/toggle";
 import { toastManager } from "../ui/toast";
 import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
+import { CrewModeToggle, CrewToolPicker, EditorField } from "./CrewAgentFields";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import {
   RoleModelPicker,
@@ -56,7 +68,6 @@ import {
 } from "./RolesSettings";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-import { parseList } from "./WorkflowEditor.logic";
 
 /** Top-level bots and the projects each one owns. Bots are environment-local. */
 export function BotsSettings() {
@@ -233,6 +244,7 @@ function BotsSections({
         <BotDialog
           environmentId={environmentId}
           bot={editingBot}
+          usedAvatars={bots.map((bot) => bot.avatar)}
           onConflict={botsQuery.refresh}
           defaultModel={defaultModel}
           workflows={workflows}
@@ -288,17 +300,26 @@ export function BotOwnerSelect({
     >
       <SelectTrigger size="sm" aria-label={`Bot that owns ${projectTitle}`}>
         <SelectValue>
-          {() => (owner ? `${owner.emoji} ${owner.name}` : bots.length === 0 ? "Loading…" : "")}
+          {() => (owner ? <BotOption bot={owner} /> : bots.length === 0 ? "Loading…" : "")}
         </SelectValue>
       </SelectTrigger>
       <SelectPopup align="end" alignItemWithTrigger={false}>
         {bots.map((bot) => (
           <SelectItem key={bot.id} value={bot.id}>
-            {bot.emoji} {bot.name}
+            <BotOption bot={bot} />
           </SelectItem>
         ))}
       </SelectPopup>
     </Select>
+  );
+}
+
+function BotOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "color"> }) {
+  return (
+    <span className="flex items-center gap-2">
+      <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />
+      {bot.name}
+    </span>
   );
 }
 
@@ -341,7 +362,12 @@ function BotRow({
 
   return (
     <SettingsRow
-      title={`${bot.emoji} ${bot.name}`}
+      title={
+        <span className="flex items-center gap-2">
+          <BotAvatar avatar={bot.avatar} color={bot.color} size="sm" />
+          {bot.name}
+        </span>
+      }
       description={summary.length > 160 ? `${summary.slice(0, 157)}…` : summary}
       status={[
         ownedProjects === 1 ? "1 project" : `${ownedProjects} projects`,
@@ -414,7 +440,7 @@ type BotChange = Partial<
   Pick<
     Bot,
     | "name"
-    | "emoji"
+    | "avatar"
     | "color"
     | "instructions"
     | "allowedTools"
@@ -468,6 +494,7 @@ export function AddBotDialog({
       bot={null}
       defaultModel={defaultModel}
       workflows={workflowsQuery.data ?? []}
+      usedAvatars={(botsQuery.data ?? []).map((bot) => bot.avatar)}
       onConflict={botsQuery.refresh}
       onClose={onClose}
       onCreated={onCreated}
@@ -480,6 +507,7 @@ function BotDialog({
   bot,
   defaultModel,
   workflows,
+  usedAvatars,
   onClose,
   onConflict,
   onCreated,
@@ -488,6 +516,8 @@ function BotDialog({
   readonly bot: Bot | null;
   readonly defaultModel: ModelSelection | null;
   readonly workflows: ReadonlyArray<{ readonly id: string; readonly name: string }>;
+  /** Avatars other bots wear; a new bot starts with a starter one nobody has. */
+  readonly usedAvatars: ReadonlyArray<BotAvatarParts>;
   readonly onClose: () => void;
   readonly onConflict: () => void;
   readonly onCreated?: (bot: Bot) => void;
@@ -497,21 +527,26 @@ function BotDialog({
   // One id per dialog: retrying after a lost response returns the bot already made.
   const [newBotId] = useState(() => `bot-${randomUUID()}`);
   const [name, setName] = useState(bot?.name ?? "");
-  const [emojiText, setEmojiText] = useState(bot?.emoji ?? "🤖");
+  const [avatar, setAvatar] = useState<BotAvatarParts>(
+    () =>
+      bot?.avatar ??
+      BOT_AVATAR_PRESETS.find(
+        (preset) => !usedAvatars.some((used) => JSON.stringify(used) === JSON.stringify(preset)),
+      ) ??
+      randomBotAvatar(),
+  );
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
-  const [tools, setTools] = useState(bot?.allowedTools.join(", ") ?? "");
+  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.allowedTools ?? DEFAULT_BOT_TOOLS);
   const [modelSelection, setModelSelection] = useState(bot?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     bot?.runtimeMode ?? "approval-required",
   );
   const [defaultWorkflowId, setDefaultWorkflowId] = useState(bot?.defaultWorkflowId ?? null);
   const [saving, setSaving] = useState(false);
-  const emoji = firstEmoji(emojiText);
   // A new bot may leave instructions empty to start from the server's defaults.
   const canSave =
     name.trim().length > 0 &&
-    emoji !== null &&
     modelSelection !== null &&
     (bot === null || instructions.trim().length > 0) &&
     !saving;
@@ -522,26 +557,20 @@ function BotDialog({
       : workflows;
 
   const submit = async () => {
-    if (!canSave || emoji === null) return;
+    if (!canSave) return;
     setSaving(true);
     try {
       const fields = {
         name: name.trim(),
-        emoji,
+        avatar,
         color,
+        allowedTools: tools,
         runtimeMode,
         modelSelection,
         defaultWorkflowId,
       };
       if (bot) {
-        if (
-          await save(bot, {
-            ...fields,
-            instructions: instructions.trim(),
-            allowedTools: parseList(tools),
-          })
-        )
-          onClose();
+        if (await save(bot, { ...fields, instructions: instructions.trim() })) onClose();
         return;
       }
       const result = await create({
@@ -550,7 +579,6 @@ function BotDialog({
           id: newBotId,
           ...fields,
           ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
-          ...(tools.trim() ? { allowedTools: parseList(tools) } : {}),
         },
       });
       if (result._tag === "Success") {
@@ -574,17 +602,17 @@ function BotDialog({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup className="max-w-xl">
+      <DialogPopup className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{bot ? `Edit ${bot.name}` : "Add bot"}</DialogTitle>
+          <DialogTitle>{bot ? `Edit ${bot.name}` : "New bot"}</DialogTitle>
           <DialogDescription>
-            A bot owns projects and runs their work: its instructions, tools, default model and the
-            workflow its features start with.
+            A bot owns projects and runs their work with the tools and model you give it.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <fieldset disabled={saving} className="space-y-4">
-            <div className="flex gap-3">
+          <fieldset disabled={saving} className="space-y-6">
+            <div className="flex items-end gap-4">
+              <BotAvatar avatar={avatar} color={color} size="lg" />
               <div className="min-w-0 flex-1 space-y-1.5">
                 <Label htmlFor="bot-name">Name</Label>
                 <Input
@@ -595,48 +623,23 @@ function BotDialog({
                   onChange={(event) => setName(event.target.value)}
                 />
               </div>
-              <div className="w-24 space-y-1.5">
-                <Label htmlFor="bot-emoji">Emoji</Label>
-                <Input
-                  id="bot-emoji"
-                  value={emojiText}
-                  aria-invalid={emoji === null}
-                  onChange={(event) => setEmojiText(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Color</Label>
-                <Select
-                  value={color}
-                  onValueChange={(next) => {
-                    const option = PROJECT_ICON_COLORS.find(
-                      (candidate) => candidate.value === next,
-                    );
-                    if (option) setColor(option.value);
-                  }}
-                >
-                  <SelectTrigger aria-label="Color">
-                    <SelectValue>
-                      {(value: ProjectIconColor) => <ColorOption value={value} />}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {PROJECT_ICON_COLORS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        <ColorOption value={option.value} />
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bot-instructions">Instructions</Label>
+            <EditorField label="Look" hint="Mix the parts, or shuffle for a surprise.">
+              <BotAvatarPicker value={avatar} color={color} onChange={setAvatar} />
+            </EditorField>
+            <EditorField label="Color">
+              <BotColorPicker value={color} onChange={setColor} />
+            </EditorField>
+            <EditorField
+              label="Instructions"
+              htmlFor="bot-instructions"
+              hint="How it handles requests for its projects."
+            >
               <Textarea
                 id="bot-instructions"
                 value={instructions}
                 maxLength={16_000}
-                rows={6}
+                rows={5}
                 placeholder={
                   bot
                     ? "What this bot does for its projects"
@@ -644,36 +647,35 @@ function BotDialog({
                 }
                 onChange={(event) => setInstructions(event.target.value)}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bot-tools">Crew tools</Label>
-              <Input
-                id="bot-tools"
-                value={tools}
-                placeholder={bot ? "Separate with commas" : "crew.delegate, crew.status"}
-                onChange={(event) => setTools(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {modelSelection ? (
-                <RoleModelPicker
-                  environmentId={environmentId}
-                  selection={modelSelection}
-                  onChange={setModelSelection}
+            </EditorField>
+            <EditorField label="Tools" hint="What it can use while it works.">
+              <CrewToolPicker value={tools} onChange={setTools} forBot />
+            </EditorField>
+            <div className="grid gap-6 sm:grid-cols-2">
+              <EditorField label="Model" hint="Every run starts with it.">
+                {modelSelection ? (
+                  <RoleModelPicker
+                    environmentId={environmentId}
+                    selection={modelSelection}
+                    onChange={setModelSelection}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No model available. Set up a provider first.
+                  </p>
+                )}
+              </EditorField>
+              <EditorField label="Approvals">
+                <CrewModeToggle
+                  value={roleMode(runtimeMode)}
+                  onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
                 />
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  No model available. Set up a provider first.
-                </span>
-              )}
-              <RoleModeSelect
-                label="When this bot acts"
-                value={roleMode(runtimeMode)}
-                onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
-              />
+              </EditorField>
             </div>
-            <div className="flex items-center justify-between gap-4">
-              <Label>Default workflow</Label>
+            <EditorField
+              label="Default workflow"
+              hint="Features in its projects start with this workflow."
+            >
               <Select
                 value={defaultWorkflowId ?? NO_WORKFLOW}
                 onValueChange={(next) =>
@@ -682,7 +684,7 @@ function BotDialog({
                   )
                 }
               >
-                <SelectTrigger size="sm" aria-label="Default workflow">
+                <SelectTrigger aria-label="Default workflow">
                   <SelectValue>
                     {(value: string) =>
                       value === NO_WORKFLOW
@@ -691,7 +693,7 @@ function BotDialog({
                     }
                   </SelectValue>
                 </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectPopup>
                   <SelectItem value={NO_WORKFLOW}>None</SelectItem>
                   {workflowOptions.map((workflow) => (
                     <SelectItem key={workflow.id} value={workflow.id}>
@@ -700,7 +702,7 @@ function BotDialog({
                   ))}
                 </SelectPopup>
               </Select>
-            </div>
+            </EditorField>
           </fieldset>
         </DialogPanel>
         <DialogFooter>
@@ -708,7 +710,7 @@ function BotDialog({
             Cancel
           </DialogClose>
           <Button size="sm" disabled={!canSave} onClick={() => void submit()}>
-            {bot ? "Save bot" : "Add bot"}
+            {bot ? "Save" : "Add bot"}
           </Button>
         </DialogFooter>
       </DialogPopup>
@@ -716,13 +718,143 @@ function BotDialog({
   );
 }
 
-function ColorOption({ value }: { readonly value: ProjectIconColor }) {
-  const option = PROJECT_ICON_COLORS.find((candidate) => candidate.value === value);
+const PART_LABELS = {
+  head: {
+    squircle: "Square head",
+    round: "Round head",
+    wide: "Wide head",
+    tall: "Tall head",
+    dome: "Dome head",
+    cat: "Cat head",
+  },
+  face: { visor: "Visor", plate: "Face plate", bare: "Bare face" },
+  eyes: {
+    round: "Round eyes",
+    happy: "Happy eyes",
+    wink: "Wink",
+    sleepy: "Sleepy eyes",
+    star: "Star eyes",
+    tall: "Tall eyes",
+    visor: "Eye bar",
+    heart: "Heart eyes",
+    big: "Big eyes",
+  },
+  top: {
+    ball: "Antenna",
+    double: "Two antennas",
+    ears: "Side pods",
+    sprout: "Sprout",
+    propeller: "Propeller",
+    headphones: "Headphones",
+    bow: "Bow",
+    halo: "Halo",
+    horns: "Horns",
+    none: "Nothing on top",
+  },
+} as const;
+
+/** Builds a bot's avatar part by part; each choice shows the bot wearing it. */
+function BotAvatarPicker({
+  value,
+  color,
+  onChange,
+}: {
+  readonly value: BotAvatarParts;
+  readonly color: ProjectIconColor;
+  readonly onChange: (avatar: BotAvatarParts) => void;
+}) {
+  const parts = [
+    { key: "head", label: "Head", options: BOT_HEADS },
+    { key: "face", label: "Face", options: BOT_FACES },
+    { key: "eyes", label: "Eyes", options: BOT_EYES },
+    { key: "top", label: "Top", options: BOT_TOPS },
+  ] as const;
   return (
-    <span className="flex items-center gap-2">
-      <span aria-hidden className={cn("size-3 rounded-full", option?.swatchClassName)} />
-      {option?.label ?? value}
-    </span>
+    <div className="space-y-2">
+      {parts.map((part) => (
+        <div key={part.key} className="flex items-center gap-3">
+          <span className="w-10 shrink-0 text-xs text-muted-foreground">{part.label}</span>
+          <div role="radiogroup" aria-label={part.label} className="flex flex-wrap gap-1">
+            {part.options.map((option) => {
+              const selected = value[part.key] === option;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  aria-label={(PART_LABELS[part.key] as Record<string, string>)[option]}
+                  className={cn(
+                    "grid size-10 place-items-center rounded-lg outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                    selected
+                      ? "bg-accent inset-ring inset-ring-foreground/25"
+                      : "hover:bg-accent/60",
+                  )}
+                  onClick={() => onChange({ ...value, [part.key]: option })}
+                >
+                  <BotAvatar avatar={{ ...value, [part.key]: option }} color={color} size={34} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:pl-13">
+        <Toggle
+          variant="outline"
+          size="compact"
+          pressed={value.cheeks}
+          onPressedChange={(cheeks) => onChange({ ...value, cheeks })}
+        >
+          Cheeks
+        </Toggle>
+        <Toggle
+          variant="outline"
+          size="compact"
+          pressed={value.smile}
+          onPressedChange={(smile) => onChange({ ...value, smile })}
+        >
+          Smile
+        </Toggle>
+        <Button variant="ghost-muted" size="xs" onClick={() => onChange(randomBotAvatar())}>
+          <DicesIcon />
+          Shuffle
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The project colors as swatches. */
+function BotColorPicker({
+  value,
+  onChange,
+}: {
+  readonly value: ProjectIconColor;
+  readonly onChange: (color: ProjectIconColor) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Color" className="flex flex-wrap gap-1.5">
+      {PROJECT_ICON_COLORS.map((option) => {
+        const selected = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-label={option.label}
+            className={cn(
+              "grid size-6 place-items-center rounded-full text-white outline-none hover:opacity-85 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground",
+              option.swatchClassName,
+            )}
+            onClick={() => onChange(option.value)}
+          >
+            {selected ? <CheckIcon aria-hidden className="size-3.5" strokeWidth={3} /> : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

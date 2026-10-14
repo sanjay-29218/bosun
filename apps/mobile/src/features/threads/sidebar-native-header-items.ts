@@ -37,7 +37,7 @@ function toNativeHeaderMenuItems(items: HomeListFilterMenu["items"]): NativeHead
 }
 
 /**
- * The bot switcher (the active bot's emoji, badged on iOS 26 with what waits on you under the
+ * The bot switcher (the active bot's name, badged on iOS 26 with what waits on you under the
  * other bots) and the List / Board toggle, for any thread-list header.
  */
 export function createThreadListHeaderItems(input: {
@@ -51,7 +51,7 @@ export function createThreadListHeaderItems(input: {
       ? [
           withNativeGlassHeaderItem({
             type: "menu",
-            label: botSwitcher.emoji,
+            label: botSwitcher.name,
             accessibilityLabel: botSwitcher.accessibilityLabel,
             ...(botSwitcher.elsewhereNeedsYou > 0
               ? { badge: { value: botSwitcher.elsewhereNeedsYou } }

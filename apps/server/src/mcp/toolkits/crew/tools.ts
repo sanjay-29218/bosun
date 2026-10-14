@@ -1,4 +1,5 @@
 import {
+  FeatureCardState,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   WorkflowStageHandoff,
@@ -6,6 +7,7 @@ import {
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
@@ -55,7 +57,7 @@ const Handoff = Schema.Struct({
 
 const Delegate = Tool.make("crew_delegate", {
   description:
-    "Hand a bounded project task to a permitted crew member. Reuse the same request ID when retrying after a lost response.",
+    "Hand a bounded project task to a permitted crew member. A bot can hand work to the manager of any project it owns (projectManagerId from crew_list_projects). Reuse the same request ID when retrying after a lost response.",
   parameters: Schema.Struct({
     requestId: Schema.String,
     targetMemberId: Schema.String,
@@ -122,4 +124,52 @@ const StageHandoff = Tool.make("crew_stage_handoff", {
   dependencies: [...dependencies, WorkflowService],
 }).annotate(Tool.Readonly, true);
 
-export const CrewToolkit = Toolkit.make(Delegate, Respond, Ask, List, Wait, Answer, StageHandoff);
+const BotProject = Schema.Struct({
+  projectId: Schema.String,
+  title: Schema.String,
+  workspaceRoot: Schema.String,
+  projectManagerId: Schema.String,
+  features: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      state: FeatureCardState,
+      stage: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+
+const ListProjects = Tool.make("crew_list_projects", {
+  description:
+    "List the projects this bot owns, with each project's manager and its features. Hand a project work by delegating to its projectManagerId.",
+  success: Schema.Struct({ projects: Schema.Array(BotProject) }),
+  failure,
+  dependencies: [...dependencies, BotProjects],
+}).annotate(Tool.Readonly, true);
+
+const CreateProject = Tool.make("crew_create_project", {
+  description:
+    "Start a project this bot owns: a fresh Git repository named `name`, or a clone of `repositoryUrl` named `name`. Returns it with its manager.",
+  parameters: Schema.Struct({
+    name: Schema.String,
+    repositoryUrl: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    ...BotProject.fields,
+    commitError: Schema.optional(Schema.String),
+  }),
+  failure,
+  dependencies: [...dependencies, BotProjects],
+}).annotate(Tool.Destructive, false);
+
+export const CrewToolkit = Toolkit.make(
+  Delegate,
+  Respond,
+  Ask,
+  List,
+  Wait,
+  Answer,
+  StageHandoff,
+  ListProjects,
+  CreateProject,
+);

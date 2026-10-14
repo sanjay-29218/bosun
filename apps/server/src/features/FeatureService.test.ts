@@ -7,6 +7,9 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
+  CommandId,
   EventId,
   MessageId,
   ProjectId,
@@ -21,6 +24,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { describe, expect } from "vite-plus/test";
 
+import * as BotStore from "../bots/BotStore.ts";
+import { CrewHandoffService } from "../crew/CrewHandoffService.ts";
 import { CrewService, projectManagerMemberId } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
@@ -36,12 +41,15 @@ import {
 } from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 
 const projectId = ProjectId.make("workflow-feature-project");
+const scratchProjectId = ProjectId.make("workflow-feature-scratch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
 const encodeBotIdentity = Schema.encodeSync(
   Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
@@ -60,6 +68,9 @@ const withSystem = <E>(
     | WorkflowExecutionService
     | OrchestrationEngineService
     | ProjectionStore.ProjectionStoreV2
+    | CrewHandoffService
+    | BotStore.BotStore
+    | ProjectStore.ProjectStoreV2
   >,
 ) =>
   Effect.gen(function* () {
@@ -82,12 +93,24 @@ const withSystem = <E>(
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
       Layer.provideMerge(NodeServices.layer),
+      // Bots keep their headquarters in the Scratch project.
+      Layer.provideMerge(
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: "/unused",
+          ensureScratchProject: Effect.succeed({ projectId: scratchProjectId }),
+        }),
+      ),
     );
     yield* Effect.gen(function* () {
       yield* seedCrewProject({
         projectId,
         title: "Feature project",
         workspaceRoot: directory,
+      });
+      yield* seedCrewProject({
+        projectId: scratchProjectId,
+        title: "Scratch",
+        workspaceRoot: NodePath.join(directory, "scratch"),
       });
       yield* (yield* CrewService).ensureDefaults(modelSelection);
       yield* exercise;
@@ -264,6 +287,152 @@ describe("feature creation", () => {
         expect(first.crewAssignments.planner).not.toBe(second.crewAssignments.planner);
       }),
     ),
+  );
+
+  effectIt.effect("leads every project's features from the bot's one pinned headquarters", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const crew = yield* CrewService;
+        const executions = yield* WorkflowExecutionStore;
+        const engine = yield* OrchestrationEngineService;
+        yield* (yield* WorkflowService).ensureStarterDefinition();
+        const otherProjectId = ProjectId.make("workflow-feature-other");
+        yield* seedCrewProject({
+          projectId: otherProjectId,
+          title: "Other project",
+          workspaceRoot: NodePath.join(NodeOS.tmpdir(), "feature-other"),
+        });
+        const leads = (id: string, project: ProjectId) =>
+          Effect.gen(function* () {
+            yield* features.create({
+              id,
+              projectId: project,
+              title: `Feature ${id}`,
+              brief: "Run the starter workflow",
+              workflowId: "feature-delivery",
+            });
+            yield* features.start(id, project);
+            const bindings = (yield* executions.get(id))!.bindings;
+            const thread = (role: string) =>
+              crew.getRun(bindings[role]!.dispatchRunId).pipe(
+                Effect.flatMap((view) => engine.getThreadShell(view!.run.threadId)),
+                Effect.map((shell) => shell!),
+              );
+            return { bot: yield* thread("manager"), manager: yield* thread("planner") };
+          });
+        const first = yield* leads("lead-one", projectId);
+        const second = yield* leads("lead-two", otherProjectId);
+
+        expect(first.bot.id).toBe(botHeadquartersThreadId(CAPTAIN_BOT_ID));
+        expect(second.bot.id).toBe(first.bot.id);
+        expect(first.bot.projectId).toBe(scratchProjectId);
+        expect(first.bot.title).toBe("Captain");
+        expect(first.bot.pinnedAt).not.toBeNull();
+        expect(first.bot.feature ?? null).toBeNull();
+
+        expect(first.manager.projectId).toBe(projectId);
+        expect(second.manager.projectId).toBe(otherProjectId);
+        expect(first.manager.title).toBe("Project manager");
+        expect(first.manager.feature).toEqual({ id: "lead-one", title: "Feature lead-one" });
+        expect(second.manager.feature).toEqual({ id: "lead-two", title: "Feature lead-two" });
+      }),
+    ),
+  );
+
+  effectIt.effect("lets a bot's headquarters hand work to managers of the projects it owns", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const handoffs = yield* CrewHandoffService;
+        const bots = yield* BotStore.BotStore;
+        const theirs = ProjectId.make("workflow-feature-theirs");
+        const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;
+        const social = { ...captain, id: "bot-social", name: "Social", position: 1 };
+        expect(yield* bots.insert(social)).toBe(true);
+        yield* seedCrewProject({
+          projectId: theirs,
+          title: "Social's project",
+          workspaceRoot: NodePath.join(NodeOS.tmpdir(), "feature-theirs"),
+          botId: social.id,
+        });
+        const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+        const delegate = (id: string, project: ProjectId) =>
+          handoffs.delegate({
+            id,
+            sourceThreadId: headquarters.threadId,
+            targetMemberId: projectManagerMemberId(project),
+            taskText: "Tidy the README",
+          });
+
+        // The manager doesn't exist yet; the bot's first request makes it.
+        const handoff = yield* delegate("hq-owned", projectId);
+        expect(handoff.projectId).toBe(projectId);
+        expect((yield* crew.getMember(projectManagerMemberId(projectId)))?.projectId).toBe(
+          projectId,
+        );
+        expect((yield* delegate("hq-theirs", theirs).pipe(Effect.result))._tag).toBe("Failure");
+        // A workflow that bound the headquarters before a move keeps sending stages there.
+        yield* crew.ensureProjectManager(theirs);
+        const bound = yield* handoffs.delegate({
+          id: "hq-bound",
+          sourceThreadId: headquarters.threadId,
+          targetMemberId: projectManagerMemberId(theirs),
+          projectId: theirs,
+          taskText: "Run the next stage",
+          boundByWorkflow: true,
+        });
+        expect(bound.projectId).toBe(theirs);
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "restores a deleted or archived headquarters and follows the bot's settings",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const bots = yield* BotStore.BotStore;
+          const engine = yield* OrchestrationEngineService;
+          const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          const shell = () => engine.getThreadShell(headquarters.threadId);
+
+          yield* engine.dispatch({
+            type: "thread.archive",
+            commandId: CommandId.make("test:archive-hq"),
+            threadId: headquarters.threadId,
+          });
+          yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          const unarchived = yield* shell();
+          expect(unarchived).not.toBeNull();
+          expect(unarchived!.archivedAt).toBeNull();
+
+          yield* engine.dispatch({
+            type: "thread.delete",
+            commandId: CommandId.make("test:delete-hq"),
+            threadId: headquarters.threadId,
+          });
+          yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          const restored = yield* shell();
+          expect(restored).not.toBeNull();
+          expect(restored!.deletedAt).toBeNull();
+          expect(restored!.pinnedAt).toBeTruthy();
+
+          // Switching the bot to Ask first reaches its headquarters' next turns.
+          const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;
+          const runtimeMode =
+            captain.runtimeMode === "full-access" ? "approval-required" : "full-access";
+          expect(
+            yield* bots.update(
+              { ...captain, runtimeMode, revision: captain.revision + 1 },
+              captain.revision,
+            ),
+          ).toBe(true);
+          yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
+        }),
+      ),
   );
 
   effectIt.effect("requires a terminal workflow before closing an attached execution", () =>

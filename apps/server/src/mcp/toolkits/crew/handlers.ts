@@ -2,6 +2,7 @@ import { McpCapabilityUnavailableError, OrchestratorMcpFailure } from "@t3tools/
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
@@ -25,6 +26,7 @@ const make = Effect.gen(function* () {
   const handoffStore = yield* CrewHandoffStore;
   const crewStore = yield* CrewStore;
   const workflows = yield* WorkflowService;
+  const botProjects = yield* BotProjects;
 
   const asCrewMember = <A, E, R>(
     effect: (threadId: McpInvocationContext.McpThreadCaller["threadId"]) => Effect.Effect<A, E, R>,
@@ -36,7 +38,34 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /** The bot behind the calling thread, when its run holds `grant`. */
+  const callingBot = (threadId: McpInvocationContext.McpThreadCaller["threadId"], grant: string) =>
+    Effect.gen(function* () {
+      const runId = yield* handoffStore.getRunByThread(threadId);
+      const run = runId ? yield* crewStore.getRun(runId) : null;
+      if (!run?.allowedTools.includes(grant)) {
+        return yield* new CrewToolFailedError({ reason: `This thread cannot use ${grant}` });
+      }
+      return run.memberId;
+    });
+
   return {
+    crew_list_projects: McpToolAccess.readsAsCaller(() =>
+      asCrewMember((threadId) =>
+        callingBot(threadId, "crew.projects").pipe(
+          Effect.flatMap(botProjects.list),
+          Effect.map((projects) => ({ projects })),
+        ),
+      ),
+    ),
+    crew_create_project: McpToolAccess.actsAsCaller(
+      (input: { readonly name: string; readonly repositoryUrl?: string | undefined }) =>
+        asCrewMember((threadId) =>
+          callingBot(threadId, "crew.create-project").pipe(
+            Effect.flatMap((botId) => botProjects.create({ botId, ...input })),
+          ),
+        ),
+    ),
     crew_delegate: McpToolAccess.actsAsCaller(
       (input: {
         readonly requestId: string;

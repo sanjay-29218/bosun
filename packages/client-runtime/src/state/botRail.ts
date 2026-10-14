@@ -1,4 +1,12 @@
-import { CAPTAIN_BOT_ID, type Bot, type EnvironmentId } from "@t3tools/contracts";
+import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
+  headquartersBotId,
+  type Bot,
+  type BotAvatar,
+  type EnvironmentId,
+  type ProjectIconColor,
+} from "@t3tools/contracts";
 
 import { botNeedsYouKey } from "./crewBoard.ts";
 
@@ -9,7 +17,7 @@ export function projectBotId(project: { readonly botId?: string | undefined }): 
 
 export interface EnvironmentBots {
   readonly environmentId: EnvironmentId;
-  readonly bots: ReadonlyArray<Pick<Bot, "id" | "name" | "emoji" | "position">>;
+  readonly bots: ReadonlyArray<Pick<Bot, "id" | "name" | "avatar" | "color" | "position">>;
 }
 
 export interface LogicalBotMember {
@@ -24,7 +32,8 @@ export interface LogicalBotMember {
 export interface LogicalBot {
   readonly key: string;
   readonly name: string;
-  readonly emoji: string;
+  readonly avatar: BotAvatar;
+  readonly color: ProjectIconColor;
   readonly members: ReadonlyArray<LogicalBotMember>;
 }
 
@@ -36,11 +45,11 @@ export function logicalBotKey(bot: { readonly id: string; readonly name: string 
 
 /**
  * Rail entries across environments, given in priority order (primary first). The first
- * environment that has a bot decides its name, avatar and place in the rail. Two bots with
+ * environment that has a bot decides its name, avatar, color and place in the rail. Two bots with
  * the same name on one environment stay separate entries; only the first one merges.
  */
 export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): LogicalBot[] {
-  const byKey = new Map<string, { name: string; emoji: string; members: LogicalBotMember[] }>();
+  const byKey = new Map<string, Omit<LogicalBot, "key"> & { members: LogicalBotMember[] }>();
   for (const { environmentId, bots } of environments) {
     for (const bot of [...bots].sort((left, right) => left.position - right.position)) {
       let key = logicalBotKey(bot);
@@ -54,7 +63,8 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
       }
       byKey.set(key, {
         name: bot.name,
-        emoji: bot.emoji,
+        avatar: bot.avatar,
+        color: bot.color,
         members: [{ environmentId, botId: bot.id }],
       });
     }
@@ -131,6 +141,36 @@ export function logicalBotProjectKeys(
     }
   }
   return keys;
+}
+
+/**
+ * `${environmentId}:${threadId}` keys of `bot`'s headquarters threads, one per environment,
+ * leaving out environments the filter hides.
+ */
+export function logicalBotHeadquartersKeys(
+  bot: LogicalBot,
+  environmentFilter: ReadonlySet<string> | null = null,
+): Set<string> {
+  return new Set(
+    bot.members
+      .filter((member) => environmentFilter === null || environmentFilter.has(member.environmentId))
+      .map((member) => `${member.environmentId}:${botHeadquartersThreadId(member.botId)}`),
+  );
+}
+
+/**
+ * Whether the rail shows `thread`. Headquarters live in the Scratch project, so with a bot
+ * picked (`headquarters` set) they show under their own bot, not by project.
+ */
+export function botRailShowsThread(
+  thread: { readonly environmentId: string; readonly id: string; readonly projectId: string },
+  projectKeys: ReadonlySet<string> | null,
+  headquarters: ReadonlySet<string> | null,
+): boolean {
+  if (headquarters !== null && headquartersBotId(thread.id) !== null) {
+    return headquarters.has(`${thread.environmentId}:${thread.id}`);
+  }
+  return projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`);
 }
 
 /** Sums `countNeedsYouByBot` counts (keyed by `botNeedsYouKey`) per rail entry. */

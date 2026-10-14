@@ -9,7 +9,12 @@ import {
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  headquartersBotId,
+  type ContextMenuItem,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
@@ -568,9 +573,13 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
   return thread.lineage.relationshipToParent === "subagent";
 }
 
-/** A feature is one row: its current stage thread. Earlier ones open from the breadcrumb. */
+/**
+ * A feature is one row: its current stage thread. Earlier ones open from the breadcrumb.
+ * Bot headquarters open from the bot header above the list instead.
+ */
 export function filterSidebarV2VisibleThreads<
   T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "crew"> & {
+    id: string;
     environmentId: string;
     projectId: string;
   },
@@ -580,6 +589,7 @@ export function filterSidebarV2VisibleThreads<
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
       !isHiddenStageThread(thread) &&
+      headquartersBotId(thread.id) === null &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
@@ -1415,7 +1425,7 @@ export function sortLogicalProjectsForSidebar<
 
 export function sortSidebarV2ProjectGroups<
   TProject extends LogicalSidebarProject,
-  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage">,
+  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage"> & { id: string },
 >(
   projects: readonly TProject[],
   threads: readonly TThread[],

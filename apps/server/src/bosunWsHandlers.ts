@@ -218,6 +218,11 @@ export const layerBosunWsRpc = (
           bots
             .moveProject(input)
             .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsOpenHeadquarters]: (input) =>
+          crew.ensureHeadquarters(input.botId).pipe(
+            Effect.map((run) => ({ threadId: run.threadId })),
+            Effect.mapError((error) => new BotOperationError({ reason: String(error) })),
+          ),
         [WS_METHODS.rolesList]: () =>
           crew
             .listRoles()

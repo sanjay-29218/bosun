@@ -23,6 +23,7 @@ import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
+import * as BotStore from "../bots/BotStore.ts";
 import { CrewHandoffService, type CrewHandoffError } from "../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -102,6 +103,15 @@ export class WorkflowExecutionService extends Context.Service<
   }
 >()("t3/workflows/WorkflowExecutionService") {}
 
+/**
+ * Names the feature first, since a headquarters follows many features and its notices quote
+ * this line. A task already at the handoff limit goes as it is rather than being cut.
+ */
+const withFeatureName = (title: string, taskText: string) => {
+  const named = `Feature "${title.trim()}". ${taskText}`;
+  return title.trim() && named.length <= 8_000 ? named : taskText;
+};
+
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 const outcomeJson = Schema.fromJsonString(WorkflowHandoffOutcome);
@@ -116,6 +126,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     const workflows = yield* WorkflowService;
     const store = yield* WorkflowStore;
     const crew = yield* CrewStore;
+    const bots = yield* BotStore.BotStore;
     const handoffs = yield* CrewHandoffStore;
     const delegation = yield* CrewHandoffService;
     const engine = yield* OrchestrationEngineService;
@@ -311,7 +322,9 @@ export const WorkflowExecutionServiceLive = Layer.effect(
                     sourceThreadId: source.threadId,
                     targetMemberId: binding.memberId,
                     projectId: execution.projectId,
-                    taskText,
+                    taskText: withFeatureName(execution.brief?.title ?? "", taskText),
+                    // `attach` checked this source when the feature started.
+                    boundByWorkflow: true,
                     contextText,
                     ...(step.modelSelection ? { modelSelection: step.modelSelection } : {}),
                   });
@@ -527,6 +540,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
                 commandId: CommandId.make(`workflow:crew-stage:${NodeCrypto.randomUUID()}`),
                 threadId,
                 crew: summary,
+                ...(title === null ? {} : { feature: { id: featureId, title } }),
                 ...(written.has(threadId) || title === null ? {} : { title: title.slice(0, 200) }),
               })
               .pipe(
@@ -802,7 +816,9 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               !member?.enabled ||
               !sourceMember?.enabled ||
               !source ||
-              source.projectId !== projectId ||
+              // The owning bot leads from its headquarters, outside the project.
+              (source.projectId !== projectId &&
+                (yield* bots.projectOwner(projectId)) !== source.memberId) ||
               !memberFillsRole(member, role, featureId, projectId) ||
               !source.allowedTools.includes("crew.delegate") ||
               !member.allowedTools.includes("crew.respond") ||

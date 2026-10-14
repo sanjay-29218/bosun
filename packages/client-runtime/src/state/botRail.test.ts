@@ -1,9 +1,16 @@
-import { CAPTAIN_BOT_ID, EnvironmentId } from "@t3tools/contracts";
+import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
+  EnvironmentId,
+  type BotAvatar,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  botRailShowsThread,
   buildLogicalBots,
   countNeedsYouByLogicalBot,
+  logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
   projectBotId,
   resolveActiveLogicalBot,
@@ -15,22 +22,31 @@ import { botNeedsYouKey } from "./crewBoard.ts";
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
 
-const bot = (id: string, name: string, position: number, emoji = "🤖") => ({
+const avatar = (eyes: BotAvatar["eyes"]): BotAvatar => ({
+  head: "round",
+  eyes,
+  face: "visor",
+  top: "ball",
+  cheeks: false,
+  smile: false,
+});
+const bot = (id: string, name: string, position: number, eyes: BotAvatar["eyes"] = "round") => ({
   id,
   name,
-  emoji,
+  avatar: avatar(eyes),
+  color: "blue" as const,
   position,
 });
 
 const environments = [
   {
     environmentId: local,
-    bots: [bot("bot-social", "Social", 1, "📣"), bot(CAPTAIN_BOT_ID, "Captain", 0, "⚓")],
+    bots: [bot("bot-social", "Social", 1, "happy"), bot(CAPTAIN_BOT_ID, "Captain", 0, "star")],
   },
   {
     environmentId: remote,
     bots: [
-      bot(CAPTAIN_BOT_ID, "Skipper", 0, "🚢"),
+      bot(CAPTAIN_BOT_ID, "Skipper", 0, "visor"),
       bot("bot-finance", "Finance", 1),
       bot("bot-social-2", " social ", 2),
     ],
@@ -47,10 +63,10 @@ describe("projectBotId", () => {
 describe("buildLogicalBots", () => {
   it("merges Captain by id and other bots by name, in priority then rail order", () => {
     const bots = buildLogicalBots(environments);
-    expect(bots.map((entry) => [entry.name, entry.emoji, entry.members.length])).toEqual([
-      ["Captain", "⚓", 2],
-      ["Social", "📣", 2],
-      ["Finance", "🤖", 1],
+    expect(bots.map((entry) => [entry.name, entry.avatar.eyes, entry.members.length])).toEqual([
+      ["Captain", "star", 2],
+      ["Social", "happy", 2],
+      ["Finance", "round", 1],
     ]);
     expect(bots[1]!.members).toEqual([
       { environmentId: local, botId: "bot-social" },
@@ -145,5 +161,43 @@ describe("resolveEnvironmentFilter", () => {
     expect(resolveEnvironmentFilter(["gone"], [local, remote])).toBeNull();
     expect(resolveEnvironmentFilter([], [local])).toBeNull();
     expect(resolveEnvironmentFilter(["local", "remote"], [local, remote])).toBeNull();
+  });
+});
+
+describe("botRailShowsThread", () => {
+  it("shows a bot's own headquarters under it, whatever project holds it", () => {
+    const [captain, social] = buildLogicalBots([
+      {
+        environmentId: local,
+        bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot-social", "Social", 1)],
+      },
+    ]);
+    const thread = (id: string, projectId: string) => ({ environmentId: local, id, projectId });
+    const socialProjects = new Set([`${local}:p-social`]);
+    const socialHeadquarters = logicalBotHeadquartersKeys(social!);
+    const show = (target: ReturnType<typeof thread>) =>
+      botRailShowsThread(target, socialProjects, socialHeadquarters);
+
+    // Headquarters sit in Scratch, a project neither bot's filter lists.
+    expect(show(thread(botHeadquartersThreadId("bot-social"), "scratch"))).toBe(true);
+    expect(show(thread(botHeadquartersThreadId(CAPTAIN_BOT_ID), "scratch"))).toBe(false);
+    expect(show(thread("plain", "p-social"))).toBe(true);
+    expect(show(thread("plain", "p-captain"))).toBe(false);
+    // A hidden environment's headquarters stays hidden.
+    const [shared] = buildLogicalBots([
+      { environmentId: local, bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)] },
+      { environmentId: remote, bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)] },
+    ]);
+    expect([...logicalBotHeadquartersKeys(shared!, new Set([local]))]).toEqual([
+      `${local}:${botHeadquartersThreadId(CAPTAIN_BOT_ID)}`,
+    ]);
+    // Without a picked bot, project keys alone decide.
+    expect(
+      botRailShowsThread(
+        thread(botHeadquartersThreadId(captain!.members[0]!.botId), "s"),
+        null,
+        null,
+      ),
+    ).toBe(true);
   });
 });

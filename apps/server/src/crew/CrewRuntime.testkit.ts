@@ -128,6 +128,8 @@ export const seedCrewProject = (input: {
   readonly projectId: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;
+  /** The owning bot; Captain when omitted. */
+  readonly botId?: string;
 }) =>
   Effect.flatMap(ProjectStore.ProjectStoreV2, (projects) =>
     projects.apply({

@@ -24,13 +24,14 @@ import {
 import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { useUiStateStore } from "../../uiStateStore";
+import { BotAvatar } from "../BotAvatar";
 import { AddBotDialog } from "../settings/BotsSettings";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useSwitchBotMainView } from "./mainAppLocation";
+import { useOpenBotHeadquarters } from "./openBotHeadquarters";
 
 /** The rail's width; the sidebar sits right of it. */
 export const BOT_RAIL_WIDTH = "3.5rem";
@@ -68,8 +69,14 @@ export const BotRail = memo(function BotRail({
     ) ?? null;
   const canAdd = useAtomValue(botsEnvironment.create.permissionAtom(addEnvironmentId));
 
+  const openHeadquarters = useOpenBotHeadquarters();
+  // Picking the picked bot again opens its headquarters, where it oversees its projects.
   const select = (bot: LogicalBot) => {
     if (bot.key !== active?.key) switchBotMainView(() => selectBot(bot));
+    else {
+      if (isMobile) setOpenMobile(false);
+      openHeadquarters(bot);
+    }
   };
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
@@ -105,6 +112,8 @@ export const BotRail = memo(function BotRail({
   return (
     <nav
       aria-label="Bots"
+      // Takes the sidebar's palette so every theme paints the rail and sidebar as one surface.
+      data-app-sidebar=""
       className={cn(
         "flex w-(--sidebar-leading-width) shrink-0 flex-col bg-sidebar surface-grain text-sidebar-foreground",
         placement === "window" ? "relative z-20 hidden md:flex" : "h-full",
@@ -117,8 +126,8 @@ export const BotRail = memo(function BotRail({
           className={cn("h-(--workspace-topbar-height) shrink-0", isElectron && "drag-region")}
         />
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-1.5 border-r border-sidebar-border py-2">
-        <div className="flex min-h-0 flex-col items-center gap-1.5 overflow-y-auto scrollbar-gutter-both">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border py-2">
+        <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto scrollbar-gutter-both">
           {bots.map((bot, index) => (
             <BotRailItem
               key={bot.key}
@@ -139,8 +148,8 @@ export const BotRail = memo(function BotRail({
             <TooltipTrigger
               render={
                 <Button
-                  variant="ghost"
-                  size="icon-lg"
+                  variant="ghost-muted"
+                  size="icon-sm"
                   aria-label="Add bot"
                   disabled={addEnvironmentId === null || !canAdd}
                   onClick={() => setAddingOn(addEnvironmentId)}
@@ -152,14 +161,14 @@ export const BotRail = memo(function BotRail({
             <TooltipPopup side="right">Add bot</TooltipPopup>
           </Tooltip>
         </div>
-        <div className="mt-auto flex flex-col items-center gap-1.5">
+        <div className="mt-auto flex flex-col items-center gap-1">
           <EnvironmentFilterMenu />
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
-                  variant="ghost"
-                  size="icon-lg"
+                  variant="ghost-muted"
+                  size="icon-sm"
                   aria-label="Bot settings"
                   onClick={openBotSettings}
                 />
@@ -180,7 +189,8 @@ export const BotRail = memo(function BotRail({
               selectBot({
                 key: logicalBotKey(bot),
                 name: bot.name,
-                emoji: bot.emoji,
+                avatar: bot.avatar,
+                color: bot.color,
                 members: [{ environmentId: addingOn, botId: bot.id }],
               }),
             )
@@ -206,35 +216,50 @@ const BotRailItem = memo(function BotRailItem({
 }) {
   const waiting = needsYou > 0 ? `${needsYou} need${needsYou === 1 ? "s" : ""} you` : null;
   return (
-    <div className="relative">
+    <div className="group/bot relative flex w-full justify-center">
+      {/* The selected bot's marker on the rail's leading edge; hovering hints at it. */}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute top-1/2 left-0 w-[3px] -translate-y-1/2 rounded-r-full bg-sidebar-foreground transition-[height,opacity] duration-150",
+          active ? "h-5 opacity-100" : "h-2 opacity-0 group-hover/bot:opacity-50",
+        )}
+      />
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button
-              variant={active ? "secondary" : "ghost"}
-              size="icon-lg"
+            <button
+              type="button"
+              className="relative rounded-lg outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
               aria-pressed={active}
               aria-label={waiting ? `${bot.name}, ${waiting}` : bot.name}
               onClick={onSelect}
             />
           }
         >
-          <span aria-hidden className="text-lg leading-none">
-            {bot.emoji}
-          </span>
+          <BotAvatar
+            avatar={bot.avatar}
+            color={bot.color}
+            className={cn(
+              "transition-opacity duration-150",
+              active ? "opacity-100" : "opacity-55 group-hover/bot:opacity-100",
+            )}
+          />
+          {needsYou > 0 ? (
+            <span
+              aria-hidden
+              className="absolute -top-1 -right-1.5 h-4 min-w-4 rounded-full bg-warning px-1 text-center text-3xs leading-4 font-semibold text-black tabular-nums ring-2 ring-sidebar"
+            >
+              {needsYou > 99 ? "99+" : needsYou}
+            </span>
+          ) : null}
         </TooltipTrigger>
         <TooltipPopup side="right">
           {[bot.name, waiting].filter(Boolean).join(" · ")}
           {shortcut ? ` (${shortcut})` : ""}
+          {active ? <div className="text-muted-foreground">Click to open its thread</div> : null}
         </TooltipPopup>
       </Tooltip>
-      {needsYou > 0 ? (
-        <span aria-hidden className="pointer-events-none absolute -right-1 -top-1">
-          <Badge variant="warning" size="sm">
-            {needsYou > 99 ? "99+" : needsYou}
-          </Badge>
-        </span>
-      ) : null}
     </div>
   );
 });
@@ -271,8 +296,8 @@ function EnvironmentFilterMenu() {
             <MenuTrigger
               render={
                 <Button
-                  variant={filter === null ? "ghost" : "secondary"}
-                  size="icon-lg"
+                  variant={filter === null ? "ghost-muted" : "secondary"}
+                  size="icon-sm"
                   aria-label={`Environments: ${label}`}
                 />
               }

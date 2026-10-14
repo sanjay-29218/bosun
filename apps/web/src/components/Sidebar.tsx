@@ -188,6 +188,7 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { FeatureTag } from "./crew/FeatureTag";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { readFeatureMenuState, runFeatureThreadAction } from "./features/featureThreadActions";
 import {
@@ -291,6 +292,7 @@ import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarBotHeader } from "./sidebar/SidebarBotHeader";
 import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -2172,7 +2174,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. A feature's
-                  row leads with its stage. */}
+                  threads lead with its tag, and its stage thread with the stage. */}
+              {thread.feature ? <FeatureTag feature={thread.feature} /> : null}
               {thread.crew ? (
                 <span className="shrink-0 text-muted-foreground">
                   {formatCrewStageLine(thread.crew)}
@@ -5134,6 +5137,7 @@ export default function Sidebar() {
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
+            <SidebarBotHeader />
             <SidebarViewToggle />
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}

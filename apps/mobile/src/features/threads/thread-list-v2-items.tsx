@@ -22,7 +22,7 @@ import {
   type EnvironmentMachineKind,
   type FeatureCardState,
 } from "@t3tools/contracts";
-import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
+import { featureTagColor, formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
@@ -1103,6 +1103,33 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2">
+        {thread.feature ? (
+          /* A feature's threads share its tag, in the same chip as pull request labels. */
+          <View
+            className="min-w-0 shrink flex-row items-center gap-1 rounded-md px-1.5 py-0.5"
+            style={{ maxWidth: 160, backgroundColor: `${featureTagColor(thread.feature.id)}20` }}
+          >
+            <View
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: 3,
+                backgroundColor: featureTagColor(thread.feature.id),
+              }}
+            />
+            <Text
+              className={cn(
+                "shrink text-2xs font-t3-medium",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : rowAppearance.mutedForegroundClassName,
+              )}
+              numberOfLines={1}
+            >
+              {thread.feature.title}
+            </Text>
+          </View>
+        ) : null}
         {crewLine !== null ? (
           <Text
             className={cn(

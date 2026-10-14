@@ -47,5 +47,9 @@ export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       label: "environment-data:bots:move-project",
       tag: WS_METHODS.botsMoveProject,
     }),
+    openHeadquarters: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:open-headquarters",
+      tag: WS_METHODS.botsOpenHeadquarters,
+    }),
   };
 }

@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { PROJECT_MANAGER_ROLE_ID, type EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { WorkflowIcon } from "lucide-react";
 import { useState } from "react";
@@ -14,6 +14,7 @@ import { toastManager } from "../ui/toast";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { useEnvironmentDefaultModel } from "./RolesSettings";
 import { orderWorkflowStages, refreshWorkflowRoles } from "./WorkflowEditor.logic";
 
 /** The environment's workflow library; each workflow opens its own editor page. */
@@ -46,6 +47,8 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
   );
   const roles = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
   const ensureStarter = useAtomCommand(workflowsEnvironment.ensureStarter);
+  const initializeRoles = useAtomCommand(rolesEnvironment.initialize);
+  const defaultModel = useEnvironmentDefaultModel(environmentId);
   const canAdd = useAtomValue(workflowsEnvironment.ensureStarter.permissionAtom(environmentId));
   const [adding, setAdding] = useState(false);
   const saved = definitions.data ?? [];
@@ -54,6 +57,22 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
   const addStarter = async () => {
     setAdding(true);
     try {
+      // Feature delivery runs as the starter roles, so add them first when they're missing.
+      const hasStarterRoles = roles.data?.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
+      if (!hasStarterRoles && defaultModel) {
+        const initialized = await initializeRoles({
+          environmentId,
+          input: { modelSelection: defaultModel },
+        });
+        if (initialized._tag !== "Success") {
+          toastManager.add({
+            type: "error",
+            title: "Could not add the starter roles",
+            description: formatEnvironmentQueryError(initialized.cause),
+          });
+          return;
+        }
+      }
       const result = await ensureStarter({ environmentId, input: {} });
       if (result._tag !== "Success")
         toastManager.add({

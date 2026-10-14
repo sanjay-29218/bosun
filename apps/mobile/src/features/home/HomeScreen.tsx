@@ -85,6 +85,8 @@ import { ThreadListFilters } from "./ThreadListFilters";
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface HomeScreenProps {
+  /** The active bot's row above the list, which opens its headquarters. */
+  readonly botHeader?: React.ReactNode;
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
@@ -986,6 +988,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2ListHeader = (
     <>
       {listHeader}
+      {props.botHeader}
       {Platform.OS === "ios" && workspace ? (
         <ThreadListFilters
           environments={props.environments}

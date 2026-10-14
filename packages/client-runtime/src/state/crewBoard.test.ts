@@ -1,4 +1,5 @@
 import {
+  botHeadquartersThreadId,
   EnvironmentId,
   ProjectId,
   ThreadId,
@@ -339,6 +340,22 @@ describe("countNeedsYouByBot", () => {
       [botNeedsYouKey(environmentId, "bot:social")]: 2,
       [botNeedsYouKey(environmentId, "bot-captain")]: 1,
       [botNeedsYouKey(other, "bot:social")]: 1,
+    });
+  });
+
+  it("counts a headquarters under its own bot, not the project it lives in", () => {
+    const scratch = ProjectId.make("scratch");
+    const counts = countNeedsYouByBot(
+      [
+        {
+          ...shell(botHeadquartersThreadId("bot:social"), { hasPendingApprovals: true }),
+          projectId: scratch,
+        },
+      ],
+      [{ environmentId, id: scratch }],
+    );
+    expect(Object.fromEntries(counts)).toEqual({
+      [botNeedsYouKey(environmentId, "bot:social")]: 1,
     });
   });
 });

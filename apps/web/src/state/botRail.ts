@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   buildLogicalBots,
   countNeedsYouByLogicalBot,
+  logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
@@ -42,7 +43,7 @@ const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
   bots
     .map(
       (bot) =>
-        `${bot.key}|${bot.name}|${bot.emoji}|${bot.members.map((member) => `${member.environmentId}/${member.botId}`).join(",")}`,
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.members.map((member) => `${member.environmentId}/${member.botId}`).join(",")}`,
     )
     .join("\n");
 
@@ -187,6 +188,23 @@ export function useShowBotRail(): boolean {
   const botCount = useLogicalBots().length;
   const environmentCount = useConnectedEnvironmentIds().length;
   return botCount > 1 || environmentCount > 1;
+}
+
+/**
+ * `${environmentId}:${threadId}` keys of the picked bot's headquarters, or null when the rail
+ * isn't narrowing to one bot. Pass it to `botRailShowsThread` with the project keys.
+ */
+export function useBotRailHeadquartersKeys(): ReadonlySet<string> | null {
+  const bots = useVisibleLogicalBots();
+  const active = useVisibleActiveLogicalBot();
+  const environmentFilter = useEnvironmentFilter();
+  return useMemo(
+    () =>
+      active !== null && bots.length > 1
+        ? logicalBotHeadquartersKeys(active, environmentFilter)
+        : null,
+    [active, bots.length, environmentFilter],
+  );
 }
 
 /**

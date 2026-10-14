@@ -92,6 +92,8 @@ import {
 import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
 import { botsEnvironment } from "../state/bots";
 import { workflowsEnvironment } from "../state/workflows";
+import { useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
+import { BotAvatar } from "./BotAvatar";
 import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
 import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
 import { botDefaultWorkflowId, useCrewDraftStore } from "./crew/crewDraftStore";
@@ -769,6 +771,7 @@ function OpenCommandPaletteDialog(props: {
   const railBots = useVisibleLogicalBots();
   const activeRailBot = useVisibleActiveLogicalBot();
   const selectRailBot = useSelectLogicalBot();
+  const openBotHeadquarters = useOpenBotHeadquarters();
   const switchBotMainView = useSwitchBotMainView();
   const multipleBots = railBots.length > 1;
   const environmentFilter = useEnvironmentFilter();
@@ -2585,11 +2588,7 @@ function OpenCommandPaletteDialog(props: {
             </>
           ),
           ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
-          icon: (
-            <span aria-hidden className="flex size-4 items-center justify-center">
-              {bot.emoji}
-            </span>
-          ),
+          icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
           ...(shortcutCommand ? { shortcutCommand } : {}),
           run: async () => {
             if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
@@ -2597,6 +2596,22 @@ function OpenCommandPaletteDialog(props: {
         };
       })
     : [];
+  // Every bot's headquarters, so a single bot (no rail) can be reached too.
+  for (const bot of railBots) {
+    botItems.push({
+      kind: "action",
+      value: `bot-headquarters:${bot.key}`,
+      searchTerms: [bot.name, "bot", "headquarters", "open"],
+      title: (
+        <>
+          Open <span className="font-semibold">{bot.name}</span>'s thread
+        </>
+      ),
+      description: "Where it oversees all its projects",
+      icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
+      run: async () => openBotHeadquarters(bot),
+    });
+  }
   if (connectedEnvironmentIds.length > 1) {
     const environmentItems: CommandPaletteActionItem[] = [
       {

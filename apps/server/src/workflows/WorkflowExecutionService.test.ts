@@ -65,6 +65,10 @@ const fixture = (
     CrewThreadRuntime,
     CrewThreadRuntime.of({
       projectExists: () => Effect.succeed(true),
+      headquartersProjectId: Effect.succeed(null),
+      restore: () => Effect.void,
+      syncSettings: () => Effect.void,
+      pin: () => Effect.void,
       start: (input) =>
         Effect.gen(function* () {
           if (failDispatch && input.runId.startsWith("bot-handoff:workflow:")) {

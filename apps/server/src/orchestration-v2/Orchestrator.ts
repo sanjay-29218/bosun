@@ -3235,7 +3235,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             ...(command.title === undefined ? {} : { title: command.title }),
-            crew: command.crew,
+            ...(command.crew === undefined ? {} : { crew: command.crew }),
+            ...(command.feature === undefined ? {} : { feature: command.feature }),
           };
         case "thread.title.regeneration.complete":
           return thread.titleRegeneration?.requestId === command.requestId

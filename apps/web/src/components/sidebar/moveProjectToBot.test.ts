@@ -10,7 +10,15 @@ const bots = [
   {
     key: "id:bot-captain",
     name: "Captain",
-    emoji: "⚓",
+    avatar: {
+      head: "squircle",
+      eyes: "round",
+      face: "visor",
+      top: "ball",
+      cheeks: false,
+      smile: true,
+    } as const,
+    color: "blue" as const,
     members: [
       { environmentId: local, botId: CAPTAIN_BOT_ID },
       { environmentId: remote, botId: CAPTAIN_BOT_ID },
@@ -19,7 +27,15 @@ const bots = [
   {
     key: "name:social",
     name: "Social",
-    emoji: "📣",
+    avatar: {
+      head: "round",
+      eyes: "happy",
+      face: "plate",
+      top: "bow",
+      cheeks: true,
+      smile: false,
+    } as const,
+    color: "pink" as const,
     members: [{ environmentId: local, botId: "bot-social" }],
   },
 ];
@@ -37,8 +53,8 @@ describe("buildMoveToBotMenuItem", () => {
     const item = buildMoveToBotMenuItem([member(local)], bots);
     expect(item?.label).toBe("Move to bot");
     expect(item?.children?.map((child) => [child.label, child.checked ?? false])).toEqual([
-      ["⚓ Captain", true],
-      ["📣 Social", false],
+      ["Captain", true],
+      ["Social", false],
     ]);
     expect(parseMoveToBotMenuId(item!.children![1]!.id)).toEqual({
       environmentId: local,

@@ -2,6 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import {
+  CommandId,
   workflowForwardOutcome,
   workflowForwardStages,
   type FeatureAttachThreadInput,
@@ -67,7 +68,8 @@ export interface FeatureServiceShape {
   ) => Effect.Effect<FeatureRecord, FeatureServiceError>;
   /**
    * Starts the feature's workflow. Each stage is sent from a lead run: its supervisor's, or the
-   * Captain's for stages without one. Those threads are where stage questions and notices land.
+   * owning bot's headquarters for stages without one. Those threads are where stage questions
+   * and notices land.
    */
   readonly start: (
     id: string,
@@ -128,15 +130,11 @@ const hashed = (prefix: string, featureId: string, id: string) =>
 /** The "feature-bot" prefix predates the Roles rename; existing member IDs keep it. */
 const featureMemberId = (featureId: string, slot: string) => hashed("feature-bot", featureId, slot);
 
-const leadTask = (feature: FeatureRecord, definition: WorkflowDefinition, bot: boolean) =>
+const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition) =>
   [
-    bot
-      ? `You keep feature "${feature.title}" (${feature.id}) moving on workflow ${definition.name}.`
-      : `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
+    `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
     "The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-    bot
-      ? "Stage notices arrive here. Tell the person only what they must decide."
-      : "Stage crew members ask you questions here. Answer with crew_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
+    "Stage crew members ask you questions here. Answer with crew_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
   ].join("\n\n");
 
@@ -205,8 +203,9 @@ export const FeatureServiceLive = Layer.effect(
       });
 
     /**
-     * One lead run per dispatching member, created once per feature. Stages without a
-     * supervisor are led by the bot that owns the project, which may delegate on its projects.
+     * The lead runs stages are sent from. Stages without a supervisor are led by the bot that
+     * owns the project, from its headquarters, which every feature shares. Supervised stages are
+     * led from one run per feature, tagged with the feature.
      */
     const leadBindings = (feature: FeatureRecord, definition: WorkflowDefinition) =>
       Effect.gen(function* () {
@@ -218,17 +217,37 @@ export const FeatureServiceLive = Layer.effect(
               ? yield* readyOwner(feature.projectId, "starting a feature")
               : null;
           const leadMemberId = owner?.id ?? feature.crewAssignments[assignment.supervisor ?? ""];
-          if (!memberId || !leadMemberId) {
+          const lead = owner ? null : yield* crew.getMember(leadMemberId ?? "");
+          if (!memberId || !leadMemberId || (!owner && !lead)) {
             return yield* Effect.fail(
               new FeatureValidationError(`Workflow role ${name} has no crew member`),
             );
+          }
+          if (owner) {
+            const run = yield* crew.ensureHeadquarters(owner.id, feature.projectId);
+            bindings[name] = { memberId, dispatchRunId: run.id };
+            continue;
           }
           const run = yield* crew.createRun({
             id: hashed("feature-lead", feature.id, leadMemberId),
             memberId: leadMemberId,
             projectId: feature.projectId,
-            taskText: leadTask(feature, definition, owner !== null),
+            taskText: featureLeadTask(feature, definition),
+            ...(lead ? { title: lead.name } : {}),
           });
+          // A fixed command ID tags the thread once.
+          yield* engine
+            .dispatch({
+              type: "thread.crew-stage.set",
+              commandId: CommandId.make(`feature-lead:${run.id}:feature`),
+              threadId: run.threadId,
+              feature: { id: feature.id, title: feature.title },
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Lead thread tag failed", { runId: run.id, error }),
+              ),
+            );
           bindings[name] = { memberId, dispatchRunId: run.id };
         }
         return bindings;

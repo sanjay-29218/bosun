@@ -48,7 +48,7 @@ const layer = BotService.layer.pipe(
 const social = {
   id: "bot:social",
   name: "Social",
-  emoji: "📣",
+  avatar: { head: "round", eyes: "happy", face: "plate", top: "bow", cheeks: true, smile: false },
   color: "pink",
 } as const;
 
@@ -76,7 +76,14 @@ it.layer(layer)("BotService", (it) => {
       const finance = yield* bots.create({
         id: "bot:finance",
         name: "Finance",
-        emoji: "💰",
+        avatar: {
+          head: "wide",
+          eyes: "visor",
+          face: "visor",
+          top: "headphones",
+          cheeks: false,
+          smile: false,
+        },
         color: "green",
       });
       assert.deepStrictEqual(
@@ -102,7 +109,7 @@ it.layer(layer)("BotService", (it) => {
       const bot = yield* bots.create({ ...social, id: "bot:update" });
       const renamed = yield* bots.update({ id: bot.id, expectedRevision: 1, name: "Socials" });
       assert.strictEqual(renamed.name, "Socials");
-      assert.strictEqual(renamed.emoji, social.emoji);
+      assert.deepStrictEqual(renamed.avatar, social.avatar);
       assert.strictEqual(renamed.revision, 2);
       const stale = yield* Effect.exit(bots.update({ id: bot.id, expectedRevision: 1, name: "X" }));
       assert.isTrue(Exit.isFailure(stale));

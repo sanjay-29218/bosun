@@ -11,6 +11,7 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 /** One row of `bots`, with its JSON columns still encoded. */
 const BotRow = Schema.Struct({
   ...Bot.fields,
+  avatar: Schema.fromJsonString(Bot.fields.avatar),
   allowedTools: Schema.fromJsonString(Bot.fields.allowedTools),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
 });
@@ -54,6 +55,10 @@ export class BotStore extends Context.Service<
     readonly idTaken: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
     /** The bot that owns an active project, or null for a missing project. */
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
+    /** The oldest active project the bot owns, or null when it owns none. */
+    readonly firstOwnedProject: (
+      botId: string,
+    ) => Effect.Effect<string | null, PersistenceSqlError>;
   }
 >()("t3/bots/BotStore") {}
 
@@ -66,7 +71,7 @@ const make = Effect.gen(function* () {
 
   const select = (id?: string) =>
     sql`
-      SELECT id, name, emoji, color, instructions, allowed_tools_json AS "allowedTools",
+      SELECT id, name, avatar_json AS "avatar", color, instructions, allowed_tools_json AS "allowedTools",
         runtime_mode AS "runtimeMode", model_selection_json AS "modelSelection",
         default_workflow_id AS "defaultWorkflowId", position, revision,
         created_at AS "createdAt", updated_at AS "updatedAt"
@@ -84,10 +89,10 @@ const make = Effect.gen(function* () {
       const row = encodeRow(bot);
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
-          id, name, emoji, color, instructions, allowed_tools_json, runtime_mode,
+          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
           model_selection_json, default_workflow_id, position, revision, created_at, updated_at
         )
-        SELECT ${row.id}, ${row.name}, ${row.emoji}, ${row.color}, ${row.instructions},
+        SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
           ${row.allowedTools}, ${row.runtimeMode}, ${row.modelSelection},
           ${row.defaultWorkflowId}, ${row.position}, ${row.revision}, ${row.createdAt},
           ${row.updatedAt}
@@ -102,7 +107,7 @@ const make = Effect.gen(function* () {
       const row = encodeRow(bot);
       return sql<{ readonly id: string }>`
         UPDATE bots SET
-          name = ${row.name}, emoji = ${row.emoji}, color = ${row.color},
+          name = ${row.name}, avatar_json = ${row.avatar}, color = ${row.color},
           instructions = ${row.instructions}, allowed_tools_json = ${row.allowedTools},
           runtime_mode = ${row.runtimeMode}, model_selection_json = ${row.modelSelection},
           default_workflow_id = ${row.defaultWorkflowId}, revision = ${row.revision},
@@ -154,6 +159,15 @@ const make = Effect.gen(function* () {
         WHERE project_id = ${projectId} AND deleted_at IS NULL
       `.pipe(
         Effect.map((rows) => rows[0]?.botId ?? null),
+        Effect.mapError(queryError),
+      ),
+    firstOwnedProject: (botId) =>
+      sql<{ readonly projectId: string }>`
+        SELECT project_id AS "projectId" FROM projection_projects
+        WHERE bot_id = ${botId} AND deleted_at IS NULL
+        ORDER BY created_at, project_id LIMIT 1
+      `.pipe(
+        Effect.map((rows) => rows[0]?.projectId ?? null),
         Effect.mapError(queryError),
       ),
   });

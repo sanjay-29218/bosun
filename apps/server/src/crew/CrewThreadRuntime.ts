@@ -4,20 +4,23 @@ import {
   CommandId,
   ComposerContextId,
   MessageId,
+  ModelSelection,
   ThreadId,
-  type ModelSelection,
   type ProjectId,
   type RuntimeMode,
   type CrewTurnState,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
 type OrchestrationDispatchError = Orchestrator.OrchestratorV2Error;
 type CrewReadError = PersistenceSqlError;
@@ -37,6 +40,24 @@ export interface CrewThreadStart {
 
 export interface CrewThreadRuntimeShape {
   readonly projectExists: (projectId: ProjectId) => Effect.Effect<boolean, CrewReadError>;
+  /** The Scratch project bots keep their headquarters in, or null where there is none. */
+  readonly headquartersProjectId: Effect.Effect<ProjectId | null>;
+  /** Pins a crew thread once; the fixed command ID makes an unpin stick. */
+  readonly pin: (
+    threadId: ThreadId,
+    commandId: string,
+  ) => Effect.Effect<void, OrchestrationDispatchError>;
+  /**
+   * Brings a long-lived crew thread back: recreates and restarts it after a delete, or
+   * unarchives it. A no-op while the thread is live.
+   */
+  readonly restore: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** Points the thread's next turns at `runtimeMode` and `modelSelection` when they differ. */
+  readonly syncSettings: (
+    threadId: ThreadId,
+    runtimeMode: RuntimeMode,
+    modelSelection: ModelSelection,
+  ) => Effect.Effect<void, OrchestrationDispatchError>;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
   readonly replayPending: (
     input: CrewThreadStart,
@@ -73,19 +94,28 @@ const runCommandPrefix = (threadId: ThreadId) =>
 const handoffCommandPrefix = (threadId: ThreadId) =>
   threadId.startsWith("bosun-run:") ? "bosun-handoff" : "bot-handoff";
 
+const sameModelSelection = Schema.toEquivalence(ModelSelection);
+
 export const CrewThreadRuntimeV2 = Layer.effect(
   CrewThreadRuntime,
   Effect.gen(function* () {
     const engine = yield* Orchestrator.OrchestratorV2;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const sql = yield* SqlClient.SqlClient;
-    const submitTurn = (input: CrewThreadStart) =>
+    // Optional so crew tests run without managed folders; the server always provides them.
+    const folders = yield* Effect.serviceOption(ManagedProjectFolders.ManagedProjectFolders);
+    // `suffix` gives a restart after a delete its own receipts.
+    const submitTurn = (input: CrewThreadStart, suffix = "") =>
       engine
         .dispatch({
           type: "message.dispatch",
-          commandId: CommandId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:start`),
+          commandId: CommandId.make(
+            `${runCommandPrefix(input.threadId)}:${input.runId}:start${suffix}`,
+          ),
           threadId: input.threadId,
-          messageId: MessageId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:message`),
+          messageId: MessageId.make(
+            `${runCommandPrefix(input.threadId)}:${input.runId}:message${suffix}`,
+          ),
           text: input.prompt,
           attachments: [],
           context: {
@@ -105,24 +135,73 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           dispatchMode: { type: "start_immediately" },
         })
         .pipe(Effect.asVoid);
+    const create = (input: CrewThreadStart, suffix = "") =>
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(
+          `${runCommandPrefix(input.threadId)}:${input.runId}:create${suffix}`,
+        ),
+        threadId: input.threadId,
+        projectId: input.projectId,
+        title: input.title,
+        modelSelection: input.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
     const start = Effect.fn("CrewThreadRuntime.start")(function* (input: CrewThreadStart) {
       const existing = yield* engine.getThreadShell(input.threadId);
-      if (existing === null)
-        yield* engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:create`),
-          threadId: input.threadId,
-          projectId: input.projectId,
-          title: input.title,
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          createdBy: "agent",
-          creationSource: "mcp",
-        });
+      if (existing === null) yield* create(input);
       yield* submitTurn(input);
+    });
+    // Each restore and settings change is a new decision, so it gets a fresh command ID.
+    let sequence = 0;
+    const freshId = DateTime.now.pipe(
+      Effect.map((now) => `${DateTime.toEpochMillis(now)}-${++sequence}`),
+    );
+    const restore = Effect.fn("CrewThreadRuntime.restore")(function* (input: CrewThreadStart) {
+      const shell = yield* engine.getThreadShell(input.threadId);
+      if (shell === null || shell.deletedAt !== null) {
+        const suffix = `:restore:${yield* freshId}`;
+        yield* create(input, suffix);
+        yield* submitTurn(input, suffix);
+        yield* engine.dispatch({
+          type: "thread.pin",
+          commandId: CommandId.make(`${input.runId}:pin${suffix}`),
+          threadId: input.threadId,
+        });
+      } else if (shell.archivedAt !== null) {
+        yield* engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.make(`${input.runId}:unarchive:${yield* freshId}`),
+          threadId: input.threadId,
+        });
+      }
+    });
+    const syncSettings = Effect.fn("CrewThreadRuntime.syncSettings")(function* (
+      threadId: ThreadId,
+      runtimeMode: RuntimeMode,
+      modelSelection: ModelSelection,
+    ) {
+      const shell = yield* engine.getThreadShell(threadId);
+      if (shell === null || shell.deletedAt !== null) return;
+      if (shell.runtimeMode !== runtimeMode)
+        yield* engine.dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make(`${threadId}:runtime-mode:${yield* freshId}`),
+          threadId,
+          runtimeMode,
+        });
+      if (!sameModelSelection(shell.modelSelection, modelSelection))
+        yield* engine.dispatch({
+          type: "thread.model-selection.set",
+          commandId: CommandId.make(`${threadId}:model:${yield* freshId}`),
+          threadId,
+          modelSelection,
+        });
     });
     return CrewThreadRuntime.of({
       projectExists: (projectId) =>
@@ -132,6 +211,22 @@ export const CrewThreadRuntimeV2 = Layer.effect(
             Effect.map(Option.isSome),
             Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectExists")),
           ),
+      headquartersProjectId: Option.match(folders, {
+        onNone: () => Effect.succeed(null),
+        onSome: (managed) =>
+          managed.ensureScratchProject.pipe(
+            Effect.map(({ projectId }) => projectId),
+            Effect.catch((error) =>
+              Effect.logWarning("Scratch project unavailable", { error }).pipe(Effect.as(null)),
+            ),
+          ),
+      }),
+      pin: (threadId, commandId) =>
+        engine
+          .dispatch({ type: "thread.pin", commandId: CommandId.make(commandId), threadId })
+          .pipe(Effect.asVoid),
+      restore,
+      syncSettings,
       start,
       // V2 owns accepted-run recovery through the durable effect outbox. Reusing
       // the original receipts only fills a crash between thread creation and start.

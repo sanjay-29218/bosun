@@ -15,7 +15,7 @@ import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
-import { AppText as Text } from "../../components/AppText";
+import { BotAvatar } from "../../components/BotAvatar";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
@@ -186,7 +186,7 @@ export function MaterialThreadListToolbar(props: {
   );
 }
 
-/** The active bot's emoji in an icon-button slot; the menu lists every bot and what waits. */
+/** The active bot's avatar in an icon-button slot; the menu lists every bot and what waits. */
 function BotSwitcherButton(props: {
   readonly menu: BotSwitcherMenu;
   readonly buttonSize: number;
@@ -200,7 +200,7 @@ function BotSwitcherButton(props: {
         id: item.key,
         title: item.title,
         ...(item.subtitle ? { subtitle: item.subtitle } : {}),
-        state: item.state,
+        ...(item.state ? { state: item.state } : {}),
       }))}
       onPressAction={({ nativeEvent }) =>
         menu.items.find((item) => item.key === nativeEvent.event)?.onPress()
@@ -213,7 +213,7 @@ function BotSwitcherButton(props: {
         className="items-center justify-center"
         style={{ width: props.buttonSize, height: props.buttonSize }}
       >
-        <Text style={{ fontSize: props.iconSize }}>{menu.emoji}</Text>
+        <BotAvatar avatar={menu.avatar} color={menu.color} size={props.iconSize + 10} />
       </View>
     </AndroidAnchoredMenu>
   );

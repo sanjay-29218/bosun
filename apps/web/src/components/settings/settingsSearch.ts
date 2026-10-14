@@ -1019,7 +1019,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Bots",
     to: "/settings/bots",
     searchTerms: [
-      "captain social finance owner emoji avatar color instructions tools model act ask first default workflow rail order delete",
+      "captain social finance owner avatar robot look shuffle color instructions tools permissions model act ask first approvals default workflow rail order delete",
     ],
   },
   {

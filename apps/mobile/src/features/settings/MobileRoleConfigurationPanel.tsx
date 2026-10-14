@@ -1,4 +1,5 @@
 import {
+  CREW_TOOL_GRANTS,
   PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
@@ -63,7 +64,9 @@ function Editor(props: {
   const initialModel = props.role?.modelSelection ?? props.modelSelection;
   const [name, setName] = useState(props.role?.name ?? "");
   const [instructions, setInstructions] = useState(props.role?.instructions ?? "");
-  const [allowedTools, setAllowedTools] = useState(props.role?.allowedTools.join(", ") ?? "");
+  const [allowedTools, setAllowedTools] = useState<ReadonlyArray<string>>(
+    props.role?.allowedTools ?? [],
+  );
   const [instanceId, setInstanceId] = useState(initialModel?.instanceId ?? "");
   const [model, setModel] = useState(initialModel?.model ?? "");
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
@@ -109,12 +112,32 @@ function Editor(props: {
         value={model}
         onChangeText={setModel}
       />
-      <AppTextInput
-        accessibilityLabel="Allowed crew tools"
-        placeholder="Allowed crew tools, separated by commas"
-        value={allowedTools}
-        onChangeText={setAllowedTools}
-      />
+      <Text className="text-xs text-foreground-muted">Tools</Text>
+      <View className="flex-row flex-wrap gap-1.5">
+        {/* Grants this list doesn't know stay on the role and stay listed so they can be removed. */}
+        {[
+          ...CREW_TOOL_GRANTS.filter((grant) => !("botOnly" in grant)),
+          ...allowedTools
+            .filter((id) => !CREW_TOOL_GRANTS.some((grant) => grant.id === id))
+            .map((id) => ({ id, label: id })),
+        ].map((grant) => {
+          const selected = allowedTools.includes(grant.id);
+          return (
+            <Action
+              key={grant.id}
+              label={grant.label}
+              selected={selected}
+              onPress={() =>
+                setAllowedTools(
+                  selected
+                    ? allowedTools.filter((id) => id !== grant.id)
+                    : [...allowedTools, grant.id],
+                )
+              }
+            />
+          );
+        })}
+      </View>
       <Action
         label={`T3 runtime: ${runtimeMode}`}
         onPress={() =>
@@ -147,14 +170,7 @@ function Editor(props: {
             id: props.role?.id ?? `role:${uuidv4()}`,
             name: name.trim(),
             instructions: instructions.trim(),
-            allowedTools: [
-              ...new Set(
-                allowedTools
-                  .split(",")
-                  .map((tool) => tool.trim())
-                  .filter(Boolean),
-              ),
-            ],
+            allowedTools: [...allowedTools],
             modelSelection,
             runtimeMode,
             autoCreateForFeature,

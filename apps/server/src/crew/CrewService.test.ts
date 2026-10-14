@@ -109,7 +109,7 @@ describe("Bot foundation", () => {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-custom-")),
       );
-      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine }) =>
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine, sql }) =>
         Effect.gen(function* () {
           yield* createProject(engine);
           yield* Effect.all(
@@ -315,6 +315,58 @@ describe("Bot foundation", () => {
     }),
   );
 
+  effectIt.effect("keeps a bot's headquarters in a project it owns where Scratch is off", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-hq-")),
+      );
+      yield* withSystem(
+        NodePath.join(directory, "state.sqlite"),
+        ({ bots, handoffs, engine, sql }) =>
+          Effect.gen(function* () {
+            // A bot without a model has no headquarters.
+            expect(
+              (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
+            ).toContain("Choose a default model for Captain");
+            yield* bots.ensureDefaults(modelSelection);
+            // No managed folders here, like a dev server whose data dir is inside a checkout.
+            expect(
+              (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
+            ).toContain("Give Captain a project first");
+            yield* createProject(engine);
+            const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID);
+            expect(headquarters.projectId).toBe(projectId);
+            expect(yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID)).toEqual(headquarters);
+
+            // Once its host project moves to another bot, it can no longer delegate there.
+            const manager = yield* bots.ensureProjectManager(projectId);
+            yield* sql`UPDATE projection_projects SET bot_id = 'bot-elsewhere'`;
+            expect(
+              (yield* handoffs
+                .delegate({
+                  id: "hq-after-move",
+                  sourceThreadId: headquarters.threadId,
+                  targetMemberId: manager.id,
+                  taskText: "Keep going",
+                })
+                .pipe(Effect.flip)).message,
+            ).toContain("unavailable for this project");
+            yield* sql`UPDATE projection_projects SET bot_id = ${CAPTAIN_BOT_ID}`;
+
+            // Deleting the project it lives in sends it looking for another home.
+            yield* sql`UPDATE projection_projects SET deleted_at = '2026-10-14T00:00:00.000Z'`;
+            expect(
+              (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
+            ).toContain("Give Captain a project first");
+          }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
   effectIt.effect("refuses new runs for a bot after its project moves, but keeps old ones", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
@@ -335,11 +387,12 @@ describe("Bot foundation", () => {
             });
             yield* sql`
               INSERT INTO bots (
-                id, name, emoji, color, instructions, allowed_tools_json, runtime_mode,
+                id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
                 model_selection_json, default_workflow_id, position, revision, created_at,
                 updated_at
               ) VALUES (
-                'bot-second', 'Second', 'S', 'blue', 'Coordinate.', '["crew.delegate"]',
+                'bot-second', 'Second',
+                '{"head":"round","eyes":"round","face":"visor","top":"ball","cheeks":false,"smile":false}', 'blue', 'Coordinate.', '["crew.delegate"]',
                 'approval-required', NULL, NULL, 1, 1, '2026-01-01', '2026-01-01'
               )
             `;
@@ -400,6 +453,10 @@ describe("Bot foundation", () => {
       let attempts = 0;
       const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
         projectExists: () => Effect.succeed(true),
+        headquartersProjectId: Effect.succeed(null),
+        restore: () => Effect.void,
+        syncSettings: () => Effect.void,
+        pin: () => Effect.void,
         start: () =>
           Effect.sync(() => ++attempts).pipe(
             Effect.flatMap((attempt) =>

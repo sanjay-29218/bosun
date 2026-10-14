@@ -41,6 +41,76 @@ export const CrewDispatchStateSchema = Schema.Literals([
 /** The global role every project's manager is made from, which Captain delegates to. */
 export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 
+/**
+ * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one;
+ * the rest each unlock a whole T3 MCP toolkit for the run. `botOnly` grants act on the
+ * projects a bot owns, so role editors leave them out.
+ */
+export const CREW_TOOL_GRANTS = [
+  {
+    id: "crew.delegate",
+    label: "Delegate work",
+    description: "Hand tasks to the project manager or another crew member.",
+  },
+  {
+    id: "crew.status",
+    label: "Follow handoffs",
+    description: "List and wait on work it handed off.",
+  },
+  {
+    id: "crew.answer",
+    label: "Answer questions",
+    description: "Reply when work it handed off asks a question.",
+  },
+  {
+    id: "crew.ask",
+    label: "Ask questions",
+    description: "Ask whoever handed it work for a decision.",
+  },
+  {
+    id: "crew.respond",
+    label: "Report results",
+    description: "Send its finished outcome back to whoever asked.",
+  },
+  {
+    id: "crew.projects",
+    label: "See its projects",
+    description: "List the projects a bot owns, with their managers and features.",
+    botOnly: true,
+  },
+  {
+    id: "crew.create-project",
+    label: "Create projects",
+    description: "Start a new project it owns, from a name or by cloning a Git URL.",
+    botOnly: true,
+  },
+  {
+    id: "orchestration",
+    label: "Threads",
+    description: "Create, read and message T3 threads.",
+  },
+  {
+    id: "worktree",
+    label: "Worktrees",
+    description: "Create git worktrees and move threads into them.",
+  },
+  {
+    id: "pull-requests",
+    label: "Pull requests",
+    description: "Read and link pull requests.",
+  },
+  {
+    id: "preview",
+    label: "Browser",
+    description: "Open and drive the built-in browser.",
+  },
+  {
+    id: "device",
+    label: "Devices",
+    description: "Drive iOS and Android simulators.",
+  },
+] as const;
+
 /** A crew member: a role instantiated for a project, a feature, or the whole environment. */
 export const CrewMemberSummary = Schema.Struct({
   id: Schema.String,

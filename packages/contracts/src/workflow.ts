@@ -216,6 +216,13 @@ export const CrewStageSummary = Schema.Struct({
   revision: Schema.optionalKey(Schema.Int),
 });
 export type CrewStageSummary = typeof CrewStageSummary.Type;
+
+/** The feature a crew thread works on: its stage threads and its lead's thread. */
+export const ThreadFeatureTag = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+});
+export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
 /**
  * A stage result a later stage can receive. `version` counts the producing step's
  * completed executions, so a reworked design is `design.md` version 2.

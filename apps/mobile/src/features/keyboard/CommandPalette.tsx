@@ -222,7 +222,7 @@ export function CommandPalette(props: {
               return {
                 key: `bot:${bot.key}`,
                 kind: "action" as const,
-                title: `Switch to ${bot.emoji} ${bot.name}`,
+                title: `Switch to ${bot.name}`,
                 ...(waiting > 0 ? { detail: needsYouLabel(waiting) } : {}),
                 searchTerms: ["bot", bot.name],
                 run: () => activeBot.select(bot),

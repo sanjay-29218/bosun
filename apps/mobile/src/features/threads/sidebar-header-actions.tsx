@@ -1,5 +1,5 @@
 import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { BotAvatar } from "../../components/BotAvatar";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { Pressable, View } from "react-native";
 
@@ -50,14 +50,14 @@ export function SidebarHeaderActions(props: SidebarHeaderActionsProps) {
             id: item.key,
             title: item.title,
             ...(item.subtitle ? { subtitle: item.subtitle } : {}),
-            state: item.state,
+            ...(item.state ? { state: item.state } : {}),
           }))}
           onPressAction={({ nativeEvent }) =>
             botSwitcher.items.find((item) => item.key === nativeEvent.event)?.onPress()
           }
         >
           <View className="size-11 items-center justify-center rounded-full bg-subtle">
-            <Text className="text-lg">{botSwitcher.emoji}</Text>
+            <BotAvatar avatar={botSwitcher.avatar} color={botSwitcher.color} size={34} />
           </View>
         </ControlPillMenu>
       ) : null}

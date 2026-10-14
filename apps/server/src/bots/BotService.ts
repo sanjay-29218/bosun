@@ -1,7 +1,9 @@
 import {
   CAPTAIN_BOT_ID,
   CommandId,
+  DEFAULT_BOT_TOOLS,
   type Bot,
+  type BotAvatar,
   type BotCreateInput,
   type BotUpdateInput,
   type Project,
@@ -12,8 +14,10 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { CrewService } from "../crew/CrewService.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
@@ -68,16 +72,27 @@ const tools = (value: ReadonlyArray<string>) =>
 
 const DEFAULT_INSTRUCTIONS =
   "Coordinate the person's requests for your projects. Hand project work to the project's manager with crew_delegate and a stable request ID, wait for its structured outcome with crew_wait_handoff, and relay it clearly. Never claim work is done without a structured outcome.";
-const DEFAULT_TOOLS = ["crew.delegate", "crew.status"];
+
+const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
+  left.head === right.head &&
+  left.eyes === right.eyes &&
+  left.face === right.face &&
+  left.top === right.top &&
+  left.cheeks === right.cheeks &&
+  left.smile === right.smile;
 
 const sameCreate = (bot: Bot, input: BotCreateInput) =>
-  bot.name === input.name.trim() && bot.emoji === input.emoji.trim() && bot.color === input.color;
+  bot.name === input.name.trim() &&
+  sameAvatar(bot.avatar, input.avatar) &&
+  bot.color === input.color;
 
 const make = Effect.gen(function* () {
   const store = yield* BotStore.BotStore;
   const projects = yield* ProjectService.ProjectService;
   const workflows = yield* WorkflowStore;
   const crypto = yield* Crypto.Crypto;
+  // Optional so bot tests run without the crew; the server always provides it.
+  const crew = yield* Effect.serviceOption(CrewService);
 
   const requireWorkflow = (id: string | null | undefined) =>
     id === null || id === undefined
@@ -122,14 +137,14 @@ const make = Effect.gen(function* () {
         const bot: Bot = {
           id,
           name: yield* text(input.name, "Bot name", 80),
-          emoji: yield* text(input.emoji, "Bot emoji", 32),
+          avatar: input.avatar,
           color: input.color,
           instructions: yield* text(
             input.instructions ?? DEFAULT_INSTRUCTIONS,
             "Bot instructions",
             16_000,
           ),
-          allowedTools: yield* tools(input.allowedTools ?? DEFAULT_TOOLS),
+          allowedTools: yield* tools(input.allowedTools ?? DEFAULT_BOT_TOOLS),
           runtimeMode: input.runtimeMode ?? "approval-required",
           modelSelection: input.modelSelection ?? null,
           defaultWorkflowId: input.defaultWorkflowId ?? null,
@@ -154,9 +169,7 @@ const make = Effect.gen(function* () {
         const next: Bot = {
           ...previous,
           ...(input.name === undefined ? {} : { name: yield* text(input.name, "Bot name", 80) }),
-          ...(input.emoji === undefined
-            ? {}
-            : { emoji: yield* text(input.emoji, "Bot emoji", 32) }),
+          ...(input.avatar === undefined ? {} : { avatar: input.avatar }),
           ...(input.color === undefined ? {} : { color: input.color }),
           ...(input.instructions === undefined
             ? {}
@@ -174,6 +187,16 @@ const make = Effect.gen(function* () {
         };
         if (!(yield* store.update(next, previous.revision))) {
           return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
+        }
+        // An open headquarters takes the new runtime mode and model on its next turn.
+        if (Option.isSome(crew)) {
+          yield* crew.value
+            .syncHeadquarters(next.id)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Headquarters settings sync failed", { botId: next.id, error }),
+              ),
+            );
         }
         return next;
       }),

@@ -11,6 +11,10 @@
       "types": "./src/handoff.ts",
       "default": "./src/handoff.ts"
     },
+    "./bot-avatar": {
+      "types": "./src/botAvatar.ts",
+      "default": "./src/botAvatar.ts"
+    },
     "./state/workflows": {
       "types": "./src/state/workflows.ts",
       "default": "./src/state/workflows.ts"

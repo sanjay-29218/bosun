@@ -1,3 +1,5 @@
+import { logicalBotProjectKeys } from "@t3tools/client-runtime/state/bot-rail";
+import { headquartersBotId } from "@t3tools/contracts";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -40,6 +42,8 @@ import { useActiveBot, useRefreshBotsWhileOpen } from "../../state/bots";
 import { useBoardProjects } from "../../state/features";
 import { FeatureBoard } from "../crew/FeatureBoard";
 import { buildBotSwitcherMenu } from "../home/thread-list-chrome";
+import { BotHeaderRow } from "../home/BotHeaderRow";
+import { useOpenBotHeadquarters } from "../home/useOpenBotHeadquarters";
 import { useThreadListView } from "../home/use-thread-list-view";
 import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import { useWorkspaceState } from "../../state/workspace";
@@ -160,16 +164,37 @@ function ThreadNavigationSidebarPane(
           ),
     [allProjects, botProjectKeys],
   );
+  // Headquarters open from the bot row above the list instead.
   const threads = useMemo(
     () =>
-      botProjectKeys === null
-        ? allThreads
-        : allThreads.filter((thread) =>
-            botProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
-          ),
+      allThreads.filter(
+        (thread) =>
+          headquartersBotId(thread.id) === null &&
+          (botProjectKeys === null ||
+            botProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId))),
+      ),
     [allThreads, botProjectKeys],
   );
-  const botSwitcher = useMemo(() => buildBotSwitcherMenu(activeBot), [activeBot]);
+  const openHeadquarters = useOpenBotHeadquarters(props.onSelectThread);
+  const botProjectCount = useMemo(
+    () =>
+      activeBot.active === null
+        ? 0
+        : logicalBotProjectKeys(
+            activeBot.active,
+            activeBot.bots,
+            allProjects.filter((project) => !project.isScratch),
+          ).size,
+    [activeBot.active, activeBot.bots, allProjects],
+  );
+  const botSwitcher = useMemo(
+    () =>
+      buildBotSwitcherMenu({
+        ...activeBot,
+        openHeadquarters: (bot) => void openHeadquarters(bot),
+      }),
+    [activeBot, openHeadquarters],
+  );
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
@@ -1117,6 +1142,16 @@ function ThreadNavigationSidebarPane(
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
+                ListHeaderComponent={
+                  activeBot.active ? (
+                    <BotHeaderRow
+                      bot={activeBot.active}
+                      threads={allThreads}
+                      projectCount={botProjectCount}
+                      onOpen={(bot) => void openHeadquarters(bot)}
+                    />
+                  ) : null
+                }
                 ListEmptyComponent={listEmpty}
               />
             </GestureDetector>

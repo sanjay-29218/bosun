@@ -25,7 +25,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   Bot,
   BotCreateInput,
@@ -468,6 +468,7 @@ export const WS_METHODS = {
   botsDelete: "bots.delete",
   botsReorder: "bots.reorder",
   botsMoveProject: "bots.moveProject",
+  botsOpenHeadquarters: "bots.openHeadquarters",
   rolesList: "roles.list",
   rolesCreate: "roles.create",
   rolesUpdate: "roles.update",
@@ -1237,6 +1238,12 @@ const WsBotsReorderRpc = Rpc.make(WS_METHODS.botsReorder, {
 const WsBotsMoveProjectRpc = Rpc.make(WS_METHODS.botsMoveProject, {
   payload: BotMoveProjectInput,
   success: Project,
+  error: BotRpcError,
+});
+// Creates the bot's headquarters thread on first use; the client then navigates to it.
+const WsBotsOpenHeadquartersRpc = Rpc.make(WS_METHODS.botsOpenHeadquarters, {
+  payload: Schema.Struct({ botId: Schema.String }),
+  success: Schema.Struct({ threadId: ThreadId }),
   error: BotRpcError,
 });
 const WsRolesListRpc = Rpc.make(WS_METHODS.rolesList, {
@@ -2257,6 +2264,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsBotsDeleteRpc,
   WsBotsReorderRpc,
   WsBotsMoveProjectRpc,
+  WsBotsOpenHeadquartersRpc,
   WsRolesListRpc,
   WsRolesCreateRpc,
   WsRolesUpdateRpc,
