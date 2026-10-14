@@ -1,13 +1,14 @@
-import { formatStageName, workflowSummaryLine } from "@t3tools/client-runtime/crew-stage";
+import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { UsersIcon, WorkflowIcon } from "lucide-react";
+import { MessageSquareIcon, SettingsIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
 import { useProject, useServerConfigs } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
+import { orderWorkflowStages } from "../settings/WorkflowEditor.logic";
 import { workflowsEnvironment } from "../../state/workflows";
 import {
   ComposerControl,
@@ -107,34 +108,42 @@ export function ComposerWorkflowPicker(props: {
         </span>
         <ComposerControlChevron size={props.size} />
       </MenuTrigger>
-      <MenuPopup {...menuProps} side="top" align="start" className="max-w-sm">
-        <MenuRadioGroup
-          value={workflow?.id ?? NO_WORKFLOW}
-          onValueChange={(value: string) =>
-            setWorkflow(props.draftId, value === NO_WORKFLOW ? null : value)
-          }
-        >
-          <MenuRadioItem value={NO_WORKFLOW}>
-            <span className="flex min-w-0 flex-col">
-              <span>No workflow</span>
-              <span className="text-xs text-muted-foreground">
-                A normal thread you drive yourself
-              </span>
-            </span>
-          </MenuRadioItem>
-          {definitions.map((definition) => (
-            <MenuRadioItem key={definition.id} value={definition.id}>
-              <span className="flex min-w-0 flex-col">
-                <span>{definition.name}</span>
-                <span className="text-xs whitespace-normal text-muted-foreground">
-                  {workflowSummaryLine(definition)}
-                </span>
+      <MenuPopup {...menuProps} side="top" align="start" className="min-w-64">
+        <MenuGroup>
+          <MenuGroupLabel>Workflow</MenuGroupLabel>
+          <MenuRadioGroup
+            value={workflow?.id ?? NO_WORKFLOW}
+            onValueChange={(value: string) =>
+              setWorkflow(props.draftId, value === NO_WORKFLOW ? null : value)
+            }
+          >
+            <MenuRadioItem value={NO_WORKFLOW} closeOnClick>
+              <span className="flex min-w-0 items-center gap-2">
+                <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">No workflow</span>
               </span>
             </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
+            {definitions.map((definition) => {
+              const stages = orderWorkflowStages(definition).length;
+              return (
+                <MenuRadioItem key={definition.id} value={definition.id} closeOnClick>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <WorkflowIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{definition.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {stages} {stages === 1 ? "stage" : "stages"}
+                    </span>
+                  </span>
+                </MenuRadioItem>
+              );
+            })}
+          </MenuRadioGroup>
+        </MenuGroup>
         <MenuSeparator />
-        <MenuItem onClick={props.onManageWorkflows}>Manage workflows…</MenuItem>
+        <MenuItem onClick={props.onManageWorkflows}>
+          <SettingsIcon />
+          Manage workflows…
+        </MenuItem>
       </MenuPopup>
     </Menu>
   );
