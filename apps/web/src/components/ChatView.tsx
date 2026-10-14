@@ -11435,6 +11435,7 @@ export default function ChatView(props: ChatViewProps) {
     forceNewWorktree: multipleModelSelections !== null,
     environmentId: activeThread.environmentId,
     threadId: activeThread.id,
+    onOpenFeature: crewStage ? addFeatureSurface : undefined,
     ...(draftId ? { draftId } : {}),
     activeProjectName: activeProject?.title,
     activeProjectScripts: activeProject ? activeProjectScripts : undefined,

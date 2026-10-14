@@ -16,7 +16,9 @@ import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 
 import {
+  featureLifecycleFor,
   readFeatureMenuState,
+  runFeatureLifecycleAction,
   runFeatureThreadAction,
 } from "../components/features/featureThreadActions";
 import { resolveSnoozePresets } from "../components/Sidebar.snooze";
@@ -166,6 +168,8 @@ export function useThreadActionMenu(input: {
           supports,
           snoozePresets,
           feature,
+          // The header knows only its own thread: a stage thread offers the feature actions.
+          featureLifecycle: featureLifecycleFor(thread, []),
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -262,6 +266,21 @@ export function useThreadActionMenu(input: {
           case "make-feature":
           case "detach-feature":
             await runFeatureThreadAction(action, threadRef, thread);
+            return;
+          case "feature-pause":
+          case "feature-resume":
+          case "feature-cancel":
+          case "feature-reopen":
+            if (thread.feature) {
+              await runFeatureLifecycleAction(action, {
+                environmentId: threadRef.environmentId,
+                projectId: thread.projectId,
+                featureId: thread.feature.id,
+                title: thread.feature.title,
+              });
+            }
+            return;
+          case "feature":
             return;
           case "regenerate-title":
             if (isRegeneratingTitle) return;

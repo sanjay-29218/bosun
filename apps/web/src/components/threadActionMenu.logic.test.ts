@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
+  featureLifecycleActions,
   type ThreadActionMenuState,
 } from "./threadActionMenu.logic";
 
@@ -256,5 +257,15 @@ describe("buildDraftActionMenuItems", () => {
     const items = buildDraftActionMenuItems({ hasPath: true, hasBranch: false, hasProject: false });
     expect(items.map((item) => item.id)).toEqual(["copy", "discard"]);
     expect(items.at(-1)).toMatchObject({ label: "Discard draft", destructive: true });
+  });
+});
+
+describe("featureLifecycleActions", () => {
+  it("pauses or cancels a running feature, resumes a paused one and reopens a finished one", () => {
+    expect(featureLifecycleActions("working")).toEqual(["feature-pause", "feature-cancel"]);
+    expect(featureLifecycleActions("approval")).toEqual(["feature-pause", "feature-cancel"]);
+    expect(featureLifecycleActions("paused")).toEqual(["feature-resume", "feature-cancel"]);
+    expect(featureLifecycleActions("done")).toEqual(["feature-reopen"]);
+    expect(featureLifecycleActions("cancelled")).toEqual(["feature-reopen"]);
   });
 });

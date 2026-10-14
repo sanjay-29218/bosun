@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ContextMenuItem, FeatureCardState } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 /**
@@ -29,6 +29,11 @@ export type ThreadActionMenuId =
   | "copy-thread-id"
   | "make-feature"
   | "detach-feature"
+  | "feature"
+  | "feature-pause"
+  | "feature-resume"
+  | "feature-cancel"
+  | "feature-reopen"
   | "archive"
   | "delete";
 
@@ -106,7 +111,25 @@ export interface ThreadActionMenuState {
    * become one. Absent for crew threads and servers without features.
    */
   readonly feature?: { readonly isStage: boolean } | null;
+  /** Where the thread's feature stands, for pausing, resuming, cancelling or reopening it. */
+  readonly featureLifecycle?: { readonly state: FeatureCardState } | null;
 }
+
+/** The feature-wide actions that apply in `state`. */
+export function featureLifecycleActions(
+  state: FeatureCardState,
+): ReadonlyArray<"feature-pause" | "feature-resume" | "feature-cancel" | "feature-reopen"> {
+  if (state === "done" || state === "cancelled") return ["feature-reopen"];
+  if (state === "paused") return ["feature-resume", "feature-cancel"];
+  return ["feature-pause", "feature-cancel"];
+}
+
+const FEATURE_LIFECYCLE_LABELS = {
+  "feature-pause": "Pause feature",
+  "feature-resume": "Resume feature",
+  "feature-cancel": "Cancel feature…",
+  "feature-reopen": "Reopen feature",
+} as const;
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
@@ -220,6 +243,21 @@ export function buildThreadActionMenuItems(
                 checked: !state.autoSettleEnabled,
               },
             ],
+          },
+        ]
+      : []),
+    ...(state.featureLifecycle
+      ? [
+          {
+            id: "feature" as const,
+            label: "Feature",
+            icon: "workflow",
+            separatorBefore: true,
+            children: featureLifecycleActions(state.featureLifecycle.state).map((id) => ({
+              id,
+              label: FEATURE_LIFECYCLE_LABELS[id],
+              ...(id === "feature-cancel" ? { destructive: true } : {}),
+            })),
           },
         ]
       : []),

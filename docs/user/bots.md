@@ -98,6 +98,13 @@ feature needs one; editing a role changes the members made from it later, not ex
 Editing bots, workflows and roles is available on web and desktop. **Settings → Project → Crew
 activity** still lets you give the project's bot a task and answer, cancel or retry its requests.
 
+## Feature threads
+
+A feature shows in the sidebar as one row: its current stage thread. A count beside its tag shows
+how many of its other threads (such as its project manager's) are folded under it; click it to
+show or hide them. Right-click any of a feature's threads for **Feature** → **Pause**, **Resume**,
+**Cancel** or **Reopen**. A thread's details panel names its feature and stage, and opens it.
+
 ## Features from threads
 
 To turn a thread into a feature, choose **Make it a feature…** from the thread's ⋯ menu or the

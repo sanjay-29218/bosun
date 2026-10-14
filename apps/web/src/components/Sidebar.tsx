@@ -70,6 +70,7 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -190,7 +191,12 @@ import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { FeatureTag } from "./crew/FeatureTag";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
-import { readFeatureMenuState, runFeatureThreadAction } from "./features/featureThreadActions";
+import {
+  featureLifecycleFor,
+  runFeatureLifecycleAction,
+  readFeatureMenuState,
+  runFeatureThreadAction,
+} from "./features/featureThreadActions";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
@@ -200,6 +206,7 @@ import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
+  groupFeatureThreads,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
@@ -1121,6 +1128,8 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+const EMPTY_EXPANDED_FEATURE_ROWS: readonly string[] = [];
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1193,6 +1202,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     threadKey: string,
     snapshot: ThreadChangeRequestSnapshot | null,
   ) => void;
+  /** The feature's other threads folded under this row, and whether they show. */
+  featureGroup?: {
+    readonly count: number;
+    readonly expanded: boolean;
+    readonly onToggle: () => void;
+  } | null;
+  /** Shown under its feature's row, indented. */
+  nested?: boolean;
 }) {
   const {
     isRenaming,
@@ -1812,6 +1829,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
+          props.nested && "ms-4",
         )}
       >
         <Tooltip disabled={sortable?.isDragging}>
@@ -1977,6 +1995,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         sortable?.isDragging && "relative z-20",
+        props.nested && "ms-4",
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
@@ -2176,6 +2195,26 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   branch, so the row lost its most stable identifier. A feature's
                   threads lead with its tag, and its stage thread with the stage. */}
               {thread.feature ? <FeatureTag feature={thread.feature} /> : null}
+              {props.featureGroup ? (
+                <button
+                  type="button"
+                  aria-expanded={props.featureGroup.expanded}
+                  aria-label={`${props.featureGroup.expanded ? "Hide" : "Show"} the feature's other ${props.featureGroup.count === 1 ? "thread" : `${props.featureGroup.count} threads`}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.featureGroup?.onToggle();
+                  }}
+                  onPointerDown={handleActionPointerDown}
+                  className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <ChevronRightIcon
+                    aria-hidden
+                    className={cn("size-3", props.featureGroup.expanded && "rotate-90")}
+                  />
+                  {props.featureGroup.count}
+                </button>
+              ) : null}
               {thread.crew ? (
                 <span className="shrink-0 text-muted-foreground">
                   {formatCrewStageLine(thread.crew)}
@@ -2905,6 +2944,7 @@ export default function Sidebar() {
     snoozedThreads,
     settledThreads,
     snoozeNow,
+    featureChildren,
   } = useMemo(() => {
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
@@ -2914,7 +2954,10 @@ export default function Sidebar() {
     const preciseNow = new Date().toISOString();
     // Subagent child threads live in the parent's Agents surface, not the
     // sidebar roster (v2 models them as real threads with lineage).
-    const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
+    // A feature's threads fold under its current stage thread's row.
+    const { primaries: visible, childrenByThreadKey: featureChildren } = groupFeatureThreads(
+      filterSidebarV2VisibleThreads(threads, scopedProjectKeys),
+    );
     inboxReturns.observe(workingShelfEnabled ? threads : null);
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -3013,6 +3056,7 @@ export default function Sidebar() {
       ),
       settledThreads: sortSettledThreads(settled),
       snoozeNow: preciseNow,
+      featureChildren,
     };
   }, [
     nowMinute,
@@ -3035,8 +3079,16 @@ export default function Sidebar() {
       ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
+      // Threads folded under their feature's row still turn up in search.
+      ...[...featureChildren.values()].flat(),
     ],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads, workingThreads],
+    [activeThreads, featureChildren, pinnedThreads, settledThreads, snoozedThreads, workingThreads],
+  );
+  // Features whose folded threads show under their row; collapsed by default.
+  const [expandedFeatureRows, setExpandedFeatureRows] = useLocalStorage(
+    "t3code:sidebar:expanded-feature-rows",
+    EMPTY_EXPANDED_FEATURE_ROWS,
+    Schema.Array(Schema.String),
   );
   const searchEnvironmentIds = useConnectedEnvironmentIds();
   // useThreadSearch owns the debounce and the two-character floor.
@@ -4781,6 +4833,7 @@ export default function Sidebar() {
               },
               snoozePresets,
               feature,
+              featureLifecycle: featureLifecycleFor(thread, threadByKeyRef.current.values()),
             }),
             position,
           ),
@@ -4918,6 +4971,21 @@ export default function Sidebar() {
           case "make-feature":
           case "detach-feature":
             await runFeatureThreadAction(clicked.value, threadRef, thread);
+            return;
+          case "feature-pause":
+          case "feature-resume":
+          case "feature-cancel":
+          case "feature-reopen":
+            if (thread.feature) {
+              await runFeatureLifecycleAction(clicked.value, {
+                environmentId: thread.environmentId,
+                projectId: thread.projectId,
+                featureId: thread.feature.id,
+                title: thread.feature.title,
+              });
+            }
+            return;
+          case "feature":
             return;
           case "archive": {
             if (confirmThreadArchive) {
@@ -5408,6 +5476,7 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
+                        nested = false,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5418,8 +5487,12 @@ export default function Sidebar() {
                         // not from the sidebar second-guessing what still matters.
                         // Working rows stay cards so their live status shows.
                         const isCard =
-                          section === "active" || section === "pinned" || section === "working";
+                          !nested &&
+                          (section === "active" || section === "pinned" || section === "working");
                         const rowVariant = isCard ? "card" : "slim";
+                        const folded = nested
+                          ? undefined
+                          : featureChildren.get(`${thread.environmentId}:${thread.id}`);
                         return (
                           <SidebarThreadRow
                             // Fade between card and compact rows while the outer
@@ -5520,6 +5593,21 @@ export default function Sidebar() {
                               changeRequestSnapshotByKey.get(threadKey) ?? null
                             }
                             onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
+                            nested={nested}
+                            featureGroup={
+                              folded
+                                ? {
+                                    count: folded.length,
+                                    expanded: expandedFeatureRows.includes(threadKey),
+                                    onToggle: () =>
+                                      setExpandedFeatureRows((current) =>
+                                        current.includes(threadKey)
+                                          ? current.filter((key) => key !== threadKey)
+                                          : [...current, threadKey],
+                                      ),
+                                  }
+                                : null
+                            }
                           />
                         );
                       };
@@ -5561,7 +5649,17 @@ export default function Sidebar() {
                       ];
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          const thread = threadByKey.get(item.key)!;
+                          items.push(renderThreadRow(thread, item.section));
+                          if (expandedFeatureRows.includes(item.key)) {
+                            for (const child of featureChildren.get(
+                              `${thread.environmentId}:${thread.id}`,
+                            ) ?? []) {
+                              items.push(
+                                renderThreadRowInner(child, item.section, undefined, true),
+                              );
+                            }
+                          }
                           continue;
                         }
                         switch (item.marker) {

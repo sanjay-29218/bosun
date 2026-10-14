@@ -6,6 +6,7 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
+  THREAD_JUMP_HINT_SHOW_DELAY_MS,
   animateSidebarLayoutChanges,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
@@ -20,6 +21,7 @@ import {
   getProjectSortTimestamp,
   getSidebarForkParentThreadId,
   getSidebarThreadIdsToPrewarm,
+  groupFeatureThreads,
   hasUnseenCompletion,
   isContextMenuPointerDown,
   isSidebarSubagentThread,
@@ -27,39 +29,38 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
+  planSidebarThreadDrop,
+  pullRequestMatchesSearchQuery,
   reduceSidebarProjectScopeMenuState,
   resolveAdjacentThreadId,
   resolveProjectStatusIndicator,
-  resolveSidebarSweepKeys,
-  resolveSidebarStageBadgeLabel,
-  resolveSidebarThreadSection,
+  resolveSidebarDropTarget,
+  resolveSidebarDropVerb,
   resolveSidebarRowAccessibility,
+  resolveSidebarStageBadgeLabel,
+  resolveSidebarSweepKeys,
+  resolveSidebarThreadSection,
   resolveSidebarThreadStatus,
   resolveSidebarV2TopStatus,
   resolveThreadLastVisitedAt,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
-  pullRequestMatchesSearchQuery,
   searchSidebarThreads,
   shouldClearThreadSelectionOnMouseDown,
-  shouldShowSidebarV2Duration,
+  shouldCreateNewThreadInCurrentProject,
+  shouldNavigateAfterThreadPark,
   shouldRecedeSidebarThread,
-  sortLogicalProjectsForSidebar,
+  shouldShowSidebarV2Duration,
   sortInboxThreadsByReturn,
-  resolveSidebarDropTarget,
-  planSidebarThreadDrop,
+  sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortProjectsForSidebar,
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
-  shouldCreateNewThreadInCurrentProject,
-  shouldNavigateAfterThreadPark,
-  THREAD_JUMP_HINT_SHOW_DELAY_MS,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
-  resolveSidebarDropVerb,
 } from "./Sidebar.logic";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
@@ -2385,5 +2386,33 @@ describe("Working shelf (beta)", () => {
         unsnooze: false,
       });
     });
+  });
+});
+
+describe("groupFeatureThreads", () => {
+  const thread = (id: string, updatedAt: string, feature: string | null, current?: boolean) => ({
+    id,
+    environmentId: "env",
+    updatedAt,
+    feature: feature ? { id: feature } : null,
+    crew: current === undefined ? null : { current },
+  });
+
+  it("keeps a feature's current stage thread and folds its others under it", () => {
+    const stage = thread("stage", "2026-10-14T10:00:00Z", "f1", true);
+    const manager = thread("manager", "2026-10-14T11:00:00Z", "f1");
+    const plain = thread("plain", "2026-10-14T09:00:00Z", null);
+    const alone = thread("alone", "2026-10-14T08:00:00Z", "f2", true);
+    const { primaries, childrenByThreadKey } = groupFeatureThreads([manager, stage, plain, alone]);
+    expect(primaries.map((item) => item.id)).toEqual(["stage", "plain", "alone"]);
+    expect(childrenByThreadKey.get("env:stage")?.map((item) => item.id)).toEqual(["manager"]);
+    expect(childrenByThreadKey.has("env:alone")).toBe(false);
+  });
+
+  it("keeps the most recent thread when no stage thread is current", () => {
+    const older = thread("older", "2026-10-14T10:00:00Z", "f1");
+    const newer = thread("newer", "2026-10-14T12:00:00Z", "f1");
+    const { primaries } = groupFeatureThreads([older, newer]);
+    expect(primaries.map((item) => item.id)).toEqual(["newer"]);
   });
 });

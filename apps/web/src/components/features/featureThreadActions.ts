@@ -5,12 +5,14 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ProjectId, ScopedThreadRef } from "@t3tools/contracts";
+import type { FeatureCardState, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 
 import { randomUUID } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { featureThreadsEnvironment } from "../../state/featureThreads";
+import { featuresEnvironment } from "../../state/features";
+import { workflowsEnvironment } from "../../state/workflows";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { openMakeFeatureDialog } from "./MakeFeatureDialog";
 
@@ -97,4 +99,81 @@ export async function runFeatureThreadAction(
       }),
     );
   }
+}
+
+/**
+ * Pauses, resumes, cancels or reopens a whole feature from any of its threads' menus. Cancel
+ * asks first. The same RPCs the stage thread and the board use.
+ */
+export async function runFeatureLifecycleAction(
+  action: "feature-pause" | "feature-resume" | "feature-cancel" | "feature-reopen",
+  target: {
+    readonly environmentId: ScopedThreadRef["environmentId"];
+    readonly projectId: ProjectId;
+    readonly featureId: string;
+    readonly title: string;
+  },
+): Promise<void> {
+  if (action === "feature-cancel") {
+    const api = readLocalApi();
+    if (!api) return;
+    const confirmed = await settlePromise(() =>
+      api.dialogs.confirm(
+        `Cancel "${target.title}"?\nIts running stage stops. Reopen the feature to pick it up again.`,
+        { variant: "destructive" },
+      ),
+    );
+    if (confirmed._tag === "Failure" || !confirmed.value) return;
+  }
+  const input = {
+    projectId: target.projectId,
+    featureId: target.featureId,
+    requestId: `${action}:${randomUUID()}`,
+  };
+  const options = { reportFailure: false } as const;
+  const request = { environmentId: target.environmentId, input };
+  const result =
+    action === "feature-pause"
+      ? await runAtomCommand(appAtomRegistry, workflowsEnvironment.pause, request, options)
+      : action === "feature-resume"
+        ? await runAtomCommand(appAtomRegistry, workflowsEnvironment.resume, request, options)
+        : action === "feature-cancel"
+          ? await runAtomCommand(appAtomRegistry, workflowsEnvironment.cancel, request, options)
+          : await runAtomCommand(appAtomRegistry, featuresEnvironment.reopen, request, options);
+  if (result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
+    const error = squashAtomCommandFailure(result);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: `Could not ${action.slice("feature-".length)} ${target.title}`,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      }),
+    );
+  }
+}
+
+/**
+ * Where a thread's feature stands, read from its current stage thread: the thread itself, or
+ * one of `threads`. Null outside a feature or when the stage thread isn't loaded.
+ */
+export function featureLifecycleFor(
+  thread: {
+    readonly environmentId: string;
+    readonly feature?: { readonly id: string } | null;
+    readonly crew?: { readonly current: boolean; readonly state: FeatureCardState } | null;
+  },
+  threads: Iterable<typeof thread>,
+): { readonly state: FeatureCardState } | null {
+  if (!thread.feature) return null;
+  if (thread.crew?.current) return { state: thread.crew.state };
+  for (const other of threads) {
+    if (
+      other.environmentId === thread.environmentId &&
+      other.feature?.id === thread.feature.id &&
+      other.crew?.current
+    ) {
+      return { state: other.crew.state };
+    }
+  }
+  return null;
 }
