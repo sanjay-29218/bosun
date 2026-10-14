@@ -1,5 +1,9 @@
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
-import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
+import {
+  CREW_STATE_LABELS,
+  featureTagColor,
+  formatCrewStageLine,
+} from "@t3tools/client-runtime/crew-stage";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import {
@@ -78,6 +82,7 @@ import {
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
+  WorkflowIcon,
   ListFilterIcon,
   MessageCircleQuestionIcon,
   PinIcon,
@@ -505,6 +510,24 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
             <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+          </div>
+        ) : null}
+        {thread.feature ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <WorkflowIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            <span
+              aria-hidden
+              className="size-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: featureTagColor(thread.feature.id) }}
+            />
+            <div className="min-w-0 truncate text-foreground/75">{thread.feature.title}</div>
+          </div>
+        ) : null}
+        {thread.crew ? (
+          <div className="flex min-w-0 items-center gap-2 ps-5 text-muted-foreground">
+            <div className="min-w-0 truncate">
+              {formatCrewStageLine(thread.crew)} · {CREW_STATE_LABELS[thread.crew.state]}
+            </div>
           </div>
         ) : null}
         {environmentLabel ? (
