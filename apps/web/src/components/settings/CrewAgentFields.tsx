@@ -47,11 +47,11 @@ export function CrewToolPicker({
     onChange(checked ? [...value, id] : value.filter((candidate) => candidate !== id));
 
   return (
-    <div className="space-y-3">
+    <div className="@container/tools space-y-3">
       {groups.map((group) => (
         <div key={group.title} className="space-y-1">
           <div className="px-2.5 text-xs font-medium text-muted-foreground">{group.title}</div>
-          <div className="grid gap-0.5 sm:grid-cols-2">
+          <div className="grid gap-0.5 @md/tools:grid-cols-2 @3xl/tools:grid-cols-3">
             {group.grants.map((grant) => {
               const checked = value.includes(grant.id);
               return (

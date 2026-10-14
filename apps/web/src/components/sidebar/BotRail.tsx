@@ -1,8 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { logicalBotKey, type LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useNavigate } from "@tanstack/react-router";
-import { PlusIcon, ServerIcon, SettingsIcon } from "lucide-react";
+import { PlusIcon, ServerIcon } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -46,7 +45,6 @@ export const BotRail = memo(function BotRail({
 }: {
   readonly placement: "window" | "sheet";
 }) {
-  const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const bots = useVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
@@ -99,15 +97,6 @@ export const BotRail = memo(function BotRail({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [active?.key, bots, keybindings, multipleBots, selectBot, switchBotMainView]);
-
-  const openBotSettings = () => {
-    if (isMobile) setOpenMobile(false);
-    const environmentId = active?.members[0]?.environmentId ?? addEnvironmentId;
-    void navigate({
-      to: "/settings/bots",
-      ...(environmentId ? { search: { machine: environmentId } } : {}),
-    });
-  };
 
   return (
     <nav
@@ -163,21 +152,6 @@ export const BotRail = memo(function BotRail({
         </div>
         <div className="mt-auto flex flex-col items-center gap-1">
           <EnvironmentFilterMenu />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost-muted"
-                  size="icon-sm"
-                  aria-label="Bot settings"
-                  onClick={openBotSettings}
-                />
-              }
-            >
-              <SettingsIcon />
-            </TooltipTrigger>
-            <TooltipPopup side="right">Bot settings</TooltipPopup>
-          </Tooltip>
         </div>
       </div>
       {addingOn ? (

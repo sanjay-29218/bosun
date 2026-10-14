@@ -602,7 +602,7 @@ function BotDialog({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup className="max-w-2xl">
+      <DialogPopup className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>{bot ? `Edit ${bot.name}` : "New bot"}</DialogTitle>
           <DialogDescription>

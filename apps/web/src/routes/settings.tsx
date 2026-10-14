@@ -137,7 +137,12 @@ function SettingsContentLayout() {
           </div>
         </WorkspacePageHeader>
 
-        <div key={`${contentScopeKey}:${restoreSignal}`} className="min-h-0 flex flex-1 flex-col">
+        {/* Positioned so a settings page can expand into it, as the workflow canvas does. */}
+        <div
+          key={`${contentScopeKey}:${restoreSignal}`}
+          data-settings-content=""
+          className="relative min-h-0 flex flex-1 flex-col"
+        >
           <SettingsScopeBoundary pathname={location.pathname}>
             <Outlet />
           </SettingsScopeBoundary>

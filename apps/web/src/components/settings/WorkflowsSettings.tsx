@@ -1,7 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
-import { PROJECT_MANAGER_ROLE_ID, type EnvironmentId } from "@t3tools/contracts";
+import {
+  PROJECT_MANAGER_ROLE_ID,
+  type EnvironmentId,
+  type WorkflowDefinition,
+} from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { WorkflowIcon } from "lucide-react";
+import { PlusIcon, WorkflowIcon } from "lucide-react";
 import { useState } from "react";
 
 import { rolesEnvironment } from "../../state/roles";
@@ -15,7 +19,11 @@ import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSetting
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useEnvironmentDefaultModel } from "./RolesSettings";
-import { orderWorkflowStages, refreshWorkflowRoles } from "./WorkflowEditor.logic";
+import {
+  orderWorkflowStages,
+  refreshWorkflowRoles,
+  workflowIdFromName,
+} from "./WorkflowEditor.logic";
 
 /** The environment's workflow library; each workflow opens its own editor page. */
 export function WorkflowsSettings() {
@@ -50,29 +58,64 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
   const initializeRoles = useAtomCommand(rolesEnvironment.initialize);
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const canAdd = useAtomValue(workflowsEnvironment.ensureStarter.permissionAtom(environmentId));
+  const create = useAtomCommand(workflowsEnvironment.create);
+  const canCreate = useAtomValue(workflowsEnvironment.create.permissionAtom(environmentId));
   const [adding, setAdding] = useState(false);
   const saved = definitions.data ?? [];
   const hasStarter = saved.some((definition) => definition.id === "feature-delivery");
 
+  /** Both starting points run as the starter roles, so add them first when they're missing. */
+  const ensureStarterRoles = async () => {
+    const hasStarterRoles = roles.data?.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
+    if (hasStarterRoles || !defaultModel) return true;
+    const initialized = await initializeRoles({
+      environmentId,
+      input: { modelSelection: defaultModel },
+    });
+    if (initialized._tag === "Success") return true;
+    toastManager.add({
+      type: "error",
+      title: "Could not add the starter roles",
+      description: formatEnvironmentQueryError(initialized.cause),
+    });
+    return false;
+  };
+
+  const addBlank = async () => {
+    setAdding(true);
+    try {
+      if (!(await ensureStarterRoles())) return;
+      const name = "New workflow";
+      const definition = blankWorkflow(
+        workflowIdFromName(
+          name,
+          saved.map((workflow) => workflow.id),
+        ),
+        name,
+        (roleId) => roles.data?.find((role) => role.id === roleId)?.revision ?? 1,
+      );
+      const result = await create({ environmentId, input: { definition } });
+      if (result._tag !== "Success") {
+        toastManager.add({
+          type: "error",
+          title: "Could not add the workflow",
+          description: formatEnvironmentQueryError(result.cause),
+        });
+        return;
+      }
+      void navigate({
+        to: "/settings/workflow",
+        search: { environment: environmentId, workflow: result.value.id },
+      });
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const addStarter = async () => {
     setAdding(true);
     try {
-      // Feature delivery runs as the starter roles, so add them first when they're missing.
-      const hasStarterRoles = roles.data?.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
-      if (!hasStarterRoles && defaultModel) {
-        const initialized = await initializeRoles({
-          environmentId,
-          input: { modelSelection: defaultModel },
-        });
-        if (initialized._tag !== "Success") {
-          toastManager.add({
-            type: "error",
-            title: "Could not add the starter roles",
-            description: formatEnvironmentQueryError(initialized.cause),
-          });
-          return;
-        }
-      }
+      if (!(await ensureStarterRoles())) return;
       const result = await ensureStarter({ environmentId, input: {} });
       if (result._tag !== "Success")
         toastManager.add({
@@ -90,15 +133,28 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
       title="Workflows"
       id={searchableSetting("workflows").id}
       headerAction={
-        !hasStarter && saved.length > 0 ? (
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            disabled={adding || !canAdd}
-            onClick={() => void addStarter()}
-          >
-            Add starter workflow
-          </Button>
+        saved.length > 0 ? (
+          <div className="flex items-center gap-1">
+            {!hasStarter ? (
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                disabled={adding || !canAdd}
+                onClick={() => void addStarter()}
+              >
+                Add starter workflow
+              </Button>
+            ) : null}
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={adding || !canCreate}
+              onClick={() => void addBlank()}
+            >
+              <PlusIcon />
+              New workflow
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -118,9 +174,19 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
               after planning and design.
             </EmptyDescription>
           </EmptyHeader>
-          <Button size="sm" disabled={adding || !canAdd} onClick={() => void addStarter()}>
-            Add starter workflow
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={adding || !canAdd} onClick={() => void addStarter()}>
+              Add starter workflow
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={adding || !canCreate}
+              onClick={() => void addBlank()}
+            >
+              Start from scratch
+            </Button>
+          </div>
         </Empty>
       ) : (
         saved.map((definition) => {
@@ -158,4 +224,39 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
       )}
     </SettingsSection>
   );
+}
+
+/**
+ * The smallest workflow to build on: one Build stage run by the builder, which the project
+ * manager supervises, as in Feature delivery.
+ */
+function blankWorkflow(
+  id: string,
+  name: string,
+  revisionOf: (roleId: string) => number,
+): WorkflowDefinition {
+  return {
+    schemaVersion: 2,
+    id,
+    name,
+    revision: 1,
+    start: "build",
+    roles: {
+      manager: {
+        roleId: PROJECT_MANAGER_ROLE_ID,
+        roleRevision: revisionOf(PROJECT_MANAGER_ROLE_ID),
+        supervisor: null,
+      },
+      builder: {
+        roleId: "role:builder",
+        roleRevision: revisionOf("role:builder"),
+        supervisor: "manager",
+      },
+    },
+    steps: {
+      build: { type: "task", role: "builder", task: "Build it", next: { done: "end" } },
+      end: { type: "end" },
+    },
+    defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 30 },
+  };
 }

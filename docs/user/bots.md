@@ -42,7 +42,8 @@ to …** in the command palette. With several bots, jumping to a thread moves to
 (**Ctrl+Alt+1–9**).
 
 Bots with the same name on different environments share one avatar, and new projects go to the
-bot you're looking at. **+** adds a bot, and the gear opens Settings → Bots. The server icon
+bot you're looking at. **+** adds a bot, and the pencil on the bot at the top of the sidebar edits
+it. The server icon
 filters the rail and sidebar to some environments; pick **All environments** to show every one
 again. To move a project, right-click it in the sidebar's project picker and choose **Move to
 bot**.
@@ -50,8 +51,8 @@ bot**.
 ## Workflows
 
 **Settings → Workflows** lists the environment's workflows. Use **Add starter workflow** for
-Feature delivery (it adds the starter roles too if they're missing), then **Edit** to open a
-workflow's page.
+Feature delivery, or **New workflow** for a one-stage workflow to build on (both add the starter
+roles too if they're missing), then **Edit** to open a workflow's page.
 
 - **Stages** run in order from the first stage. Each stage runs as a crew role, has a task, and
   can write files such as `plan.md`. Its last line says what it gets in its handoff: every earlier
@@ -64,8 +65,9 @@ workflow's page.
   times you set (empty uses **Retries before a stage fails** in Roles), then pauses and notifies you.
 - **Canvas** and **Form** switch between two views of the same workflow. On the canvas, drag from
   an outcome on a stage's right edge to another stage to route it there, and select a stage or
-  route to edit it in the panel beside the canvas. Where you place stages is saved with the
-  workflow. Narrow screens always show the form.
+  route to edit it in the panel beside the canvas. The expand button gives the canvas the whole
+  settings page; **Esc** shrinks it back. Where you place stages is saved with the workflow.
+  Narrow screens always show the form.
 - **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
   keep the version they began with. Use the **⋯** menu to duplicate a workflow.
 

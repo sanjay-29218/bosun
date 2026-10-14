@@ -4,7 +4,8 @@ import { logicalBotProjectKeys } from "@t3tools/client-runtime/state/bot-rail";
 import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { botHeadquartersThreadId } from "@t3tools/contracts";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import { PencilIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import { cn } from "../../lib/utils";
@@ -17,7 +18,9 @@ import { useThreadShell } from "../../state/entities";
 import { useConnectedEnvironmentIds } from "../../state/environments";
 import { environmentProjects } from "../../state/projects";
 import { BotAvatar } from "../BotAvatar";
+import { Button } from "../ui/button";
 import { useSidebar } from "../ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { headquartersMember, useOpenBotHeadquarters } from "./openBotHeadquarters";
 
 /**
@@ -31,6 +34,7 @@ export const SidebarBotHeader = memo(function SidebarBotHeader() {
   const projects = useAtomValue(environmentProjects.projectsAtom);
   const connected = useConnectedEnvironmentIds();
   const openHeadquarters = useOpenBotHeadquarters();
+  const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const environmentFilter = useEnvironmentFilter();
   const member = bot ? headquartersMember(bot, connected, environmentFilter) : undefined;
@@ -54,31 +58,57 @@ export const SidebarBotHeader = memo(function SidebarBotHeader() {
   const working = shell !== null && !waiting && isThreadWorking(shell);
   const status = waiting ? "needs you" : working ? "working" : null;
   return (
-    <button
-      type="button"
-      aria-label={`Open ${bot.name}'s thread${status ? `, ${status}` : ""}`}
-      aria-current={open ? "page" : undefined}
-      onClick={() => {
-        if (isMobile) setOpenMobile(false);
-        openHeadquarters(bot);
-      }}
-      className={cn(
-        "mb-2 flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border px-2.5 py-2 text-left outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        open && "bg-sidebar-row-selected",
-      )}
-    >
-      <BotAvatar avatar={bot.avatar} color={bot.color} size="sm" />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium text-sidebar-foreground">{bot.name}</span>
-        <span className="truncate text-xs text-muted-foreground">
-          {projectCount === 1 ? "1 project" : `${projectCount} projects`}
+    <div className="group/bot-header relative mb-2">
+      <button
+        type="button"
+        aria-label={`Open ${bot.name}'s thread${status ? `, ${status}` : ""}`}
+        aria-current={open ? "page" : undefined}
+        onClick={() => {
+          if (isMobile) setOpenMobile(false);
+          openHeadquarters(bot);
+        }}
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border py-2 ps-2.5 pe-10 text-left outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          open && "bg-sidebar-row-selected",
+        )}
+      >
+        <BotAvatar avatar={bot.avatar} color={bot.color} size="sm" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium text-sidebar-foreground">{bot.name}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {projectCount === 1 ? "1 project" : `${projectCount} projects`}
+          </span>
         </span>
+        {waiting ? (
+          <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning" />
+        ) : working ? (
+          <span aria-hidden className="size-2 shrink-0 rounded-full bg-info" />
+        ) : null}
+      </button>
+      {/* The bot's own settings, where the bot is; the gear below is the app's. */}
+      <span className="absolute end-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/bot-header:opacity-100 focus-within:opacity-100">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label={`Edit ${bot.name}`}
+                onClick={() => {
+                  if (isMobile) setOpenMobile(false);
+                  void navigate({
+                    to: "/settings/bots",
+                    search: { machine: member.environmentId },
+                  });
+                }}
+              />
+            }
+          >
+            <PencilIcon />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">Edit {bot.name}</TooltipPopup>
+        </Tooltip>
       </span>
-      {waiting ? (
-        <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning" />
-      ) : working ? (
-        <span aria-hidden className="size-2 shrink-0 rounded-full bg-info" />
-      ) : null}
-    </button>
+    </div>
   );
 });

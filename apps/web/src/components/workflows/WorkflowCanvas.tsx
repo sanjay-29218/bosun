@@ -19,8 +19,24 @@ import {
   type NodeProps,
   type OnDelete,
 } from "@xyflow/react";
-import { Maximize2Icon, PlusIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
-import { createContext, use, useCallback, useMemo, useState, type CSSProperties } from "react";
+import {
+  ExpandIcon,
+  Maximize2Icon,
+  PlusIcon,
+  ShrinkIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from "lucide-react";
+import {
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "../../lib/utils";
 import { SettingsGroup } from "../settings/SettingsGroup";
@@ -225,10 +241,27 @@ export default function WorkflowCanvas({
     onChange(next);
   };
 
-  return (
+  // Expanded, the canvas fills the settings content area (not the app) until Escape.
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
+  const host = expanded ? document.querySelector<HTMLElement>("[data-settings-content]") : null;
+
+  const canvas = (
     <CanvasLabels value={labels}>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <SettingsGroup className="h-[32rem] overflow-hidden">
+      <div
+        className={cn(
+          "grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]",
+          host && "h-full min-h-0 lg:grid-rows-1",
+        )}
+      >
+        <SettingsGroup className={cn("overflow-hidden", host ? "h-full min-h-0" : "h-[32rem]")}>
           <ReactFlow<CanvasNode, CanvasEdge>
             aria-label={`${definition.name} stages and routes`}
             nodes={graph.nodes}
@@ -251,18 +284,28 @@ export default function WorkflowCanvas({
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
             <Panel position="top-right">
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() =>
-                  onAddStage(selection?.kind === "stage" ? selection.stepId : undefined)
-                }
-              >
-                <PlusIcon />
-                {selection?.kind === "stage"
-                  ? `Add stage after ${stageName(selection.stepId)}`
-                  : "Add stage"}
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() =>
+                    onAddStage(selection?.kind === "stage" ? selection.stepId : undefined)
+                  }
+                >
+                  <PlusIcon />
+                  {selection?.kind === "stage"
+                    ? `Add stage after ${stageName(selection.stepId)}`
+                    : "Add stage"}
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  aria-label={host ? "Exit full view (Esc)" : "Expand canvas"}
+                  onClick={() => setExpanded((value) => !value)}
+                >
+                  {host ? <ShrinkIcon /> : <ExpandIcon />}
+                </Button>
+              </div>
             </Panel>
             <CanvasZoomControls />
           </ReactFlow>
@@ -278,6 +321,12 @@ export default function WorkflowCanvas({
       </div>
     </CanvasLabels>
   );
+  return host
+    ? createPortal(
+        <div className="absolute inset-0 z-30 flex flex-col bg-background p-4">{canvas}</div>,
+        host,
+      )
+    : canvas;
 }
 
 function CanvasZoomControls() {

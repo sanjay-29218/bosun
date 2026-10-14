@@ -485,7 +485,7 @@ function RoleDialog({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup className="max-w-xl">
+      <DialogPopup className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>{role ? `Edit ${role.name}` : "Add role"}</DialogTitle>
           <DialogDescription>
