@@ -59,6 +59,9 @@ const STAGE_TOOLS = ["crew.respond", "crew.ask"];
 const stageInstructions = (name: string) =>
   `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`;
 
+/** The builder may split its stage into subagents that run at the same time. */
+export const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} When the work splits into independent parts, run them in parallel with delegate_task, one subagent per part with a self-contained brief, and wait for them with task_status. Check and combine their results yourself before you call crew_respond.`;
+
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
   {
@@ -71,7 +74,13 @@ const DEFAULT_ROLES = [
   },
   { id: "role:planner", name: "Planner" },
   { id: "role:designer", name: "Designer" },
-  { id: BUILDER_ROLE_ID, name: "Builder" },
+  {
+    id: BUILDER_ROLE_ID,
+    name: "Builder",
+    // Threads (the orchestration grant) lets it run parallel subagents with delegate_task.
+    allowedTools: [...STAGE_TOOLS, "orchestration"],
+    instructions: BUILDER_INSTRUCTIONS,
+  },
   { id: "role:qa-tester", name: "QA Tester" },
   { id: "role:reviewer", name: "Reviewer" },
 ].map((role) => ({

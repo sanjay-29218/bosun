@@ -39,7 +39,6 @@ import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from
 import { Dialog, DialogClose } from "../ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -525,7 +524,7 @@ function RoleDialog({
                     onChange={(event) => setInstructions(event.target.value)}
                   />
                 </EditorField>
-                <div className="grid gap-5 sm:grid-cols-2">
+                <div className="grid gap-5 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
                   <EditorField label="Model">
                     <div>
                       <RoleModelPicker
@@ -541,16 +540,16 @@ function RoleDialog({
                       onChange={(mode) => setRuntimeMode(runtimeModeFor(mode, runtimeMode))}
                     />
                   </EditorField>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <Label htmlFor="crew-role-workflow-stages">
-                    Workflow stages can use this role
-                  </Label>
-                  <Switch
-                    id="crew-role-workflow-stages"
-                    checked={workflowStages}
-                    onCheckedChange={setWorkflowStages}
-                  />
+                  <EditorField label="Workflow stages" htmlFor="crew-role-workflow-stages">
+                    <div className="flex h-9 items-center">
+                      <Switch
+                        id="crew-role-workflow-stages"
+                        aria-label="Workflow stages can use this role"
+                        checked={workflowStages}
+                        onCheckedChange={setWorkflowStages}
+                      />
+                    </div>
+                  </EditorField>
                 </div>
               </>
             ) : (

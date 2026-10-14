@@ -29,6 +29,7 @@ import CrewRoles from "./Migrations/070_CrewRoles.ts";
 import TopLevelBots from "./Migrations/071_TopLevelBots.ts";
 import BotAvatars from "./Migrations/072_BotAvatars.ts";
 import BotProjectGrants from "./Migrations/073_BotProjectGrants.ts";
+import BuilderSubagents from "./Migrations/074_BuilderSubagents.ts";
 
 export const migrationEntries = [
   [55, "Bots", Bots],
@@ -50,6 +51,7 @@ export const migrationEntries = [
   [71, "TopLevelBots", TopLevelBots],
   [72, "BotAvatars", BotAvatars],
   [73, "BotProjectGrants", BotProjectGrants],
+  [74, "BuilderSubagents", BuilderSubagents],
 ] as const;
 
 const legacyNames = new Set([

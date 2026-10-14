@@ -86,8 +86,8 @@ export const CREW_TOOL_GRANTS = [
   },
   {
     id: "orchestration",
-    label: "Threads",
-    description: "Create, read and message T3 threads.",
+    label: "Threads and subagents",
+    description: "Run subagents in parallel, and create, read and message T3 threads.",
   },
   {
     id: "worktree",

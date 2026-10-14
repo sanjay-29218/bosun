@@ -80,7 +80,8 @@ workflow shows that it changed, and new features can't start on it until you pub
 **Settings → Roles** holds the roles workflow stages run as, and limits on running agents.
 
 Use **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA Tester and
-Reviewer. Each role has instructions, crew tools and a default model. **Act** lets it work on its
+Reviewer. The Builder can split its work into subagents that run at the same time; give any role
+**Threads and subagents** to let it do the same. Each role has instructions, crew tools and a default model. **Act** lets it work on its
 own; **Ask first** asks before changes. Use **Add role** for another role, and the **⋯** menu to
 edit a role or turn it off. Only roles with **Workflow stages can use this role** switched on can
 be picked for a stage. Each project gets its own project manager the first time a request or
