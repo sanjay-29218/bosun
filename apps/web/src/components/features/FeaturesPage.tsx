@@ -554,7 +554,7 @@ export function FeaturesPage(props: {
           </WorkspaceBreadcrumb>
         </WorkspacePageHeader>
         <ScrollArea className="min-h-0 flex-1">
-          <WorkspacePageContainer width="expanded" className="gap-3">
+          <WorkspacePageContainer width="full" className="gap-3">
             {controls}
             {board.errors.length > 0 ? (
               <p role="alert" className="text-sm text-destructive">
