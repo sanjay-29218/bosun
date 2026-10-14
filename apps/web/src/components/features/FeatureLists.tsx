@@ -1,11 +1,7 @@
-import { LegendList } from "@legendapp/list/react";
 import {
-  FEATURE_PHASE_LABELS,
   NEEDS_YOU_LABELS,
-  featureCardKey,
   stageLabel,
   type EnvironmentFeatureCard,
-  type FeaturePhaseGroup,
   type NeedsYouGroup,
   type NeedsYouItem,
 } from "@t3tools/client-runtime/state/crew-board";
@@ -15,67 +11,8 @@ import { useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { FeatureCard, waitingLabel } from "./FeatureCard";
-import type { FeatureBoardHandlers } from "./FeatureBoards";
+import { waitingLabel } from "./FeatureCard";
 import type { useFeatureActions } from "./useFeatureActions";
-
-type ListEntry =
-  | {
-      readonly type: "header";
-      readonly key: string;
-      readonly label: string;
-      readonly count: number;
-    }
-  | { readonly type: "card"; readonly key: string; readonly card: EnvironmentFeatureCard };
-
-/** The list view: every phase as a heading over its rows, virtualized for long boards. */
-export function FeatureListView(props: {
-  readonly groups: ReadonlyArray<FeaturePhaseGroup>;
-  readonly handlers: FeatureBoardHandlers;
-}) {
-  const data: ListEntry[] = [];
-  for (const group of props.groups) {
-    if (group.cards.length === 0) continue;
-    data.push({
-      type: "header",
-      key: `phase:${group.phase}`,
-      label: FEATURE_PHASE_LABELS[group.phase],
-      count: group.cards.length,
-    });
-    for (const card of group.cards) data.push({ type: "card", key: featureCardKey(card), card });
-  }
-  return (
-    <LegendList<ListEntry>
-      data={data}
-      keyExtractor={(entry) => entry.key}
-      getItemType={(entry) => entry.type}
-      estimatedItemSize={44}
-      drawDistance={600}
-      recycleItems={false}
-      className="min-h-0 flex-1"
-      renderItem={({ item }) =>
-        item.type === "header" ? (
-          <h2 className="flex items-center gap-1.5 px-1 pt-4 pb-1.5 text-sm font-medium">
-            {item.label}
-            <span className="text-muted-foreground tabular-nums">{item.count}</span>
-          </h2>
-        ) : (
-          <div className="pb-1">
-            <FeatureCard
-              card={item.card}
-              project={props.handlers.projectFor(item.card)}
-              queuePosition={props.handlers.queuePositions.get(item.key)}
-              layout="row"
-              draggable={false}
-              onOpen={props.handlers.onOpen}
-              onMenu={props.handlers.onMenu}
-            />
-          </div>
-        )
-      }
-    />
-  );
-}
 
 /** One line on what the item waits for: the gate, the failure, the question. */
 function needsYouSummary(item: NeedsYouItem): string {

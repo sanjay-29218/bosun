@@ -73,7 +73,7 @@ export const SidebarNeedsYouShelf = memo(function SidebarNeedsYouShelf() {
         : null}
       {expanded && items.length > SHELF_ROWS ? (
         <Link
-          to="/features"
+          to="/board"
           search={{ needsYou: true }}
           className="rounded-md px-2 py-1 text-xs text-sidebar-muted-foreground hover:bg-accent"
         >

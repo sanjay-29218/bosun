@@ -103,9 +103,9 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 
 ## Features
 
-`mod+shift+b` opens the Features page and `mod+shift+y` opens the thread that has waited on you
-longest. On the Features page, `l`, `b`, `w` and `n` switch to the list, the board, the
-Workflow toggle and Needs you. See [Features](./features.md).
+`mod+shift+b` flips the main area between your threads and the feature board, and `mod+shift+y`
+opens the thread that has waited on you longest. On the board, `w` toggles Workflow and `n`
+toggles Needs you. See [Features](./features.md).
 
 ## When conditions
 

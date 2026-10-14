@@ -2,15 +2,10 @@ import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
 
 import { resolveShortcutCommand, type ShortcutEventLike } from "../../keybindings";
 
-export const FEATURES_PAGE_COMMANDS = [
-  "features.list",
-  "features.board",
-  "features.workflow",
-  "features.needsYou",
-] as const;
+export const FEATURES_PAGE_COMMANDS = ["features.workflow", "features.needsYou"] as const;
 export type FeaturesPageCommand = (typeof FEATURES_PAGE_COMMANDS)[number];
 
-/** Resolves page shortcuts without taking letters from fields or popup controls. */
+/** Resolves board shortcuts without taking letters from fields or popup controls. */
 export function resolveFeaturesShortcut(
   event: ShortcutEventLike & { target: EventTarget | null },
   keybindings: ResolvedKeybindingsConfig,
