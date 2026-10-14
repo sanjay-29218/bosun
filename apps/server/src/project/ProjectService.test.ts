@@ -10,6 +10,7 @@ import * as Ref from "effect/Ref";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as BotStore from "../bots/BotStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -71,6 +72,7 @@ const layerProjectServiceDependencies = Layer.mergeAll(
   RuntimeLayer.layerEventSink,
   ProjectStore.layer,
   ProjectionStore.layer,
+  BotStore.layer,
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
 ).pipe(

@@ -1,4 +1,4 @@
-import { botMcpCapabilities } from "../bots/botMcpCapabilities.ts";
+import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -485,17 +485,17 @@ export const layerWithOptions = (
                 // same token or the process's tool calls fail auth.
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
-                const botCapabilities = yield* botMcpCapabilities(threadId);
+                const crewCapabilities = yield* crewMcpCapabilities(threadId);
                 const capabilities =
-                  botCapabilities ??
+                  crewCapabilities ??
                   new Set<import("../mcp/McpInvocationContext.ts").McpCapability>([
                     "orchestration",
                     "worktree",
                     "pull-requests",
                   ]);
-                if (botCapabilities === undefined && browserToolsAvailable)
+                if (crewCapabilities === undefined && browserToolsAvailable)
                   capabilities.add("preview");
-                if (botCapabilities === undefined && deviceToolsAvailable)
+                if (crewCapabilities === undefined && deviceToolsAvailable)
                   capabilities.add("device");
                 const existing = McpProviderSession.readMcpProviderSession(threadId);
                 if (existing !== undefined) {

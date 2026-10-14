@@ -1,9 +1,11 @@
-import type {
-  CrewStageSummary,
-  EnvironmentId,
-  FeatureBoardCard,
-  FeatureCardState,
-  WorkflowDefinition,
+import {
+  CAPTAIN_BOT_ID,
+  type CrewStageSummary,
+  type EnvironmentId,
+  type ProjectId,
+  type FeatureBoardCard,
+  type FeatureCardState,
+  type WorkflowDefinition,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -151,7 +153,7 @@ export function buildFeatureStageBoard<Card extends FeatureBoardCard>(
     const stageCards = byStage.get(stepId) ?? [];
     return {
       stepId,
-      role: step?.type === "task" ? step.bot : (stageCards[0]?.stage?.role ?? null),
+      role: step?.type === "task" ? step.role : (stageCards[0]?.stage?.role ?? null),
       gate: step?.type === "task" ? step.gate === true : false,
       onlyInRevision: removed.get(stepId) ?? null,
       waiting: stageCards.filter((card) => card.state === "approval").length,
@@ -243,6 +245,39 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
   if (shell.hasPendingApprovals) return "approval";
   if (shell.hasPendingUserInput) return "question";
   return null;
+}
+
+/** The key `countNeedsYouByBot` counts under: bots belong to one environment. */
+export const botNeedsYouKey = (environmentId: EnvironmentId, botId: string) =>
+  `${environmentId}:${botId}`;
+
+/**
+ * Threads waiting on you per bot, keyed by `botNeedsYouKey`, from the shells and project
+ * shells every client already has. A project without a `botId` (an older server) is Captain's.
+ */
+export function countNeedsYouByBot(
+  shells: ReadonlyArray<NeedsYouShell & { readonly projectId: ProjectId }>,
+  projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+    readonly botId?: string | undefined;
+  }>,
+): ReadonlyMap<string, number> {
+  const owners = new Map(
+    projects.map((project) => [
+      `${project.environmentId}:${project.id}`,
+      project.botId ?? CAPTAIN_BOT_ID,
+    ]),
+  );
+  const counts = new Map<string, number>();
+  for (const shell of shells) {
+    if (threadNeedsYouKind(shell) === null) continue;
+    const botId = owners.get(`${shell.environmentId}:${shell.projectId}`);
+    if (botId === undefined) continue;
+    const key = botNeedsYouKey(shell.environmentId, botId);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export type NeedsYouItem<
@@ -439,7 +474,7 @@ export type FeatureCardActionId =
 export function featureCardActions(card: FeatureBoardCard): ReadonlyArray<FeatureCardActionId> {
   if (isClosedState(card.state)) return ["reopen"];
   if (!card.started) return ["start", "cancel"];
-  // A taken-over stage waits for you to finish it by hand or hand it back to a bot.
+  // A taken-over stage waits for you to finish it by hand or hand it back to the crew.
   if (card.stage?.takenOver && card.state === "working")
     return ["mark-done", "retry", "send-back", "cancel"];
   switch (card.state) {

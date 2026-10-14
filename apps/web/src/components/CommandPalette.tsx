@@ -1191,7 +1191,7 @@ function OpenCommandPaletteDialog(props: {
       (activeThread?.projectId ?? activeDraftThread?.projectId)
       ? workflowsEnvironment.definitions({
           environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
-          input: { projectId: (activeThread?.projectId ?? activeDraftThread?.projectId)! },
+          input: {},
         })
       : null,
   ).data;

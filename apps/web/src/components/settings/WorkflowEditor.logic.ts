@@ -1,8 +1,9 @@
-import type {
-  BotTemplateConfig,
-  WorkflowDefinition,
-  WorkflowStep,
-  WorkflowStepReceives,
+import {
+  PROJECT_MANAGER_ROLE_ID,
+  type RoleConfig,
+  type WorkflowDefinition,
+  type WorkflowStep,
+  type WorkflowStepReceives,
 } from "@t3tools/contracts";
 
 type TaskStep = Extract<WorkflowStep, { type: "task" }>;
@@ -81,39 +82,42 @@ export function describeStageInputs(definition: WorkflowDefinition, stepId: stri
 }
 
 export type WorkflowRoleIssue = {
-  readonly botId: string;
+  readonly slot: string;
   readonly name: string;
   readonly reason: "changed" | "unavailable";
 };
 
 /**
- * A workflow pins each role's template revision, and the server refuses to
- * start a feature once a pinned role has been edited or turned off. This
- * moves every pin to the role's current revision and reports what moved, so
- * publishing brings the workflow up to date.
+ * A workflow pins each role's revision, and the server refuses to start a
+ * feature once a pinned role has been edited or turned off. This moves every
+ * pin to the role's current revision and reports what moved, so publishing
+ * brings the workflow up to date. The project manager slot binds to the
+ * project's manager, so it is left alone.
  */
 export function refreshWorkflowRoles(
   definition: WorkflowDefinition,
-  templates: readonly BotTemplateConfig[],
+  roles: readonly RoleConfig[],
 ): { definition: WorkflowDefinition; issues: WorkflowRoleIssue[] } {
   const issues: WorkflowRoleIssue[] = [];
-  const bots = { ...definition.bots };
-  for (const [botId, bot] of Object.entries(definition.bots)) {
-    if (bot.template.kind !== "template") continue;
-    const templateId = bot.template.id;
-    const template = templates.find((candidate) => candidate.id === templateId);
-    if (!template || !template.enabled || !template.autoCreateForFeature) {
+  const slots = { ...definition.roles };
+  for (const [slot, entry] of Object.entries(definition.roles)) {
+    if (entry.roleId === PROJECT_MANAGER_ROLE_ID) continue;
+    const role = roles.find((candidate) => candidate.id === entry.roleId);
+    if (!role || !role.enabled || !role.autoCreateForFeature) {
       issues.push({
-        botId,
-        name: template?.name ?? humanizeWorkflowId(botId),
+        slot,
+        name: role?.name ?? humanizeWorkflowId(slot),
         reason: "unavailable",
       });
-    } else if (template.revision !== bot.template.revision) {
-      issues.push({ botId, name: template.name, reason: "changed" });
-      bots[botId] = { ...bot, template: { ...bot.template, revision: template.revision } };
+    } else if (role.revision !== entry.roleRevision) {
+      issues.push({ slot, name: role.name, reason: "changed" });
+      slots[slot] = { ...entry, roleRevision: role.revision };
     }
   }
-  return { definition: issues.length > 0 ? { ...definition, bots } : definition, issues };
+  return {
+    definition: issues.length > 0 ? { ...definition, roles: slots } : definition,
+    issues,
+  };
 }
 
 /** Structural equality for plain JSON values, ignoring key order. */
@@ -198,42 +202,37 @@ export function updateTask(
 }
 
 /**
- * The workflow's bot key for a role, adding one when the workflow does not
- * use that role yet. New roles answer to the workflow's Manager, like the
+ * The workflow's slot for a role, adding one when the workflow does not use
+ * that role yet. New slots answer to the workflow's project manager, like the
  * starter's roles do.
  */
 export function ensureWorkflowRole(
   definition: WorkflowDefinition,
-  template: BotTemplateConfig,
-): { definition: WorkflowDefinition; botId: string } {
-  const existing = Object.entries(definition.bots).find(
-    ([, bot]) => bot.template.kind === "template" && bot.template.id === template.id,
-  );
-  if (existing) return { definition, botId: existing[0] };
+  role: RoleConfig,
+): { definition: WorkflowDefinition; slot: string } {
+  const existing = Object.entries(definition.roles).find(([, entry]) => entry.roleId === role.id);
+  if (existing) return { definition, slot: existing[0] };
   const base =
-    template.name
+    role.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^[^a-z]+|-+$/g, "")
-      // Bot ids are at most 80 characters; leave room for a uniqueness suffix.
+      // Slot ids are at most 80 characters; leave room for a uniqueness suffix.
       .slice(0, 72)
       .replace(/-+$/, "") || "role";
-  let botId = base;
-  for (let suffix = 2; Object.hasOwn(definition.bots, botId); suffix++) botId = `${base}-${suffix}`;
+  let slot = base;
+  for (let suffix = 2; Object.hasOwn(definition.roles, slot); suffix++) slot = `${base}-${suffix}`;
   const supervisor =
-    Object.entries(definition.bots).find(
-      ([, bot]) => bot.template.kind === "existing-project-bot",
+    Object.entries(definition.roles).find(
+      ([, entry]) => entry.roleId === PROJECT_MANAGER_ROLE_ID,
     )?.[0] ?? null;
   return {
-    botId,
+    slot,
     definition: {
       ...definition,
-      bots: {
-        ...definition.bots,
-        [botId]: {
-          template: { kind: "template", id: template.id, revision: template.revision },
-          supervisor,
-        },
+      roles: {
+        ...definition.roles,
+        [slot]: { roleId: role.id, roleRevision: role.revision, supervisor },
       },
     },
   };
@@ -241,23 +240,23 @@ export function ensureWorkflowRole(
 
 /** Drops roles no stage uses and nobody answers to, so a removed role can't block publishing. */
 export function pruneUnusedRoles(definition: WorkflowDefinition): WorkflowDefinition {
-  const bots = { ...definition.bots };
+  const slots = { ...definition.roles };
   let changed = true;
   while (changed) {
     changed = false;
-    for (const id of Object.keys(bots)) {
+    for (const id of Object.keys(slots)) {
       const used =
-        Object.values(definition.steps).some((step) => step.type === "task" && step.bot === id) ||
-        Object.values(bots).some((bot) => bot.supervisor === id);
+        Object.values(definition.steps).some((step) => step.type === "task" && step.role === id) ||
+        Object.values(slots).some((entry) => entry.supervisor === id);
       if (!used) {
-        delete bots[id];
+        delete slots[id];
         changed = true;
       }
     }
   }
-  return Object.keys(bots).length === Object.keys(definition.bots).length
+  return Object.keys(slots).length === Object.keys(definition.roles).length
     ? definition
-    : { ...definition, bots };
+    : { ...definition, roles: slots };
 }
 
 /**

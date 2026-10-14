@@ -24,10 +24,10 @@ it.effect("upgrades a Feature-only database without skipping Workflow storage", 
       VALUES ('feature-one', 'project', 'Existing feature', 'Keep this brief', '2026-09-30')
     `;
     yield* runMigrations();
-    yield* sql`INSERT INTO workflow_definition_heads VALUES ('project', 'workflow', 1)`;
+    yield* sql`INSERT INTO workflow_definition_heads VALUES ('workflow', 1)`;
     yield* sql`
       INSERT INTO workflow_definition_revisions
-      VALUES ('project', 'workflow', 1, '{}', '2026-09-30')
+      VALUES ('workflow', 1, '{}', '2026-09-30')
     `;
     yield* sql`
       INSERT INTO feature_workflows
@@ -46,8 +46,8 @@ it.effect("upgrades a Feature-only database without skipping Workflow storage", 
       { title: "Existing feature", brief: "Keep this brief" },
     ]);
     assert.deepStrictEqual(
-      yield* sql`SELECT status, updated_at, bot_assignments_json FROM features`,
-      [{ status: "open", updated_at: "2026-09-30", bot_assignments_json: "{}" }],
+      yield* sql`SELECT status, updated_at, crew_assignments_json FROM features`,
+      [{ status: "open", updated_at: "2026-09-30", crew_assignments_json: "{}" }],
     );
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
     assert.deepStrictEqual(yield* runMigrations(), []);

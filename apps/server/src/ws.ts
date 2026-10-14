@@ -114,10 +114,9 @@ import { RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
-import { BotService } from "./bots/BotService.ts";
-import { BotStore } from "./bots/BotStore.ts";
-import { BotHandoffService } from "./bots/BotHandoffService.ts";
-import { BotHandoffStore } from "./bots/BotHandoffStore.ts";
+import * as BotService from "./bots/BotService.ts";
+import { CrewService } from "./crew/CrewService.ts";
+import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import { WorkflowService } from "./workflows/WorkflowService.ts";
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
@@ -3141,11 +3140,10 @@ export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
-    const botServices = {
-      bots: yield* BotService,
-      botStore: yield* BotStore,
-      botHandoffs: yield* BotHandoffService,
-      botHandoffStore: yield* BotHandoffStore,
+    const crewServices = {
+      bots: yield* BotService.BotService,
+      crew: yield* CrewService,
+      crewHandoffs: yield* CrewHandoffService,
       features: yield* FeatureService,
       workflows: yield* WorkflowService,
       workflowExecution: yield* WorkflowExecutionService,
@@ -3207,7 +3205,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
-              Layer.merge(layerBosunWsRpc(botServices, session.sessionId)),
+              Layer.merge(layerBosunWsRpc(crewServices, session.sessionId)),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.

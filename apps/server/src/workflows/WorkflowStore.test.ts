@@ -12,19 +12,20 @@ import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
 
 const projectId = ProjectId.make("workflow-test-project");
 const first: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "delivery",
   name: "Delivery",
   revision: 1,
   start: "build",
-  bots: {
+  roles: {
     builder: {
-      template: { kind: "template", id: "custom-builder", revision: 1 },
+      roleId: "custom-builder",
+      roleRevision: 1,
       supervisor: null,
     },
   },
   steps: {
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "end" } },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "end" } },
     end: { type: "end" },
   },
   defaults: {
@@ -39,8 +40,8 @@ it.effect("keeps revisions and feature copies independent across later edits", (
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
     const sql = yield* SqlClient.SqlClient;
-    assert.isTrue(yield* store.createDefinition(projectId, first, "2026-09-29T00:00:00Z"));
-    assert.isFalse(yield* store.createDefinition(projectId, first, "2026-09-29T00:00:00Z"));
+    assert.isTrue(yield* store.createDefinition(first, "2026-09-29T00:00:00Z"));
+    assert.isFalse(yield* store.createDefinition(first, "2026-09-29T00:00:00Z"));
 
     const featureOne = yield* store.copyForFeature(
       "feature-1",
@@ -51,11 +52,17 @@ it.effect("keeps revisions and feature copies independent across later edits", (
     );
     assert.strictEqual(featureOne?.definition.revision, 1);
 
-    const second: WorkflowDefinition = { ...first, name: "Delivery revised", revision: 2 };
-    assert.isTrue(yield* store.updateDefinition(projectId, second, 1, "2026-09-29T00:02:00Z"));
-    assert.isFalse(yield* store.updateDefinition(projectId, second, 1, "2026-09-29T00:02:00Z"));
-    assert.deepEqual(yield* store.getDefinition(projectId, first.id, 1), first);
-    assert.deepEqual(yield* store.getLatestDefinition(projectId, first.id), second);
+    // A revision can carry where the canvas draws each step; it round-trips with the rest.
+    const second: WorkflowDefinition = {
+      ...first,
+      name: "Delivery revised",
+      revision: 2,
+      layout: { [first.start]: { x: 120, y: -40 } },
+    };
+    assert.isTrue(yield* store.updateDefinition(second, 1, "2026-09-29T00:02:00Z"));
+    assert.isFalse(yield* store.updateDefinition(second, 1, "2026-09-29T00:02:00Z"));
+    assert.deepEqual(yield* store.getDefinition(first.id, 1), first);
+    assert.deepEqual(yield* store.getLatestDefinition(first.id), second);
 
     const featureOneAgain = yield* store.copyForFeature(
       "feature-1",
@@ -78,7 +85,7 @@ it.effect("keeps revisions and feature copies independent across later edits", (
       stepId: "build",
       kind: "started" as const,
       executionId: "execution-1",
-      botRunId: "run-build-1",
+      runId: "run-build-1",
       outcome: null,
       sourceKind: null,
       sourceId: null,
@@ -122,7 +129,7 @@ it.effect("migrates an existing bots database without damaging its rows", () =>
       )
     `;
     yield* runMigrations();
-    const templates = yield* sql<{ readonly id: string }>`SELECT id FROM bot_templates`;
+    const templates = yield* sql<{ readonly id: string }>`SELECT id FROM roles`;
     const workflowTables = yield* sql<{ readonly name: string }>`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%workflow%' AND name NOT LIKE 'orchestration_v2_%'
       ORDER BY name

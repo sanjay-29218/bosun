@@ -2,23 +2,24 @@ import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentQuery } from "../../state/query";
 
-export function MobileBotRunStatusStrip(props: {
+export function MobileCrewRunStatusStrip(props: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly threadId: ThreadId;
 }) {
   const snapshot = useEnvironmentQuery(
-    botsEnvironment.snapshot({
+    rolesEnvironment.snapshot({
       environmentId: props.environmentId,
       input: { projectId: props.projectId },
     }),
   );
   const run = snapshot.data?.runs.find((item) => item.threadId === props.threadId);
   if (!run) return null;
-  const owner = snapshot.data?.definitions.find((item) => item.id === run.botId)?.name ?? run.botId;
+  const owner =
+    snapshot.data?.members.find((item) => item.id === run.memberId)?.name ?? run.memberId;
   const requests = snapshot.data?.handoffs.filter((item) => item.sourceRunId === run.id) ?? [];
   const waiting = requests.filter((item) => item.status === "needs-input").length;
   const active = requests.filter(

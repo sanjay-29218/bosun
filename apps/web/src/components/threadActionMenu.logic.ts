@@ -103,7 +103,7 @@ export interface ThreadActionMenuState {
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
   /**
    * The thread's place in Crew: a feature's current stage, or a plain thread that can
-   * become one. Absent for bot threads and servers without features.
+   * become one. Absent for crew threads and servers without features.
    */
   readonly feature?: { readonly isStage: boolean } | null;
 }

@@ -1,41 +1,41 @@
-import type { ProjectId, WorkflowDefinition } from "@t3tools/contracts";
+import { PROJECT_MANAGER_ROLE_ID, type WorkflowDefinition } from "@t3tools/contracts";
 
 export const STARTER_WORKFLOW_ID = "feature-delivery";
 
-/** A configurable starting point, with supervision separate from step order. */
+/**
+ * A configurable starting point, with supervision separate from step order. `roleRevisions`
+ * pins each global role at its current revision.
+ */
 export const makeStarterWorkflow = (
-  projectId: ProjectId,
-  templateRevisions: Readonly<Record<string, number>> = {},
+  roleRevisions: Readonly<Record<string, number>> = {},
 ): WorkflowDefinition => {
-  const template = (role: string) => ({
-    template: {
-      kind: "template" as const,
-      id: `template:${role}:${projectId}`,
-      revision: templateRevisions[role] ?? 1,
-    },
+  const role = (roleId: string) => ({
+    roleId,
+    roleRevision: roleRevisions[roleId] ?? 1,
     supervisor: "manager",
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: STARTER_WORKFLOW_ID,
     name: "Feature delivery",
     revision: 1,
     start: "plan",
-    bots: {
+    roles: {
       manager: {
-        template: { kind: "existing-project-bot", id: `bot-manager:${projectId}` },
+        roleId: PROJECT_MANAGER_ROLE_ID,
+        roleRevision: roleRevisions[PROJECT_MANAGER_ROLE_ID] ?? 1,
         supervisor: null,
       },
-      planner: template("planner"),
-      designer: template("designer"),
-      builder: template("builder"),
-      qa: template("qa-tester"),
-      reviewer: template("reviewer"),
+      planner: role("role:planner"),
+      designer: role("role:designer"),
+      builder: role("role:builder"),
+      qa: role("role:qa-tester"),
+      reviewer: role("role:reviewer"),
     },
     steps: {
       plan: {
         type: "task",
-        bot: "planner",
+        role: "planner",
         task: "Plan the feature",
         next: { ready: "design" },
         gate: true,
@@ -43,7 +43,7 @@ export const makeStarterWorkflow = (
       },
       design: {
         type: "task",
-        bot: "designer",
+        role: "designer",
         task: "Design the feature",
         next: { ready: "build" },
         gate: true,
@@ -51,27 +51,27 @@ export const makeStarterWorkflow = (
       },
       build: {
         type: "task",
-        bot: "builder",
+        role: "builder",
         task: "Build the feature",
         next: { built: "qa", design_change_requested: "change_review" },
       },
       qa: {
         type: "task",
-        bot: "qa",
+        role: "qa",
         task: "Test the feature",
         next: { passed: "review", changes_requested: "change_review" },
         outputs: ["qa-report.md"],
       },
       review: {
         type: "task",
-        bot: "reviewer",
+        role: "reviewer",
         task: "Review the feature",
         next: { approved: "end", changes_requested: "change_review" },
         limits: { changes_requested: 3 },
       },
       change_review: {
         type: "task",
-        bot: "manager",
+        role: "manager",
         task: "Decide how to handle the requested change",
         next: { revise_design: "design", revise_build: "build" },
       },

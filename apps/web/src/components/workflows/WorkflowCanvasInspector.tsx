@@ -26,7 +26,7 @@ export type CanvasSelection =
 
 interface InspectorProps {
   readonly definition: WorkflowDefinition;
-  readonly roleName: (botId: string) => string;
+  readonly roleName: (slot: string) => string;
   readonly stageName: (stepId: string) => string;
   readonly onChange: (definition: WorkflowDefinition) => void;
 }
@@ -100,7 +100,7 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
       <SettingsRow
         title={stageName(stepId)}
         description={[
-          props.roleName(step.bot),
+          props.roleName(step.role),
           step.scope ? `scope ${step.scope}` : null,
           step.task,
         ]

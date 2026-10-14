@@ -10,16 +10,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
-import { BotHandoffService } from "../../../bots/BotHandoffService.ts";
-import { BotHandoffStore } from "../../../bots/BotHandoffStore.ts";
-import { BotStore, type BotRun } from "../../../bots/BotStore.ts";
+import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
+import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
+import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
-import * as BotsHandlers from "./handlers.ts";
-import { BotsToolkit } from "./tools.ts";
+import * as CrewHandlers from "./handlers.ts";
+import { CrewToolkit } from "./tools.ts";
 
 const projectId = ProjectId.make("project:bots");
 const stageThread = ThreadId.make("bot-run:stage");
@@ -45,11 +45,11 @@ const record: WorkflowStageHandoff = {
 
 const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const toolkit = yield* BotsToolkit;
-    return yield* toolkit.handle("bots_stage_handoff", {}).pipe(Stream.unwrap, Stream.runCollect);
+    const toolkit = yield* CrewToolkit;
+    return yield* toolkit.handle("crew_stage_handoff", {}).pipe(Stream.unwrap, Stream.runCollect);
   }).pipe(
     Effect.provide(
-      McpToolAccess.HandlersLayer.layer(BotsHandlers.layer).pipe(
+      McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
         Layer.provideMerge(
           Layer.mergeAll(
             Layer.succeed(McpInvocationContext.McpInvocationContext, {
@@ -61,19 +61,19 @@ const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
                 providerInstanceId: ProviderInstanceId.make("codex"),
               },
               client: undefined,
-              capabilities: new Set(["bots" as const]),
+              capabilities: new Set(["crew" as const]),
               issuedAt: 0,
             }),
             Layer.mock(ThreadManagement.ThreadManagementService)({
               getThreadShell: (id) => Effect.succeed(liveThreadShell(id)),
             }),
-            Layer.mock(BotHandoffService)({}),
-            Layer.mock(BotHandoffStore)({
+            Layer.mock(CrewHandoffService)({}),
+            Layer.mock(CrewHandoffStore)({
               getRunByThread: (id) => Effect.succeed(id === stageThread ? "run:stage" : null),
             }),
-            Layer.mock(BotStore)({
+            Layer.mock(CrewStore)({
               getRun: () =>
-                Effect.succeed({ id: "run:stage", projectId, allowedTools } as unknown as BotRun),
+                Effect.succeed({ id: "run:stage", projectId, allowedTools } as unknown as CrewRun),
             }),
             Layer.mock(WorkflowService)({
               getStageHandoffForThread: (project, thread) =>
@@ -85,16 +85,16 @@ const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
     ),
   );
 
-it.effect("lets a stage bot read the handoff its stage started from", () =>
+it.effect("lets a stage member read the handoff its stage started from", () =>
   Effect.gen(function* () {
-    const read = yield* handleAs(stageThread, ["bots.respond"]);
+    const read = yield* handleAs(stageThread, ["crew.respond"]);
     expect(read.at(-1)?.result).toEqual(record);
 
-    const ungranted = yield* Effect.flip(handleAs(stageThread, ["bots.delegate"]));
-    expect(ungranted).toMatchObject({ _tag: "BotToolFailedError" });
-    expect(ungranted.message).toContain("Caller is not a workflow stage bot");
+    const ungranted = yield* Effect.flip(handleAs(stageThread, ["crew.delegate"]));
+    expect(ungranted).toMatchObject({ _tag: "CrewToolFailedError" });
+    expect(ungranted.message).toContain("Caller is not a workflow stage member");
 
     const plainThread = yield* Effect.flip(handleAs(ThreadId.make("thread:plain"), []));
-    expect(plainThread.message).toContain("Caller is not a workflow stage bot");
+    expect(plainThread.message).toContain("Caller is not a workflow stage member");
   }),
 );

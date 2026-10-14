@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
+  PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ProviderInstanceId,
   type WorkflowDefinition,
@@ -15,14 +16,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
-import { BotService } from "../bots/BotService.ts";
-import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
-import { BotRuntimeLive } from "../bots/runtimeLayer.ts";
+import { CrewService } from "../crew/CrewService.ts";
+import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
+import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
 import {
-  BotTestOrchestration as OrchestrationLayerLive,
-  seedBotProject,
-} from "../bots/BotRuntime.testkit.ts";
+  CrewTestOrchestration as OrchestrationLayerLive,
+  seedCrewProject,
+} from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -34,23 +35,20 @@ import { WorkflowWorkspaceEmpty } from "./WorkflowWorkspace.ts";
 const projectId = ProjectId.make("workflow-service-project");
 const otherProjectId = ProjectId.make("workflow-service-other");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
-const templateId = `template:planner:${projectId}`;
+const roleId = "role:planner";
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "delivery",
   name: "Delivery",
   revision: 1,
   start: "plan",
-  bots: {
-    manager: {
-      template: { kind: "existing-project-bot", id: `bot-manager:${projectId}` },
-      supervisor: null,
-    },
-    planner: { template: { kind: "template", id: templateId, revision: 1 }, supervisor: "manager" },
+  roles: {
+    manager: { roleId: PROJECT_MANAGER_ROLE_ID, roleRevision: 1, supervisor: null },
+    planner: { roleId, roleRevision: 1, supervisor: "manager" },
   },
   steps: {
-    plan: { type: "task", bot: "planner", task: "Plan", next: { ready: "end" } },
+    plan: { type: "task", role: "planner", task: "Plan", next: { ready: "end" } },
     end: { type: "end" },
   },
   defaults: {
@@ -70,7 +68,7 @@ const stepEvent = (
   stepId: "plan",
   kind,
   executionId: null,
-  botRunId: null,
+  runId: null,
   outcome: null,
   sourceKind: null,
   sourceId: null,
@@ -81,21 +79,21 @@ const stepEvent = (
 });
 
 const createProject = (engine: OrchestrationEngineService["Service"], id: ProjectId) =>
-  seedBotProject({
+  seedCrewProject({
     projectId: id,
     title: `Test ${id}`,
     workspaceRoot: `/tmp/${id}`,
   });
 
 describe("Workflow service", () => {
-  effectIt.effect("validates template ownership and keeps feature copies on their revision", () =>
+  effectIt.effect("validates pinned roles and keeps feature copies on their revision", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "workflow-service-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
       const orchestration = OrchestrationLayerLive;
-      const bots = BotRuntimeLive.pipe(Layer.provide(orchestration));
+      const bots = CrewRuntimeLive.pipe(Layer.provide(orchestration));
       const workflows = WorkflowServiceLive.pipe(
         Layer.provideMerge(WorkflowStoreLive),
         Layer.provideMerge(WorkflowStageHandoffStoreLive),
@@ -110,14 +108,15 @@ describe("Workflow service", () => {
       );
       const exercise = Effect.gen(function* () {
         const engine = yield* OrchestrationEngineService;
-        const botService = yield* BotService;
-        const handoffs = yield* BotHandoffStore;
+        const crewService = yield* CrewService;
+        const handoffs = yield* CrewHandoffStore;
         const workflow = yield* WorkflowService;
         yield* createProject(engine, projectId);
         yield* createProject(engine, otherProjectId);
-        yield* botService.ensureCrew(projectId, modelSelection);
+        yield* crewService.ensureDefaults(modelSelection);
+        yield* crewService.ensureProjectManager(projectId);
 
-        const starter = yield* workflow.ensureStarterDefinition(projectId);
+        const starter = yield* workflow.ensureStarterDefinition();
         expect(Object.keys(starter.steps)).toEqual([
           "plan",
           "design",
@@ -127,55 +126,52 @@ describe("Workflow service", () => {
           "change_review",
           "end",
         ]);
-        expect(yield* workflow.ensureStarterDefinition(projectId)).toEqual(starter);
+        expect(yield* workflow.ensureStarterDefinition()).toEqual(starter);
 
-        const researcher = yield* botService.createTemplate({
-          id: "template:researcher",
-          projectId,
+        const researcher = yield* crewService.createRole({
+          id: "role:researcher",
           name: "Researcher",
           instructions: "Investigate the feature",
           modelSelection,
           runtimeMode: "approval-required",
           autoCreateForFeature: true,
         });
-        yield* workflow.validateDefinition(projectId, {
+        yield* workflow.validateDefinition({
           ...definition,
-          bots: {
-            manager: definition.bots.manager!,
+          roles: {
+            manager: definition.roles.manager!,
             researcher: {
-              template: { kind: "template", id: researcher.id, revision: researcher.revision },
+              roleId: researcher.id,
+              roleRevision: researcher.revision,
               supervisor: "manager",
             },
           },
           steps: {
-            plan: { type: "task", bot: "researcher", task: "Investigate", next: { ready: "end" } },
+            plan: { type: "task", role: "researcher", task: "Investigate", next: { ready: "end" } },
             end: { type: "end" },
           },
         });
 
         expect(
           (yield* workflow
-            .validateDefinition(projectId, {
+            .validateDefinition({
               ...definition,
-              bots: {
-                ...definition.bots,
-                planner: {
-                  template: { kind: "template", id: templateId, revision: 99 },
-                  supervisor: "manager",
-                },
+              roles: {
+                ...definition.roles,
+                planner: { roleId, roleRevision: 99, supervisor: "manager" },
               },
             })
             .pipe(Effect.result))._tag,
         ).toBe("Failure");
 
-        expect((yield* workflow.createDefinition(projectId, definition)).revision).toBe(1);
+        expect((yield* workflow.createDefinition(definition)).revision).toBe(1);
         const first = yield* workflow.copyForFeature("feature-one", projectId, definition.id);
         expect(first.definition.revision).toBe(1);
         const revised: WorkflowDefinition = { ...definition, name: "Delivery 2", revision: 2 };
-        yield* workflow.reviseDefinition(projectId, revised, 1);
-        expect(
-          (yield* workflow.reviseDefinition(projectId, revised, 1).pipe(Effect.result))._tag,
-        ).toBe("Failure");
+        yield* workflow.reviseDefinition(revised, 1);
+        expect((yield* workflow.reviseDefinition(revised, 1).pipe(Effect.result))._tag).toBe(
+          "Failure",
+        );
         expect(
           (yield* workflow.copyForFeature("feature-one", projectId, definition.id)).definition,
         ).toEqual(definition);
@@ -183,28 +179,28 @@ describe("Workflow service", () => {
           (yield* workflow.copyForFeature("feature-two", projectId, definition.id)).definition,
         ).toEqual(revised);
 
-        const template = yield* botService.getTemplate(templateId);
-        if (template === null) throw new Error("Starter template was not created");
-        const planner = yield* botService.createDefinition({
+        const template = yield* crewService.getRole(roleId);
+        if (template === null) throw new Error("Default planner role was not created");
+        const planner = yield* crewService.createMember({
           id: "feature-one-planner",
           projectId,
           featureId: "feature-one",
-          templateId,
+          roleId,
           name: template.name,
           instructions: template.instructions,
           allowedTools: template.allowedTools,
           modelSelection: template.modelSelection,
           runtimeMode: template.runtimeMode,
         });
-        const managerRun = yield* botService.createRun({
+        const managerRun = yield* crewService.createRun({
           id: "manager-run",
-          botId: `bot-manager:${projectId}`,
+          memberId: `bot-manager:${projectId}`,
           projectId,
           taskText: "Supervise feature one",
         });
-        const plannerRun = yield* botService.createRun({
+        const plannerRun = yield* crewService.createRun({
           id: "run-plan-1",
-          botId: planner.id,
+          memberId: planner.id,
           projectId,
           taskText: "Plan feature one",
         });
@@ -221,7 +217,7 @@ describe("Workflow service", () => {
         expect(premature._tag).toBe("Failure");
         const start = stepEvent("start-plan", "started", {
           executionId: "execution-1",
-          botRunId: "run-plan-1",
+          runId: "run-plan-1",
           sourceKind: "handoff",
           sourceId: "handoff-1",
         });
@@ -236,7 +232,7 @@ describe("Workflow service", () => {
           id: "handoff-1",
           parentId: null,
           sourceRunId: managerRun.id,
-          targetBotId: planner.id,
+          targetMemberId: planner.id,
           targetRunId: plannerRun.id,
           projectId,
           taskText: "Plan feature one",
@@ -367,27 +363,27 @@ describe("Workflow service", () => {
         expect(reusedId._tag).toBe("Failure");
 
         yield* workflow.copyForFeature("feature-retry", projectId, definition.id);
-        const retryBot = yield* botService.createDefinition({
+        const retryBot = yield* crewService.createMember({
           id: "feature-retry-planner",
           projectId,
           featureId: "feature-retry",
-          templateId,
+          roleId,
           name: template.name,
           instructions: template.instructions,
           allowedTools: template.allowedTools,
           modelSelection: template.modelSelection,
           runtimeMode: template.runtimeMode,
         });
-        const firstAttempt = yield* botService.createRun({
+        const firstAttempt = yield* crewService.createRun({
           id: "retry-run-1",
-          botId: retryBot.id,
+          memberId: retryBot.id,
           projectId,
           taskText: "Plan retry feature",
         });
         yield* handoffs.insert({
           ...(yield* handoffs.get("handoff-1"))!,
           id: "handoff-retry",
-          targetBotId: retryBot.id,
+          targetMemberId: retryBot.id,
           targetRunId: firstAttempt.id,
           status: "running",
           responseText: null,
@@ -397,7 +393,7 @@ describe("Workflow service", () => {
           "feature-retry",
           stepEvent("retry-start-1", "started", {
             executionId: "retry-execution",
-            botRunId: firstAttempt.id,
+            runId: firstAttempt.id,
             sourceKind: "handoff",
             sourceId: "handoff-retry",
           }),
@@ -420,9 +416,9 @@ describe("Workflow service", () => {
         );
         expect(yield* handoffs.retry("handoff-retry", "2026-09-29T00:00:03Z")).toBe(true);
         const secondHandoff = (yield* handoffs.get("handoff-retry"))!;
-        const secondAttempt = yield* botService.createRun({
+        const secondAttempt = yield* crewService.createRun({
           id: secondHandoff.targetRunId,
-          botId: retryBot.id,
+          memberId: retryBot.id,
           projectId,
           taskText: "Plan retry feature",
         });
@@ -430,7 +426,7 @@ describe("Workflow service", () => {
           "feature-retry",
           stepEvent("retry-start-2", "started", {
             executionId: "retry-execution",
-            botRunId: secondAttempt.id,
+            runId: secondAttempt.id,
             sourceKind: "handoff",
             sourceId: "handoff-retry",
           }),
@@ -438,7 +434,7 @@ describe("Workflow service", () => {
         expect((yield* workflow.getFeatureState("feature-retry"))?.steps.get("plan")).toMatchObject(
           {
             attempt: 2,
-            botRunId: secondAttempt.id,
+            runId: secondAttempt.id,
             status: "running",
           },
         );
@@ -448,7 +444,7 @@ describe("Workflow service", () => {
         );
         expect((yield* workflow.getFeatureState("feature-retry"))?.cancelled).toBe(true);
 
-        yield* botService.updateTemplate({
+        yield* crewService.updateRole({
           ...template,
           expectedRevision: template.revision,
           enabled: false,
@@ -461,10 +457,8 @@ describe("Workflow service", () => {
           .pipe(Effect.result);
         expect(disabledTemplate._tag).toBe("Failure");
 
-        const wrongProject = yield* workflow
-          .createDefinition(otherProjectId, definition)
-          .pipe(Effect.result);
-        expect(wrongProject._tag).toBe("Failure");
+        const duplicateWorkflow = yield* workflow.createDefinition(definition).pipe(Effect.result);
+        expect(duplicateWorkflow._tag).toBe("Failure");
         const duplicateFeature = yield* workflow
           .copyForFeature("feature-one", otherProjectId, definition.id)
           .pipe(Effect.result);

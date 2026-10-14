@@ -24,23 +24,23 @@ import {
 const projectId = ProjectId.make("project");
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "feature-delivery",
   name: "Feature delivery",
   revision: 1,
   start: "plan",
-  bots: {},
+  roles: {},
   steps: {
-    plan: { type: "task", bot: "planner", task: "Plan", next: { ready: "design" }, gate: true },
+    plan: { type: "task", role: "planner", task: "Plan", next: { ready: "design" }, gate: true },
     design: {
       type: "task",
-      bot: "designer",
+      role: "designer",
       task: "Design",
       next: { ready: "build" },
       gate: true,
       outputs: ["design.md"],
     },
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "end" } },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "end" } },
     end: { type: "end" },
   },
   defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 30 },
@@ -56,7 +56,7 @@ const step = (
   status,
   executionId: threadId === null ? null : `exec-${id}`,
   attempt: 1,
-  botRunId: null,
+  runId: null,
   threadId: threadId === null ? null : ThreadId.make(threadId),
   outcome: null,
   ...extra,
@@ -92,7 +92,7 @@ const feature = (input: {
         stepId: input.stage ?? "build",
         executionId: null,
         kind: "started",
-        botRunId: null,
+        runId: null,
         outcome: null,
         sourceKind: null,
         sourceId: null,
@@ -122,7 +122,7 @@ const feature = (input: {
       createdAt: "2026-10-01T00:00:00.000Z",
       updatedAt: input.since ?? "2026-10-01T00:00:00.000Z",
       status: input.state === "done" || input.state === "cancelled" ? "closed" : "open",
-      botAssignments: {},
+      crewAssignments: {},
     },
     snapshot,
   };
@@ -186,13 +186,13 @@ describe("crew rows across rework and finished features", () => {
       id: "reworked",
       state: "working",
       stage: "design",
-      steps: [step("design", "running", "bot-run:run-2", { botRunId: "run-2" })],
+      steps: [step("design", "running", "bot-run:run-2", { runId: "run-2" })],
     });
     const snapshot = {
       ...reworked.snapshot!,
       recentEvents: [
-        { ...reworked.snapshot!.recentEvents[0]!, stepId: "design", botRunId: "run-1" },
-        { ...reworked.snapshot!.recentEvents[0]!, id: "e2", stepId: "design", botRunId: "run-2" },
+        { ...reworked.snapshot!.recentEvents[0]!, stepId: "design", runId: "run-1" },
+        { ...reworked.snapshot!.recentEvents[0]!, id: "e2", stepId: "design", runId: "run-2" },
       ],
     };
     expect(

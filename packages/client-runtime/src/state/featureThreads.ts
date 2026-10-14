@@ -54,7 +54,7 @@ export function createFeatureThreadAtoms<R, ER>(
   };
 }
 
-/** A workflow bot's display name and model, keyed by template or project bot ID. */
+/** A workflow role's display name and model, keyed by global role ID. */
 export interface FeatureDraftRole {
   readonly name: string;
   readonly model: string;
@@ -105,13 +105,13 @@ export function makeFeatureDraft(
   const nextId = step?.type === "task" && outcome !== null ? step.next[outcome] : undefined;
   const nextStep = nextId === undefined ? undefined : definition.steps[nextId];
   if (step?.type !== "task" || nextStep?.type !== "task") return { stages, stage, next: null };
-  const bot = definition.bots[nextStep.bot];
+  const role = definition.roles[nextStep.role];
   return {
     stages,
     stage,
     next: {
       label: stageLabel(nextId!),
-      role: bot ? (roles.get(bot.template.id) ?? null) : null,
+      role: role ? (roles.get(role.roleId) ?? null) : null,
       gated: step.gate === true,
     },
   };

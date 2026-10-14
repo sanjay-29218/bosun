@@ -34,7 +34,7 @@ import {
   ThreadId,
   type ToolActivityIcon,
 } from "@t3tools/contracts";
-import { botMessageOrigin } from "@t3tools/client-runtime/bot-message-origin";
+import { crewMessageOrigin } from "@t3tools/client-runtime/crew-message-origin";
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { environmentThreadDetails } from "../../state/threads";
@@ -2203,7 +2203,7 @@ function MessageAuthorHeading({ children }: { children: string }) {
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const botOrigin = botMessageOrigin(row.message.context);
+  const crewOrigin = crewMessageOrigin(row.message.context);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
   const resources = useMemo(
@@ -2404,7 +2404,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
         <MessageAuthorHeading>
-          {botOrigin ? `Bot · ${botOrigin.botId}` : "You"}
+          {crewOrigin ? `Crew · ${crewOrigin.memberId}` : "You"}
         </MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">

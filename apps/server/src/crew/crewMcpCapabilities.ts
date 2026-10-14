@@ -7,19 +7,19 @@ import type { McpCapability } from "../mcp/McpInvocationContext.ts";
 
 const decodeGrants = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
 
-/** Ordinary threads use the harness defaults; bot threads use their saved grants. */
-export const botMcpCapabilities = Effect.fn("botMcpCapabilities")(function* (threadId: ThreadId) {
+/** Ordinary threads use the harness defaults; crew threads use their run's saved grants. */
+export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (threadId: ThreadId) {
   if (!threadId.startsWith("bot-run:") && !threadId.startsWith("bosun-run:")) return undefined;
   const database = yield* Effect.serviceOption(SqlClient.SqlClient);
   if (Option.isNone(database)) return new Set<McpCapability>();
   const rows = yield* database.value<{ readonly allowedTools: string }>`
-    SELECT allowed_tools_json AS allowedTools FROM bot_runs WHERE thread_id = ${threadId}
+    SELECT allowed_tools_json AS allowedTools FROM crew_runs WHERE thread_id = ${threadId}
   `.pipe(Effect.orElseSucceed(() => []));
-  const grants = yield* Schema.decodeUnknownEffect(
-    Schema.fromJsonString(Schema.Array(Schema.String)),
-  )(rows[0]?.allowedTools ?? "[]").pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+  const grants = yield* decodeGrants(rows[0]?.allowedTools ?? "[]").pipe(
+    Effect.orElseSucceed((): ReadonlyArray<string> => []),
+  );
   const capabilities = new Set<McpCapability>();
-  if (grants.some((grant) => grant.startsWith("bots."))) capabilities.add("bots");
+  if (grants.some((grant) => grant.startsWith("crew."))) capabilities.add("crew");
   for (const capability of [
     "preview",
     "device",

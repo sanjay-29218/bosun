@@ -185,7 +185,7 @@ export function crewStagePrompt(
 export interface FeatureStageRow {
   readonly stepId: string;
   readonly name: string;
-  readonly bot: string;
+  readonly role: string;
   readonly status: WorkflowStepSnapshot["status"];
   readonly attempt: number;
   readonly threadId: ThreadId | null;
@@ -205,7 +205,7 @@ export function featureStageRows(
       {
         stepId,
         name: formatStageName(stepId),
-        bot: formatStageName(task.bot),
+        role: formatStageName(task.role),
         status: step?.status ?? "pending",
         attempt: step?.attempt ?? 0,
         threadId: step?.threadId ?? null,

@@ -43,8 +43,8 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
-import { BotsProjectSection } from "./BotsProjectSection";
-import { WorkflowsProjectSection } from "./WorkflowsProjectSection";
+import { CrewProjectSection } from "./CrewProjectSection";
+import { ProjectBotSection } from "./BotsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -540,20 +540,17 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
+        <ProjectBotSection
+          members={group.memberProjects.filter(
+            (member) =>
+              environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+                .bots === true,
+          )}
+        />
         {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
-            .workflows === true ? (
-            <WorkflowsProjectSection
-              key={memberKey(member)}
-              project={member}
-              showEnvironment={group.memberProjects.length > 1}
-            />
-          ) : null,
-        )}
-        {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.bots ===
+          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.crew ===
           true ? (
-            <BotsProjectSection key={memberKey(member)} project={member} />
+            <CrewProjectSection key={memberKey(member)} project={member} />
           ) : null,
         )}
         {hasMultipleCheckouts ? checkoutChoices : null}

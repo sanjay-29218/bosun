@@ -18,25 +18,25 @@ import {
 
 function workflow(): WorkflowDefinition {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: "feature-delivery",
     name: "Feature delivery",
     revision: 1,
     start: "plan",
-    bots: {
-      builder: { template: { kind: "template", id: "builder", revision: 1 }, supervisor: null },
+    roles: {
+      builder: { roleId: "builder", roleRevision: 1, supervisor: null },
     },
     steps: {
-      plan: { type: "task", bot: "builder", task: "Plan", next: { ready: "build", fail: "end" } },
-      build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+      plan: { type: "task", role: "builder", task: "Plan", next: { ready: "build", fail: "end" } },
+      build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
       review: {
         type: "task",
-        bot: "builder",
+        role: "builder",
         task: "Review",
         next: { approved: "end", changes_requested: "build" },
         limits: { changes_requested: 3 },
       },
-      orphan: { type: "task", bot: "builder", task: "Unused", next: { done: "end" } },
+      orphan: { type: "task", role: "builder", task: "Unused", next: { done: "end" } },
       end: { type: "end" },
     },
     defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 30 },
@@ -80,10 +80,10 @@ describe("autoLayoutWorkflow", () => {
       ...definition,
       steps: {
         ...definition.steps,
-        plan: { type: "task", bot: "builder", task: "Plan", next: { a: "build", b: "orphan" } },
+        plan: { type: "task", role: "builder", task: "Plan", next: { a: "build", b: "orphan" } },
         build: {
           type: "task",
-          bot: "builder",
+          role: "builder",
           task: "Build",
           next: Object.fromEntries(outcomes.map((outcome) => [outcome, "review"])),
         },
@@ -126,8 +126,8 @@ describe("workflowNodePositions", () => {
       layout,
       steps: {
         ...definition.steps,
-        build: { type: "task", bot: "builder", task: "Build", next: { built: "lint" } },
-        lint: { type: "task", bot: "builder", task: "Lint", next: { done: "review" } },
+        build: { type: "task", role: "builder", task: "Build", next: { built: "lint" } },
+        lint: { type: "task", role: "builder", task: "Lint", next: { done: "review" } },
       },
     });
     // Right of build is taken by review, so lint goes below review.

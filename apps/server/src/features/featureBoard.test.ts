@@ -12,18 +12,18 @@ import { featureBoardCard, featureBoardRunId } from "./featureBoard.ts";
 
 const projectId = ProjectId.make("board-project");
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "delivery",
   name: "Delivery",
   revision: 2,
   start: "plan",
-  bots: {
-    planner: { template: { kind: "template", id: "planner", revision: 1 }, supervisor: null },
-    builder: { template: { kind: "template", id: "builder", revision: 1 }, supervisor: null },
+  roles: {
+    planner: { roleId: "planner", roleRevision: 1, supervisor: null },
+    builder: { roleId: "builder", roleRevision: 1, supervisor: null },
   },
   steps: {
-    plan: { type: "task", bot: "planner", task: "Plan", next: { ready: "build" }, gate: true },
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "end" } },
+    plan: { type: "task", role: "planner", task: "Plan", next: { ready: "build" }, gate: true },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "end" } },
     end: { type: "end" },
   },
   defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 8 },
@@ -38,7 +38,7 @@ const feature: FeatureRecord = {
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-01T00:00:00.000Z",
   status: "open",
-  botAssignments: {},
+  crewAssignments: {},
 };
 const copy = {
   featureId: feature.id,
@@ -58,7 +58,7 @@ const handoffEvent = (
   stepId,
   kind,
   executionId: `${stepId}-execution`,
-  botRunId: null,
+  runId: null,
   outcome: null,
   sourceKind: "handoff",
   sourceId: `handoff-${id}`,
@@ -68,7 +68,7 @@ const handoffEvent = (
   ...fields,
 });
 const started = (stepId: string, occurredAt: string) =>
-  handoffEvent(`start-${stepId}`, stepId, "started", occurredAt, { botRunId: `run-${stepId}` });
+  handoffEvent(`start-${stepId}`, stepId, "started", occurredAt, { runId: `run-${stepId}` });
 
 const card = (
   events: ReadonlyArray<WorkflowStepEvent>,

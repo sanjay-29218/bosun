@@ -69,7 +69,7 @@ export function FeaturePanel(props: { readonly onEditWorkflow: () => void }) {
     ? snapshot.definition.steps[snapshot.activeStepId]
     : undefined;
   const supervisor =
-    activeTask?.type === "task" ? snapshot.definition.bots[activeTask.bot]?.supervisor : null;
+    activeTask?.type === "task" ? snapshot.definition.roles[activeTask.role]?.supervisor : null;
   const pullRequest = thread.linkedPullRequest ?? thread.branchPullRequest ?? null;
   const footer = (["start-now", "pause", "resume", "cancel", "reopen"] as const).filter((action) =>
     stage.actions.includes(action),
@@ -97,7 +97,7 @@ export function FeaturePanel(props: { readonly onEditWorkflow: () => void }) {
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate">{row.name}</span>
                     <span className="truncate text-xs text-muted-foreground">
-                      {row.bot}
+                      {row.role}
                       {row.gate ? " · approval gate" : ""}
                       {row.attempt > 1 ? ` · attempt ${row.attempt}` : ""}
                     </span>

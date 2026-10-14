@@ -11,7 +11,7 @@ import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
-import { MobileBotsProjectSection } from "./MobileBotsProjectSection";
+import { MobileCrewProjectSection } from "./MobileCrewProjectSection";
 import { MobileWorkflowProjectSection } from "./MobileWorkflowProjectSection";
 import {
   AndroidSettingsEnvironmentFilter,
@@ -144,9 +144,9 @@ function ProjectOverviewContent(props: {
         const environment = props.environments.find(
           (entry) => entry.environmentId === member.environmentId,
         );
-        return environment?.serverConfig.environment.capabilities.bots === true ? (
-          <MobileBotsProjectSection
-            key={`bots:${member.environmentId}:${member.id}`}
+        return environment?.serverConfig.environment.capabilities.crew === true ? (
+          <MobileCrewProjectSection
+            key={`crew:${member.environmentId}:${member.id}`}
             project={member}
             environmentLabel={environment.label}
           />

@@ -23,6 +23,7 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultModelSelection: mutation.defaultModelSelection }),
         ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
+        ...(mutation.botId === undefined ? {} : { botId: mutation.botId }),
       });
 
     case "project.update":

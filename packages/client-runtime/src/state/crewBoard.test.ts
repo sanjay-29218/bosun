@@ -8,8 +8,10 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  botNeedsYouKey,
   buildFeatureStageBoard,
   collectNeedsYou,
+  countNeedsYouByBot,
   featureCardActions,
   featureDropAction,
   featurePhase,
@@ -32,19 +34,19 @@ const otherEnvironmentId = EnvironmentId.make("env-2");
 const projectId = ProjectId.make("project-1");
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "feature-delivery",
   name: "Feature delivery",
   revision: 3,
   start: "plan",
-  bots: {},
+  roles: {},
   steps: {
-    plan: { type: "task", bot: "planner", task: "Plan", next: { ready: "design" }, gate: true },
-    design: { type: "task", bot: "designer", task: "Design", next: { ready: "build" } },
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+    plan: { type: "task", role: "planner", task: "Plan", next: { ready: "design" }, gate: true },
+    design: { type: "task", role: "designer", task: "Design", next: { ready: "build" } },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
     review: {
       type: "task",
-      bot: "reviewer",
+      role: "reviewer",
       task: "Review",
       next: { approved: "end", changes_requested: "build" },
       limits: { changes_requested: 3 },
@@ -75,7 +77,7 @@ const card = (
           stepId,
           index: 1,
           total: 4,
-          role: (definition.steps[stepId] as { bot?: string } | undefined)?.bot ?? "builder",
+          role: (definition.steps[stepId] as { role?: string } | undefined)?.role ?? "builder",
           attempt: 1,
           gate: false,
           takenOver: false,
@@ -307,5 +309,36 @@ describe("queue, drag and actions", () => {
     expect(sendBackTargets(definition, steps, "review")).toEqual(["plan", "build"]);
     expect(sendBackTargets(definition, [], "plan")).toEqual([]);
     expect(stageOutcomes(definition, "plan")).toEqual(["ready"]);
+  });
+});
+
+describe("countNeedsYouByBot", () => {
+  it("counts waiting threads under the bot that owns their project", () => {
+    const social = ProjectId.make("social-site");
+    const captains = ProjectId.make("legacy");
+    const other = EnvironmentId.make("env-2");
+    const counts = countNeedsYouByBot(
+      [
+        { ...shell("approval", { hasPendingApprovals: true }), projectId: social },
+        { ...shell("question", { hasPendingUserInput: true }), projectId: social },
+        { ...shell("idle"), projectId: social },
+        { ...shell("older-server", { hasPendingApprovals: true }), projectId: captains },
+        {
+          ...shell("elsewhere", { hasPendingApprovals: true, environmentId: other }),
+          projectId: social,
+        },
+      ],
+      [
+        { environmentId, id: social, botId: "bot:social" },
+        // A project from an older server has no botId: Captain owns it.
+        { environmentId, id: captains },
+        { environmentId: other, id: social, botId: "bot:social" },
+      ],
+    );
+    expect(Object.fromEntries(counts)).toEqual({
+      [botNeedsYouKey(environmentId, "bot:social")]: 2,
+      [botNeedsYouKey(environmentId, "bot-captain")]: 1,
+      [botNeedsYouKey(other, "bot:social")]: 1,
+    });
   });
 });

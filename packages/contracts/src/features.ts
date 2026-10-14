@@ -23,7 +23,8 @@ export const FeatureRecord = Schema.Struct({
   createdAt: Schema.String,
   updatedAt: Schema.String,
   status: Schema.Literals(["open", "closed"]),
-  botAssignments: Schema.Record(Schema.String, Schema.String),
+  /** The crew member bound to each of the workflow's roles. */
+  crewAssignments: Schema.Record(Schema.String, Schema.String),
 });
 export const FeatureProjectInput = Schema.Struct({ projectId: ProjectId });
 export const FeatureGetInput = Schema.Struct({
@@ -65,7 +66,7 @@ export const FeatureThreadInput = Schema.Struct({ projectId: ProjectId, threadId
 /** What a thread is to Crew: a feature's stage thread, or a plain thread that may become one. */
 export const FeatureThreadLink = Schema.Struct({
   stage: Schema.NullOr(CrewStageSummary),
-  /** False for bot threads, which belong to the crew rather than to a person. */
+  /** False for crew threads, which belong to the crew rather than to a person. */
   attachable: Schema.Boolean,
 });
 export type FeatureThreadLink = typeof FeatureThreadLink.Type;
@@ -82,7 +83,7 @@ export const FeatureBoardCard = Schema.Struct({
     name: Schema.String,
     /** The version this feature runs on. */
     revision: Schema.Int,
-    /** The project's latest version; null once the workflow is deleted. */
+    /** The library's latest version; null once the workflow is deleted. */
     latestRevision: Schema.NullOr(Schema.Int),
   }),
   state: FeatureCardState,
@@ -93,7 +94,7 @@ export const FeatureBoardCard = Schema.Struct({
   stage: Schema.NullOr(
     Schema.Struct({
       ...WorkflowStagePosition.fields,
-      /** The workflow bot name that owns the stage, such as "designer". */
+      /** The workflow role that owns the stage, such as "designer". */
       role: Schema.String,
       attempt: Schema.Int,
       gate: Schema.Boolean,

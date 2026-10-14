@@ -1,6 +1,6 @@
 # Features
 
-A feature is a brief that a crew of bots takes through a workflow. The **Features** page shows
+A feature is a brief that a crew of roles takes through a workflow. The **Features** page shows
 every feature across your projects and everything waiting on you. Open it from the sidebar
 footer, with `mod+shift+b`, or with **Open features** in the command palette. It appears when a
 connected environment runs workflows.
@@ -8,8 +8,8 @@ connected environment runs workflows.
 ## Start a feature
 
 The first time the page opens, **Start a feature** adds the starter workflow, "Feature
-delivery", to the project and opens a new thread. **New feature** opens a new thread in the
-scoped project. Change workflows in **Settings → Project → Workflows**.
+delivery", to the environment's workflows and opens a new thread. **New feature** opens a new thread in the
+scoped project. Change workflows in **Settings → Workflows**.
 
 ## The board
 

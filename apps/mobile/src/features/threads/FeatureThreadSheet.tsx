@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { uuidv4 } from "../../lib/uuid";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { useThreadShell } from "../../state/entities";
 import { featureThreadsEnvironment } from "../../state/featureThreads";
 import { useEnvironmentQuery } from "../../state/query";
@@ -102,7 +102,7 @@ export function FeatureThreadSheet({ route }: StaticScreenProps<FeatureThreadTar
         />
       ) : (
         <Text className="text-sm text-foreground-muted">
-          Bot threads belong to the crew and can't become features.
+          Crew threads belong to the crew and can't become features.
         </Text>
       )}
       {error ? (
@@ -121,9 +121,9 @@ function MakeFeatureForm(props: {
   readonly initialTitle: string;
   readonly onDone: () => void;
 }) {
-  const target = { environmentId: props.environmentId, input: { projectId: props.projectId } };
-  const definitions = useEnvironmentQuery(workflowsEnvironment.definitions(target));
-  const configuration = useEnvironmentQuery(botsEnvironment.configuration(target));
+  const library = { environmentId: props.environmentId, input: {} };
+  const definitions = useEnvironmentQuery(workflowsEnvironment.definitions(library));
+  const roleConfigs = useEnvironmentQuery(rolesEnvironment.roles(library));
   const attach = useAtomCommand(featureThreadsEnvironment.attach, { reportFailure: false });
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [stageId, setStageId] = useState<string | null>(null);
@@ -137,12 +137,12 @@ function MakeFeatureForm(props: {
   const roles = useMemo(
     () =>
       new Map(
-        (configuration.data?.templates ?? []).map((template) => [
-          template.id,
-          { name: template.name, model: template.modelSelection.model },
+        (roleConfigs.data ?? []).map((role) => [
+          role.id,
+          { name: role.name, model: role.modelSelection.model },
         ]),
       ),
-    [configuration.data],
+    [roleConfigs.data],
   );
   const draft = workflow
     ? makeFeatureDraft(workflow, stageId ?? workflow.start, roles)

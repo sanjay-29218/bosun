@@ -24,7 +24,7 @@ import {
   type RunId,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
-import { botMessageOrigin } from "@t3tools/client-runtime/bot-message-origin";
+import { crewMessageOrigin } from "@t3tools/client-runtime/crew-message-origin";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import {
@@ -1699,7 +1699,7 @@ function renderFeedEntry(
       !message.streaming;
 
     if (isUser) {
-      const botOrigin = botMessageOrigin(message.context);
+      const crewOrigin = crewMessageOrigin(message.context);
       const enterAnimated = isFreshTimestamp(message.createdAt);
       const intentBadge = resolveUserMessageIntentBadge(message.inputIntent);
       const referenceIds = new Set(
@@ -1742,9 +1742,9 @@ function renderFeedEntry(
                   : null),
             }}
           >
-            {botOrigin ? (
+            {crewOrigin ? (
               <Text className="font-t3-medium text-xs text-foreground-secondary">
-                Bot · {botOrigin.botId}
+                Crew · {crewOrigin.memberId}
               </Text>
             ) : null}
             {entry.pendingMessage?.attachments.map((attachment) =>

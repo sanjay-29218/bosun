@@ -1,4 +1,8 @@
-import type { BotTemplateConfig, WorkflowDefinition } from "@t3tools/contracts";
+import {
+  PROJECT_MANAGER_ROLE_ID,
+  type RoleConfig,
+  type WorkflowDefinition,
+} from "@t3tools/contracts";
 import { useId, useState } from "react";
 
 import { Button } from "../ui/button";
@@ -35,7 +39,7 @@ export function WorkflowStageDialog({
   definition,
   stepId,
   after: initialAfter,
-  templates,
+  roles,
   roleName,
   stageName,
   onSave,
@@ -46,8 +50,8 @@ export function WorkflowStageDialog({
   readonly stepId: string | null;
   /** Where an added stage goes; the last stage when absent. */
   readonly after?: string | undefined;
-  readonly templates: readonly BotTemplateConfig[];
-  readonly roleName: (botId: string) => string;
+  readonly roles: readonly RoleConfig[];
+  readonly roleName: (slot: string) => string;
   readonly stageName: (stepId: string) => string;
   readonly onSave: (definition: WorkflowDefinition) => void;
   readonly onClose: () => void;
@@ -56,23 +60,26 @@ export function WorkflowStageDialog({
   const stages = orderWorkflowStages(definition);
   const existing = stepId ? definition.steps[stepId] : undefined;
   const step = existing?.type === "task" ? existing : null;
-  // Roles a stage can run as: the workflow's project bots (the Manager) and enabled roles.
+  // Roles a stage can run as: the workflow's project manager slot and enabled roles.
   const roleOptions = [
-    ...Object.entries(definition.bots)
-      .filter(([, bot]) => bot.template.kind === "existing-project-bot")
-      .map(([botId]) => ({ value: `bot:${botId}`, label: roleName(botId) })),
-    ...templates
-      .filter((template) => template.enabled && template.autoCreateForFeature)
-      .map((template) => ({ value: `template:${template.id}`, label: template.name })),
+    ...Object.entries(definition.roles)
+      .filter(([, entry]) => entry.roleId === PROJECT_MANAGER_ROLE_ID)
+      .map(([slot]) => ({ value: `slot:${slot}`, label: roleName(slot) })),
+    ...roles
+      .filter(
+        (config) =>
+          config.id !== PROJECT_MANAGER_ROLE_ID && config.enabled && config.autoCreateForFeature,
+      )
+      .map((config) => ({ value: `role:${config.id}`, label: config.name })),
   ];
   const currentRole = step
     ? (() => {
-        const bot = definition.bots[step.bot];
-        return bot?.template.kind === "template"
-          ? `template:${bot.template.id}`
-          : `bot:${step.bot}`;
+        const entry = definition.roles[step.role];
+        return entry && entry.roleId !== PROJECT_MANAGER_ROLE_ID
+          ? `role:${entry.roleId}`
+          : `slot:${step.role}`;
       })()
-    : (roleOptions.find((option) => option.value.startsWith("template:"))?.value ?? "");
+    : (roleOptions.find((option) => option.value.startsWith("role:"))?.value ?? "");
   const [id, setId] = useState("");
   const [after, setAfter] = useState(
     initialAfter && stages.includes(initialAfter)
@@ -128,13 +135,13 @@ export function WorkflowStageDialog({
   const save = () => {
     if (problem) return;
     let next = definition;
-    let botId: string;
-    if (role.startsWith("template:")) {
-      const template = templates.find((candidate) => `template:${candidate.id}` === role);
-      if (!template) return;
-      ({ definition: next, botId } = ensureWorkflowRole(next, template));
+    let slot: string;
+    if (role.startsWith("role:")) {
+      const config = roles.find((candidate) => `role:${candidate.id}` === role);
+      if (!config) return;
+      ({ definition: next, slot } = ensureWorkflowRole(next, config));
     } else {
-      botId = role.slice("bot:".length);
+      slot = role.slice("slot:".length);
     }
     if (!stepId) {
       // The new stage takes over the previous stage's first route.
@@ -149,7 +156,7 @@ export function WorkflowStageDialog({
           [after]: { ...previous, next: { ...previous.next, [firstOutcome]: id } },
           [id]: {
             type: "task",
-            bot: botId,
+            role: slot,
             task: "",
             next: Object.fromEntries(outcomeList.map((outcome) => [outcome, followingStep])),
           },
@@ -163,7 +170,7 @@ export function WorkflowStageDialog({
       targetId,
       ({ outputs: _outputs, receives: _receives, scope: _scope, ...rest }) => ({
         ...rest,
-        bot: botId,
+        role: slot,
         task: task.trim(),
         ...(outputList.length > 0 ? { outputs: outputList } : {}),
         ...(receivesMode === "picked"

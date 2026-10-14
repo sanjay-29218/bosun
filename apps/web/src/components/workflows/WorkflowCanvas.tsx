@@ -41,7 +41,7 @@ import {
 import { WorkflowCanvasInspector, type CanvasSelection } from "./WorkflowCanvasInspector";
 
 type StageNodeData = {
-  readonly botId: string;
+  readonly role: string;
   readonly outcomes: readonly string[];
   readonly first: boolean;
   readonly gate: boolean;
@@ -53,7 +53,7 @@ type CanvasEdge = Edge;
 
 export interface WorkflowCanvasProps {
   readonly definition: WorkflowDefinition;
-  readonly roleName: (botId: string) => string;
+  readonly roleName: (slot: string) => string;
   readonly stageName: (stepId: string) => string;
   readonly onChange: (definition: WorkflowDefinition) => void;
   readonly onEditStage: (stepId: string) => void;
@@ -122,7 +122,7 @@ function canvasNodes(definition: WorkflowDefinition, previous: readonly CanvasNo
         deletable: canRemoveStage(definition, id),
         className: NODE_CLASS,
         data: {
-          botId: step.bot,
+          role: step.role,
           outcomes,
           first: definition.start === id,
           gate: step.gate === true,
@@ -324,7 +324,7 @@ function StageNodeView({ id, data, selected }: NodeProps<StageNode>) {
           {data.first ? <Badge variant="outline">First</Badge> : null}
           {data.gate ? <Badge variant="info">Approval</Badge> : null}
         </div>
-        <div className="truncate text-xs text-muted-foreground">{roleName(data.botId)}</div>
+        <div className="truncate text-xs text-muted-foreground">{roleName(data.role)}</div>
       </div>
       <div className="border-t border-border/50 py-1">
         {data.outcomes.map((outcome) => (

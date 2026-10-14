@@ -38,7 +38,7 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
-import { isBotThreadId } from "@t3tools/client-runtime/bot-message-origin";
+import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import {
@@ -451,7 +451,7 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
-import { BotRunStatusStrip } from "./chat/BotRunStatusStrip";
+import { CrewRunStatusStrip } from "./chat/CrewRunStatusStrip";
 import { CrewHandoffCard } from "./crew/CrewHandoffCard";
 import {
   ComposerCrewControl,
@@ -11465,8 +11465,8 @@ export default function ChatView(props: ChatViewProps) {
                 : {})}
             />
           </header>
-          {isServerThread && activeProject && isBotThreadId(activeThread.id) && !crewStage ? (
-            <BotRunStatusStrip
+          {isServerThread && activeProject && isCrewThreadId(activeThread.id) && !crewStage ? (
+            <CrewRunStatusStrip
               environmentId={activeThread.environmentId}
               projectId={activeProject.id}
               threadId={activeThread.id}

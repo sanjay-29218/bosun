@@ -1,10 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
-import { BOT_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { CREW_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import { useMemo, useState } from "react";
 
 import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { resolveDefaultProviderModelSelection } from "../../providerInstances";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
 import { useEnvironments } from "../../state/environments";
@@ -14,9 +15,10 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { projectBotId } from "./BotsSettings.logic";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
-export function BotsProjectSection(props: { readonly project: SidebarProjectGroupMember }) {
+export function CrewProjectSection(props: { readonly project: SidebarProjectGroupMember }) {
   const navigate = useNavigate();
   const { environments } = useEnvironments();
   const environmentId = props.project.environmentId;
@@ -34,28 +36,36 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
     ).settings.defaultModelSelection,
   );
   const snapshot = useEnvironmentQuery(
-    botsEnvironment.snapshot({
+    rolesEnvironment.snapshot({
       environmentId,
       input: { projectId },
     }),
   );
-  const start = useAtomCommand(botsEnvironment.start);
-  const answer = useAtomCommand(botsEnvironment.answer);
-  const cancel = useAtomCommand(botsEnvironment.cancel);
-  const retry = useAtomCommand(botsEnvironment.retry);
+  // Work started here runs as the bot that owns the project.
+  const bots = useEnvironmentQuery(
+    serverConfig?.environment.capabilities.bots === true
+      ? botsEnvironment.list({ environmentId, input: {} })
+      : null,
+  );
+  const ownerName =
+    bots.data?.find((bot) => bot.id === projectBotId(props.project))?.name ?? "Captain";
+  const start = useAtomCommand(rolesEnvironment.start);
+  const answer = useAtomCommand(rolesEnvironment.answer);
+  const cancel = useAtomCommand(rolesEnvironment.cancel);
+  const retry = useAtomCommand(rolesEnvironment.retry);
   const [taskText, setTaskText] = useState("");
   const [answerByRequest, setAnswerByRequest] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const definitions = useMemo(
-    () => new Map(snapshot.data?.definitions.map((bot) => [bot.id, bot.name]) ?? []),
-    [snapshot.data?.definitions],
+  const members = useMemo(
+    () => new Map(snapshot.data?.members.map((member) => [member.id, member.name]) ?? []),
+    [snapshot.data?.members],
   );
   const runs = snapshot.data?.runs ?? [];
   const handoffs = snapshot.data?.handoffs ?? [];
   const pendingQuestions = handoffs.filter((handoff) => handoff.status === "needs-input");
 
-  const startCaptain = async () => {
+  const startOwner = async () => {
     const task = taskText.trim();
     if (!task || !defaultModelSelection || busyId) return;
     setActionError(null);
@@ -153,8 +163,8 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
         <TooltipPopup variant="code">{props.project.workspaceRoot}</TooltipPopup>
       </Tooltip>
       <SettingsRow
-        title="Captain"
-        description="Give the Captain a project task. Its Manager and Builder runs stay linked below."
+        title={ownerName}
+        description={`Give ${ownerName} a project task. Its Manager and Builder runs stay linked below.`}
         control={
           <span className="text-xs text-muted-foreground">
             {defaultModelSelection ? "Ready" : "No available model"}
@@ -163,7 +173,7 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
       />
       <div className="space-y-2 px-3 pb-3">
         <Textarea
-          aria-label={`Task for Captain on ${environmentLabel}`}
+          aria-label={`Task for ${ownerName} on ${environmentLabel}`}
           value={taskText}
           onChange={(event) => setTaskText(event.target.value)}
           placeholder="What should the crew do in this project?"
@@ -173,9 +183,9 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
         <Button
           size="sm"
           disabled={!defaultModelSelection || !taskText.trim() || busyId !== null}
-          onClick={() => void startCaptain()}
+          onClick={() => void startOwner()}
         >
-          Start Captain
+          Start {ownerName}
         </Button>
       </div>
       {snapshot.error ? (
@@ -232,14 +242,14 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
               onClick={() => openRun(run.threadId)}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate">{definitions.get(run.botId) ?? run.botId}</span>
+                <span className="block truncate">{members.get(run.memberId) ?? run.memberId}</span>
                 {run.lastError ? (
                   <span className="block truncate text-xs text-destructive">{run.lastError}</span>
                 ) : null}
               </span>
               <span className="shrink-0 text-xs text-muted-foreground">
-                {run.dispatchState === BOT_DISPATCH_STATE.QUEUED
-                  ? BOT_DISPATCH_STATE.QUEUED
+                {run.dispatchState === CREW_DISPATCH_STATE.QUEUED
+                  ? CREW_DISPATCH_STATE.QUEUED
                   : run.turnState}
               </span>
             </button>
@@ -256,7 +266,8 @@ export function BotsProjectSection(props: { readonly project: SidebarProjectGrou
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate">
-                  {definitions.get(handoff.targetBotId) ?? handoff.targetBotId}: {handoff.taskText}
+                  {members.get(handoff.targetMemberId) ?? handoff.targetMemberId}:{" "}
+                  {handoff.taskText}
                 </span>
                 {handoff.lastError || handoff.responseText ? (
                   <span className="block truncate text-xs text-muted-foreground">

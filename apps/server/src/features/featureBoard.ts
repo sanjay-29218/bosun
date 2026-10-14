@@ -72,7 +72,7 @@ export const featureBoardCard = (input: {
       position && step?.type === "task"
         ? {
             ...position,
-            role: step.bot,
+            role: step.role,
             attempt: stepState?.attempt ?? 0,
             gate: step.gate === true,
             takenOver: stepState?.status === "taken-over",
@@ -85,12 +85,12 @@ export const featureBoardCard = (input: {
   };
 };
 
-/** The bot run whose thread a card opens: the stage's own run, else the latest run. */
+/** The crew run whose thread a card opens: the stage's own run, else the latest run. */
 export const featureBoardRunId = (
   state: WorkflowState,
   events: ReadonlyArray<WorkflowStepEvent>,
   stepId: string | null,
 ) =>
-  (stepId ? state.steps.get(stepId)?.botRunId : null) ??
-  events.findLast((event) => event.botRunId !== null)?.botRunId ??
+  (stepId ? state.steps.get(stepId)?.runId : null) ??
+  events.findLast((event) => event.runId !== null)?.runId ??
   null;

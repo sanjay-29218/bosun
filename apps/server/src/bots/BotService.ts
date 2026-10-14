@@ -1,684 +1,223 @@
 import {
-  BOT_DISPATCH_STATE,
-  BOT_TURN_STATE,
-  ThreadId,
-  type BotTurnState,
-  type ModelSelection,
+  CAPTAIN_BOT_ID,
+  CommandId,
+  type Bot,
+  type BotCreateInput,
+  type BotUpdateInput,
+  type Project,
   type ProjectId,
-  type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
-import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
-import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
-import {
-  BotStore,
-  type BotDefinition,
-  type BotHierarchyNode,
-  type BotTemplate,
-  type BotRun,
-  type BotRunSummary,
-} from "./BotStore.ts";
-import { BotThreadRuntime } from "./BotThreadRuntime.ts";
+import type { PersistenceSqlError } from "../persistence/Errors.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import { WorkflowStore } from "../workflows/WorkflowStore.ts";
+import * as BotStore from "./BotStore.ts";
 
-export class BotValidationError extends Error {
-  readonly _tag = "BotValidationError";
-}
-
-export interface CreateBotDefinitionInput {
-  readonly id: string;
-  readonly projectId: ProjectId | null;
-  readonly featureId?: string | null;
-  readonly templateId?: string | null;
-  readonly name: string;
-  readonly instructions: string;
-  readonly allowedTools?: ReadonlyArray<string>;
-  readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
-}
-
-export interface CreateBotTemplateInput {
-  readonly id: string;
-  readonly projectId: ProjectId | null;
-  readonly name: string;
-  readonly instructions: string;
-  readonly allowedTools?: ReadonlyArray<string>;
-  readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
-  readonly autoCreateForFeature?: boolean;
-}
-
-export interface UpdateBotTemplateInput extends CreateBotTemplateInput {
-  readonly expectedRevision: number;
-  readonly enabled: boolean;
-}
-
-export interface CreateBotRunInput {
-  readonly id: string;
-  readonly botId: string;
-  readonly projectId: ProjectId;
-  readonly taskText: string;
-  readonly modelSelection?: ModelSelection;
-}
-
-export interface BotRunView {
-  readonly run: BotRun;
-  readonly turnState: BotTurnState;
-  readonly status: "queued" | "running" | "completed" | "failed" | "interrupted";
-}
-
-export interface BotServiceShape {
-  readonly ensureCrew: (
-    projectId: ProjectId,
-    modelSelection: ModelSelection,
-  ) => Effect.Effect<ReadonlyArray<BotDefinition>, BotServiceError>;
-  readonly createDefinition: (
-    input: CreateBotDefinitionInput,
-  ) => Effect.Effect<BotDefinition, BotServiceError>;
-  readonly createTemplate: (
-    input: CreateBotTemplateInput,
-  ) => Effect.Effect<BotTemplate, BotServiceError>;
-  readonly updateTemplate: (
-    input: UpdateBotTemplateInput,
-  ) => Effect.Effect<BotTemplate, BotServiceError>;
-  readonly getDefinition: (id: string) => Effect.Effect<BotDefinition | null, PersistenceSqlError>;
-  readonly getTemplate: (id: string) => Effect.Effect<BotTemplate | null, PersistenceSqlError>;
-  readonly listTemplatesForProject: (
-    projectId: ProjectId,
-  ) => Effect.Effect<ReadonlyArray<BotTemplate>, PersistenceSqlError>;
-  readonly instantiate: (
-    id: string,
-    projectId: ProjectId,
-    templateId: string,
-  ) => Effect.Effect<BotDefinition, BotServiceError>;
-  readonly allowDelegation: (
-    sourceBotId: string,
-    targetBotId: string,
-  ) => Effect.Effect<void, BotServiceError>;
-  readonly revokeDelegation: (
-    sourceBotId: string,
-    targetBotId: string,
-  ) => Effect.Effect<void, PersistenceSqlError>;
-  readonly listDelegationGrantsForProject: BotStore["Service"]["listDelegationGrantsForProject"];
-  readonly listHierarchyForProject: (
-    projectId: ProjectId,
-  ) => Effect.Effect<ReadonlyArray<BotHierarchyNode>, PersistenceSqlError>;
-  readonly setHierarchyParent: (
-    botId: string,
-    parentBotId: string | null,
-    position?: number,
-  ) => Effect.Effect<void, BotServiceError>;
-  readonly createRun: (input: CreateBotRunInput) => Effect.Effect<BotRun, BotServiceError>;
-  readonly getRun: (
-    id: string,
-  ) => Effect.Effect<BotRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
-  readonly listRunSummaries: (
-    projectId: ProjectId,
-    limit?: number,
-  ) => Effect.Effect<ReadonlyArray<BotRunSummary>, PersistenceSqlError>;
-  readonly reconcileRuns: () => Effect.Effect<void, PersistenceSqlError>;
-}
-
-export type BotServiceError =
-  | BotValidationError
-  | PersistenceSqlError
-  | ProjectionRepositoryError
-  | OrchestrationDispatchError;
-
-export class BotService extends Context.Service<BotService, BotServiceShape>()(
-  "t3/bots/BotService",
-) {}
-
-const nonEmpty = (value: string, field: string, limit: number) => {
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > limit) {
-    throw new BotValidationError(`${field} must contain 1-${limit} characters`);
+export class BotValidationError extends Schema.TaggedError<BotValidationError>()(
+  "BotValidationError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return this.reason;
   }
-  return trimmed;
-};
+}
 
-const sameRunRequest = (run: BotRun, input: CreateBotRunInput) =>
-  run.botId === input.botId &&
-  run.projectId === input.projectId &&
-  run.taskText === input.taskText &&
-  (input.modelSelection === undefined ||
-    JSON.stringify(run.modelSelection) === JSON.stringify(input.modelSelection));
+export type BotServiceError = BotValidationError | PersistenceSqlError;
 
-export const BotServiceLive = Layer.effect(
+export class BotService extends Context.Service<
   BotService,
-  Effect.gen(function* () {
-    const store = yield* BotStore;
-    const runtime = yield* BotThreadRuntime;
+  {
+    readonly list: Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
+    readonly get: (id: string) => Effect.Effect<Bot | null, BotServiceError>;
+    /** Adds a bot at the end of the rail. Repeating the same create returns the same bot. */
+    readonly create: (input: BotCreateInput) => Effect.Effect<Bot, BotServiceError>;
+    readonly update: (input: BotUpdateInput) => Effect.Effect<Bot, BotServiceError>;
+    /**
+     * Refused for Captain and for a bot that still owns a project; move its projects first.
+     * Runs the bot already started keep working, but it gets no new ones.
+     */
+    readonly delete: (id: string) => Effect.Effect<void, BotServiceError>;
+    /** Sets the rail order; `botIds` lists every bot exactly once. */
+    readonly reorder: (
+      botIds: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
+    /** Gives a project to another bot. Runs already started keep the bot that started them. */
+    readonly moveProject: (input: {
+      readonly projectId: ProjectId;
+      readonly botId: string;
+    }) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
+  }
+>()("t3/bots/BotService") {}
 
-    const threadInput = (run: BotRun) => ({
-      runId: run.id,
-      botId: run.botId,
-      threadId: run.threadId,
-      projectId: run.projectId,
-      title: run.title,
-      prompt: `${run.instructions}\n\nTask:\n${run.taskText}`,
-      modelSelection: run.modelSelection,
-      runtimeMode: run.runtimeMode,
-      createdAt: run.createdAt,
-    });
+const text = (value: string, field: string, max: number) => {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= max
+    ? Effect.succeed(trimmed)
+    : Effect.fail(new BotValidationError({ reason: `${field} must contain 1-${max} characters` }));
+};
+const tools = (value: ReadonlyArray<string>) =>
+  value.length <= 32 && value.every((tool) => tool.trim().length > 0 && tool.length <= 100)
+    ? Effect.succeed([...new Set(value.map((tool) => tool.trim()))])
+    : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
 
-    const markDispatched = (
-      run: BotRun,
-      effect: Effect.Effect<void, OrchestrationDispatchError | PersistenceSqlError>,
-    ) =>
-      effect.pipe(
-        Effect.flatMap(() =>
-          DateTime.now.pipe(
-            Effect.flatMap((now) => store.markStarted(run.id, DateTime.formatIso(now))),
-          ),
-        ),
-        Effect.tapError(() =>
-          store.markDispatchError(run.id, "Thread dispatch failed; retry pending"),
+const DEFAULT_INSTRUCTIONS =
+  "Coordinate the person's requests for your projects. Hand project work to the project's manager with crew_delegate and a stable request ID, wait for its structured outcome with crew_wait_handoff, and relay it clearly. Never claim work is done without a structured outcome.";
+const DEFAULT_TOOLS = ["crew.delegate", "crew.status"];
+
+const sameCreate = (bot: Bot, input: BotCreateInput) =>
+  bot.name === input.name.trim() && bot.emoji === input.emoji.trim() && bot.color === input.color;
+
+const make = Effect.gen(function* () {
+  const store = yield* BotStore.BotStore;
+  const projects = yield* ProjectService.ProjectService;
+  const workflows = yield* WorkflowStore;
+  const crypto = yield* Crypto.Crypto;
+
+  const requireWorkflow = (id: string | null | undefined) =>
+    id === null || id === undefined
+      ? Effect.void
+      : workflows
+          .getLatestDefinition(id)
+          .pipe(
+            Effect.flatMap((definition) =>
+              definition
+                ? Effect.void
+                : Effect.fail(
+                    new BotValidationError({ reason: "Default workflow does not exist" }),
+                  ),
+            ),
+          );
+
+  const requireBot = (id: string) =>
+    store
+      .get(id)
+      .pipe(
+        Effect.flatMap((bot) =>
+          bot
+            ? Effect.succeed(bot)
+            : Effect.fail(new BotValidationError({ reason: "Bot not found" })),
         ),
       );
 
-    const dispatch = (run: BotRun) => markDispatched(run, runtime.start(threadInput(run)));
-    const replayPending = (run: BotRun) =>
-      store
-        .nextRecoveryAttempt(run.id)
-        .pipe(
-          Effect.flatMap((attempt) =>
-            markDispatched(run, runtime.replayPending(threadInput(run), attempt)).pipe(
-              Effect.result,
-              Effect.asVoid,
-            ),
+  return BotService.of({
+    list: store.list,
+    get: store.get,
+    create: (input) =>
+      Effect.gen(function* () {
+        const id = yield* text(input.id, "Bot ID", 128);
+        const existing = yield* store.get(id);
+        if (existing) {
+          if (sameCreate(existing, input)) return existing;
+          return yield* new BotValidationError({ reason: "Bot ID belongs to another bot" });
+        }
+        yield* requireWorkflow(input.defaultWorkflowId);
+        const now = DateTime.formatIso(yield* DateTime.now);
+        const all = yield* store.list;
+        const bot: Bot = {
+          id,
+          name: yield* text(input.name, "Bot name", 80),
+          emoji: yield* text(input.emoji, "Bot emoji", 32),
+          color: input.color,
+          instructions: yield* text(
+            input.instructions ?? DEFAULT_INSTRUCTIONS,
+            "Bot instructions",
+            16_000,
           ),
-        );
-
-    const createDefinition: BotServiceShape["createDefinition"] = (input) =>
-      Effect.gen(function* () {
-        const id = yield* Effect.try({
-          try: () => nonEmpty(input.id, "Bot ID", 128),
-          catch: () => new BotValidationError("Invalid bot ID"),
-        });
-        const name = yield* Effect.try({
-          try: () => nonEmpty(input.name, "Bot name", 200),
-          catch: () => new BotValidationError("Invalid bot name"),
-        });
-        const instructions = yield* Effect.try({
-          try: () => nonEmpty(input.instructions, "Bot instructions", 16_000),
-          catch: () => new BotValidationError("Invalid bot instructions"),
-        });
-        const allowedTools = yield* Effect.try({
-          try: () => {
-            const tools = input.allowedTools ?? [];
-            if (tools.length > 32) throw new BotValidationError("Too many tools");
-            return [...new Set(tools.map((tool) => nonEmpty(tool, "Tool", 100)))];
-          },
-          catch: () => new BotValidationError("Invalid tool grants"),
-        });
-        const featureId = input.featureId ?? null;
-        const templateId = input.templateId ?? null;
-        if (featureId !== null && input.projectId === null) {
-          return yield* Effect.fail(new BotValidationError("A feature bot needs a project"));
-        }
-        const template = templateId === null ? null : yield* store.getTemplate(templateId);
-        if (templateId !== null && (!template || !template.enabled)) {
-          return yield* Effect.fail(new BotValidationError("Source template is unavailable"));
-        }
-        if (template && template.projectId !== null && template.projectId !== input.projectId) {
-          return yield* Effect.fail(new BotValidationError("Template belongs to another project"));
-        }
-        if (input.projectId !== null && !(yield* runtime.projectExists(input.projectId))) {
-          return yield* Effect.fail(new BotValidationError("Project does not exist"));
-        }
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const definition: BotDefinition = {
-          ...input,
-          id,
-          featureId,
-          templateId,
-          templateRevision: template?.revision ?? null,
-          name,
-          instructions,
-          allowedTools,
-          enabled: true,
+          allowedTools: yield* tools(input.allowedTools ?? DEFAULT_TOOLS),
+          runtimeMode: input.runtimeMode ?? "approval-required",
+          modelSelection: input.modelSelection ?? null,
+          defaultWorkflowId: input.defaultWorkflowId ?? null,
+          position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
           revision: 1,
           createdAt: now,
           updatedAt: now,
         };
-        yield* store.insertDefinition(definition);
-        return definition;
-      });
-
-    const createTemplate: BotServiceShape["createTemplate"] = (input) =>
+        if (yield* store.insert(bot)) return bot;
+        // A concurrent create with the same ID won, or a crew member already has the ID.
+        const winner = yield* store.get(id);
+        if (winner && sameCreate(winner, input)) return winner;
+        return yield* new BotValidationError({ reason: "Bot ID is already in use" });
+      }),
+    update: (input) =>
       Effect.gen(function* () {
-        const id = yield* Effect.try({
-          try: () => nonEmpty(input.id, "Template ID", 128),
-          catch: () => new BotValidationError("Invalid template ID"),
-        });
-        const name = yield* Effect.try({
-          try: () => nonEmpty(input.name, "Template name", 200),
-          catch: () => new BotValidationError("Invalid template name"),
-        });
-        const instructions = yield* Effect.try({
-          try: () => nonEmpty(input.instructions, "Template instructions", 16_000),
-          catch: () => new BotValidationError("Invalid template instructions"),
-        });
-        const allowedTools = yield* Effect.try({
-          try: () => {
-            const tools = input.allowedTools ?? [];
-            if (tools.length > 32) throw new BotValidationError("Too many tools");
-            return [...new Set(tools.map((tool) => nonEmpty(tool, "Tool", 100)))];
-          },
-          catch: () => new BotValidationError("Invalid tool grants"),
-        });
-        if (input.projectId !== null && !(yield* runtime.projectExists(input.projectId))) {
-          return yield* Effect.fail(new BotValidationError("Project does not exist"));
+        const previous = yield* requireBot(input.id);
+        if (previous.revision !== input.expectedRevision) {
+          return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
         }
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const template: BotTemplate = {
-          ...input,
-          id,
-          name,
-          instructions,
-          allowedTools,
-          autoCreateForFeature: input.autoCreateForFeature ?? false,
-          enabled: true,
-          revision: 1,
-          createdAt: now,
-          updatedAt: now,
-        };
-        yield* store.insertTemplate(template);
-        return template;
-      });
-
-    const updateTemplate: BotServiceShape["updateTemplate"] = (input) =>
-      Effect.gen(function* () {
-        const previous = yield* store.getTemplate(input.id);
-        if (
-          !previous ||
-          previous.projectId !== input.projectId ||
-          previous.revision !== input.expectedRevision ||
-          !Number.isSafeInteger(input.expectedRevision)
-        ) {
-          return yield* Effect.fail(new BotValidationError("Template changed or is unavailable"));
-        }
-        const name = yield* Effect.try({
-          try: () => nonEmpty(input.name, "Template name", 200),
-          catch: () => new BotValidationError("Invalid template name"),
-        });
-        const instructions = yield* Effect.try({
-          try: () => nonEmpty(input.instructions, "Template instructions", 16_000),
-          catch: () => new BotValidationError("Invalid template instructions"),
-        });
-        const allowedTools = yield* Effect.try({
-          try: () => {
-            if ((input.allowedTools?.length ?? 0) > 32) throw new Error("Too many tools");
-            return [
-              ...new Set((input.allowedTools ?? []).map((tool) => nonEmpty(tool, "Tool", 100))),
-            ];
-          },
-          catch: () => new BotValidationError("Invalid tool grants"),
-        });
-        const updated: BotTemplate = {
+        if (input.defaultWorkflowId !== undefined) yield* requireWorkflow(input.defaultWorkflowId);
+        const next: Bot = {
           ...previous,
-          name,
-          instructions,
-          allowedTools,
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          enabled: input.enabled,
-          autoCreateForFeature: input.autoCreateForFeature ?? false,
+          ...(input.name === undefined ? {} : { name: yield* text(input.name, "Bot name", 80) }),
+          ...(input.emoji === undefined
+            ? {}
+            : { emoji: yield* text(input.emoji, "Bot emoji", 32) }),
+          ...(input.color === undefined ? {} : { color: input.color }),
+          ...(input.instructions === undefined
+            ? {}
+            : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
+          ...(input.allowedTools === undefined
+            ? {}
+            : { allowedTools: yield* tools(input.allowedTools) }),
+          ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
+          ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+          ...(input.defaultWorkflowId === undefined
+            ? {}
+            : { defaultWorkflowId: input.defaultWorkflowId }),
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
         };
-        if (!(yield* store.updateTemplate(updated, previous.revision))) {
-          return yield* Effect.fail(new BotValidationError("Template changed; reload and retry"));
+        if (!(yield* store.update(next, previous.revision))) {
+          return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
         }
-        return updated;
-      });
-
-    const createRun: BotServiceShape["createRun"] = (input) =>
+        return next;
+      }),
+    delete: (id) =>
       Effect.gen(function* () {
-        const id = yield* Effect.try({
-          try: () => nonEmpty(input.id, "Run ID", 128),
-          catch: () => new BotValidationError("Invalid run ID"),
-        });
-        const taskText = yield* Effect.try({
-          try: () => nonEmpty(input.taskText, "Task", 16_000),
-          catch: () => new BotValidationError("Invalid task"),
-        });
-        const request = { ...input, id, taskText };
-        const existing = yield* store.getRun(id);
-        if (existing !== null) {
-          if (!sameRunRequest(existing, request)) {
-            return yield* Effect.fail(new BotValidationError("Run ID belongs to another request"));
-          }
-          if (existing.dispatchState === BOT_DISPATCH_STATE.QUEUED) yield* dispatch(existing);
-          return (yield* store.getRun(id))!;
+        if (id === CAPTAIN_BOT_ID) {
+          return yield* new BotValidationError({ reason: "Captain can't be deleted" });
         }
-        const bot = yield* store.getDefinition(input.botId);
-        if (bot === null || !bot.enabled) {
-          return yield* Effect.fail(new BotValidationError("Bot is unavailable"));
+        const deletedAt = DateTime.formatIso(yield* DateTime.now);
+        const result = yield* store.withOwnership(store.deleteUnlessOwning(id, deletedAt));
+        if (result === "owns-projects") {
+          return yield* new BotValidationError({
+            reason: "Move this bot's projects to another bot before deleting it",
+          });
         }
-        if (bot.projectId !== null && bot.projectId !== input.projectId) {
-          return yield* Effect.fail(new BotValidationError("Bot belongs to another project"));
+        if (result === "missing") {
+          return yield* new BotValidationError({ reason: "Bot not found" });
         }
-        if (!(yield* runtime.projectExists(input.projectId))) {
-          return yield* Effect.fail(new BotValidationError("Project does not exist"));
+      }),
+    reorder: (botIds) =>
+      Effect.gen(function* () {
+        const all = yield* store.list;
+        const ids = new Set(botIds);
+        if (
+          ids.size !== botIds.length ||
+          ids.size !== all.length ||
+          all.some((bot) => !ids.has(bot.id))
+        ) {
+          return yield* new BotValidationError({
+            reason: "Reorder must list every bot exactly once",
+          });
         }
-        const createdAt = DateTime.formatIso(yield* DateTime.now);
-        const run: BotRun = {
-          id,
-          botId: bot.id,
-          projectId: input.projectId,
-          threadId: ThreadId.make(`bot-run:${id}`),
-          taskText,
-          title: `${bot.name}: ${taskText.slice(0, 80)}`,
-          instructions: bot.instructions,
-          allowedTools: bot.allowedTools,
-          botRevision: bot.revision,
-          modelSelection: input.modelSelection ?? bot.modelSelection,
-          runtimeMode: bot.runtimeMode,
-          dispatchState: BOT_DISPATCH_STATE.QUEUED,
-          recoveryAttempt: 0,
-          lastError: null,
-          createdAt,
-          dispatchedAt: null,
-        };
-        yield* store.insertRun(run);
-        const persisted = yield* store.getRun(id);
-        if (persisted === null || !sameRunRequest(persisted, request)) {
-          return yield* Effect.fail(new BotValidationError("Run ID belongs to another request"));
-        }
-        if (persisted.dispatchState === BOT_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
-        return (yield* store.getRun(id))!;
-      });
+        yield* store.setPositions(botIds, DateTime.formatIso(yield* DateTime.now));
+        return yield* store.list;
+      }),
+    moveProject: ({ projectId, botId }) =>
+      Effect.gen(function* () {
+        yield* requireBot(botId);
+        const commandId = CommandId.make(
+          `bot-move:${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`,
+        );
+        return yield* projects.assignBot({ commandId, projectId, botId });
+      }),
+  });
+});
 
-    return {
-      ensureCrew: (projectId, modelSelection) =>
-        Effect.gen(function* () {
-          if (!(yield* runtime.projectExists(projectId))) {
-            return yield* Effect.fail(new BotValidationError("Project does not exist"));
-          }
-          const managerId = `bot-manager:${projectId}`;
-          const builderId = `bot-builder:${projectId}`;
-          const templates = [
-            {
-              id: "template:captain",
-              projectId: null,
-              name: "Captain",
-              autoCreateForFeature: false,
-              allowedTools: ["bots.delegate", "bots.status"],
-            },
-            {
-              id: `template:manager:${projectId}`,
-              projectId,
-              name: "Manager",
-              autoCreateForFeature: false,
-              allowedTools: [
-                "bots.delegate",
-                "bots.respond",
-                "bots.ask",
-                "bots.status",
-                "bots.answer",
-              ],
-            },
-            {
-              id: `template:planner:${projectId}`,
-              projectId,
-              name: "Planner",
-              autoCreateForFeature: true,
-              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
-              allowedTools: ["bots.respond", "bots.ask"],
-            },
-            {
-              id: `template:designer:${projectId}`,
-              projectId,
-              name: "Designer",
-              autoCreateForFeature: true,
-              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
-              allowedTools: ["bots.respond", "bots.ask"],
-            },
-            {
-              id: `template:builder:${projectId}`,
-              projectId,
-              name: "Builder",
-              autoCreateForFeature: true,
-              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
-              allowedTools: ["bots.respond", "bots.ask"],
-            },
-            {
-              id: `template:qa-tester:${projectId}`,
-              projectId,
-              name: "QA Tester",
-              autoCreateForFeature: true,
-              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
-              allowedTools: ["bots.respond", "bots.ask"],
-            },
-            {
-              id: `template:reviewer:${projectId}`,
-              projectId,
-              name: "Reviewer",
-              autoCreateForFeature: true,
-              // Stage bots report their outcome through bots_respond; without it a workflow can't start.
-              allowedTools: ["bots.respond", "bots.ask"],
-            },
-          ];
-          for (const template of templates) {
-            if (!(yield* store.getTemplate(template.id))) {
-              yield* createTemplate({
-                ...template,
-                instructions: `You are the ${template.name} bot. Follow the assigned feature task and report a structured result.`,
-                modelSelection,
-                runtimeMode: "approval-required",
-              }).pipe(
-                Effect.catch((error) =>
-                  store
-                    .getTemplate(template.id)
-                    .pipe(
-                      Effect.flatMap((persisted) =>
-                        persisted?.projectId === template.projectId
-                          ? Effect.succeed(persisted)
-                          : Effect.fail(error),
-                      ),
-                    ),
-                ),
-              );
-            }
-          }
-          const defaults = [
-            {
-              id: "bot-captain",
-              projectId: null,
-              templateId: "template:captain",
-              name: "Captain",
-              instructions:
-                "You are Captain. Coordinate the person's project request. The task names its project Manager bot. Delegate using bots_delegate with a stable request ID. Use bots_wait_handoff until the Manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use bots_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.",
-              allowedTools: ["bots.delegate", "bots.status"],
-            },
-            {
-              id: managerId,
-              projectId,
-              templateId: `template:manager:${projectId}`,
-              name: "Manager",
-              instructions: `You manage project ${projectId}. Delegate implementation to bot ${builderId} using bots_delegate and a stable request ID. Use bots_wait_handoff for its structured outcome. Report the outcome to Captain through bots_respond. If Builder needs a person's answer, use bots_ask; when the answer arrives, pass it to the child request using bots_answer. Keep the task and context bounded.`,
-              allowedTools: [
-                "bots.delegate",
-                "bots.respond",
-                "bots.ask",
-                "bots.status",
-                "bots.answer",
-              ],
-            },
-            {
-              id: builderId,
-              projectId,
-              templateId: `template:builder:${projectId}`,
-              name: "Builder",
-              instructions: `You build a bounded task for project ${projectId}. Work in the linked T3 thread. Call bots_respond with completed or failed and a concise summary when finished. If information is missing, call bots_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`,
-              allowedTools: ["bots.respond", "bots.ask"],
-            },
-          ];
-          const definitions: Array<BotDefinition> = [];
-          const created = new Set<string>();
-          for (const definition of defaults) {
-            const existing = yield* store.getDefinition(definition.id);
-            if (existing) {
-              if (existing.projectId !== definition.projectId) {
-                return yield* Effect.fail(new BotValidationError("Default bot ID is in use"));
-              }
-              definitions.push(existing);
-            } else {
-              created.add(definition.id);
-              definitions.push(
-                yield* createDefinition({
-                  ...definition,
-                  modelSelection,
-                  runtimeMode: "approval-required",
-                }).pipe(
-                  Effect.catch((error) =>
-                    store
-                      .getDefinition(definition.id)
-                      .pipe(
-                        Effect.flatMap((persisted) =>
-                          persisted?.projectId === definition.projectId
-                            ? Effect.succeed(persisted)
-                            : Effect.fail(error),
-                        ),
-                      ),
-                  ),
-                ),
-              );
-            }
-          }
-          if (created.has("bot-captain") || created.has(managerId)) {
-            yield* store.grantDelegation("bot-captain", managerId);
-          }
-          if (created.has(managerId) || created.has(builderId)) {
-            yield* store.grantDelegation(managerId, builderId);
-          }
-          if (created.has(managerId)) yield* store.setParent(managerId, "bot-captain", 0);
-          if (created.has(builderId)) yield* store.setParent(builderId, managerId, 0);
-          return definitions;
-        }),
-      createDefinition,
-      createTemplate,
-      updateTemplate,
-      getDefinition: store.getDefinition,
-      getTemplate: store.getTemplate,
-      listTemplatesForProject: store.listTemplatesForProject,
-      instantiate: (id, projectId, templateId) =>
-        Effect.gen(function* () {
-          const template = yield* store.getTemplate(templateId);
-          if (
-            !template?.enabled ||
-            (template.projectId !== null && template.projectId !== projectId)
-          ) {
-            return yield* Effect.fail(new BotValidationError("Source template is unavailable"));
-          }
-          return yield* createDefinition({
-            id,
-            projectId,
-            templateId,
-            name: template.name,
-            instructions: template.instructions,
-            allowedTools: template.allowedTools,
-            modelSelection: template.modelSelection,
-            runtimeMode: template.runtimeMode,
-          });
-        }),
-      listDelegationGrantsForProject: store.listDelegationGrantsForProject,
-      revokeDelegation: store.revokeDelegation,
-      listHierarchyForProject: store.listHierarchyForProject,
-      setHierarchyParent: (botId, parentBotId, position = 0) =>
-        Effect.gen(function* () {
-          const child = yield* store.getDefinition(botId);
-          const parent = parentBotId === null ? null : yield* store.getDefinition(parentBotId);
-          if (!child?.enabled || (parentBotId !== null && !parent?.enabled)) {
-            return yield* Effect.fail(new BotValidationError("Bot is unavailable"));
-          }
-          if (
-            !Number.isSafeInteger(position) ||
-            position < 0 ||
-            position > 10_000 ||
-            (parent &&
-              ((child.projectId === null && parent.projectId !== null) ||
-                (parent.projectId !== null && parent.projectId !== child.projectId) ||
-                (parent.featureId !== null && parent.featureId !== child.featureId)))
-          ) {
-            return yield* Effect.fail(new BotValidationError("Invalid hierarchy placement"));
-          }
-          if (!(yield* store.setParent(botId, parentBotId, position))) {
-            return yield* Effect.fail(new BotValidationError("Hierarchy cycle rejected"));
-          }
-        }),
-      allowDelegation: (sourceBotId, targetBotId) =>
-        Effect.gen(function* () {
-          const source = yield* store.getDefinition(sourceBotId);
-          const target = yield* store.getDefinition(targetBotId);
-          if (
-            !source ||
-            !target ||
-            !source.enabled ||
-            !target.enabled ||
-            sourceBotId === targetBotId ||
-            (source.projectId !== null && target.projectId !== source.projectId)
-          ) {
-            return yield* Effect.fail(new BotValidationError("Invalid delegation grant"));
-          }
-          yield* store.grantDelegation(sourceBotId, targetBotId);
-        }),
-      createRun,
-      getRun: (id) =>
-        store.getRun(id).pipe(
-          Effect.flatMap((run) =>
-            run === null
-              ? Effect.succeed(null)
-              : runtime.getTurnState(run.threadId).pipe(
-                  Effect.map((turnState) => ({
-                    run,
-                    turnState,
-                    status:
-                      run.dispatchState === BOT_DISPATCH_STATE.QUEUED
-                        ? ("queued" as const)
-                        : turnState === BOT_TURN_STATE.COMPLETED
-                          ? ("completed" as const)
-                          : turnState === BOT_TURN_STATE.ERROR ||
-                              turnState === BOT_TURN_STATE.MISSING
-                            ? ("failed" as const)
-                            : turnState === BOT_TURN_STATE.INTERRUPTED
-                              ? ("interrupted" as const)
-                              : ("running" as const),
-                  })),
-                ),
-          ),
-        ),
-      listRunSummaries: (projectId, limit = 50) =>
-        store.listRunSummaries(projectId, Math.max(1, Math.min(100, Math.floor(limit)))),
-      reconcileRuns: () =>
-        Effect.gen(function* () {
-          // Recover accepted turns from a prior process before dispatching new queued runs.
-          // Otherwise a newly dispatched turn could look stale before its reactor worker starts.
-          let afterId = "";
-          while (true) {
-            const ids = yield* runtime.listPendingStartedRunIds(afterId, 100);
-            if (ids.length === 0) break;
-            yield* Effect.forEach(
-              ids,
-              (id) =>
-                store
-                  .getRun(id)
-                  .pipe(Effect.flatMap((run) => (run === null ? Effect.void : replayPending(run)))),
-              { concurrency: 1, discard: true },
-            );
-            afterId = ids[ids.length - 1]!;
-          }
-          const queued = yield* store.listQueuedRuns();
-          yield* Effect.forEach(queued, (run) => dispatch(run).pipe(Effect.result), {
-            concurrency: 1,
-            discard: true,
-          });
-        }),
-    } satisfies BotServiceShape;
-  }),
-);
+export const layer = Layer.effect(BotService, make);
