@@ -1,124 +1,75 @@
 import {
-  McpCapabilityUnavailableError,
+  Bot,
+  BotCreateInput,
+  BotMoveProjectInput,
+  BotReorderInput,
+  BotUpdateInput,
   OrchestratorMcpFailure,
-  WorkflowStageHandoff,
+  Project,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
-import { BotHandoffService } from "../../../bots/BotHandoffService.ts";
-import { BotHandoffStore } from "../../../bots/BotHandoffStore.ts";
-import { BotStore } from "../../../bots/BotStore.ts";
+import * as BotService from "../../../bots/BotService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import { WorkflowService } from "../../../workflows/WorkflowService.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
-export class BotToolFailedError extends Schema.TaggedError<BotToolFailedError>()(
-  "BotToolFailedError",
-  { reason: Schema.String },
-) {
-  override get message(): string {
-    return this.reason;
-  }
-}
+const shared = {
+  failure: OrchestratorMcpFailure,
+  failureMode: "return" as const,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+    BotService.BotService,
+  ],
+};
 
-const dependencies = [
-  McpInvocationContext,
-  ThreadManagementService.ThreadManagementService,
-  BotHandoffService,
-  BotHandoffStore,
-  BotStore,
-];
-/** What a bot tool fails with, including the access gate's refusal. */
-const failure = Schema.Union([
-  McpCapabilityUnavailableError,
-  OrchestratorMcpFailure,
-  BotToolFailedError,
-]);
-const Handoff = Schema.Struct({
-  id: Schema.String,
-  parentId: Schema.NullOr(Schema.String),
-  sourceRunId: Schema.String,
-  targetBotId: Schema.String,
-  targetRunId: Schema.String,
-  projectId: Schema.String,
-  taskText: Schema.String,
-  contextText: Schema.String,
-  depth: Schema.Int,
-  status: Schema.Literals(["queued", "running", "completed", "needs-input", "failed", "cancelled"]),
-  responseText: Schema.NullOr(Schema.String),
-  questionText: Schema.NullOr(Schema.String),
-  lastError: Schema.NullOr(Schema.String),
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
+const List = Tool.make("t3_bot_list", {
+  ...shared,
+  description:
+    "List this environment's bots in rail order. Each bot owns projects (a project's botId); Captain owns projects created without a bot.",
+  success: Schema.Struct({ bots: Schema.Array(Bot) }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
+const Create = Tool.make("t3_bot_create", {
+  ...shared,
+  description:
+    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
+  parameters: BotCreateInput,
+  success: Bot,
+}).annotate(Tool.Idempotent, true);
+
+const Update = Tool.make("t3_bot_update", {
+  ...shared,
+  description:
+    "Change a bot's name, emoji, color, instructions, allowed tools, runtime mode, default model or default workflow. Omitted fields are kept. Pass the bot's current revision as expectedRevision.",
+  parameters: BotUpdateInput,
+  success: Bot,
 });
 
-const Delegate = Tool.make("bots_delegate", {
+const Delete = Tool.make("t3_bot_delete", {
+  ...shared,
   description:
-    "Hand a bounded project task to a permitted bot. Reuse the same request ID when retrying after a lost response.",
-  parameters: Schema.Struct({
-    requestId: Schema.String,
-    targetBotId: Schema.String,
-    taskText: Schema.String,
-    contextText: Schema.optional(Schema.String),
-  }),
-  success: Handoff,
-  failure,
-  dependencies,
+    "Delete a bot. Refused while it owns any project (move them with t3_bot_move_project first) and always for Captain.",
+  parameters: Schema.Struct({ id: Schema.String }),
+  success: Schema.Struct({ deleted: Schema.Boolean }),
+}).annotate(Tool.Destructive, true);
+
+const Reorder = Tool.make("t3_bot_reorder", {
+  ...shared,
+  description: "Set the rail order. botIds must list every bot exactly once.",
+  parameters: BotReorderInput,
+  success: Schema.Struct({ bots: Schema.Array(Bot) }),
 }).annotate(Tool.Idempotent, true);
 
-const Respond = Tool.make("bots_respond", {
+const MoveProject = Tool.make("t3_bot_move_project", {
+  ...shared,
   description:
-    "Report a structured completed or failed outcome for the handoff that started this bot run.",
-  parameters: Schema.Struct({
-    outcome: Schema.Literals(["completed", "failed"]),
-    summary: Schema.String,
-  }),
-  success: Handoff,
-  failure,
-  dependencies,
+    "Give a project to another bot. Requests and features already running keep the bot that started them.",
+  parameters: BotMoveProjectInput,
+  success: Project,
 }).annotate(Tool.Idempotent, true);
 
-const Ask = Tool.make("bots_ask", {
-  description:
-    "Pause this handoff with a question for the requester. The question remains durable until answered or cancelled.",
-  parameters: Schema.Struct({ question: Schema.String }),
-  success: Handoff,
-  failure,
-  dependencies,
-}).annotate(Tool.Idempotent, true);
-
-const List = Tool.make("bots_list_handoffs", {
-  description: "List the requests delegated by this bot run and their current structured outcomes.",
-  success: Schema.Struct({ handoffs: Schema.Array(Handoff) }),
-  failure,
-  dependencies,
-}).annotate(Tool.Readonly, true);
-
-const Wait = Tool.make("bots_wait_handoff", {
-  description:
-    "Wait up to 30 seconds for one handoff you delegated to finish or ask a question. Call again with the same request ID while it is still running.",
-  parameters: Schema.Struct({ requestId: Schema.String }),
-  success: Handoff,
-  failure,
-  dependencies,
-}).annotate(Tool.Readonly, true);
-
-const Answer = Tool.make("bots_answer", {
-  description:
-    "Answer a question from a handoff this bot delegated. The recipient resumes in its linked T3 thread.",
-  parameters: Schema.Struct({ requestId: Schema.String, answer: Schema.String }),
-  success: Handoff,
-  failure,
-  dependencies,
-}).annotate(Tool.Idempotent, false);
-
-const StageHandoff = Tool.make("bots_stage_handoff", {
-  description:
-    "Read the full handoff this workflow stage started from: the brief, the outputs it receives, notes from earlier stages and people, and the branch and commit. Nothing else is passed between stages.",
-  success: WorkflowStageHandoff,
-  failure,
-  dependencies: [...dependencies, WorkflowService],
-}).annotate(Tool.Readonly, true);
-
-export const BotsToolkit = Toolkit.make(Delegate, Respond, Ask, List, Wait, Answer, StageHandoff);
+export const BotsToolkit = Toolkit.make(List, Create, Update, Delete, Reorder, MoveProject);

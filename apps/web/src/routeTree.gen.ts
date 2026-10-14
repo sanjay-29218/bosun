@@ -17,11 +17,13 @@ import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
+import { Route as SettingsWorkflowsRouteImport } from './routes/settings.workflows'
 import { Route as SettingsWorkflowRouteImport } from './routes/settings.workflow'
 import { Route as SettingsStorageRouteImport } from './routes/settings.storage'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
 import { Route as SettingsSnapShotRouteImport } from './routes/settings.snap-shot'
 import { Route as SettingsScheduledTasksRouteImport } from './routes/settings.scheduled-tasks'
+import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
 import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
 import { Route as SettingsProjectsRouteImport } from './routes/settings.projects'
 import { Route as SettingsOpenSourceLicensesRouteImport } from './routes/settings.open-source-licenses'
@@ -31,6 +33,7 @@ import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
 import { Route as SettingsCrewRouteImport } from './routes/settings.crew'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
+import { Route as SettingsBotsRouteImport } from './routes/settings.bots'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
@@ -78,6 +81,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatRoute,
 } as any)
+const SettingsWorkflowsRoute = SettingsWorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsWorkflowRoute = SettingsWorkflowRouteImport.update({
   id: '/workflow',
   path: '/workflow',
@@ -101,6 +109,11 @@ const SettingsSnapShotRoute = SettingsSnapShotRouteImport.update({
 const SettingsScheduledTasksRoute = SettingsScheduledTasksRouteImport.update({
   id: '/scheduled-tasks',
   path: '/scheduled-tasks',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRolesRoute = SettingsRolesRouteImport.update({
+  id: '/roles',
+  path: '/roles',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
@@ -147,6 +160,11 @@ const SettingsCrewRoute = SettingsCrewRouteImport.update({
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   id: '/connections',
   path: '/connections',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsBotsRoute = SettingsBotsRouteImport.update({
+  id: '/bots',
+  path: '/bots',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
@@ -199,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/bots': typeof SettingsBotsRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/crew': typeof SettingsCrewRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -208,11 +227,13 @@ export interface FileRoutesByFullPath {
   '/settings/open-source-licenses': typeof SettingsOpenSourceLicensesRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/roles': typeof SettingsRolesRoute
   '/settings/scheduled-tasks': typeof SettingsScheduledTasksRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/workflow': typeof SettingsWorkflowRoute
+  '/settings/workflows': typeof SettingsWorkflowsRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
 }
@@ -228,6 +249,7 @@ export interface FileRoutesByTo {
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/bots': typeof SettingsBotsRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/crew': typeof SettingsCrewRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -237,11 +259,13 @@ export interface FileRoutesByTo {
   '/settings/open-source-licenses': typeof SettingsOpenSourceLicensesRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/roles': typeof SettingsRolesRoute
   '/settings/scheduled-tasks': typeof SettingsScheduledTasksRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/workflow': typeof SettingsWorkflowRoute
+  '/settings/workflows': typeof SettingsWorkflowsRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -260,6 +284,7 @@ export interface FileRoutesById {
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/bots': typeof SettingsBotsRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/crew': typeof SettingsCrewRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -269,11 +294,13 @@ export interface FileRoutesById {
   '/settings/open-source-licenses': typeof SettingsOpenSourceLicensesRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/roles': typeof SettingsRolesRoute
   '/settings/scheduled-tasks': typeof SettingsScheduledTasksRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/workflow': typeof SettingsWorkflowRoute
+  '/settings/workflows': typeof SettingsWorkflowsRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -293,6 +320,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
+    | '/settings/bots'
     | '/settings/connections'
     | '/settings/crew'
     | '/settings/diagnostics'
@@ -302,11 +330,13 @@ export interface FileRouteTypes {
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/roles'
     | '/settings/scheduled-tasks'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
     | '/settings/workflow'
+    | '/settings/workflows'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
   fileRoutesByTo: FileRoutesByTo
@@ -322,6 +352,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
+    | '/settings/bots'
     | '/settings/connections'
     | '/settings/crew'
     | '/settings/diagnostics'
@@ -331,11 +362,13 @@ export interface FileRouteTypes {
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/roles'
     | '/settings/scheduled-tasks'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
     | '/settings/workflow'
+    | '/settings/workflows'
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -353,6 +386,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
+    | '/settings/bots'
     | '/settings/connections'
     | '/settings/crew'
     | '/settings/diagnostics'
@@ -362,11 +396,13 @@ export interface FileRouteTypes {
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/roles'
     | '/settings/scheduled-tasks'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
     | '/settings/workflow'
+    | '/settings/workflows'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
@@ -441,6 +477,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/settings/workflows': {
+      id: '/settings/workflows'
+      path: '/workflows'
+      fullPath: '/settings/workflows'
+      preLoaderRoute: typeof SettingsWorkflowsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/workflow': {
       id: '/settings/workflow'
       path: '/workflow'
@@ -474,6 +517,13 @@ declare module '@tanstack/react-router' {
       path: '/scheduled-tasks'
       fullPath: '/settings/scheduled-tasks'
       preLoaderRoute: typeof SettingsScheduledTasksRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/roles': {
+      id: '/settings/roles'
+      path: '/roles'
+      fullPath: '/settings/roles'
+      preLoaderRoute: typeof SettingsRolesRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/providers': {
@@ -537,6 +587,13 @@ declare module '@tanstack/react-router' {
       path: '/connections'
       fullPath: '/settings/connections'
       preLoaderRoute: typeof SettingsConnectionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/bots': {
+      id: '/settings/bots'
+      path: '/bots'
+      fullPath: '/settings/bots'
+      preLoaderRoute: typeof SettingsBotsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/archived': {
@@ -612,6 +669,7 @@ const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchivedRoute: typeof SettingsArchivedRoute
+  SettingsBotsRoute: typeof SettingsBotsRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsCrewRoute: typeof SettingsCrewRoute
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
@@ -621,16 +679,19 @@ interface SettingsRouteChildren {
   SettingsOpenSourceLicensesRoute: typeof SettingsOpenSourceLicensesRoute
   SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsRolesRoute: typeof SettingsRolesRoute
   SettingsScheduledTasksRoute: typeof SettingsScheduledTasksRoute
   SettingsSnapShotRoute: typeof SettingsSnapShotRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsWorkflowRoute: typeof SettingsWorkflowRoute
+  SettingsWorkflowsRoute: typeof SettingsWorkflowsRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArchivedRoute: SettingsArchivedRoute,
+  SettingsBotsRoute: SettingsBotsRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsCrewRoute: SettingsCrewRoute,
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
@@ -640,11 +701,13 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsOpenSourceLicensesRoute: SettingsOpenSourceLicensesRoute,
   SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsRolesRoute: SettingsRolesRoute,
   SettingsScheduledTasksRoute: SettingsScheduledTasksRoute,
   SettingsSnapShotRoute: SettingsSnapShotRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsWorkflowRoute: SettingsWorkflowRoute,
+  SettingsWorkflowsRoute: SettingsWorkflowsRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

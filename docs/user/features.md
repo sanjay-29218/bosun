@@ -1,6 +1,6 @@
 # Features
 
-A feature is a brief that a crew of bots takes through a workflow. The board shows every feature
+A feature is a brief that a crew of roles takes through a workflow. The board shows every feature
 across your projects and everything waiting on you. Flip the **List / Board** toggle at the top
 of the sidebar, press `mod+shift+b`, or choose **Switch to Board** in the command palette; the
 same toggle returns to your threads. The toggle appears when a connected environment runs
@@ -9,8 +9,8 @@ workflows, and the app opens on whichever view you used last.
 ## Start a feature
 
 The first time the board opens, **Start a feature** adds the starter workflow, "Feature
-delivery", to the project and opens a new thread. **New feature** opens a new thread in the
-scoped project. Change workflows in **Settings → Project → Workflows**.
+delivery", to the environment's workflows and opens a new thread. **New feature** opens a new
+thread in the scoped project. Change workflows in **Settings → Workflows**.
 
 ## The board
 

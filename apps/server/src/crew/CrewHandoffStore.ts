@@ -1,5 +1,5 @@
 import {
-  BotHandoff as BotHandoffContract,
+  CrewHandoff as CrewHandoffContract,
   ModelSelection,
   ProjectId,
   ThreadId,
@@ -15,17 +15,17 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 
-const BotHandoffSchema = Schema.Struct({
-  ...BotHandoffContract.fields,
+const StoredCrewHandoff = Schema.Struct({
+  ...CrewHandoffContract.fields,
   notificationState: Schema.Literals(["none", "queued", "delivered"]),
   noticeVersion: Schema.Int,
   attempt: Schema.Int,
 });
 
-const encodeHandoff = Schema.encodeSync(Schema.fromJsonString(BotHandoffSchema));
-const decodeHandoff = Schema.decodeSync(Schema.fromJsonString(BotHandoffSchema));
+const encodeHandoff = Schema.encodeSync(Schema.fromJsonString(StoredCrewHandoff));
+const decodeHandoff = Schema.decodeSync(Schema.fromJsonString(StoredCrewHandoff));
 
-export type BotHandoffStatus =
+export type CrewHandoffStatus =
   | "queued"
   | "running"
   | "completed"
@@ -33,17 +33,17 @@ export type BotHandoffStatus =
   | "failed"
   | "cancelled";
 
-export interface BotHandoff {
+export interface CrewHandoff {
   readonly id: string;
   readonly parentId: string | null;
   readonly sourceRunId: string;
-  readonly targetBotId: string;
+  readonly targetMemberId: string;
   readonly targetRunId: string;
   readonly projectId: ProjectId;
   readonly taskText: string;
   readonly contextText: string;
   readonly depth: number;
-  readonly status: BotHandoffStatus;
+  readonly status: CrewHandoffStatus;
   readonly responseText: string | null;
   readonly questionText: string | null;
   readonly lastError: string | null;
@@ -56,7 +56,7 @@ export interface BotHandoff {
   readonly modelSelection?: ModelSelection | null;
 }
 
-interface HandoffRow extends Omit<BotHandoff, "projectId" | "modelSelection"> {
+interface HandoffRow extends Omit<CrewHandoff, "projectId" | "modelSelection"> {
   readonly projectId: string;
   readonly modelSelectionJson: string | null;
 }
@@ -67,7 +67,7 @@ const decodeModelSelection = Schema.decodeSync(modelSelectionJson);
 
 const columns = `
   id, parent_id AS parentId, source_run_id AS sourceRunId,
-  target_bot_id AS targetBotId, target_run_id AS targetRunId,
+  target_member_id AS targetMemberId, target_run_id AS targetRunId,
   project_id AS projectId, task_text AS taskText, context_text AS contextText,
   depth, status, response_text AS responseText, question_text AS questionText,
   last_error AS lastError, created_at AS createdAt, updated_at AS updatedAt
@@ -75,50 +75,50 @@ const columns = `
   , model_selection_json AS modelSelectionJson
 `;
 
-const decode = ({ modelSelectionJson, ...row }: HandoffRow): BotHandoff => ({
+const decode = ({ modelSelectionJson, ...row }: HandoffRow): CrewHandoff => ({
   ...row,
   projectId: ProjectId.make(row.projectId),
   modelSelection: modelSelectionJson === null ? null : decodeModelSelection(modelSelectionJson),
 });
 
-export interface BotHandoffReceipt {
+export interface CrewHandoffReceipt {
   readonly sequence: number;
-  readonly handoff: BotHandoff;
+  readonly handoff: CrewHandoff;
 }
 
-export interface BotHandoffStoreShape {
+export interface CrewHandoffStoreShape {
   readonly subscribeChanges: Effect.Effect<Stream.Stream<string>, never, Scope.Scope>;
   readonly listReceipts: (
     id: string,
-  ) => Effect.Effect<ReadonlyArray<BotHandoffReceipt>, PersistenceSqlError>;
-  readonly insert: (handoff: BotHandoff) => Effect.Effect<void, PersistenceSqlError>;
-  readonly get: (id: string) => Effect.Effect<BotHandoff | null, PersistenceSqlError>;
+  ) => Effect.Effect<ReadonlyArray<CrewHandoffReceipt>, PersistenceSqlError>;
+  readonly insert: (handoff: CrewHandoff) => Effect.Effect<void, PersistenceSqlError>;
+  readonly get: (id: string) => Effect.Effect<CrewHandoff | null, PersistenceSqlError>;
   readonly getForTargetRun: (
     runId: string,
-  ) => Effect.Effect<BotHandoff | null, PersistenceSqlError>;
+  ) => Effect.Effect<CrewHandoff | null, PersistenceSqlError>;
   readonly listBySourceRun: (
     runId: string,
-  ) => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
   readonly listByProject: (
     projectId: ProjectId,
     limit: number,
-  ) => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
-  readonly listPending: () => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
-  readonly listUndelivered: () => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
+  readonly listPending: () => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
+  readonly listUndelivered: () => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
   readonly listUndeliveredByProject: (
     projectId: ProjectId,
-  ) => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
-  readonly listRunning: () => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
+  readonly listRunning: () => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
   readonly listRunningByProject: (
     projectId: ProjectId,
-  ) => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
   readonly listAncestors: (
     id: string,
-  ) => Effect.Effect<ReadonlyArray<BotHandoff>, PersistenceSqlError>;
+  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, PersistenceSqlError>;
   readonly transition: (
     id: string,
-    from: ReadonlyArray<BotHandoffStatus>,
-    to: BotHandoffStatus,
+    from: ReadonlyArray<CrewHandoffStatus>,
+    to: CrewHandoffStatus,
     at: string,
     fields?: {
       readonly responseText?: string | null;
@@ -134,18 +134,18 @@ export interface BotHandoffStoreShape {
   ) => Effect.Effect<string | null, PersistenceSqlError>;
 }
 
-export class BotHandoffStore extends Context.Service<BotHandoffStore, BotHandoffStoreShape>()(
-  "t3/bots/BotHandoffStore",
+export class CrewHandoffStore extends Context.Service<CrewHandoffStore, CrewHandoffStoreShape>()(
+  "t3/crew/CrewHandoffStore",
 ) {}
 
-export const BotHandoffStoreLive = Layer.effect(
-  BotHandoffStore,
+export const CrewHandoffStoreLive = Layer.effect(
+  CrewHandoffStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const error = toPersistenceSqlError("BotHandoffStore.query");
+    const error = toPersistenceSqlError("CrewHandoffStore.query");
     const changes = yield* PubSub.unbounded<string>();
     const get = (id: string) =>
-      sql<HandoffRow>`SELECT ${sql.unsafe(columns)} FROM bot_handoffs WHERE id = ${id}`.pipe(
+      sql<HandoffRow>`SELECT ${sql.unsafe(columns)} FROM crew_handoffs WHERE id = ${id}`.pipe(
         Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
         Effect.mapError(error),
       );
@@ -154,7 +154,7 @@ export const BotHandoffStoreLive = Layer.effect(
         const handoff = yield* get(id);
         if (handoff)
           yield* sql`
-        INSERT INTO bot_handoff_receipts (handoff_id, handoff_json)
+        INSERT INTO crew_handoff_receipts (handoff_id, handoff_json)
         VALUES (${id}, ${encodeHandoff(handoff)})
       `;
       });
@@ -178,7 +178,7 @@ export const BotHandoffStoreLive = Layer.effect(
       subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
       listReceipts: (id) =>
         sql<{ readonly sequence: number; readonly handoffJson: string }>`
-        SELECT sequence, handoff_json AS handoffJson FROM bot_handoff_receipts
+        SELECT sequence, handoff_json AS handoffJson FROM crew_handoff_receipts
         WHERE handoff_id = ${id} ORDER BY sequence
       `.pipe(
           Effect.mapError(error),
@@ -189,7 +189,7 @@ export const BotHandoffStoreLive = Layer.effect(
                   sequence: row.sequence,
                   handoff: decodeHandoff(row.handoffJson),
                 })),
-              catch: (cause) => toPersistenceSqlError("BotHandoffStore.decodeReceipt")(cause),
+              catch: (cause) => toPersistenceSqlError("CrewHandoffStore.decodeReceipt")(cause),
             }),
           ),
         ),
@@ -197,13 +197,13 @@ export const BotHandoffStoreLive = Layer.effect(
         mutate(
           handoff.id,
           sql<{ readonly id: string }>`
-          INSERT OR IGNORE INTO bot_handoffs (
-            id, parent_id, source_run_id, target_bot_id, target_run_id, project_id,
+          INSERT OR IGNORE INTO crew_handoffs (
+            id, parent_id, source_run_id, target_member_id, target_run_id, project_id,
             task_text, context_text, depth, status, response_text, question_text,
             last_error, notification_state, notice_version, attempt, created_at, updated_at,
             model_selection_json
           ) VALUES (
-            ${handoff.id}, ${handoff.parentId}, ${handoff.sourceRunId}, ${handoff.targetBotId},
+            ${handoff.id}, ${handoff.parentId}, ${handoff.sourceRunId}, ${handoff.targetMemberId},
             ${handoff.targetRunId}, ${handoff.projectId}, ${handoff.taskText},
             ${handoff.contextText}, ${handoff.depth}, ${handoff.status},
             ${handoff.responseText}, ${handoff.questionText}, ${handoff.lastError},
@@ -217,7 +217,7 @@ export const BotHandoffStoreLive = Layer.effect(
       get,
       getForTargetRun: (runId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE target_run_id = ${runId}
         `.pipe(
           Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
@@ -225,7 +225,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listBySourceRun: (runId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE source_run_id = ${runId} ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -233,10 +233,10 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listByProject: (projectId, limit) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE project_id = ${projectId} AND (
             status IN ('queued', 'running', 'needs-input') OR id IN (
-              SELECT id FROM bot_handoffs
+              SELECT id FROM crew_handoffs
               WHERE project_id = ${projectId}
               ORDER BY created_at DESC, id DESC LIMIT ${limit}
             )
@@ -248,7 +248,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listPending: () =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE status = 'queued' ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -256,7 +256,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listUndelivered: () =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE notification_state = 'queued' ORDER BY updated_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -264,7 +264,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listUndeliveredByProject: (projectId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE project_id = ${projectId} AND notification_state = 'queued'
           ORDER BY updated_at, id
         `.pipe(
@@ -273,7 +273,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listRunning: () =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE status = 'running' ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -281,7 +281,7 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       listRunningByProject: (projectId) =>
         sql<HandoffRow>`
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE project_id = ${projectId} AND status = 'running' ORDER BY created_at, id
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -290,12 +290,12 @@ export const BotHandoffStoreLive = Layer.effect(
       listAncestors: (id) =>
         sql<HandoffRow>`
           WITH RECURSIVE lineage(id, parent_id) AS (
-            SELECT id, parent_id FROM bot_handoffs WHERE id = ${id}
+            SELECT id, parent_id FROM crew_handoffs WHERE id = ${id}
             UNION ALL
-            SELECT h.id, h.parent_id FROM bot_handoffs AS h
+            SELECT h.id, h.parent_id FROM crew_handoffs AS h
             JOIN lineage AS l ON h.id = l.parent_id
           )
-          SELECT ${sql.unsafe(columns)} FROM bot_handoffs
+          SELECT ${sql.unsafe(columns)} FROM crew_handoffs
           WHERE id IN (SELECT id FROM lineage)
         `.pipe(
           Effect.map((rows) => rows.map(decode)),
@@ -305,7 +305,7 @@ export const BotHandoffStoreLive = Layer.effect(
         mutate(
           id,
           sql<{ readonly id: string }>`
-          UPDATE bot_handoffs SET
+          UPDATE crew_handoffs SET
             status = ${to}, updated_at = ${at},
             response_text = ${fields?.responseText ?? null},
             question_text = ${fields?.questionText ?? null},
@@ -317,14 +317,14 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       markDelivered: (id, version) =>
         sql`
-          UPDATE bot_handoffs SET notification_state = 'delivered'
+          UPDATE crew_handoffs SET notification_state = 'delivered'
           WHERE id = ${id} AND notice_version = ${version} AND notification_state = 'queued'
         `.pipe(Effect.asVoid, Effect.mapError(error)),
       retry: (id, at) =>
         mutate(
           id,
           sql<{ readonly id: string }>`
-          UPDATE bot_handoffs SET
+          UPDATE crew_handoffs SET
             status = 'queued', attempt = attempt + 1,
             target_run_id = 'bot-handoff:' || id || ':attempt:' || (attempt + 1),
             response_text = NULL, question_text = NULL, last_error = NULL,
@@ -335,11 +335,11 @@ export const BotHandoffStoreLive = Layer.effect(
         ),
       getRunByThread: (threadId) =>
         sql<{ readonly id: string }>`
-          SELECT id FROM bot_runs WHERE thread_id = ${threadId}
+          SELECT id FROM crew_runs WHERE thread_id = ${threadId}
         `.pipe(
           Effect.map((rows) => rows[0]?.id ?? null),
           Effect.mapError(error),
         ),
-    } satisfies BotHandoffStoreShape;
+    } satisfies CrewHandoffStoreShape;
   }),
 );

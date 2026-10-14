@@ -1,6 +1,6 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
-import { isBotThreadId } from "@t3tools/client-runtime/bot-message-origin";
+import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import {
   crewStageThreads,
   type CrewFeature,
@@ -23,14 +23,14 @@ const boardKey = (environmentId: EnvironmentId, projectId: ProjectId) =>
   JSON.stringify([environmentId, projectId]);
 
 /**
- * Changes when a bot thread in the project starts or finishes a run, or a new one appears.
+ * Changes when a crew thread in the project starts or finishes a run, or a new one appears.
  * Stage moves happen at those points, so the board re-reads then instead of polling.
  */
 const boardSignalAtom = Atom.family((key: string) => {
   const [environmentId, projectId] = JSON.parse(key) as [string, string];
   return Atom.make((get) =>
     get(environmentThreadShells.environmentThreadsAtom(EnvironmentId.make(environmentId)))
-      .filter((thread) => thread.projectId === projectId && isBotThreadId(thread.id))
+      .filter((thread) => thread.projectId === projectId && isCrewThreadId(thread.id))
       .map((thread) => `${thread.id}:${thread.status}:${thread.latestRunId ?? ""}`)
       .join("|"),
   ).pipe(Atom.withLabel(`crew-board-signal:${key}`));
@@ -142,7 +142,7 @@ const FOCUSED_BOARD_REFRESH_MS = 30_000;
 /**
  * Re-reads boards when the screen gains focus and every 30 seconds while it keeps it. A
  * decision made on another device (a pause, or an approval that starts no new run yet) moves
- * no bot thread here, so the board's thread signal alone would miss it.
+ * no crew thread here, so the board's thread signal alone would miss it.
  */
 export function useRefreshCrewBoardsWhileFocused(
   projects: ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly projectId: ProjectId }>,

@@ -2,14 +2,17 @@ import * as Schema from "effect/Schema";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
-export const WorkflowBot = Schema.Struct({
-  template: Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("template"), id: Schema.String, revision: Schema.Int }),
-    Schema.Struct({ kind: Schema.Literal("existing-project-bot"), id: Schema.String }),
-  ]),
+/**
+ * One of a workflow's roles: the global role it runs as, pinned to a revision, and the
+ * workflow role that supervises it. Each feature gets its own member of every role, except
+ * the project manager role, which binds to the project's single manager.
+ */
+export const WorkflowRole = Schema.Struct({
+  roleId: Schema.String,
+  roleRevision: Schema.Int,
   supervisor: Schema.NullOr(Schema.String),
 });
-export type WorkflowBot = typeof WorkflowBot.Type;
+export type WorkflowRole = typeof WorkflowRole.Type;
 
 /** Earlier outputs a stage receives: produced file paths, and step ids whose diff it gets. */
 export const WorkflowStepReceives = Schema.Struct({
@@ -21,7 +24,8 @@ export type WorkflowStepReceives = typeof WorkflowStepReceives.Type;
 export const WorkflowStep = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("task"),
-    bot: Schema.String,
+    /** The key in `WorkflowDefinition.roles` that performs this stage. */
+    role: Schema.String,
     task: Schema.String,
     next: Schema.Record(Schema.String, Schema.String),
     /** The stage waits for Approve or Request changes before it routes on. */
@@ -38,13 +42,14 @@ export const WorkflowStep = Schema.Union([
 ]);
 export type WorkflowStep = typeof WorkflowStep.Type;
 
+/** Workflows are a global library; features copy the version they run on. */
 export const WorkflowDefinition = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
+  schemaVersion: Schema.Literal(2),
   id: Schema.String,
   name: Schema.String,
   revision: Schema.Int,
   start: Schema.String,
-  bots: Schema.Record(Schema.String, WorkflowBot),
+  roles: Schema.Record(Schema.String, WorkflowRole),
   steps: Schema.Record(Schema.String, WorkflowStep),
   defaults: Schema.Struct({
     questions: Schema.Literal("supervisor"),
@@ -111,7 +116,7 @@ export const WorkflowStepEvent = Schema.Struct({
     "extended",
     "attached",
   ]),
-  botRunId: Schema.NullOr(Schema.String),
+  runId: Schema.NullOr(Schema.String),
   outcome: Schema.NullOr(Schema.String),
   sourceKind: Schema.NullOr(Schema.Literals(["handoff", "decision", "workflow"])),
   sourceId: Schema.NullOr(Schema.String),
@@ -127,7 +132,7 @@ export const WorkflowStepEvent = Schema.Struct({
 });
 export type WorkflowStepEvent = typeof WorkflowStepEvent.Type;
 
-/** Exact result shape accepted from a completed workflow bot handoff. */
+/** Exact result shape accepted from a completed workflow stage handoff. */
 export const WorkflowHandoffOutcome = Schema.Struct({
   outcome: Schema.String,
   summary: Schema.String,
@@ -150,7 +155,7 @@ export const WorkflowStepSnapshot = Schema.Struct({
   ]),
   executionId: Schema.NullOr(Schema.String),
   attempt: Schema.Int,
-  botRunId: Schema.NullOr(Schema.String),
+  runId: Schema.NullOr(Schema.String),
   threadId: Schema.NullOr(ThreadId),
   outcome: Schema.NullOr(Schema.String),
   /** The outcome held by a gate or a route limit until a person decides. */
@@ -308,7 +313,7 @@ export class WorkflowOperationError extends Schema.TaggedError<WorkflowOperation
   }
 }
 
-export const WorkflowProjectInput = Schema.Struct({ projectId: ProjectId });
+export const WorkflowLibraryInput = Schema.Struct({});
 export const WorkflowFeatureGetInput = Schema.Struct({
   projectId: ProjectId,
   featureId: Schema.String,
@@ -355,10 +360,7 @@ export const WorkflowReopenInput = Schema.Struct({
   ...WorkflowActionInput.fields,
   stepId: Schema.optionalKey(Schema.String),
 });
-export const WorkflowCreateInput = Schema.Struct({
-  projectId: ProjectId,
-  definition: WorkflowDefinition,
-});
+export const WorkflowCreateInput = Schema.Struct({ definition: WorkflowDefinition });
 export const WorkflowReviseInput = Schema.Struct({
   ...WorkflowCreateInput.fields,
   expectedRevision: Schema.Int,

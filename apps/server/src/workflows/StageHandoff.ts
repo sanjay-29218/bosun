@@ -14,7 +14,7 @@ export interface StageResult {
   readonly stepId: string;
   readonly executionId: string;
   readonly version: number;
-  readonly botRunId: string | null;
+  readonly runId: string | null;
   /** The person's thread an attached execution ran in. */
   readonly threadId: ThreadId | null;
 }
@@ -38,7 +38,7 @@ export const latestStageResults = (
       stepId: event.stepId,
       executionId: event.executionId,
       version,
-      botRunId: start?.botRunId ?? null,
+      runId: start?.runId ?? null,
       threadId: start?.threadId ?? null,
     });
   }
@@ -54,8 +54,7 @@ export const collectStageOutputs = (
 ): ReadonlyArray<WorkflowStageOutput> =>
   results.flatMap((result) => {
     const step = definition.steps[result.stepId];
-    const threadId =
-      result.threadId ?? (result.botRunId ? (threads.get(result.botRunId) ?? null) : null);
+    const threadId = result.threadId ?? (result.runId ? (threads.get(result.runId) ?? null) : null);
     const files: ReadonlyArray<WorkflowStageOutput> =
       step?.type === "task"
         ? (step.outputs ?? []).map((path) => ({
@@ -170,10 +169,10 @@ export const previousFailure = (
   return { previousError: failed?.detail ?? "The previous attempt did not finish" };
 };
 
-// BotHandoffService bounds delegated text. The task carries only the step's task.
+// CrewHandoffService bounds delegated text. The task carries only the step's task.
 const CONTEXT_LIMIT = 4_000;
 const MAX_NOTE = 1_500;
-const MORE = "Some of this handoff was shortened. Call bots_stage_handoff for the full record.";
+const MORE = "Some of this handoff was shortened. Call crew_stage_handoff for the full record.";
 
 const clip = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
@@ -188,8 +187,8 @@ const describeOutput = (output: WorkflowStageOutput) =>
 /**
  * Renders the stage prompt from the handoff record alone. The text is deterministic,
  * so re-delegating after a restart matches the persisted request. When the record
- * does not fit, outputs, then notes, then the brief are shortened, and the bot is
- * pointed at bots_stage_handoff.
+ * does not fit, outputs, then notes, then the brief are shortened, and the crew member is
+ * pointed at crew_stage_handoff.
  */
 export const renderStageHandoff = (
   record: WorkflowStageHandoff,
@@ -222,8 +221,8 @@ export const renderStageHandoff = (
       notes ? `Notes:\n${notes}` : "",
       brief ? `Brief:\n${brief}` : "",
       more ? MORE : "",
-      `Report with bots_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${record.outcomes.join(", ")}>","summary":"<result and evidence>"}.`,
-      "Use bots_ask for questions. A final chat message does not complete this step.",
+      `Report with crew_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${record.outcomes.join(", ")}>","summary":"<result and evidence>"}.`,
+      "Use crew_ask for questions. A final chat message does not complete this step.",
     ]
       .filter(Boolean)
       .join("\n\n");

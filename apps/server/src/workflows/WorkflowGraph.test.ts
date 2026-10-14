@@ -1,31 +1,33 @@
-import { WorkflowDefinition } from "@t3tools/contracts";
+import { PROJECT_MANAGER_ROLE_ID, WorkflowDefinition } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import { nextWorkflowStep, validateWorkflowDefinition } from "./WorkflowGraph.ts";
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "delivery",
   name: "Delivery",
   revision: 1,
   start: "build",
-  bots: {
-    manager: { template: { kind: "existing-project-bot", id: "bot-manager" }, supervisor: null },
+  roles: {
+    manager: { roleId: PROJECT_MANAGER_ROLE_ID, roleRevision: 1, supervisor: null },
     builder: {
-      template: { kind: "template", id: "template-builder", revision: 1 },
+      roleId: "template-builder",
+      roleRevision: 1,
       supervisor: "manager",
     },
     reviewer: {
-      template: { kind: "template", id: "template-reviewer", revision: 1 },
+      roleId: "template-reviewer",
+      roleRevision: 1,
       supervisor: "manager",
     },
   },
   steps: {
-    build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+    build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
     review: {
       type: "task",
-      bot: "reviewer",
+      role: "reviewer",
       task: "Review",
       next: { approved: "end", changes_requested: "build" },
     },
@@ -51,18 +53,18 @@ describe("workflow graph", () => {
     expect(() =>
       validateWorkflowDefinition({
         ...definition,
-        bots: {
-          ...definition.bots,
-          builder: { ...definition.bots.builder!, supervisor: "missing" },
+        roles: {
+          ...definition.roles,
+          builder: { ...definition.roles.builder!, supervisor: "missing" },
         },
       }),
     ).toThrow(/Unknown supervisor/);
     expect(() =>
       validateWorkflowDefinition({
         ...definition,
-        bots: {
-          ...definition.bots,
-          manager: { ...definition.bots.manager!, supervisor: "builder" },
+        roles: {
+          ...definition.roles,
+          manager: { ...definition.roles.manager!, supervisor: "builder" },
         },
       }),
     ).toThrow(/Supervisor cycle/);
@@ -71,7 +73,7 @@ describe("workflow graph", () => {
         ...definition,
         steps: {
           ...definition.steps,
-          build: { type: "task", bot: "builder", task: "Build", next: { built: "missing" } },
+          build: { type: "task", role: "builder", task: "Build", next: { built: "missing" } },
         },
       }),
     ).toThrow(/Invalid outcome route/);
@@ -80,7 +82,7 @@ describe("workflow graph", () => {
         ...definition,
         steps: {
           ...definition.steps,
-          build: { type: "task", bot: "builder", task: "Build", next: { built: "build" } },
+          build: { type: "task", role: "builder", task: "Build", next: { built: "build" } },
         },
       }),
     ).toThrow(/reachable/);
@@ -91,11 +93,11 @@ describe("workflow graph", () => {
           ...definition.steps,
           build: {
             type: "task",
-            bot: "builder",
+            role: "builder",
             task: "Build",
             next: { built: "review", stuck: "dead" },
           },
-          dead: { type: "task", bot: "builder", task: "Stuck", next: { again: "dead" } },
+          dead: { type: "task", role: "builder", task: "Stuck", next: { again: "dead" } },
         },
       }),
     ).toThrow(/path to the end/);

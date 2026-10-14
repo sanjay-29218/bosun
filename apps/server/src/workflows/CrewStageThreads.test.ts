@@ -1,17 +1,17 @@
-import { ProjectId, ThreadId, type WorkflowStepEvent } from "@t3tools/contracts";
+import { ThreadId, type WorkflowStepEvent } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { stageThreadSummaries } from "./CrewStageThreads.ts";
 import { makeStarterWorkflow } from "./starterWorkflow.ts";
 
-const definition = makeStarterWorkflow(ProjectId.make("project"));
+const definition = makeStarterWorkflow();
 
-const started = (id: string, stepId: string, botRunId: string): WorkflowStepEvent => ({
+const started = (id: string, stepId: string, runId: string): WorkflowStepEvent => ({
   id,
   stepId,
   executionId: `${stepId}-execution`,
   kind: "started",
-  botRunId,
+  runId,
   outcome: null,
   sourceKind: "handoff",
   sourceId: `handoff-${id}`,

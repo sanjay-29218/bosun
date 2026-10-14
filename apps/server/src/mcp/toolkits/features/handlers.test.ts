@@ -23,7 +23,7 @@ const projectId = liveThreadShell(caller).projectId;
 const snapshot: WorkflowFeatureSnapshot = {
   featureId: "feature",
   projectId,
-  definition: makeStarterWorkflow(projectId),
+  definition: makeStarterWorkflow(),
   eventVersion: 0,
   createdAt: "2026-10-09T00:00:00Z",
   steps: [],

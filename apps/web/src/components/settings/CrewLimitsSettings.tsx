@@ -111,7 +111,7 @@ export function CrewLimitsSettings() {
   const mixedStatus = mixed ? "Mixed across selected environments" : undefined;
 
   return (
-    <SettingsSection title="Limits" id={searchableSetting("crew-limits").id}>
+    <SettingsSection title="Limits" id={searchableSetting("role-limits").id}>
       <SettingsRow
         serverScoped
         settingKeys={["crew"]}

@@ -18,7 +18,7 @@ const event = (
   fields: Partial<WorkflowStepEvent> & Pick<WorkflowStepEvent, "id" | "stepId" | "kind">,
 ): WorkflowStepEvent => ({
   executionId: null,
-  botRunId: null,
+  runId: null,
   outcome: null,
   sourceKind: null,
   sourceId: null,
@@ -27,36 +27,36 @@ const event = (
   occurredAt: "2026-10-09T00:00:00Z",
   ...fields,
 });
-const start = (id: string, stepId: string, executionId: string, botRunId: string) =>
-  event({ id, stepId, kind: "started", executionId, botRunId, sourceKind: "handoff" });
+const start = (id: string, stepId: string, executionId: string, runId: string) =>
+  event({ id, stepId, kind: "started", executionId, runId, sourceKind: "handoff" });
 const complete = (id: string, stepId: string, executionId: string, outcome: string) =>
   event({ id, stepId, kind: "completed", executionId, outcome, detail: `${stepId} ${outcome}` });
 
 const definition: WorkflowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "delivery",
   name: "Delivery",
   revision: 3,
   start: "plan",
-  bots: { builder: { template: { kind: "existing-project-bot", id: "bot" }, supervisor: null } },
+  roles: { builder: { roleId: "role:builder", roleRevision: 1, supervisor: null } },
   steps: {
     plan: {
       type: "task",
-      bot: "builder",
+      role: "builder",
       task: "Plan",
       next: { ready: "design" },
       outputs: ["plan.md"],
     },
     design: {
       type: "task",
-      bot: "builder",
+      role: "builder",
       task: "Design",
       next: { ready: "build" },
       outputs: ["design.md"],
     },
     build: {
       type: "task",
-      bot: "builder",
+      role: "builder",
       task: "Build",
       next: { built: "end" },
       receives: { files: ["design.md"], diffs: [] },
@@ -210,11 +210,11 @@ describe("stage handoffs", () => {
     expect(short.contextText).toContain("Worktree: /repo on crew/kanban @ 3f2a1c0deadb");
     expect(short.contextText).toContain("Scope: apps/web");
     expect(short.contextText).toContain("Brief:\nBuild a kanban board.");
-    expect(short.contextText).not.toContain("bots_stage_handoff");
+    expect(short.contextText).not.toContain("crew_stage_handoff");
 
     const long = renderStageHandoff({ ...record, brief: "x".repeat(16_000) });
     expect(long.contextText.length).toBeLessThanOrEqual(4_000);
-    expect(long.contextText).toContain("bots_stage_handoff");
+    expect(long.contextText).toContain("crew_stage_handoff");
     expect(long.contextText).toContain('{"outcome":"<one of: built>"');
   });
 });

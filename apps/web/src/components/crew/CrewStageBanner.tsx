@@ -56,7 +56,7 @@ export function CrewStageBanner() {
     void act(action, { ...extra, text: readNote() });
   const has = (action: CrewAction) => actions.includes(action);
   const task = snapshot.definition.steps[prompt.stepId];
-  const bot = task?.type === "task" ? formatStageName(task.bot) : null;
+  const roleName = task?.type === "task" ? formatStageName(task.role) : null;
   const stageName = formatStageName(prompt.stepId);
 
   let variant: ComposerBannerVariant = "warning";
@@ -192,7 +192,7 @@ export function CrewStageBanner() {
             <span className="flex min-w-0 flex-col gap-0.5 text-sm">
               <span className="min-w-0 truncate">
                 <span className="font-medium text-foreground">{title}</span>
-                {bot ? <span className="text-muted-foreground"> · {bot}</span> : null}
+                {roleName ? <span className="text-muted-foreground"> · {roleName}</span> : null}
               </span>
               {detail ? (
                 <span className="line-clamp-2 text-xs text-muted-foreground">{detail}</span>

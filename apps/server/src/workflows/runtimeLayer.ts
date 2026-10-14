@@ -1,6 +1,6 @@
 import * as Layer from "effect/Layer";
 
-import { BotRuntimeLive } from "../bots/runtimeLayer.ts";
+import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowExecutionServiceLive } from "./WorkflowExecutionService.ts";
 import { WorkflowExecutionStoreLive } from "./WorkflowExecutionStore.ts";
@@ -10,7 +10,7 @@ import { WorkflowStoreLive } from "./WorkflowStore.ts";
 const WorkflowFoundationLive = WorkflowServiceLive.pipe(
   Layer.provideMerge(WorkflowStoreLive),
   Layer.provideMerge(WorkflowStageHandoffStoreLive),
-  Layer.provideMerge(BotRuntimeLive),
+  Layer.provideMerge(CrewRuntimeLive),
 );
 
 /** Needs `WorkflowWorkspace`, which reads the app's VCS and checkpoint services. */

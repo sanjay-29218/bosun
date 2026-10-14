@@ -5,7 +5,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
-import { isBotThreadId } from "@t3tools/client-runtime/bot-message-origin";
+import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type {
   CodexFeedbackSubmission,
@@ -140,7 +140,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
-import { MobileBotRunStatusStrip } from "./MobileBotRunStatusStrip";
+import { MobileCrewRunStatusStrip } from "./MobileCrewRunStatusStrip";
 import { CrewHandoffCard } from "../crew/CrewHandoffCard";
 import { CrewStageCard, crewComposerMode } from "../crew/CrewStageCard";
 import { useCrewThreadStage, useRefreshCrewBoardsWhileFocused } from "../../state/features";
@@ -1089,7 +1089,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     feedTouchStartRef.current = null;
   }, []);
 
-  const isBotThread = isBotThreadId(props.selectedThread.id);
+  const isCrewThread = isCrewThreadId(props.selectedThread.id);
   const crewStage = useCrewThreadStage(props.environmentId, props.selectedThread.id);
   const crewComposer = crewComposerMode(crewStage);
   // The hook keys on the target ids, so a fresh array each render is fine.
@@ -1109,8 +1109,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
-      {isBotThread ? (
-        <MobileBotRunStatusStrip
+      {isCrewThread ? (
+        <MobileCrewRunStatusStrip
           environmentId={props.environmentId}
           projectId={props.selectedThread.projectId}
           threadId={props.selectedThread.id}
@@ -1149,7 +1149,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
               headerAccessory={
-                isBotThread ? (
+                isCrewThread ? (
                   <CrewHandoffCard
                     environmentId={props.environmentId}
                     projectId={props.selectedThread.projectId}

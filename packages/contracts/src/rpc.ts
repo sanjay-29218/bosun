@@ -27,23 +27,32 @@ import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
-  BotHandoff,
-  BotHandoffActionInput,
-  BotConfigurationSnapshot,
-  BotCreateTemplateInput,
-  BotUpdateTemplateInput,
-  BotInstantiateInput,
-  BotInitializeInput,
-  BotSetHierarchyInput,
-  BotSetDelegationInput,
-  BotTemplateConfig,
-  BotDefinitionSummary,
+  Bot,
+  BotCreateInput,
+  BotDeleteInput,
+  BotMoveProjectInput,
   BotOperationError,
-  BotProjectSnapshot,
-  BotProjectSnapshotInput,
-  BotStartInput,
-  BotStartResult,
+  BotReorderInput,
+  BotUpdateInput,
 } from "./bots.ts";
+import {
+  CrewConfigurationSnapshot,
+  CrewHandoff,
+  CrewHandoffActionInput,
+  CrewInitializeInput,
+  CrewInstantiateInput,
+  CrewMemberSummary,
+  CrewOperationError,
+  CrewProjectInput,
+  CrewProjectSnapshot,
+  CrewSetDelegationInput,
+  CrewSetHierarchyInput,
+  CrewStartInput,
+  CrewStartResult,
+  RoleConfig,
+  RoleCreateInput,
+  RoleUpdateInput,
+} from "./crew.ts";
 import {
   FeatureCreateInput,
   FeatureGetInput,
@@ -73,7 +82,7 @@ import {
   WorkflowFeatureGetInput,
   WorkflowFeatureSnapshot,
   WorkflowOperationError,
-  WorkflowProjectInput,
+  WorkflowLibraryInput,
   WorkflowReviseInput,
   WorkflowStageHandoff,
   WorkflowStageHandoffInput,
@@ -441,18 +450,25 @@ export const WS_METHODS = {
   workflowsAcceptAsIs: "workflows.acceptAsIs",
   workflowsOneMoreRound: "workflows.oneMoreRound",
   workflowsStartNow: "workflows.startNow",
-  botsSnapshot: "bots.snapshot",
-  botsConfiguration: "bots.configuration",
-  botsInitialize: "bots.initialize",
-  botsCreateTemplate: "bots.createTemplate",
-  botsUpdateTemplate: "bots.updateTemplate",
-  botsInstantiate: "bots.instantiate",
-  botsSetHierarchy: "bots.setHierarchy",
-  botsSetDelegation: "bots.setDelegation",
-  botsStart: "bots.start",
-  botsAnswer: "bots.answer",
-  botsCancel: "bots.cancel",
-  botsRetry: "bots.retry",
+  botsList: "bots.list",
+  botsCreate: "bots.create",
+  botsUpdate: "bots.update",
+  botsDelete: "bots.delete",
+  botsReorder: "bots.reorder",
+  botsMoveProject: "bots.moveProject",
+  rolesList: "roles.list",
+  rolesCreate: "roles.create",
+  rolesUpdate: "roles.update",
+  crewSnapshot: "crew.snapshot",
+  crewConfiguration: "crew.configuration",
+  crewInitialize: "crew.initialize",
+  crewInstantiate: "crew.instantiate",
+  crewSetHierarchy: "crew.setHierarchy",
+  crewSetDelegation: "crew.setDelegation",
+  crewStart: "crew.start",
+  crewAnswer: "crew.answer",
+  crewCancel: "crew.cancel",
+  crewRetry: "crew.retry",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1020,7 +1036,7 @@ const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
   error: PullRequestRpcError,
 });
 
-const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
+const CrewRpcError = Schema.Union([CrewOperationError, EnvironmentAuthorizationError]);
 const FeatureRpcError = Schema.Union([FeatureOperationError, EnvironmentAuthorizationError]);
 const WsFeaturesCreateRpc = Rpc.make(WS_METHODS.featuresCreate, {
   payload: FeatureCreateInput,
@@ -1049,12 +1065,12 @@ const WsFeaturesSetStatusRpc = Rpc.make(WS_METHODS.featuresSetStatus, {
 });
 const WorkflowRpcError = Schema.Union([WorkflowOperationError, EnvironmentAuthorizationError]);
 const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
-  payload: WorkflowProjectInput,
+  payload: WorkflowLibraryInput,
   success: Schema.Array(WorkflowDefinition),
   error: WorkflowRpcError,
 });
 const WsWorkflowsEnsureStarterRpc = Rpc.make(WS_METHODS.workflowsEnsureStarter, {
-  payload: WorkflowProjectInput,
+  payload: WorkflowLibraryInput,
   success: WorkflowDefinition,
   error: WorkflowRpcError,
 });
@@ -1155,65 +1171,101 @@ const WsFeaturesThreadLinkRpc = Rpc.make(WS_METHODS.featuresThreadLink, {
   success: FeatureThreadLink,
   error: FeatureRpcError,
 });
-const WsBotsSnapshotRpc = Rpc.make(WS_METHODS.botsSnapshot, {
-  payload: BotProjectSnapshotInput,
-  success: BotProjectSnapshot,
+const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
+const WsBotsListRpc = Rpc.make(WS_METHODS.botsList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(Bot),
   error: BotRpcError,
 });
-const WsBotsConfigurationRpc = Rpc.make(WS_METHODS.botsConfiguration, {
-  payload: BotProjectSnapshotInput,
-  success: BotConfigurationSnapshot,
+const WsBotsCreateRpc = Rpc.make(WS_METHODS.botsCreate, {
+  payload: BotCreateInput,
+  success: Bot,
   error: BotRpcError,
 });
-const WsBotsInitializeRpc = Rpc.make(WS_METHODS.botsInitialize, {
-  payload: BotInitializeInput,
+const WsBotsUpdateRpc = Rpc.make(WS_METHODS.botsUpdate, {
+  payload: BotUpdateInput,
+  success: Bot,
+  error: BotRpcError,
+});
+const WsBotsDeleteRpc = Rpc.make(WS_METHODS.botsDelete, {
+  payload: BotDeleteInput,
   success: Schema.Void,
   error: BotRpcError,
 });
-const WsBotsCreateTemplateRpc = Rpc.make(WS_METHODS.botsCreateTemplate, {
-  payload: BotCreateTemplateInput,
-  success: BotTemplateConfig,
+const WsBotsReorderRpc = Rpc.make(WS_METHODS.botsReorder, {
+  payload: BotReorderInput,
+  success: Schema.Array(Bot),
   error: BotRpcError,
 });
-const WsBotsUpdateTemplateRpc = Rpc.make(WS_METHODS.botsUpdateTemplate, {
-  payload: BotUpdateTemplateInput,
-  success: BotTemplateConfig,
+const WsBotsMoveProjectRpc = Rpc.make(WS_METHODS.botsMoveProject, {
+  payload: BotMoveProjectInput,
+  success: Project,
   error: BotRpcError,
 });
-const WsBotsInstantiateRpc = Rpc.make(WS_METHODS.botsInstantiate, {
-  payload: BotInstantiateInput,
-  success: BotDefinitionSummary,
-  error: BotRpcError,
+const WsRolesListRpc = Rpc.make(WS_METHODS.rolesList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(RoleConfig),
+  error: CrewRpcError,
 });
-const WsBotsSetHierarchyRpc = Rpc.make(WS_METHODS.botsSetHierarchy, {
-  payload: BotSetHierarchyInput,
+const WsRolesCreateRpc = Rpc.make(WS_METHODS.rolesCreate, {
+  payload: RoleCreateInput,
+  success: RoleConfig,
+  error: CrewRpcError,
+});
+const WsRolesUpdateRpc = Rpc.make(WS_METHODS.rolesUpdate, {
+  payload: RoleUpdateInput,
+  success: RoleConfig,
+  error: CrewRpcError,
+});
+const WsCrewSnapshotRpc = Rpc.make(WS_METHODS.crewSnapshot, {
+  payload: CrewProjectInput,
+  success: CrewProjectSnapshot,
+  error: CrewRpcError,
+});
+const WsCrewConfigurationRpc = Rpc.make(WS_METHODS.crewConfiguration, {
+  payload: CrewProjectInput,
+  success: CrewConfigurationSnapshot,
+  error: CrewRpcError,
+});
+const WsCrewInitializeRpc = Rpc.make(WS_METHODS.crewInitialize, {
+  payload: CrewInitializeInput,
   success: Schema.Void,
-  error: BotRpcError,
+  error: CrewRpcError,
 });
-const WsBotsSetDelegationRpc = Rpc.make(WS_METHODS.botsSetDelegation, {
-  payload: BotSetDelegationInput,
+const WsCrewInstantiateRpc = Rpc.make(WS_METHODS.crewInstantiate, {
+  payload: CrewInstantiateInput,
+  success: CrewMemberSummary,
+  error: CrewRpcError,
+});
+const WsCrewSetHierarchyRpc = Rpc.make(WS_METHODS.crewSetHierarchy, {
+  payload: CrewSetHierarchyInput,
   success: Schema.Void,
-  error: BotRpcError,
+  error: CrewRpcError,
 });
-const WsBotsStartRpc = Rpc.make(WS_METHODS.botsStart, {
-  payload: BotStartInput,
-  success: BotStartResult,
-  error: BotRpcError,
+const WsCrewSetDelegationRpc = Rpc.make(WS_METHODS.crewSetDelegation, {
+  payload: CrewSetDelegationInput,
+  success: Schema.Void,
+  error: CrewRpcError,
 });
-const WsBotsAnswerRpc = Rpc.make(WS_METHODS.botsAnswer, {
-  payload: BotHandoffActionInput,
-  success: BotHandoff,
-  error: BotRpcError,
+const WsCrewStartRpc = Rpc.make(WS_METHODS.crewStart, {
+  payload: CrewStartInput,
+  success: CrewStartResult,
+  error: CrewRpcError,
 });
-const WsBotsCancelRpc = Rpc.make(WS_METHODS.botsCancel, {
-  payload: BotHandoffActionInput,
-  success: BotHandoff,
-  error: BotRpcError,
+const WsCrewAnswerRpc = Rpc.make(WS_METHODS.crewAnswer, {
+  payload: CrewHandoffActionInput,
+  success: CrewHandoff,
+  error: CrewRpcError,
 });
-const WsBotsRetryRpc = Rpc.make(WS_METHODS.botsRetry, {
-  payload: BotHandoffActionInput,
-  success: BotHandoff,
-  error: BotRpcError,
+const WsCrewCancelRpc = Rpc.make(WS_METHODS.crewCancel, {
+  payload: CrewHandoffActionInput,
+  success: CrewHandoff,
+  error: CrewRpcError,
+});
+const WsCrewRetryRpc = Rpc.make(WS_METHODS.crewRetry, {
+  payload: CrewHandoffActionInput,
+  success: CrewHandoff,
+  error: CrewRpcError,
 });
 
 /**
@@ -2099,7 +2151,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-/** Bosun's features, workflows and bots RPCs, served by their own server handler layer. */
+/** Bosun's bots, features, workflows, roles and crew RPCs, served by their own server handler layer. */
 export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesCreateRpc,
   WsFeaturesListRpc,
@@ -2132,18 +2184,25 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsAcceptAsIsRpc,
   WsWorkflowsOneMoreRoundRpc,
   WsWorkflowsStartNowRpc,
-  WsBotsSnapshotRpc,
-  WsBotsConfigurationRpc,
-  WsBotsInitializeRpc,
-  WsBotsCreateTemplateRpc,
-  WsBotsUpdateTemplateRpc,
-  WsBotsInstantiateRpc,
-  WsBotsSetHierarchyRpc,
-  WsBotsSetDelegationRpc,
-  WsBotsStartRpc,
-  WsBotsAnswerRpc,
-  WsBotsCancelRpc,
-  WsBotsRetryRpc,
+  WsBotsListRpc,
+  WsBotsCreateRpc,
+  WsBotsUpdateRpc,
+  WsBotsDeleteRpc,
+  WsBotsReorderRpc,
+  WsBotsMoveProjectRpc,
+  WsRolesListRpc,
+  WsRolesCreateRpc,
+  WsRolesUpdateRpc,
+  WsCrewSnapshotRpc,
+  WsCrewConfigurationRpc,
+  WsCrewInitializeRpc,
+  WsCrewInstantiateRpc,
+  WsCrewSetHierarchyRpc,
+  WsCrewSetDelegationRpc,
+  WsCrewStartRpc,
+  WsCrewAnswerRpc,
+  WsCrewCancelRpc,
+  WsCrewRetryRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const T3WsRpcGroup = RpcGroup.make(

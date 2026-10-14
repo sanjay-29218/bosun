@@ -1,10 +1,12 @@
 import {
+  PROJECT_MANAGER_ROLE_ID,
   WorkflowHandoffOutcome,
   WorkflowStepEvent,
   type ProjectId,
   type ThreadId,
   type WorkflowDefinition,
   type WorkflowFeatureSnapshot,
+  type WorkflowRole,
   type WorkflowStageHandoff,
   type WorkflowStageOutput,
 } from "@t3tools/contracts";
@@ -14,9 +16,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { BotStore } from "../bots/BotStore.ts";
-import { BotHandoffStore } from "../bots/BotHandoffStore.ts";
-import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
+import { projectManagerMemberId } from "../crew/CrewService.ts";
+import { CrewStore, type CrewMember } from "../crew/CrewStore.ts";
+import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
+import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { validateWorkflowDefinition, WorkflowValidationError } from "./WorkflowGraph.ts";
 import {
@@ -40,18 +43,13 @@ import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
   readonly validateDefinition: (
-    projectId: ProjectId,
     definition: WorkflowDefinition,
   ) => Effect.Effect<void, WorkflowServiceError>;
-  readonly ensureStarterDefinition: (
-    projectId: ProjectId,
-  ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
+  readonly ensureStarterDefinition: () => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
   readonly createDefinition: (
-    projectId: ProjectId,
     definition: WorkflowDefinition,
   ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
   readonly reviseDefinition: (
-    projectId: ProjectId,
     definition: WorkflowDefinition,
     expectedRevision: number,
   ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
@@ -110,6 +108,23 @@ export class WorkflowService extends Context.Service<WorkflowService, WorkflowSe
   "t3/workflows/WorkflowService",
 ) {}
 
+/**
+ * Whether `member` may perform workflow role `role` for one feature: its own member made from
+ * the pinned role revision, or, for the project manager role, the project's manager.
+ */
+export const memberFillsRole = (
+  member: CrewMember,
+  role: WorkflowRole,
+  featureId: string,
+  projectId: ProjectId,
+) =>
+  member.projectId === projectId &&
+  (role.roleId === PROJECT_MANAGER_ROLE_ID
+    ? member.id === projectManagerMemberId(projectId) && member.featureId === null
+    : member.featureId === featureId &&
+      member.roleId === role.roleId &&
+      member.roleRevision === role.roleRevision);
+
 const validId = (value: string) => value.trim().length > 0 && value.length <= 128;
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(WorkflowStepEvent));
 const decodeHandoffOutcome = Schema.decodeSync(Schema.fromJsonString(WorkflowHandoffOutcome));
@@ -118,9 +133,9 @@ export const WorkflowServiceLive = Layer.effect(
   WorkflowService,
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
-    const bots = yield* BotStore;
-    const handoffs = yield* BotHandoffStore;
-    const runtime = yield* BotThreadRuntime;
+    const crew = yield* CrewStore;
+    const handoffs = yield* CrewHandoffStore;
+    const runtime = yield* CrewThreadRuntime;
     const workspace = yield* WorkflowWorkspace;
     const stageHandoffs = yield* WorkflowStageHandoffStore;
 
@@ -134,7 +149,7 @@ export const WorkflowServiceLive = Layer.effect(
         const threads = new Map<string, ThreadId>();
         const diffs = new Map<ThreadId, StageThreadDiff>();
         for (const result of results) {
-          const run = result.botRunId === null ? null : yield* bots.getRun(result.botRunId);
+          const run = result.runId === null ? null : yield* crew.getRun(result.runId);
           if (run) threads.set(run.id, run.threadId);
           const threadId = result.threadId ?? run?.threadId;
           if (!threadId) continue;
@@ -144,7 +159,7 @@ export const WorkflowServiceLive = Layer.effect(
         return collectStageOutputs(definition, results, threads, diffs);
       });
 
-    const checkDefinition = (projectId: ProjectId, definition: WorkflowDefinition) =>
+    const checkDefinition = (definition: WorkflowDefinition) =>
       Effect.gen(function* () {
         yield* Effect.try({
           try: () => validateWorkflowDefinition(definition),
@@ -153,30 +168,18 @@ export const WorkflowServiceLive = Layer.effect(
               ? cause
               : new WorkflowValidationError("Invalid workflow definition"),
         });
-        if (!(yield* runtime.projectExists(projectId))) {
-          return yield* Effect.fail(new WorkflowValidationError("Project does not exist"));
-        }
-        for (const assignment of Object.values(definition.bots)) {
-          const source = assignment.template;
-          if (source.kind === "template") {
-            const template = yield* bots.getTemplate(source.id);
-            if (
-              !template?.enabled ||
-              !template.autoCreateForFeature ||
-              template.revision !== source.revision ||
-              (template.projectId !== null && template.projectId !== projectId)
-            ) {
-              return yield* Effect.fail(
-                new WorkflowValidationError(`Feature bot template is unavailable: ${source.id}`),
-              );
-            }
-          } else {
-            const bot = yield* bots.getDefinition(source.id);
-            if (!bot?.enabled || bot.projectId !== projectId || bot.featureId !== null) {
-              return yield* Effect.fail(
-                new WorkflowValidationError(`Project bot is unavailable: ${source.id}`),
-              );
-            }
+        for (const slot of Object.values(definition.roles)) {
+          const role = yield* crew.getRole(slot.roleId);
+          // The project manager slot binds to the project's existing manager rather than a
+          // member made from the pinned revision, so only stage roles check their pin.
+          const manager = slot.roleId === PROJECT_MANAGER_ROLE_ID;
+          if (
+            !role?.enabled ||
+            (!manager && (role.revision !== slot.roleRevision || !role.autoCreateForFeature))
+          ) {
+            return yield* Effect.fail(
+              new WorkflowValidationError(`Workflow role is unavailable: ${slot.roleId}`),
+            );
           }
         }
       });
@@ -225,24 +228,20 @@ export const WorkflowServiceLive = Layer.effect(
 
     return WorkflowService.of({
       validateDefinition: checkDefinition,
-      ensureStarterDefinition: (projectId) =>
+      ensureStarterDefinition: () =>
         Effect.gen(function* () {
-          const existing = yield* store.getLatestDefinition(projectId, STARTER_WORKFLOW_ID);
+          const existing = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
           if (existing !== null) return existing;
           const revisions: Record<string, number> = {};
-          for (const role of ["planner", "designer", "builder", "qa-tester", "reviewer"]) {
-            const template = yield* bots.getTemplate(`template:${role}:${projectId}`);
-            if (template) revisions[role] = template.revision;
-          }
-          const starter = makeStarterWorkflow(projectId, revisions);
-          yield* checkDefinition(projectId, starter);
+          for (const role of yield* crew.listRoles()) revisions[role.id] = role.revision;
+          const starter = makeStarterWorkflow(revisions);
+          yield* checkDefinition(starter);
           const created = yield* store.createDefinition(
-            projectId,
             starter,
             DateTime.formatIso(yield* DateTime.now),
           );
           if (created) return starter;
-          const concurrent = yield* store.getLatestDefinition(projectId, STARTER_WORKFLOW_ID);
+          const concurrent = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
           if (concurrent === null) {
             return yield* Effect.fail(
               new WorkflowValidationError("Starter workflow is unavailable"),
@@ -250,21 +249,21 @@ export const WorkflowServiceLive = Layer.effect(
           }
           return concurrent;
         }),
-      createDefinition: (projectId, definition) =>
+      createDefinition: (definition) =>
         Effect.gen(function* () {
           if (definition.revision !== 1) {
             return yield* Effect.fail(
               new WorkflowValidationError("New workflows start at revision 1"),
             );
           }
-          yield* checkDefinition(projectId, definition);
+          yield* checkDefinition(definition);
           const createdAt = DateTime.formatIso(yield* DateTime.now);
-          if (!(yield* store.createDefinition(projectId, definition, createdAt))) {
+          if (!(yield* store.createDefinition(definition, createdAt))) {
             return yield* Effect.fail(new WorkflowValidationError("Workflow ID is already in use"));
           }
           return definition;
         }),
-      reviseDefinition: (projectId, definition, expectedRevision) =>
+      reviseDefinition: (definition, expectedRevision) =>
         Effect.gen(function* () {
           if (
             !Number.isSafeInteger(expectedRevision) ||
@@ -273,11 +272,9 @@ export const WorkflowServiceLive = Layer.effect(
           ) {
             return yield* Effect.fail(new WorkflowValidationError("Invalid workflow revision"));
           }
-          yield* checkDefinition(projectId, definition);
+          yield* checkDefinition(definition);
           const createdAt = DateTime.formatIso(yield* DateTime.now);
-          if (
-            !(yield* store.updateDefinition(projectId, definition, expectedRevision, createdAt))
-          ) {
+          if (!(yield* store.updateDefinition(definition, expectedRevision, createdAt))) {
             return yield* Effect.fail(
               new WorkflowValidationError("Workflow changed; reload and retry"),
             );
@@ -300,11 +297,14 @@ export const WorkflowServiceLive = Layer.effect(
             }
             return existing;
           }
-          const definition = yield* store.getLatestDefinition(projectId, workflowId);
+          if (!(yield* runtime.projectExists(projectId))) {
+            return yield* Effect.fail(new WorkflowValidationError("Project does not exist"));
+          }
+          const definition = yield* store.getLatestDefinition(workflowId);
           if (definition === null) {
             return yield* Effect.fail(new WorkflowValidationError("Workflow does not exist"));
           }
-          yield* checkDefinition(projectId, definition);
+          yield* checkDefinition(definition);
           const copy = yield* store.copyForFeature(
             featureId,
             projectId,
@@ -348,10 +348,10 @@ export const WorkflowServiceLive = Layer.effect(
           const steps = yield* Effect.forEach(
             [...state.steps.values()],
             ({ modelSelection: _override, ...step }) =>
-              step.botRunId === null
+              step.runId === null
                 ? Effect.succeed(step)
-                : bots
-                    .getRun(step.botRunId)
+                : crew
+                    .getRun(step.runId)
                     .pipe(Effect.map((run) => ({ ...step, threadId: run?.threadId ?? null }))),
             { concurrency: 8 },
           );
@@ -465,8 +465,8 @@ export const WorkflowServiceLive = Layer.effect(
             ? copy.definition.steps[event.stepId]
             : undefined;
           if (event.kind === "started" && step?.type === "task") {
-            const run = event.botRunId ? yield* bots.getRun(event.botRunId) : null;
-            const bot = run ? yield* bots.getDefinition(run.botId) : null;
+            const run = event.runId ? yield* crew.getRun(event.runId) : null;
+            const member = run ? yield* crew.getMember(run.memberId) : null;
             const liveHandoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
             // Cancellation can arrive before the dispatcher records its start. Replay
             // the original dispatch receipt, then its cancellation, in that order.
@@ -474,26 +474,21 @@ export const WorkflowServiceLive = Layer.effect(
               liveHandoff?.status === "cancelled"
                 ? yield* handoffEvidence(event.sourceId, "queued", run?.id)
                 : liveHandoff;
-            const source = copy.definition.bots[step.bot]?.template;
+            const role = copy.definition.roles[step.role];
             if (
               !run ||
-              !bot ||
+              !member ||
               !handoff ||
-              !source ||
+              !role ||
               run.projectId !== copy.projectId ||
-              bot.projectId !== copy.projectId ||
               handoff.projectId !== copy.projectId ||
               handoff.targetRunId !== run.id ||
-              handoff.targetBotId !== bot.id ||
+              handoff.targetMemberId !== member.id ||
               handoff.status === "cancelled" ||
-              (source.kind === "template"
-                ? bot.featureId !== featureId ||
-                  bot.templateId !== source.id ||
-                  bot.templateRevision !== source.revision
-                : bot.id !== source.id || bot.featureId !== null)
+              !memberFillsRole(member, role, featureId, copy.projectId)
             ) {
               return yield* Effect.fail(
-                new WorkflowTransitionError("Step run does not belong to its assigned bot"),
+                new WorkflowTransitionError("Step run does not belong to its assigned crew member"),
               );
             }
           }
@@ -502,9 +497,9 @@ export const WorkflowServiceLive = Layer.effect(
             event.sourceKind === "handoff" &&
             step?.type === "task"
           ) {
-            const runId = current.steps.get(event.stepId)?.botRunId;
+            const runId = current.steps.get(event.stepId)?.runId;
             const handoff = yield* handoffEvidence(event.sourceId, "completed", runId);
-            const run = runId ? yield* bots.getRun(runId) : null;
+            const run = runId ? yield* crew.getRun(runId) : null;
             if (
               !handoff ||
               !run ||
@@ -512,10 +507,10 @@ export const WorkflowServiceLive = Layer.effect(
               !handoff.responseText?.trim() ||
               handoff.projectId !== copy.projectId ||
               handoff.targetRunId !== runId ||
-              handoff.targetBotId !== run.botId
+              handoff.targetMemberId !== run.memberId
             ) {
               return yield* Effect.fail(
-                new WorkflowTransitionError("Step completion needs its completed bot handoff"),
+                new WorkflowTransitionError("Step completion needs its completed crew handoff"),
               );
             }
             const recorded = yield* Effect.try({
@@ -528,7 +523,7 @@ export const WorkflowServiceLive = Layer.effect(
               recorded.summary.trim() !== event.detail?.trim()
             ) {
               return yield* Effect.fail(
-                new WorkflowTransitionError("Recorded outcome does not match the bot handoff"),
+                new WorkflowTransitionError("Recorded outcome does not match the crew handoff"),
               );
             }
           }
@@ -536,7 +531,7 @@ export const WorkflowServiceLive = Layer.effect(
             (event.kind === "question" || event.kind === "answered" || event.kind === "failed") &&
             event.sourceKind === "handoff"
           ) {
-            const runId = current.steps.get(event.stepId)?.botRunId;
+            const runId = current.steps.get(event.stepId)?.runId;
             const handoff = yield* handoffEvidence(
               event.sourceId,
               event.kind === "question"
@@ -547,13 +542,13 @@ export const WorkflowServiceLive = Layer.effect(
               runId,
               event.detail,
             );
-            const run = runId ? yield* bots.getRun(runId) : null;
+            const run = runId ? yield* crew.getRun(runId) : null;
             if (
               !handoff ||
               !run ||
               handoff.projectId !== copy.projectId ||
               handoff.targetRunId !== runId ||
-              handoff.targetBotId !== run.botId ||
+              handoff.targetMemberId !== run.memberId ||
               (event.kind === "question" &&
                 (handoff.status !== "needs-input" ||
                   handoff.questionText?.trim() !== event.detail?.trim())) ||
@@ -566,27 +561,23 @@ export const WorkflowServiceLive = Layer.effect(
                     handoff.responseText?.trim() !== event.detail?.trim())))
             ) {
               return yield* Effect.fail(
-                new WorkflowTransitionError("Step event does not match its bot handoff"),
+                new WorkflowTransitionError("Step event does not match its crew handoff"),
               );
             }
             if ((event.kind === "question" || event.kind === "answered") && step?.type === "task") {
-              const supervisorId = copy.definition.bots[step.bot]?.supervisor;
-              const supervisorSource =
+              const supervisorId = copy.definition.roles[step.role]?.supervisor;
+              const supervisor =
                 supervisorId === null || supervisorId === undefined
                   ? null
-                  : copy.definition.bots[supervisorId]?.template;
-              if (supervisorSource) {
-                const sourceRun = yield* bots.getRun(handoff.sourceRunId);
-                const sourceBot = sourceRun ? yield* bots.getDefinition(sourceRun.botId) : null;
+                  : copy.definition.roles[supervisorId];
+              if (supervisor) {
+                const sourceRun = yield* crew.getRun(handoff.sourceRunId);
+                const sourceMember = sourceRun ? yield* crew.getMember(sourceRun.memberId) : null;
                 if (
                   !sourceRun ||
-                  !sourceBot ||
+                  !sourceMember ||
                   sourceRun.projectId !== copy.projectId ||
-                  (supervisorSource.kind === "template"
-                    ? sourceBot.featureId !== featureId ||
-                      sourceBot.templateId !== supervisorSource.id ||
-                      sourceBot.templateRevision !== supervisorSource.revision
-                    : sourceBot.id !== supervisorSource.id || sourceBot.featureId !== null)
+                  !memberFillsRole(sourceMember, supervisor, featureId, copy.projectId)
                 ) {
                   return yield* Effect.fail(
                     new WorkflowTransitionError("Question did not reach the assigned supervisor"),
@@ -596,7 +587,7 @@ export const WorkflowServiceLive = Layer.effect(
             }
           }
           if (event.kind === "answered" && event.sourceKind === "decision") {
-            const runId = current.steps.get(event.stepId)?.botRunId;
+            const runId = current.steps.get(event.stepId)?.runId;
             const handoff = yield* handoffEvidence(event.sourceId, "needs-input", runId);
             if (!handoff || handoff.projectId !== copy.projectId) {
               return yield* Effect.fail(

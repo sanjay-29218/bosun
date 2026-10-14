@@ -201,7 +201,7 @@ export function FeaturesPage(props: {
   // The Workflow toggle draws one workflow's stages; definitions load only while it is on.
   const workflowToggle = scopePreferences.workflow && !needsYou;
   const selectedWorkflowId = scopePreferences.workflowId ?? mostUsedWorkflowId(board.cards);
-  // Definitions come from a project that runs the chosen workflow; one per environment suffices.
+  // Workflows are an environment-wide library; read them where the chosen workflow runs.
   const definitionCard = board.cards.find((card) => card.workflow.id === selectedWorkflowId);
   const definitionSource =
     scopedProject ?? (definitionCard ? projectFor(definitionCard) : null) ?? projects[0] ?? null;
@@ -209,7 +209,7 @@ export function FeaturesPage(props: {
     workflowToggle && definitionSource
       ? workflowsEnvironment.definitions({
           environmentId: definitionSource.environmentId,
-          input: { projectId: definitionSource.id },
+          input: {},
         })
       : null,
   );
@@ -281,7 +281,7 @@ export function FeaturesPage(props: {
     if (withStarter) {
       const result = await ensureStarter({
         environmentId: newFeatureProject.environmentId,
-        input: { projectId: newFeatureProject.id },
+        input: {},
       });
       if (result._tag !== "Success") return;
     }
@@ -483,8 +483,8 @@ export function FeaturesPage(props: {
       <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-16 text-center">
         <h2 className="text-lg font-medium">No features yet</h2>
         <p className="text-sm text-muted-foreground">
-          A feature is a brief that a crew of bots takes through a workflow: plan, design, build,
-          verify, review. You approve the gates.
+          A feature is a brief that your crew takes through a workflow: plan, design, build, verify,
+          review. You approve the gates.
         </p>
         <div className="flex gap-2">
           <Button onClick={() => void startNewFeature(true)} disabled={!newFeatureProject}>

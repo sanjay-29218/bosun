@@ -31,7 +31,7 @@ function needsYouSummary(item: NeedsYouItem): string {
         : "Your call";
     case "input":
       return card.detail
-        ? `${stageLabel(card.stage?.role ?? "bot")} asks: “${card.detail}”`
+        ? `${stageLabel(card.stage?.role ?? "crew")} asks: “${card.detail}”`
         : "A question is waiting";
     default:
       return stage;

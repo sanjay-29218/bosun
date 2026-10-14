@@ -54,28 +54,25 @@ export interface WorkflowStoreShape {
     PersistenceSqlError
   >;
   readonly createDefinition: (
-    projectId: ProjectId,
     definition: WorkflowDefinitionType,
     createdAt: string,
   ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly updateDefinition: (
-    projectId: ProjectId,
     definition: WorkflowDefinitionType,
     expectedRevision: number,
     createdAt: string,
   ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly getDefinition: (
-    projectId: ProjectId,
     id: string,
     revision: number,
   ) => Effect.Effect<WorkflowDefinitionType | null, PersistenceSqlError>;
   readonly getLatestDefinition: (
-    projectId: ProjectId,
     id: string,
   ) => Effect.Effect<WorkflowDefinitionType | null, PersistenceSqlError>;
-  readonly listLatestDefinitions: (
-    projectId: ProjectId,
-  ) => Effect.Effect<ReadonlyArray<WorkflowDefinitionType>, PersistenceSqlError>;
+  readonly listLatestDefinitions: () => Effect.Effect<
+    ReadonlyArray<WorkflowDefinitionType>,
+    PersistenceSqlError
+  >;
   readonly copyForFeature: (
     featureId: string,
     projectId: ProjectId,
@@ -123,10 +120,10 @@ export const WorkflowStoreLive = Layer.effect(
     const queryError = toPersistenceSqlError("WorkflowStore.query");
     const decodeError = toPersistenceSqlError("WorkflowStore.decode");
 
-    const getDefinition: WorkflowStoreShape["getDefinition"] = (projectId, id, revision) =>
+    const getDefinition: WorkflowStoreShape["getDefinition"] = (id, revision) =>
       sql<DefinitionRow>`
         SELECT definition_json AS definitionJson FROM workflow_definition_revisions
-        WHERE project_id = ${projectId} AND id = ${id} AND revision = ${revision}
+        WHERE id = ${id} AND revision = ${revision}
       `.pipe(
         Effect.mapError(queryError),
         Effect.flatMap((rows) =>
@@ -137,13 +134,12 @@ export const WorkflowStoreLive = Layer.effect(
         ),
       );
 
-    const getLatestDefinition: WorkflowStoreShape["getLatestDefinition"] = (projectId, id) =>
+    const getLatestDefinition: WorkflowStoreShape["getLatestDefinition"] = (id) =>
       sql<DefinitionRow>`
         SELECT r.definition_json AS definitionJson
         FROM workflow_definition_revisions AS r
-        JOIN workflow_definition_heads AS h
-          ON h.project_id = r.project_id AND h.id = r.id AND h.revision = r.revision
-        WHERE h.project_id = ${projectId} AND h.id = ${id}
+        JOIN workflow_definition_heads AS h ON h.id = r.id AND h.revision = r.revision
+        WHERE h.id = ${id}
       `.pipe(
         Effect.mapError(queryError),
         Effect.flatMap((rows) =>
@@ -177,41 +173,38 @@ export const WorkflowStoreLive = Layer.effect(
           Effect.mapError(queryError),
           Effect.map((rows) => rows[0] ?? null),
         ),
-      createDefinition: (projectId, definition, createdAt) =>
+      createDefinition: (definition, createdAt) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
               const inserted = yield* sql<{ readonly id: string }>`
-                INSERT OR IGNORE INTO workflow_definition_heads (project_id, id, revision)
-                VALUES (${projectId}, ${definition.id}, ${definition.revision})
+                INSERT OR IGNORE INTO workflow_definition_heads (id, revision)
+                VALUES (${definition.id}, ${definition.revision})
                 RETURNING id
               `;
               if (inserted.length === 0) return false;
               yield* sql`
-                INSERT INTO workflow_definition_revisions
-                  (project_id, id, revision, definition_json, created_at)
-                VALUES (${projectId}, ${definition.id}, ${definition.revision},
+                INSERT INTO workflow_definition_revisions (id, revision, definition_json, created_at)
+                VALUES (${definition.id}, ${definition.revision},
                   ${encodeDefinition(definition)}, ${createdAt})
               `;
               return true;
             }),
           )
           .pipe(Effect.mapError(queryError)),
-      updateDefinition: (projectId, definition, expectedRevision, createdAt) =>
+      updateDefinition: (definition, expectedRevision, createdAt) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
               const updated = yield* sql<{ readonly id: string }>`
                 UPDATE workflow_definition_heads SET revision = ${definition.revision}
-                WHERE project_id = ${projectId} AND id = ${definition.id}
-                  AND revision = ${expectedRevision}
+                WHERE id = ${definition.id} AND revision = ${expectedRevision}
                 RETURNING id
               `;
               if (updated.length === 0) return false;
               yield* sql`
-                INSERT INTO workflow_definition_revisions
-                  (project_id, id, revision, definition_json, created_at)
-                VALUES (${projectId}, ${definition.id}, ${definition.revision},
+                INSERT INTO workflow_definition_revisions (id, revision, definition_json, created_at)
+                VALUES (${definition.id}, ${definition.revision},
                   ${encodeDefinition(definition)}, ${createdAt})
               `;
               return true;
@@ -220,13 +213,11 @@ export const WorkflowStoreLive = Layer.effect(
           .pipe(Effect.mapError(queryError)),
       getDefinition,
       getLatestDefinition,
-      listLatestDefinitions: (projectId) =>
+      listLatestDefinitions: () =>
         sql<DefinitionRow>`
           SELECT r.definition_json AS definitionJson
           FROM workflow_definition_revisions AS r
-          JOIN workflow_definition_heads AS h
-            ON h.project_id = r.project_id AND h.id = r.id AND h.revision = r.revision
-          WHERE h.project_id = ${projectId}
+          JOIN workflow_definition_heads AS h ON h.id = r.id AND h.revision = r.revision
           ORDER BY h.id
         `.pipe(
           Effect.mapError(queryError),
@@ -238,7 +229,7 @@ export const WorkflowStoreLive = Layer.effect(
         sql
           .withTransaction(
             Effect.gen(function* () {
-              const definition = yield* getDefinition(projectId, workflowId, revision);
+              const definition = yield* getDefinition(workflowId, revision);
               if (definition === null) return null;
               yield* sql`
                 INSERT OR IGNORE INTO feature_workflows

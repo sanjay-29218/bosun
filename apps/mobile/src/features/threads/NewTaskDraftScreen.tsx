@@ -239,7 +239,7 @@ export function NewTaskDraftScreen(props: {
     crewEnabled && selectedProject
       ? workflowsEnvironment.definitions({
           environmentId: selectedProject.environmentId,
-          input: { projectId: selectedProject.id },
+          input: {},
         })
       : null,
   ).data;

@@ -18,22 +18,22 @@ const validOutputPath = (value: string) =>
   !value.includes("\\") &&
   value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
 
-/** Validates published bot assignments and the single-path outcome graph. */
+/** Validates published role assignments and the single-path outcome graph. */
 export const validateWorkflowDefinition = (definition: WorkflowDefinition): void => {
   if (!validName(definition.id, 128) || !validName(definition.name, 200)) {
     throw new WorkflowValidationError("Workflow ID and name are required and must be bounded");
   }
   if (
-    definition.schemaVersion !== 1 ||
+    definition.schemaVersion !== 2 ||
     !Number.isSafeInteger(definition.revision) ||
     definition.revision < 1
   ) {
     throw new WorkflowValidationError("Invalid workflow version");
   }
-  const botIds = Object.keys(definition.bots);
+  const roleIds = Object.keys(definition.roles);
   const stepIds = Object.keys(definition.steps);
-  if (botIds.length < 1 || botIds.length > 32 || stepIds.length < 2 || stepIds.length > 64) {
-    throw new WorkflowValidationError("Workflow needs 1-32 bots and 2-64 steps");
+  if (roleIds.length < 1 || roleIds.length > 32 || stepIds.length < 2 || stepIds.length > 64) {
+    throw new WorkflowValidationError("Workflow needs 1-32 roles and 2-64 steps");
   }
   const { maxAttemptsPerExecution, maxStepExecutions, retries } = definition.defaults;
   if (
@@ -43,25 +43,22 @@ export const validateWorkflowDefinition = (definition: WorkflowDefinition): void
   ) {
     throw new WorkflowValidationError("Invalid workflow execution limits");
   }
-  for (const [id, bot] of Object.entries(definition.bots)) {
-    if (!validId(id) || !validName(bot.template.id, 128)) {
-      throw new WorkflowValidationError(`Invalid workflow bot: ${id}`);
+  for (const [id, role] of Object.entries(definition.roles)) {
+    if (!validId(id) || !validName(role.roleId, 128)) {
+      throw new WorkflowValidationError(`Invalid workflow role: ${id}`);
     }
-    if (
-      bot.template.kind === "template" &&
-      (!Number.isSafeInteger(bot.template.revision) || bot.template.revision < 1)
-    ) {
-      throw new WorkflowValidationError(`Invalid template revision for ${id}`);
+    if (!Number.isSafeInteger(role.roleRevision) || role.roleRevision < 1) {
+      throw new WorkflowValidationError(`Invalid role revision for ${id}`);
     }
-    if (bot.supervisor !== null && !Object.hasOwn(definition.bots, bot.supervisor)) {
+    if (role.supervisor !== null && !Object.hasOwn(definition.roles, role.supervisor)) {
       throw new WorkflowValidationError(`Unknown supervisor for ${id}`);
     }
     const visited = new Set<string>([id]);
-    let supervisor = bot.supervisor;
+    let supervisor = role.supervisor;
     while (supervisor !== null) {
       if (visited.has(supervisor)) throw new WorkflowValidationError("Supervisor cycle");
       visited.add(supervisor);
-      supervisor = definition.bots[supervisor]?.supervisor ?? null;
+      supervisor = definition.roles[supervisor]?.supervisor ?? null;
     }
   }
   if (!validId(definition.start) || definition.steps[definition.start]?.type !== "task") {
@@ -73,8 +70,8 @@ export const validateWorkflowDefinition = (definition: WorkflowDefinition): void
   for (const [id, step] of Object.entries(definition.steps)) {
     if (!validId(id)) throw new WorkflowValidationError(`Invalid step ID: ${id}`);
     if (step.type === "end") continue;
-    if (!Object.hasOwn(definition.bots, step.bot) || !validName(step.task, 8_000)) {
-      throw new WorkflowValidationError(`Invalid task or bot in step ${id}`);
+    if (!Object.hasOwn(definition.roles, step.role) || !validName(step.task, 8_000)) {
+      throw new WorkflowValidationError(`Invalid task or role in step ${id}`);
     }
     const routes = Object.entries(step.next);
     if (routes.length < 1 || routes.length > 8) {

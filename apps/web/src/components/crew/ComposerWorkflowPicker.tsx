@@ -3,7 +3,7 @@ import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { UsersIcon, WorkflowIcon } from "lucide-react";
 
 import type { DraftId } from "../../composerDraftStore";
-import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { useServerConfigs } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
@@ -58,7 +58,7 @@ export function useDraftWorkflow(input: {
     supported && input.projectId
       ? workflowsEnvironment.definitions({
           environmentId: input.environmentId,
-          input: { projectId: input.projectId },
+          input: {},
         })
       : null,
   ).data;
@@ -130,7 +130,7 @@ export function ComposerWorkflowPicker(props: {
 
 /**
  * Stands in for the model picker while a workflow is picked: every role brings its own model,
- * set in the project's crew settings.
+ * set in Crew settings.
  */
 export function ComposerCrewControl(props: {
   readonly environmentId: EnvironmentId;
@@ -141,14 +141,9 @@ export function ComposerCrewControl(props: {
 }) {
   const menuProps = useComposerMenuProps();
   const { workflow } = useDraftWorkflow(props);
-  const templates = useEnvironmentQuery(
-    workflow
-      ? botsEnvironment.configuration({
-          environmentId: props.environmentId,
-          input: { projectId: props.projectId },
-        })
-      : null,
-  ).data?.templates;
+  const roles = useEnvironmentQuery(
+    workflow ? rolesEnvironment.roles({ environmentId: props.environmentId, input: {} }) : null,
+  ).data;
   if (!workflow) return null;
   return (
     <Menu>
@@ -160,17 +155,14 @@ export function ComposerCrewControl(props: {
       <MenuPopup {...menuProps} side="top" align="start">
         <MenuGroup>
           <MenuGroupLabel>{workflow.name} crew</MenuGroupLabel>
-          {Object.entries(workflow.bots).map(([role, bot]) => {
-            const template =
-              bot.template.kind === "template"
-                ? templates?.find((item) => item.id === bot.template.id)
-                : undefined;
+          {Object.entries(workflow.roles).map(([slot, entry]) => {
+            const role = roles?.find((item) => item.id === entry.roleId);
             return (
-              <MenuItem key={role} disabled>
+              <MenuItem key={slot} disabled>
                 <span className="flex min-w-0 flex-1 justify-between gap-4">
-                  <span>{template?.name ?? formatStageName(role)}</span>
+                  <span>{role?.name ?? formatStageName(slot)}</span>
                   <span className="text-xs text-muted-foreground">
-                    {template?.modelSelection.model ?? "Project bot"}
+                    {role?.modelSelection.model ?? ""}
                   </span>
                 </span>
               </MenuItem>

@@ -31,7 +31,7 @@ import { RequestActionButton } from "../threads/RequestActionButton";
 /** What the composer does while a Crew card is up: its text becomes the card's note. */
 export interface CrewComposerMode {
   readonly placeholder: string;
-  /** Set when sending a message would reach a bot that isn't waiting for one. */
+  /** Set when sending a message would reach a crew member that isn't waiting for one. */
   readonly sendBlockedReason: string | null;
 }
 

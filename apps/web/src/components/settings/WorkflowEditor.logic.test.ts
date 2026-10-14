@@ -1,7 +1,7 @@
 import {
-  ProjectId,
+  PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
-  type BotTemplateConfig,
+  type RoleConfig,
   type WorkflowDefinition,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -19,13 +19,10 @@ import {
   setStageOutcomes,
 } from "./WorkflowEditor.logic";
 
-const projectId = ProjectId.make("project-1");
-
-function template(role: string, overrides: Partial<BotTemplateConfig> = {}): BotTemplateConfig {
+function role(name: string, overrides: Partial<RoleConfig> = {}): RoleConfig {
   return {
-    id: `template:${role}:${projectId}`,
-    projectId,
-    name: role.charAt(0).toUpperCase() + role.slice(1),
+    id: `role:${name}`,
+    name: name.charAt(0).toUpperCase() + name.slice(1),
     instructions: "Do the work",
     allowedTools: [],
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
@@ -38,44 +35,42 @@ function template(role: string, overrides: Partial<BotTemplateConfig> = {}): Bot
 }
 
 function workflow(): WorkflowDefinition {
-  const role = (name: string) => ({
-    template: { kind: "template" as const, id: `template:${name}:${projectId}`, revision: 1 },
+  const slot = (name: string) => ({
+    roleId: `role:${name}`,
+    roleRevision: 1,
     supervisor: "manager",
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: "feature-delivery",
     name: "Feature delivery",
     revision: 3,
     start: "plan",
-    bots: {
-      manager: {
-        template: { kind: "existing-project-bot", id: `bot-manager:${projectId}` },
-        supervisor: null,
-      },
-      planner: role("planner"),
-      builder: role("builder"),
-      reviewer: role("reviewer"),
+    roles: {
+      manager: { roleId: PROJECT_MANAGER_ROLE_ID, roleRevision: 1, supervisor: null },
+      planner: slot("planner"),
+      builder: slot("builder"),
+      reviewer: slot("reviewer"),
     },
     steps: {
       review: {
         type: "task",
-        bot: "reviewer",
+        role: "reviewer",
         task: "Review",
         next: { approved: "end", changes_requested: "build" },
         limits: { changes_requested: 3 },
         receives: { files: ["plan.md"], diffs: ["build"] },
       },
-      build: { type: "task", bot: "builder", task: "Build", next: { built: "review" } },
+      build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
       plan: {
         type: "task",
-        bot: "planner",
+        role: "planner",
         task: "Plan",
         next: { ready: "build" },
         gate: true,
         outputs: ["plan.md"],
       },
-      orphan: { type: "task", bot: "builder", task: "Unused", next: { done: "end" } },
+      orphan: { type: "task", role: "builder", task: "Unused", next: { done: "end" } },
       end: { type: "end" },
     },
     defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 30 },
@@ -103,24 +98,23 @@ describe("describeStageInputs", () => {
 describe("refreshWorkflowRoles", () => {
   it("moves edited roles to their current revision and flags turned-off roles", () => {
     const result = refreshWorkflowRoles(workflow(), [
-      template("planner", { revision: 4 }),
-      template("builder", { enabled: false }),
-      template("reviewer"),
+      role("planner", { revision: 4 }),
+      role("builder", { enabled: false }),
+      role("reviewer"),
     ]);
     expect(result.issues).toEqual([
-      { botId: "planner", name: "Planner", reason: "changed" },
-      { botId: "builder", name: "Builder", reason: "unavailable" },
+      { slot: "planner", name: "Planner", reason: "changed" },
+      { slot: "builder", name: "Builder", reason: "unavailable" },
     ]);
-    const planner = result.definition.bots.planner!.template;
-    expect(planner.kind === "template" && planner.revision).toBe(4);
+    expect(result.definition.roles.planner!.roleRevision).toBe(4);
   });
 
   it("returns the same definition when every role is current", () => {
     const definition = workflow();
     const result = refreshWorkflowRoles(definition, [
-      template("planner"),
-      template("builder"),
-      template("reviewer"),
+      role("planner"),
+      role("builder"),
+      role("reviewer"),
     ]);
     expect(result.definition).toBe(definition);
     expect(result.issues).toEqual([]);
@@ -154,11 +148,11 @@ describe("stage edits", () => {
   });
 
   it("adds a role under the Manager and prunes roles no stage uses", () => {
-    const { definition, botId } = ensureWorkflowRole(workflow(), template("designer"));
-    expect(botId).toBe("designer");
-    expect(definition.bots.designer?.supervisor).toBe("manager");
+    const { definition, slot } = ensureWorkflowRole(workflow(), role("designer"));
+    expect(slot).toBe("designer");
+    expect(definition.roles.designer?.supervisor).toBe("manager");
     // The Manager stays: other roles answer to it.
-    expect(Object.keys(pruneUnusedRoles(definition).bots)).toEqual([
+    expect(Object.keys(pruneUnusedRoles(definition).roles)).toEqual([
       "manager",
       "planner",
       "builder",
@@ -168,13 +162,13 @@ describe("stage edits", () => {
 });
 
 describe("ensureWorkflowRole", () => {
-  it("keeps generated bot ids within the server's 80 characters, suffix included", () => {
-    const long = template("planner", { id: "template:long", name: "Very long role ".repeat(10) });
+  it("keeps generated slot ids within the server's 80 characters, suffix included", () => {
+    const long = role("planner", { id: "role:long", name: "Very long role ".repeat(10) });
     const first = ensureWorkflowRole(workflow(), long);
-    const second = ensureWorkflowRole(first.definition, { ...long, id: "template:long-2" });
-    expect(first.botId.length).toBeLessThanOrEqual(80);
-    expect(second.botId).toBe(`${first.botId}-2`);
-    expect(second.botId.length).toBeLessThanOrEqual(80);
+    const second = ensureWorkflowRole(first.definition, { ...long, id: "role:long-2" });
+    expect(first.slot.length).toBeLessThanOrEqual(80);
+    expect(second.slot).toBe(`${first.slot}-2`);
+    expect(second.slot.length).toBeLessThanOrEqual(80);
   });
 });
 

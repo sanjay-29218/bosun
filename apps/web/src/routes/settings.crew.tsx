@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { CrewSettings } from "../components/settings/CrewSettings";
-
+// Crew settings became Roles; keep old links working.
 export const Route = createFileRoute("/settings/crew")({
-  component: CrewSettings,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/settings/roles", search, replace: true });
+  },
 });
