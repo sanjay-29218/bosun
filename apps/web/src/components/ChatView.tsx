@@ -2640,15 +2640,13 @@ export default function ChatView(props: ChatViewProps) {
     !isServerThread && activeProject
       ? deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings)
       : undefined;
-  const handleEditCrewWorkflow = useCallback(() => {
-    if (!activeProject) return;
-    void navigate({
-      to: "/projects/$projectKey",
-      params: {
-        projectKey: deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings),
-      },
-    });
-  }, [activeProject, navigate, projectGroupingSettings]);
+  // Workflows and roles are environment-wide settings, not a project's.
+  const handleManageWorkflows = useCallback(() => {
+    void navigate({ to: "/settings/workflows", search: { machine: environmentId } });
+  }, [environmentId, navigate]);
+  const handleEditCrew = useCallback(() => {
+    void navigate({ to: "/settings/roles", search: { machine: environmentId } });
+  }, [environmentId, navigate]);
   // A new thread with a workflow picked starts a feature; its first message is the brief.
   const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
   const draftWorkflow = useDraftWorkflow({ environmentId, projectId: draftProjectId, draftId });
@@ -2663,11 +2661,11 @@ export default function ChatView(props: ChatViewProps) {
               projectId={draftProjectId}
               draftId={draftId}
               size={size}
-              onManageWorkflows={handleEditCrewWorkflow}
+              onManageWorkflows={handleManageWorkflows}
             />
           )
         : undefined,
-    [draftId, draftProjectId, draftWorkflow.supported, environmentId, handleEditCrewWorkflow],
+    [draftId, draftProjectId, draftWorkflow.supported, environmentId, handleManageWorkflows],
   );
   const draftWorkflowId = draftWorkflow.workflow?.id ?? null;
   const renderCrewControl = useMemo(
@@ -2679,11 +2677,11 @@ export default function ChatView(props: ChatViewProps) {
               projectId={draftProjectId}
               draftId={draftId}
               size={size}
-              onEditCrew={handleEditCrewWorkflow}
+              onEditCrew={handleEditCrew}
             />
           )
         : null,
-    [draftId, draftProjectId, draftWorkflowId, environmentId, handleEditCrewWorkflow],
+    [draftId, draftProjectId, draftWorkflowId, environmentId, handleEditCrew],
   );
   // The feature a draft created, kept until it starts, so retrying a failed start (or a
   // second Enter) reuses it instead of creating another. Create is idempotent per id.
@@ -11368,7 +11366,7 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "feature" ? (
-      <FeaturePanel onEditWorkflow={handleEditCrewWorkflow} />
+      <FeaturePanel onEditWorkflow={handleManageWorkflows} />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
         <DevicePanel
