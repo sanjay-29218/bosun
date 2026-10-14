@@ -13,7 +13,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { readMainView, useShowMainView } from "../components/sidebar/mainAppLocation";
 import {
+  readActiveEnvironmentId,
   useAllEnvironmentShellsBootstrapped,
   useProjects,
   useThreadShells,
@@ -37,13 +39,15 @@ function ChatIndexRouteView() {
 /**
  * Landing on the index route drops straight into a draft thread for the most
  * recently active project, so the first screen is a prompt instead of a dead
- * end. Falls back to an add-project hero when no project exists yet.
+ * end, or onto the board when the environment last showed it. Falls back to an
+ * add-project hero when no project exists yet.
  */
 function IndexDraftLanding() {
   const projects = useProjects();
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
+  const showMainView = useShowMainView();
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
 
@@ -60,13 +64,17 @@ function IndexDraftLanding() {
       return;
     }
     startingRef.current = true;
+    if (readMainView(readActiveEnvironmentId()) === "board") {
+      void showMainView("board", { replace: true });
+      return;
+    }
     void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
       replace: true,
     }).catch(() => {
       startingRef.current = false;
       setStartState((state) => ({ ...state, failed: true }));
     });
-  }, [handleNewThread, mostRecentProject, startState.retryRequest]);
+  }, [handleNewThread, mostRecentProject, showMainView, startState.retryRequest]);
 
   if (!bootstrapped) {
     return null;

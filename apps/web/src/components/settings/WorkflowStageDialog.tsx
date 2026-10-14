@@ -38,6 +38,7 @@ type ReceivesMode = "all" | "picked";
 export function WorkflowStageDialog({
   definition,
   stepId,
+  after: initialAfter,
   roles,
   roleName,
   stageName,
@@ -47,6 +48,8 @@ export function WorkflowStageDialog({
   readonly definition: WorkflowDefinition;
   /** Null adds a stage. */
   readonly stepId: string | null;
+  /** Where an added stage goes; the last stage when absent. */
+  readonly after?: string | undefined;
   readonly roles: readonly RoleConfig[];
   readonly roleName: (slot: string) => string;
   readonly stageName: (stepId: string) => string;
@@ -78,7 +81,11 @@ export function WorkflowStageDialog({
       })()
     : (roleOptions.find((option) => option.value.startsWith("role:"))?.value ?? "");
   const [id, setId] = useState("");
-  const [after, setAfter] = useState(stages.at(-1) ?? definition.start);
+  const [after, setAfter] = useState(
+    initialAfter && stages.includes(initialAfter)
+      ? initialAfter
+      : (stages.at(-1) ?? definition.start),
+  );
   const [role, setRole] = useState(currentRole);
   const [task, setTask] = useState(step?.task ?? "");
   const [outputs, setOutputs] = useState(step?.outputs?.join(", ") ?? "");

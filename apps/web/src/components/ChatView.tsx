@@ -2728,7 +2728,7 @@ export default function ChatView(props: ChatViewProps) {
       pendingCrewFeatureRef.current = null;
       promptRef.current = "";
       setComposerDraftPrompt(composerDraftTarget, "");
-      useCrewDraftStore.getState().setWorkflow(draftId, null);
+      useCrewDraftStore.getState().clearWorkflow(draftId);
       const snapshot = started.value;
       const firstThreadId = snapshot.steps.find(
         (step) => step.id === snapshot.activeStepId,

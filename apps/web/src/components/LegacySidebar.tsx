@@ -207,6 +207,7 @@ import {
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
@@ -3072,6 +3073,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         // Lifted above the stage backdrop, whose fade bleeds below the
         // header and would otherwise paint across the search row's outline.
         <SidebarGroup className="z-[1]">
+          <SidebarViewToggle />
           <SidebarMenu>
             <SidebarMenuItem>
               <CommandDialogTrigger
