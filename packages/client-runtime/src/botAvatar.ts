@@ -154,6 +154,20 @@ const HEADS: Record<
     r: 14,
     face: { x: 17, y: 29, width: 30, height: 17 },
   },
+  // A rounded triangle and a rounded diamond, from flat character sets.
+  peak: {
+    box: { x: 9, y: 12, width: 46, height: 43 },
+    r: 0,
+    face: { x: 18, y: 35, width: 28, height: 13 },
+    outline: "M27.6 16.4Q32 9.4 36.4 16.4L53.4 46.4Q57.4 55 48 55H16Q6.6 55 10.6 46.4Z",
+  },
+  gem: {
+    box: { x: 9, y: 9, width: 46, height: 46 },
+    r: 0,
+    face: { x: 18, y: 25.5, width: 28, height: 13 },
+    outline:
+      "M27.4 12.4Q32 8 36.6 12.4L51.6 27.4Q56 32 51.6 36.6L36.6 51.6Q32 56 27.4 51.6L12.4 36.6Q8 32 12.4 27.4Z",
+  },
 };
 
 /** The avatar as shapes to paint in order. */
@@ -161,14 +175,21 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
   const { box, r, face, outline } = HEADS[avatar.head];
   const shapes: BotAvatarShape[] = [];
   const top = box.y;
+  // A flat avatar is one solid color: no gradient, shine or shadow.
+  const flat = avatar.face === "flat";
+  const skin: BotAvatarPaint = flat ? "base" : "head";
+  const bareFace = avatar.face === "bare" || flat;
   // Eyes glow on a visor and are inked on a plate or the bare head.
   const iris: BotAvatarPaint = avatar.face === "visor" ? "glow" : "ink";
-  const eyeY = face.y + face.height / 2 + (avatar.face === "bare" ? -1 : 0);
-  const spread = Math.min(8, face.width / 4);
-  const [left, right] = [32 - spread, 32 + spread];
+  const eyeY = face.y + face.height / 2 + (bareFace ? -1 : 0) + (flat ? -2 : 0);
+  // Flat eyes sit close together and glance aside, as flat characters do.
+  const spread = flat ? 4.4 : Math.min(8, face.width / 4);
+  const center = flat ? 37 : 32;
+  const [left, right] = [center - spread, center + spread];
 
   const knob = (cx: number, cy: number, radius: number) => {
-    shapes.push({ kind: "ellipse", cx, cy, rx: radius, ry: radius, fill: "head" });
+    shapes.push({ kind: "ellipse", cx, cy, rx: radius, ry: radius, fill: skin });
+    if (flat) return;
     shapes.push({
       kind: "ellipse",
       cx: cx - radius * 0.35,
@@ -181,18 +202,19 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
   };
 
   // Behind the head: its shadow, cat ears, side pods and headphone cups.
-  shapes.push({
-    kind: "ellipse",
-    cx: 32,
-    cy: box.y + box.height + 3.5,
-    rx: box.width / 2 - 3,
-    ry: 2.6,
-    fill: "shadow",
-    opacity: 0.45,
-  });
+  if (!flat)
+    shapes.push({
+      kind: "ellipse",
+      cx: 32,
+      cy: box.y + box.height + 3.5,
+      rx: box.width / 2 - 3,
+      ry: 2.6,
+      fill: "shadow",
+      opacity: 0.45,
+    });
   if (avatar.head === "cat") {
-    shapes.push({ kind: "path", d: `M14 ${top + 9}L16 ${top - 9}L29 ${top + 2}Z`, fill: "head" });
-    shapes.push({ kind: "path", d: `M50 ${top + 9}L48 ${top - 9}L35 ${top + 2}Z`, fill: "head" });
+    shapes.push({ kind: "path", d: `M14 ${top + 9}L16 ${top - 9}L29 ${top + 2}Z`, fill: skin });
+    shapes.push({ kind: "path", d: `M50 ${top + 9}L48 ${top - 9}L35 ${top + 2}Z`, fill: skin });
     shapes.push({ kind: "path", d: `M17 ${top + 4}L18 ${top - 4}L24 ${top + 1}Z`, fill: "cheek" });
     shapes.push({ kind: "path", d: `M47 ${top + 4}L46 ${top - 4}L40 ${top + 1}Z`, fill: "cheek" });
   }
@@ -205,25 +227,24 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
         width: 8,
         height: 16,
         r: 4,
-        fill: "head",
+        fill: skin,
       });
     }
   }
 
   shapes.push(
-    outline
-      ? { kind: "path", d: outline, fill: "head" }
-      : { kind: "rect", ...box, r, fill: "head" },
+    outline ? { kind: "path", d: outline, fill: skin } : { kind: "rect", ...box, r, fill: skin },
   );
-  shapes.push({
-    kind: "ellipse",
-    cx: box.x + box.width * 0.3,
-    cy: box.y + (outline ? 8 : 4.5),
-    rx: box.width * 0.2,
-    ry: 2.6,
-    fill: "white",
-    opacity: 0.35,
-  });
+  if (!flat)
+    shapes.push({
+      kind: "ellipse",
+      cx: box.x + box.width * 0.3,
+      cy: box.y + (outline ? 8 : 4.5),
+      rx: box.width * 0.2,
+      ry: 2.6,
+      fill: "white",
+      opacity: 0.35,
+    });
 
   switch (avatar.top) {
     case "ball":
@@ -272,7 +293,7 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
       });
       shapes.push({ kind: "ellipse", cx: 24.5, cy: top - 7, rx: 7.5, ry: 2.4, fill: "pop" });
       shapes.push({ kind: "ellipse", cx: 39.5, cy: top - 7, rx: 7.5, ry: 2.4, fill: "pop2" });
-      shapes.push({ kind: "ellipse", cx: 32, cy: top - 7, rx: 2.6, ry: 2.6, fill: "head" });
+      shapes.push({ kind: "ellipse", cx: 32, cy: top - 7, rx: 2.6, ry: 2.6, fill: skin });
       break;
     case "headphones":
       shapes.push({
@@ -350,9 +371,17 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
 
   const eye = (
     x: number,
-    kind: "round" | "happy" | "closed" | "star" | "tall" | "heart" | "big",
+    kind: "round" | "happy" | "closed" | "star" | "tall" | "heart" | "big" | "dash",
   ) => {
     switch (kind) {
+      case "dash":
+        shapes.push({
+          kind: "stroke",
+          d: `M${x - 1.1} ${eyeY + 3}L${x + 1.1} ${eyeY - 3}`,
+          stroke: iris,
+          width: 3.8,
+        });
+        return;
       case "round":
         if (iris === "glow") {
           shapes.push({
@@ -459,7 +488,7 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
       if (iris === "glow") {
         shapes.push({
           kind: "rect",
-          x: 32 - 11,
+          x: center - 11,
           y: eyeY - 2.4,
           width: 22,
           height: 4.8,
@@ -470,7 +499,7 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
       }
       shapes.push({
         kind: "rect",
-        x: 32 - 9,
+        x: center - 9,
         y: eyeY - 1.6,
         width: 18,
         height: 3.2,
@@ -484,17 +513,17 @@ export function botAvatarShapes(avatar: BotAvatar): ReadonlyArray<BotAvatarShape
   }
 
   // A bare face smiles under its eyes; the others smile under their visor or plate.
-  const mouthY = avatar.face === "bare" ? eyeY + 7 : face.y + face.height + 4.5;
+  const mouthY = bareFace ? eyeY + 7 : face.y + face.height + 4.5;
   if (avatar.smile) {
     shapes.push({
       kind: "stroke",
-      d: `M29.5 ${mouthY}Q32 ${mouthY + 2.1} 34.5 ${mouthY}`,
-      stroke: avatar.face === "bare" ? "ink" : "dark",
+      d: `M${center - 2.5} ${mouthY}Q${center} ${mouthY + 2.1} ${center + 2.5} ${mouthY}`,
+      stroke: bareFace ? "ink" : "dark",
       width: 1.8,
     });
   }
   if (avatar.cheeks) {
-    const cheekY = avatar.face === "bare" ? eyeY + 5 : face.y + face.height + 5;
+    const cheekY = bareFace ? eyeY + 5 : face.y + face.height + 5;
     for (const cx of [face.x + 1, face.x + face.width - 1]) {
       shapes.push({
         kind: "ellipse",
@@ -522,6 +551,9 @@ export const BOT_AVATAR_PRESETS: ReadonlyArray<BotAvatar> = [
   { head: "squircle", face: "plate", eyes: "wink", top: "horns", cheeks: false, smile: true },
   { head: "dome", face: "bare", eyes: "sleepy", top: "double", cheeks: true, smile: false },
   { head: "wide", face: "plate", eyes: "round", top: "ears", cheeks: false, smile: true },
+  { head: "round", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
+  { head: "peak", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
+  { head: "gem", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
 ];
 
 /** A random avatar from all the parts, for the editor's shuffle. */

@@ -26,9 +26,21 @@ export const headquartersBotId = (threadId: string): string | null =>
     : null;
 
 /** A bot's avatar: a small robot built from these parts and tinted with the bot's color. */
-export const BOT_HEADS = ["squircle", "round", "wide", "tall", "dome", "cat"] as const;
-/** What the eyes sit on: a dark visor, a light face plate, or the head itself. */
-export const BOT_FACES = ["visor", "plate", "bare"] as const;
+export const BOT_HEADS = [
+  "squircle",
+  "round",
+  "wide",
+  "tall",
+  "dome",
+  "cat",
+  "peak",
+  "gem",
+] as const;
+/**
+ * What the eyes sit on: a dark visor, a light face plate, or the head itself. `flat` is the
+ * bare head drawn in one flat color, without shine or shadow.
+ */
+export const BOT_FACES = ["visor", "plate", "bare", "flat"] as const;
 export const BOT_EYES = [
   "round",
   "happy",
@@ -39,6 +51,7 @@ export const BOT_EYES = [
   "visor",
   "heart",
   "big",
+  "dash",
 ] as const;
 export const BOT_TOPS = [
   "ball",

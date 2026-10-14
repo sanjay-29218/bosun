@@ -604,7 +604,7 @@ function BotDialog({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup className="max-w-4xl">
+      <DialogPopup className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{bot ? `Edit ${bot.name}` : "New bot"}</DialogTitle>
           <DialogDescription>
@@ -759,8 +759,10 @@ const PART_LABELS = {
     tall: "Tall head",
     dome: "Dome head",
     cat: "Cat head",
+    peak: "Peak head",
+    gem: "Gem head",
   },
-  face: { visor: "Visor", plate: "Face plate", bare: "Bare face" },
+  face: { visor: "Visor", plate: "Face plate", bare: "Bare face", flat: "Flat" },
   eyes: {
     round: "Round eyes",
     happy: "Happy eyes",
@@ -771,6 +773,7 @@ const PART_LABELS = {
     visor: "Eye bar",
     heart: "Heart eyes",
     big: "Big eyes",
+    dash: "Dash eyes",
   },
   top: {
     ball: "Antenna",
