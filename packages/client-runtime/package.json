@@ -35,6 +35,10 @@
       "types": "./src/state/crewBoard.ts",
       "default": "./src/state/crewBoard.ts"
     },
+    "./state/bot-rail": {
+      "types": "./src/state/botRail.ts",
+      "default": "./src/state/botRail.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"
