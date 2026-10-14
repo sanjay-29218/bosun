@@ -1,7 +1,8 @@
+import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { DraftId } from "../../composerDraftStore";
-import { resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
+import { botDefaultWorkflowId, resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
 
 const pickFor = (draftId: string) =>
   useCrewDraftStore.getState().workflowByDraftId[draftId as DraftId];
@@ -17,5 +18,19 @@ describe("draft workflow", () => {
     useCrewDraftStore.getState().setWorkflow(draftId, "bug-fix");
     expect(resolveDraftWorkflowId(pickFor(draftId), "ship-a-feature")).toBe("bug-fix");
     expect(resolveDraftWorkflowId(pickFor("draft-2"), null)).toBeNull();
+  });
+});
+
+describe("bot default workflow", () => {
+  const bots = [
+    { id: CAPTAIN_BOT_ID, defaultWorkflowId: "ship-a-feature" },
+    { id: "bot-social", defaultWorkflowId: null },
+  ];
+
+  it("comes from the project's bot, and Captain owns projects without one", () => {
+    expect(botDefaultWorkflowId(bots, {})).toBe("ship-a-feature");
+    expect(botDefaultWorkflowId(bots, { botId: "bot-social" })).toBeNull();
+    // A bot this client hasn't loaded yet gives no default rather than Captain's.
+    expect(botDefaultWorkflowId(bots, { botId: "bot-finance" })).toBeNull();
   });
 });

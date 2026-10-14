@@ -1,3 +1,5 @@
+import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
+
 import type { DraftId } from "../../composerDraftStore";
 import { create } from "zustand";
 
@@ -21,4 +23,13 @@ export function resolveDraftWorkflowId(
   defaultWorkflowId: string | null,
 ): string | null {
   return picked === undefined ? defaultWorkflowId : picked;
+}
+
+/** The default workflow of the bot that owns a project; a project without a bot is Captain's. */
+export function botDefaultWorkflowId(
+  bots: ReadonlyArray<{ readonly id: string; readonly defaultWorkflowId: string | null }>,
+  project: { readonly botId?: string | undefined },
+): string | null {
+  const botId = project.botId ?? CAPTAIN_BOT_ID;
+  return bots.find((bot) => bot.id === botId)?.defaultWorkflowId ?? null;
 }

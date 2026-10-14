@@ -79,10 +79,11 @@ import {
   type CrewAction,
 } from "@t3tools/client-runtime/crew-stage";
 import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
+import { botsEnvironment } from "../state/bots";
 import { workflowsEnvironment } from "../state/workflows";
 import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
 import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
-import { useCrewDraftStore } from "./crew/crewDraftStore";
+import { botDefaultWorkflowId, useCrewDraftStore } from "./crew/crewDraftStore";
 import { useCrewStage } from "./crew/useCrewStage";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
@@ -1202,6 +1203,14 @@ function OpenCommandPaletteDialog(props: {
         })
       : null,
   ).data;
+  const currentProjectBots = useEnvironmentQuery(
+    currentProjectWorkflows && (activeThread ?? activeDraftThread)
+      ? botsEnvironment.list({
+          environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
+          input: {},
+        })
+      : null,
+  ).data;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -2079,7 +2088,18 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
-  const firstWorkflow = currentProjectWorkflows?.[0];
+  // New feature… starts on the project's bot's default workflow, else the first one.
+  const currentProject =
+    currentProjectEnvironmentId && currentProjectId
+      ? projectByKey.get(`${currentProjectEnvironmentId}:${currentProjectId}`)
+      : undefined;
+  const botWorkflowId =
+    currentProject && currentProjectBots
+      ? botDefaultWorkflowId(currentProjectBots, currentProject)
+      : null;
+  const firstWorkflow =
+    currentProjectWorkflows?.find((workflow) => workflow.id === botWorkflowId) ??
+    currentProjectWorkflows?.[0];
   if (firstWorkflow && currentProjectEnvironmentId && currentProjectId) {
     const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
     actionItems.push({

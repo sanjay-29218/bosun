@@ -1,10 +1,12 @@
 import { formatStageName, workflowSummaryLine } from "@t3tools/client-runtime/crew-stage";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { UsersIcon, WorkflowIcon } from "lucide-react";
 
 import type { DraftId } from "../../composerDraftStore";
+import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
-import { useServerConfigs } from "../../state/entities";
+import { useProject, useServerConfigs } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
 import {
@@ -25,7 +27,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
-import { resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
+import { botDefaultWorkflowId, resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
 
 const NO_WORKFLOW = "";
 
@@ -35,12 +37,17 @@ export function useEnvironmentSupportsWorkflows(environmentId: EnvironmentId | n
   return config?.environment.capabilities.workflows === true;
 }
 
-/**
- * The workflow a new thread starts on until one is picked. This is the seam for bots
- * (#16): it becomes the active bot's default workflow. Until then there is none.
- */
-function useDefaultWorkflowId(): string | null {
-  return null;
+/** The workflow a new thread starts on until one is picked: its project's bot's default. */
+function useDefaultWorkflowId(
+  environmentId: EnvironmentId,
+  projectId: ProjectId | null,
+  enabled: boolean,
+): string | null {
+  const project = useProject(projectId ? scopeProjectRef(environmentId, projectId) : null);
+  const bots = useEnvironmentQuery(
+    enabled && project ? botsEnvironment.list({ environmentId, input: {} }) : null,
+  ).data;
+  return project && bots ? botDefaultWorkflowId(bots, project) : null;
 }
 
 /** The workflow a draft will start, picked or default, if it still exists. */
@@ -53,7 +60,12 @@ export function useDraftWorkflow(input: {
   const picked = useCrewDraftStore((state) =>
     input.draftId ? state.workflowByDraftId[input.draftId] : null,
   );
-  const workflowId = resolveDraftWorkflowId(picked, useDefaultWorkflowId());
+  const defaultWorkflowId = useDefaultWorkflowId(
+    input.environmentId,
+    input.projectId,
+    supported && input.draftId !== null,
+  );
+  const workflowId = resolveDraftWorkflowId(picked, defaultWorkflowId);
   const definitions = useEnvironmentQuery(
     supported && input.projectId
       ? workflowsEnvironment.definitions({
