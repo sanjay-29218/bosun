@@ -83,14 +83,16 @@ export function resolveActiveLogicalBot(
   return bots[0] ?? null;
 }
 
-/** What selecting `bot` remembers: its bot on each of its environments, others untouched. */
+/**
+ * What selecting `bot` remembers: its bot on each of its environments. Other environments
+ * forget theirs, since an older choice there would otherwise outrank this one in
+ * `resolveActiveLogicalBot` when `bot` lives only on a later environment.
+ */
 export function selectLogicalBot(
-  activeBotIdByEnvironmentId: Readonly<Record<string, string>>,
+  _activeBotIdByEnvironmentId: Readonly<Record<string, string>>,
   bot: LogicalBot,
 ): Record<string, string> {
-  const next = { ...activeBotIdByEnvironmentId };
-  for (const member of bot.members) next[member.environmentId] = member.botId;
-  return next;
+  return Object.fromEntries(bot.members.map((member) => [member.environmentId, member.botId]));
 }
 
 /**

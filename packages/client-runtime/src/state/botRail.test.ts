@@ -74,10 +74,16 @@ describe("resolveActiveLogicalBot", () => {
     expect(resolveActiveLogicalBot([], {}, [local])).toBeNull();
   });
 
-  it("remembers the bot on each of its environments and leaves others alone", () => {
+  it("remembers the bot on each of its environments", () => {
     const next = selectLogicalBot({ local: CAPTAIN_BOT_ID, other: "bot-x" }, bots[1]!);
-    expect(next).toEqual({ local: "bot-social", remote: "bot-social-2", other: "bot-x" });
+    expect(next).toEqual({ local: "bot-social", remote: "bot-social-2" });
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Social");
+  });
+
+  it("selects a bot that only a later environment has", () => {
+    const finance = bots.find((entry) => entry.name === "Finance")!;
+    const next = selectLogicalBot({ local: CAPTAIN_BOT_ID, remote: CAPTAIN_BOT_ID }, finance);
+    expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Finance");
   });
 });
 
