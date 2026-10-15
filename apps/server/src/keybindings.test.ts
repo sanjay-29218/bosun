@@ -287,7 +287,10 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const configState = yield* keybindings.loadConfigState;
         assert.deepEqual(
           configState.keybindings
-            .filter((entry) => entry.shortcut.key === "b" && entry.shortcut.shiftKey)
+            .filter(
+              (entry) =>
+                entry.shortcut.key === "b" && entry.shortcut.shiftKey && !entry.shortcut.altKey,
+            )
             .map((entry) => entry.command),
           ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
         );
@@ -330,7 +333,6 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.deepStrictEqual(
         persisted.filter((entry) => entry.command === "thread.jump.1"),
         [
-          existing,
           {
             key: "mod+ctrl+1",
             command: "thread.jump.1",
@@ -341,6 +343,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
             command: "thread.jump.1",
             when: "isDesktop && multipleBots && !isMac",
           },
+          existing,
         ],
       );
       assert.isTrue(
