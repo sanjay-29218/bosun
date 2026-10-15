@@ -84,6 +84,7 @@ vi.mock("../../state/agentSessions", () => ({
   agentSessionImport: "importThreads",
   agentSessionScan: vi.fn(),
 }));
+vi.mock("../../state/botRail", () => ({ activeBotInput: () => ({}) }));
 vi.mock("../../state/projects", () => ({ projectEnvironment: { create: "createProject" } }));
 vi.mock("../../state/entities", () => ({ readProjects: () => [], useProjects: () => [] }));
 vi.mock("../../onboarding/useProjectScans", () => ({ useProjectScans: () => [] }));

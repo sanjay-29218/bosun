@@ -94,6 +94,10 @@ vi.mock("../../state/use-remote-environment-registry", () => ({
     },
   }),
 }));
+vi.mock("../../state/bots", () => ({
+  useActiveBot: () => ({ active: null }),
+  activeBotIdOn: () => undefined,
+}));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: (command: unknown) => command }));
 vi.mock("../../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => () => {} }));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));

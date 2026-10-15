@@ -86,6 +86,7 @@ vi.mock("../../state/entities", async () => {
     readProjects: () => state.registry!.get(state.projects!),
   };
 });
+vi.mock("../../state/botRail", () => ({ activeBotInput: () => ({}) }));
 vi.mock("../../state/projects", () => ({ projectEnvironment: { create: "createProject" } }));
 vi.mock("../../state/agentSessions", () => ({
   agentSessionScan: (query: { environmentId: EnvironmentId }) => query,
