@@ -101,7 +101,7 @@ export type CrewAction =
   | "reopen"
   | "start-now";
 
-export function activeStep(snapshot: WorkflowFeatureSnapshot): WorkflowStepSnapshot | null {
+function activeStep(snapshot: WorkflowFeatureSnapshot): WorkflowStepSnapshot | null {
   return snapshot.steps.find((step) => step.id === snapshot.activeStepId) ?? null;
 }
 

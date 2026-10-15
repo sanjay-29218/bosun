@@ -41,7 +41,7 @@ export const threadBoardSignal = (
 
 // ── Phases ───────────────────────────────────────────────────────────
 
-export const FEATURE_PHASES = ["plan", "design", "build", "verify", "ship", "done"] as const;
+const FEATURE_PHASES = ["plan", "design", "build", "verify", "ship", "done"] as const;
 export type FeaturePhase = (typeof FEATURE_PHASES)[number];
 
 export const FEATURE_PHASE_LABELS: Record<FeaturePhase, string> = {
@@ -213,7 +213,7 @@ export function mostUsedWorkflowId(cards: ReadonlyArray<FeatureBoardCard>): stri
 
 // ── Needs you ────────────────────────────────────────────────────────
 
-export const NEEDS_YOU_KINDS = ["approval", "problem", "question"] as const;
+const NEEDS_YOU_KINDS = ["approval", "problem", "question"] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
 export const NEEDS_YOU_LABELS: Record<NeedsYouKind, string> = {
@@ -223,7 +223,7 @@ export const NEEDS_YOU_LABELS: Record<NeedsYouKind, string> = {
 };
 
 /** Approval, Input, Your call and Failed wait on you. Working, Queued and Paused never do. */
-export function needsYouKindForState(state: FeatureCardState): NeedsYouKind | null {
+function needsYouKindForState(state: FeatureCardState): NeedsYouKind | null {
   switch (state) {
     case "approval":
       return "approval";
@@ -394,7 +394,7 @@ export interface FeatureSearch {
   readonly workflows: ReadonlyArray<string>;
 }
 
-export const workflowSlug = (value: string) =>
+const workflowSlug = (value: string) =>
   value
     .trim()
     .toLowerCase()

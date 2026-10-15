@@ -112,7 +112,7 @@ export function selectLogicalBot(
  * environment's list is still loading, or the server predates bots) falls under Captain, so a
  * project is never hidden from every entry.
  */
-export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
+function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
   const byMember = new Map<string, string>();
   for (const bot of bots) {
     for (const member of bot.members) {

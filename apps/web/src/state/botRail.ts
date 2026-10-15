@@ -96,7 +96,7 @@ export function useNeedsYouByLogicalBot(): ReadonlyMap<string, number> {
   );
 }
 
-export function useLogicalBots(): ReadonlyArray<LogicalBot> {
+function useLogicalBots(): ReadonlyArray<LogicalBot> {
   return useAtomValue(logicalBotsAtom);
 }
 

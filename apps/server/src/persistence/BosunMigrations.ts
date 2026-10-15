@@ -33,7 +33,7 @@ import BuilderSubagents from "./Migrations/074_BuilderSubagents.ts";
 import FeatureIssues from "./Migrations/075_FeatureIssues.ts";
 import CaptainWorkflowGrant from "./Migrations/076_CaptainWorkflowGrant.ts";
 
-export const migrationEntries = [
+const migrationEntries = [
   [55, "Bots", Bots],
   [56, "BotHandoffs", BotHandoffs],
   [57, "BotStorageNames", BotStorageNames],

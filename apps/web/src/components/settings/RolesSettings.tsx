@@ -57,7 +57,7 @@ import {
 import { searchableSetting } from "./settingsSearch";
 
 /** The composer's provider and model choices for one environment. */
-export function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
+function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
   const settings = useEnvironmentSettings(environmentId);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;

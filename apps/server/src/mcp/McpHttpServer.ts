@@ -866,10 +866,10 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
-export const layerBotsToolkit = toolkitRegistration(BotsToolkit, BotsHandlers.layer);
-export const layerCrewToolkit = toolkitRegistration(CrewToolkit, CrewHandlers.layer);
-export const layerFeaturesToolkit = toolkitRegistration(FeaturesToolkit, FeaturesHandlers.layer);
-export const layerWorkflowsToolkit = toolkitRegistration(WorkflowsToolkit, WorkflowsHandlers.layer);
+const layerBotsToolkit = toolkitRegistration(BotsToolkit, BotsHandlers.layer);
+const layerCrewToolkit = toolkitRegistration(CrewToolkit, CrewHandlers.layer);
+const layerFeaturesToolkit = toolkitRegistration(FeaturesToolkit, FeaturesHandlers.layer);
+const layerWorkflowsToolkit = toolkitRegistration(WorkflowsToolkit, WorkflowsHandlers.layer);
 
 export const layerMcpTransport = McpServer.layerHttp({
   name: "T3 Code",

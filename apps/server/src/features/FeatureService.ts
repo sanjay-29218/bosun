@@ -60,7 +60,7 @@ import {
 } from "../workflows/WorkflowExecutionStore.ts";
 import { featureCardState, stagePosition } from "../workflows/WorkflowState.ts";
 
-export class FeatureValidationError extends Error {
+class FeatureValidationError extends Error {
   readonly _tag = "FeatureValidationError";
 }
 

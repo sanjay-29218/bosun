@@ -161,7 +161,7 @@ const BOTTOM_LANDING_STEP = 24;
 const TRACK_START = 16;
 const TRACK_STEP = 10;
 
-export function classifyRoute(
+function classifyRoute(
   columns: ReadonlyMap<string, number>,
   route: Pick<WorkflowRoute, "stepId" | "target">,
 ): RouteKind {

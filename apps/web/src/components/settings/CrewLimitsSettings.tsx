@@ -27,7 +27,7 @@ import {
 const DEFAULT_CREW = DEFAULT_SERVER_SETTINGS.crew;
 
 /** The patch for one provider's cap. The map is replaced whole, so a removed cap stays removed. */
-export function providerLimitsPatch(
+function providerLimitsPatch(
   current: CrewSettings["providerLimits"],
   instanceId: string,
   limit: number | null,

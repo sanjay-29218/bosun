@@ -32,7 +32,7 @@ import * as BotStore from "../bots/BotStore.ts";
 import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 
-export class CrewValidationError extends Error {
+class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
 }
 
@@ -49,7 +49,7 @@ export const managedProjectId = (memberId: string) =>
     : null;
 /** The builder a project manager hands direct requests to, created with the manager. */
 export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
-export const BUILDER_ROLE_ID = "role:builder";
+const BUILDER_ROLE_ID = "role:builder";
 
 const HEADQUARTERS_TASK = [
   "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand project work to a project's manager with crew_delegate, and start a new project with crew_create_project when you're allowed to.",
@@ -63,7 +63,7 @@ const stageInstructions = (name: string) =>
   `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`;
 
 /** The builder may split its stage into subagents that run at the same time. */
-export const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} When the work splits into independent parts, run them in parallel with delegate_task, one subagent per part with a self-contained brief, and wait for them with task_status. Check and combine their results yourself before you call crew_respond.`;
+const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} When the work splits into independent parts, run them in parallel with delegate_task, one subagent per part with a self-contained brief, and wait for them with task_status. Check and combine their results yourself before you call crew_respond.`;
 
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [

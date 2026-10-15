@@ -176,7 +176,7 @@ export function normalizeReceives(definition: WorkflowDefinition): WorkflowDefin
 }
 
 /** Drops picked files no stage produces any more and diffs of stages that are gone. */
-export function keepReceivable(
+function keepReceivable(
   definition: WorkflowDefinition,
   receives: WorkflowStepReceives,
 ): WorkflowStepReceives {

@@ -81,7 +81,7 @@ export interface FeatureDraft {
 }
 
 /** "qa_review" → "Qa review": step IDs are the only stage names a workflow has. */
-export const stageLabel = (stepId: string) => {
+const stageLabel = (stepId: string) => {
   const words = stepId.replace(/[-_]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 };

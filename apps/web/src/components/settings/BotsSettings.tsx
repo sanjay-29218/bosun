@@ -223,7 +223,7 @@ function BotsSections({
 }
 
 /** Which bot owns a project. Picking another bot moves the project; work already running stays. */
-export function BotOwnerSelect({
+function BotOwnerSelect({
   environmentId,
   projectId,
   projectTitle,
