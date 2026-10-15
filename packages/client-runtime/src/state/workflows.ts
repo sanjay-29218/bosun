@@ -3,15 +3,36 @@ import * as Effect from "effect/Effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
+import {
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentRpcSubscriptionAtomFamily,
+} from "./runtime.ts";
+
+/**
+ * Ticks whenever a workflow or role changes on the environment, including edits agents make
+ * through MCP and Settings on other devices. The definitions and roles queries re-read on it.
+ */
+export function createWorkflowLibraryChangesAtomFamily<R, ER>(
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
+) {
+  return createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+    label: "environment-data:workflows:library-changes",
+    tag: WS_METHODS.workflowsSubscribeLibrary,
+  });
+}
 
 /** Workflow definitions are a global library; feature state is read from the environment that owns the project. */
-export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>) {
+export function createWorkflowAtoms<R, ER>(
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
+  libraryChanges = createWorkflowLibraryChangesAtomFamily(runtime),
+) {
   const definitions = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:workflows:definitions",
     tag: WS_METHODS.workflowsList,
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
+    refreshTrigger: ({ environmentId }) => libraryChanges({ environmentId, input: {} }),
   });
   const feature = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:workflows:feature",
@@ -41,6 +62,7 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
     registry: AtomRegistry.AtomRegistry,
   ) => Effect.sync(() => registry.refresh(feature(target)));
   return {
+    libraryChanges,
     definitions,
     feature,
     stageHandoff,

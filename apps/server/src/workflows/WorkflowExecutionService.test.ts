@@ -38,6 +38,7 @@ import {
 } from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import { WorkflowLibraryLive } from "./WorkflowLibrary.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
 import { WorkflowExecutionStoreLive } from "./WorkflowExecutionStore.ts";
@@ -119,6 +120,7 @@ const fixture = (
     Layer.provideMerge(CrewStoreLive),
     Layer.provideMerge(runtime),
     Layer.provideMerge(BotStore.layer),
+    Layer.provideMerge(WorkflowLibraryLive),
   );
   const bots = CrewHandoffServiceLive.pipe(
     Layer.provideMerge(CrewHandoffStoreLive),

@@ -18,6 +18,7 @@ import type {
   WorkflowControl,
   WorkflowExecutionService,
 } from "./workflows/WorkflowExecutionService.ts";
+import type { WorkflowLibrary } from "./workflows/WorkflowLibrary.ts";
 import type { WorkflowService } from "./workflows/WorkflowService.ts";
 
 export interface BosunWsServices {
@@ -26,6 +27,7 @@ export interface BosunWsServices {
   readonly crewHandoffs: CrewHandoffService["Service"];
   readonly features: FeatureService["Service"];
   readonly workflows: WorkflowService["Service"];
+  readonly workflowLibrary: WorkflowLibrary["Service"];
   readonly workflowExecution: WorkflowExecutionService["Service"];
 }
 
@@ -35,7 +37,15 @@ export interface BosunWsServices {
  * type checker's instantiation depth and keeps upstream merges cheap.
  */
 export const layerBosunWsRpc = (
-  { bots, crew, crewHandoffs, features, workflows, workflowExecution }: BosunWsServices,
+  {
+    bots,
+    crew,
+    crewHandoffs,
+    features,
+    workflows,
+    workflowLibrary,
+    workflowExecution,
+  }: BosunWsServices,
   currentSessionId: AuthSessionId,
 ) =>
   BosunWsRpcGroup.middleware(RpcInstrumentation).toLayer(
@@ -99,6 +109,7 @@ export const layerBosunWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.workflowsSubscribeLibrary]: () => workflowLibrary.changes,
         [WS_METHODS.workflowsRevise]: (input) =>
           workflows
             .reviseDefinition(input.definition, input.expectedRevision)

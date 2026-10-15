@@ -59,7 +59,7 @@ function Editor(props: {
     readonly autoCreateForFeature: boolean;
     readonly enabled: boolean;
     readonly expectedRevision?: number;
-  }) => void;
+  }) => Promise<boolean>;
 }) {
   const initialModel = props.role?.modelSelection ?? props.modelSelection;
   const [name, setName] = useState(props.role?.name ?? "");
@@ -76,6 +76,9 @@ function Editor(props: {
     props.role?.autoCreateForFeature ?? false,
   );
   const [enabled, setEnabled] = useState(props.role?.enabled ?? true);
+  // The fields above match this revision. If someone else saves a newer one, this save is
+  // refused instead of overwriting it.
+  const [baseRevision, setBaseRevision] = useState(props.role?.revision);
   const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
   return (
@@ -166,17 +169,21 @@ function Editor(props: {
               ? { options: props.role.modelSelection.options }
               : {}),
           };
-          props.onSave({
-            id: props.role?.id ?? `role:${uuidv4()}`,
-            name: name.trim(),
-            instructions: instructions.trim(),
-            allowedTools: [...allowedTools],
-            modelSelection,
-            runtimeMode,
-            autoCreateForFeature,
-            enabled,
-            ...(props.role ? { expectedRevision: props.role.revision } : {}),
-          });
+          void props
+            .onSave({
+              id: props.role?.id ?? `role:${uuidv4()}`,
+              name: name.trim(),
+              instructions: instructions.trim(),
+              allowedTools: [...allowedTools],
+              modelSelection,
+              runtimeMode,
+              autoCreateForFeature,
+              enabled,
+              ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
+            })
+            .then((saved) => {
+              if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
+            });
         }}
       />
     </View>
@@ -261,17 +268,17 @@ export function MobileRolesPanel(props: {
         busy={busy}
         onSave={(value) => {
           if (value.expectedRevision !== undefined) {
-            void run(() =>
+            return run(() =>
               update({
                 environmentId,
                 input: { ...value, expectedRevision: value.expectedRevision! },
               }),
             );
-          } else {
-            void run(() => create({ environmentId, input: value })).then((saved) => {
-              if (saved) setRoleId(value.id);
-            });
           }
+          return run(() => create({ environmentId, input: value })).then((saved) => {
+            if (saved) setRoleId(value.id);
+            return saved;
+          });
         }}
       />
     </View>

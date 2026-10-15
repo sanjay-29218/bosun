@@ -56,6 +56,8 @@ import * as CrewHandlers from "./toolkits/crew/handlers.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
+import * as WorkflowsHandlers from "./toolkits/workflows/handlers.ts";
+import { WorkflowsToolkit } from "./toolkits/workflows/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -867,6 +869,7 @@ export const layerDeviceToolkit = Layer.mergeAll(
 export const layerBotsToolkit = toolkitRegistration(BotsToolkit, BotsHandlers.layer);
 export const layerCrewToolkit = toolkitRegistration(CrewToolkit, CrewHandlers.layer);
 export const layerFeaturesToolkit = toolkitRegistration(FeaturesToolkit, FeaturesHandlers.layer);
+export const layerWorkflowsToolkit = toolkitRegistration(WorkflowsToolkit, WorkflowsHandlers.layer);
 
 export const layerMcpTransport = McpServer.layerHttp({
   name: "T3 Code",
@@ -889,6 +892,7 @@ export const layer = Layer.mergeAll(
   layerBotsToolkit,
   layerCrewToolkit,
   layerFeaturesToolkit,
+  layerWorkflowsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));

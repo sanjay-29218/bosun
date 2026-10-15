@@ -34,6 +34,7 @@ import {
   projectBuilderMemberId,
   projectManagerMemberId,
 } from "./CrewService.ts";
+import { WorkflowLibraryLive } from "../workflows/WorkflowLibrary.ts";
 import { CrewStore, CrewStoreLive } from "./CrewStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 import { CrewRuntimeLive } from "./runtimeLayer.ts";
@@ -480,6 +481,7 @@ describe("Bot foundation", () => {
       const layer = CrewServiceLive.pipe(
         Layer.provideMerge(CrewStoreLive),
         Layer.provideMerge(BotStore.layer),
+        Layer.provideMerge(WorkflowLibraryLive),
         Layer.provide(fakeRuntime),
         Layer.provide(SqlitePersistence.layerMemory),
       );

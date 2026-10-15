@@ -30,7 +30,10 @@ it.effect("lets bots that delegate see their projects and answer, once", () =>
     assert.deepStrictEqual(
       rows.map((row) => [row.id, JSON.parse(row.tools)]),
       [
-        ["bot-captain", ["crew.delegate", "crew.status", "crew.answer", "crew.projects"]],
+        [
+          "bot-captain",
+          ["crew.delegate", "crew.status", "crew.answer", "crew.projects", "crew.workflows"],
+        ],
         ["social", ["crew.delegate", "crew.answer", "crew.projects"]],
         ["quiet", ["preview"]],
       ],

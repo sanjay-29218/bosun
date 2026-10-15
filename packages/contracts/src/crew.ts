@@ -85,6 +85,12 @@ export const CREW_TOOL_GRANTS = [
     botOnly: true,
   },
   {
+    id: "crew.workflows",
+    label: "Manage workflows",
+    description: "Create and edit workflows and roles when asked.",
+    botOnly: true,
+  },
+  {
     id: "orchestration",
     label: "Threads and subagents",
     description: "Run subagents in parallel, and create, read and message T3 threads.",

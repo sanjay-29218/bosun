@@ -29,6 +29,7 @@ import {
   WorkflowTransitionError,
   type WorkflowState,
 } from "./WorkflowState.ts";
+import { WorkflowLibrary } from "./WorkflowLibrary.ts";
 import { WorkflowStore, type FeatureWorkflowCopy } from "./WorkflowStore.ts";
 import {
   collectNotes,
@@ -143,6 +144,7 @@ export const WorkflowServiceLive = Layer.effect(
     const runtime = yield* CrewThreadRuntime;
     const workspace = yield* WorkflowWorkspace;
     const stageHandoffs = yield* WorkflowStageHandoffStore;
+    const library = yield* WorkflowLibrary;
 
     /** Newest version of every output so far, with each producing stage's thread diff. */
     const stageOutputs = (
@@ -178,12 +180,20 @@ export const WorkflowServiceLive = Layer.effect(
           // The project manager slot binds to the project's existing manager rather than a
           // member made from the pinned revision, so only stage roles check their pin.
           const manager = slot.roleId === PROJECT_MANAGER_ROLE_ID;
-          if (
-            !role?.enabled ||
-            (!manager && (role.revision !== slot.roleRevision || !role.autoCreateForFeature))
-          ) {
+          const problem = !role
+            ? "does not exist"
+            : !role.enabled
+              ? "is turned off"
+              : manager
+                ? null
+                : !role.autoCreateForFeature
+                  ? "can't run workflow stages"
+                  : role.revision !== slot.roleRevision
+                    ? `was edited; pin roleRevision ${role.revision}`
+                    : null;
+          if (problem !== null) {
             return yield* Effect.fail(
-              new WorkflowValidationError(`Workflow role is unavailable: ${slot.roleId}`),
+              new WorkflowValidationError(`Workflow role ${slot.roleId} ${problem}`),
             );
           }
         }
@@ -245,7 +255,10 @@ export const WorkflowServiceLive = Layer.effect(
             starter,
             DateTime.formatIso(yield* DateTime.now),
           );
-          if (created) return starter;
+          if (created) {
+            yield* library.changed;
+            return starter;
+          }
           const concurrent = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
           if (concurrent === null) {
             return yield* Effect.fail(
@@ -266,6 +279,7 @@ export const WorkflowServiceLive = Layer.effect(
           if (!(yield* store.createDefinition(definition, createdAt))) {
             return yield* Effect.fail(new WorkflowValidationError("Workflow ID is already in use"));
           }
+          yield* library.changed;
           return definition;
         }),
       reviseDefinition: (definition, expectedRevision) =>
@@ -284,6 +298,7 @@ export const WorkflowServiceLive = Layer.effect(
               new WorkflowValidationError("Workflow changed; reload and retry"),
             );
           }
+          yield* library.changed;
           return definition;
         }),
       copyForFeature: (featureId, projectId, workflowId) =>
@@ -359,6 +374,7 @@ export const WorkflowServiceLive = Layer.effect(
           if (!(yield* store.deleteDefinition(id))) {
             return yield* Effect.fail(new WorkflowValidationError("Workflow not found"));
           }
+          yield* library.changed;
         }),
       getLatestDefinition: store.getLatestDefinition,
       listLatestDefinitions: store.listLatestDefinitions,

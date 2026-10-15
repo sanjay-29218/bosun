@@ -2,6 +2,7 @@ import {
   botHeadquartersRunId,
   botHeadquartersThreadId,
   CREW_DISPATCH_STATE,
+  CREW_TOOL_GRANTS,
   CREW_TURN_STATE,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
@@ -28,6 +29,7 @@ import {
   type CrewRunSummary,
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
+import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 
 export class CrewValidationError extends Error {
@@ -52,6 +54,7 @@ export const BUILDER_ROLE_ID = "role:builder";
 const HEADQUARTERS_TASK = [
   "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand project work to a project's manager with crew_delegate, and start a new project with crew_create_project when you're allowed to.",
   "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
+  "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed.",
   "Tell the person only what they must decide.",
 ].join("\n\n");
 
@@ -255,6 +258,19 @@ const validTools = (tools: ReadonlyArray<string> | undefined) => {
   return [...new Set(list.map((tool) => nonEmpty(tool, "Tool", 100)))];
 };
 
+/** Grants that act for the bot behind a run, which a role's members must never hold. */
+const BOT_ONLY_GRANTS: ReadonlySet<string> = new Set(
+  CREW_TOOL_GRANTS.filter((grant) => "botOnly" in grant).map((grant) => grant.id),
+);
+const validRoleTools = (tools: ReadonlyArray<string> | undefined) => {
+  const list = validTools(tools);
+  const botOnly = list.find((tool) => BOT_ONLY_GRANTS.has(tool));
+  if (botOnly !== undefined) {
+    throw new CrewValidationError(`${botOnly} is for bots and can't be given to a role`);
+  }
+  return list;
+};
+
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
   run.projectId === input.projectId &&
@@ -268,6 +284,7 @@ export const CrewServiceLive = Layer.effect(
     const store = yield* CrewStore;
     const runtime = yield* CrewThreadRuntime;
     const bots = yield* BotStore.BotStore;
+    const library = yield* WorkflowLibrary;
 
     const threadInput = (run: CrewRun) => ({
       runId: run.id,
@@ -395,6 +412,9 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.id, "Role ID", 128),
           catch: () => new CrewValidationError("Invalid role ID"),
         });
+        if (yield* store.getRole(id)) {
+          return yield* Effect.fail(new CrewValidationError(`Role ID is already in use: ${id}`));
+        }
         const name = yield* Effect.try({
           try: () => nonEmpty(input.name, "Role name", 200),
           catch: () => new CrewValidationError("Invalid role name"),
@@ -404,8 +424,11 @@ export const CrewServiceLive = Layer.effect(
           catch: () => new CrewValidationError("Invalid role instructions"),
         });
         const allowedTools = yield* Effect.try({
-          try: () => validTools(input.allowedTools),
-          catch: () => new CrewValidationError("Invalid tool grants"),
+          try: () => validRoleTools(input.allowedTools),
+          catch: (cause) =>
+            cause instanceof CrewValidationError
+              ? cause
+              : new CrewValidationError("Invalid tool grants"),
         });
         const now = DateTime.formatIso(yield* DateTime.now);
         const role: Role = {
@@ -421,18 +444,22 @@ export const CrewServiceLive = Layer.effect(
           updatedAt: now,
         };
         yield* store.insertRole(role);
+        yield* library.changed;
         return role;
       });
 
     const updateRole: CrewServiceShape["updateRole"] = (input) =>
       Effect.gen(function* () {
         const previous = yield* store.getRole(input.id);
-        if (
-          !previous ||
-          previous.revision !== input.expectedRevision ||
-          !Number.isSafeInteger(input.expectedRevision)
-        ) {
-          return yield* Effect.fail(new CrewValidationError("Role changed or is unavailable"));
+        if (!previous) {
+          return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.id}`));
+        }
+        if (previous.revision !== input.expectedRevision) {
+          return yield* Effect.fail(
+            new CrewValidationError(
+              `Role changed: it is at revision ${previous.revision}; reload and retry`,
+            ),
+          );
         }
         const name = yield* Effect.try({
           try: () => nonEmpty(input.name, "Role name", 200),
@@ -443,8 +470,11 @@ export const CrewServiceLive = Layer.effect(
           catch: () => new CrewValidationError("Invalid role instructions"),
         });
         const allowedTools = yield* Effect.try({
-          try: () => validTools(input.allowedTools),
-          catch: () => new CrewValidationError("Invalid tool grants"),
+          try: () => validRoleTools(input.allowedTools),
+          catch: (cause) =>
+            cause instanceof CrewValidationError
+              ? cause
+              : new CrewValidationError("Invalid tool grants"),
         });
         const updated: Role = {
           ...previous,
@@ -461,6 +491,7 @@ export const CrewServiceLive = Layer.effect(
         if (!(yield* store.updateRole(updated, previous.revision))) {
           return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
         }
+        yield* library.changed;
         return updated;
       });
 

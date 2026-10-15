@@ -118,6 +118,7 @@ import * as BotService from "./bots/BotService.ts";
 import { CrewService } from "./crew/CrewService.ts";
 import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import { FeatureService } from "./features/FeatureService.ts";
+import { WorkflowLibrary } from "./workflows/WorkflowLibrary.ts";
 import { WorkflowService } from "./workflows/WorkflowService.ts";
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import * as ServerConfig from "./config.ts";
@@ -3182,6 +3183,7 @@ export const layer = Layer.unwrap(
       crewHandoffs: yield* CrewHandoffService,
       features: yield* FeatureService,
       workflows: yield* WorkflowService,
+      workflowLibrary: yield* WorkflowLibrary,
       workflowExecution: yield* WorkflowExecutionService,
     };
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;

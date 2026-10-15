@@ -465,6 +465,7 @@ export const WS_METHODS = {
   workflowsAcceptAsIs: "workflows.acceptAsIs",
   workflowsOneMoreRound: "workflows.oneMoreRound",
   workflowsStartNow: "workflows.startNow",
+  workflowsSubscribeLibrary: "workflows.subscribeLibrary",
   botsList: "bots.list",
   botsCreate: "bots.create",
   botsUpdate: "bots.update",
@@ -1135,6 +1136,13 @@ const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
   payload: Schema.Struct({ id: Schema.String }),
   success: Schema.Void,
   error: WorkflowRpcError,
+});
+/** Counts changes to the workflow and role library, so clients re-read it when an agent edits it. */
+const WsWorkflowsSubscribeLibraryRpc = Rpc.make(WS_METHODS.workflowsSubscribeLibrary, {
+  payload: Schema.Struct({}),
+  success: NonNegativeInt,
+  error: EnvironmentAuthorizationError,
+  stream: true,
 });
 const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
   payload: WorkflowReviseInput,
@@ -2274,6 +2282,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsAcceptAsIsRpc,
   WsWorkflowsOneMoreRoundRpc,
   WsWorkflowsStartNowRpc,
+  WsWorkflowsSubscribeLibraryRpc,
   WsBotsListRpc,
   WsBotsCreateRpc,
   WsBotsUpdateRpc,

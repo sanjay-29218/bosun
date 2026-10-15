@@ -102,10 +102,9 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
   }
   return (
     <WorkflowEditor
-      // A new version replaces the draft, so the editor starts again from it.
-      key={`${saved.id}:${saved.revision}`}
+      key={saved.id}
       environmentId={target.environment}
-      saved={saved}
+      latest={saved}
       allWorkflowIds={definitions.data.map((definition) => definition.id)}
       roles={roles.data}
       onBack={back}
@@ -115,13 +114,14 @@ export function WorkflowEditorPage(target: WorkflowEditorTarget) {
 
 function WorkflowEditor({
   environmentId,
-  saved,
+  latest,
   allWorkflowIds,
   roles,
   onBack,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly saved: WorkflowDefinition;
+  /** The newest published version, which can change while the editor is open. */
+  readonly latest: WorkflowDefinition;
   readonly allWorkflowIds: readonly string[];
   readonly roles: readonly RoleConfig[];
   readonly onBack: () => void;
@@ -135,6 +135,9 @@ function WorkflowEditor({
     environmentId,
     (settings) => settings.crew.stageRetries,
   );
+  // The version the draft started from. Settings on another device or an agent can publish a
+  // newer one; a clean editor moves to it, while edits stay until they're discarded.
+  const [saved, setSaved] = useState(latest);
   // Roles edited since this version are picked up here; publishing records them.
   const refreshed = useMemo(() => refreshWorkflowRoles(saved, roles), [saved, roles]);
   const [draft, setDraft] = useState(refreshed.definition);
@@ -149,6 +152,11 @@ function WorkflowEditor({
   const canvasAvailable = useMediaQuery("md");
   const view = canvasAvailable ? storedView : "form";
   const edited = !sameWorkflow(draft, refreshed.definition);
+  const superseded = latest.revision !== saved.revision;
+  if (superseded && !edited) {
+    setSaved(latest);
+    setDraft(refreshWorkflowRoles(latest, roles).definition);
+  }
   const publishable = !sameWorkflow(draft, saved);
   const stages = orderWorkflowStages(draft);
   const endId = workflowEndStepId(draft);
@@ -190,6 +198,8 @@ function WorkflowEditor({
         setError(formatEnvironmentQueryError(result.cause));
         return;
       }
+      setSaved(result.value);
+      setDraft(result.value);
       toastManager.add({ type: "success", title: `Published ${draft.name} v${nextRevision}` });
     } finally {
       setBusy(false);
@@ -304,7 +314,11 @@ function WorkflowEditor({
           >
             Discard
           </Button>
-          <Button size="xs" disabled={!publishable || busy} onClick={() => void publish()}>
+          <Button
+            size="xs"
+            disabled={!publishable || superseded || busy}
+            onClick={() => void publish()}
+          >
             Publish v{nextRevision}
           </Button>
           <Menu>
@@ -339,6 +353,14 @@ function WorkflowEditor({
       {error ? (
         <Alert variant="error">
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {superseded ? (
+        <Alert variant="warning">
+          <AlertDescription>
+            Version {latest.revision} was published while you were editing. Discard your edits to
+            load it.
+          </AlertDescription>
         </Alert>
       ) : null}
 
