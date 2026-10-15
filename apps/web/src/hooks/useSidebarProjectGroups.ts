@@ -1,3 +1,4 @@
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useMemo } from "react";
 
 import { orderItemsByPreferredIds, sortSidebarV2ProjectGroups } from "../components/Sidebar.logic";
@@ -8,9 +9,13 @@ import { useProjects, useThreadShells } from "../state/entities";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
 
-/** The sidebar's project groups, in the order the sidebar shows them. */
-export function useSidebarProjectGroups() {
-  const projects = useProjects();
+/**
+ * The sidebar's project groups, in the order the sidebar shows them. The
+ * sidebar passes the bot rail's narrowed projects; other callers group all.
+ */
+export function useSidebarProjectGroups(scopedProjects?: ReadonlyArray<EnvironmentProject>) {
+  const allProjects = useProjects();
+  const projects = scopedProjects ?? allProjects;
   const threads = useThreadShells();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const sortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);

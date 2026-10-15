@@ -59,7 +59,15 @@ import * as GitHubClient from "../client/definition.ts";
 
 const decodeLinkSubject = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
-    Schema.Struct({ title: Schema.String, body: Schema.optional(Schema.NullOr(Schema.String)) }),
+    Schema.Struct({
+      title: Schema.String,
+      body: Schema.optional(Schema.NullOr(Schema.String)),
+      state: Schema.optional(Schema.String),
+      milestone: Schema.optional(Schema.NullOr(Schema.Struct({ title: Schema.String }))),
+      sub_issues_summary: Schema.optional(
+        Schema.NullOr(Schema.Struct({ total: Schema.Number, completed: Schema.Number })),
+      ),
+    }),
   ),
 );
 
@@ -940,7 +948,14 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    return { title: subject.title, body: subject.body ?? null };
+    const subIssues = subject.sub_issues_summary;
+    return {
+      title: subject.title,
+      body: subject.body ?? null,
+      state: subject.state === "closed" ? ("closed" as const) : ("open" as const),
+      milestone: subject.milestone?.title ?? null,
+      subIssues: subIssues && subIssues.total > 0 ? subIssues : null,
+    };
   });
 
   return SourceControlProvider.SourceControlProvider.of({

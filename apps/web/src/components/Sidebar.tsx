@@ -1,4 +1,9 @@
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  CREW_STATE_LABELS,
+  featureTagColor,
+  formatCrewStageLine,
+} from "@t3tools/client-runtime/crew-stage";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import {
@@ -69,6 +74,7 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -76,6 +82,7 @@ import {
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
+  WorkflowIcon,
   ListFilterIcon,
   MessageCircleQuestionIcon,
   PinIcon,
@@ -137,6 +144,12 @@ import {
 } from "../sidebarProjectGrouping";
 import { useUiStateStore } from "../uiStateStore";
 import {
+  useBotRailProjectKeys,
+  useVisibleActiveLogicalBot,
+  useVisibleLogicalBots,
+} from "../state/botRail";
+import { useMoveProjectToBotMenu } from "./sidebar/moveProjectToBot";
+import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
@@ -182,7 +195,16 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { featureIssueMeta, FeatureIssueIcon } from "./crew/FeatureIssue";
+import { FeatureTag } from "./crew/FeatureTag";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
+import {
+  featureLifecycleFor,
+  runFeatureIssueAction,
+  runFeatureLifecycleAction,
+  readFeatureMenuState,
+  runFeatureThreadAction,
+} from "./features/featureThreadActions";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
@@ -192,6 +214,7 @@ import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
+  groupFeatureThreads,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
@@ -280,8 +303,11 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarBotHeader } from "./sidebar/SidebarBotHeader";
+import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
@@ -486,6 +512,39 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
             <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+          </div>
+        ) : null}
+        {thread.feature ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <WorkflowIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            <span
+              aria-hidden
+              className="size-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: featureTagColor(thread.feature.id) }}
+            />
+            <div className="min-w-0 truncate text-foreground/75">{thread.feature.title}</div>
+          </div>
+        ) : null}
+        {thread.crew ? (
+          <div className="flex min-w-0 items-center gap-2 ps-5 text-muted-foreground">
+            <div className="min-w-0 truncate">
+              {formatCrewStageLine(thread.crew)} · {CREW_STATE_LABELS[thread.crew.state]}
+            </div>
+          </div>
+        ) : null}
+        {thread.feature?.issue ? (
+          <div className="flex min-w-0 items-start gap-2">
+            <FeatureIssueIcon issue={thread.feature.issue} className="mt-0.5 size-3" />
+            <div className="min-w-0">
+              <div className="truncate text-foreground/75">
+                #{thread.feature.issue.number} {thread.feature.issue.title}
+              </div>
+              {featureIssueMeta(thread.feature.issue) ? (
+                <div className="truncate text-muted-foreground">
+                  {featureIssueMeta(thread.feature.issue)}
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {environmentLabel ? (
@@ -1109,6 +1168,8 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+const EMPTY_EXPANDED_FEATURE_ROWS: readonly string[] = [];
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1181,6 +1242,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     threadKey: string,
     snapshot: ThreadChangeRequestSnapshot | null,
   ) => void;
+  /** The feature's other threads folded under this row, and whether they show. */
+  featureGroup?: {
+    readonly count: number;
+    readonly expanded: boolean;
+    readonly onToggle: () => void;
+  } | null;
+  /** Shown under its feature's row, indented. */
+  nested?: boolean;
 }) {
   const {
     isRenaming,
@@ -1800,6 +1869,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
+          props.nested && "ms-4",
         )}
       >
         <Tooltip disabled={sortable?.isDragging}>
@@ -1965,6 +2035,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         sortable?.isDragging && "relative z-20",
+        props.nested && "ms-4",
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
@@ -2161,7 +2232,39 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
-                  branch, so the row lost its most stable identifier. */}
+                  branch, so the row lost its most stable identifier. A feature's
+                  threads lead with its tag, and its stage thread with the stage. */}
+              {thread.feature ? <FeatureTag feature={thread.feature} /> : null}
+              {thread.feature?.issue ? (
+                <span className="shrink-0 text-muted-foreground tabular-nums">
+                  #{thread.feature.issue.number}
+                </span>
+              ) : null}
+              {props.featureGroup ? (
+                <button
+                  type="button"
+                  aria-expanded={props.featureGroup.expanded}
+                  aria-label={`${props.featureGroup.expanded ? "Hide" : "Show"} the feature's other ${props.featureGroup.count === 1 ? "thread" : `${props.featureGroup.count} threads`}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.featureGroup?.onToggle();
+                  }}
+                  onPointerDown={handleActionPointerDown}
+                  className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <ChevronRightIcon
+                    aria-hidden
+                    className={cn("size-3", props.featureGroup.expanded && "rotate-90")}
+                  />
+                  {props.featureGroup.count}
+                </button>
+              ) : null}
+              {thread.crew ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {formatCrewStageLine(thread.crew)}
+                </span>
+              ) : null}
               {thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
@@ -2418,11 +2521,26 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
-  const projects = useProjects();
+  const allProjects = useProjects();
+  // The bot rail narrows the sidebar to the active bot's projects on the shown environments.
+  const railProjectKeys = useBotRailProjectKeys();
+  const activeBotKey = useVisibleActiveLogicalBot()?.key ?? null;
+  const sidebarEnvironmentIds = useUiStateStore((store) => store.sidebarEnvironmentIds);
+  const projects = useMemo(
+    () =>
+      railProjectKeys === null
+        ? allProjects
+        : allProjects.filter((project) =>
+            railProjectKeys.has(`${project.environmentId}:${project.id}`),
+          ),
+    [allProjects, railProjectKeys],
+  );
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  // Several bots move thread jumps off Mod+1-9, which then switches bots.
+  const multipleBots = useVisibleLogicalBots().length > 1;
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -2542,7 +2660,7 @@ export default function Sidebar() {
     [environments],
   );
   const environmentMachineById = useEnvironmentMachines();
-  const projectGroups = useSidebarProjectGroups();
+  const projectGroups = useSidebarProjectGroups(projects);
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
   // Threads on non-primary environments (T3 Connect, hosted) resolve their
@@ -2560,8 +2678,9 @@ export default function Sidebar() {
   // Rows read the project record for its icon and cwd. Group labels can include
   // a repository owner or a different title, so they travel separately.
   const projectByKey = useMemo(
-    () => new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project])),
-    [projects],
+    () =>
+      new Map(allProjects.map((project) => [`${project.environmentId}:${project.id}`, project])),
+    [allProjects],
   );
   const projectDisplayNameByKey = useMemo(
     () =>
@@ -2674,13 +2793,13 @@ export default function Sidebar() {
   const scopedProjectKeys = useMemo(
     () =>
       scopedProjectGroup === null
-        ? null
+        ? railProjectKeys
         : new Set(
             scopedProjectGroup.memberProjectRefs.map(
               (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
             ),
           ),
-    [scopedProjectGroup],
+    [railProjectKeys, scopedProjectGroup],
   );
   // Configs identify scratch projects, so both they and live project snapshots
   // must arrive before a persisted scope can be considered missing.
@@ -2734,7 +2853,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [activeBotKey, clearSelection, projectScopeKey, sidebarEnvironmentIds]);
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot, projectRef?: ScopedProjectRef) => {
@@ -2774,6 +2893,39 @@ export default function Sidebar() {
     },
     [openProjectSettings],
   );
+  // Right-click on a project in the picker: its settings, and moving it to another bot.
+  // With nowhere to move it (one bot), right-click opens settings as before.
+  const moveProjectToBotMenu = useMoveProjectToBotMenu();
+  const handleProjectContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, projectGroup: SidebarProjectSnapshot) => {
+      const api = readLocalApi();
+      const moveItem = moveProjectToBotMenu.build(projectGroup.memberProjects);
+      if (!api || moveItem === null) {
+        handleProjectSettings(event, projectGroup);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      suppressNextScopeChangeRef.current = true;
+      const position = { x: event.clientX, y: event.clientY };
+      void (async () => {
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            [{ id: "project-settings", label: "Project settings", icon: "settings" }, moveItem],
+            position,
+          ),
+        );
+        if (clicked._tag === "Failure" || !clicked.value) return;
+        if (clicked.value === "project-settings") {
+          dispatchProjectScopeMenu({ type: "project-settings-opened" });
+          openProjectSettings(projectGroup);
+          return;
+        }
+        moveProjectToBotMenu.run(clicked.value, projectGroup.memberProjects);
+      })();
+    },
+    [handleProjectSettings, moveProjectToBotMenu, openProjectSettings],
+  );
 
   // Keep a dropped row at its destination while its server applies the
   // lifecycle command and any order-key writes. The next pickup waits for
@@ -2801,6 +2953,7 @@ export default function Sidebar() {
     snoozedThreads,
     settledThreads,
     snoozeNow,
+    featureChildren,
   } = useMemo(() => {
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
@@ -2810,7 +2963,10 @@ export default function Sidebar() {
     const preciseNow = new Date().toISOString();
     // Subagent child threads live in the parent's Agents surface, not the
     // sidebar roster (v2 models them as real threads with lineage).
-    const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
+    // A feature's threads fold under its current stage thread's row.
+    const { primaries: visible, childrenByThreadKey: featureChildren } = groupFeatureThreads(
+      filterSidebarV2VisibleThreads(threads, scopedProjectKeys),
+    );
     inboxReturns.observe(workingShelfEnabled ? threads : null);
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -2909,6 +3065,7 @@ export default function Sidebar() {
       ),
       settledThreads: sortSettledThreads(settled),
       snoozeNow: preciseNow,
+      featureChildren,
     };
   }, [
     nowMinute,
@@ -2931,8 +3088,16 @@ export default function Sidebar() {
       ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
+      // Threads folded under their feature's row still turn up in search.
+      ...[...featureChildren.values()].flat(),
     ],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads, workingThreads],
+    [activeThreads, featureChildren, pinnedThreads, settledThreads, snoozedThreads, workingThreads],
+  );
+  // Features whose folded threads show under their row; collapsed by default.
+  const [expandedFeatureRows, setExpandedFeatureRows] = useLocalStorage(
+    "t3code:sidebar:expanded-feature-rows",
+    EMPTY_EXPANDED_FEATURE_ROWS,
+    Schema.Array(Schema.String),
   );
   const searchEnvironmentIds = useConnectedEnvironmentIds();
   // useThreadSearch owns the debounce and the two-character floor.
@@ -3160,11 +3325,13 @@ export default function Sidebar() {
     for (const [index, threadKey] of orderedThreadKeys.entries()) {
       const jumpCommand = threadJumpCommandForIndex(index);
       if (!jumpCommand) break;
-      const label = shortcutLabelForCommand(keybindings, jumpCommand);
+      const label = shortcutLabelForCommand(keybindings, jumpCommand, {
+        context: { multipleBots },
+      });
       if (label) mapping.set(threadKey, label);
     }
     return mapping;
-  }, [keybindings, orderedThreadKeys]);
+  }, [keybindings, multipleBots, orderedThreadKeys]);
   const { showThreadJumpHints: showJumpHints, updateThreadJumpHintsVisibility } =
     useThreadJumpHintVisibility();
 
@@ -4638,6 +4805,7 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const feature = await readFeatureMenuState(threadRef, thread.projectId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -4675,6 +4843,8 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              feature,
+              featureLifecycle: featureLifecycleFor(thread, threadByKeyRef.current.values()),
             }),
             position,
           ),
@@ -4809,6 +4979,35 @@ export default function Sidebar() {
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
             return;
+          case "make-feature":
+          case "detach-feature":
+            await runFeatureThreadAction(clicked.value, threadRef, thread);
+            return;
+          case "feature-pause":
+          case "feature-resume":
+          case "feature-cancel":
+          case "feature-reopen":
+            if (thread.feature) {
+              await runFeatureLifecycleAction(clicked.value, {
+                environmentId: thread.environmentId,
+                projectId: thread.projectId,
+                featureId: thread.feature.id,
+                title: thread.feature.title,
+              });
+            }
+            return;
+          case "feature-issue":
+          case "feature-open-issue":
+            if (thread.feature) {
+              runFeatureIssueAction(clicked.value, {
+                environmentId: thread.environmentId,
+                projectId: thread.projectId,
+                feature: thread.feature,
+              });
+            }
+            return;
+          case "feature":
+            return;
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
@@ -4917,6 +5116,7 @@ export default function Sidebar() {
           modelPickerOpen: isModelPickerOpen(),
           isWeb: !isElectron,
           isDesktop: isElectron,
+          multipleBots,
         },
       });
       const navigateToThreadKey = (targetThreadKey: string | null) => {
@@ -4947,6 +5147,7 @@ export default function Sidebar() {
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
     keybindings,
+    multipleBots,
     navigateToThread,
     orderedThreadKeys,
     routeTerminalOpen,
@@ -4970,6 +5171,7 @@ export default function Sidebar() {
         modelPickerOpen: isModelPickerOpen(),
         isWeb: !isElectron,
         isDesktop: isElectron,
+        multipleBots,
       },
     },
   );
@@ -5024,6 +5226,8 @@ export default function Sidebar() {
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
+            <SidebarBotHeader />
+            <SidebarViewToggle />
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
@@ -5120,7 +5324,7 @@ export default function Sidebar() {
                             hideIndicator
                             value={item}
                             onContextMenu={(event) => {
-                              if (project) handleProjectSettings(event, project);
+                              if (project) handleProjectContextMenu(event, project);
                             }}
                           >
                             {project ? (
@@ -5249,6 +5453,7 @@ export default function Sidebar() {
               </p>
             )
           ) : null}
+          {!isSearchingThreads ? <SidebarNeedsYouShelf /> : null}
           {!isSearchingThreads ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
@@ -5292,6 +5497,7 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
+                        nested = false,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5302,8 +5508,12 @@ export default function Sidebar() {
                         // not from the sidebar second-guessing what still matters.
                         // Working rows stay cards so their live status shows.
                         const isCard =
-                          section === "active" || section === "pinned" || section === "working";
+                          !nested &&
+                          (section === "active" || section === "pinned" || section === "working");
                         const rowVariant = isCard ? "card" : "slim";
+                        const folded = nested
+                          ? undefined
+                          : featureChildren.get(`${thread.environmentId}:${thread.id}`);
                         return (
                           <SidebarThreadRow
                             // Fade between card and compact rows while the outer
@@ -5404,6 +5614,21 @@ export default function Sidebar() {
                               changeRequestSnapshotByKey.get(threadKey) ?? null
                             }
                             onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
+                            nested={nested}
+                            featureGroup={
+                              folded
+                                ? {
+                                    count: folded.length,
+                                    expanded: expandedFeatureRows.includes(threadKey),
+                                    onToggle: () =>
+                                      setExpandedFeatureRows((current) =>
+                                        current.includes(threadKey)
+                                          ? current.filter((key) => key !== threadKey)
+                                          : [...current, threadKey],
+                                      ),
+                                  }
+                                : null
+                            }
                           />
                         );
                       };
@@ -5445,7 +5670,17 @@ export default function Sidebar() {
                       ];
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          const thread = threadByKey.get(item.key)!;
+                          items.push(renderThreadRow(thread, item.section));
+                          if (expandedFeatureRows.includes(item.key)) {
+                            for (const child of featureChildren.get(
+                              `${thread.environmentId}:${thread.id}`,
+                            ) ?? []) {
+                              items.push(
+                                renderThreadRowInner(child, item.section, undefined, true),
+                              );
+                            }
+                          }
                           continue;
                         }
                         switch (item.marker) {

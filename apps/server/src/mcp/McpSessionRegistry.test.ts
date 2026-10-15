@@ -48,9 +48,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
 
     const resolved = yield* registry.resolve(token);
     expect(resolved?.thread.threadId).toBe(threadId);
-    expect(resolved?.capabilities).toEqual(
-      new Set(["preview", "orchestration", "worktree", "pull-requests"]),
-    );
+    expect(resolved?.capabilities).toEqual(new Set(["preview"]));
 
     yield* registry.revokeThread(threadId);
     expect(yield* registry.resolve(token)).toBeUndefined();
@@ -59,13 +57,13 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
   }),
 );
 
-it.effect("always grants pull-requests and gates browser and device access independently", () =>
+it.effect("grants only the capabilities requested for a provider thread", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry(() => 1_000);
     const withPreview = yield* registry.issue({
       threadId: ThreadId.make("thread-preview"),
       providerInstanceId: ProviderInstanceId.make("codex"),
-      capabilities: new Set(["preview"]),
+      capabilities: new Set(["preview", "pull-requests"]),
     });
     const withoutPreview = yield* registry.issue({
       threadId: ThreadId.make("thread-no-preview"),
@@ -82,20 +80,16 @@ it.effect("always grants pull-requests and gates browser and device access indep
         .resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, ""))
         .pipe(Effect.map((scope) => [...(scope?.capabilities ?? [])].sort()));
 
-    expect(yield* capabilitiesOf(withPreview)).toEqual([
+    expect(yield* capabilitiesOf(withPreview)).toEqual(["preview", "pull-requests"]);
+    expect(yield* capabilitiesOf(withoutPreview)).toEqual([]);
+    expect(yield* capabilitiesOf(withDevice)).toEqual(["device"]);
+    const defaults = yield* registry.issue({
+      threadId: ThreadId.make("thread-defaults"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+    });
+    expect(yield* capabilitiesOf(defaults)).toEqual([
       "orchestration",
       "preview",
-      "pull-requests",
-      "worktree",
-    ]);
-    expect(yield* capabilitiesOf(withoutPreview)).toEqual([
-      "orchestration",
-      "pull-requests",
-      "worktree",
-    ]);
-    expect(yield* capabilitiesOf(withDevice)).toEqual([
-      "device",
-      "orchestration",
       "pull-requests",
       "worktree",
     ]);

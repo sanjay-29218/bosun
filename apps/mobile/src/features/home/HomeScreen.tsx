@@ -49,6 +49,7 @@ import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
+import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import {
   ThreadListV2PendingRow,
   ThreadListV2Row,
@@ -84,6 +85,8 @@ import { ThreadListFilters } from "./ThreadListFilters";
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface HomeScreenProps {
+  /** The active bot's row above the list, which opens its headquarters. */
+  readonly botHeader?: React.ReactNode;
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
@@ -603,7 +606,9 @@ export function HomeScreen(props: HomeScreenProps) {
     // "hidden from lists" meaning.
     return buildThreadListV2Items({
       pendingOrder,
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
+      threads: props.threads.filter(
+        (thread) => thread.archivedAt === null && !isHiddenStageThread(thread),
+      ),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
       searchQuery: props.searchQuery,
@@ -983,6 +988,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2ListHeader = (
     <>
       {listHeader}
+      {props.botHeader}
       {Platform.OS === "ios" && workspace ? (
         <ThreadListFilters
           environments={props.environments}

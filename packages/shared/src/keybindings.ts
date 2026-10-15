@@ -1,4 +1,5 @@
 import {
+  BOT_JUMP_KEYBINDING_COMMANDS,
   type KeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
@@ -120,6 +121,16 @@ type WhenToken =
   | { type: "lparen" }
   | { type: "rparen" };
 
+/**
+ * With several bots, Mod+1-9 switches bots and thread jumps move to Ctrl+Cmd+1-9 on macOS,
+ * Ctrl+Alt+1-9 elsewhere (where Mod is already Ctrl).
+ */
+export const MULTIPLE_BOTS_THREAD_JUMP_KEYBINDINGS: ReadonlyArray<KeybindingRule> =
+  THREAD_JUMP_KEYBINDING_COMMANDS.flatMap((command, index) => [
+    { key: `mod+ctrl+${index + 1}`, command, when: "isDesktop && multipleBots && isMac" },
+    { key: `mod+alt+${index + 1}`, command, when: "isDesktop && multipleBots && !isMac" },
+  ]);
+
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle" },
   { key: "mod+[", command: "navigation.back", when: "!terminalFocus" },
@@ -146,6 +157,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
   { key: "mod+shift+f", command: "projectSearch.toggle", when: "!terminalFocus" },
   { key: "mod+u", command: "usage.open", when: "!terminalFocus" },
+  { key: "mod+alt+shift+b", command: "board.toggle", when: "!terminalFocus" },
+  { key: "mod+shift+y", command: "needsYou.next", when: "!terminalFocus" },
   { key: "mod+alt+a", command: "theme.select", when: "!terminalFocus" },
   { key: "mod+alt+shift+a", command: "appearance.cycle", when: "!terminalFocus" },
   { key: "mod+alt+shift+t", command: "themeEditor.toggle" },
@@ -195,6 +208,13 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
     command,
     when: "!modelPickerOpen && isDesktop",
   })),
+  ...MULTIPLE_BOTS_THREAD_JUMP_KEYBINDINGS,
+  // Listed after the thread jumps so, with several bots, Mod+1-9 switches bots.
+  ...BOT_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index + 1}`,
+    command,
+    when: "isDesktop && multipleBots",
+  })),
   ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `mod+${index + 1}`,
     command,
@@ -207,6 +227,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+2", command: "usage.period.week", when: "usagePageOpen" },
   { key: "mod+shift+3", command: "usage.period.month", when: "usagePageOpen" },
   { key: "mod+shift+4", command: "usage.period.quarter", when: "usagePageOpen" },
+  { key: "w", command: "features.workflow", when: "featuresPageOpen" },
+  { key: "n", command: "features.needsYou", when: "featuresPageOpen" },
 ];
 
 function normalizeKeyToken(token: string): string {

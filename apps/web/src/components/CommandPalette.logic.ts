@@ -593,11 +593,15 @@ export function getCommandPaletteMode(input: {
 
 export function buildRootGroups(input: {
   actionItems: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
+  botItems?: ReadonlyArray<CommandPaletteActionItem>;
   recentThreadItems: ReadonlyArray<CommandPaletteActionItem>;
 }): CommandPaletteGroup[] {
   const groups: CommandPaletteGroup[] = [];
   if (input.actionItems.length > 0) {
     groups.push({ value: "actions", label: "Actions", items: input.actionItems });
+  }
+  if (input.botItems && input.botItems.length > 0) {
+    groups.push({ value: "bots", label: "Bots", items: input.botItems });
   }
   if (input.recentThreadItems.length > 0) {
     groups.push({
