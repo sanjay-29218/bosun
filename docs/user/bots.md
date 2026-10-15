@@ -66,8 +66,10 @@ roles too if they're missing), then **Edit** to open a workflow's page.
 - **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the
   canvas, drag a role from the panel beside it onto the canvas and describe its task. Drag from
   an outcome on a stage's right edge to another stage to route it there, and select a stage or
-  route to edit it in the panel beside the canvas. The expand button gives the canvas the whole
-  settings page; **Esc** shrinks it back. Where you place stages is saved with the workflow.
+  route to edit it in the panel beside the canvas. Routes back to an earlier stage are dashed and
+  run below the stages; point at an outcome or route to pick out its path. The expand button gives
+  the canvas the whole settings page; **Esc** shrinks it back. Where you place stages is saved with
+  the workflow, and **Arrange** lines them up left to right again.
   Narrow screens always show the form.
 - **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
   keep the version they began with. Use the **⋯** menu to duplicate or delete a workflow; deleting waits until no unfinished feature runs on it and no bot starts its features with it.

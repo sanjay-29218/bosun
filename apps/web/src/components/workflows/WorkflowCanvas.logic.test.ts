@@ -5,15 +5,21 @@ import { removeStage } from "../settings/WorkflowEditor.logic";
 import {
   CANVAS_COLUMN_WIDTH,
   CANVAS_ROW_GAP,
-  autoLayoutWorkflow,
+  arrangeWorkflow,
   canRemoveRoute,
   canvasNodeHeight,
   connectRoute,
+  planWorkflowRoutes,
   removeRoute,
+  routeLabelPoint,
+  routePath,
+  routePoints,
   stagesRoutingTo,
   withNodePositions,
+  workflowCanvasStepIds,
   workflowNodePositions,
   workflowRoutes,
+  type CanvasPoint,
 } from "./WorkflowCanvas.logic";
 
 function workflow(): WorkflowDefinition {
@@ -43,6 +49,27 @@ function workflow(): WorkflowDefinition {
   };
 }
 
+/** The starter workflow's shape: a straight path with change requests looping back through a decision. */
+function starter(): WorkflowDefinition {
+  const task = (next: Record<string, string>) =>
+    ({ type: "task", role: "builder", task: "Do it", next }) as const;
+  return {
+    ...workflow(),
+    steps: {
+      plan: task({ ready: "design" }),
+      design: task({ ready: "build" }),
+      build: task({ built: "qa", design_change_requested: "change_review" }),
+      qa: task({ passed: "review", changes_requested: "change_review" }),
+      review: {
+        ...task({ approved: "end", changes_requested: "change_review" }),
+        limits: { changes_requested: 3 },
+      },
+      change_review: task({ revise_design: "design", revise_build: "build" }),
+      end: { type: "end" },
+    },
+  };
+}
+
 const column = (n: number) => n * CANVAS_COLUMN_WIDTH;
 
 describe("workflowRoutes", () => {
@@ -60,50 +87,253 @@ describe("workflowRoutes", () => {
   });
 });
 
-describe("autoLayoutWorkflow", () => {
-  it("puts stages in columns by distance from the start, unreachable ones next, and Finish last", () => {
-    const definition = workflow();
-    const positions = autoLayoutWorkflow(definition);
-    // A node alone in its column is centred on y = 0.
-    const centred = (id: string) => -canvasNodeHeight(definition, id) / 2;
-    expect(positions.plan).toEqual({ x: column(0), y: centred("plan") });
-    expect(positions.build).toEqual({ x: column(1), y: centred("build") });
-    expect(positions.review).toEqual({ x: column(2), y: centred("review") });
-    expect(positions.orphan).toEqual({ x: column(3), y: centred("orphan") });
-    expect(positions.end).toEqual({ x: column(4), y: centred("end") });
+describe("workflowCanvasStepIds", () => {
+  it("orders stages so every forward route points right, then Finish", () => {
+    expect(workflowCanvasStepIds(starter())).toEqual([
+      "plan",
+      "design",
+      "build",
+      "qa",
+      "review",
+      "change_review",
+      "end",
+    ]);
+    // An unreachable stage comes after the reachable ones.
+    expect(workflowCanvasStepIds(workflow())).toEqual(["plan", "build", "review", "orphan", "end"]);
   });
+});
 
-  it("stacks stages that share a column by their height, so a tall stage never overlaps", () => {
+describe("arrangeWorkflow", () => {
+  it("puts every step in one row, left to right in canvas order, with Finish level with first outcomes", () => {
     const definition = workflow();
-    const outcomes = ["a", "b", "c", "d", "e", "f", "g", "h"];
-    const branched: WorkflowDefinition = {
-      ...definition,
+    const positions = arrangeWorkflow(definition);
+    expect(positions.plan).toEqual({ x: column(0), y: 0 });
+    expect(positions.build).toEqual({ x: column(1), y: 0 });
+    expect(positions.review).toEqual({ x: column(2), y: 0 });
+    expect(positions.orphan).toEqual({ x: column(3), y: 0 });
+    expect(positions.end!.x).toBe(column(4));
+    expect(positions.end!.y).toBeGreaterThan(0);
+  });
+});
+
+describe("planWorkflowRoutes", () => {
+  it("tells forward routes from ones that skip ahead, go back, or loop", () => {
+    const plans = planWorkflowRoutes(starter());
+    const kinds = Object.fromEntries([...plans].map(([id, plan]) => [id, plan.kind]));
+    expect(kinds).toEqual({
+      "plan:ready": "forward",
+      "design:ready": "forward",
+      "build:built": "forward",
+      "build:design_change_requested": "skip",
+      "qa:passed": "forward",
+      "qa:changes_requested": "skip",
+      "review:approved": "skip",
+      "review:changes_requested": "forward",
+      "change_review:revise_design": "back",
+      "change_review:revise_build": "back",
+    });
+    const looped: WorkflowDefinition = {
+      ...workflow(),
       steps: {
-        ...definition.steps,
-        plan: { type: "task", role: "builder", task: "Plan", next: { a: "build", b: "orphan" } },
-        build: {
-          type: "task",
-          role: "builder",
-          task: "Build",
-          next: Object.fromEntries(outcomes.map((outcome) => [outcome, "review"])),
-        },
+        ...workflow().steps,
+        build: { type: "task", role: "builder", task: "Build", next: { again: "build" } },
       },
     };
-    const positions = autoLayoutWorkflow(branched);
-    const buildHeight = canvasNodeHeight(branched, "build");
-    expect(positions.build!.x).toBe(column(1));
-    expect(positions.orphan!.x).toBe(column(1));
-    expect(positions.orphan!.y - positions.build!.y).toBe(buildHeight + CANVAS_ROW_GAP);
-    // The column is centred on y = 0.
-    expect(positions.build!.y).toBe(
-      -(buildHeight + CANVAS_ROW_GAP + canvasNodeHeight(branched, "orphan")) / 2,
+    expect(planWorkflowRoutes(looped).get("build:again")?.kind).toBe("loop");
+  });
+
+  it("gives overlapping lanes their own depth, the shorter one nearest the row", () => {
+    const plans = planWorkflowRoutes(starter());
+    const lane = (id: string) => plans.get(id)!.lane;
+    // Back routes from Change review: to Build (shorter, nearer) and to Design (deeper).
+    expect(lane("change_review:revise_build")).toBe(0);
+    expect(lane("change_review:revise_design")).toBe(1);
+    // Over the row, Review → Finish and QA → Change review share a gap, so they cannot share a lane.
+    const over = ["build:design_change_requested", "qa:changes_requested", "review:approved"];
+    expect(new Set(over.map(lane)).size).toBe(3);
+  });
+
+  it("lands only the first-row route from the previous stage on the handle", () => {
+    const plans = planWorkflowRoutes(starter());
+    expect(plans.get("plan:ready")!.landing).toBe(0);
+    // Change review is entered by two skip routes and from Review's second row, all above the handle.
+    expect(plans.get("review:changes_requested")!.landing).toBe(-10);
+    const skips = ["build:design_change_requested", "qa:changes_requested"].map((id) =>
+      plans.get(id)!,
     );
+    // The outer lane drops nearest the target and lands highest.
+    const [outer, inner] = skips.toSorted((a, b) => b.lane - a.lane);
+    expect(outer!.landing).toBe(-30);
+    expect(inner!.landing).toBe(-20);
+    expect(outer!.approach).toBeLessThan(inner!.approach);
+  });
+});
+
+/**
+ * Each route of the arranged workflow as segments, from where React Flow puts
+ * handles: outcome rows 20px apart from the first at y + 69 on the right, the
+ * incoming handle level with the first row on the left, and one under the middle.
+ */
+function arrangedRoutes(definition: WorkflowDefinition) {
+  const positions = arrangeWorkflow(definition);
+  const box = (id: string) => {
+    const { x, y } = positions[id]!;
+    const end = definition.steps[id]?.type === "end";
+    return { x, y, width: end ? 80 : 224, height: canvasNodeHeight(definition, id) - 1, end };
+  };
+  const boxes = workflowCanvasStepIds(definition).map(box);
+  const bounds = {
+    top: Math.min(...boxes.map((node) => node.y)),
+    bottom: Math.max(...boxes.map((node) => node.y + node.height)),
+  };
+  const plans = planWorkflowRoutes(definition);
+  const routes = workflowRoutes(definition).map((route) => {
+    const into = box(route.target);
+    const plan = plans.get(route.id)!;
+    const from = box(route.stepId);
+    const to = box(route.target);
+    const step = definition.steps[route.stepId];
+    const row = step?.type === "task" ? Object.keys(step.next).indexOf(route.outcome) : 0;
+    const source = { x: from.x + from.width, y: from.y + 69 + 20 * row };
+    const target =
+      plan.kind === "back" || plan.kind === "loop"
+        ? { x: to.x + to.width / 2, y: to.y + to.height }
+        : { x: to.x, y: to.end ? to.y + to.height / 2 : to.y + 69 };
+    return { id: route.id, into, points: routePoints(plan, source, target, bounds) };
+  });
+  return { boxes, routes };
+}
+
+type Segment = readonly [CanvasPoint, CanvasPoint];
+const segments = (points: readonly CanvasPoint[]): Segment[] =>
+  points.slice(1).map((point, index) => [points[index]!, point] as const);
+const span = (a: number, b: number) => [Math.min(a, b), Math.max(a, b)] as const;
+
+function sharesRun(a: Segment, b: Segment) {
+  for (const axis of ["x", "y"] as const) {
+    const along = axis === "x" ? "y" : "x";
+    if (a[0][axis] === a[1][axis] && b[0][axis] === b[1][axis] && a[0][axis] === b[0][axis]) {
+      const [aLow, aHigh] = span(a[0][along], a[1][along]);
+      const [bLow, bHigh] = span(b[0][along], b[1][along]);
+      if (Math.min(aHigh, bHigh) - Math.max(aLow, bLow) > 0) return true;
+    }
+  }
+  return false;
+}
+
+function crossesBody(
+  segment: Segment,
+  node: { x: number; y: number; width: number; height: number },
+) {
+  const [left, right] = span(segment[0].x, segment[1].x);
+  const [top, bottom] = span(segment[0].y, segment[1].y);
+  return (
+    left < node.x + node.width - 1 &&
+    right > node.x + 1 &&
+    top < node.y + node.height - 1 &&
+    bottom > node.y + 1
+  );
+}
+
+describe("routePoints on an arranged workflow", () => {
+  const task = (next: Record<string, string>) =>
+    ({ type: "task", role: "builder", task: "Do it", next }) as const;
+  // Ten stages in a chain that can each also finish early, which crowds the gap before Finish.
+  const chain = Array.from({ length: 10 }, (_, index) => `s${index}`);
+  const crowded: WorkflowDefinition = {
+    ...workflow(),
+    start: "s0",
+    steps: {
+      ...Object.fromEntries(
+        chain.map((id, index) => [id, task({ next: chain[index + 1] ?? "end", stop: "end" })]),
+      ),
+      end: { type: "end" },
+    },
+  };
+  it.each([
+    ["the starter workflow", starter()],
+    ["a workflow with an unreachable stage", workflow()],
+    [
+      "a stage routing three outcomes to a short next stage",
+      {
+        ...workflow(),
+        steps: {
+          plan: task({ a: "build", b: "build", c: "build" }),
+          build: task({ done: "end" }),
+          end: { type: "end" },
+        },
+      } satisfies WorkflowDefinition,
+    ],
+    [
+      "a stage with two loops",
+      {
+        ...workflow(),
+        steps: {
+          plan: task({ done: "end", retry: "plan", rework: "plan" }),
+          end: { type: "end" },
+        },
+      } satisfies WorkflowDefinition,
+    ],
+    ["a crowded Finish", crowded],
+  ] as const)("keeps routes off node bodies and off each other in %s", (_, definition) => {
+    const { boxes, routes } = arrangedRoutes(definition);
+    for (const route of routes) {
+      // The arrow lands on its target's edge.
+      const end = route.points.at(-1)!;
+      expect(end.x, route.id).toBeGreaterThanOrEqual(route.into.x);
+      expect(end.x, route.id).toBeLessThanOrEqual(route.into.x + route.into.width);
+      expect(end.y, route.id).toBeGreaterThanOrEqual(route.into.y);
+      expect(end.y, route.id).toBeLessThanOrEqual(route.into.y + route.into.height);
+      for (const segment of segments(route.points)) {
+        for (const node of boxes) expect(crossesBody(segment, node), route.id).toBe(false);
+      }
+    }
+    routes.forEach((route, index) => {
+      for (const other of routes.slice(index + 1)) {
+        const shared = segments(route.points).some((a) =>
+          segments(other.points).some((b) => sharesRun(a, b)),
+        );
+        expect(shared, `${route.id} and ${other.id}`).toBe(false);
+      }
+    });
+  });
+
+  it("draws the main path as straight lines and runs back routes under the row", () => {
+    const { boxes, routes } = arrangedRoutes(starter());
+    const points = (id: string) => routes.find((route) => route.id === id)!.points;
+    expect(points("plan:ready")).toHaveLength(2);
+    expect(points("build:built")).toHaveLength(2);
+    const bottom = Math.max(...boxes.map((node) => node.y + node.height));
+    const back = points("change_review:revise_design");
+    expect(Math.max(...back.map((point) => point.y))).toBeGreaterThan(bottom);
+    // It arrives from below, so the last run points up.
+    expect(back.at(-1)!.y).toBeLessThan(back.at(-2)!.y);
+  });
+
+  it("puts a limit label on the lane of a route that has one", () => {
+    const { boxes, routes } = arrangedRoutes(workflow());
+    const back = routes.find((route) => route.id === "review:changes_requested")!.points;
+    const label = routeLabelPoint(back);
+    expect(label.y).toBeGreaterThan(Math.max(...boxes.map((node) => node.y + node.height)));
+  });
+});
+
+describe("routePath", () => {
+  it("rounds each corner without overshooting short runs", () => {
+    expect(
+      routePath([
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 6 },
+        { x: 40, y: 6 },
+      ]),
+    ).toBe("M 0 0 L 17 0 Q 20 0 20 3 L 20 3 Q 20 6 23 6 L 40 6");
   });
 });
 
 describe("workflowNodePositions", () => {
   it("lays out a workflow without saved positions automatically", () => {
-    expect(workflowNodePositions(workflow())).toEqual(autoLayoutWorkflow(workflow()));
+    expect(workflowNodePositions(workflow())).toEqual(arrangeWorkflow(workflow()));
   });
 
   it("keeps saved positions and places a new stage beside one that routes to it", () => {
