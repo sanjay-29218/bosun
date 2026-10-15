@@ -15,6 +15,10 @@ import type {
 export interface SourceControlLinkSubject {
   readonly title: string;
   readonly body: string | null;
+  /** Issue details, for providers that read them. */
+  readonly state?: "open" | "closed";
+  readonly milestone?: string | null;
+  readonly subIssues?: { readonly completed: number; readonly total: number } | null;
 }
 
 /** Return undefined synchronously for unsupported URLs, without starting a lookup. */

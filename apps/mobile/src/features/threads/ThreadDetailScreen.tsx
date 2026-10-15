@@ -5,6 +5,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import {
@@ -27,6 +28,7 @@ import type {
   RuntimeMode,
   RuntimeRequestId,
   ServerConfig as T3ServerConfig,
+  ServerProvider,
   ThreadId,
   UsageLimitsReport,
 } from "@t3tools/contracts";
@@ -144,6 +146,10 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import { MobileCrewRunStatusStrip } from "./MobileCrewRunStatusStrip";
+import { CrewHandoffCard } from "../crew/CrewHandoffCard";
+import { CrewStageCard, crewComposerMode } from "../crew/CrewStageCard";
+import { useCrewThreadStage } from "../../state/features";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -323,6 +329,8 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
     void Haptics.selectionAsync();
   }, [threadId, feed]);
 }
+
+const EMPTY_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
@@ -1124,9 +1132,28 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     feedTouchStartRef.current = null;
   }, []);
 
+  const isCrewThread = isCrewThreadId(props.selectedThread.id);
+  const crewStage = useCrewThreadStage(props.selectedThread);
+  const crewComposer = crewComposerMode(crewStage);
+  const onChangeDraftMessage = props.onChangeDraftMessage;
+  const clearCrewNote = useCallback(() => onChangeDraftMessage(""), [onChangeDraftMessage]);
+  const openCrewDiff = useCallback(() => {
+    navigation.navigate("ThreadReview", {
+      environmentId: props.environmentId,
+      threadId: props.selectedThread.id,
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
+
   return (
     <View className="flex-1">
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
+      {isCrewThread ? (
+        <MobileCrewRunStatusStrip
+          environmentId={props.environmentId}
+          projectId={props.selectedThread.projectId}
+          threadId={props.selectedThread.id}
+        />
+      ) : null}
       {showContent ? (
         <View
           style={{ flex: 1 }}
@@ -1160,6 +1187,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
               pendingHandoff={props.pendingHandoff}
+              headerAccessory={
+                isCrewThread ? (
+                  <CrewHandoffCard
+                    environmentId={props.environmentId}
+                    projectId={props.selectedThread.projectId}
+                    threadId={props.selectedThread.id}
+                  />
+                ) : null
+              }
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}
@@ -1342,6 +1378,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       />
                     </Animated.View>
                   ) : null}
+                  {crewStage !== null ? (
+                    <View className="shrink-0 px-4 pb-3">
+                      <CrewStageCard
+                        environmentId={props.environmentId}
+                        stage={crewStage}
+                        canOperate={props.canOperateThread}
+                        note={props.draftMessage}
+                        onNoteSent={clearCrewNote}
+                        providers={props.serverConfig?.providers ?? EMPTY_PROVIDERS}
+                        onViewDiff={openCrewDiff}
+                      />
+                    </View>
+                  ) : null}
                   {props.activePendingApproval || props.activePendingUserInput ? (
                     <Animated.View
                       className="shrink-0 gap-3 px-4 pb-3"
@@ -1432,7 +1481,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         editorRef={composerEditorRef}
                         draftMessage={props.draftMessage}
                         draftAttachments={props.draftAttachments}
-                        placeholder="Ask the repo agent, or run a command…"
+                        placeholder={
+                          crewComposer?.placeholder ?? "Ask the repo agent, or run a command…"
+                        }
                         contentMaxWidth={contentMaxWidth}
                         connectionState={props.connectionStateLabel}
                         environmentLabel={props.environmentLabel}
@@ -1453,7 +1504,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                           props.creationState?.kind === "preparing" &&
                           !props.creationState.serverOwned
                             ? "Starting the task…"
-                            : null
+                            : (crewComposer?.sendBlockedReason ?? null)
                         }
                         draftKey={props.composerDraftKey ?? undefined}
                         followUpBehavior={props.followUpBehavior}

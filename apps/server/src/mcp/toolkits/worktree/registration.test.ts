@@ -1,3 +1,10 @@
+import * as BotService from "../../../bots/BotService.ts";
+import { CrewService } from "../../../crew/CrewService.ts";
+import { CrewStore } from "../../../crew/CrewStore.ts";
+import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
+import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
+import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -29,6 +36,7 @@ import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchServ
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as PreviewManager from "../../../preview/Manager.ts";
 import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
+import * as BotProjects from "../../../bots/BotProjects.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
@@ -50,6 +58,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+  Layer.mock(BotProjects.BotProjects)({}),
   Layer.mock(GitVcsDriver.GitVcsDriver)({}),
   Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
   Layer.mock(PreviewManager.PreviewManager)({}),
@@ -96,6 +105,17 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         Layer.provide(PreviewAutomationBroker.layer),
         Layer.provide(PreviewBrowser.layer),
         Layer.provide(layerStubServices),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(BotService.BotService)({}),
+            Layer.mock(CrewService)({}),
+            Layer.mock(CrewStore)({}),
+            Layer.mock(CrewHandoffService)({}),
+            Layer.mock(CrewHandoffStore)({}),
+            Layer.mock(FeatureService)({}),
+            Layer.mock(WorkflowService)({}),
+          ),
+        ),
         Layer.build,
       );
 

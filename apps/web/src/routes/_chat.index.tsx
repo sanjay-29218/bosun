@@ -13,7 +13,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { readMainView, useShowMainView } from "../components/sidebar/mainAppLocation";
 import {
+  readActiveEnvironmentId,
   readProject,
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -38,7 +40,8 @@ function ChatIndexRouteView() {
 /**
  * Landing on the index route drops straight into a draft thread for the most
  * recently active project, so the first screen is a prompt instead of a dead
- * end. Falls back to an add-project hero when no project exists yet.
+ * end, or onto the board when the environment last showed it. Falls back to an
+ * add-project hero when no project exists yet.
  */
 function IndexDraftLanding() {
   const projects = useProjects();
@@ -49,6 +52,7 @@ function IndexDraftLanding() {
   // Read at effect time: this page stays mounted while a navigation away from
   // "/" is still loading, but the router already points at the new location.
   const isStillOnIndex = useEffectEvent(() => router.state.location.pathname === "/");
+  const showMainView = useShowMainView();
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
 
@@ -72,6 +76,10 @@ function IndexDraftLanding() {
       return;
     }
     startingRef.current = true;
+    if (readMainView(readActiveEnvironmentId()) === "board") {
+      void showMainView("board", { replace: true });
+      return;
+    }
     void handleNewThread(projectRef, { replace: true })
       .then((opened) => {
         // The project was removed while its draft started; land on the next one.
@@ -84,7 +92,7 @@ function IndexDraftLanding() {
         startingRef.current = false;
         setStartState((state) => ({ ...state, failed: true }));
       });
-  }, [handleNewThread, mostRecentProject, startState.retryRequest]);
+  }, [handleNewThread, mostRecentProject, showMainView, startState.retryRequest]);
 
   if (!bootstrapped) {
     return null;

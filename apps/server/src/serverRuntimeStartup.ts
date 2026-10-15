@@ -1,3 +1,6 @@
+import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
+import { CrewService } from "./crew/CrewService.ts";
+import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -17,6 +20,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -419,6 +423,10 @@ const make = (options?: StartupOptions) =>
   Effect.gen(function* () {
     const serverConfig = yield* ServerConfig.ServerConfig;
     const keybindings = yield* Keybindings.Keybindings;
+    const workflowExecution = yield* WorkflowExecutionService;
+    const workflowScope = yield* Effect.scope;
+    const crew = yield* CrewService;
+    const crewHandoffs = yield* CrewHandoffService;
     const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
     const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
     const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -553,6 +561,13 @@ const make = (options?: StartupOptions) =>
           Effect.logWarning("Failed to load projects for automatic pull", { cause }),
         ),
         forkParked,
+      );
+
+      yield* runStartupPhase("crew.reconcile", crew.reconcileRuns());
+      yield* runStartupPhase("crew.handoffs.reconcile", crewHandoffs.reconcile());
+      yield* runStartupPhase(
+        "workflows.start",
+        workflowExecution.start().pipe(Scope.provide(workflowScope)),
       );
 
       const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(

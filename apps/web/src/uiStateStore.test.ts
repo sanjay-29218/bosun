@@ -23,6 +23,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
+    activeBotIdByEnvironmentId: {},
+    sidebarEnvironmentIds: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -202,6 +204,8 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      activeBotIdByEnvironmentId: {},
+      sidebarEnvironmentIds: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -324,6 +328,8 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      activeBotIdByEnvironmentId: {},
+      sidebarEnvironmentIds: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -336,6 +342,16 @@ describe("uiStateStore persistence", () => {
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("restores the active bot per environment and the environment filter", () => {
+    const parsed = parsePersistedState({
+      activeBotIdByEnvironmentId: { local: "bot-social", remote: "", bad: 1 as unknown as string },
+      sidebarEnvironmentIds: ["local", "", "local"],
+    });
+    expect(parsed.activeBotIdByEnvironmentId).toEqual({ local: "bot-social" });
+    expect(parsed.sidebarEnvironmentIds).toEqual(["local"]);
+    expect(parsePersistedState({}).sidebarEnvironmentIds).toBeNull();
   });
 
   it("restores the sidebar project scope across reloads", () => {

@@ -461,7 +461,10 @@ const verifyMigrationSlots = Effect.fn("verifyMigrationSlots")(function* () {
   const appliedById = new Map(applied.map((row) => [Number(row.migration_id), row.name]));
   for (const [slot, codeName] of migrationManifest) {
     const appliedName = appliedById.get(slot);
-    if (appliedName !== undefined && appliedName !== codeName) {
+    const priorBotName =
+      (slot === 55 && appliedName === "BosunBots") ||
+      (slot === 56 && appliedName === "BosunHandoffs");
+    if (appliedName !== undefined && appliedName !== codeName && !priorBotName) {
       return yield* new MigrateDevDbSlotCollisionError({ slot, codeName, appliedName });
     }
   }

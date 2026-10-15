@@ -1,4 +1,5 @@
 import {
+  CAPTAIN_BOT_ID,
   CommandId,
   type OrchestrationProjectShell,
   ProjectId,
@@ -17,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import * as BotStore from "../bots/BotStore.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
@@ -83,6 +85,16 @@ export class ProjectNotEmptyError extends Schema.TaggedError<ProjectNotEmptyErro
   }
 }
 
+/** A project was given to a bot that does not exist. */
+export class ProjectBotNotFoundError extends Schema.TaggedError<ProjectBotNotFoundError>()(
+  "ProjectBotNotFoundError",
+  { projectId: ProjectId, botId: Schema.String },
+) {
+  override get message(): string {
+    return `Bot ${this.botId} was not found.`;
+  }
+}
+
 export class ProjectOperationError extends Schema.TaggedError<ProjectOperationError>()(
   "ProjectOperationError",
   {
@@ -93,6 +105,7 @@ export class ProjectOperationError extends Schema.TaggedError<ProjectOperationEr
       "list-threads",
       "delete-thread",
       "dispatch-project-command",
+      "read-bot",
     ]),
     projectId: Schema.optional(ProjectId),
     workspaceRoot: Schema.optional(Schema.String),
@@ -108,6 +121,7 @@ export type ProjectServiceError =
   | ProjectNotFoundError
   | ProjectConflictError
   | ProjectNotEmptyError
+  | ProjectBotNotFoundError
   | ProjectOperationError;
 
 export class ProjectService extends Context.Service<
@@ -121,6 +135,12 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
+    /** Gives the project to another bot. */
+    readonly assignBot: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly botId: string;
+    }) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
@@ -155,6 +175,7 @@ export const make = Effect.gen(function* () {
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const bots = yield* BotStore.BotStore;
   // Commands for one project run in order. Commands that claim a workspace root
   // also hold that root, so two projects cannot both claim it.
   const projectLocks = yield* KeyedLock.make<ProjectId>();
@@ -174,6 +195,7 @@ export const make = Effect.gen(function* () {
     autoPull: row.autoPull,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
+    botId: row.botId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -336,21 +358,47 @@ export const make = Effect.gen(function* () {
     return Option.isNone(row) ? Option.none() : Option.some(yield* hydrate(row.value));
   });
 
+  /** Fails unless `botId` names a bot. Captain always exists. */
+  const requireBot = Effect.fn("ProjectService.requireBot")(function* (
+    projectId: ProjectId,
+    botId: string,
+  ) {
+    if (botId === CAPTAIN_BOT_ID) return;
+    const bot = yield* bots
+      .get(botId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new ProjectOperationError({ operation: "read-bot", projectId, cause }),
+        ),
+      );
+    if (bot === null) return yield* new ProjectBotNotFoundError({ projectId, botId });
+  });
+
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
+      const botId = input.botId ?? CAPTAIN_BOT_ID;
       const workspaceRoot = yield* normalizeWorkspaceRoot({
         projectId: input.projectId,
         workspaceRoot: input.workspaceRoot,
         createIfMissing: input.createWorkspaceRootIfMissing ?? false,
       });
-      yield* commit({
-        type: "project.create",
-        commandId: input.commandId,
-        projectId: input.projectId,
-        title: input.title,
-        workspaceRoot,
-        ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
-      });
+      // The bot is checked and the project committed as one step, so the bot can't be deleted
+      // in between.
+      yield* bots.withOwnership(
+        requireBot(input.projectId, botId).pipe(
+          Effect.andThen(
+            commit({
+              type: "project.create",
+              commandId: input.commandId,
+              projectId: input.projectId,
+              title: input.title,
+              workspaceRoot,
+              ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+              botId,
+            }),
+          ),
+        ),
+      );
       yield* projectEnrichment.invalidate([workspaceRoot]);
       return yield* readCommitted(input.projectId);
     },
@@ -390,6 +438,27 @@ export const make = Effect.gen(function* () {
       if (workspaceRoot !== previousRoot) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
       }
+      return yield* readCommitted(input.projectId);
+    },
+  );
+
+  const assignBot: ProjectService["Service"]["assignBot"] = Effect.fn("ProjectService.assignBot")(
+    function* (input) {
+      if (Option.isNone(yield* readRow(input.projectId))) {
+        return yield* new ProjectNotFoundError({ projectId: input.projectId });
+      }
+      yield* bots.withOwnership(
+        requireBot(input.projectId, input.botId).pipe(
+          Effect.andThen(
+            commit({
+              type: "project.meta.update",
+              commandId: input.commandId,
+              projectId: input.projectId,
+              botId: input.botId,
+            }),
+          ),
+        ),
+      );
       return yield* readCommitted(input.projectId);
     },
   );
@@ -580,6 +649,7 @@ export const make = Effect.gen(function* () {
     create,
     bootstrap,
     update,
+    assignBot,
     delete: deleteProject,
     getById,
     getByWorkspaceRoot,

@@ -16,6 +16,8 @@ export type SettingsSheetTarget =
   | "SettingsMicrophone"
   | "SettingsFollowUp"
   | "SettingsScheduledTasks"
+  | "SettingsWorkflows"
+  | "SettingsRoles"
   | "SettingsProjectGrouping"
   | "SettingsClientStorage"
   | "SettingsDiagnostics"

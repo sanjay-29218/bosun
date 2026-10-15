@@ -124,6 +124,12 @@ device keeps its own choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
+### Needs you
+
+On web and desktop, threads waiting on an approval, an answer, or a failed workflow stage also
+appear in a **Needs you** shelf at the top of the sidebar, oldest first. The shelf hides when
+nothing waits. `mod+shift+y` opens the oldest one. See [Features](./features.md#needs-you).
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

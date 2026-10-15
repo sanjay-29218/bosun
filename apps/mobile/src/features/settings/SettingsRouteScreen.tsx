@@ -165,6 +165,17 @@ function SettingsIndexSections() {
         <SettingsRow icon="clock" label="Scheduled tasks" target="SettingsScheduledTasks" />
       </SettingsSection>
 
+      {selectedTargets.some(
+        (target) =>
+          target.serverConfig.environment.capabilities.workflows === true ||
+          target.serverConfig.environment.capabilities.crew === true,
+      ) ? (
+        <SettingsSection title="Crew">
+          <SettingsRow icon="square.3.layers.3d" label="Workflows" target="SettingsWorkflows" />
+          <SettingsRow icon="person.2" label="Roles" target="SettingsRoles" />
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection title="Projects & threads">
         {selectedProjectKey !== null ? (
           <SettingsRow
