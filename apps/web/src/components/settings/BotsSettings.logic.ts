@@ -1,16 +1,18 @@
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 
-/** How many of the given projects each bot owns. */
-export function countProjectsByBot(
-  projects: ReadonlyArray<{ readonly botId?: string | undefined }>,
-): ReadonlyMap<string, number> {
-  const counts = new Map<string, number>();
+/** The given projects grouped by the bot that owns them, keeping their order. */
+export function groupProjectsByBot<Project extends { readonly botId?: string | undefined }>(
+  projects: ReadonlyArray<Project>,
+): ReadonlyMap<string, ReadonlyArray<Project>> {
+  const groups = new Map<string, Project[]>();
   for (const project of projects) {
     const botId = projectBotId(project);
-    counts.set(botId, (counts.get(botId) ?? 0) + 1);
+    const group = groups.get(botId);
+    if (group) group.push(project);
+    else groups.set(botId, [project]);
   }
-  return counts;
+  return groups;
 }
 
 /** The full rail order with `botId` moved by `offset`, or null when it can't move that way. */

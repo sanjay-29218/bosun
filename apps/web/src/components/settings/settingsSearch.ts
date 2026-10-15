@@ -1020,13 +1020,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/bots",
     searchTerms: [
       "captain social finance owner avatar robot look shuffle color instructions tools permissions model act ask first approvals default workflow rail order delete",
+      "projects by bot move project to another bot owner owns add project",
     ],
-  },
-  {
-    id: "bot-projects",
-    title: "Projects by bot",
-    to: "/settings/bots",
-    searchTerms: ["move project to another bot owner owns"],
   },
   {
     id: "workflows",

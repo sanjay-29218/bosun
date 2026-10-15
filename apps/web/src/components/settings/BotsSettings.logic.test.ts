@@ -1,14 +1,17 @@
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
+import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 
-describe("countProjectsByBot", () => {
-  it("counts projects per owner, including unowned ones for Captain", () => {
-    const counts = countProjectsByBot([{}, { botId: CAPTAIN_BOT_ID }, { botId: "bot-social" }]);
-    expect(counts.get(CAPTAIN_BOT_ID)).toBe(2);
-    expect(counts.get("bot-social")).toBe(1);
-    expect(counts.get("bot-finance")).toBeUndefined();
+describe("groupProjectsByBot", () => {
+  it("groups projects by owner in order, with unowned ones under Captain", () => {
+    const unowned = { title: "a", botId: undefined };
+    const captains = { title: "b", botId: CAPTAIN_BOT_ID };
+    const socials = { title: "c", botId: "bot-social" };
+    const groups = groupProjectsByBot([unowned, socials, captains]);
+    expect(groups.get(CAPTAIN_BOT_ID)).toEqual([unowned, captains]);
+    expect(groups.get("bot-social")).toEqual([socials]);
+    expect(groups.get("bot-finance")).toBeUndefined();
   });
 });
 

@@ -17,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 import {
   ArrowDownIcon,
+  ArrowRightLeftIcon,
   ArrowUpIcon,
   BotMessageSquareIcon,
   CheckIcon,
@@ -45,13 +46,13 @@ import { Dialog, DialogClose } from "../ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Toggle } from "../ui/toggle";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from "../ui/wizard";
 import { toastManager } from "../ui/toast";
-import { botDeleteBlocker, countProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
+import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 import { CrewToolPicker, EditorField } from "./CrewAgentFields";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import { RoleModelPicker, RuntimeModeSelect, useEnvironmentDefaultModel } from "./RolesSettings";
@@ -101,7 +102,7 @@ function BotsSections({
         .toSorted((left, right) => left.title.localeCompare(right.title)),
     [allProjects, environmentId],
   );
-  const projectCounts = useMemo(() => countProjectsByBot(projects), [projects]);
+  const projectsByBot = useMemo(() => groupProjectsByBot(projects), [projects]);
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const canEdit = useAtomValue(botsEnvironment.update.permissionAtom(environmentId));
   const reorder = useAtomCommand(botsEnvironment.reorder);
@@ -191,7 +192,9 @@ function BotsSections({
               key={bot.id}
               environmentId={environmentId}
               bot={bot}
-              ownedProjects={projectCounts.get(bot.id) ?? 0}
+              bots={bots}
+              ownedProjects={projectsByBot.get(bot.id) ?? []}
+              allProjects={projects}
               first={index === 0}
               last={index === bots.length - 1}
               disabled={!canEdit || busyId !== null}
@@ -199,31 +202,6 @@ function BotsSections({
               onEdit={() => setEditor({ botId: bot.id })}
               onMove={(offset) => void move(bot, offset)}
               onDelete={() => void deleteBot(bot)}
-            />
-          ))
-        )}
-      </SettingsSection>
-      <SettingsSection title="Projects" id={searchableSetting("bot-projects").id}>
-        {projects.length === 0 ? (
-          <SettingsRow
-            title="No projects"
-            description="Projects you add on this environment show up here."
-          />
-        ) : (
-          projects.map((project) => (
-            <SettingsRow
-              key={project.id}
-              title={project.title}
-              description={project.workspaceRoot}
-              control={
-                <BotOwnerSelect
-                  environmentId={environmentId}
-                  projectId={project.id}
-                  projectTitle={project.title}
-                  botId={projectBotId(project)}
-                  bots={bots}
-                />
-              }
             />
           ))
         )}
@@ -258,25 +236,12 @@ export function BotOwnerSelect({
   readonly botId: string;
   readonly bots: readonly Bot[];
 }) {
-  const moveProject = useAtomCommand(botsEnvironment.moveProject);
-  const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(environmentId));
-  const [moving, setMoving] = useState(false);
+  const { canMove, moving, move } = useMoveProject(environmentId);
   const owner = bots.find((bot) => bot.id === botId);
 
-  const change = async (next: string) => {
+  const change = (next: string) => {
     if (next === botId) return;
-    setMoving(true);
-    try {
-      const result = await moveProject({ environmentId, input: { projectId, botId: next } });
-      if (result._tag !== "Success")
-        toastManager.add({
-          type: "error",
-          title: `Could not move ${projectTitle}`,
-          description: formatEnvironmentQueryError(result.cause),
-        });
-    } finally {
-      setMoving(false);
-    }
+    void move({ id: projectId, title: projectTitle }, next);
   };
 
   return (
@@ -284,7 +249,7 @@ export function BotOwnerSelect({
       value={botId}
       disabled={moving || !canMove || bots.length === 0}
       onValueChange={(next) => {
-        if (typeof next === "string") void change(next);
+        if (typeof next === "string") change(next);
       }}
     >
       <SelectTrigger size="sm" aria-label={`Bot that owns ${projectTitle}`}>
@@ -303,6 +268,28 @@ export function BotOwnerSelect({
   );
 }
 
+/** Moves a project to another bot, reporting failures. Work already running stays put. */
+function useMoveProject(environmentId: EnvironmentId) {
+  const moveProject = useAtomCommand(botsEnvironment.moveProject);
+  const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(environmentId));
+  const [moving, setMoving] = useState(false);
+  const move = async (project: { id: ProjectId; title: string }, botId: string) => {
+    setMoving(true);
+    try {
+      const result = await moveProject({ environmentId, input: { projectId: project.id, botId } });
+      if (result._tag !== "Success")
+        toastManager.add({
+          type: "error",
+          title: `Could not move ${project.title}`,
+          description: formatEnvironmentQueryError(result.cause),
+        });
+    } finally {
+      setMoving(false);
+    }
+  };
+  return { canMove, moving, move };
+}
+
 function BotOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "color"> }) {
   return (
     <span className="flex items-center gap-2">
@@ -312,10 +299,14 @@ function BotOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "color
   );
 }
 
+type EnvironmentProject = ReturnType<typeof useProjects>[number];
+
 function BotRow({
   environmentId,
   bot,
+  bots,
   ownedProjects,
+  allProjects,
   first,
   last,
   disabled,
@@ -326,7 +317,9 @@ function BotRow({
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: Bot;
-  readonly ownedProjects: number;
+  readonly bots: readonly Bot[];
+  readonly ownedProjects: readonly EnvironmentProject[];
+  readonly allProjects: readonly EnvironmentProject[];
   readonly first: boolean;
   readonly last: boolean;
   readonly disabled: boolean;
@@ -347,7 +340,7 @@ function BotRow({
     }
   };
   const summary = bot.instructions.split("\n")[0]?.trim() ?? "";
-  const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects);
+  const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects.length);
 
   return (
     <SettingsRow
@@ -358,13 +351,10 @@ function BotRow({
         </span>
       }
       description={summary.length > 160 ? `${summary.slice(0, 157)}…` : summary}
-      status={[
-        ownedProjects === 1 ? "1 project" : `${ownedProjects} projects`,
+      status={
         // Runs need a model; the server doesn't fall back to the environment's default.
-        bot.modelSelection ? null : "No model yet. Edit it to choose one before it can run.",
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+        bot.modelSelection ? null : "No model yet. Edit it to choose one before it can run."
+      }
       control={
         <>
           {bot.modelSelection ? (
@@ -422,7 +412,118 @@ function BotRow({
           </Menu>
         </>
       }
-    />
+    >
+      <BotProjectList
+        environmentId={environmentId}
+        bot={bot}
+        bots={bots}
+        ownedProjects={ownedProjects}
+        allProjects={allProjects}
+      />
+    </SettingsRow>
+  );
+}
+
+/** A bot's projects, each movable to another bot, plus a way to bring one over. */
+function BotProjectList({
+  environmentId,
+  bot,
+  bots,
+  ownedProjects,
+  allProjects,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly bot: Bot;
+  readonly bots: readonly Bot[];
+  readonly ownedProjects: readonly EnvironmentProject[];
+  readonly allProjects: readonly EnvironmentProject[];
+}) {
+  const { canMove, moving, move } = useMoveProject(environmentId);
+  const otherBots = bots.filter((candidate) => candidate.id !== bot.id);
+  const botNames = new Map(bots.map((candidate) => [candidate.id, candidate.name]));
+  const incoming = allProjects.filter((project) => projectBotId(project) !== bot.id);
+  const locked = moving || !canMove;
+
+  return (
+    // Bordered like other nested lists in Settings; it carries the bottom spacing
+    // `SettingsRow` leaves to its children.
+    <div className="mt-3 mb-2 overflow-hidden rounded-lg border border-border/60">
+      {ownedProjects.map((project, index) => (
+        <div
+          key={project.id}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2",
+            index > 0 && "border-t border-border/60",
+          )}
+        >
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm text-foreground">{project.title}</span>
+            <span className="truncate text-xs text-muted-foreground">{project.workspaceRoot}</span>
+          </span>
+          {otherBots.length > 0 ? (
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    disabled={locked}
+                    aria-label={`Move ${project.title} to another bot`}
+                  />
+                }
+              >
+                <ArrowRightLeftIcon className="size-4" />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuGroup>
+                  <MenuGroupLabel>Move to</MenuGroupLabel>
+                  {otherBots.map((target) => (
+                    <MenuItem key={target.id} onClick={() => void move(project, target.id)}>
+                      <BotOption bot={target} />
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+              </MenuPopup>
+            </Menu>
+          ) : null}
+        </div>
+      ))}
+      {ownedProjects.length === 0 || incoming.length > 0 ? (
+        <div
+          className={cn(
+            "flex items-center gap-3 px-3 py-1.5",
+            ownedProjects.length > 0 && "border-t border-border/60",
+          )}
+        >
+          {ownedProjects.length === 0 ? (
+            <span className="flex-1 text-xs text-muted-foreground">No projects yet.</span>
+          ) : null}
+          {incoming.length > 0 ? (
+            <Menu>
+              <MenuTrigger render={<Button size="xs" variant="ghost-muted" disabled={locked} />}>
+                <PlusIcon className="size-3" />
+                Add project
+              </MenuTrigger>
+              <MenuPopup align="start">
+                <MenuGroup>
+                  <MenuGroupLabel>Move to {bot.name}</MenuGroupLabel>
+                  {incoming.map((project) => (
+                    <MenuItem key={project.id} onClick={() => void move(project, bot.id)}>
+                      <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                        <span className="truncate">{project.title}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {botNames.get(projectBotId(project))}
+                        </span>
+                      </span>
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+              </MenuPopup>
+            </Menu>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
