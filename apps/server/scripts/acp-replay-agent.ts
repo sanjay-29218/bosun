@@ -280,6 +280,12 @@ function handleMessage(message: JsonRpcMessage): void {
   flushInbound();
 }
 
+// The runtime stops this agent with SIGTERM right after its last answer. The
+// default action can land inside writeStatus and leave an empty status file;
+// a handler runs between ticks, so the write always finishes first. Re-raising
+// once the handler is removed keeps the default signal exit.
+process.once("SIGTERM", () => process.kill(process.pid, "SIGTERM"));
+
 writeStatus();
 flushInbound();
 
