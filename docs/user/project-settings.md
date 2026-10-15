@@ -40,7 +40,7 @@ and other phone-only settings ignore the filter.
 
 ## Bots
 
-For a connected project, open **Settings → Project → Bots** to give the Captain a task. An
+Open **Settings → Workflow**, choose a connected project, and use **Bots** to give the Captain a task. An
 available project or inherited default model is required. The Captain coordinates its Manager and Builder bots;
 each run has a linked thread you can open to inspect its work. The Bots section shows the
 current requests and questions. Answer a question there, cancel a request that should stop,
@@ -50,12 +50,29 @@ Use **Templates and permissions** in the same section to add or edit a bot templ
 provider and instructions, and create a bot from it. Template edits affect future bots; existing
 bots and runs keep their saved settings. Set a bot's parent to place it in the hierarchy, then
 grant delegation separately for each source and target pair. A parent relationship alone does not
-permit delegation. The feature-default option records which templates should be copied when
-feature crews become available; it does not start a workflow.
+permit delegation. The feature-default option copies enabled templates into independent bots when a feature is
+created; it does not start a workflow.
+
+## Features
+
+In **Settings → Workflow → Features**, create an objective and acceptance criteria. Optionally attach
+an existing workflow. Choose an isolated Git worktree for coding, or the project workspace for
+non-coding work. Preparing a worktree runs the project's setup script; inspect its setup thread and
+retry if it fails. Retrying preserves files already in that checkout.
+
+Select a feature to see its crew, linked threads, active writer, and artifact links. A coding
+checkout accepts one T3 writer at a time, including its background agents; stopping a turn releases
+it only after the provider stops. Select a started coordinator run to launch an attached workflow.
+The Workflows section then shows that feature's progress and questions. Close a feature after its
+workflow and writer finish; reopen it to continue work.
+
+Artifact links and external action reports retain their actor and thread. Bot inspection requires
+`features.status`; artifact reporting requires `features.artifacts`, and reporting a successful
+external write additionally requires `external.write`. These grants do not approve external actions.
 
 ## Workflows
 
-In a connected project's **Workflows** section, add the starter workflow or edit an existing
+In **Settings → Workflow**, choose a connected project and use **Workflows** to add the starter workflow or edit an existing
 definition. Assign bot templates and supervisors, then give each task named outcomes and a next
 task. Use **Validate** before saving. Saving creates a new revision; a feature with an existing
 workflow copy keeps the revision it started with. The current definition supports one active task

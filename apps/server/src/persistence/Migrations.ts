@@ -78,6 +78,9 @@ import Migration0063 from "./Migrations/063_BotHandoffReceipts.ts";
 import Migration0064 from "./Migrations/064_WorkflowExecutions.ts";
 import Migration0065 from "./Migrations/065_ReconcileFeatureStorage.ts";
 import Migration0066 from "./Migrations/066_FeatureLifecycle.ts";
+import Migration0069 from "./Migrations/069_FeatureCheckoutSetup.ts";
+import Migration0068 from "./Migrations/068_FeatureExecution.ts";
+import Migration0067 from "./Migrations/067_FeatureLaunches.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -156,6 +159,9 @@ const migrationEntries = [
   [64, "WorkflowExecutions", Migration0064],
   [65, "ReconcileFeatureStorage", Migration0065],
   [66, "FeatureLifecycle", Migration0066],
+  [67, "FeatureLaunches", Migration0067],
+  [68, "FeatureExecution", Migration0068],
+  [69, "FeatureCheckoutSetup", Migration0069],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -42,6 +42,7 @@ import * as OrchestrationReactor from "./orchestration/Services/OrchestrationRea
 import { BotService } from "./bots/BotService.ts";
 import { BotHandoffService } from "./bots/BotHandoffService.ts";
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
+import { FeatureLaunchService } from "./features/FeatureLaunchService.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
@@ -906,6 +907,7 @@ export const make = (options?: StartupOptions) =>
     const bots = yield* BotService;
     const botHandoffs = yield* BotHandoffService;
     const workflowExecution = yield* WorkflowExecutionService;
+    const featureLaunches = yield* FeatureLaunchService;
     const providerSessionReaper = yield* ProviderSessionReaper.ProviderSessionReaper;
     const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -973,6 +975,10 @@ export const make = (options?: StartupOptions) =>
       );
 
       yield* runStartupPhase("provider-sessions.reconcile", reconcileProviderSessions);
+      yield* runStartupPhase(
+        "features.launches.start",
+        featureLaunches.start().pipe(Scope.provide(reactorScope)),
+      );
       // Bot replay emits turn-start events; the provider reactor must subscribe first.
       yield* runStartupPhase("bots.reconcile", bots.reconcileRuns());
       yield* runStartupPhase("bots.handoffs.reconcile", botHandoffs.reconcile());
@@ -981,6 +987,7 @@ export const make = (options?: StartupOptions) =>
         workflowExecution.start().pipe(Scope.provide(reactorScope)),
       );
       yield* runStartupPhase("worktree-setups.reconcile", reconcileWorktreeSetups);
+      yield* runStartupPhase("features.launches.reconcile", featureLaunches.reconcile());
 
       yield* Effect.logDebug("startup phase: syncing clean projects");
       yield* runStartupPhase("projects.auto-pull", syncAutoPullProjects);

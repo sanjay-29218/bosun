@@ -95,6 +95,15 @@ describe("Bot foundation", () => {
             { concurrency: 2 },
           );
           expect(crews[0].map((bot) => bot.id)).toEqual(crews[1].map((bot) => bot.id));
+          const seeded = (yield* bots.getTemplate(`template:planner:${projectId}`))!;
+          expect(seeded.allowedTools).toEqual(["bots.respond", "bots.ask", "bots.status"]);
+          const configured = yield* bots.updateTemplate({
+            ...seeded,
+            expectedRevision: seeded.revision,
+            allowedTools: ["custom.research"],
+          });
+          yield* bots.ensureCrew(projectId, modelSelection);
+          expect(yield* bots.getTemplate(seeded.id)).toEqual(configured);
           const template = yield* bots.createTemplate({
             id: "template:custom",
             projectId,

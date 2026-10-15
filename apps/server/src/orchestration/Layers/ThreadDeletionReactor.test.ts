@@ -11,6 +11,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
@@ -109,6 +110,7 @@ describe("ThreadDeletionReactor drain", () => {
         close: () => Effect.void,
       } as unknown as TerminalManager.TerminalManager["Service"];
       const layer = ThreadDeletionReactorLive.pipe(
+        Layer.provide(SqlitePersistenceMemory),
         Layer.provide(Layer.succeed(ProviderService, providerService)),
         Layer.provide(Layer.succeed(TerminalManager.TerminalManager, terminalManager)),
         Layer.provide(Layer.succeed(OrchestrationEngineService, engine)),

@@ -27,6 +27,7 @@ import * as EnvironmentAuth from "../src/auth/EnvironmentAuth.ts";
 import { BotService } from "../src/bots/BotService.ts";
 import { BotHandoffService } from "../src/bots/BotHandoffService.ts";
 import { WorkflowExecutionService } from "../src/workflows/WorkflowExecutionService.ts";
+import { FeatureLaunchService } from "../src/features/FeatureLaunchService.ts";
 import * as ServiceLauncherClient from "../src/cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../src/config.ts";
 import * as ServerEnvironment from "../src/environment/ServerEnvironment.ts";
@@ -76,6 +77,7 @@ const startupDependencies = Layer.mergeAll(
   Layer.mock(BotService)({ reconcileRuns: () => Effect.void }),
   Layer.mock(BotHandoffService)({ reconcile: () => Effect.void }),
   Layer.mock(WorkflowExecutionService)({ start: () => Effect.void }),
+  Layer.mock(FeatureLaunchService)({ start: () => Effect.void, reconcile: () => Effect.void }),
   Layer.mock(Keybindings.Keybindings)({
     start: Effect.void,
   }),

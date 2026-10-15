@@ -16,7 +16,10 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
+import {
+  OrchestrationCommandInvariantError,
+  type OrchestrationDispatchError,
+} from "../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
@@ -131,6 +134,32 @@ export const BotThreadRuntimeV1 = Layer.effect(
         query.getProjectShellById(projectId).pipe(Effect.map(Option.isSome)),
       start: (input) =>
         Effect.gen(function* () {
+          const contexts = yield* sql<{
+            path: string | null;
+            branch: string | null;
+            phase: string;
+          }>`
+            SELECT c.path, c.branch, c.phase FROM feature_checkouts c
+            WHERE c.feature_id = COALESCE(
+              (SELECT feature_id FROM feature_run_links WHERE run_id = ${input.runId} AND kind = 'task'),
+              (SELECT feature_id FROM bots WHERE id = ${input.botId}
+                AND NOT EXISTS (SELECT 1 FROM feature_run_links WHERE run_id = ${input.runId} AND kind = 'coordination')))
+          `.pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationCommandInvariantError({
+                  commandType: "thread.create",
+                  detail: "Cannot read the feature checkout",
+                  cause,
+                }),
+            ),
+          );
+          const checkout = contexts[0];
+          if (checkout && checkout.phase !== "ready")
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: "thread.create",
+              detail: "Feature checkout is not ready; retry its setup first",
+            });
           // Command receipts make these fixed IDs safe to replay after either dispatch.
           yield* engine.dispatch({
             type: "thread.create",
@@ -141,8 +170,8 @@ export const BotThreadRuntimeV1 = Layer.effect(
             modelSelection: input.modelSelection,
             runtimeMode: input.runtimeMode,
             interactionMode: "default",
-            branch: null,
-            worktreePath: null,
+            branch: checkout?.branch ?? null,
+            worktreePath: checkout?.path ?? null,
             createdAt: input.createdAt,
           });
           yield* submitTurn(input, `${runCommandPrefix(input.threadId)}:${input.runId}:start`);

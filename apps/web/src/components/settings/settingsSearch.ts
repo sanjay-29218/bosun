@@ -13,6 +13,7 @@ import {
 
 export type SettingsPath =
   | "/settings/projects"
+  | "/settings/workflow"
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/keybindings"
@@ -84,6 +85,7 @@ export interface SettingsSearchAvailability {
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/projects": "Project",
+  "/settings/workflow": "Workflow",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
@@ -728,6 +730,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
   },
   {
+    id: "workflow",
+    title: "Workflow",
+    to: "/settings/workflow",
+    searchTerms: ["features crew bots templates handoffs artifacts checkout build test review"],
+  },
+  {
     id: "environment-icon",
     title: "Environment icon",
     to: "/settings/connections",
@@ -833,6 +841,7 @@ const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id,
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
   "/settings/projects": "project",
+  "/settings/workflow": "project",
   "/settings/general": null,
   "/settings/appearance": null,
   "/settings/snap-shot": null,

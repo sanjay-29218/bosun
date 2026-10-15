@@ -18,6 +18,7 @@ export function createWorkflowAtoms<R, ER>(runtime: Atom.AtomRuntime<Environment
     tag: WS_METHODS.workflowsGetFeature,
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
+    refreshIntervalMs: 10_000,
   });
   const refreshDefinitions = (
     target: {

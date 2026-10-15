@@ -13,11 +13,14 @@ import { SettingsSection } from "./components/SettingsSection";
 export function MobileWorkflowProjectSection(props: {
   readonly project: EnvironmentProject;
   readonly environmentLabel: string;
+  readonly initialFeatureId?: string | undefined;
 }) {
   const navigation = useNavigation();
   const { project } = props;
-  const [featureId, setFeatureId] = useState("");
-  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [featureId, setFeatureId] = useState(props.initialFeatureId ?? "");
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
+    props.initialFeatureId ?? null,
+  );
   const [answerText, setAnswerText] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);

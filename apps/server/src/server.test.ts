@@ -173,6 +173,8 @@ import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
+import { WorktreeBootstrapServiceLive } from "./project/WorktreeBootstrapService.ts";
+import * as ThreadBackgroundLiveness from "./orchestration/ThreadBackgroundLiveness.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -729,10 +731,14 @@ const buildAppUnderTest = (options?: {
       ),
       NativeAppIconResolver.layer,
     );
-    const gitWorkflowLayer = GitWorkflowService.layer.pipe(
-      Layer.provideMerge(vcsDriverRegistryLayer),
-      Layer.provideMerge(gitVcsDriverLayer),
-      Layer.provideMerge(gitManagerLayer),
+    const gitWorkflowLayer = WorktreeBootstrapServiceLive.pipe(
+      Layer.provideMerge(
+        GitWorkflowService.layer.pipe(
+          Layer.provideMerge(vcsDriverRegistryLayer),
+          Layer.provideMerge(gitVcsDriverLayer),
+          Layer.provideMerge(gitManagerLayer),
+        ),
+      ),
     );
     const vcsProvisioningLayer = VcsProvisioningService.layer.pipe(
       Layer.provide(vcsDriverRegistryLayer),
@@ -767,7 +773,13 @@ const buildAppUnderTest = (options?: {
       // Viewed-file marks for a host that keeps none of its own are rows, so the routes want a
       // database. Its own, in memory: nothing here shares a table with the auth store.
       makeRoutesLayer.pipe(
-        Layer.provide(Layer.mergeAll(serviceLauncherClientLayer, SqlitePersistenceMemory)),
+        Layer.provide(
+          Layer.mergeAll(
+            serviceLauncherClientLayer,
+            SqlitePersistenceMemory,
+            ThreadBackgroundLiveness.layer,
+          ),
+        ),
       ),
       {
         disableListenLog: true,

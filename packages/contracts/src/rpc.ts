@@ -27,6 +27,13 @@ import {
   FeatureProjectInput,
   FeatureRecord,
   FeatureSetStatusInput,
+  FeatureLaunchInput,
+  FeatureLaunchRecord,
+  FeatureInspection,
+  FeaturePrepareCheckoutInput,
+  FeatureCheckout,
+  FeatureRecordArtifactInput,
+  FeatureArtifact,
 } from "./features.ts";
 import {
   WorkflowCreateInput,
@@ -312,10 +319,15 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  featuresInspect: "features.inspect",
+  featuresPrepareCheckout: "features.prepareCheckout",
+  featuresRecordArtifact: "features.recordArtifact",
   featuresCreate: "features.create",
   featuresList: "features.list",
   featuresGet: "features.get",
   featuresSetStatus: "features.setStatus",
+  featuresLaunch: "features.launch",
+  featuresGetLaunch: "features.getLaunch",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -768,6 +780,21 @@ const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
 
 const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
 const FeatureRpcError = Schema.Union([FeatureOperationError, EnvironmentAuthorizationError]);
+const WsFeaturesInspectRpc = Rpc.make(WS_METHODS.featuresInspect, {
+  payload: FeatureGetInput,
+  success: Schema.NullOr(FeatureInspection),
+  error: FeatureRpcError,
+});
+const WsFeaturesPrepareCheckoutRpc = Rpc.make(WS_METHODS.featuresPrepareCheckout, {
+  payload: FeaturePrepareCheckoutInput,
+  success: FeatureCheckout,
+  error: FeatureRpcError,
+});
+const WsFeaturesRecordArtifactRpc = Rpc.make(WS_METHODS.featuresRecordArtifact, {
+  payload: FeatureRecordArtifactInput,
+  success: FeatureArtifact,
+  error: FeatureRpcError,
+});
 const WsFeaturesCreateRpc = Rpc.make(WS_METHODS.featuresCreate, {
   payload: FeatureCreateInput,
   success: FeatureRecord,
@@ -786,6 +813,16 @@ const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
 const WsFeaturesSetStatusRpc = Rpc.make(WS_METHODS.featuresSetStatus, {
   payload: FeatureSetStatusInput,
   success: FeatureRecord,
+  error: FeatureRpcError,
+});
+const WsFeaturesLaunchRpc = Rpc.make(WS_METHODS.featuresLaunch, {
+  payload: FeatureLaunchInput,
+  success: FeatureLaunchRecord,
+  error: FeatureRpcError,
+});
+const WsFeaturesGetLaunchRpc = Rpc.make(WS_METHODS.featuresGetLaunch, {
+  payload: FeatureGetInput,
+  success: Schema.NullOr(FeatureLaunchRecord),
   error: FeatureRpcError,
 });
 const WorkflowRpcError = Schema.Union([WorkflowOperationError, EnvironmentAuthorizationError]);
@@ -1595,10 +1632,15 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsFeaturesInspectRpc,
+  WsFeaturesPrepareCheckoutRpc,
+  WsFeaturesRecordArtifactRpc,
   WsFeaturesCreateRpc,
   WsFeaturesListRpc,
   WsFeaturesGetRpc,
   WsFeaturesSetStatusRpc,
+  WsFeaturesLaunchRpc,
+  WsFeaturesGetLaunchRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,

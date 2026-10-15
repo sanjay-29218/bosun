@@ -13,6 +13,10 @@ import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { ThreadBackgroundLivenessService } from "../orchestration/ThreadBackgroundLiveness.ts";
+import { featureWriter } from "../features/FeatureWriterLease.ts";
+import { toPersistenceSqlError } from "../persistence/Errors.ts";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
@@ -43,6 +47,7 @@ export class WorkflowExecutionService extends Context.Service<
       featureId: string,
       projectId: ProjectId,
       bindings: WorkflowBindings,
+      featureContext?: string,
     ) => Effect.Effect<void, ExecutionError>;
     readonly reconcileFeature: (featureId: string) => Effect.Effect<void, ExecutionError>;
     readonly reconcile: () => Effect.Effect<void, ExecutionError>;
@@ -60,6 +65,8 @@ const outcomeJson = Schema.fromJsonString(WorkflowHandoffOutcome);
 export const WorkflowExecutionServiceLive = Layer.effect(
   WorkflowExecutionService,
   Effect.gen(function* () {
+    const background = yield* ThreadBackgroundLivenessService;
+    const sql = yield* SqlClient.SqlClient;
     const executions = yield* WorkflowExecutionStore;
     const workflows = yield* WorkflowService;
     const store = yield* WorkflowStore;
@@ -119,14 +126,23 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             const executionId =
               step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
             const handoffId = `workflow:${key(featureId, executionId, step.attempt + 1)}`;
+            const checkout = yield* sql<{ path: string }>`SELECT path FROM feature_checkouts WHERE feature_id = ${featureId} AND phase = 'ready' AND mode = 'worktree'`.pipe(Effect.mapError(toPersistenceSqlError("WorkflowExecutionService.checkout")));
+            if (checkout[0]) {
+              const writer = yield* featureWriter(checkout[0].path).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.provideService(ThreadBackgroundLivenessService, background)).pipe(Effect.catchTag("SqlError", (error) => Effect.fail(toPersistenceSqlError("WorkflowExecutionService.writer")(error))));
+              const existingRun = yield* bots.getRun(`bot-handoff:${handoffId}`);
+              if (writer && writer !== existingRun?.threadId) return;
+            }
+            yield* sql`INSERT OR IGNORE INTO feature_run_links (run_id, feature_id, kind)
+              SELECT ${"bot-handoff:" + handoffId}, id, 'task' FROM features WHERE id = ${featureId}`.pipe(Effect.mapError(toPersistenceSqlError("WorkflowExecutionService.linkTask")));
             const taskText = task.task;
             const priorResult = events.findLast((event) => event.kind === "completed");
             const contextText = [
               `Workflow ${copy.definition.name}, step ${stepId}.`,
               `Report with bots_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${Object.keys(task.next).join(", ")}>","summary":"<result and evidence>"}.`,
               "Use bots_ask for questions. A final chat message does not complete this step.",
+              execution.featureContext,
               priorResult
-                ? `Previous step ${priorResult.stepId}: ${priorResult.detail?.slice(0, 2_000) ?? ""}`
+                ? `Previous step ${priorResult.stepId}: ${priorResult.detail?.slice(0, 1_000) ?? ""}`
                 : "",
             ]
               .filter(Boolean)
@@ -374,8 +390,12 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           yield* reconcileFeatureUnlocked(input.featureId);
           return (yield* workflows.getFeatureSnapshot(input.featureId, input.projectId))!;
         }).pipe(lock.withPermits(1)),
-      attach: (featureId, projectId, bindings) =>
+      attach: (featureId, projectId, bindings, featureContext = "") =>
         Effect.gen(function* () {
+          if (featureContext.length > 1_200)
+            return yield* Effect.fail(
+              new WorkflowTransitionError("Feature context exceeds 1,200 characters"),
+            );
           const copy = yield* workflows.getFeatureCopy(featureId);
           if (!copy || copy.projectId !== projectId)
             return yield* Effect.fail(
@@ -415,10 +435,11 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               );
             }
           }
-          yield* executions.attach(featureId, bindings);
+          yield* executions.attach(featureId, bindings, featureContext);
           const persisted = yield* executions.get(featureId);
           if (
             !persisted ||
+            persisted.featureContext !== featureContext ||
             Object.entries(bindings).some(
               ([name, binding]) =>
                 persisted.bindings[name]?.botId !== binding.botId ||

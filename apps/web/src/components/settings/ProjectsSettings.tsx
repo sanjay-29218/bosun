@@ -6,7 +6,7 @@ import { SettingsScopeNotice } from "./SettingsScopeNotice";
 import { SettingsPageContainer } from "./settingsLayout";
 
 /** Project identity and checkout management for the selected project. */
-export function ProjectsSettings() {
+export function ProjectsSettings({ section = "project" }: { section?: "project" | "workflow" }) {
   const { search: value, scope } = useSettingsScope();
   // The panel follows remembered members when grouping replaces a project key.
   const projectScope =
@@ -21,6 +21,7 @@ export function ProjectsSettings() {
           projectKey={value.project}
           environmentId={value.machine ? EnvironmentId.make(value.machine) : null}
           checkoutKey={value.checkout ?? null}
+          section={section}
         />
       ) : scope.kind === "unavailable" ? (
         <SettingsPageContainer>
@@ -28,7 +29,9 @@ export function ProjectsSettings() {
         </SettingsPageContainer>
       ) : (
         <SettingsScopeNotice target="project">
-          Choose a project to manage its name, icon, checkouts and actions.
+          {section === "workflow"
+            ? "Choose a project to track features, configure its crew, and run workflows."
+            : "Choose a project to manage its name, icon, checkouts and actions."}
         </SettingsScopeNotice>
       )}
     </div>

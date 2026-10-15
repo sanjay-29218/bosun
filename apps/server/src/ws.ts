@@ -94,6 +94,9 @@ import { BotStore } from "./bots/BotStore.ts";
 import { BotHandoffService } from "./bots/BotHandoffService.ts";
 import { BotHandoffStore } from "./bots/BotHandoffStore.ts";
 import { FeatureService } from "./features/FeatureService.ts";
+import { WorktreeBootstrapService } from "./project/WorktreeBootstrapService.ts";
+import { FeatureExecutionService } from "./features/FeatureExecutionService.ts";
+import { FeatureLaunchService } from "./features/FeatureLaunchService.ts";
 import { WorkflowService } from "./workflows/WorkflowService.ts";
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import * as ServerConfig from "./config.ts";
@@ -515,7 +518,9 @@ const makeWsRpcLayer = (
     readonly botStore: BotStore["Service"];
     readonly botHandoffs: BotHandoffService["Service"];
     readonly botHandoffStore: BotHandoffStore["Service"];
+    readonly featureExecution: FeatureExecutionService["Service"];
     readonly features: FeatureService["Service"];
+    readonly featureLaunches: FeatureLaunchService["Service"];
     readonly workflows: WorkflowService["Service"];
     readonly workflowExecution: WorkflowExecutionService["Service"];
   },
@@ -634,7 +639,7 @@ const makeWsRpcLayer = (
         }
         return true;
       });
-      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const worktreeBootstrap = yield* WorktreeBootstrapService;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const repositoryIdentityResolver =
@@ -686,6 +691,8 @@ const makeWsRpcLayer = (
         botHandoffs,
         botHandoffStore,
         features,
+        featureLaunches,
+        featureExecution,
         workflows,
         workflowExecution,
       } = botServices;
@@ -1250,8 +1257,8 @@ const makeWsRpcLayer = (
               const worktreePath = targetWorktreePath;
               const requestedAt = yield* nowIso;
               yield* track(worktreeSetupTracker.stageStatus(threadId, "setup-script", "running"));
-              const setupResult = yield* projectSetupScriptRunner
-                .runForThread({
+              const setupResult = yield* worktreeBootstrap
+                .setup({
                   threadId,
                   ...(targetProjectId ? { projectId: targetProjectId } : {}),
                   ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
@@ -1358,71 +1365,17 @@ const makeWsRpcLayer = (
 
           const bootstrapProgram = Effect.gen(function* () {
             const prepareWorktree = bootstrap?.prepareWorktree;
-            let shouldPrepareWorktree = prepareWorktree
-              ? yield* gitWorkflow.isRepository(prepareWorktree.projectCwd)
-              : false;
-            let worktreeBaseRef = prepareWorktree?.baseBranch ?? null;
-
+            const worktreeBaseRef = prepareWorktree
+              ? yield* worktreeBootstrap.resolveBase(prepareWorktree, (status, detail) =>
+                  track(worktreeSetupTracker.stageStatus(threadId, "fetch", status, detail)),
+                )
+              : null;
+            const shouldPrepareWorktree = worktreeBaseRef !== null;
             if (prepareWorktree && shouldPrepareWorktree) {
-              // "Start from origin" is a stored default; repos without the
-              // requested remote branch fall back to the local base branch.
-              const startFromOrigin =
-                prepareWorktree.startFromOrigin === true &&
-                (yield* gitWorkflow.remoteExists({
-                  cwd: prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                }));
-              if (startFromOrigin) {
-                yield* track(worktreeSetupTracker.stageStatus(threadId, "fetch", "running"));
-                yield* gitWorkflow.fetchRemote({
-                  cwd: prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                  refName: prepareWorktree.baseBranch,
-                });
-                const remoteBaseExists = yield* gitWorkflow.remoteBranchExists({
-                  cwd: prepareWorktree.projectCwd,
-                  refName: prepareWorktree.baseBranch,
-                  remoteName: "origin",
-                });
-                if (remoteBaseExists) {
-                  const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
-                    cwd: prepareWorktree.projectCwd,
-                    refName: prepareWorktree.baseBranch,
-                    fallbackRemoteName: "origin",
-                  });
-                  worktreeBaseRef = resolvedRemoteBase.commitSha;
-                  yield* track(
-                    worktreeSetupTracker.stageStatus(
-                      threadId,
-                      "fetch",
-                      "done",
-                      `origin/${prepareWorktree.baseBranch} at ${resolvedRemoteBase.commitSha.slice(0, 7)}`,
-                    ),
-                  );
-                } else {
-                  yield* track(
-                    worktreeSetupTracker.stageStatus(
-                      threadId,
-                      "fetch",
-                      "warning",
-                      `origin/${prepareWorktree.baseBranch} not found, using local branch`,
-                    ),
-                  );
-                }
-              } else {
-                yield* track(worktreeSetupTracker.stageStatus(threadId, "fetch", "skipped"));
-              }
-
-              const resolvedWorktreeBaseRef = worktreeBaseRef ?? prepareWorktree.baseBranch;
-              shouldPrepareWorktree = yield* gitWorkflow.hasCommit({
-                cwd: prepareWorktree.projectCwd,
-                refName: resolvedWorktreeBaseRef,
-              });
-              worktreeBaseRef = resolvedWorktreeBaseRef;
               yield* track(
                 worktreeSetupTracker.update(threadId, (snapshot) => ({
                   ...snapshot,
-                  baseRef: resolvedWorktreeBaseRef,
+                  baseRef: worktreeBaseRef,
                 })),
               );
             }
@@ -1525,7 +1478,7 @@ const makeWsRpcLayer = (
                 threadId,
                 projectId: targetProjectId ?? null,
               });
-              const worktree = yield* gitWorkflow.createWorktree(
+              const worktree = yield* worktreeBootstrap.create(
                 {
                   cwd: prepareWorktree.projectCwd,
                   refName: worktreeBaseRef,
@@ -1722,11 +1675,10 @@ const makeWsRpcLayer = (
                     ? closeSetupTerminal.pipe(
                         Effect.ignoreCause({ log: true }),
                         Effect.andThen(
-                          gitWorkflow
-                            .removeWorktree({
+                          worktreeBootstrap
+                            .remove({
                               cwd: bootstrap.prepareWorktree.projectCwd,
                               path: targetWorktreePath,
-                              force: true,
                             })
                             .pipe(
                               Effect.retry({ times: 4, schedule: Schedule.spaced("500 millis") }),
@@ -1929,6 +1881,38 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.featuresInspect]: (input) =>
+          featureExecution
+            .inspect(input.featureId, input.projectId)
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresPrepareCheckout]: (input) =>
+          featureExecution
+            .prepare({ ...input, actorId: currentSessionId })
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresRecordArtifact]: (input) =>
+          featureExecution
+            .recordArtifact({ ...input, actorId: currentSessionId })
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.featuresLaunch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.featuresLaunch,
+            featureLaunches
+              .launch({ ...input, actorId: currentSessionId })
+              .pipe(
+                Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "features" },
+          ),
+        [WS_METHODS.featuresGetLaunch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.featuresGetLaunch,
+            featureLaunches
+              .get(input.featureId, input.projectId)
+              .pipe(
+                Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+              ),
+            { "rpc.aggregate": "features" },
+          ),
         [WS_METHODS.featuresSetStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.featuresSetStatus,
@@ -1943,7 +1927,7 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.featuresCreate,
             features
-              .create(input)
+              .create({ ...input, actorId: currentSessionId })
               .pipe(
                 Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
               ),
@@ -4241,7 +4225,9 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       botStore: yield* BotStore,
       botHandoffs: yield* BotHandoffService,
       botHandoffStore: yield* BotHandoffStore,
+      featureExecution: yield* FeatureExecutionService,
       features: yield* FeatureService,
+      featureLaunches: yield* FeatureLaunchService,
       workflows: yield* WorkflowService,
       workflowExecution: yield* WorkflowExecutionService,
     };

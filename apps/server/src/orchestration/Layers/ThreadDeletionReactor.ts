@@ -2,6 +2,7 @@ import type { OrchestrationEvent } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -40,11 +41,17 @@ export const logCleanupCauseUnlessInterrupted = <R, E>({
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const sql = yield* SqlClient.SqlClient;
   const terminalManager = yield* TerminalManager.TerminalManager;
 
   const stopProviderSession = (threadId: ThreadDeletedEvent["payload"]["threadId"]) =>
     logCleanupCauseUnlessInterrupted({
-      effect: providerService.stopSession({ threadId }),
+      effect: providerService
+        .stopSession({ threadId })
+        .pipe(
+          Effect.andThen(sql`DELETE FROM feature_writer_leases WHERE thread_id = ${threadId}`),
+          Effect.asVoid,
+        ),
       message: "thread deletion cleanup skipped provider session stop",
       threadId,
     });

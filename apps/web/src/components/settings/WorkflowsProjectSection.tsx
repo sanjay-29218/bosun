@@ -71,7 +71,9 @@ function OutcomeRouteRow({
 
 export function WorkflowsProjectSection({
   project,
+  featureId,
 }: {
+  readonly featureId?: string | undefined;
   readonly project: SidebarProjectGroupMember;
 }) {
   const environmentId = project.environmentId;
@@ -659,7 +661,12 @@ export function WorkflowsProjectSection({
             </p>
           )}
         </div>
-        <WorkflowFeatureInspector environmentId={environmentId} projectId={projectId} />
+        <WorkflowFeatureInspector
+          key={featureId ?? "manual"}
+          initialFeatureId={featureId}
+          environmentId={environmentId}
+          projectId={projectId}
+        />
       </div>
     </SettingsSection>
   );

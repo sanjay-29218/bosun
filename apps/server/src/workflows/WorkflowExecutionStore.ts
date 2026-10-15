@@ -23,6 +23,7 @@ export interface WorkflowExecution {
   readonly bindings: WorkflowBindings;
   readonly lastError: string | null;
   readonly settled: boolean;
+  readonly featureContext: string;
 }
 
 export class WorkflowExecutionStore extends Context.Service<
@@ -31,6 +32,7 @@ export class WorkflowExecutionStore extends Context.Service<
     readonly attach: (
       featureId: string,
       bindings: WorkflowBindings,
+      featureContext?: string,
     ) => Effect.Effect<void, PersistenceSqlError>;
     readonly get: (
       featureId: string,
@@ -69,10 +71,10 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           Effect.mapError(error),
           Effect.map((rows) => rows[0]?.featureId ?? null),
         ),
-      attach: (featureId, bindings) =>
+      attach: (featureId, bindings, featureContext = "") =>
         sql`
-      INSERT OR IGNORE INTO workflow_executions (feature_id, bindings_json)
-      VALUES (${featureId}, ${encodeBindings(bindings)})
+      INSERT OR IGNORE INTO workflow_executions (feature_id, bindings_json, feature_context)
+      VALUES (${featureId}, ${encodeBindings(bindings)}, ${featureContext})
     `.pipe(Effect.asVoid, Effect.mapError(error)),
       get: (featureId) =>
         sql<{
@@ -81,9 +83,11 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           readonly bindingsJson: string;
           readonly lastError: string | null;
           readonly settled: number;
+          readonly featureContext: string;
         }>`
       SELECT e.feature_id AS featureId, w.project_id AS projectId,
-        e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled
+        e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled,
+        e.feature_context AS featureContext
       FROM workflow_executions AS e JOIN feature_workflows AS w ON w.feature_id = e.feature_id
       WHERE e.feature_id = ${featureId}
     `.pipe(
@@ -98,6 +102,7 @@ export const WorkflowExecutionStoreLive = Layer.effect(
                       bindings: decodeBindings(rows[0].bindingsJson),
                       lastError: rows[0].lastError,
                       settled: rows[0].settled === 1,
+                      featureContext: rows[0].featureContext,
                     }
                   : null,
               catch: error,

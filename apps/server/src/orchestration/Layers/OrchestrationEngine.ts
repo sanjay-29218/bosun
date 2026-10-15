@@ -12,6 +12,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
+import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -40,6 +41,7 @@ import {
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
+import { claimFeatureWriter } from "../../features/FeatureWriterLease.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
@@ -82,6 +84,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
 }
 
 const makeOrchestrationEngine = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
   const sql = yield* SqlClient.SqlClient;
   const eventStore = yield* OrchestrationEventStore;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
@@ -273,6 +276,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const committedCommand = yield* sql
           .withTransaction(
             Effect.gen(function* () {
+              yield* claimFeatureWriter(envelope.command, commandReadModel).pipe(
+                Effect.provideService(SqlClient.SqlClient, sql),
+                Effect.provideService(ThreadBackgroundLivenessService, threadBackgroundLiveness),
+                Effect.provideService(FileSystem.FileSystem, fs),
+              );
               const committedEvents: OrchestrationEvent[] = [];
               const attachmentCleanups: Effect.Effect<void>[] = [];
               let nextCommandReadModel = commandReadModel;

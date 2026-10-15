@@ -19,6 +19,15 @@ describe("RPC authorization scopes", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
+  it("requires operate permission to launch a feature and read permission to observe it", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.featuresLaunch)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.featuresGetLaunch)).toBe(
+      AuthOrchestrationReadScope,
+    );
+  });
+
   it("authorizes background policy reporting and observation deliberately", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.serverReportClientActivity)).toBe(
       AuthOrchestrationReadScope,

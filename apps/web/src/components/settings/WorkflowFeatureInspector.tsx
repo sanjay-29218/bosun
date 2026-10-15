@@ -277,11 +277,12 @@ function FeatureRun({
 }
 
 export function WorkflowFeatureInspector(props: {
+  readonly initialFeatureId?: string | undefined;
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
 }) {
-  const [featureId, setFeatureId] = useState("");
-  const [inspectedId, setInspectedId] = useState<string | null>(null);
+  const [featureId, setFeatureId] = useState(props.initialFeatureId ?? "");
+  const [inspectedId, setInspectedId] = useState<string | null>(props.initialFeatureId ?? null);
   return (
     <div className="flex flex-col gap-3 border-t border-border pt-4">
       <div>

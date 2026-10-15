@@ -451,7 +451,9 @@ export const BotServiceLive = Layer.effect(
               yield* createTemplate({
                 ...template,
                 instructions: `You are the ${template.name} bot. Follow the assigned feature task and report a structured result.`,
-                allowedTools: [],
+                allowedTools: template.autoCreateForFeature
+                  ? ["bots.respond", "bots.ask", "bots.status"]
+                  : [],
                 modelSelection,
                 runtimeMode: "approval-required",
               }).pipe(
@@ -476,21 +478,22 @@ export const BotServiceLive = Layer.effect(
               templateId: "template:captain",
               name: "Captain",
               instructions:
-                "You are Captain. Coordinate the person's project request. The task names its project Manager bot. Delegate using bots_delegate with a stable request ID. Use bots_wait_handoff until the Manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use bots_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.",
-              allowedTools: ["bots.delegate", "bots.status"],
+                "You are Captain. Coordinate the person's project request. Follow the task's coordination boundary: when a workflow runner owns scheduling, do not independently delegate its steps. Otherwise delegate to the named project Manager using bots_delegate with a stable request ID, then use bots_wait_handoff for a completed, failed, or needs-input outcome. Relay the outcome clearly to the person. Use bots_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.",
+              allowedTools: ["bots.delegate", "bots.status", "features.status"],
             },
             {
               id: managerId,
               projectId,
               templateId: `template:manager:${projectId}`,
               name: "Manager",
-              instructions: `You manage project ${projectId}. Delegate implementation to bot ${builderId} using bots_delegate and a stable request ID. Use bots_wait_handoff for its structured outcome. Report the outcome to Captain through bots_respond. If Builder needs a person's answer, use bots_ask; when the answer arrives, pass it to the child request using bots_answer. Keep the task and context bounded.`,
+              instructions: `You manage project ${projectId}. Follow the assigned coordination boundary. When a workflow runner schedules the task steps, supervise questions and decisions without independently dispatching implementation. For other implementation requests, delegate to bot ${builderId} using bots_delegate and a stable request ID, then use bots_wait_handoff for its structured outcome. Report requested outcomes through bots_respond. If a child needs a person's answer, use bots_ask and pass the answer to the child using bots_answer. Keep the task and context bounded.`,
               allowedTools: [
                 "bots.delegate",
                 "bots.respond",
                 "bots.ask",
                 "bots.status",
                 "bots.answer",
+                "features.status",
               ],
             },
             {

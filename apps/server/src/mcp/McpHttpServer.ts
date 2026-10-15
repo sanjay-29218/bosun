@@ -32,6 +32,8 @@ import {
 } from "./toolkits/preview/tools.ts";
 import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import { FeaturesToolkitHandlersLive } from "./toolkits/features/handlers.ts";
+import { FeaturesToolkit } from "./toolkits/features/tools.ts";
 import { BotsToolkitHandlersLive } from "./toolkits/bots/handlers.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import {
@@ -677,5 +679,6 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   BotsToolkitRegistrationLive,
+  McpServer.toolkit(FeaturesToolkit).pipe(Layer.provide(FeaturesToolkitHandlersLive)),
   DeviceToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

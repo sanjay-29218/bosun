@@ -24,6 +24,7 @@ import { OrchestrationEngineService } from "../orchestration/Services/Orchestrat
 import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
+import { FeatureLaunchStoreLive } from "./FeatureLaunchStore.ts";
 
 const projectId = ProjectId.make("workflow-feature-project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
@@ -50,6 +51,7 @@ const withSystem = <E>(
     );
     const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
+      Layer.provideMerge(FeatureLaunchStoreLive),
       Layer.provideMerge(WorkflowRuntimeLive.pipe(Layer.provide(orchestration))),
       Layer.provideMerge(orchestration),
       Layer.provide(makeSqlitePersistenceLive(NodePath.join(directory, "state.sqlite"))),
@@ -274,6 +276,7 @@ describe("feature creation", () => {
       const orchestration = OrchestrationLayerLive;
       const botRuntime = WorkflowRuntimeLive.pipe(Layer.provide(orchestration));
       const layer = FeatureServiceLive.pipe(
+        Layer.provideMerge(FeatureLaunchStoreLive),
         Layer.provideMerge(botRuntime),
         Layer.provideMerge(orchestration),
         Layer.provide(makeSqlitePersistenceLive(databasePath)),

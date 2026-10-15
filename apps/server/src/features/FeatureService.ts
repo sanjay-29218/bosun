@@ -18,13 +18,16 @@ import { BotThreadRuntime } from "../bots/BotThreadRuntime.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
 import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
+import { ThreadBackgroundLivenessService } from "../orchestration/ThreadBackgroundLiveness.ts";
+import { featureWriter } from "./FeatureWriterLease.ts";
+import { FeatureLaunchStore } from "./FeatureLaunchStore.ts";
 
 export class FeatureValidationError extends Error {
   readonly _tag = "FeatureValidationError";
 }
 
 export type FeatureRecord = typeof FeatureRecordSchema.Type;
-export type CreateFeatureInput = typeof FeatureCreateInput.Type;
+export type CreateFeatureInput = typeof FeatureCreateInput.Type & { readonly actorId?: string };
 
 export type FeatureServiceError =
   | FeatureValidationError
@@ -67,12 +70,14 @@ interface FeatureRow extends Omit<FeatureRecord, "botAssignments"> {
 export const FeatureServiceLive = Layer.effect(
   FeatureService,
   Effect.gen(function* () {
+    const background = yield* ThreadBackgroundLivenessService;
     const sql = yield* SqlClient.SqlClient;
     const bots = yield* BotService;
     const botStore = yield* BotStore;
     const runtime = yield* BotThreadRuntime;
     const workflows = yield* WorkflowService;
     const executions = yield* WorkflowExecutionStore;
+    const launches = yield* FeatureLaunchStore;
     const queryError = toPersistenceSqlError("FeatureService.query");
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
@@ -87,7 +92,7 @@ export const FeatureServiceLive = Layer.effect(
       sql<FeatureRow>`
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
-          f.bot_assignments_json AS botAssignmentsJson
+          f.owner_id AS ownerId, f.bot_assignments_json AS botAssignmentsJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.id = ${id}
       `.pipe(
@@ -112,10 +117,31 @@ export const FeatureServiceLive = Layer.effect(
               }
               if (feature.status === status) return feature;
               if (status === "closed") {
+                const checkout = yield* sql<{
+                  path: string | null;
+                  phase: string;
+                  mode: string;
+                }>`SELECT path, phase, mode FROM feature_checkouts WHERE feature_id = ${id}`;
+                if (
+                  checkout[0]?.phase === "pending" ||
+                  (checkout[0]?.mode === "worktree" &&
+                    checkout[0].path &&
+                    (yield* featureWriter(checkout[0].path).pipe(
+                      Effect.provideService(SqlClient.SqlClient, sql),
+                      Effect.provideService(ThreadBackgroundLivenessService, background),
+                    )))
+                )
+                  return yield* Effect.fail(
+                    new FeatureValidationError(
+                      "Wait for checkout setup and its writer to finish before closing the feature",
+                    ),
+                  );
                 const workflow = yield* workflows.getFeatureState(id);
                 if (
                   workflow &&
-                  ((yield* executions.get(id)) !== null || workflow.executionCount > 0) &&
+                  ((yield* launches.get(id))?.phase === "pending" ||
+                    (yield* executions.get(id)) !== null ||
+                    workflow.executionCount > 0) &&
                   !workflow.completed &&
                   !workflow.cancelled
                 ) {
@@ -137,7 +163,7 @@ export const FeatureServiceLive = Layer.effect(
         sql<FeatureRow>`
           SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
             f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
-            f.bot_assignments_json AS botAssignmentsJson
+            f.owner_id AS ownerId, f.bot_assignments_json AS botAssignmentsJson
           FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
           WHERE f.project_id = ${projectId}
           ORDER BY f.created_at DESC, f.id DESC
@@ -274,11 +300,12 @@ export const FeatureServiceLive = Layer.effect(
                 const createdAt = DateTime.formatIso(yield* DateTime.now);
                 const botAssignments = Object.fromEntries(bindings);
                 yield* sql`
-                INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, bot_assignments_json)
-                VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(botAssignments)})
+                INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, bot_assignments_json, owner_id)
+                VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(botAssignments)}, ${input.actorId ?? null})
               `;
                 return {
                   ...input,
+                  ownerId: input.actorId ?? null,
                   workflowId: input.workflowId ?? null,
                   botAssignments,
                   createdAt,

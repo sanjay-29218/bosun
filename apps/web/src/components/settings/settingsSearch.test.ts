@@ -344,6 +344,7 @@ describe("searchSettings", () => {
     ["automatically pull", "automatic-pull", "/settings/source-control"],
     ["actions", "project-actions", "/settings/projects"],
     ["project overview", "project-overview", "/settings/projects"],
+    ["workflow", "workflow", "/settings/workflow"],
   ])("routes %s to its owning category", (query, id, to) => {
     expect(searchSettings(query)[0]).toMatchObject({ id, to });
   });

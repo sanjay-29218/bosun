@@ -40,8 +40,7 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
-import { BotsProjectSection } from "./BotsProjectSection";
-import { WorkflowsProjectSection } from "./WorkflowsProjectSection";
+import { WorkflowProjectPanel } from "./WorkflowProjectPanel";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -63,10 +62,12 @@ export function ProjectSettingsPanel({
   projectKey,
   environmentId = null,
   checkoutKey = null,
+  section = "project",
 }: {
   projectKey: string;
   environmentId?: EnvironmentId | null;
   checkoutKey?: string | null;
+  section?: "project" | "workflow";
 }) {
   const groups = useSettingsProjectGroups();
   const navigate = useNavigate({ from: "/settings" });
@@ -150,6 +151,14 @@ export function ProjectSettingsPanel({
     environmentId: members[0]!.environmentId,
     id: members[0]!.id,
   };
+  if (section === "workflow") {
+    return (
+      <WorkflowProjectPanel
+        key={`${selected.projectKey}:${environmentId ?? "all"}:${checkoutKey ?? "all"}`}
+        group={scopedGroup}
+      />
+    );
+  }
   return (
     <ProjectDetail
       key={`${selected.projectKey}:${environmentId ?? "all"}:${checkoutKey ?? "all"}`}
@@ -493,18 +502,6 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
-        {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.bots ===
-          true ? (
-            <BotsProjectSection key={memberKey(member)} project={member} />
-          ) : null,
-        )}
-        {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
-            .workflows === true ? (
-            <WorkflowsProjectSection key={memberKey(member)} project={member} />
-          ) : null,
-        )}
         {hasMultipleCheckouts ? checkoutChoices : null}
         <SettingsSection title="Danger">
           <SettingsRow

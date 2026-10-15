@@ -32,6 +32,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   const general = createRoute({ getParentRoute: () => settings, path: "general" });
   const projects = createRoute({ getParentRoute: () => settings, path: "projects" });
+  const workflow = createRoute({ getParentRoute: () => settings, path: "workflow" });
   const integrations = createRoute({ getParentRoute: () => settings, path: "integrations" });
   const sourceControl = createRoute({ getParentRoute: () => settings, path: "source-control" });
   const providers = createRoute({
@@ -59,7 +60,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   return createRouter({
     routeTree: root.addChildren([
-      settings.addChildren([general, projects, integrations, sourceControl, providers]),
+      settings.addChildren([general, projects, workflow, integrations, sourceControl, providers]),
       legacyProject,
     ]),
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -106,7 +107,12 @@ describe("settings scope navigation", () => {
     expect(router.state.location.search).toEqual(checkoutSearch);
   });
 
-  it.each(["/settings/projects", "/settings/integrations", "/settings/source-control"] as const)(
+  it.each([
+    "/settings/projects",
+    "/settings/workflow",
+    "/settings/integrations",
+    "/settings/source-control",
+  ] as const)(
     "keeps %s when regrouping or selecting a target from the shared settings layout",
     async (to) => {
       const router = createSettingsRouter();

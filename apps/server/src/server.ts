@@ -24,6 +24,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import { BotRuntimeLive } from "./bots/runtimeLayer.ts";
+import { WorktreeBootstrapServiceLive } from "./project/WorktreeBootstrapService.ts";
 import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
 import { WorkflowRuntimeLive } from "./workflows/runtimeLayer.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
@@ -268,7 +269,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(OrchestrationReactorLive),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
-  Layer.provideMerge(WorkflowRuntimeLive),
+  Layer.provideMerge(FeatureRuntimeLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(StorageCleanup.layer),
   Layer.provideMerge(ThreadDeletionReactorLive),
@@ -397,7 +398,7 @@ const VcsLayerLive = Layer.empty.pipe(
   Layer.provideMerge(VcsProjectConfig.layer),
   Layer.provideMerge(VcsDriverRegistryLayerLive),
   Layer.provideMerge(VcsProvisioningService.layer.pipe(Layer.provide(VcsDriverRegistryLayerLive))),
-  Layer.provideMerge(GitWorkflowLayerLive),
+  Layer.provideMerge(WorktreeBootstrapServiceLive.pipe(Layer.provideMerge(GitWorkflowLayerLive))),
   Layer.provideMerge(ReviewLayerLive),
   Layer.provideMerge(SourceControlRepositoryServiceLayerLive),
   Layer.provideMerge(ProjectCloneTrackerLayerLive),

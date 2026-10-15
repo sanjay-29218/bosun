@@ -103,6 +103,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       servers from before the pull-request workspace shipped, so clients must not probe them. */
   pullRequests: Schema.optionalKey(Schema.Boolean),
   /** Server exposes durable bots, handoffs, and project status. */
+  features: Schema.optionalKey(Schema.Boolean),
   bots: Schema.optionalKey(Schema.Boolean),
   /** Server exposes versioned Workflow definitions and feature run state. */
   workflows: Schema.optionalKey(Schema.Boolean),
