@@ -152,8 +152,10 @@ function WorkflowEditor({
   const canvasAvailable = useMediaQuery("md");
   const view = canvasAvailable ? storedView : "form";
   const edited = !sameWorkflow(draft, refreshed.definition);
-  const superseded = latest.revision !== saved.revision;
-  if (superseded && !edited) {
+  // Older than `saved` while the list catches up after this editor publishes.
+  const superseded = latest.revision > saved.revision;
+  // An open stage dialog holds edits of its own, so it keeps the version it started from too.
+  if (superseded && !edited && stageDialog === null) {
     setSaved(latest);
     setDraft(refreshWorkflowRoles(latest, roles).definition);
   }
