@@ -79,6 +79,49 @@ const createBot = (bots: BotService["Service"]) =>
   });
 
 describe("Bot foundation", () => {
+  effectIt.effect("seeds a feature crew once from project templates", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-feature-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
+        Effect.gen(function* () {
+          yield* createProject(engine);
+          const input = { id: "feature-one", projectId, objective: "Build search", modelSelection };
+          const first = yield* bots.createFeature(input);
+          expect(first.status).toBe("open");
+          const crew = (yield* store.listDefinitionsForProject(projectId)).filter(
+            (bot) => bot.featureId === input.id,
+          );
+          expect(crew.map((bot) => bot.name)).toEqual([
+            "Builder", "Designer", "Planner", "QA Tester", "Reviewer",
+          ]);
+          expect(crew.every((bot) => bot.templateId !== null && bot.templateRevision === 1))
+            .toBe(true);
+          const hierarchy = yield* store.listHierarchyForProject(projectId);
+          for (const bot of crew) {
+            expect(hierarchy.find((node) => node.botId === bot.id)?.parentBotId)
+              .toBe(`bot-manager:${projectId}`);
+            expect(yield* store.canDelegate(`bot-manager:${projectId}`, bot.id)).toBe(true);
+            expect(yield* store.canDelegate(bot.id, `bot-manager:${projectId}`)).toBe(false);
+          }
+          expect((yield* bots.createFeature(input)).id).toBe(first.id);
+          expect((yield* store.listDefinitionsForProject(projectId)).filter(
+            (bot) => bot.featureId === input.id,
+          )).toHaveLength(5);
+          expect((yield* bots.createFeature({ ...input, objective: "Different" }).pipe(Effect.result))._tag)
+            .toBe("Failure");
+          expect((yield* bots.setFeatureStatus(first.id, projectId, "closed")).status).toBe("closed");
+          expect((yield* bots.setFeatureStatus(first.id, projectId, "open")).status).toBe("open");
+          expect((yield* bots.listFeaturesForProject(projectId)).map((feature) => feature.id))
+            .toEqual([first.id]);
+        }),
+      ).pipe(Effect.ensuring(Effect.promise(() =>
+        NodeFSP.rm(directory, { recursive: true, force: true })
+      )));
+    }),
+  );
+
   effectIt.effect("keeps custom templates, bot instances, and hierarchy distinct", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>

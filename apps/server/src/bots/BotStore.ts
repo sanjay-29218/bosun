@@ -48,6 +48,15 @@ export interface BotTemplate {
   readonly updatedAt: string;
 }
 
+export interface BotFeature {
+  readonly id: string;
+  readonly projectId: ProjectId;
+  readonly objective: string;
+  readonly status: "open" | "closed";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export interface BotHierarchyNode {
   readonly botId: string;
   readonly parentBotId: string | null;
@@ -201,6 +210,17 @@ const decodeRun = (row: BotRunRow): BotRun => ({
 });
 
 export interface BotStoreShape {
+  readonly insertFeature: (feature: BotFeature) => Effect.Effect<void, PersistenceSqlError>;
+  readonly getFeature: (id: string) => Effect.Effect<BotFeature | null, PersistenceSqlError>;
+  readonly listFeaturesForProject: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<BotFeature>, PersistenceSqlError>;
+  readonly setFeatureStatus: (
+    id: string,
+    projectId: ProjectId,
+    status: BotFeature["status"],
+    updatedAt: string,
+  ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly insertTemplate: (template: BotTemplate) => Effect.Effect<void, PersistenceSqlError>;
   readonly updateTemplate: (
     template: BotTemplate,
@@ -319,6 +339,55 @@ export const BotStoreLive = Layer.effect(
       );
 
     return {
+      insertFeature: (feature) =>
+        sql`
+          INSERT INTO bot_features (id, project_id, objective, status, created_at, updated_at)
+          VALUES (${feature.id}, ${feature.projectId}, ${feature.objective},
+            ${feature.status}, ${feature.createdAt}, ${feature.updatedAt})
+        `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+      getFeature: (id) =>
+        sql<{
+          readonly id: string;
+          readonly projectId: string;
+          readonly objective: string;
+          readonly status: BotFeature["status"];
+          readonly createdAt: string;
+          readonly updatedAt: string;
+        }>`
+          SELECT id, project_id AS projectId, objective, status,
+            created_at AS createdAt, updated_at AS updatedAt
+          FROM bot_features WHERE id = ${id}
+        `.pipe(
+          Effect.map((rows) => rows[0] ? {
+            ...rows[0], projectId: ProjectId.make(rows[0].projectId),
+          } : null),
+          Effect.mapError(queryError),
+        ),
+      listFeaturesForProject: (projectId) =>
+        sql<{
+          readonly id: string;
+          readonly projectId: string;
+          readonly objective: string;
+          readonly status: BotFeature["status"];
+          readonly createdAt: string;
+          readonly updatedAt: string;
+        }>`
+          SELECT id, project_id AS projectId, objective, status,
+            created_at AS createdAt, updated_at AS updatedAt
+          FROM bot_features WHERE project_id = ${projectId}
+          ORDER BY created_at DESC, id DESC
+        `.pipe(
+          Effect.map((rows) => rows.map((row) => ({
+            ...row, projectId: ProjectId.make(row.projectId),
+          }))),
+          Effect.mapError(queryError),
+        ),
+      setFeatureStatus: (id, projectId, status, updatedAt) =>
+        sql<{ readonly id: string }>`
+          UPDATE bot_features SET status = ${status}, updated_at = ${updatedAt}
+          WHERE id = ${id} AND project_id = ${projectId}
+          RETURNING id
+        `.pipe(Effect.map((rows) => rows.length > 0), Effect.mapError(queryError)),
       insertTemplate: (template) =>
         sql`
           INSERT INTO bot_templates (

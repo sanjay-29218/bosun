@@ -11,12 +11,15 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
+import { toPersistenceSqlError } from "../persistence/Errors.ts";
 import {
   BotStore,
   type BotDefinition,
+  type BotFeature,
   type BotHierarchyNode,
   type BotTemplate,
   type BotRun,
@@ -64,6 +67,13 @@ export interface CreateBotRunInput {
   readonly modelSelection?: ModelSelection;
 }
 
+export interface CreateBotFeatureInput {
+  readonly id: string;
+  readonly projectId: ProjectId;
+  readonly objective: string;
+  readonly modelSelection: ModelSelection;
+}
+
 export interface BotRunView {
   readonly run: BotRun;
   readonly turnState: BotTurnState;
@@ -71,6 +81,15 @@ export interface BotRunView {
 }
 
 export interface BotServiceShape {
+  readonly createFeature: (
+    input: CreateBotFeatureInput,
+  ) => Effect.Effect<BotFeature, BotServiceError>;
+  readonly listFeaturesForProject: BotStore["Service"]["listFeaturesForProject"];
+  readonly setFeatureStatus: (
+    id: string,
+    projectId: ProjectId,
+    status: BotFeature["status"],
+  ) => Effect.Effect<BotFeature, BotServiceError>;
   readonly ensureCrew: (
     projectId: ProjectId,
     modelSelection: ModelSelection,
@@ -152,6 +171,7 @@ export const BotServiceLive = Layer.effect(
   Effect.gen(function* () {
     const store = yield* BotStore;
     const runtime = yield* BotThreadRuntime;
+    const sql = yield* SqlClient.SqlClient;
 
     const threadInput = (run: BotRun) => ({
       runId: run.id,
@@ -219,6 +239,12 @@ export const BotServiceLive = Layer.effect(
         const templateId = input.templateId ?? null;
         if (featureId !== null && input.projectId === null) {
           return yield* Effect.fail(new BotValidationError("A feature bot needs a project"));
+        }
+        if (featureId !== null) {
+          const feature = yield* store.getFeature(featureId);
+          if (!feature || feature.projectId !== input.projectId || feature.status !== "open") {
+            return yield* Effect.fail(new BotValidationError("Feature is unavailable in project"));
+          }
         }
         const template = templateId === null ? null : yield* store.getTemplate(templateId);
         if (templateId !== null && (!template || !template.enabled)) {
@@ -394,8 +420,7 @@ export const BotServiceLive = Layer.effect(
         return (yield* store.getRun(id))!;
       });
 
-    return {
-      ensureCrew: (projectId, modelSelection) =>
+    const ensureCrew: BotServiceShape["ensureCrew"] = (projectId, modelSelection) =>
         Effect.gen(function* () {
           if (!(yield* runtime.projectExists(projectId))) {
             return yield* Effect.fail(new BotValidationError("Project does not exist"));
@@ -543,6 +568,71 @@ export const BotServiceLive = Layer.effect(
           if (created.has(managerId)) yield* store.setParent(managerId, "bot-captain", 0);
           if (created.has(builderId)) yield* store.setParent(builderId, managerId, 0);
           return definitions;
+        });
+
+    return {
+      ensureCrew,
+      createFeature: (input) =>
+        Effect.gen(function* () {
+          const id = yield* Effect.try({
+            try: () => nonEmpty(input.id, "Feature ID", 100),
+            catch: () => new BotValidationError("Invalid feature ID"),
+          });
+          const objective = yield* Effect.try({
+            try: () => nonEmpty(input.objective, "Feature objective", 8000),
+            catch: () => new BotValidationError("Invalid feature objective"),
+          });
+          yield* ensureCrew(input.projectId, input.modelSelection);
+          return yield* sql.withTransaction(Effect.gen(function* () {
+            const previous = yield* store.getFeature(id);
+            if (previous) {
+              if (previous.projectId !== input.projectId || previous.objective !== objective) {
+                return yield* Effect.fail(new BotValidationError("Feature ID belongs to another request"));
+              }
+              return previous;
+            }
+            const now = DateTime.formatIso(yield* DateTime.now);
+            const feature: BotFeature = {
+              id, projectId: input.projectId, objective, status: "open",
+              createdAt: now, updatedAt: now,
+            };
+            yield* store.insertFeature(feature);
+            const templates = (yield* store.listTemplatesForProject(input.projectId)).filter(
+              (template) => template.projectId === input.projectId &&
+                template.enabled && template.autoCreateForFeature,
+            );
+            const managerId = `bot-manager:${input.projectId}`;
+            for (const [index, template] of templates.entries()) {
+              const bot = yield* createDefinition({
+                id: `bot-feature:${id}:${index}`,
+                projectId: input.projectId,
+                featureId: id,
+                templateId: template.id,
+                name: template.name,
+                instructions: template.instructions,
+                allowedTools: template.allowedTools,
+                modelSelection: template.modelSelection,
+                runtimeMode: template.runtimeMode,
+              });
+              yield* store.setParent(bot.id, managerId, index);
+              yield* store.grantDelegation(managerId, bot.id);
+            }
+            return feature;
+          })).pipe(Effect.catchTag("SqlError", (error) =>
+            Effect.fail(toPersistenceSqlError("BotService.createFeature")(error))
+          ));
+        }),
+      listFeaturesForProject: store.listFeaturesForProject,
+      setFeatureStatus: (id, projectId, status) =>
+        Effect.gen(function* () {
+          if (status !== "open" && status !== "closed") {
+            return yield* Effect.fail(new BotValidationError("Invalid feature status"));
+          }
+          const now = DateTime.formatIso(yield* DateTime.now);
+          if (!(yield* store.setFeatureStatus(id, projectId, status, now))) {
+            return yield* Effect.fail(new BotValidationError("Feature not found in project"));
+          }
+          return (yield* store.getFeature(id))!;
         }),
       createDefinition,
       createTemplate,
