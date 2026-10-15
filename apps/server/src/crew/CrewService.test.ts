@@ -557,8 +557,8 @@ describe("Bot foundation", () => {
           expect(summaries[0]).not.toHaveProperty("taskText");
           expect(summaries[0]).not.toHaveProperty("instructions");
           yield* sql`UPDATE crew_runs SET thread_id = 'bot-run:legacy' WHERE id = 'run-1'`;
-          yield* sql`INSERT INTO projection_turns (thread_id, turn_id, state, requested_at, checkpoint_files_json)
-            VALUES ('bot-run:legacy', 'old-turn', 'completed', '2026-01-01', '[]')`;
+          yield* sql`INSERT INTO orchestration_v2_legacy_imports (thread_id, source_updated_at, shell_imported_at)
+            VALUES ('bot-run:legacy', '2026-01-01', '2026-01-01')`;
           yield* bots.reconcileRuns();
           expect((yield* bots.getRun("run-1"))?.turnState).toBe("completed");
           expect((yield* bots.listRunSummaries(projectId, 1))[0]?.turnState).toBe("completed");

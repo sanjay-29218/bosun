@@ -291,7 +291,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         AND r.id > ${afterId} AND NOT EXISTS (
           SELECT 1 FROM orchestration_v2_projection_runs AS t WHERE t.thread_id = r.thread_id
         ) AND NOT EXISTS (
-          SELECT 1 FROM projection_turns AS legacy WHERE legacy.thread_id = r.thread_id
+          SELECT 1 FROM orchestration_v2_legacy_imports AS legacy WHERE legacy.thread_id = r.thread_id
         ) ORDER BY r.id LIMIT ${limit}
     `.pipe(
           Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.listPendingStartedRunIds")),
@@ -304,16 +304,13 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           WHERE thread_id = ${threadId} ORDER BY ordinal DESC LIMIT 1
         `.pipe(Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")));
           if (runs[0]) return crewTurnStateFromStatus(runs[0].status);
-          // V1 transcripts import lazily, without V2 runs. Never restart accepted V1 work.
-          const legacy = yield* sql<{ readonly state: string }>`
-          SELECT state FROM projection_turns WHERE thread_id = ${threadId}
-          ORDER BY requested_at DESC, row_id DESC LIMIT 1
+          // Imported V1 threads have no V2 runs. Their work ended with the V1
+          // runtime, so treat it as done and never restart it.
+          const legacy = yield* sql<{ readonly threadId: string }>`
+          SELECT thread_id AS threadId FROM orchestration_v2_legacy_imports
+          WHERE thread_id = ${threadId}
         `.pipe(Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")));
-          if (legacy[0]) {
-            if (legacy[0].state === "completed") return CREW_TURN_STATE.COMPLETED;
-            if (legacy[0].state === "error") return CREW_TURN_STATE.ERROR;
-            return CREW_TURN_STATE.INTERRUPTED;
-          }
+          if (legacy[0]) return CREW_TURN_STATE.COMPLETED;
           const thread = yield* engine
             .getThreadShell(threadId)
             .pipe(Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")));

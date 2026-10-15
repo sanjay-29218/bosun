@@ -539,10 +539,8 @@ export const CrewStoreLive = Layer.effect(
               FROM orchestration_v2_projection_runs AS t
               WHERE t.thread_id = r.thread_id ORDER BY t.ordinal DESC LIMIT 1
             ), (
-              SELECT CASE legacy.state WHEN 'completed' THEN 'completed'
-                WHEN 'error' THEN 'error' ELSE 'interrupted' END
-              FROM projection_turns AS legacy WHERE legacy.thread_id = r.thread_id
-              ORDER BY legacy.requested_at DESC, legacy.row_id DESC LIMIT 1
+              SELECT ${CREW_TURN_STATE.COMPLETED}
+              FROM orchestration_v2_legacy_imports AS legacy WHERE legacy.thread_id = r.thread_id
             ), ${CREW_TURN_STATE.MISSING}) AS turnState
           FROM crew_runs AS r WHERE project_id = ${projectId}
           ORDER BY created_at DESC, id DESC LIMIT ${limit}
