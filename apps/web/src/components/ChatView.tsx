@@ -2717,6 +2717,28 @@ export default function ChatView(props: ChatViewProps) {
         ? pendingCrewFeatureRef.current.featureId
         : `feature:${randomUUID()}`;
     pendingCrewFeatureRef.current = { key, featureId };
+    // A refused start usually means the workflow is out of date (an edited role, say), and
+    // the workflow editor is where that gets fixed.
+    const reportFailure = (result: AtomCommandResult<unknown, unknown>) => {
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not start the feature",
+          description: error instanceof Error ? error.message : "An error occurred.",
+          actionProps: {
+            children: "Open workflow",
+            onClick: () => {
+              void navigate({
+                to: "/settings/workflow",
+                search: { environment: environmentId, workflow: workflowId },
+              });
+            },
+          },
+        }),
+      );
+    };
     sendInFlightRef.current = true;
     try {
       const created = await createFeature({
@@ -2730,12 +2752,12 @@ export default function ChatView(props: ChatViewProps) {
           autoTitle: true,
         },
       });
-      if (created._tag !== "Success") return;
+      if (created._tag !== "Success") return reportFailure(created);
       const started = await startFeature({
         environmentId,
         input: { projectId: draftProjectId, featureId },
       });
-      if (started._tag !== "Success") return;
+      if (started._tag !== "Success") return reportFailure(started);
       pendingCrewFeatureRef.current = null;
       promptRef.current = "";
       setComposerDraftPrompt(composerDraftTarget, "");
