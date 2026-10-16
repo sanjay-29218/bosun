@@ -256,6 +256,22 @@ describe("search", () => {
     expect(matchesFeatureSearch(kanban, parseFeatureSearch("bosun builder"), ["bosun"])).toBe(true);
     expect(matchesFeatureSearch(kanban, parseFeatureSearch("missing"))).toBe(false);
   });
+
+  it("finds a feature by its linked issue", () => {
+    const linked = card("k", "working", "build", {
+      issue: {
+        url: "https://github.com/o/r/issues/42",
+        number: 42,
+        title: "Board shows GitHub issues",
+        state: "open",
+        milestone: "Beta",
+        subIssues: null,
+      },
+    });
+    expect(matchesFeatureSearch(linked, parseFeatureSearch("#42"))).toBe(true);
+    expect(matchesFeatureSearch(linked, parseFeatureSearch("github issues"))).toBe(true);
+    expect(matchesFeatureSearch(linked, parseFeatureSearch("beta"))).toBe(true);
+  });
 });
 
 describe("queue, drag and actions", () => {

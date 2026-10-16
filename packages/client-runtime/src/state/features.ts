@@ -48,6 +48,16 @@ export function createFeatureAtoms<R, ER>(
       ? {}
       : { refreshTrigger: options.boardRefreshTrigger }),
   });
+  /**
+   * One project's repository issues and milestones. The server shares each read for half a
+   * minute, so this only needs to be as fresh as that.
+   */
+  const issues = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:issues:list",
+    tag: WS_METHODS.issuesList,
+    staleTimeMs: 30_000,
+    idleTtlMs: 5 * 60_000,
+  });
   const refresh = (
     environmentId: EnvironmentId,
     projectId: ProjectId,
@@ -77,6 +87,7 @@ export function createFeatureAtoms<R, ER>(
     list,
     detail,
     board,
+    issues,
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:features:create",
       tag: WS_METHODS.featuresCreate,

@@ -4,6 +4,7 @@ import { CrewStore } from "../../../crew/CrewStore.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
+import * as IssueService from "../../../issues/IssueService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
@@ -113,6 +114,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
             Layer.mock(CrewHandoffService)({}),
             Layer.mock(CrewHandoffStore)({}),
             Layer.mock(FeatureService)({}),
+            Layer.mock(IssueService.IssueService)({}),
             Layer.mock(WorkflowService)({}),
           ),
         ),

@@ -10,6 +10,8 @@ export const Route = createFileRoute("/_chat/board")({
       : {}),
     ...(typeof raw.q === "string" && raw.q ? { q: raw.q } : {}),
     ...(typeof raw.project === "string" && raw.project ? { project: raw.project } : {}),
+    ...(raw.view === "issues" || raw.view === "milestones" ? { view: raw.view } : {}),
+    ...(typeof raw.milestone === "string" && raw.milestone ? { milestone: raw.milestone } : {}),
   }),
   component: BoardRouteView,
 });

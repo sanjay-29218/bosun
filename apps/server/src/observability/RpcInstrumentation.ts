@@ -212,6 +212,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.featuresCreate]: "features",
   [WS_METHODS.featuresList]: "features",
   [WS_METHODS.featuresBoard]: "features",
+  [WS_METHODS.issuesList]: "features",
   [WS_METHODS.featuresGet]: "features",
   [WS_METHODS.workflowsList]: "workflows",
   [WS_METHODS.workflowsEnsureStarter]: "workflows",

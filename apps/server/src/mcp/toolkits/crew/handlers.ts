@@ -1,4 +1,8 @@
-import { McpCapabilityUnavailableError, OrchestratorMcpFailure } from "@t3tools/contracts";
+import {
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  type RepositoryIssue,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -7,6 +11,8 @@ import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
+import * as IssueService from "../../../issues/IssueService.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -22,6 +28,44 @@ const requireCrewThread = McpInvocationContext.requireMcpCapability("crew").pipe
   Effect.map((scope) => scope.thread.threadId),
 );
 
+const ISSUE_ROWS_DEFAULT = 30;
+const ISSUE_ROWS_MAX = 100;
+
+/** Compact rows of the issues a crew member asked for, filtered by state and milestone title. */
+function crewIssueRows(
+  issues: ReadonlyArray<RepositoryIssue>,
+  input: {
+    readonly state?: "open" | "closed" | "all" | undefined;
+    readonly milestone?: string | undefined;
+    readonly limit?: number | undefined;
+  },
+) {
+  const state = input.state ?? "open";
+  const milestone = input.milestone?.trim().toLowerCase();
+  const limit = Math.min(
+    Math.max(Math.trunc(input.limit ?? ISSUE_ROWS_DEFAULT), 1),
+    ISSUE_ROWS_MAX,
+  );
+  return issues
+    .filter(
+      (issue) =>
+        (state === "all" || issue.state === state) &&
+        (!milestone || issue.milestone?.title.toLowerCase() === milestone),
+    )
+    .slice(0, limit)
+    .map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      url: issue.url,
+      state: issue.state,
+      milestone: issue.milestone?.title ?? null,
+      parent: issue.parent,
+      subIssues: issue.subIssues,
+      labels: issue.labels.map((label) => label.name),
+      assignees: issue.assignees.map((assignee) => assignee.login),
+    }));
+}
+
 const make = Effect.gen(function* () {
   const handoffs = yield* CrewHandoffService;
   const handoffStore = yield* CrewHandoffStore;
@@ -29,6 +73,8 @@ const make = Effect.gen(function* () {
   const workflows = yield* WorkflowService;
   const botProjects = yield* BotProjects;
   const features = yield* FeatureService;
+  const issues = yield* IssueService.IssueService;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
 
   const asCrewMember = <A, E, R>(
     effect: (threadId: McpInvocationContext.McpThreadCaller["threadId"]) => Effect.Effect<A, E, R>,
@@ -77,6 +123,28 @@ const make = Effect.gen(function* () {
           })),
         ),
       ),
+    ),
+    crew_list_issues: McpToolAccess.readsAsCaller(
+      (input: {
+        readonly state?: "open" | "closed" | "all" | undefined;
+        readonly milestone?: string | undefined;
+        readonly limit?: number | undefined;
+      }) =>
+        asCrewMember((threadId) =>
+          Effect.gen(function* () {
+            const shell = yield* threads.getThreadShell(threadId);
+            if (!shell) {
+              return yield* new CrewToolFailedError({ reason: "This thread has no project" });
+            }
+            const list = yield* issues.list(shell.projectId);
+            return {
+              repository: list.repository,
+              unavailable: list.unavailable,
+              truncated: list.truncated,
+              issues: crewIssueRows(list.issues, input),
+            };
+          }),
+        ),
     ),
     crew_delegate: McpToolAccess.actsAsCaller(
       (input: {

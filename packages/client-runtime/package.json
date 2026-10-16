@@ -43,6 +43,10 @@
       "types": "./src/state/crewBoard.ts",
       "default": "./src/state/crewBoard.ts"
     },
+    "./state/issue-board": {
+      "types": "./src/state/issueBoard.ts",
+      "default": "./src/state/issueBoard.ts"
+    },
     "./state/bot-rail": {
       "types": "./src/state/botRail.ts",
       "default": "./src/state/botRail.ts"

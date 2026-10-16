@@ -69,6 +69,7 @@ import {
   FeatureThreadInput,
   FeatureThreadLink,
 } from "./features.ts";
+import { IssueList, IssueListInput, IssueOperationError } from "./issues.ts";
 import {
   WorkflowCreateInput,
   WorkflowActionInput,
@@ -443,6 +444,7 @@ export const WS_METHODS = {
   featuresDetachThread: "features.detachThread",
   featuresThreadLink: "features.threadLink",
   featuresBoard: "features.board",
+  issuesList: "issues.list",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -1094,6 +1096,11 @@ const WsFeaturesBoardRpc = Rpc.make(WS_METHODS.featuresBoard, {
   payload: FeatureProjectInput,
   success: Schema.Array(FeatureBoardCard),
   error: FeatureRpcError,
+});
+const WsIssuesListRpc = Rpc.make(WS_METHODS.issuesList, {
+  payload: IssueListInput,
+  success: IssueList,
+  error: Schema.Union([IssueOperationError, EnvironmentAuthorizationError]),
 });
 const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
   payload: FeatureGetInput,
@@ -2260,6 +2267,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesDetachThreadRpc,
   WsFeaturesThreadLinkRpc,
   WsFeaturesBoardRpc,
+  WsIssuesListRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,

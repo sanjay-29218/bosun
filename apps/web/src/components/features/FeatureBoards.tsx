@@ -188,6 +188,44 @@ export function FeaturePhaseBoard(props: {
   );
 }
 
+/** Phases as row groups, for scanning many features at once. Rows don't drag. */
+export function FeaturePhaseList(props: {
+  readonly groups: ReadonlyArray<FeaturePhaseGroup>;
+  readonly handlers: FeatureBoardHandlers;
+}) {
+  const groups = props.groups.filter((group) => group.cards.length > 0);
+  if (groups.length === 0) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">No features match.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {groups.map((group) => (
+        <section key={group.phase} className="flex flex-col gap-1">
+          <h2 className="flex h-7 items-center gap-2 px-1 text-sm font-medium">
+            <PhaseIcon progress={PHASE_PROGRESS[group.phase]} />
+            {FEATURE_PHASE_LABELS[group.phase]}
+            <span className="font-normal text-muted-foreground tabular-nums">
+              {group.cards.length}
+            </span>
+          </h2>
+          {group.cards.map((card) => (
+            <FeatureCard
+              key={featureCardKey(card)}
+              card={card}
+              project={props.handlers.projectFor(card)}
+              queuePosition={props.handlers.queuePositions.get(featureCardKey(card))}
+              layout="row"
+              draggable={false}
+              onOpen={props.handlers.onOpen}
+              onMenu={props.handlers.onMenu}
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 /**
  * One workflow's stages as columns: role headers, gates with their waiting counts, and loops
  * drawn as labelled arcs. Read-only; the graph is edited in Settings → Workflows.

@@ -6,6 +6,7 @@ export * from "./background.ts";
 export * from "./bots.ts";
 export * from "./crew.ts";
 export * from "./features.ts";
+export * from "./issues.ts";
 export * from "./workflow.ts";
 export * from "./acpRegistry.ts";
 export * from "./auth.ts";

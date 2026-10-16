@@ -26,7 +26,7 @@ import { Input } from "../ui/input";
 
 /** Open issues in green and closed ones in the primary color, close to how GitHub shows them. */
 export function FeatureIssueIcon(props: {
-  readonly issue: FeatureIssue;
+  readonly issue: Pick<FeatureIssue, "state">;
   readonly className?: string;
 }) {
   const Icon = props.issue.state === "open" ? CircleDotIcon : CircleCheckIcon;

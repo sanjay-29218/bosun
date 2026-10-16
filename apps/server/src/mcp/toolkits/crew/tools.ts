@@ -12,6 +12,7 @@ import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
+import * as IssueService from "../../../issues/IssueService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
@@ -175,6 +176,37 @@ const LinkIssue = Tool.make("crew_link_issue", {
   dependencies: [...dependencies, FeatureService],
 }).annotate(Tool.Destructive, false);
 
+const ListIssues = Tool.make("crew_list_issues", {
+  description:
+    "List the GitHub issues of the project this thread works in: open ones by default, newest activity first, with each one's milestone, parent issue and sub-issue progress. Filter by state or milestone title. `unavailable` says why there are none to read, such as a remote not on GitHub.",
+  parameters: Schema.Struct({
+    state: Schema.optional(Schema.Literals(["open", "closed", "all"])),
+    milestone: Schema.optional(Schema.String),
+    limit: Schema.optional(Schema.Int),
+  }),
+  success: Schema.Struct({
+    repository: Schema.NullOr(Schema.String),
+    unavailable: Schema.NullOr(Schema.String),
+    /** More open issues exist than the host was asked for. */
+    truncated: Schema.Boolean,
+    issues: Schema.Array(
+      Schema.Struct({
+        number: Schema.Int,
+        title: Schema.String,
+        url: Schema.String,
+        state: Schema.Literals(["open", "closed"]),
+        milestone: Schema.NullOr(Schema.String),
+        parent: Schema.NullOr(Schema.Int),
+        subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
+        labels: Schema.Array(Schema.String),
+        assignees: Schema.Array(Schema.String),
+      }),
+    ),
+  }),
+  failure,
+  dependencies: [...dependencies, IssueService.IssueService],
+}).annotate(Tool.Readonly, true);
+
 export const CrewToolkit = Toolkit.make(
   Delegate,
   Respond,
@@ -186,4 +218,5 @@ export const CrewToolkit = Toolkit.make(
   ListProjects,
   CreateProject,
   LinkIssue,
+  ListIssues,
 );

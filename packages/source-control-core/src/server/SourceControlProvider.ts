@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type {
   RepositoryIdentity,
+  RepositoryIssue,
+  RepositoryMilestone,
   ChangeRequest,
   ChangeRequestState,
   SourceControlProviderError,
@@ -26,6 +28,16 @@ export type ResolveSourceControlLink = (input: {
   readonly cwd: string;
   readonly url: URL;
 }) => Effect.Effect<SourceControlLinkSubject, SourceControlProviderError> | undefined;
+
+/** A repository's open issues, its recently closed ones, and its open milestones. */
+export interface SourceControlIssueList {
+  /** `owner/name` the issues were read from. */
+  readonly repository: string;
+  readonly issues: ReadonlyArray<RepositoryIssue>;
+  readonly milestones: ReadonlyArray<RepositoryMilestone>;
+  /** More open issues exist than were read. */
+  readonly truncated: boolean;
+}
 
 export interface SourceControlProviderContext {
   readonly provider: SourceControlProviderInfo;
@@ -154,6 +166,11 @@ export class SourceControlProvider extends Context.Service<
     }) => Effect.Effect<RepositoryIdentity, SourceControlProviderError>;
     /** Optional capability for issue and change-request subjects. */
     readonly resolveLink?: ResolveSourceControlLink;
+    /** Optional capability for a repository's issues and milestones. Absent means unsupported. */
+    readonly listIssues?: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<SourceControlIssueList, SourceControlProviderError>;
     readonly listChangeRequests: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;

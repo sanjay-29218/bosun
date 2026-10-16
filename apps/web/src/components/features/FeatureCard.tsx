@@ -62,7 +62,7 @@ export function waitingLabel(since: string): string | null {
 }
 
 /** "Designer · attempt 2", or what stopped a closed feature. */
-function featureOwnerLine(card: EnvironmentFeatureCard): string {
+export function featureOwnerLine(card: EnvironmentFeatureCard): string {
   if (!card.stage) return card.workflow.name;
   const stage = stageLabel(card.stage.stepId);
   if (card.state === "cancelled") return `Stopped at ${stage}`;

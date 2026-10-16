@@ -430,7 +430,15 @@ export function matchesFeatureSearch(
     return false;
   }
   if (!search.text) return true;
-  const haystack = [card.title, card.stage?.stepId, card.stage?.role, card.workflow.name, ...extra]
+  const haystack = [
+    card.title,
+    card.stage?.stepId,
+    card.stage?.role,
+    card.workflow.name,
+    card.issue ? `#${card.issue.number} ${card.issue.title}` : null,
+    card.issue?.milestone,
+    ...extra,
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

@@ -13,6 +13,7 @@ import type { BotService } from "./bots/BotService.ts";
 import type { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import type { CrewService } from "./crew/CrewService.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
+import type { IssueService } from "./issues/IssueService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import type {
   WorkflowControl,
@@ -26,6 +27,7 @@ export interface BosunWsServices {
   readonly crew: CrewService["Service"];
   readonly crewHandoffs: CrewHandoffService["Service"];
   readonly features: FeatureService["Service"];
+  readonly issues: IssueService["Service"];
   readonly workflows: WorkflowService["Service"];
   readonly workflowLibrary: WorkflowLibrary["Service"];
   readonly workflowExecution: WorkflowExecutionService["Service"];
@@ -42,6 +44,7 @@ export const layerBosunWsRpc = (
     crew,
     crewHandoffs,
     features,
+    issues,
     workflows,
     workflowLibrary,
     workflowExecution,
@@ -71,6 +74,8 @@ export const layerBosunWsRpc = (
           features
             .board(input.projectId)
             .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        // The service already fails with the transport's error.
+        [WS_METHODS.issuesList]: (input) => issues.list(input.projectId),
         [WS_METHODS.featuresGet]: (input) =>
           Effect.gen(function* () {
             const feature = yield* features.get(input.featureId);

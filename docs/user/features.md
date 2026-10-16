@@ -28,8 +28,8 @@ Cards move when the workflow moves them. The only moves you can drag are into Do
 cancels the feature, and out of Done, which reopens it. Reopening a finished feature asks which
 stage the follow-up starts at; a cancelled one resumes where it stopped.
 
-Search matches titles, stages and projects, and `workflow:feature-delivery` limits the board to
-one workflow.
+Search matches titles, stages, projects and linked issues, and `workflow:feature-delivery` limits
+the board to one workflow. **Display** switches between the columns and a list grouped by phase.
 
 ## Issues
 
@@ -38,6 +38,16 @@ details panel and hover card show its title, milestone and sub-issue progress. A
 contains an issue link links it when the feature starts, and the crew can link the issue it opens.
 To link, change or unlink one yourself, choose **Link issue…** in a card's menu, in a thread's
 **Feature** menu, or in the thread's details panel. Issue links work for GitHub.
+
+The **Issues** view at the top of the board lists the open issues of each project's GitHub
+repository, grouped by milestone with sub-issues under their parent. Each row's status says where
+it stands with the crew: Todo, In crew, In review once its feature reaches verify or ship, or Done
+once the issue is closed. **Start feature** on an issue opens a new thread whose brief links it,
+and a row with a feature opens the feature. **Display** changes the grouping, switches to status
+columns, and shows recently closed issues. **Milestones** shows each open milestone's progress;
+open one to see its issues. Issues are read with the environment's GitHub sign-in (`gh auth login`
+or a token in Settings) and refresh every two minutes while the page is open. The crew can list
+them too.
 
 ## The Workflow toggle
 
