@@ -188,6 +188,9 @@ vi.mock("./settingsLayout", () => ({
 }));
 vi.mock("./ProjectDefaultsSettings", () => ({ ProjectDefaultsSettings: () => null }));
 vi.mock("./ProjectActionsSettings", () => ({ ProjectActionsSettings: () => null }));
+// Crew sections build permission-guarded commands, which need a real connection runtime.
+vi.mock("./BotsSettings", () => ({ ProjectBotSection: () => null }));
+vi.mock("./CrewProjectSection", () => ({ CrewProjectSection: () => null }));
 vi.mock("../ProjectFavicon", () => ({ ProjectFavicon: () => null }));
 vi.mock("../chat/ProviderModelPicker", () => ({ ProviderModelPicker: "model-picker" }));
 vi.mock("../chat/TraitsPicker", () => ({ TraitsPicker: "traits-picker" }));
@@ -212,7 +215,7 @@ const environments = [primaryId, remoteId].map((environmentId) => ({
   environmentId,
   label: environmentId,
   connection: { phase: "connected" },
-  serverConfig: { keybindings: DEFAULT_RESOLVED_KEYBINDINGS },
+  serverConfig: { keybindings: DEFAULT_RESOLVED_KEYBINDINGS, environment: { capabilities: {} } },
 }));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({
   authenticated: true,

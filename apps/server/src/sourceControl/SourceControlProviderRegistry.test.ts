@@ -359,7 +359,10 @@ it.effect(
         },
       });
       for (const [url, expected] of [
-        ["https://github.com/team/project/issues/1", { title: "GitHub issue", body: null }],
+        [
+          "https://github.com/team/project/issues/1",
+          { title: "GitHub issue", body: null, state: "open", milestone: null, subIssues: null },
+        ],
         [
           "https://gitlab.com/team/sub/project/-/merge_requests/2",
           { title: "GitLab MR", body: "Nested project" },

@@ -135,6 +135,8 @@ function pullRequestSettles(
   return pullRequestAtMs >= userAnchorMs;
 }
 
+const CREW_STATES_WAITING_ON_YOU = new Set(["approval", "input", "your-call", "failed"]);
+
 /** Cheap checks that run before any source control lookup. */
 export function isAutoSettlementCandidate(
   thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestUserAuthoredMessageAt">,
@@ -144,6 +146,8 @@ export function isAutoSettlementCandidate(
   if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
   // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
+  // So is a feature stage waiting on a gate, a failure or a question.
+  if (thread.crew?.current && CREW_STATES_WAITING_ON_YOU.has(thread.crew.state)) return false;
   // A live run, or background work that will wake the agent, is not
   // staleness. A dev server left running is: the agent is done.
   if (thread.activityRunStatus != null) return false;

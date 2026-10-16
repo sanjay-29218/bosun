@@ -28,6 +28,8 @@ export interface PersistedUiState {
   projectOrderCwds?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
+  activeBotIdByEnvironmentId?: Record<string, string>;
+  sidebarEnvironmentIds?: string[] | null;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -40,6 +42,11 @@ export interface UiProjectState {
   // projects". Lives here so routes that unmount the sidebar (Settings)
   // cannot reset the filter.
   sidebarProjectScopeKey: string | null;
+  // The bot rail's selection, remembered per environment because bots are
+  // environment-local.
+  activeBotIdByEnvironmentId: Record<string, string>;
+  // Environments the rail and sidebar show, or null for all of them.
+  sidebarEnvironmentIds: string[] | null;
 }
 
 export interface UiThreadState {
@@ -62,6 +69,8 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKey: null,
+  activeBotIdByEnvironmentId: {},
+  sidebarEnvironmentIds: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -117,6 +126,18 @@ function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   );
 }
 
+function sanitizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        entry[0].length > 0 && typeof entry[1] === "string" && entry[1].length > 0,
+    ),
+  );
+}
+
 function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMethod {
   return value === "merge" || value === "squash" || value === "rebase";
 }
@@ -155,6 +176,10 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKey: sanitizeOptionalKey(parsed.sidebarProjectScopeKey),
+    activeBotIdByEnvironmentId: sanitizeStringRecord(parsed.activeBotIdByEnvironmentId),
+    sidebarEnvironmentIds: Array.isArray(parsed.sidebarEnvironmentIds)
+      ? sanitizeStringArray(parsed.sidebarEnvironmentIds)
+      : null,
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -229,6 +254,8 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
+        activeBotIdByEnvironmentId: state.activeBotIdByEnvironmentId,
+        sidebarEnvironmentIds: state.sidebarEnvironmentIds,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
@@ -340,6 +367,26 @@ export function setSidebarProjectScopeKey(state: UiState, projectKey: string | n
   };
 }
 
+function setActiveBotIdByEnvironmentId(state: UiState, next: Record<string, string>): UiState {
+  const current = state.activeBotIdByEnvironmentId;
+  const unchanged =
+    Object.keys(next).length === Object.keys(current).length &&
+    Object.entries(next).every(([environmentId, botId]) => current[environmentId] === botId);
+  return unchanged ? state : { ...state, activeBotIdByEnvironmentId: next };
+}
+
+function setSidebarEnvironmentIds(state: UiState, environmentIds: string[] | null): UiState {
+  const next = environmentIds === null ? null : sanitizeStringArray(environmentIds);
+  const current = state.sidebarEnvironmentIds;
+  const unchanged =
+    next === current ||
+    (next !== null &&
+      current !== null &&
+      next.length === current.length &&
+      next.every((environmentId) => current.includes(environmentId)));
+  return unchanged ? state : { ...state, sidebarEnvironmentIds: next };
+}
+
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
   return state.pullRequestMergeMethod === method
     ? state
@@ -429,6 +476,8 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
+  setActiveBotIdByEnvironmentId: (next: Record<string, string>) => void;
+  setSidebarEnvironmentIds: (environmentIds: string[] | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -450,6 +499,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
+  setActiveBotIdByEnvironmentId: (next) =>
+    set((state) => setActiveBotIdByEnvironmentId(state, next)),
+  setSidebarEnvironmentIds: (environmentIds) =>
+    set((state) => setSidebarEnvironmentIds(state, environmentIds)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

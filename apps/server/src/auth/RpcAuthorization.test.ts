@@ -42,6 +42,18 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("requires operate access to delete a workflow", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsDelete)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
+  it("requires operate access to open a bot's headquarters, which can create its thread", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.botsOpenHeadquarters)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("authorizes background policy reporting and observation deliberately", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.serverReportClientActivity)).toBe(
       AuthOrchestrationReadScope,

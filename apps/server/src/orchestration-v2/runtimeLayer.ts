@@ -10,6 +10,7 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
+import * as BotStore from "../bots/BotStore.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -91,6 +92,7 @@ const layerLegacyV1ThreadImporterProvided = LegacyV1ThreadImporter.layer.pipe(
 export const layerProjectService = ProjectService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      BotStore.layer,
       ProjectStore.layer,
       ProjectionStore.layer,
       layerEventSinkProvided,

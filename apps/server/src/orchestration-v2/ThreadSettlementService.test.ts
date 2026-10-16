@@ -104,6 +104,30 @@ function shell(overrides: Partial<SettlementShell> = {}): SettlementShell {
 }
 
 describe("isAutoSettlementCandidate", () => {
+  it("keeps a feature stage that waits on a person out of Settled", () => {
+    const crew = {
+      featureId: "feature",
+      stepId: "design",
+      index: 2,
+      total: 6,
+      state: "approval",
+      current: true,
+    } as const;
+    expect(ThreadSettlementService.isAutoSettlementCandidate(shell({ crew }), NOW_MS)).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ crew: { ...crew, current: false } }),
+        NOW_MS,
+      ),
+    ).toBe(true);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ crew: { ...crew, state: "done" } }),
+        NOW_MS,
+      ),
+    ).toBe(true);
+  });
+
   it("excludes overridden, pinned, blocked, and working threads", () => {
     expect(ThreadSettlementService.isAutoSettlementCandidate(shell(), NOW_MS)).toBe(true);
     expect(

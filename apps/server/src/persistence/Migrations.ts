@@ -1,3 +1,4 @@
+import * as BosunMigrations from "./BosunMigrations.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -230,6 +231,8 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  // Move Bosun's rows to their own ledger before checking upstream's history.
+  yield* BosunMigrations.reconcileLegacyHistory();
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
@@ -269,5 +272,6 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
     ).pipe(Effect.annotateLogs({ divergent }));
   }
+  if (toMigrationInclusive === undefined) yield* BosunMigrations.runMigrations();
   return executedMigrations;
 });

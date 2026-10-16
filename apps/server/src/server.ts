@@ -1,4 +1,6 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
+import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
+import { WorkflowWorkspaceLive } from "./workflows/WorkflowWorkspace.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
 import * as Random from "effect/Random";
@@ -496,7 +498,9 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   ),
 );
 
-const layerOrchestrationApplication = CheckpointDiffQuery.layer.pipe(
+const layerOrchestrationApplication = FeatureRuntimeLive.pipe(
+  Layer.provideMerge(WorkflowWorkspaceLive),
+  Layer.provideMerge(CheckpointDiffQuery.layer),
   Layer.provideMerge(layerCheckpointStore),
   Layer.provideMerge(layerOrchestrationV2Runtime),
 );

@@ -15,6 +15,7 @@ import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
+import { BotAvatar } from "../../components/BotAvatar";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
@@ -22,6 +23,11 @@ import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
 import { useWorkspaceState } from "../../state/workspace";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
+import {
+  threadListViewToggleButton,
+  type BotSwitcherMenu,
+  type ThreadListViewToggle,
+} from "./thread-list-chrome";
 
 /** One toolbar height for the compact list and expanded sidebar, including search. */
 export function MaterialThreadListToolbar(props: {
@@ -32,6 +38,8 @@ export function MaterialThreadListToolbar(props: {
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironments: () => void;
+  readonly botSwitcher: BotSwitcherMenu | null;
+  readonly viewToggle: ThreadListViewToggle | null;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
@@ -43,7 +51,7 @@ export function MaterialThreadListToolbar(props: {
   const homeFocused = useNavigationState((state) => state.routes[state.index]?.name === "Home");
   const listFocused =
     homeFocused && (workspace === null || workspace.state.selectedTab === "threads");
-  const { fabSize } = useAndroidControlSizing();
+  const { fabSize, buttonSize, iconSize } = useAndroidControlSizing();
   const { height: toolbarHeight, ...headerPadding } = useMaterialToolbarLayout();
   const { state } = useWorkspaceState();
   const { onRequestVisibility, onSearchQueryChange } = props;
@@ -130,6 +138,19 @@ export function MaterialThreadListToolbar(props: {
                 icon="magnifyingglass"
                 onPress={openSearch}
               />
+              {props.botSwitcher ? (
+                <BotSwitcherButton
+                  menu={props.botSwitcher}
+                  buttonSize={buttonSize}
+                  iconSize={iconSize}
+                />
+              ) : null}
+              {props.viewToggle ? (
+                <AndroidHeaderIconButton
+                  {...threadListViewToggleButton(props.viewToggle.view)}
+                  onPress={props.viewToggle.onToggle}
+                />
+              ) : null}
               <AndroidHeaderIconButton
                 accessibilityLabel="Open settings"
                 icon="gearshape"
@@ -162,5 +183,38 @@ export function MaterialThreadListToolbar(props: {
         </View>
       ) : null}
     </>
+  );
+}
+
+/** The active bot's avatar in an icon-button slot; the menu lists every bot and what waits. */
+function BotSwitcherButton(props: {
+  readonly menu: BotSwitcherMenu;
+  readonly buttonSize: number;
+  readonly iconSize: number;
+}) {
+  const { menu } = props;
+  return (
+    <AndroidAnchoredMenu
+      title="Bots"
+      actions={menu.items.map((item) => ({
+        id: item.key,
+        title: item.title,
+        ...(item.subtitle ? { subtitle: item.subtitle } : {}),
+        ...(item.state ? { state: item.state } : {}),
+      }))}
+      onPressAction={({ nativeEvent }) =>
+        menu.items.find((item) => item.key === nativeEvent.event)?.onPress()
+      }
+    >
+      <View
+        accessible
+        accessibilityLabel={menu.accessibilityLabel}
+        accessibilityRole="button"
+        className="items-center justify-center"
+        style={{ width: props.buttonSize, height: props.buttonSize }}
+      >
+        <BotAvatar avatar={menu.avatar} color={menu.color} size={props.iconSize + 10} />
+      </View>
+    </AndroidAnchoredMenu>
   );
 }

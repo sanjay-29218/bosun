@@ -163,6 +163,7 @@ function makeHarness(options: HarnessOptions = {}) {
       create: () => Effect.die("unused"),
       bootstrap: () => Effect.die("unused"),
       update: () => Effect.die("unused"),
+      assignBot: () => Effect.die("unused"),
       delete: () => Effect.die("unused"),
       getById: (id) =>
         Effect.succeed(
@@ -225,6 +226,7 @@ function makeHarness(options: HarnessOptions = {}) {
               defaultModelSelection: project.defaultModelSelection,
               defaultThreadEnvMode: null,
               autoPull: false,
+              botId: "bot-captain",
               faviconPath: null,
               projectIcon: null,
               scripts: project.scripts,

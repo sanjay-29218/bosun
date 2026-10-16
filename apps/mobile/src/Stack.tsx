@@ -66,6 +66,7 @@ import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadAgentsSheet } from "./features/threads/ThreadAgentsSheet";
+import { FeatureThreadSheet } from "./features/threads/FeatureThreadSheet";
 import { ThreadQueueSheet } from "./features/threads/ThreadQueueControl";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScreen";
@@ -92,6 +93,8 @@ import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppea
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
+import { SettingsRolesRouteScreen } from "./features/settings/SettingsRolesRouteScreen";
+import { SettingsWorkflowsRouteScreen } from "./features/settings/SettingsWorkflowsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -343,6 +346,16 @@ const SettingsContentStack = createV5SheetStackNavigator({
         title: "Follow-ups",
       },
     }),
+    SettingsWorkflows: createNativeStackScreen({
+      screen: SettingsWorkflowsRouteScreen,
+      linking: "workflows",
+      options: { title: "Workflows" },
+    }),
+    SettingsRoles: createNativeStackScreen({
+      screen: SettingsRolesRouteScreen,
+      linking: "roles",
+      options: { title: "Roles" },
+    }),
     SettingsScheduledTasks: createNativeStackScreen({
       screen: SettingsScheduledTasksRouteScreen,
       linking: "scheduled-tasks",
@@ -583,6 +596,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsLegal",
   "SettingsSheet",
   "ThreadAgents",
+  "FeatureThread",
   "ThreadQueue",
   "ThreadReviewComment",
   "ThreadDevicePreview",
@@ -897,6 +911,15 @@ const RootStackConfig = createWorkspaceStackNavigator({
         ...FORM_SHEET_PRESENTATION_OPTIONS,
         headerShown: false,
         sheetAllowedDetents: [0.5, 0.9],
+        sheetGrabberVisible: true,
+      },
+    }),
+    FeatureThread: createNativeStackScreen({
+      screen: FeatureThreadSheet,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        headerShown: false,
+        sheetAllowedDetents: [0.7, 0.95],
         sheetGrabberVisible: true,
       },
     }),
