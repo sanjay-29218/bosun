@@ -2,11 +2,11 @@
 
 /**
  * Rebuild an isolated dev database from a pruned snapshot of the real
- * ~/.t3 database, then run this checkout's migrations against it.
+ * ~/.bosun database (the installed Bosun), then run this checkout's migrations against it.
  *
  * `vp run migrate-dev-db` from a worktree:
  *   1. Nukes `<worktree>/.bosun/userdata/statev2.sqlite`.
- *   2. Copies a slice of the real db (`~/.t3/userdata/statev2.sqlite`,
+ *   2. Copies a slice of the real db (`~/.bosun/userdata/statev2.sqlite`,
  *      attached read-only): the schema, and every row except those of
  *      deleted, archived, and settled threads, which are nearly all of a
  *      long-lived database. It then prunes that to the most recently updated
@@ -52,7 +52,7 @@ export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDe
   {},
 ) {
   override get message(): string {
-    return "Not inside a linked git worktree. Pass --base-dir to target an isolated .t3 directory.";
+    return "Not inside a linked git worktree. Pass --base-dir to target an isolated .bosun directory.";
   }
 }
 
@@ -61,7 +61,7 @@ export class MigrateDevDbSharedHomeError extends Schema.TaggedError<MigrateDevDb
   {},
 ) {
   override get message(): string {
-    return "Refusing to rebuild the shared ~/.t3 database. Use an isolated --base-dir.";
+    return "Refusing to rebuild the shared ~/.bosun database. Use an isolated --base-dir.";
   }
 }
 
@@ -150,7 +150,7 @@ export class MigrateDevDbPhaseError extends Schema.TaggedError<MigrateDevDbPhase
 export interface RunMigrateDevDbInput {
   /** Isolated .bosun directory. Defaults to `<worktree>/.bosun` of the cwd. */
   readonly baseDir?: string | undefined;
-  /** Source database. Defaults to `~/.t3/userdata/statev2.sqlite`. */
+  /** Source database. Defaults to `~/.bosun/userdata/statev2.sqlite`. */
   readonly source?: string | undefined;
   readonly projects: number;
   readonly threadsPerProject: number;
@@ -482,7 +482,7 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const sharedHome = path.resolve(options.sharedHome ?? path.join(NodeOS.homedir(), ".t3"));
+  const sharedHome = path.resolve(options.sharedHome ?? path.join(NodeOS.homedir(), ".bosun"));
   const sourcePath = path.resolve(
     input.source ?? path.join(sharedHome, "userdata", "statev2.sqlite"),
   );
@@ -642,7 +642,7 @@ export const migrateDevDbCommand = Command.make(
     ),
     source: Flag.String("source").pipe(
       Flag.optional,
-      Flag.withDescription("Source database. Defaults to ~/.t3/userdata/statev2.sqlite."),
+      Flag.withDescription("Source database. Defaults to ~/.bosun/userdata/statev2.sqlite."),
     ),
   },
   ({ projects, threadsPerProject, baseDir, source }) =>
@@ -669,7 +669,7 @@ export const migrateDevDbCommand = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Rebuild the worktree dev database from a pruned snapshot of the real ~/.t3 data, then run migrations.",
+    "Rebuild the worktree dev database from a pruned snapshot of the installed Bosun data (~/.bosun), then run migrations.",
   ),
 );
 

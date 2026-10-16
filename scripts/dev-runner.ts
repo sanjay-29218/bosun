@@ -388,11 +388,9 @@ export function createDevRunnerEnv({
       output.T3CODE_NO_BROWSER = browser === true ? "0" : "1";
     }
 
-    if (autoBootstrapProjectFromCwd !== undefined) {
-      output.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
-    } else {
-      delete output.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
-    }
+    // The dev server runs from apps/server, so bootstrapping its cwd would add
+    // that package as a project. Worktree setup seeds real projects instead.
+    output.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
 
     if (logWebSocketEvents !== undefined) {
       output.T3CODE_LOG_WS_EVENTS = logWebSocketEvents ? "1" : "0";
