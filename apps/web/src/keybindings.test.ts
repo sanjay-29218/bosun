@@ -270,6 +270,37 @@ describe("settle thread shortcut", () => {
   });
 });
 
+describe("bot jump shortcuts", () => {
+  const resolve = (
+    overrides: Partial<ShortcutEventLike>,
+    platform: string,
+    multipleBots: boolean,
+  ) =>
+    resolveShortcutCommand(event({ key: "1", ...overrides }), DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform,
+      context: { isDesktop: true, multipleBots },
+    });
+
+  it("leaves Mod+1-9 to thread jumps with one bot", () => {
+    assert.equal(resolve({ metaKey: true }, "MacIntel", false), "thread.jump.1");
+    assert.isNull(resolve({ metaKey: true, ctrlKey: true }, "MacIntel", false));
+  });
+
+  it("gives Mod+1-9 to bots with several and moves thread jumps over", () => {
+    assert.equal(resolve({ metaKey: true }, "MacIntel", true), "bot.jump.1");
+    assert.equal(resolve({ metaKey: true, ctrlKey: true }, "MacIntel", true), "thread.jump.1");
+    assert.equal(resolve({ ctrlKey: true }, "Win32", true), "bot.jump.1");
+    assert.equal(resolve({ ctrlKey: true, altKey: true }, "Win32", true), "thread.jump.1");
+    assert.equal(
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "thread.jump.1", {
+        platform: "MacIntel",
+        context: { isDesktop: true, multipleBots: true },
+      }),
+      "\u2303\u23181",
+    );
+  });
+});
+
 describe("thread undo shortcut", () => {
   it("resolves mod+z with nothing editable focused", () => {
     assert.equal(
@@ -1412,7 +1443,7 @@ describe("composer and pull request shortcuts", () => {
       ["k", "pullRequest.copyNumber"],
       ["8", "thread.copyReference"],
       ["c", null],
-      ["y", null],
+      ["u", null],
     ] as const) {
       assert.strictEqual(
         resolveShortcutCommand(event({ key, metaKey: true, shiftKey: true }), bindings, {

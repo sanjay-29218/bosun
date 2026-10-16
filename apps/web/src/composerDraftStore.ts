@@ -1546,7 +1546,7 @@ function resolveComposerThreadId(
   return state.draftThreadsByThreadKey[normalizedTarget]?.threadId ?? null;
 }
 
-function getComposerDraftState(
+export function getComposerDraftState(
   state: Pick<ComposerDraftStoreState, "draftsByThreadKey" | "draftThreadsByThreadKey">,
   target: ComposerThreadTarget,
 ): ComposerThreadDraftState | null {

@@ -50,6 +50,14 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import * as BotsHandlers from "./toolkits/bots/handlers.ts";
+import { BotsToolkit } from "./toolkits/bots/tools.ts";
+import * as CrewHandlers from "./toolkits/crew/handlers.ts";
+import { CrewToolkit } from "./toolkits/crew/tools.ts";
+import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
+import { FeaturesToolkit } from "./toolkits/features/tools.ts";
+import * as WorkflowsHandlers from "./toolkits/workflows/handlers.ts";
+import { WorkflowsToolkit } from "./toolkits/workflows/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -858,6 +866,11 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
+const layerBotsToolkit = toolkitRegistration(BotsToolkit, BotsHandlers.layer);
+const layerCrewToolkit = toolkitRegistration(CrewToolkit, CrewHandlers.layer);
+const layerFeaturesToolkit = toolkitRegistration(FeaturesToolkit, FeaturesHandlers.layer);
+const layerWorkflowsToolkit = toolkitRegistration(WorkflowsToolkit, WorkflowsHandlers.layer);
+
 export const layerMcpTransport = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
@@ -876,6 +889,10 @@ export const layer = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
+  layerBotsToolkit,
+  layerCrewToolkit,
+  layerFeaturesToolkit,
+  layerWorkflowsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));

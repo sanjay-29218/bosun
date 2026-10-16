@@ -13,6 +13,7 @@ import {
   SourceControlProviderError,
   TrimmedNonEmptyString,
   type ChangeRequest,
+  type RepositoryIssue,
   type SourceControlProviderDiscoveryItem,
   type SourceControlRepositoryCloneUrls,
 } from "@t3tools/contracts";
@@ -59,7 +60,15 @@ import * as GitHubClient from "../client/definition.ts";
 
 const decodeLinkSubject = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
-    Schema.Struct({ title: Schema.String, body: Schema.optional(Schema.NullOr(Schema.String)) }),
+    Schema.Struct({
+      title: Schema.String,
+      body: Schema.optional(Schema.NullOr(Schema.String)),
+      state: Schema.optional(Schema.String),
+      milestone: Schema.optional(Schema.NullOr(Schema.Struct({ title: Schema.String }))),
+      sub_issues_summary: Schema.optional(
+        Schema.NullOr(Schema.Struct({ total: Schema.Number, completed: Schema.Number })),
+      ),
+    }),
   ),
 );
 
@@ -457,6 +466,127 @@ const decodePullRequestByNumber = decodeJsonResult(
     }),
   }),
 );
+
+/** Open issues read per list; GitHub prices a first:100 connection like first:1. */
+const ISSUE_LIST_OPEN_LIMIT = 100;
+const ISSUE_LIST_CLOSED_LIMIT = 30;
+const ISSUE_LIST_MILESTONE_LIMIT = 25;
+/** 130 issues with labels and assignees stay well under a megabyte. */
+const ISSUE_LIST_MAX_RESPONSE_BYTES = 4_000_000;
+
+/**
+ * One document per issue list. `withSubIssues` drops `parent` and `subIssuesSummary` for an
+ * Enterprise Server whose schema predates sub-issues.
+ */
+function issueListQuery(withSubIssues: boolean): string {
+  const subIssueFields = withSubIssues
+    ? " parent { number } subIssuesSummary { total completed }"
+    : "";
+  return `query IssueList($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    nameWithOwner
+    open: issues(first: ${ISSUE_LIST_OPEN_LIMIT}, states: OPEN, orderBy: { field: UPDATED_AT, direction: DESC }) { totalCount nodes { ...IssueRow } }
+    closed: issues(first: ${ISSUE_LIST_CLOSED_LIMIT}, states: CLOSED, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { ...IssueRow } }
+    milestones(first: ${ISSUE_LIST_MILESTONE_LIMIT}, states: OPEN, orderBy: { field: DUE_DATE, direction: ASC }) {
+      nodes { number title url dueOn open: issues(states: OPEN) { totalCount } closed: issues(states: CLOSED) { totalCount } }
+    }
+  }
+}
+fragment IssueRow on Issue {
+  number title url state updatedAt closedAt milestone { number title }${subIssueFields}
+  labels(first: 6) { nodes { name color } }
+  assignees(first: 4) { nodes { login avatarUrl(size: 40) } }
+}`;
+}
+
+const IssueNodeSchema = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  url: Schema.String,
+  state: Schema.String,
+  updatedAt: Schema.String,
+  closedAt: Schema.NullOr(Schema.String),
+  milestone: Schema.NullOr(Schema.Struct({ number: Schema.Number, title: Schema.String })),
+  parent: Schema.optional(Schema.NullOr(Schema.Struct({ number: Schema.Number }))),
+  subIssuesSummary: Schema.optional(
+    Schema.NullOr(Schema.Struct({ total: Schema.Number, completed: Schema.Number })),
+  ),
+  labels: Schema.NullOr(
+    Schema.Struct({
+      nodes: Schema.Array(
+        Schema.NullOr(Schema.Struct({ name: Schema.String, color: Schema.String })),
+      ),
+    }),
+  ),
+  assignees: Schema.Struct({
+    nodes: Schema.Array(
+      Schema.NullOr(Schema.Struct({ login: Schema.String, avatarUrl: Schema.String })),
+    ),
+  }),
+});
+const IssueConnectionSchema = Schema.Struct({
+  nodes: Schema.Array(Schema.NullOr(IssueNodeSchema)),
+});
+const CountSchema = Schema.Struct({ totalCount: Schema.Number });
+
+const decodeIssueList = decodeJsonResult(
+  Schema.Struct({
+    data: Schema.Struct({
+      repository: Schema.NullOr(
+        Schema.Struct({
+          nameWithOwner: Schema.String,
+          open: Schema.Struct({ ...IssueConnectionSchema.fields, totalCount: Schema.Number }),
+          closed: IssueConnectionSchema,
+          milestones: Schema.Struct({
+            nodes: Schema.Array(
+              Schema.NullOr(
+                Schema.Struct({
+                  number: Schema.Number,
+                  title: Schema.String,
+                  url: Schema.String,
+                  dueOn: Schema.NullOr(Schema.String),
+                  open: CountSchema,
+                  closed: CountSchema,
+                }),
+              ),
+            ),
+          }),
+        }),
+      ),
+    }),
+  }),
+);
+
+function toRepositoryIssue(node: typeof IssueNodeSchema.Type): RepositoryIssue {
+  const subIssues = node.subIssuesSummary;
+  return {
+    number: node.number,
+    title: node.title,
+    url: node.url,
+    state: node.state === "CLOSED" ? "closed" : "open",
+    updatedAt: node.updatedAt,
+    closedAt: node.closedAt,
+    milestone: node.milestone,
+    parent: node.parent?.number ?? null,
+    subIssues:
+      subIssues && subIssues.total > 0
+        ? { completed: subIssues.completed, total: subIssues.total }
+        : null,
+    labels: (node.labels?.nodes ?? []).flatMap((label) => (label === null ? [] : [label])),
+    assignees: node.assignees.nodes.flatMap((assignee) => (assignee === null ? [] : [assignee])),
+  };
+}
+
+const isGitHubApiResponseError = Schema.is(GitHubApi.GitHubApiResponseError);
+
+/** A GraphQL schema without sub-issues names the missing field in its answer. */
+function lacksSubIssueFields(error: GitHubFailure): boolean {
+  const cause = error.cause;
+  return (
+    isGitHubApiResponseError(cause) &&
+    (cause.githubErrors ?? []).some((message) => /\b(parent|subIssuesSummary)\b/u.test(message))
+  );
+}
 
 /** The local branch a pull request checks out into, the way `gh pr checkout` names it. */
 export function pullRequestCheckoutBranchName(input: {
@@ -874,6 +1004,54 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const listIssues = Effect.fn("GitHubSourceControlProvider.listIssues")(function* (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) {
+    const locator = yield* resolveRepository({
+      cwd: input.cwd,
+      host: contextHost(input.context),
+      context: input.context,
+    });
+    const read = (withSubIssues: boolean) =>
+      graphqlJson(
+        {
+          host: locator.host,
+          operation: "listIssues",
+          query: issueListQuery(withSubIssues),
+          variables: { owner: locator.owner, name: locator.name },
+          allowReserve: true,
+          maxResponseBytes: ISSUE_LIST_MAX_RESPONSE_BYTES,
+        },
+        decodeIssueList,
+        "GitHub returned an invalid issue list.",
+      );
+    const decoded = yield* read(true).pipe(Effect.catchIf(lacksSubIssueFields, () => read(false)));
+    const repository = decoded.data.repository;
+    if (repository === null) return yield* failure(REPOSITORY_NOT_FOUND);
+    const open = repository.open.nodes.flatMap((node) => (node === null ? [] : [node]));
+    const closed = repository.closed.nodes.flatMap((node) => (node === null ? [] : [node]));
+    return {
+      repository: repository.nameWithOwner,
+      issues: [...open, ...closed].map(toRepositoryIssue),
+      milestones: repository.milestones.nodes.flatMap((milestone) =>
+        milestone === null
+          ? []
+          : [
+              {
+                number: milestone.number,
+                title: milestone.title,
+                url: milestone.url,
+                dueOn: milestone.dueOn,
+                openIssues: milestone.open.totalCount,
+                closedIssues: milestone.closed.totalCount,
+              },
+            ],
+      ),
+      truncated: repository.open.totalCount > open.length,
+    } satisfies SourceControlProvider.SourceControlIssueList;
+  });
+
   /** Reports a failure against the operation and request that made it, with transport-safe context. */
   const providerError =
     (
@@ -940,7 +1118,14 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    return { title: subject.title, body: subject.body ?? null };
+    const subIssues = subject.sub_issues_summary;
+    return {
+      title: subject.title,
+      body: subject.body ?? null,
+      state: subject.state === "closed" ? ("closed" as const) : ("open" as const),
+      milestone: subject.milestone?.title ?? null,
+      subIssues: subIssues && subIssues.total > 0 ? subIssues : null,
+    };
   });
 
   return SourceControlProvider.SourceControlProvider.of({
@@ -966,6 +1151,8 @@ export const make = Effect.gen(function* () {
       if (!match) return undefined;
       return readLinkSubject(input, `repos/${match[1]}/${match[2]}/issues/${match[3]}`);
     },
+    listIssues: (input) =>
+      listIssues(input).pipe(Effect.mapError(providerError("listIssues", input.cwd))),
     listChangeRequests: (input) =>
       // An open lookup is a user waiting on a status; the rest may be a background sweep.
       (input.state === "open" ? Effect.succeed(true) : SourceControlRateLimit.Interactive).pipe(

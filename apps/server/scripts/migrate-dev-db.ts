@@ -5,7 +5,7 @@
  * ~/.t3 database, then run this checkout's migrations against it.
  *
  * `vp run migrate-dev-db` from a worktree:
- *   1. Nukes `<worktree>/.t3/userdata/statev2.sqlite`.
+ *   1. Nukes `<worktree>/.bosun/userdata/statev2.sqlite`.
  *   2. Copies a slice of the real db (`~/.t3/userdata/statev2.sqlite`,
  *      attached read-only): the schema, and every row except those of
  *      deleted, archived, and settled threads, which are nearly all of a
@@ -148,7 +148,7 @@ export class MigrateDevDbPhaseError extends Schema.TaggedError<MigrateDevDbPhase
 }
 
 export interface RunMigrateDevDbInput {
-  /** Isolated .t3 directory. Defaults to `<worktree>/.t3` of the cwd. */
+  /** Isolated .bosun directory. Defaults to `<worktree>/.bosun` of the cwd. */
   readonly baseDir?: string | undefined;
   /** Source database. Defaults to `~/.t3/userdata/statev2.sqlite`. */
   readonly source?: string | undefined;
@@ -461,7 +461,10 @@ const verifyMigrationSlots = Effect.fn("verifyMigrationSlots")(function* () {
   const appliedById = new Map(applied.map((row) => [Number(row.migration_id), row.name]));
   for (const [slot, codeName] of migrationManifest) {
     const appliedName = appliedById.get(slot);
-    if (appliedName !== undefined && appliedName !== codeName) {
+    const priorBotName =
+      (slot === 55 && appliedName === "BosunBots") ||
+      (slot === 56 && appliedName === "BosunHandoffs");
+    if (appliedName !== undefined && appliedName !== codeName && !priorBotName) {
       return yield* new MigrateDevDbSlotCollisionError({ slot, codeName, appliedName });
     }
   }
@@ -635,7 +638,7 @@ export const migrateDevDbCommand = Command.make(
     ),
     baseDir: Flag.String("base-dir").pipe(
       Flag.optional,
-      Flag.withDescription("Isolated .t3 directory. Defaults to the current worktree's .t3."),
+      Flag.withDescription("Isolated .bosun directory. Defaults to the current worktree's .bosun."),
     ),
     source: Flag.String("source").pipe(
       Flag.optional,

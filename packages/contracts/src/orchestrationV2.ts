@@ -72,6 +72,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { CrewStageSummary, ThreadFeatureTag } from "./workflow.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -437,6 +438,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ),
   ),
+  /** The feature stage this thread runs; absent for threads outside a workflow. */
+  crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
+  /** The feature this thread works on, as a stage or as its lead; absent otherwise. */
+  feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -2020,6 +2025,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
       }),
     ),
   ),
+  /** The feature stage this thread runs; omitted for plain threads and older servers. */
+  crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
+  /** The feature this thread works on; omitted for plain threads and older servers. */
+  feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
@@ -3191,6 +3200,19 @@ const OrchestrationV2InternalCommand = Schema.Union([
         notification: OrchestrationV2Notification,
       }),
     ),
+  }),
+  /**
+   * Links a crew thread to its feature, or updates the stage summary it shows. Internal so
+   * only the workflow runtime decides what a thread belongs to. Omitted fields keep their value;
+   * `title` renames the thread on first link.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.crew-stage.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
+    feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
+    title: Schema.optional(TrimmedNonEmptyString),
   }),
   /** Records that the provider rollback `requestId` failed for good. */
   Schema.Struct({

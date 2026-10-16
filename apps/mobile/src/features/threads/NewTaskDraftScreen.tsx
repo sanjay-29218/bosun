@@ -110,6 +110,14 @@ import { useProjectClone } from "../../state/projectClones";
 import { projectEnvironment } from "../../state/projects";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
+import { botsEnvironment, useActiveBot } from "../../state/bots";
+import { featuresEnvironment } from "../../state/features";
+import { useSetThreadListView } from "../home/use-thread-list-view";
+import { useEnvironmentQuery } from "../../state/query";
+import { workflowsEnvironment } from "../../state/workflows";
+import { ControlPillMenu } from "../../components/ControlPill";
+import { uuidv4 } from "../../lib/uuid";
 import { ProjectCloneBanner } from "../../components/ProjectCloneBanner";
 import {
   describeUnavailableModelSelection,
@@ -243,6 +251,46 @@ export function NewTaskDraftScreen(props: {
   const taskPermissionReason =
     environmentConnected && !canOperate ? "This connection cannot start tasks." : null;
   const modelUnavailable = environmentConnected && flow.selectedModelOption?.isUnavailable === true;
+  // Crew mode: a chosen workflow turns the prompt into a feature brief.
+  const crewEnabled = selectedEnvironmentServerConfig?.environment.capabilities.workflows === true;
+  const workflowDefinitions = useEnvironmentQuery(
+    crewEnabled && selectedProject
+      ? workflowsEnvironment.definitions({
+          environmentId: selectedProject.environmentId,
+          input: {},
+        })
+      : null,
+  ).data;
+  // Until you pick one, the workflow is the default of the bot that owns the project.
+  const projectBots = useEnvironmentQuery(
+    crewEnabled &&
+      selectedProject &&
+      selectedEnvironmentServerConfig?.environment.capabilities.bots === true
+      ? botsEnvironment.list({ environmentId: selectedProject.environmentId, input: {} })
+      : null,
+  ).data;
+  const botDefaultWorkflowId =
+    selectedProject === null
+      ? null
+      : (projectBots?.find((bot) => bot.id === projectBotId(selectedProject))?.defaultWorkflowId ??
+        null);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<{
+    readonly projectKey: string;
+    /** Null when you chose No workflow. */
+    readonly workflowId: string | null;
+  } | null>(null);
+  const workflowId =
+    selectedWorkflow !== null && selectedWorkflow.projectKey === selectedProjectKey
+      ? selectedWorkflow.workflowId
+      : botDefaultWorkflowId;
+  const workflow =
+    workflowId === null
+      ? null
+      : (workflowDefinitions?.find((definition) => definition.id === workflowId) ?? null);
+  const activeBotViewKey = useActiveBot().viewKey;
+  const setThreadListView = useSetThreadListView();
+  const createFeature = useAtomCommand(featuresEnvironment.create);
+  const startFeature = useAtomCommand(featuresEnvironment.start);
   // A project added by cloning exists before its files do: the prompt can be
   // written meanwhile, but Start waits for the clone.
   const projectCloneState = useProjectClone(
@@ -1231,6 +1279,55 @@ export function NewTaskDraftScreen(props: {
     [composerMenu, flow, selectedEnvironmentServerConfig],
   );
 
+  /** Starts a feature with the prompt as its brief, then opens its first stage thread. */
+  async function startWorkflowFeature(
+    project: NonNullable<typeof flow.selectedProject>,
+    workflowId: string,
+    brief: string,
+    draftKey: NonNullable<typeof flow.draftKey>,
+  ): Promise<void> {
+    flow.setSubmitting(true);
+    try {
+      const featureId = `feature-${uuidv4()}`;
+      const firstLine = brief.split("\n", 1)[0]!.trim();
+      const created = await createFeature({
+        environmentId: project.environmentId,
+        input: {
+          id: featureId,
+          projectId: project.id,
+          title: firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine,
+          brief,
+          workflowId,
+          autoTitle: true,
+        },
+      });
+      if (created._tag !== "Success") return;
+      // A feature that fails to start waits on the board, whose row offers Start.
+      const started = await startFeature({
+        environmentId: project.environmentId,
+        input: { projectId: project.id, featureId },
+      });
+      clearComposerDraftContent(draftKey, {
+        clearModelSelection: true,
+        clearWorkspaceSelection: true,
+      });
+      const snapshot = started._tag === "Success" ? started.value : null;
+      const threadId =
+        snapshot?.steps.find((step) => step.id === snapshot.activeStepId)?.threadId ?? null;
+      if (threadId === null) void setThreadListView(activeBotViewKey, "board");
+      setSubmitNavigationAction(
+        threadId === null
+          ? CommonActions.goBack()
+          : StackActions.replace("Thread", {
+              environmentId: String(project.environmentId),
+              threadId: String(threadId),
+            }),
+      );
+    } finally {
+      flow.setSubmitting(false);
+    }
+  }
+
   async function handleStart(): Promise<void> {
     if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
     const selectedProject = flow.selectedProject;
@@ -1257,6 +1354,18 @@ export function NewTaskDraftScreen(props: {
     const workspaceMode = draft.workspaceSelection?.mode ?? flow.workspaceMode;
     const selectedBranchName = draft.workspaceSelection?.branch ?? flow.selectedBranchName;
     const initialMessageText = draft.text.trim();
+    if (workflow !== null) {
+      if (initialMessageText.length === 0 || flow.submitting) return;
+      if (draft.attachments.length > 0) {
+        Alert.alert(
+          "Remove attachments",
+          "A feature starts from the text of its brief. Remove the attachments, or choose No workflow.",
+        );
+        return;
+      }
+      await startWorkflowFeature(selectedProject, workflow.id, initialMessageText, draftKey);
+      return;
+    }
 
     if (
       attachmentBlockReason !== null ||
@@ -1416,17 +1525,22 @@ export function NewTaskDraftScreen(props: {
     !isImportingContext &&
     !cloneBlocksStart &&
     taskPermissionReason === null &&
-    attachmentBlockReason === null &&
-    !modelUnavailable &&
+    // A workflow brings its own crew models and workspace, so only the brief matters.
+    (workflow !== null ||
+      (attachmentBlockReason === null &&
+        !modelUnavailable &&
+        Boolean(flow.selectedModel) &&
+        !(flow.workspaceMode === "worktree" && !flow.selectedBranchName))) &&
     Boolean(flow.selectedProject) &&
-    Boolean(flow.selectedModel) &&
-    (flow.prompt.trim().length > 0 || flow.attachments.length > 0) &&
+    // A workflow brief must be text; a plain task can start from attachments alone.
+    (workflow !== null
+      ? flow.prompt.trim().length > 0
+      : flow.prompt.trim().length > 0 || flow.attachments.length > 0) &&
     isIncomingShareReady &&
     !isImportingShare &&
     !flow.submitting &&
     pendingPastedTextAttachmentCount === 0 &&
-    !voiceInput.blocksSubmission &&
-    !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+    !voiceInput.blocksSubmission;
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     // A draft attachment lives only in the draft. Without its key the screen would fall through
     // to a remote lookup for bytes the server has never seen.
@@ -1776,7 +1890,7 @@ export function NewTaskDraftScreen(props: {
               ) : (
                 <>
                   <ComposerAttachmentButton
-                    disabled={isComposerInteractionLocked}
+                    disabled={isComposerInteractionLocked || workflow !== null}
                     supportsFiles={Boolean(
                       selectedEnvironmentServerConfig?.environment.capabilities.fileAttachments,
                     )}
@@ -1784,24 +1898,67 @@ export function NewTaskDraftScreen(props: {
                     onPickFiles={handlePickFiles}
                   />
                   <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
-                    <View className="min-w-0 shrink">
+                    {crewEnabled && (workflowDefinitions?.length ?? 0) > 0 ? (
+                      <ControlPillMenu
+                        accessibilityLabel="Workflow"
+                        actions={[
+                          { id: "", title: "No workflow", state: workflow === null ? "on" : "off" },
+                          ...(workflowDefinitions ?? []).map((definition) => ({
+                            id: definition.id,
+                            title: definition.name,
+                            state:
+                              workflow?.id === definition.id ? ("on" as const) : ("off" as const),
+                          })),
+                        ]}
+                        onPressAction={({ nativeEvent }) =>
+                          setSelectedWorkflow(
+                            selectedProjectKey === null
+                              ? null
+                              : {
+                                  projectKey: selectedProjectKey,
+                                  workflowId: nativeEvent.event === "" ? null : nativeEvent.event,
+                                },
+                          )
+                        }
+                      >
+                        <ComposerInlineControl
+                          accessibilityLabel="Workflow"
+                          disabled={isComposerInteractionLocked}
+                          emphasized={workflow !== null}
+                          icon="square.3.layers.3d"
+                          label={workflow?.name ?? "No workflow"}
+                          maxWidth={140}
+                        />
+                      </ControlPillMenu>
+                    ) : null}
+                    {workflow !== null ? (
                       <ComposerInlineControl
-                        accessibilityLabel="Model and reasoning settings"
-                        disabled={isComposerInteractionLocked}
+                        accessibilityLabel="The crew picks each stage's model"
                         emphasized
-                        renderIcon={(size) => (
-                          <ProviderIcon
-                            iconUrl={flow.selectedModelOption?.providerIconUrl}
-                            provider={flow.selectedModelOption?.providerDriver}
-                            size={size}
-                          />
-                        )}
-                        label={flow.selectedModelOption?.label ?? "Choose model"}
-                        maxWidth="100%"
-                        onPress={settingsSheetPresentation.open}
+                        label="Crew defaults"
+                        showChevron={false}
+                        static
                       />
-                    </View>
-                    {flow.planModeEnabled ? (
+                    ) : (
+                      <View className="min-w-0 shrink">
+                        <ComposerInlineControl
+                          accessibilityLabel="Model and reasoning settings"
+                          disabled={isComposerInteractionLocked}
+                          emphasized
+                          renderIcon={(size) => (
+                            <ProviderIcon
+                              iconUrl={flow.selectedModelOption?.providerIconUrl}
+                              provider={flow.selectedModelOption?.providerDriver}
+                              size={size}
+                            />
+                          )}
+                          label={flow.selectedModelOption?.label ?? "Choose model"}
+                          maxWidth="100%"
+                          onPress={settingsSheetPresentation.open}
+                        />
+                      </View>
+                    )}
+                    {flow.planModeEnabled && workflow === null ? (
                       <ComposerInlineControl
                         accessibilityHint={`Switches to ${flow.interactionMode === "plan" ? "Build" : "Plan"} mode`}
                         accessibilityLabel={`Interaction mode: ${flow.interactionMode === "plan" ? "Plan" : "Build"}`}

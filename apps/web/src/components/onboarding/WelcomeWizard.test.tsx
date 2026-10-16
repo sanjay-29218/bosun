@@ -19,6 +19,7 @@ vi.mock("../../state/session", () => ({
   readEnvironmentScope: () => true,
 }));
 vi.mock("../../state/agentSessions", () => ({ agentSessionImport: "import" }));
+vi.mock("../../state/botRail", () => ({ activeBotInput: () => ({}) }));
 vi.mock("../../state/projects", () => ({ projectEnvironment: { create: "create" } }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: (command: string) =>

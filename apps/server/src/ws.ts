@@ -100,6 +100,7 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  T3WsRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -112,6 +113,15 @@ import {
 import { RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
+import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
+import * as BotService from "./bots/BotService.ts";
+import { CrewService } from "./crew/CrewService.ts";
+import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
+import { FeatureService } from "./features/FeatureService.ts";
+import * as IssueService from "./issues/IssueService.ts";
+import { WorkflowLibrary } from "./workflows/WorkflowLibrary.ts";
+import { WorkflowService } from "./workflows/WorkflowService.ts";
+import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -549,6 +559,8 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+// Bosun's RPCs are served by `layerBosunWsRpc`; these handlers cover the rest.
+const ServerT3WsRpcGroup = T3WsRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1204,7 +1216,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerT3WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1832,7 +1844,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerT3WsRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2589,6 +2601,7 @@ const layerWsRpc = (
                   title: project.title,
                   workspaceRoot: project.workspaceRoot,
                   createWorkspaceRootIfMissing: true,
+                  ...(project.botId === undefined ? {} : { botId: project.botId }),
                 })
                 .pipe(
                   Effect.asVoid,
@@ -3165,6 +3178,16 @@ export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
+    const crewServices = {
+      bots: yield* BotService.BotService,
+      crew: yield* CrewService,
+      crewHandoffs: yield* CrewHandoffService,
+      features: yield* FeatureService,
+      issues: yield* IssueService.IssueService,
+      workflows: yield* WorkflowService,
+      workflowLibrary: yield* WorkflowLibrary,
+      workflowExecution: yield* WorkflowExecutionService,
+    };
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -3223,6 +3246,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.merge(layerBosunWsRpc(crewServices, session.sessionId)),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.

@@ -34,6 +34,13 @@ function recordEffect(action: string) {
   state.completed.resolve();
 }
 
+vi.mock("../components/features/featureThreadActions", () => ({
+  featureLifecycleFor: () => null,
+  readFeatureMenuState: async () => null,
+  runFeatureIssueAction: vi.fn(),
+  runFeatureLifecycleAction: vi.fn(),
+  runFeatureThreadAction: vi.fn(),
+}));
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
@@ -158,6 +165,17 @@ const createMenu = () =>
     onStartRename: () => recordEffect("rename"),
   });
 
+// The menu reads feature state before it shows, so wait for the native menu call.
+async function openShownItems(menu: ReturnType<typeof createMenu>) {
+  const shown = deferred<ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>>();
+  state.show.mockImplementationOnce(async (items) => {
+    shown.resolve(items);
+    return null;
+  });
+  menu.openMenu(position);
+  return shown.promise;
+}
+
 beforeEach(() => {
   state.granted = new Set(["primary"]);
   state.effects = [];
@@ -166,31 +184,26 @@ beforeEach(() => {
 });
 
 describe("thread menu permissions", () => {
-  it("disables mutations for a denied secondary environment", () => {
-    createMenu().openMenu(position);
-    const items = state.show.mock.calls[0]![0];
+  it("disables mutations for a denied secondary environment", async () => {
+    const items = await openShownItems(createMenu());
     expect(items.find((item) => item.id === "rename")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "delete")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "copy")?.disabled).not.toBe(true);
   });
 
-  it("allows the target grant even when the primary environment is denied", () => {
+  it("allows the target grant even when the primary environment is denied", async () => {
     state.granted = new Set(["secondary"]);
-    createMenu().openMenu(position);
-    expect(state.show.mock.calls[0]![0].find((item) => item.id === "rename")?.disabled).not.toBe(
-      true,
-    );
+    const items = await openShownItems(createMenu());
+    expect(items.find((item) => item.id === "rename")?.disabled).not.toBe(true);
   });
 
-  it("refreshes availability when a retained menu opener gains permission", () => {
+  it("refreshes availability when a retained menu opener gains permission", async () => {
     const menu = createMenu();
-    menu.openMenu(position);
-    expect(state.show.mock.calls[0]![0].find((item) => item.id === "rename")?.disabled).toBe(true);
+    const denied = await openShownItems(menu);
+    expect(denied.find((item) => item.id === "rename")?.disabled).toBe(true);
     state.granted.add("secondary");
-    menu.openMenu(position);
-    expect(state.show.mock.calls[1]![0].find((item) => item.id === "rename")?.disabled).not.toBe(
-      true,
-    );
+    const granted = await openShownItems(menu);
+    expect(granted.find((item) => item.id === "rename")?.disabled).not.toBe(true);
   });
 
   it.each(["rename", "regenerate-title", "delete", "pin", "settle", "archive"] as const)(

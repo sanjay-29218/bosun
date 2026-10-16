@@ -293,6 +293,20 @@ export const LoadBalancingWeights = Schema.Record(
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
 );
 
+const CrewThreadLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 }));
+const CrewStageRetries = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 10 }));
+/** Per provider instance cap on running stage threads. A missing instance has no cap. */
+const CrewProviderLimits = Schema.Record(ProviderInstanceId, CrewThreadLimit);
+
+/** Environment-wide Crew mode limits. Threads a person starts are never counted. */
+export const CrewSettings = Schema.Struct({
+  maxRunningStageThreads: CrewThreadLimit.pipe(Schema.withDecodingDefault(Effect.succeed(4))),
+  providerLimits: CrewProviderLimits.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /** Automatic retries before a stage fails, unless its workflow sets its own. */
+  stageRetries: CrewStageRetries.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
+});
+export type CrewSettings = typeof CrewSettings.Type;
+
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
 /** Maximum width of the chat timeline and composer on wide screens. */
@@ -1347,6 +1361,7 @@ export const ServerSettings = Schema.Struct({
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  crew: CrewSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1646,6 +1661,14 @@ export const ServerSettingsPatch = Schema.Struct({
   /** Each entry replaces one model's mapping; `null` removes it. */
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
+  ),
+  /** `providerLimits` replaces the whole map, so an omitted instance loses its cap. */
+  crew: Schema.optionalKey(
+    Schema.Struct({
+      maxRunningStageThreads: Schema.optionalKey(CrewThreadLimit),
+      providerLimits: Schema.optionalKey(CrewProviderLimits),
+      stageRetries: Schema.optionalKey(CrewStageRetries),
+    }),
   ),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;

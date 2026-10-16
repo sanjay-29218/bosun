@@ -59,6 +59,10 @@ export function useActiveEnvironmentId(): EnvironmentId | null {
   return useAtomValue(activeEnvironmentIdAtom);
 }
 
+export function readActiveEnvironmentId(): EnvironmentId | null {
+  return appAtomRegistry.get(activeEnvironmentIdAtom);
+}
+
 export function setActiveEnvironmentId(environmentId: EnvironmentId | null): void {
   appAtomRegistry.set(activeEnvironmentIdAtom, environmentId);
 }

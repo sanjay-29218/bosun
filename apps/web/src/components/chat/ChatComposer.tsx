@@ -286,6 +286,7 @@ import {
   ComposerControlIcon,
   ComposerControlSeparator,
   ComposerSelectControl,
+  type ComposerControlSize,
 } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -1547,6 +1548,12 @@ export interface ChatComposerProps {
   activeThread: Thread | undefined;
   /** The routed server thread's shell, present before its detail loads. */
   activeThreadShell: ThreadShell | null;
+  /** A stage thread's gate, failure or take-over banner; shown when no request blocks it. */
+  crewBanner?: ReactNode;
+  /** A new thread's Workflow picker, before the model picker. */
+  renderWorkflowPicker?: ((size: ComposerControlSize) => ReactNode) | undefined;
+  /** While a workflow is picked, the crew stands in for the model and mode controls. */
+  renderCrewControl?: ((size: ComposerControlSize) => ReactNode) | null | undefined;
   /** Timeline messages including optimistic sends, for ArrowUp prompt recall. */
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   isServerThread: boolean;
@@ -5572,144 +5579,153 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           data-resting-controls-separator="true"
         />
       ) : null}
-      <ProviderModelPicker
-        environmentId={environmentId}
-        compact={false}
-        isComposerOwned
-        disabled={providerCatalogPending || isSendBusy}
-        {...(routeKind === "draft" && supportsMultipleModels
-          ? {
-              ...(multipleModelSelections !== null
-                ? { selectedModels: multipleModelSelections }
-                : {}),
-              onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
-                const current = multipleModelSelections ?? [selectedModelSelection];
-                const matchesModel = (selection: ModelSelection) => {
-                  if (selection.instanceId !== instanceId) return false;
-                  const entry = providerInstanceEntries.find(
-                    (entry) => entry.instanceId === selection.instanceId,
-                  );
-                  const resolvedModel = resolveModelPickerSelectedModel({
-                    driverKind: entry?.driverKind,
-                    model: selection.model,
-                    options: modelOptionsByInstance.get(selection.instanceId) ?? [],
-                  });
-                  return (resolvedModel?.slug ?? selection.model) === model;
-                };
-                const exists = current.some(matchesModel);
-                const next = exists
-                  ? current.filter((selection) => !matchesModel(selection))
-                  : [...current, createModelSelection(instanceId, model)];
-                if (next.length > 1) {
-                  setMultipleModelSelections(next);
-                } else {
-                  setMultipleModelSelections(null);
-                  const remaining = next[0] ?? selectedModelSelection;
-                  onProviderModelSelect(remaining.instanceId, remaining.model, {
-                    focusComposer: false,
-                  });
+      {props.renderWorkflowPicker?.(composerControlsCollapsed ? "xs" : "sm")}
+      {props.renderCrewControl ? (
+        props.renderCrewControl(composerControlsCollapsed ? "xs" : "sm")
+      ) : (
+        <>
+          <ProviderModelPicker
+            environmentId={environmentId}
+            compact={false}
+            isComposerOwned
+            disabled={providerCatalogPending || isSendBusy}
+            {...(routeKind === "draft" && supportsMultipleModels
+              ? {
+                  ...(multipleModelSelections !== null
+                    ? { selectedModels: multipleModelSelections }
+                    : {}),
+                  onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
+                    const current = multipleModelSelections ?? [selectedModelSelection];
+                    const matchesModel = (selection: ModelSelection) => {
+                      if (selection.instanceId !== instanceId) return false;
+                      const entry = providerInstanceEntries.find(
+                        (entry) => entry.instanceId === selection.instanceId,
+                      );
+                      const resolvedModel = resolveModelPickerSelectedModel({
+                        driverKind: entry?.driverKind,
+                        model: selection.model,
+                        options: modelOptionsByInstance.get(selection.instanceId) ?? [],
+                      });
+                      return (resolvedModel?.slug ?? selection.model) === model;
+                    };
+                    const exists = current.some(matchesModel);
+                    const next = exists
+                      ? current.filter((selection) => !matchesModel(selection))
+                      : [...current, createModelSelection(instanceId, model)];
+                    if (next.length > 1) {
+                      setMultipleModelSelections(next);
+                    } else {
+                      setMultipleModelSelections(null);
+                      const remaining = next[0] ?? selectedModelSelection;
+                      onProviderModelSelect(remaining.instanceId, remaining.model, {
+                        focusComposer: false,
+                      });
+                    }
+                  },
                 }
-              },
+              : {})}
+            activeInstanceId={
+              providerCatalogPending
+                ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
+                : selectedInstanceId
             }
-          : {})}
-        activeInstanceId={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
-            : selectedInstanceId
-        }
-        model={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
-            : selectedModelForPickerWithCustomFallback
-        }
-        lockedProvider={lockedProvider}
-        lockedContinuationGroupKey={lockedContinuationGroupKey}
-        instanceEntries={providerInstanceEntries}
-        keybindings={keybindings}
-        modelOptionsByInstance={modelOptionsByInstance}
-        size={composerControlsCollapsed ? "xs" : "sm"}
-        triggerClassName={
-          composerControlsCollapsed
-            ? cn(
-                "min-w-13 shrink text-xs!",
-                !showInlineRestingControls &&
-                  "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
-              )
-            : "-ms-2.5 min-w-13"
-        }
-        terminalOpen={terminalOpen}
-        open={isComposerModelPickerOpen}
-        instanceIndicatorBackground={
-          composerControlsCollapsed
-            ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
-            : "var(--contrast-input)"
-        }
-        {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
-          ? {
-              activeProviderIconClassName: cn(
-                composerProviderState.modelPickerIconClassName,
-                composerControlsCollapsed &&
-                  // Package glyphs get opaque fills and one opacity, so overlapping paths don't band.
-                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
-              ),
+            model={
+              providerCatalogPending
+                ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
+                : selectedModelForPickerWithCustomFallback
             }
-          : {})}
-        onOpenChange={setIsComposerModelPickerOpen}
-        getModelDisabledReason={getModelDisabledReason}
-        onInstanceModelChange={(instanceId, model) => {
-          setMultipleModelSelections(null);
-          onProviderModelSelect(instanceId, model);
-        }}
-        onOpenProviderSetup={onOpenProviderSetup}
-      />
+            lockedProvider={lockedProvider}
+            lockedContinuationGroupKey={lockedContinuationGroupKey}
+            instanceEntries={providerInstanceEntries}
+            keybindings={keybindings}
+            modelOptionsByInstance={modelOptionsByInstance}
+            size={composerControlsCollapsed ? "xs" : "sm"}
+            triggerClassName={
+              composerControlsCollapsed
+                ? cn(
+                    "min-w-13 shrink text-xs!",
+                    !showInlineRestingControls &&
+                      "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
+                  )
+                : "-ms-2.5 min-w-13"
+            }
+            terminalOpen={terminalOpen}
+            open={isComposerModelPickerOpen}
+            instanceIndicatorBackground={
+              composerControlsCollapsed
+                ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
+                : "var(--contrast-input)"
+            }
+            {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
+              ? {
+                  activeProviderIconClassName: cn(
+                    composerProviderState.modelPickerIconClassName,
+                    composerControlsCollapsed &&
+                      // Package glyphs get opaque fills and one opacity, so overlapping paths don't band.
+                      "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
+                  ),
+                }
+              : {})}
+            onOpenChange={setIsComposerModelPickerOpen}
+            getModelDisabledReason={getModelDisabledReason}
+            onInstanceModelChange={(instanceId, model) => {
+              setMultipleModelSelections(null);
+              onProviderModelSelect(instanceId, model);
+            }}
+            onOpenProviderSetup={onOpenProviderSetup}
+          />
 
-      <>
-        {restingBlockDefs.map((def, index) => {
-          const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
-          return (
+          <>
+            {restingBlockDefs.map((def, index) => {
+              const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
+              return (
+                <div
+                  key={def.id}
+                  data-resting-block={def.id}
+                  data-composer-block-icon-only={
+                    index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
+                  }
+                  aria-hidden={hidden || undefined}
+                  inert={hidden || undefined}
+                  className={cn(
+                    "flex w-max min-w-max shrink-0 items-center gap-1",
+                    hidden && "pointer-events-none invisible absolute",
+                    index >= restingBlockDefs.length - iconOnlyBlockCount &&
+                      "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
+                  )}
+                >
+                  {def.content}
+                </div>
+              );
+            })}
             <div
-              key={def.id}
-              data-resting-block={def.id}
-              data-composer-block-icon-only={
-                index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
-              }
-              aria-hidden={hidden || undefined}
-              inert={hidden || undefined}
+              data-resting-controls-overflow
+              aria-hidden={hiddenRestingBlockIds.length === 0 || undefined}
+              inert={hiddenRestingBlockIds.length === 0 || undefined}
               className={cn(
-                "flex w-max min-w-max shrink-0 items-center gap-1",
-                hidden && "pointer-events-none invisible absolute",
-                index >= restingBlockDefs.length - iconOnlyBlockCount &&
-                  "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
+                "min-w-0 shrink-0",
+                hiddenRestingBlockIds.length === 0 && "pointer-events-none invisible absolute",
               )}
             >
-              {def.content}
+              <CompactComposerControlsMenu
+                interactionMode={interactionMode}
+                runtimeMode={compatibleRuntimeMode}
+                runtimeModeOptions={compatibleRuntimeModeOptions}
+                size={composerControlsCollapsed ? "xs" : "sm"}
+                hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
+                showInteractionModeToggle={
+                  planModeUiEnabled && hiddenRestingBlockIds.includes("mode")
+                }
+                traitsMenuContent={
+                  hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
+                }
+                onToggleInteractionMode={toggleInteractionMode}
+                onRuntimeModeChange={handleRuntimeModeChange}
+              />
             </div>
-          );
-        })}
-        <div
-          data-resting-controls-overflow
-          aria-hidden={hiddenRestingBlockIds.length === 0 || undefined}
-          inert={hiddenRestingBlockIds.length === 0 || undefined}
-          className={cn(
-            "min-w-0 shrink-0",
-            hiddenRestingBlockIds.length === 0 && "pointer-events-none invisible absolute",
-          )}
-        >
-          <CompactComposerControlsMenu
-            interactionMode={interactionMode}
-            runtimeMode={compatibleRuntimeMode}
-            runtimeModeOptions={compatibleRuntimeModeOptions}
-            size={composerControlsCollapsed ? "xs" : "sm"}
-            hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
-            onToggleInteractionMode={toggleInteractionMode}
-            onRuntimeModeChange={handleRuntimeModeChange}
-          />
-        </div>
-      </>
+          </>
+        </>
+      )}
     </>
   );
   const showTasksTab =
@@ -6866,6 +6882,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
+          {hasBlockingComposerTopDrawer ? null : props.crewBanner}
           {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root

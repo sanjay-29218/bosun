@@ -158,8 +158,14 @@ function bindProviderContext(
     return provider;
   }
 
+  const listIssues = provider.listIssues;
   return SourceControlProvider.SourceControlProvider.of({
     ...provider,
+    ...(listIssues === undefined
+      ? {}
+      : {
+          listIssues: (input) => listIssues({ ...input, context: input.context ?? context }),
+        }),
     listChangeRequests: (input) =>
       provider.listChangeRequests({
         ...input,
