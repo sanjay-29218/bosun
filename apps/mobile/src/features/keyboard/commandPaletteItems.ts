@@ -1,13 +1,15 @@
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+
 export interface CommandPaletteItem {
   readonly key: string;
   readonly kind: "action" | "project" | "thread";
+  readonly project?: EnvironmentProject;
   readonly title: string;
   readonly detail?: string;
   readonly searchTerms: ReadonlyArray<string>;
   readonly run: () => void;
 }
 
-/** `>` narrows to actions, matching the desktop palette. Stable ties retain recent-thread order. */
 export function filterCommandPaletteItems(
   items: ReadonlyArray<CommandPaletteItem>,
   query: string,

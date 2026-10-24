@@ -1,6 +1,5 @@
 import { createContext, type ReactNode } from "react";
 
-// The router is shared with the other platforms; only iOS uses native columns.
 export const NativeWorkspaceModeContext = createContext(false);
 /** Retained tabs must not update another tab's navigation options. */
 export const NativeWorkspaceTabActivityContext = createContext<{
@@ -8,6 +7,7 @@ export const NativeWorkspaceTabActivityContext = createContext<{
   readonly isActive: () => boolean;
 } | null>(null);
 export const NativePrimaryColumnContext = createContext<{
+  readonly presented: boolean;
   readonly selectedThreadKey: string | null;
   readonly selectedPullRequestKey: string | null;
 } | null>(null);

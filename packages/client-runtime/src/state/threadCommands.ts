@@ -18,7 +18,6 @@ import {
   createEnvironmentRpcCommand,
 } from "./runtime.ts";
 import {
-  type ThreadCommandInput,
   type ArchiveThreadInput,
   type CancelQueuedRunInput,
   type RetryWorkspacePreparationInput,
@@ -31,6 +30,7 @@ import {
   type MergeThreadBackInput,
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
+  type ResumeThreadQueueInput,
   type LinkThreadPullRequestInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
@@ -116,6 +116,7 @@ export type {
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   DismissThreadUserInputInput,
+  RetryWorkspacePreparationInput,
   RevertThreadCheckpointInput,
   SetThreadInteractionModeInput,
   SetThreadRuntimeModeInput,
@@ -148,6 +149,45 @@ export function createThreadEnvironmentAtoms<R, E>(
     key: ({ environmentId, input }: { environmentId: string; input: { threadId: string } }) =>
       JSON.stringify([environmentId, input.threadId]),
   };
+  const loadEarlierHistory = Effect.fn("ThreadCommands.loadEarlierHistory")(function* (
+    input: LoadEarlierThreadHistoryInput,
+  ) {
+    const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+    const controller = yield* Effect.serviceOption(ThreadHistoryController.ThreadHistoryController);
+    if (Option.isNone(controller)) {
+      return {
+        _tag: "noop",
+      } satisfies ThreadHistoryController.ThreadHistoryLoadEarlierResult;
+    }
+    return yield* controller.value.loadEarlier(
+      supervisor.target.environmentId,
+      input.threadId,
+      input.throughEntryId,
+    );
+  });
+
+  // Runs whether or not the server accepted the interrupt, so a stale cached item still
+  // settles when Stop had nothing to interrupt; the interrupt's own failure still surfaces.
+  // The repair is detached: its lookups must not hold the thread's serial command key, and
+  // closing the thread cancels the repair, not the Stop that triggered it.
+  const interruptTurn = Effect.fn("ThreadCommands.interruptTurn")(function* (
+    input: InterruptThreadTurnInput,
+  ) {
+    const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+    const controller = yield* Effect.serviceOption(ThreadHistoryController.ThreadHistoryController);
+    return yield* interruptThreadTurn(input).pipe(
+      Effect.ensuring(
+        Option.match(controller, {
+          onNone: () => Effect.void,
+          onSome: (value) =>
+            value
+              .reconcilePendingWork(supervisor.target.environmentId, input.threadId)
+              .pipe(Effect.forkDetach, Effect.asVoid),
+        }),
+      ),
+    );
+  });
+
   const commands = {
     create: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:create",
@@ -283,7 +323,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     }),
     interruptTurn: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:interrupt-turn",
-      execute: (input: InterruptThreadTurnInput) => interruptThreadTurn(input),
+      execute: interruptTurn,
       scheduler,
       concurrency,
     }),
@@ -338,7 +378,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     }),
     resumeThreadQueue: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:resume-queue",
-      execute: (input: ThreadCommandInput) => resumeThreadQueue(input),
+      execute: (input: ResumeThreadQueueInput) => resumeThreadQueue(input),
       scheduler,
       concurrency,
     }),
@@ -374,23 +414,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     }),
     loadEarlierHistory: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:load-earlier-history",
-      execute: (input: LoadEarlierThreadHistoryInput) =>
-        Effect.gen(function* () {
-          const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-          const controller = yield* Effect.serviceOption(
-            ThreadHistoryController.ThreadHistoryController,
-          );
-          if (Option.isNone(controller)) {
-            return {
-              _tag: "noop",
-            } satisfies ThreadHistoryController.ThreadHistoryLoadEarlierResult;
-          }
-          return yield* controller.value.loadEarlier(
-            supervisor.target.environmentId,
-            input.threadId,
-            input.throughEntryId,
-          );
-        }),
+      execute: loadEarlierHistory,
       scheduler,
       concurrency: {
         mode: "serial",
@@ -442,11 +466,7 @@ export function createThreadEnvironmentAtoms<R, E>(
             ...thread,
             pendingRuntimeRequest: null,
             snoozedUntil: DateTime.makeUnsafe(input.snoozedUntil),
-            snoozedAt:
-              thread.snoozedUntil != null &&
-              DateTime.formatIso(thread.snoozedUntil) === input.snoozedUntil
-                ? (thread.snoozedAt ?? now)
-                : now,
+            snoozedAt: now,
           },
     ),
     unsnooze: optimistic.wrap(commands.unsnooze, (thread) => ({
