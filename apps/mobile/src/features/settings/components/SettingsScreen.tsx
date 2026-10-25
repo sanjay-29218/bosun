@@ -1,4 +1,4 @@
-import { useNavigation, useNavigationState, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import type { ReactNode } from "react";
 import { Platform, View } from "react-native";
 
@@ -8,7 +8,6 @@ import { ScreenContent as SettingsScreenContent } from "../../../components/ui/S
 import { useWorkspaceTabs } from "../../workspace/WorkspaceTabsContext";
 import { useWorkspaceSurface } from "../../workspace/useWorkspaceSurface";
 import { useDeviceType } from "../../../native/native-layout-metrics";
-import { NativeStackScreenOptions } from "../../../native/StackHeader";
 import { useCompactWorkspaceTabs } from "../../workspace/useSystemWorkspaceTabBar";
 import { ScreenScrollViewBottomInset } from "../../../components/ui/ScreenScrollView";
 
@@ -23,7 +22,6 @@ export function SettingsScreen(
 ) {
   const navigation = useNavigation();
   const route = useRoute();
-  const index = useNavigationState((state) => state.index);
   const workspace = useWorkspaceTabs();
   const surface = useWorkspaceSurface();
   const deviceType = useDeviceType();
@@ -32,7 +30,7 @@ export function SettingsScreen(
   // Android opens Settings as a workspace tab; its root page has nothing to go back to.
   const workspaceRoot =
     props.workspaceRoot ||
-    (Platform.OS === "android" && workspace !== null && index === 0 && route.name === "Settings");
+    (Platform.OS === "android" && workspace !== null && route.name === "Settings");
 
   return (
     <View
@@ -47,15 +45,6 @@ export function SettingsScreen(
         onBack={workspaceRoot ? undefined : () => navigation.goBack()}
         hideBottomBorder={!props.formSheet}
       />
-      {Platform.OS === "ios" && (workspaceRoot || cover) ? (
-        <NativeStackScreenOptions
-          options={{
-            headerTransparent: false,
-            headerStyle: { backgroundColor: surface.backgroundColor },
-            contentStyle: { backgroundColor: surface.backgroundColor },
-          }}
-        />
-      ) : null}
       <ScreenScrollViewBottomInset value={deviceType === "pad" || compactTabs ? 80 : 0}>
         {props.formSheet ? (
           props.children

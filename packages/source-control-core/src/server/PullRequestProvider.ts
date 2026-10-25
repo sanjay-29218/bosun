@@ -176,6 +176,11 @@ export interface ProviderBatchedChangeRequest extends ProviderChangeRequest {
 export interface ProviderBatchedChangeRequestPage {
   readonly items: ReadonlyArray<ProviderBatchedChangeRequest>;
   readonly truncated: boolean;
+  /**
+   * Repositories asked about that the page cannot vouch for: its silence about them may be an
+   * omission rather than an empty answer, so the caller reads each on its own.
+   */
+  readonly unresolved?: ReadonlyArray<string>;
 }
 
 export interface ProviderChangeRequestStat {
@@ -287,6 +292,14 @@ export interface PullRequestProviderApi {
   >;
   readonly kind: SourceControlProviderKind;
   readonly capabilities: PullRequestCapabilities;
+  /**
+   * What a reader is told when this host cannot be read on the server: `missing` for no tool or
+   * credential, `unauthenticated` for one the host refused. Absent means a generic sentence.
+   */
+  readonly unavailableRequirement?: {
+    readonly missing: string;
+    readonly unauthenticated: string;
+  };
   readonly mergeMessageRewrite?: (message: string) => string;
   /**
    * Absent means `owner/name` on the host identifies it, and any checkout on the host can serve a
@@ -296,6 +309,11 @@ export interface PullRequestProviderApi {
    * organization from the checkout, so only a checkout whose key matches the reference serves it.
    */
   readonly repositoryKey?: (input: { readonly canonicalKey: string }) => string;
+  /**
+   * Names the repository in every request and authenticates by host, so a change request on the
+   * definition's `publicHost` can be read from a project with no checkout of its repository.
+   */
+  readonly readsPublicHostWithoutCheckout?: boolean;
 
   readonly getViewer: (input: {
     readonly cwd: string;

@@ -1,6 +1,7 @@
 import { WorkspaceNoTabs } from "./WorkspaceNoTabs";
 import { WORKSPACE_TAB_LABELS, useEnabledNavigationTabs } from "./navigation-tabs";
 import { WorkspaceExtraTab } from "./WorkspaceExtraTab";
+import { SettingsRouteScreen } from "../settings/SettingsRouteScreen";
 import { WorkspaceSectionToolbar } from "./WorkspaceSectionToolbar";
 import { useNavigation } from "@react-navigation/native";
 import { use, useCallback, useMemo } from "react";
@@ -44,6 +45,8 @@ import {
   useSidebarWorkspaceTabs,
   useSystemWorkspaceTabBar,
 } from "./useSystemWorkspaceTabBar";
+import { openSettings } from "../settings/settings-navigation";
+import { useSelectWorkspaceTab } from "./useSelectWorkspaceTab";
 
 const TAB_TITLES = WORKSPACE_TAB_LABELS;
 
@@ -70,6 +73,7 @@ function WorkspaceRootTitle(props: {
 
 function WorkspaceRootContent() {
   const navigation = useNavigation();
+  const selectTab = useSelectWorkspaceTab();
   const { width: windowWidth } = useWindowDimensions();
   const { layout, startNewTask } = useAdaptiveWorkspaceLayout();
   const primaryColumn = use(NativePrimaryColumnContext);
@@ -93,22 +97,18 @@ function WorkspaceRootContent() {
   const keyboardHeight = useKeyboardState((keyboard) => keyboard.height);
   const workspace = useWorkspaceTabs()!;
   const { state } = workspace;
-  const solidHeader = deviceType === "duo-folded" || state.selectedTab === "usage";
   const renderHeaderTitle = useCallback(
     () => (
       <WorkspaceRootTitle
         maxWidth={Math.max(0, width - 160)}
-        onOpenEnvironments={() =>
-          navigation.navigate("SettingsSheet", {
-            screen: "SettingsContent",
-            params: { screen: "SettingsEnvironments" },
-          })
-        }
+        onOpenEnvironments={() => openSettings(navigation, "SettingsEnvironments")}
       />
     ),
     [width, navigation],
   );
   const tab = state.tabs[state.selectedTab];
+  // Settings is a workspace tab too; its list takes the place of the selected tab's.
+  const settingsOpen = workspace.settingsOpen;
   const bottomClearance =
     layout.primarySidebarOverlaysContent && state.selectedTab === "usage"
       ? workspaceDockBottomClearance({ bottomInset: insets.bottom, keyboardHeight })
@@ -141,6 +141,7 @@ function WorkspaceRootContent() {
         {Platform.OS === "ios" ? (
           <NativeStackScreenOptions
             optionsVersion={[
+              settingsOpen,
               state.selectedTab,
               state.selectionRevision,
               width,
@@ -148,23 +149,23 @@ function WorkspaceRootContent() {
               enabled.length,
             ]}
             options={{
-              title: enabled.length ? TAB_TITLES[state.selectedTab] : "Navigation",
+              title: settingsOpen
+                ? "Settings"
+                : enabled.length
+                  ? TAB_TITLES[state.selectedTab]
+                  : "Navigation",
               headerShown: true,
-              headerTransparent: solidHeader ? false : NATIVE_LIQUID_GLASS_SUPPORTED,
-              headerStyle: solidHeader
-                ? { backgroundColor: surface.backgroundColor }
-                : NATIVE_LIQUID_GLASS_SUPPORTED
-                  ? { backgroundColor: "transparent" }
-                  : undefined,
-              contentStyle: solidHeader ? { backgroundColor: surface.backgroundColor } : undefined,
-              ...(state.selectedTab !== "usage" || enabled.length === 0
-                ? { headerRight: undefined }
-                : {}),
+              headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
+              headerStyle: NATIVE_LIQUID_GLASS_SUPPORTED
+                ? { backgroundColor: "transparent" }
+                : undefined,
+              contentStyle: undefined,
               ...(enabled.length === 0
                 ? { headerSearchBarOptions: undefined, unstable_headerRightItems: () => [] }
                 : {}),
               unstable_headerLeftItems: () => [],
-              headerTitle: state.selectedTab === "usage" ? undefined : renderHeaderTitle,
+              headerTitle:
+                settingsOpen || state.selectedTab === "usage" ? undefined : renderHeaderTitle,
             }}
           />
         ) : (
@@ -187,11 +188,7 @@ function WorkspaceRootContent() {
               {
                 accessibilityLabel: "Settings",
                 icon: "gearshape",
-                onPress: () =>
-                  navigation.navigate("SettingsSheet", {
-                    screen: "SettingsContent",
-                    params: { screen: "Settings" },
-                  }),
+                onPress: () => selectTab("settings"),
               },
             ]}
           />
@@ -201,7 +198,12 @@ function WorkspaceRootContent() {
             sidebarPicker ? { ...insets, top: 0 } : compactTabs ? { ...insets, bottom: 0 } : insets
           }
         >
-          {enabled.length === 0 ? (
+          {settingsOpen ? (
+            <>
+              <NativeStackScreenOptions options={{ headerSearchBarOptions: undefined }} />
+              <SettingsRouteScreen />
+            </>
+          ) : enabled.length === 0 ? (
             <WorkspaceNoTabs />
           ) : state.selectedTab === "threads" ? (
             <HomeRouteScreen />
@@ -214,13 +216,13 @@ function WorkspaceRootContent() {
         {deviceType !== "pad" && deviceType !== "phone" && sidebarPicker ? (
           <WorkspaceSidebarTabs />
         ) : null}
-        {enabled.length === 0 ? null : state.selectedTab === "threads" ||
-          state.selectedTab === "pullRequests" ? (
+        {enabled.length === 0 && !settingsOpen ? null : !settingsOpen &&
+          (state.selectedTab === "threads" || state.selectedTab === "pullRequests") ? (
           <WorkspaceToolbar sidebar={sidebarNavigation} onNewTask={startNewTask} />
         ) : (
           <WorkspaceSectionToolbar
             onNewTask={startNewTask}
-            showCompose={state.selectedTab !== "usage"}
+            showCompose={!settingsOpen && state.selectedTab !== "usage"}
           />
         )}
       </View>

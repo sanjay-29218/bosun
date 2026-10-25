@@ -1,9 +1,4 @@
-import {
-  canonicalRepositoryKey,
-  isSshRemoteUrl,
-  sourceControlRepositorySelector,
-} from "@t3tools/shared/sourceControl";
-import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
+import { isSshRemoteUrl } from "@t3tools/shared/sourceControl";
 import { parseDiffFilePaths } from "@t3tools/source-control-core/server/diffFileRevisions";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -23,8 +18,6 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import {
   PullRequestOperationError,
   PullRequestUnavailableError,
-  pullRequestHostOf,
-  pullRequestProviderRequirement,
   resolvePullRequestAuthorFilter,
   type OrchestrationProjectShell,
   type ProjectId,
@@ -82,13 +75,14 @@ import {
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestFilesViewed from "../persistence/PullRequestFilesViewed.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import type { SourceControlProviderContext } from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
 import {
   type ProviderChangeRequest,
@@ -149,7 +143,6 @@ const FILES_VIEWED_CACHE_TTL = Duration.seconds(15);
 const DIFF_STALE_WINDOW = Duration.minutes(10);
 const DIFF_SWEEP_INTERVAL = Duration.minutes(1);
 const VIEWER_CACHE_TTL = Duration.minutes(10);
-const SEARCH_VISIBILITY_TTL = Duration.minutes(10);
 const STALE_DETAIL_WINDOW = Duration.minutes(10);
 const isPullRequestProviderError = Schema.is(PullRequestProviderError);
 const LIST_CACHE_CAPACITY = 64;
@@ -408,36 +401,47 @@ function isProviderUnusable(error: PullRequestProviderError): boolean {
   return error.reason === "missing-tool" || error.reason === "unauthenticated";
 }
 
-function providerDetail(error: PullRequestProviderError): string {
+type UnavailableRequirementOf = (
+  kind: SourceControlProviderKind,
+) => PullRequestProviderApi["unavailableRequirement"];
+
+function unavailableRequirement(
+  requirementOf: UnavailableRequirementOf,
+  error: PullRequestProviderError,
+): string | undefined {
+  const requirement = requirementOf(error.provider);
+  if (requirement === undefined) return undefined;
+  return error.reason === "missing-tool" ? requirement.missing : requirement.unauthenticated;
+}
+
+function providerDetail(
+  requirementOf: UnavailableRequirementOf,
+  error: PullRequestProviderError,
+): string {
   if (!isProviderUnusable(error)) return error.detail;
-  return (
-    pullRequestProviderRequirement(
-      error.provider,
-      error.reason === "missing-tool" ? "cli-missing" : "cli-unauthenticated",
-    ) ?? error.detail
-  );
+  return unavailableRequirement(requirementOf, error) ?? error.detail;
 }
 
-function toUnavailableError(error: PullRequestProviderError): PullRequestUnavailableError {
-  return new PullRequestUnavailableError({
-    reason: error.reason === "missing-tool" ? "cli-missing" : "cli-unauthenticated",
-    provider: error.provider,
-    cause: error,
-  });
-}
-
-function toPullRequestError(
-  operation: string,
-): (error: PullRequestProviderError) => PullRequestError {
-  return (error) =>
-    isProviderUnusable(error)
-      ? toUnavailableError(error)
-      : new PullRequestOperationError({
-          operation,
-          detail: error.detail,
-          ...(error.reason === "not-found" ? { reason: "not-found" as const } : {}),
-          cause: error,
-        });
+function toPullRequestErrorWith(
+  requirementOf: UnavailableRequirementOf,
+): (operation: string) => (error: PullRequestProviderError) => PullRequestError {
+  return (operation) => (error) => {
+    if (isProviderUnusable(error)) {
+      const requirement = unavailableRequirement(requirementOf, error);
+      return new PullRequestUnavailableError({
+        reason: error.reason === "missing-tool" ? "cli-missing" : "cli-unauthenticated",
+        provider: error.provider,
+        ...(requirement === undefined ? {} : { requirement }),
+        cause: error,
+      });
+    }
+    return new PullRequestOperationError({
+      operation,
+      detail: error.detail,
+      ...(error.reason === "not-found" ? { reason: "not-found" as const } : {}),
+      cause: error,
+    });
+  };
 }
 
 function withRateLimitBackoff(
@@ -499,7 +503,13 @@ function withRateLimitBackoff(
     ...(api.mergeMessageRewrite === undefined
       ? {}
       : { mergeMessageRewrite: api.mergeMessageRewrite }),
+    ...(api.unavailableRequirement === undefined
+      ? {}
+      : { unavailableRequirement: api.unavailableRequirement }),
     ...(api.repositoryKey === undefined ? {} : { repositoryKey: api.repositoryKey }),
+    ...(api.readsPublicHostWithoutCheckout === undefined
+      ? {}
+      : { readsPublicHostWithoutCheckout: api.readsPublicHostWithoutCheckout }),
     getViewer:
       options?.viewerAllowsPause === true
         ? interactive("getViewer", api.getViewer)
@@ -648,6 +658,21 @@ function rankFilterOptions<A>(
   };
 }
 
+const remoteHostKey = (recognized: SourceControlProviderInfo, remoteUrl: string) =>
+  `${recognized.baseUrl}\n${isSshRemoteUrl(remoteUrl) ? "ssh" : "web"}`;
+
+/** An HTTP remote names its server's web host, port included. */
+function httpRemoteHost(remoteUrl: string): string | null {
+  try {
+    const remote = new URL(remoteUrl);
+    return remote.protocol === "http:" || remote.protocol === "https:"
+      ? remote.host.toLowerCase()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // Capture before the provider read so a slow response keeps its original freshness through caches.
 const observeRead = Effect.fnUntraced(function* <A, E, R>(read: Effect.Effect<A, E, R>) {
   const observedAt = yield* Clock.currentTimeMillis;
@@ -659,6 +684,9 @@ export const make = Effect.gen(function* () {
   const stateChanges = yield* PubSub.sliding<ThreadPullRequestKey>(64);
   const pullRequestRefreshes = yield* SubscriptionRef.make(0);
   const registry = yield* PullRequestProviderRegistry.PullRequestProviderRegistry;
+  const requirementOf: UnavailableRequirementOf = (kind) =>
+    registry.get(kind)?.unavailableRequirement;
+  const toPullRequestError = toPullRequestErrorWith(requirementOf);
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
@@ -667,83 +695,131 @@ export const make = Effect.gen(function* () {
   const filesViewedStore = yield* PullRequestFilesViewed.PullRequestFilesViewedRepository;
   const readCache = yield* PullRequestReadCache.PullRequestReadCache;
 
-  const refineUnknownProjectKinds = (
+  /**
+   * Where each project's remote is served from, by the remote's recognised base URL: a remote no
+   * definition placed is identified by the hosting CLIs, and a host whose remotes may not name
+   * its web server says which one does. One project per base URL and transport answers for all
+   * of them.
+   */
+  const resolveRemoteHosts = Effect.fn("PullRequestService.resolveRemoteHosts")(function* (
     projects: ReadonlyArray<OrchestrationProjectShell>,
     filter: Pick<PullRequestListInput, "projectId" | "host">,
-  ) => {
-    type RefinementCandidate = {
+  ) {
+    type Candidate = {
       readonly project: OrchestrationProjectShell;
-      readonly provider: SourceControlProviderInfo;
-      readonly remoteName: string;
-      readonly remoteUrl: string;
+      readonly context: SourceControlProviderContext;
     };
-    const refinements = new Map<string, RefinementCandidate[]>();
+    const candidatesByKey = new Map<string, Candidate[]>();
     for (const project of projects) {
       if (filter.projectId !== undefined && project.id !== filter.projectId) continue;
       const identity = project.repositoryIdentity;
       if (
-        (identity?.provider !== "unknown" &&
-          !(identity?.provider === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))) ||
-        sourceControlRepositorySelector(project.repositoryIdentity) === null
+        !identity ||
+        identity.provider === undefined ||
+        sourceControlDefinitions.repositorySelector(identity) === null
       )
         continue;
-      const host = pullRequestHostOf(identity, SourceControlProviderKind.make("unknown"));
+      if (identity.provider !== "unknown") {
+        const provider = yield* sourceControlProviders
+          .get(identity.provider)
+          .pipe(Effect.orElseSucceed(() => null));
+        if (provider?.resolveRemoteWebHost === undefined) continue;
+      }
+      const host = sourceControlDefinitions.changeRequestHost(identity, "unknown");
       if (
         filter.host !== undefined &&
         host !== "unknown" &&
         host !== filter.host.toLowerCase() &&
-        pullRequestHostOf(identity, SourceControlProviderKind.make("forgejo")) !==
-          filter.host.toLowerCase() &&
+        httpRemoteHost(identity.locator.remoteUrl) !== filter.host.toLowerCase() &&
         !isSshRemoteUrl(identity.locator.remoteUrl)
       ) {
         continue;
       }
       const { remoteName, remoteUrl } = identity.locator;
-      const provider = detectSourceControlProviderFromRemoteUrl(remoteUrl);
-      if (provider !== null) {
-        const candidates = refinements.get(provider.baseUrl);
-        const candidate = { project, provider, remoteName, remoteUrl };
-        if (candidates === undefined) refinements.set(provider.baseUrl, [candidate]);
-        else candidates.push(candidate);
-      }
+      const recognized = sourceControlDefinitions.recognizeRemote(remoteUrl);
+      if (recognized === null) continue;
+      const candidate = {
+        project,
+        context: {
+          provider:
+            identity.provider === "unknown"
+              ? recognized
+              : { ...recognized, kind: identity.provider },
+          remoteName,
+          remoteUrl,
+          ...(filter.host !== undefined && isSshRemoteUrl(remoteUrl)
+            ? { requestedHost: filter.host }
+            : {}),
+        },
+      };
+      const key = remoteHostKey(recognized, remoteUrl);
+      const candidates = candidatesByKey.get(key);
+      if (candidates === undefined) candidatesByKey.set(key, [candidate]);
+      else candidates.push(candidate);
     }
 
-    return Effect.forEach(
-      refinements,
-      ([baseUrl, candidates]) =>
-        Effect.firstSuccessOf(
-          candidates.map(({ project, provider, remoteName, remoteUrl }) =>
-            Effect.suspend(() =>
-              sourceControlProviders.resolveHandle({
-                cwd: project.workspaceRoot,
-                context: {
-                  provider:
-                    provider.kind === "forgejo"
-                      ? { ...provider, kind: SourceControlProviderKind.make("unknown") }
-                      : provider,
-                  remoteName,
-                  remoteUrl,
-                  ...(filter.host !== undefined && isSshRemoteUrl(remoteUrl)
-                    ? { requestedHost: filter.host }
-                    : {}),
-                },
-              }),
-            ).pipe(
-              Effect.flatMap((handle) => {
-                const refined = handle.context?.provider;
-                return refined === undefined || refined.kind === "unknown"
-                  ? Effect.fail(undefined)
-                  : Effect.succeed(refined);
-              }),
+    const resolveContext = (input: {
+      readonly cwd: string;
+      readonly context: SourceControlProviderContext;
+    }) => sourceControlProviders.resolveHandle(input).pipe(Effect.map((handle) => handle.context));
+    type RemoteHost = { readonly kind: SourceControlProviderKind; readonly host: string | null };
+    const resolveCandidate = ({ project, context }: Candidate) =>
+      (context.provider.kind === "unknown"
+        ? resolveContext({ cwd: project.workspaceRoot, context }).pipe(
+            Effect.map((resolved) =>
+              resolved === null || resolved.provider.kind === "unknown"
+                ? null
+                : { context: resolved, discovered: true },
             ),
-          ),
-        ).pipe(
-          Effect.map((provider) => [baseUrl, provider] as const),
-          Effect.orElseSucceed(() => [baseUrl, null] as const),
+          )
+        : Effect.succeed({ context, discovered: false })
+      ).pipe(
+        Effect.flatMap((found) =>
+          found === null
+            ? Effect.succeed(null)
+            : sourceControlProviders.get(found.context.provider.kind).pipe(
+                Effect.flatMap(
+                  (provider) =>
+                    provider.resolveRemoteWebHost?.({
+                      cwd: project.workspaceRoot,
+                      context: found.context,
+                      // A remote discovery just placed is not looked up a second time.
+                      resolveContext: found.discovered
+                        ? () => Effect.succeed(found.context)
+                        : resolveContext,
+                    }) ?? Effect.succeed(null),
+                ),
+                Effect.orElseSucceed(() => null),
+                Effect.map((host): RemoteHost => ({ kind: found.context.provider.kind, host })),
+              ),
         ),
+        Effect.orElseSucceed(() => null),
+      );
+
+    // An SSH remote whose web host one checkout could not name may be named by the next; a
+    // kind found without a host still stands if none can.
+    const resolveKey = Effect.fn("PullRequestService.resolveRemoteHost")(function* (
+      candidates: ReadonlyArray<Candidate>,
+    ) {
+      let fallback: RemoteHost | null = null;
+      for (const candidate of candidates) {
+        const resolved = yield* resolveCandidate(candidate);
+        if (resolved === null) continue;
+        if (resolved.host !== null || !isSshRemoteUrl(candidate.context.remoteUrl)) {
+          return resolved;
+        }
+        fallback ??= resolved;
+      }
+      return fallback;
+    });
+
+    return yield* Effect.forEach(
+      candidatesByKey,
+      ([key, candidates]) =>
+        resolveKey(candidates).pipe(Effect.map((resolved) => [key, resolved] as const)),
       { concurrency: REPOSITORY_CONCURRENCY },
     ).pipe(Effect.map((resolved) => new Map(resolved)));
-  };
+  });
 
   const listWorkspaceProjects = (
     filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
@@ -775,11 +851,11 @@ export const make = Effect.gen(function* () {
         ),
       ),
       Effect.flatMap((projects) =>
-        refineUnknownProjectKinds(projects, filter).pipe(
-          Effect.map((refinedProviders) => ({ refinedProviders, projects })),
+        resolveRemoteHosts(projects, filter).pipe(
+          Effect.map((remoteHosts) => ({ remoteHosts, projects })),
         ),
       ),
-      Effect.map(({ refinedProviders, projects }) => {
+      Effect.map(({ remoteHosts, projects }) => {
         const supported: SupportedProject[] = [];
         const unimplemented = new Map<
           string,
@@ -791,22 +867,18 @@ export const make = Effect.gen(function* () {
           if (filter.projectId !== undefined && project.id !== filter.projectId) continue;
           if (filter.projectIds !== undefined && !filter.projectIds.includes(project.id)) continue;
           const identity = project.repositoryIdentity;
-          let kind = identity?.provider as SourceControlProviderKind | undefined;
-          const repository = sourceControlRepositorySelector(project.repositoryIdentity);
+          let kind = identity?.provider;
+          const repository = sourceControlDefinitions.repositorySelector(
+            project.repositoryIdentity,
+          );
           if (!identity || kind === undefined || repository === null) continue;
-          let refinedProvider: SourceControlProviderInfo | null | undefined;
-          if (
-            kind === "unknown" ||
-            (kind === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))
-          ) {
-            const provider = detectSourceControlProviderFromRemoteUrl(identity.locator.remoteUrl);
-            refinedProvider = provider === null ? null : refinedProviders.get(provider.baseUrl);
-            kind = refinedProvider?.kind ?? kind;
-          }
-          const host =
-            refinedProvider?.kind === "forgejo"
-              ? new URL(refinedProvider.baseUrl).host.toLowerCase()
-              : pullRequestHostOf(identity, kind);
+          const recognized = sourceControlDefinitions.recognizeRemote(identity.locator.remoteUrl);
+          const remote =
+            recognized === null
+              ? undefined
+              : remoteHosts.get(remoteHostKey(recognized, identity.locator.remoteUrl));
+          kind = remote?.kind ?? kind;
+          const host = remote?.host ?? sourceControlDefinitions.changeRequestHost(identity, kind);
           if (filter.host !== undefined && host !== filter.host.toLowerCase()) {
             continue;
           }
@@ -833,9 +905,13 @@ export const make = Effect.gen(function* () {
             api: withRateLimitBackoff(api, host, rateLimits),
             repository,
             host,
-            remote: repositoryKey ?? normalizeGitRemoteUrl(`https://${host}/${repository}`),
+            remote:
+              repositoryKey ??
+              sourceControlDefinitions.repositoryKeyFromRemote(`https://${host}/${repository}`),
             repositoryKey:
-              repositoryKey === null ? null : canonicalRepositoryKey(repositoryKey.toLowerCase()),
+              repositoryKey === null
+                ? null
+                : sourceControlDefinitions.canonicalRepositoryKey(repositoryKey.toLowerCase()),
           });
         }
         return { supported, unimplemented, viewerRoots };
@@ -866,11 +942,13 @@ export const make = Effect.gen(function* () {
             }),
           );
         }
-        const repositoryKey = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase());
-        // Azure SSH and legacy clone hosts differ from the browser URL's host. Compare
-        // the complete repository identity before narrowing those checkouts by host.
+        const referenceKey = `${host}/${repository}`.toLowerCase();
+        const repositoryKey = sourceControlDefinitions.canonicalRepositoryKey(referenceKey);
+        // A host that spells one repository several ways (Azure's SSH and legacy clone hosts)
+        // can differ from the browser URL's host. Compare the complete repository identity
+        // before narrowing those checkouts by host.
         return listWorkspaceProjects(
-          repositoryKey.startsWith("dev.azure.com/") ? {} : { host },
+          sourceControlDefinitions.findByRepositoryKey(referenceKey) ? {} : { host },
         ).pipe(
           Effect.flatMap(({ supported }) => {
             const onHost = supported.filter((candidate) => candidate.host === host);
@@ -887,11 +965,9 @@ export const make = Effect.gen(function* () {
               onHost.find((candidate) => candidate.repositoryKey === null);
             if (route === undefined) {
               return Effect.gen(function* () {
-                const provider = ["github.com", "bitbucket.org", "codeberg.org"].includes(host)
-                  ? detectSourceControlProviderFromRemoteUrl(`https://${host}/${repository}.git`)
-                  : null;
-                const api = provider === null ? null : registry.get(provider.kind);
-                if (api !== null) {
+                const publicHost = sourceControlDefinitions.findByPublicHost(host);
+                const api = publicHost === undefined ? null : registry.get(publicHost.kind);
+                if (api?.readsPublicHostWithoutCheckout) {
                   const selected = yield* projects.getShell(ref.projectId).pipe(
                     Effect.mapError(
                       (cause) =>
@@ -909,7 +985,9 @@ export const make = Effect.gen(function* () {
                       api: withRateLimitBackoff(api, host, rateLimits),
                       repository,
                       host,
-                      remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
+                      remote: sourceControlDefinitions.repositoryKeyFromRemote(
+                        `https://${host}/${repository}`,
+                      ),
                       repositoryKey: null,
                     };
                   }
@@ -924,7 +1002,9 @@ export const make = Effect.gen(function* () {
                 : {
                     ...route,
                     repository,
-                    remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
+                    remote: sourceControlDefinitions.repositoryKeyFromRemote(
+                      `https://${host}/${repository}`,
+                    ),
                   },
             );
           }),
@@ -1149,13 +1229,6 @@ export const make = Effect.gen(function* () {
     };
   };
 
-  // A repository that has appeared in a host search is known to be indexed there. Empty
-  // authored/reviewing searches for that same repository are therefore real empty answers, not
-  // a reason to issue the two-command per-repository fallback again.
-  const searchVisibleAt = new Map<string, number>();
-  const searchVisibilityKey = (host: string, repository: string) =>
-    `${host}\n${repository.trim().toLowerCase()}`;
-
   const listUncached: PullRequestService["Service"]["list"] = Effect.fn(
     "PullRequestService.listUncached",
   )(function* (input) {
@@ -1184,7 +1257,7 @@ export const make = Effect.gen(function* () {
           actions: capabilities?.actions ?? [],
           projectCount: projectCounts.get(result.host) ?? 1,
           configured: result.viewer !== null,
-          detail: result.error === null ? null : providerDetail(result.error),
+          detail: result.error === null ? null : providerDetail(requirementOf, result.error),
         };
       }),
       ...[...unimplemented].map(([host, { kind, projectCount }]) => ({
@@ -1365,75 +1438,53 @@ export const make = Effect.gen(function* () {
           : { cursor: { updatedBefore: cursor.updatedBefore, delivered: cursor.delivered } }),
       }).pipe(
         observeRead,
-        Effect.flatMap(({ value: page, observedAt }) =>
-          Effect.flatMap(Clock.currentTimeMillis, (now) => {
-            const rows = new Map<string, Array<ProviderChangeRequest>>();
-            for (const [key, visibleAt] of searchVisibleAt) {
-              if (now - visibleAt > Duration.toMillis(SEARCH_VISIBILITY_TTL)) {
-                searchVisibleAt.delete(key);
-              }
-            }
-            for (const item of page.items) {
-              const key = item.repository.trim().toLowerCase();
-              const held = rows.get(key);
-              if (held === undefined) rows.set(key, [item]);
-              else held.push(item);
-              searchVisibleAt.set(searchVisibilityKey(first.host, item.repository), now);
-            }
-            const boundary = page.items.reduce<string | null>(
-              (oldest, item) =>
-                oldest === null || item.updatedAt < oldest ? item.updatedAt : oldest,
-              null,
-            );
-            return Effect.forEach(
-              chunk,
-              (project): Effect.Effect<RepositoryBatch> => {
-                const fetched = rows.get(project.repository.trim().toLowerCase()) ?? [];
-                // GitHub does not index every repository for search — a renamed one answers for
-                // its old name with silence rather than with an error — so a repository the
-                // search said nothing at all about is read on its own, once, before it is
-                // believed. Only on its first slice: after that it has a boundary to carry on
-                // from, and silence past one means the rows are older rather than absent.
-                const lastVisible = searchVisibleAt.get(
-                  searchVisibilityKey(project.host, project.repository),
-                );
-                const searchIsKnownVisible =
-                  !page.truncated &&
-                  lastVisible !== undefined &&
-                  now - lastVisible <= Duration.toMillis(SEARCH_VISIBILITY_TTL);
-                if (
-                  fetched.length === 0 &&
-                  cursorOf(project) === undefined &&
-                  !searchIsKnownVisible
-                ) {
-                  return readRepository(project);
-                }
-                const cursorHere = cursorOf(project);
-                const items =
-                  cursorHere === undefined
-                    ? fetched
-                    : fetched.filter(
-                        (item) =>
-                          item.updatedAt !== cursorHere.updatedBefore ||
-                          !cursorHere.seenAt.includes(item.number),
-                      );
-                return Effect.succeed({
-                  key: project.cursorKey,
-                  entries: items
-                    .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                    .map((item) => toEntry({ project, item, viewer, observedAt })),
-                  errors: [],
-                  truncated: page.truncated,
-                  nextCursor:
-                    page.truncated && boundary !== null
-                      ? listCursorAt(cursorHere, boundary, fetched, items.length)
-                      : null,
-                });
-              },
-              { concurrency: REPOSITORY_CONCURRENCY },
-            );
-          }),
-        ),
+        Effect.flatMap(({ value: page, observedAt }) => {
+          const rows = new Map<string, Array<ProviderChangeRequest>>();
+          for (const item of page.items) {
+            const key = item.repository.trim().toLowerCase();
+            const held = rows.get(key);
+            if (held === undefined) rows.set(key, [item]);
+            else held.push(item);
+          }
+          const unresolved = new Set(
+            (page.unresolved ?? []).map((repository) => repository.trim().toLowerCase()),
+          );
+          const boundary = page.items.reduce<string | null>(
+            (oldest, item) =>
+              oldest === null || item.updatedAt < oldest ? item.updatedAt : oldest,
+            null,
+          );
+          return Effect.forEach(
+            chunk,
+            (project): Effect.Effect<RepositoryBatch> => {
+              const key = project.repository.trim().toLowerCase();
+              const fetched = rows.get(key) ?? [];
+              if (fetched.length === 0 && unresolved.has(key)) return readRepository(project);
+              const cursorHere = cursorOf(project);
+              const items =
+                cursorHere === undefined
+                  ? fetched
+                  : fetched.filter(
+                      (item) =>
+                        item.updatedAt !== cursorHere.updatedBefore ||
+                        !cursorHere.seenAt.includes(item.number),
+                    );
+              return Effect.succeed({
+                key: project.cursorKey,
+                entries: items
+                  .filter((item) => matchesRowFilters(item, input.filters, viewer))
+                  .map((item) => toEntry({ project, item, viewer, observedAt })),
+                errors: [],
+                truncated: page.truncated,
+                nextCursor:
+                  page.truncated && boundary !== null
+                    ? listCursorAt(cursorHere, boundary, fetched, items.length)
+                    : null,
+              });
+            },
+            { concurrency: REPOSITORY_CONCURRENCY },
+          );
+        }),
         Effect.catch(separately),
       );
     };
@@ -1506,7 +1557,7 @@ export const make = Effect.gen(function* () {
         host,
       })
       .pipe(Effect.mapError(toPullRequestError("routeIdentity")));
-    return { ...identity, host, provider: "github" as const };
+    return { ...identity, host, provider: api.kind };
   });
 
   const withRoutingCredential: PullRequestService["Service"]["withRoutingCredential"] = Effect.fn(
@@ -1516,7 +1567,7 @@ export const make = Effect.gen(function* () {
     const rejected = () =>
       new PullRequestOperationError({
         operation: "routeIdentity",
-        detail: "The GitHub account could not be verified before starting the operation.",
+        detail: "The signed-in account could not be verified before starting the operation.",
       });
     const project = yield* requireProject(input).pipe(Effect.mapError(rejected));
     const api = registry.get(project.api.kind);
