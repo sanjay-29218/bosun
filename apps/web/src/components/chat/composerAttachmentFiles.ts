@@ -11,6 +11,7 @@ import {
 import type { ComposerFileAttachment, ComposerImageAttachment } from "../../composerDraftStore";
 import { isHeicImageFile } from "../../lib/imageCompression";
 import { isVideoAttachment, videoMimeType } from "../../types";
+import { isSvgAttachment } from "@t3tools/shared/image";
 
 type ComposerAttachmentFileKind = "image" | "file" | "unsupported-image";
 
@@ -72,6 +73,7 @@ function isDngFile(file: Pick<File, "name" | "type">): boolean {
 export function composerFileAttachmentMimeType(file: Pick<File, "name" | "type">): string {
   // Downstream image detection uses MIME, even for attachments staged as files.
   if (isDngFile(file)) return "image/x-adobe-dng";
+  if (isSvgAttachment({ name: file.name, mimeType: file.type })) return "image/svg+xml";
   return (
     videoMimeType({ name: file.name, mimeType: file.type }) ??
     (file.type || "application/octet-stream")
@@ -81,6 +83,7 @@ export function composerFileAttachmentMimeType(file: Pick<File, "name" | "type">
 export function classifyComposerAttachmentFile(
   file: Pick<File, "name" | "type">,
 ): ComposerAttachmentFileKind {
+  if (isSvgAttachment({ name: file.name, mimeType: file.type })) return "file";
   if (isDngFile(file)) return "file";
   if (isHeicImageFile(file)) {
     return "image";
@@ -147,12 +150,7 @@ export function fileAttachmentCapabilityBlockReason(
   return null;
 }
 
-/**
- * When `capabilities.attachmentUploads` flips off (reconnect, version skew),
- * tear down only uploads that have not been persisted onto a draft file.
- * Once `uploadedAttachmentId` is stamped, the draft references that server
- * copy after reload even if its local `File` is still available in memory.
- */
+/** Release only unpersisted uploads; hydrated files still need their server copies. */
 export function attachmentsToReleaseOnUploadCapabilityLoss(
   attachments: ReadonlyArray<ComposerImageAttachment | ComposerFileAttachment>,
 ): Array<ComposerImageAttachment | ComposerFileAttachment> {
@@ -169,7 +167,11 @@ export function shouldHandleComposerAttachmentPaste(input: {
     input.files.some((file) => {
       if (isDngFile(file)) return true;
       const classification = classifyComposerAttachmentFile(file);
-      return classification === "image" || classification === "unsupported-image";
+      return (
+        classification === "image" ||
+        classification === "unsupported-image" ||
+        isSvgAttachment({ name: file.name, mimeType: file.type })
+      );
     })
   ) {
     return true;

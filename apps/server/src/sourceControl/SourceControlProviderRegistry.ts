@@ -12,7 +12,6 @@ import {
   SourceControlProviderError,
   type SourceControlProviderDiscoveryItem,
 } from "@t3tools/contracts";
-import type {} from "@t3tools/contracts";
 
 import * as BuiltInDrivers from "./builtInDrivers.ts";
 import { sourceControlDefinitions } from "./sourceControlDefinitions.ts";
@@ -74,9 +73,7 @@ function unsupportedProvider(
 ): SourceControlProvider.SourceControlProvider["Service"] {
   return SourceControlProvider.SourceControlProvider.of({
     kind,
-    // A remote on a host no provider recognizes (or no remote at all) has no change
-    // requests T3 could know about. Answering with none keeps the status poller from
-    // failing, and warning, on every refresh of such a repository.
+    // Unknown hosts have no readable change requests; return none to avoid poll warnings on every refresh.
     listChangeRequests: (input) =>
       kind === "unknown"
         ? Effect.succeed([])
@@ -162,10 +159,7 @@ function selectProviderContext(
   );
 }
 
-/**
- * `cwd` is left out because it only matters when a probe fails there, and a failed probe
- * is not kept. Equality ignores `lookup`, so this is not a `Data.Class`.
- */
+// Failed probes are not cached, so cwd is irrelevant; equality ignores lookup, unlike Data.Class.
 class UnknownRemoteLookup {
   readonly key: string;
   readonly lookup: Effect.Effect<UnknownRemoteVerdict>;
@@ -235,7 +229,7 @@ function bindProviderContext(
   });
 }
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWithProviders")(
   function* (registrations: ReadonlyArray<SourceControlProviderRegistration>) {
     const config = yield* ServerConfig.ServerConfig;

@@ -371,7 +371,7 @@ describe("EnvironmentThreads", () => {
       let discarded = false;
       const h = yield* makeHarness({
         loadCached: decodeOrDiscardOrchestrationCache(
-          Schema.decodeUnknownEffect(schema)(stale).pipe(
+          Schema.decodeEffect(schema)(stale).pipe(
             Effect.map((stored) => Option.some(stored.snapshot)),
           ),
           Effect.sync(() => {
@@ -393,26 +393,31 @@ describe("EnvironmentThreads", () => {
     }),
   );
 
-  it.effect("loads the server thread when its local cache read fails", () =>
-    Effect.gen(function* () {
-      const h = yield* makeHarness({
-        loadCached: Effect.fail(
-          new Persistence.ConnectionPersistenceError({
-            operation: "load-thread",
-            message: "The database connection is closing.",
-          }),
-        ),
-        httpSnapshot: {
-          _tag: "present",
-          snapshot: { snapshotSequence: 7, projection: BASE_PROJECTION },
-        },
-      });
+  it.effect.each(["read failure", "cache miss"] as const)(
+    "loads the server thread after a %s",
+    (scenario) =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({
+          loadCached:
+            scenario === "cache miss"
+              ? Effect.succeedNone
+              : Effect.fail(
+                  new Persistence.ConnectionPersistenceError({
+                    operation: "load-thread",
+                    message: "The database connection is closing.",
+                  }),
+                ),
+          httpSnapshot: {
+            _tag: "present",
+            snapshot: { snapshotSequence: 7, projection: BASE_PROJECTION },
+          },
+        });
 
-      const state = yield* awaitThreadState(h.observed, (value) => value.status === "live");
-      expect(Option.getOrThrow(state.data)).toEqual(BASE_PROJECTION);
-      expect(yield* Ref.get(h.loaderCalls)).toBe(1);
-      expect(yield* Ref.get(h.subscriptionCount)).toBe(1);
-    }),
+        const state = yield* awaitThreadState(h.observed, (value) => value.status === "live");
+        expect(Option.getOrThrow(state.data)).toEqual(BASE_PROJECTION);
+        expect(yield* Ref.get(h.loaderCalls)).toBe(1);
+        expect(yield* Ref.get(h.subscriptionCount)).toBe(1);
+      }),
   );
 
   it.effect("flushes newer data after an older background write completes", () =>
@@ -1515,9 +1520,7 @@ describe("EnvironmentThreads", () => {
         });
 
         const warm = yield* makeHarness(
-          cacheKind === "retained"
-            ? { resumeCache }
-            : { loadCached: Effect.succeed(Option.some(saved!)) },
+          cacheKind === "retained" ? { resumeCache } : { loadCached: Effect.succeedSome(saved!) },
         );
         yield* Queue.offer(warm.inputs, titleUpdated("Grown while closed", 200));
         yield* awaitThreadState(
