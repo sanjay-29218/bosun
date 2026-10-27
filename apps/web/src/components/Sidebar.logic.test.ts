@@ -7,7 +7,9 @@ import { AsyncResult } from "effect/reactivity";
 import {
   archiveSelectedThreadEntries,
   deleteSelectedThreadEntries,
+  filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
+  groupFeatureThreads,
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
   isSidebarThreadWorking,
@@ -207,6 +209,28 @@ describe("sidebar thread lineage helpers", () => {
   });
 });
 
+describe("filterSidebarV2VisibleThreads", () => {
+  it("shows one row per feature: its current stage thread", () => {
+    const crew = {
+      featureId: "feature",
+      stepId: "design",
+      index: 2,
+      total: 6,
+      state: "approval",
+      current: true,
+    } as const;
+    const current = makeThreadFixture({ id: ThreadId.make("thread-design"), crew });
+    const earlier = makeThreadFixture({
+      id: ThreadId.make("thread-plan"),
+      crew: { ...crew, stepId: "plan", index: 1, current: false },
+    });
+    const plain = makeThreadFixture({ id: ThreadId.make("thread-plain") });
+    expect(
+      filterSidebarV2VisibleThreads([current, earlier, plain], null).map((thread) => thread.id),
+    ).toEqual([current.id, plain.id]);
+  });
+});
+
 function makeLatestRun(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
@@ -255,6 +279,35 @@ describe("resolveSidebarThreadStatus", () => {
   };
 
   const idle = { hasPendingApprovals: false, hasPendingUserInput: false, runtime: null };
+
+  it("shows what a feature's current stage waits on, whatever its thread is doing", () => {
+    const crew = {
+      featureId: "feature",
+      stepId: "build",
+      index: 3,
+      total: 6,
+      state: "failed",
+      current: true,
+    } as const;
+    expect(resolveSidebarThreadStatus({ ...idle, crew })).toBe("failed");
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "approval" } })).toBe(
+      "approval",
+    );
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "your-call" } })).toBe(
+      "approval",
+    );
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "input" } })).toBe(
+      "input",
+    );
+    // Working and queued features read from the thread's own runtime.
+    expect(
+      resolveSidebarThreadStatus({ ...idle, runtime, crew: { ...crew, state: "working" } }),
+    ).toBe("working");
+    // Earlier stage threads keep their own status.
+    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, current: false } })).toBe(
+      "ready",
+    );
+  });
 
   it("prioritizes awaiting input over a running runtime, below approval", () => {
     expect(
@@ -1350,5 +1403,33 @@ describe("resolveSidebarRouteReveal", () => {
         findThread,
       }),
     ).toEqual({ pendingKey: hiddenKey, widensScope: false });
+  });
+});
+
+describe("groupFeatureThreads", () => {
+  const thread = (id: string, updatedAt: string, feature: string | null, current?: boolean) => ({
+    id,
+    environmentId: "env",
+    updatedAt,
+    feature: feature ? { id: feature } : null,
+    crew: current === undefined ? null : { current },
+  });
+
+  it("keeps a feature's current stage thread and folds its others under it", () => {
+    const stage = thread("stage", "2026-10-14T10:00:00Z", "f1", true);
+    const manager = thread("manager", "2026-10-14T11:00:00Z", "f1");
+    const plain = thread("plain", "2026-10-14T09:00:00Z", null);
+    const alone = thread("alone", "2026-10-14T08:00:00Z", "f2", true);
+    const { primaries, childrenByThreadKey } = groupFeatureThreads([manager, stage, plain, alone]);
+    expect(primaries.map((item) => item.id)).toEqual(["stage", "plain", "alone"]);
+    expect(childrenByThreadKey.get("env:stage")?.map((item) => item.id)).toEqual(["manager"]);
+    expect(childrenByThreadKey.has("env:alone")).toBe(false);
+  });
+
+  it("keeps the most recent thread when no stage thread is current", () => {
+    const older = thread("older", "2026-10-14T10:00:00Z", "f1");
+    const newer = thread("newer", "2026-10-14T12:00:00Z", "f1");
+    const { primaries } = groupFeatureThreads([older, newer]);
+    expect(primaries.map((item) => item.id)).toEqual(["newer"]);
   });
 });

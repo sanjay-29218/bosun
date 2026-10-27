@@ -89,6 +89,10 @@ vi.mock(import("../../state/entities"), async (original) => {
     readProjects: (() => appAtomRegistry.get(state.projects as Atom.Atom<Project[]>)) as never,
   };
 });
+vi.mock(import("../../state/botRail"), async (original) => ({
+  ...(await original()),
+  activeBotInput: () => ({}),
+}));
 vi.mock(import("../../state/projects"), async (original) => ({
   ...(await original()),
   projectEnvironment: { create: "createProject" } as never,

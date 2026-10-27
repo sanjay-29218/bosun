@@ -1,4 +1,5 @@
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -425,11 +426,18 @@ export const layerWithOptions = (
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
-                const capabilities = new Set<
-                  import("../mcp/McpInvocationContext.ts").McpCapability
-                >(["orchestration", "worktree", "pull-requests"]);
-                if (browserToolsAvailable) capabilities.add("preview");
-                if (deviceToolsAvailable) capabilities.add("device");
+                const crewCapabilities = yield* crewMcpCapabilities(threadId);
+                const capabilities =
+                  crewCapabilities ??
+                  new Set<import("../mcp/McpInvocationContext.ts").McpCapability>([
+                    "orchestration",
+                    "worktree",
+                    "pull-requests",
+                  ]);
+                if (crewCapabilities === undefined && browserToolsAvailable)
+                  capabilities.add("preview");
+                if (crewCapabilities === undefined && deviceToolsAvailable)
+                  capabilities.add("device");
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   Effect.orElseSucceed(() => false),
@@ -453,8 +461,12 @@ export const layerWithOptions = (
                     resolved !== undefined &&
                     resolved.thread.threadId === threadId &&
                     resolved.thread.providerInstanceId === providerInstanceId &&
-                    resolved.capabilities.has("preview") === browserToolsAvailable &&
-                    resolved.capabilities.has("device") === deviceToolsAvailable &&
+                    // A flipped access setting or crew role must not survive through
+                    // credential reuse: rotate so the new scope reflects it.
+                    resolved.capabilities.size === capabilities.size &&
+                    [...capabilities].every((capability) =>
+                      resolved.capabilities.has(capability),
+                    ) &&
                     // A credential issued while the lineage read failed is replaced once it works.
                     (resolved.thread.subagent === true) === subagent
                   ) {

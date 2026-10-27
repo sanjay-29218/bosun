@@ -2,6 +2,7 @@ import { InlineAudioPreview } from "../files/InlineAudioPreview";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { findRevealRef } from "./markdownFindContext";
 import { type MessageId, type ServerProviderSkill, ThreadId } from "@t3tools/contracts";
+import { crewMessageOrigin } from "@t3tools/client-runtime/crew-message-origin";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
@@ -276,6 +277,7 @@ function UserMessageProjectedStatus({ row }: { row: Extract<TimelineRow, { kind:
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
+  const crewOrigin = crewMessageOrigin(row.message.context);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
   const resources = selectMessageImageResources(row.message.attachments);
@@ -463,9 +465,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <MessageAuthorHeading>
           {folded
             ? senderLabel
-            : userMessage.guestName === undefined
-              ? "You"
-              : `${userMessage.guestName} (guest)`}
+            : crewOrigin
+              ? `Crew · ${crewOrigin.memberId}`
+              : userMessage.guestName === undefined
+                ? "You"
+                : `${userMessage.guestName} (guest)`}
         </MessageAuthorHeading>
         {folded ? (
           <FoldedMessageHeader

@@ -24,6 +24,7 @@ import {
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -45,6 +46,7 @@ import type {
   RuntimeRequestId,
   ScopedThreadRef,
   ServerConfig as T3ServerConfig,
+  ServerProvider,
   UsageLimitsReport,
 } from "@t3tools/contracts";
 import {
@@ -80,6 +82,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
 } from "react";
 import {
   AppState,
@@ -123,7 +126,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
-import { getComposerDraftSnapshot } from "../../state/use-composer-drafts";
+import { getComposerDraftSnapshot, useComposerDraft } from "../../state/use-composer-drafts";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import {
   ANDROID_READING_MAX_WIDTH,
@@ -186,6 +189,10 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import { MobileCrewRunStatusStrip } from "./MobileCrewRunStatusStrip";
+import { CrewHandoffCard } from "../crew/CrewHandoffCard";
+import { CrewStageCard, crewComposerMode } from "../crew/CrewStageCard";
+import { useCrewThreadStage } from "../../state/features";
 import { ThreadFeed, type ThreadFeedHandle, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -303,6 +310,17 @@ export interface ThreadDetailScreenProps {
 
 const USAGE_LIMITS_PANEL_GAP = 12;
 const USAGE_LIMITS_PANEL_MIN_HEIGHT = 44;
+
+const EMPTY_PROVIDERS: ReadonlyArray<ServerProvider> = [];
+
+/** The Crew card takes the composer's text as its note; only this wrapper re-renders on typing. */
+function CrewStageCardWithDraft(
+  props: Omit<ComponentProps<typeof CrewStageCard>, "note"> & { readonly draftKey: string | null },
+) {
+  const { draftKey, ...card } = props;
+  const note = useComposerDraft(draftKey).text;
+  return <CrewStageCard {...card} note={note} />;
+}
 
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
@@ -1248,9 +1266,28 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     feedTouchStartRef.current = null;
   };
 
+  const isCrewThread = isCrewThreadId(props.selectedThread.id);
+  const crewStage = useCrewThreadStage(props.selectedThread);
+  const crewComposer = crewComposerMode(crewStage);
+  const onChangeDraftMessage = props.onChangeDraftMessage;
+  const clearCrewNote = useCallback(() => onChangeDraftMessage(""), [onChangeDraftMessage]);
+  const openCrewDiff = useCallback(() => {
+    navigation.navigate("ThreadReview", {
+      environmentId: props.environmentId,
+      threadId: props.selectedThread.id,
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
+
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
+      {isCrewThread ? (
+        <MobileCrewRunStatusStrip
+          environmentId={props.environmentId}
+          projectId={props.selectedThread.projectId}
+          threadId={props.selectedThread.id}
+        />
+      ) : null}
       {props.draftMode ? (
         props.draftMode.content(
           navigationHeaderHeight,
@@ -1295,6 +1332,15 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
               pendingHandoff={props.pendingHandoff}
+              headerAccessory={
+                isCrewThread ? (
+                  <CrewHandoffCard
+                    environmentId={props.environmentId}
+                    projectId={props.selectedThread.projectId}
+                    threadId={props.selectedThread.id}
+                  />
+                ) : null
+              }
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}
@@ -1492,6 +1538,19 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                       />
                     </Animated.View>
                   ) : null}
+                  {crewStage !== null ? (
+                    <View className="shrink-0 px-4 pb-3">
+                      <CrewStageCardWithDraft
+                        draftKey={props.composerDraftKey ?? null}
+                        environmentId={props.environmentId}
+                        stage={crewStage}
+                        canOperate={props.canOperateThread}
+                        onNoteSent={clearCrewNote}
+                        providers={props.serverConfig?.providers ?? EMPTY_PROVIDERS}
+                        onViewDiff={openCrewDiff}
+                      />
+                    </View>
+                  ) : null}
                   {props.activePendingApproval || props.activePendingUserInput ? (
                     <Animated.View
                       className="shrink-0 gap-3 px-4 pb-3"
@@ -1576,11 +1635,12 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                         reportedModelSelection={reportedModelSelection}
                         editorRef={composerEditorRef}
                         placeholder={
-                          props.activePendingApproval
+                          crewComposer?.placeholder ??
+                          (props.activePendingApproval
                             ? props.activePendingApproval.supportsFeedback
                               ? "Send feedback to decline this request"
                               : "Send a message to decline and redirect the agent"
-                            : "Ask anything"
+                            : "Ask anything")
                         }
                         contentMaxWidth={contentMaxWidth}
                         draftControls={props.draftMode?.controls}
@@ -1603,7 +1663,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                             : props.creationState?.kind === "preparing" &&
                                 !props.creationState.serverOwned
                               ? "Starting the task…"
-                              : null
+                              : (crewComposer?.sendBlockedReason ?? null)
                         }
                         interactionLocked={props.draftMode?.interactionLocked}
                         draftKey={props.composerDraftKey ?? undefined}

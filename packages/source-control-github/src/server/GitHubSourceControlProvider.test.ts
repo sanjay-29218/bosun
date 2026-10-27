@@ -370,6 +370,140 @@ describe("GitHubSourceControlProvider.getChangeRequest", () => {
   });
 });
 
+describe("GitHubSourceControlProvider.listIssues", () => {
+  const issueNode = (number: number, overrides: Record<string, unknown> = {}) => ({
+    number,
+    title: `Issue ${number}`,
+    url: `https://github.com/acme/web/issues/${number}`,
+    state: "OPEN",
+    updatedAt: "2026-01-02T00:00:00Z",
+    closedAt: null,
+    milestone: null,
+    parent: null,
+    subIssuesSummary: { total: 0, completed: 0 },
+    labels: { nodes: [{ name: "bug", color: "d73a4a" }] },
+    assignees: { nodes: [{ login: "octo", avatarUrl: "https://avatars/octo" }] },
+    ...overrides,
+  });
+  const answer = (open: ReadonlyArray<unknown>, totalCount: number) => ({
+    nameWithOwner: "acme/web",
+    open: { totalCount, nodes: open },
+    closed: {
+      nodes: [
+        issueNode(3, {
+          state: "CLOSED",
+          closedAt: "2026-01-01T00:00:00Z",
+          parent: { number: 1 },
+        }),
+      ],
+    },
+    milestones: {
+      nodes: [
+        {
+          number: 4,
+          title: "v1",
+          url: "https://github.com/acme/web/milestone/4",
+          dueOn: null,
+          open: { totalCount: 2 },
+          closed: { totalCount: 5 },
+        },
+      ],
+    },
+  });
+
+  it.effect("maps open and closed issues, sub-issues and milestones in one read", () => {
+    const { layer, graphqlCalls } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      graphql: () =>
+        answer(
+          [
+            issueNode(1, {
+              milestone: { number: 4, title: "v1" },
+              subIssuesSummary: { total: 2, completed: 1 },
+            }),
+            issueNode(2),
+          ],
+          2,
+        ),
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const list = yield* gh.listIssues!({ cwd: "/repo" });
+      assert.deepStrictEqual(
+        graphqlCalls.flatMap((call) => call.lookups),
+        [{ owner: "acme", name: "web" }],
+      );
+      assert.strictEqual(list.repository, "acme/web");
+      assert.isFalse(list.truncated);
+      assert.deepStrictEqual(
+        list.issues.map((issue) => [issue.number, issue.state, issue.parent, issue.subIssues]),
+        [
+          [1, "open", null, { completed: 1, total: 2 }],
+          [2, "open", null, null],
+          [3, "closed", 1, null],
+        ],
+      );
+      assert.deepStrictEqual(list.issues[0]!.milestone, { number: 4, title: "v1" });
+      assert.deepStrictEqual(list.issues[0]!.labels, [{ name: "bug", color: "d73a4a" }]);
+      assert.deepStrictEqual(list.milestones, [
+        {
+          number: 4,
+          title: "v1",
+          url: "https://github.com/acme/web/milestone/4",
+          dueOn: null,
+          openIssues: 2,
+          closedIssues: 5,
+        },
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("flags a list with more open issues than were read", () => {
+    const { layer } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      graphql: () => answer([issueNode(1)], 250),
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      assert.isTrue((yield* gh.listIssues!({ cwd: "/repo" })).truncated);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reads again without sub-issues on a schema that lacks them", () => {
+    const { layer, graphqlCalls } = harness({
+      remotes: remotesOutput(["origin", "git@ghe.example.com:acme/web.git"]),
+      graphql: (_, call) =>
+        call.query.includes("subIssuesSummary")
+          ? new Response(
+              encodeJson({ errors: [{ message: "Field 'parent' doesn't exist on type 'Issue'" }] }),
+              { headers: { "content-type": "application/json" } },
+            )
+          : answer([{ ...issueNode(1), parent: undefined, subIssuesSummary: undefined }], 1),
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const list = yield* gh.listIssues!({
+        cwd: "/repo",
+        context: githubContext("ghe.example.com"),
+      });
+      assert.deepStrictEqual(
+        graphqlCalls.map((call) => [call.host, call.operationName]),
+        [
+          ["ghe.example.com", "IssueList"],
+          ["ghe.example.com", "IssueListWithoutSubIssues"],
+        ],
+      );
+      assert.deepStrictEqual(
+        list.issues.map((issue) => [issue.number, issue.parent, issue.subIssues]),
+        [
+          [1, null, null],
+          [3, 1, null],
+        ],
+      );
+    }).pipe(Effect.provide(layer));
+  });
+});
+
 describe("GitHubSourceControlProvider writes", () => {
   it.effect("creates a cross-repository pull request with an owner:branch head", () => {
     const requests: Array<GitHubRest.GitHubRestInput> = [];
@@ -742,7 +876,14 @@ it.effect.each(["pull", "issues"])(
           assert.strictEqual(input.host, "github.com");
           assert.strictEqual(input.path, "repos/owner/repo/issues/42");
           return Effect.succeed(
-            restResponse({ title: "Pairing expiry", body: "Preserve remote access", id: 1 }),
+            restResponse({
+              title: "Pairing expiry",
+              body: "Preserve remote access",
+              id: 1,
+              state: "closed",
+              milestone: { title: "v0.4", number: 3 },
+              sub_issues_summary: { total: 7, completed: 3, percent_completed: 42 },
+            }),
           );
         },
       });
@@ -754,6 +895,9 @@ it.effect.each(["pull", "issues"])(
       assert.deepStrictEqual(yield* lookup, {
         title: "Pairing expiry",
         body: "Preserve remote access",
+        state: "closed",
+        milestone: "v0.4",
+        subIssues: { total: 7, completed: 3 },
       });
       for (const url of [
         "https://github.com/owner/repo",

@@ -54,6 +54,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import { crewMessageOrigin } from "@t3tools/client-runtime/crew-message-origin";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { parseThreadLinkHref, resolveThreadLinkRef } from "@t3tools/shared/threadLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
@@ -326,6 +327,8 @@ export interface ThreadFeedHandle {
 }
 
 export interface ThreadFeedProps {
+  /** Pinned above the history, such as a stage thread's handoff card. */
+  readonly headerAccessory?: ReactNode;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
@@ -1521,6 +1524,7 @@ function renderFeedEntry(
       );
     }
     if (isUser) {
+      const crewOrigin = crewMessageOrigin(message.context);
       const enterAnimated = isFreshTimestamp(message.createdAt);
       const foldRowId = presentation.attribution === "agent" ? `agent:${message.id}` : null;
       const foldExpanded = foldRowId !== null && (props.expandedWorkRows[foldRowId] ?? false);
@@ -1584,6 +1588,11 @@ function renderFeedEntry(
             ) : null}
             {bubbleBodyVisible ? (
               <View className={cn("gap-2 px-3.5 pb-2.5", foldRowId === null && "pt-2.5")}>
+                {crewOrigin ? (
+                  <Text className="font-t3-medium text-xs text-foreground-secondary">
+                    Crew · {crewOrigin.memberId}
+                  </Text>
+                ) : null}
                 {entry.pendingMessage?.attachments.map((attachment) =>
                   attachment.type === "image" && attachment.uploadedAttachmentId ? (
                     <MessageAttachmentImage
@@ -3242,6 +3251,7 @@ export const ThreadFeed = memo(function ThreadFeed({
             ListHeaderComponent={
               <>
                 {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                {props.headerAccessory}
                 {setupAnchorIndex < 0 && props.worktreeSetup ? (
                   <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
                 ) : null}

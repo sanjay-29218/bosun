@@ -55,6 +55,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -195,6 +196,7 @@ import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
+import { type ComposerControlSize } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
@@ -373,6 +375,12 @@ export interface ChatComposerProps {
   activeThreadEnvironmentId: EnvironmentId | undefined;
   activeThread: Thread | undefined;
   activeThreadShell: ThreadShell | null;
+  /** A stage thread's gate, failure or take-over banner; shown when no request blocks it. */
+  crewBanner?: ReactNode;
+  /** A new thread's Workflow picker, before the model picker. */
+  renderWorkflowPicker?: ((size: ComposerControlSize) => ReactNode) | undefined;
+  /** While a workflow is picked, the crew stands in for the model and mode controls. */
+  renderCrewControl?: ((size: ComposerControlSize) => ReactNode) | null | undefined;
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   isServerThread: boolean;
   isLocalDraftThread: boolean;
@@ -2541,6 +2549,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onModelPickerOpenChange={setIsComposerModelPickerOpen}
       modelPickerIconClassName={composerProviderState.modelPickerIconClassName}
       getModelDisabledReason={getModelDisabledReason}
+      renderWorkflowPicker={props.renderWorkflowPicker}
+      renderCrewControl={props.renderCrewControl}
     />
   );
   // An open approval or question owns the space above the composer. Only a machine problem,
@@ -3402,6 +3412,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack items={shelfItems} />
+          {hasBlockingComposerTopDrawer ? null : props.crewBanner}
           {showComposerTopDrawer ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root

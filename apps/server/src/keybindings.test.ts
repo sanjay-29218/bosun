@@ -243,7 +243,10 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const configState = yield* keybindings.loadConfigState;
         assert.deepEqual(
           configState.keybindings
-            .filter((entry) => entry.shortcut.key === "b" && entry.shortcut.shiftKey)
+            .filter(
+              (entry) =>
+                entry.shortcut.key === "b" && entry.shortcut.shiftKey && !entry.shortcut.altKey,
+            )
             .map((entry) => entry.command),
           ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
         );
@@ -270,6 +273,42 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       yield* writeKeybindingsConfig(keybindingsConfigPath, [existing]);
       yield* keybindings.syncDefaultKeybindingsOnStartup;
       assert.deepStrictEqual(yield* backgroundRules, [existing]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("gives an untouched thread jump its chords for several bots", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const existing = { key: "mod+1", command: "thread.jump.1", when: "isDesktop" } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.command === "thread.jump.1"),
+        [
+          {
+            key: "mod+ctrl+1",
+            command: "thread.jump.1",
+            when: "isDesktop && multipleBots && isMac",
+          },
+          {
+            key: "mod+alt+1",
+            command: "thread.jump.1",
+            when: "isDesktop && multipleBots && !isMac",
+          },
+          existing,
+        ],
+      );
+      assert.isTrue(
+        persisted.some(
+          (entry) =>
+            entry.command === "bot.jump.1" &&
+            entry.key === "mod+1" &&
+            entry.when === "isDesktop && multipleBots",
+        ),
+      );
     }).pipe(Effect.provide(layerKeybindings())),
   );
 

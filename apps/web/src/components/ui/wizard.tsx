@@ -132,6 +132,53 @@ export function WizardSteps({
   );
 }
 
+/**
+ * Tabs in a wizard's header, in the same bar as `WizardSteps`, for editors whose parts can be
+ * visited in any order.
+ */
+export function WizardTabs<T extends string>({
+  tabs,
+  value,
+  onValueChange,
+  label,
+}: {
+  readonly tabs: ReadonlyArray<{
+    readonly value: T;
+    readonly label: ReactNode;
+    readonly icon?: ReactNode;
+  }>;
+  readonly value: T;
+  readonly onValueChange: (value: T) => void;
+  readonly label: string;
+}) {
+  return (
+    <div
+      className="grid auto-cols-fr grid-flow-col gap-1 rounded-xl bg-background p-1 ring-1 ring-black/5 dark:bg-white/4 dark:ring-white/5"
+      role="tablist"
+      aria-label={label}
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="tab"
+          aria-selected={tab.value === value}
+          className={cn(
+            "flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium outline-none hover:bg-card focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
+            tab.value === value
+              ? "bg-card text-foreground shadow-xs ring-1 ring-inset ring-black/5 dark:shadow-none dark:ring-white/5"
+              : "text-muted-foreground",
+          )}
+          onClick={() => onValueChange(tab.value)}
+        >
+          {tab.icon}
+          <span className="min-w-0 truncate">{tab.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function WizardPanel({
   children,
   holdHeight = false,

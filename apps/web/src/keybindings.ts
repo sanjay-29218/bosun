@@ -1,4 +1,6 @@
 import {
+  BOT_JUMP_KEYBINDING_COMMANDS,
+  type BotJumpKeybindingCommand,
   type KeybindingCommand,
   type KeybindingShortcut,
   type KeybindingWhenNode,
@@ -61,6 +63,7 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
     previewOpen: false,
     isWeb: !isElectron,
     isDesktop: isElectron,
+    isMac: isMacPlatform(resolvePlatform(options)),
     editableFocus: false,
     ...options?.context,
   };
@@ -261,6 +264,15 @@ export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCo
 
 export function threadJumpIndexFromCommand(command: string): number | null {
   const index = THREAD_JUMP_KEYBINDING_COMMANDS.indexOf(command as ThreadJumpKeybindingCommand);
+  return index === -1 ? null : index;
+}
+
+export function botJumpCommandForIndex(index: number): BotJumpKeybindingCommand | null {
+  return BOT_JUMP_KEYBINDING_COMMANDS[index] ?? null;
+}
+
+export function botJumpIndexFromCommand(command: string): number | null {
+  const index = BOT_JUMP_KEYBINDING_COMMANDS.indexOf(command as BotJumpKeybindingCommand);
   return index === -1 ? null : index;
 }
 

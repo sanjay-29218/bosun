@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as BotStore from "../bots/BotStore.ts";
 import * as ServerConfig from "../config.ts";
 import { OrchestrationEffectRequestV2 } from "../orchestration-v2/EffectOutbox.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
@@ -42,6 +43,7 @@ const layerServices = Layer.mergeAll(
   LegacyV1ThreadImporter.layer.pipe(Layer.provideMerge(layerEventPersistence)),
   ProjectionMaintenance.layer.pipe(Layer.provide(layerEventPersistence)),
   ProjectStore.layer,
+  BotStore.layer,
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
   Layer.succeed(WorkspacePaths.WorkspacePaths, {

@@ -4,12 +4,14 @@ import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import {
   BackHandler,
   Keyboard,
+  Pressable,
   type TextInputInstance,
   View,
   type LayoutChangeEvent,
 } from "react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 
+import { BotAvatar } from "../../components/BotAvatar";
 import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
 import { Menu } from "../../components/ui/Menu";
@@ -18,6 +20,12 @@ import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands
 import { WorkspaceListToolbarRow } from "../workspace/WorkspaceListToolbarRow";
 import { useWorkspaceConnectionState } from "../../state/workspace";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
+import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
+import {
+  threadListViewToggleButton,
+  type BotSwitcherMenu,
+  type ThreadListViewToggle,
+} from "./thread-list-chrome";
 
 export function ThreadListToolbar(props: {
   readonly searchQuery: string;
@@ -26,6 +34,8 @@ export function ThreadListToolbar(props: {
   readonly filterCustomized: boolean;
   readonly onFilterAction: NonNullable<ComponentProps<typeof Menu>["onPressAction"]>;
   readonly onOpenEnvironments: () => void;
+  readonly botSwitcher: BotSwitcherMenu | null;
+  readonly viewToggle: ThreadListViewToggle | null;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
@@ -113,8 +123,51 @@ export function ThreadListToolbar(props: {
         searchAccessibilityLabel="Search threads"
         titleAccessibilityLabel="T3 Code, Threads"
         onOpenEnvironments={props.onOpenEnvironments}
+        actions={
+          <>
+            {props.botSwitcher ? <BotSwitcherButton menu={props.botSwitcher} /> : null}
+            {props.viewToggle ? (
+              <AndroidHeaderIconButton
+                {...threadListViewToggleButton(props.viewToggle.view)}
+                onPress={props.viewToggle.onToggle}
+              />
+            ) : null}
+          </>
+        }
         filter={filterButton}
       />
     </View>
+  );
+}
+
+/** The active bot's avatar in an icon-button slot; the menu lists every bot and what waits. */
+function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
+  const { menu } = props;
+  const { buttonSize, iconSize } = useAndroidControlSizing();
+  return (
+    <AndroidAnchoredMenu
+      title="Bots"
+      actions={menu.items.map((item) => ({
+        id: item.key,
+        title: item.title,
+        ...(item.subtitle ? { subtitle: item.subtitle } : {}),
+        ...(item.state ? { state: item.state } : {}),
+      }))}
+      onPressAction={({ nativeEvent }) =>
+        menu.items.find((item) => item.key === nativeEvent.event)?.onPress()
+      }
+    >
+      {(open) => (
+        <Pressable
+          accessibilityLabel={menu.accessibilityLabel}
+          accessibilityRole="button"
+          className="items-center justify-center"
+          style={{ width: buttonSize, height: buttonSize }}
+          onPress={open}
+        >
+          <BotAvatar avatar={menu.avatar} color={menu.color} size={iconSize + 10} />
+        </Pressable>
+      )}
+    </AndroidAnchoredMenu>
   );
 }

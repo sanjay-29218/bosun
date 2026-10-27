@@ -80,6 +80,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
     }),
   ),
   pullRequests: Schema.optionalKey(Schema.Boolean),
+  /** Server exposes top-level bots and `project.botId`. */
+  bots: Schema.optionalKey(Schema.Boolean),
+  /** Server exposes global roles and durable crew members, runs, and handoffs. */
+  crew: Schema.optionalKey(Schema.Boolean),
+  /** Server exposes the global library of versioned workflows and feature run state. */
+  workflows: Schema.optionalKey(Schema.Boolean),
   pullRequestChecks: Schema.optionalKey(Schema.Boolean),
   /** Absent on older servers; serialize context as legacy text for them. */
   inlineMessageContext: Schema.optionalKey(Schema.Boolean),

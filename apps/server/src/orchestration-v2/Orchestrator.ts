@@ -37,6 +37,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2ContextSourcePoint,
+  headquartersBotId,
   type OrchestrationV2ContextTransfer,
   type OrchestrationV2ContextTransferResolution,
   type OrchestrationV2ConversationMessage,
@@ -258,6 +259,15 @@ export class OrchestratorThreadAboveModeLimitError extends Schema.TaggedError<Or
   }
 }
 
+export class OrchestratorHeadquartersThreadDeleteError extends Schema.TaggedError<OrchestratorHeadquartersThreadDeleteError>()(
+  "OrchestratorHeadquartersThreadDeleteError",
+  { commandId: CommandId, threadId: ThreadId },
+) {
+  override get message(): string {
+    return "A bot's headquarters can't be deleted. Archive it to hide it instead.";
+  }
+}
+
 export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedError<OrchestratorCommandPreviouslyRejectedError>()(
   "OrchestratorCommandPreviouslyRejectedError",
   {
@@ -306,6 +316,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorCommandIdConflictError,
   OrchestratorSubagentThreadReadOnlyError,
   OrchestratorThreadAboveModeLimitError,
+  OrchestratorHeadquartersThreadDeleteError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
@@ -487,6 +498,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
+    case "thread.crew-stage.set":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
@@ -2825,6 +2837,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pull-request-watch.sync"
           | "thread.pull-request.sync"
           | "thread.title.regeneration.complete"
+          | "thread.crew-stage.set"
           | "thread.runtime-mode.set"
           | "thread.interaction-mode.set"
           | "thread.model-selection.set"
@@ -3636,6 +3649,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 }),
             updatedAt: thread.updatedAt,
           };
+        case "thread.crew-stage.set":
+          // Stage bookkeeping is not thread activity, so it never delays settling.
+          return {
+            ...thread,
+            ...(command.title === undefined ? {} : { title: command.title }),
+            ...(command.crew === undefined ? {} : { crew: command.crew }),
+            ...(command.feature === undefined ? {} : { feature: command.feature }),
+          };
         case "thread.title.regeneration.complete":
           return thread.titleRegeneration?.requestId === command.requestId
             ? {
@@ -3708,6 +3729,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
+        case "thread.crew-stage.set":
           return "thread.metadata-updated" as const;
         case "thread.pull-request.link":
         case "thread.pull-request.unlink":
@@ -11808,6 +11830,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       }
       case "thread.delete": {
+        // Its id is fixed per bot, and a deleted thread's id can never be reused.
+        if (headquartersBotId(command.threadId) !== null) {
+          return yield* new OrchestratorHeadquartersThreadDeleteError({
+            commandId: command.commandId,
+            threadId: command.threadId,
+          });
+        }
         const projection = yield* projectionStore
           .getThreadRecords(command.threadId, [
             "runs",
@@ -11853,6 +11882,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.watch":
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
+      case "thread.crew-stage.set":
       case "thread.runtime-mode.set":
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":

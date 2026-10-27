@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type {
   RepositoryIdentity,
+  RepositoryIssue,
+  RepositoryMilestone,
   ChangeRequest,
   ChangeRequestState,
   SourceControlProviderError,
@@ -15,6 +17,10 @@ import type {
 export interface SourceControlLinkSubject {
   readonly title: string;
   readonly body: string | null;
+  /** Issue details, for providers that read them. */
+  readonly state?: "open" | "closed";
+  readonly milestone?: string | null;
+  readonly subIssues?: { readonly completed: number; readonly total: number } | null;
 }
 
 /** Return undefined synchronously for unsupported URLs, without starting a lookup. */
@@ -22,6 +28,16 @@ export type ResolveSourceControlLink = (input: {
   readonly cwd: string;
   readonly url: URL;
 }) => Effect.Effect<SourceControlLinkSubject, SourceControlProviderError> | undefined;
+
+/** A repository's open issues, its recently closed ones, and its open milestones. */
+export interface SourceControlIssueList {
+  /** `owner/name` the issues were read from. */
+  readonly repository: string;
+  readonly issues: ReadonlyArray<RepositoryIssue>;
+  readonly milestones: ReadonlyArray<RepositoryMilestone>;
+  /** More open issues exist than were read. */
+  readonly truncated: boolean;
+}
 
 export interface SourceControlProviderContext {
   readonly provider: SourceControlProviderInfo;
@@ -149,6 +165,11 @@ export class SourceControlProvider extends Context.Service<
       }) => Effect.Effect<SourceControlProviderContext | null, SourceControlProviderError>;
     }) => Effect.Effect<string | null, SourceControlProviderError>;
     readonly resolveLink?: ResolveSourceControlLink;
+    /** Optional capability for a repository's issues and milestones. Absent means unsupported. */
+    readonly listIssues?: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<SourceControlIssueList, SourceControlProviderError>;
     /**
      * Whether `createChangeRequest` from `cwd` targets `repository`, the `owner/name` of the
      * context's remote, for a host whose tools let configuration outside the remotes name another

@@ -12,6 +12,7 @@ import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
+import { ThreadFeatureRow } from "../crew/ThreadFeatureRow";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
@@ -32,6 +33,8 @@ export interface ThreadDetailsPanelProps extends Pick<
   forceNewWorktree?: boolean;
   environmentId: EnvironmentId;
   threadId: ThreadId;
+  /** Opens the feature panel; set on a feature's stage thread. */
+  onOpenFeature?: (() => void) | undefined;
   projectId: ProjectId;
   worktreePath: string | null;
   isServerThread: boolean;
@@ -116,6 +119,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             showHeading={false}
           >
             <div className="flex flex-col">
+              {props.draftId ? null : (
+                <ThreadFeatureRow
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
+                  onOpenFeature={props.onOpenFeature}
+                />
+              )}
               {density === "full" ? (
                 <BranchToolbar
                   layout="panel"

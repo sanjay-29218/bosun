@@ -41,13 +41,17 @@ import { deriveBottomControlInsets } from "../../lib/reserved-regions";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
+import { useActiveBot } from "../../state/bots";
 import { useProjects, useThreadShell, useThreadShells } from "../../state/entities";
+import { useBoardProjects } from "../../state/features";
 import { useThreadSearch } from "../../state/queries";
 import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceEnvironments } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import { needsYouLabel } from "../home/thread-list-chrome";
+import { useThreadListView } from "../home/use-thread-list-view";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { ThreadSearchMatchExcerpt } from "../threads/thread-search-match";
 import {
@@ -221,6 +225,11 @@ export function CommandPalette(props: {
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const environments = useWorkspaceEnvironments();
   const { savedConnectionsById } = useSavedRemoteConnections();
+  const activeBot = useActiveBot();
+  const viewToggle = useThreadListView(
+    activeBot.viewKey,
+    useBoardProjects(activeBot.projectKeys).length > 0,
+  );
   const [query, setQuery] = useState("");
   // Ranking is relative to when the palette opened, so rows do not reorder as time passes.
   const [now] = useState(() => Date.now());
@@ -281,6 +290,32 @@ export function CommandPalette(props: {
         searchTerms: ["folder", "clone", "repository", "git"],
         run: () => navigation.navigate("AddProject"),
       },
+      ...(viewToggle
+        ? [
+            {
+              key: "toggleBoard",
+              kind: "action" as const,
+              title: viewToggle.view === "list" ? "Show board" : "Show threads",
+              searchTerms: ["board", "features", "list", "threads", "kanban"],
+              run: viewToggle.onToggle,
+            },
+          ]
+        : []),
+      ...(activeBot.projectKeys === null
+        ? []
+        : activeBot.bots
+            .filter((bot) => bot.key !== activeBot.active?.key)
+            .map((bot) => {
+              const waiting = activeBot.needsYou.get(bot.key) ?? 0;
+              return {
+                key: `bot:${bot.key}`,
+                kind: "action" as const,
+                title: `Switch to ${bot.name}`,
+                ...(waiting > 0 ? { detail: needsYouLabel(waiting) } : {}),
+                searchTerms: ["bot", bot.name],
+                run: () => activeBot.select(bot),
+              };
+            })),
       {
         key: "settings",
         kind: "action",
@@ -426,6 +461,7 @@ export function CommandPalette(props: {
     );
     return [...actions, ...projectItems, ...threadItems];
   }, [
+    activeBot,
     selectTab,
     activeThread,
     activeThreadRef,
@@ -436,6 +472,7 @@ export function CommandPalette(props: {
     savedConnectionsById,
     selectDetail,
     threads,
+    viewToggle,
   ]);
   const rankedMessageKeys = useMemo(() => {
     const subjectByKey = new Map(

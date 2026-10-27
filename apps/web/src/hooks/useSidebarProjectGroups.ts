@@ -1,3 +1,5 @@
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+
 import { orderItemsByPreferredIds, sortSidebarV2ProjectGroups } from "../components/Sidebar.logic";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
@@ -6,8 +8,10 @@ import { useProjects, useQuietThreadShells } from "../state/entities";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
 
-export function useSidebarProjectGroups() {
-  const projects = useProjects();
+/** The sidebar passes the bot rail's narrowed projects; other callers group all. */
+export function useSidebarProjectGroups(scopedProjects?: ReadonlyArray<EnvironmentProject>) {
+  const allProjects = useProjects();
+  const projects = scopedProjects ?? allProjects;
   // Activity order lags a running thread's streaming ticks until its next
   // real change; reading every tick re-rendered the whole sidebar with it.
   const threads = useQuietThreadShells();

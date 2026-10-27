@@ -68,6 +68,14 @@ import { projectEnvironment } from "../../state/projects";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectCloneBanner } from "./ProjectCloneBanner";
+import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
+import { botsEnvironment, useActiveBot } from "../../state/bots";
+import { featuresEnvironment } from "../../state/features";
+import { useSetThreadListView } from "../home/use-thread-list-view";
+import { useEnvironmentQuery } from "../../state/query";
+import { workflowsEnvironment } from "../../state/workflows";
+import { Menu } from "../../components/ui/Menu";
+import { uuidv4 } from "../../lib/uuid";
 import {
   describeUnavailableModelSelection,
   isModelSelectionUnavailable,
@@ -188,6 +196,46 @@ export function NewTaskDraftScreen(props: {
     selectedProject?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
+  // Crew mode: a chosen workflow turns the prompt into a feature brief.
+  const crewEnabled = selectedEnvironmentServerConfig?.environment.capabilities.workflows === true;
+  const workflowDefinitions = useEnvironmentQuery(
+    crewEnabled && selectedProject
+      ? workflowsEnvironment.definitions({
+          environmentId: selectedProject.environmentId,
+          input: {},
+        })
+      : null,
+  ).data;
+  // Until you pick one, the workflow is the default of the bot that owns the project.
+  const projectBots = useEnvironmentQuery(
+    crewEnabled &&
+      selectedProject &&
+      selectedEnvironmentServerConfig?.environment.capabilities.bots === true
+      ? botsEnvironment.list({ environmentId: selectedProject.environmentId, input: {} })
+      : null,
+  ).data;
+  const botDefaultWorkflowId =
+    selectedProject === null
+      ? null
+      : (projectBots?.find((bot) => bot.id === projectBotId(selectedProject))?.defaultWorkflowId ??
+        null);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<{
+    readonly projectKey: string;
+    /** Null when you chose No workflow. */
+    readonly workflowId: string | null;
+  } | null>(null);
+  const workflowId =
+    selectedWorkflow !== null && selectedWorkflow.projectKey === selectedProjectKey
+      ? selectedWorkflow.workflowId
+      : botDefaultWorkflowId;
+  const workflow =
+    workflowId === null
+      ? null
+      : (workflowDefinitions?.find((definition) => definition.id === workflowId) ?? null);
+  const activeBotViewKey = useActiveBot().viewKey;
+  const setThreadListView = useSetThreadListView();
+  const createFeature = useAtomCommand(featuresEnvironment.create);
+  const startFeature = useAtomCommand(featuresEnvironment.start);
   const projectCloneState = useProjectClone(
     selectedProject
       ? { environmentId: selectedProject.environmentId, projectId: selectedProject.id }
@@ -781,6 +829,57 @@ export function NewTaskDraftScreen(props: {
     locked: isComposerInteractionLocked,
   });
 
+  /** Starts a feature with the prompt as its brief, then opens its first stage thread. */
+  async function startWorkflowFeature(
+    project: NonNullable<typeof flow.selectedProject>,
+    workflowId: string,
+    brief: string,
+    draftKey: NonNullable<typeof flow.draftKey>,
+  ): Promise<void> {
+    flow.setSubmitting(true);
+    await (async () => {
+      const featureId = `feature-${uuidv4()}`;
+      const firstLine = brief.split("\n", 1)[0]!.trim();
+      const created = await createFeature({
+        environmentId: project.environmentId,
+        input: {
+          id: featureId,
+          projectId: project.id,
+          title: firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine,
+          brief,
+          workflowId,
+          autoTitle: true,
+        },
+      });
+      if (created._tag !== "Success") return;
+      // A feature that fails to start waits on the board, whose row offers Start.
+      const started = await startFeature({
+        environmentId: project.environmentId,
+        input: { projectId: project.id, featureId },
+      });
+      abortComposerDraftOperations(draftKey);
+      clearComposerDraftContent(draftKey, {
+        clearModelSelection: true,
+        clearWorkspaceSelection: true,
+      });
+      const snapshot = started._tag === "Success" ? started.value : null;
+      const threadId =
+        snapshot?.steps.find((step) => step.id === snapshot.activeStepId)?.threadId ?? null;
+      promptInputRef.current?.blur();
+      if (threadId === null) {
+        void setThreadListView(activeBotViewKey, "board");
+        goBack();
+      } else {
+        navigation.dispatch(
+          CommonActions.setParams(
+            submittedThreadParams(String(project.environmentId), String(threadId)),
+          ),
+        );
+      }
+    })();
+    flow.setSubmitting(false);
+  }
+
   async function handleStart(): Promise<import("@t3tools/contracts").MessageId | null> {
     const selectedProject = flow.selectedProject;
     const draftKey = flow.draftKey;
@@ -820,6 +919,18 @@ export function NewTaskDraftScreen(props: {
     const workspaceMode = workspaceSelection.mode;
     const selectedBranchName = workspaceSelection.branch;
     const initialMessageText = draft.text.trim();
+    if (workflow !== null) {
+      if (initialMessageText.length === 0 || flow.submitting) return null;
+      if (draft.attachments.length > 0) {
+        Dialog.alert(
+          "Remove attachments",
+          "A feature starts from the text of its brief. Remove the attachments, or choose No workflow.",
+        );
+        return null;
+      }
+      await startWorkflowFeature(selectedProject, workflow.id, initialMessageText, draftKey);
+      return null;
+    }
 
     if (
       attachmentBlockReason !== null ||
@@ -925,8 +1036,13 @@ export function NewTaskDraftScreen(props: {
       ? cloneBlocksStart
         ? "Wait for the project clone to finish."
         : flow.submitting
-          ? "Starting the thread…"
-          : flow.workspaceMode === "worktree" && (!flow.selectedBranchName || !flow.isGitRepoKnown)
+          ? workflow !== null
+            ? "Starting the feature…"
+            : "Starting the thread…"
+          : // A workflow brings its own crew models and workspace, so only the brief matters.
+            workflow === null &&
+              flow.workspaceMode === "worktree" &&
+              (!flow.selectedBranchName || !flow.isGitRepoKnown)
             ? "Choose a base branch before creating a worktree."
             : null
       : "Wait for shared content to finish importing.";
@@ -1074,6 +1190,43 @@ export function NewTaskDraftScreen(props: {
     </View>
   );
 
+  // Picking a workflow starts a feature whose crew picks each stage's model and workspace.
+  const workflowControl =
+    crewEnabled && (workflowDefinitions?.length ?? 0) > 0 ? (
+      <View className="flex-row items-center px-2 pb-1">
+        <Menu
+          accessibilityLabel="Workflow"
+          actions={[
+            { id: "", title: "No workflow", state: workflow === null ? "on" : "off" },
+            ...(workflowDefinitions ?? []).map((definition) => ({
+              id: definition.id,
+              title: definition.name,
+              state: workflow?.id === definition.id ? ("on" as const) : ("off" as const),
+            })),
+          ]}
+          onPressAction={({ nativeEvent }) =>
+            setSelectedWorkflow(
+              selectedProjectKey === null
+                ? null
+                : {
+                    projectKey: selectedProjectKey,
+                    workflowId: nativeEvent.event === "" ? null : nativeEvent.event,
+                  },
+            )
+          }
+        >
+          <ComposerInlineControl
+            accessibilityLabel="Workflow"
+            disabled={isComposerInteractionLocked}
+            emphasized={workflow !== null}
+            icon="point.3.connected.trianglepath.dotted"
+            label={workflow ? `${workflow.name} · crew picks models` : "No workflow"}
+            maxWidth="100%"
+          />
+        </Menu>
+      </View>
+    ) : null;
+
   if (!flow.selectedModel) {
     return (
       <ThreadScreenFallback>
@@ -1151,7 +1304,8 @@ export function NewTaskDraftScreen(props: {
                   />
                 </View>
               ) : null}
-              {flow.canChooseWorkspace ? workspaceControls : null}
+              {workflowControl}
+              {flow.canChooseWorkspace && workflow === null ? workspaceControls : null}
             </View>
           ),
           editorRef: promptInputRef,
@@ -1208,7 +1362,9 @@ export function NewTaskDraftScreen(props: {
         onSendMessage={handleStart}
         onReconnectEnvironment={() => onReconnectEnvironment(selectedProject.environmentId)}
         canSwitchThreadProvider
-        onUpdateThreadInteractionMode={flow.planModeEnabled ? flow.setInteractionMode : undefined}
+        onUpdateThreadInteractionMode={
+          flow.planModeEnabled && workflow === null ? flow.setInteractionMode : undefined
+        }
         onRespondToApproval={async () => {}}
         onSelectUserInputOption={() => {}}
         onChangeUserInputCustomAnswer={() => {}}

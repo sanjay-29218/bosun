@@ -98,6 +98,8 @@ export function HomeHeader(props: HomeHeaderProps) {
         filterActions={menuActions}
         filterCustomized={hasCustomListOptions}
         onFilterAction={handleMenuAction}
+        botSwitcher={props.botSwitcher}
+        viewToggle={props.viewToggle}
         onOpenEnvironments={props.onOpenEnvironments}
       />
     </>

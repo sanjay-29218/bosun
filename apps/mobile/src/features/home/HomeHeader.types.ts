@@ -3,6 +3,7 @@ import type {
   HomeListFilterMenuEnvironment,
   HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
+import type { BotSwitcherMenu, ThreadListViewToggle } from "./thread-list-chrome";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
@@ -17,5 +18,9 @@ export interface HomeHeaderProps {
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
+  /** Null with fewer than two bots. */
+  readonly botSwitcher: BotSwitcherMenu | null;
+  /** Null when no connected environment runs workflows and the list shows threads. */
+  readonly viewToggle: ThreadListViewToggle | null;
   readonly onStartNewTask: () => void;
 }

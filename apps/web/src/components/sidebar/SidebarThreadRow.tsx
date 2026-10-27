@@ -1,4 +1,11 @@
+import {
+  CREW_STATE_LABELS,
+  featureTagColor,
+  formatCrewStageLine,
+} from "@t3tools/client-runtime/crew-stage";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
+import { featureIssueMeta, FeatureIssueIcon } from "../crew/FeatureIssue";
+import { FeatureTag } from "../crew/FeatureTag";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -32,6 +39,7 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -46,6 +54,7 @@ import {
   TerminalIcon,
   Undo2Icon,
   UserRoundIcon,
+  WorkflowIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -278,6 +287,39 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
             <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+          </div>
+        ) : null}
+        {thread.feature ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <WorkflowIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            <span
+              aria-hidden
+              className="size-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: featureTagColor(thread.feature.id) }}
+            />
+            <div className="min-w-0 truncate text-foreground/75">{thread.feature.title}</div>
+          </div>
+        ) : null}
+        {thread.crew ? (
+          <div className="flex min-w-0 items-center gap-2 ps-5 text-muted-foreground">
+            <div className="min-w-0 truncate">
+              {formatCrewStageLine(thread.crew)} · {CREW_STATE_LABELS[thread.crew.state]}
+            </div>
+          </div>
+        ) : null}
+        {thread.feature?.issue ? (
+          <div className="flex min-w-0 items-start gap-2">
+            <FeatureIssueIcon issue={thread.feature.issue} className="mt-0.5 size-3" />
+            <div className="min-w-0">
+              <div className="truncate text-foreground/75">
+                #{thread.feature.issue.number} {thread.feature.issue.title}
+              </div>
+              {featureIssueMeta(thread.feature.issue) ? (
+                <div className="truncate text-muted-foreground">
+                  {featureIssueMeta(thread.feature.issue)}
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {environmentLabel ? (
@@ -561,6 +603,14 @@ type SidebarThreadRowProps = {
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
+  /** The feature's other threads folded under this row, and whether they show. */
+  featureGroup?: {
+    readonly count: number;
+    readonly expanded: boolean;
+    readonly onToggle: () => void;
+  } | null;
+  /** Shown under its feature's row, indented. */
+  nested?: boolean;
 };
 
 // Mounted only while renaming, so each rename starts uncommitted.
@@ -1100,6 +1150,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
+          props.nested && "ms-4",
         )}
       >
         <Tooltip disabled={sortable?.isDragging}>
@@ -1255,6 +1306,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const diff = latestRunDiff(thread);
   // Only the provider icon would remain; the New design drops the line instead of leaving it blank.
   const metaLineEmpty =
+    !thread.feature &&
+    !thread.crew &&
     !thread.branch &&
     !showsScratchMachine &&
     prBadge === null &&
@@ -1271,6 +1324,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         metaLineEmpty && "redesign:[contain-intrinsic-size:auto_58px]",
         sortable?.isDragging && "relative z-20",
+        props.nested && "ms-4",
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
@@ -1480,6 +1534,38 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 metaLineEmpty && "redesign:hidden",
               )}
             >
+              {/* A feature's threads lead with its tag, and its stage thread with the stage. */}
+              {thread.feature ? <FeatureTag feature={thread.feature} /> : null}
+              {thread.feature?.issue ? (
+                <span className="shrink-0 text-muted-foreground tabular-nums">
+                  #{thread.feature.issue.number}
+                </span>
+              ) : null}
+              {props.featureGroup ? (
+                <button
+                  type="button"
+                  aria-expanded={props.featureGroup.expanded}
+                  aria-label={`${props.featureGroup.expanded ? "Hide" : "Show"} the feature's other ${props.featureGroup.count === 1 ? "thread" : `${props.featureGroup.count} threads`}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.featureGroup?.onToggle();
+                  }}
+                  onPointerDown={handleActionPointerDown}
+                  className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <ChevronRightIcon
+                    aria-hidden
+                    className={cn("size-3", props.featureGroup.expanded && "rotate-90")}
+                  />
+                  {props.featureGroup.count}
+                </button>
+              ) : null}
+              {thread.crew ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {formatCrewStageLine(thread.crew)}
+                </span>
+              ) : null}
               {thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />

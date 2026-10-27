@@ -28,6 +28,7 @@ import type {
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentProjects } from "./projects";
 import { environmentPresentations } from "./presentation";
 import { environmentServerConfigsAtom } from "./server";
@@ -74,6 +75,18 @@ const EMPTY_UPDATED_AT_ATOM = Atom.make<DateTime.Utc | null>(null).pipe(
 const EMPTY_THREAD_HISTORY_ATOM = Atom.make<ThreadHistoryMeta>(EMPTY_THREAD_HISTORY_META).pipe(
   Atom.withLabel("web-thread-history:empty"),
 );
+
+/**
+ * The environment the app's main views belong to: the primary one. Bot rail main-view memory
+ * keys on it.
+ */
+export function useActiveEnvironmentId(): EnvironmentId | null {
+  return useAtomValue(primaryEnvironmentIdAtom);
+}
+
+export function readActiveEnvironmentId(): EnvironmentId | null {
+  return appAtomRegistry.get(primaryEnvironmentIdAtom);
+}
 
 export function useThreadRefs(enabled = true): ReadonlyArray<ScopedThreadRef> {
   return useAtomValue(enabled ? environmentThreadShells.threadRefsAtom : EMPTY_THREAD_REFS_ATOM);

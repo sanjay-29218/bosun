@@ -10,10 +10,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, useWindowDimensions } from "react-native";
 
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { logicalBotProjectKeys } from "@t3tools/client-runtime/state/bot-rail";
+import { headquartersBotId } from "@t3tools/contracts";
 import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
 
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { scopedProjectKey } from "../../lib/scopedEntities";
+import { useActiveBot, useRefreshBotsWhileOpen } from "../../state/bots";
 import { useProjects } from "../../state/entities";
+import { useBoardProjects } from "../../state/features";
+import { FeatureBoard } from "../crew/FeatureBoard";
 import { environmentThreadShells } from "../../state/threads";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
@@ -28,7 +34,11 @@ import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
 import { useAtomValueWhileVisible, useHomeRouteVisible } from "./home-route-visibility";
-import { buildHomeProjectScopes } from "./homeThreadList";
+import { BotHeaderRow } from "./BotHeaderRow";
+import { useOpenBotHeadquarters } from "./useOpenBotHeadquarters";
+import { buildHomeProjectScopes, findHomeProjectScope } from "./homeThreadList";
+import { buildBotSwitcherMenu } from "./thread-list-chrome";
+import { useThreadListView } from "./use-thread-list-view";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
@@ -46,12 +56,36 @@ export function HomeRouteScreen() {
   const { layout, panes, primarySidebarSearchQuery, setPrimarySidebarSearchQuery, startNewTask } =
     useAdaptiveWorkspaceLayout();
   const selectDetail = useSelectWorkspaceDetail();
-  const projects = useProjects();
+  const allProjects = useProjects();
   // Stop rebuilding the streaming thread list while Thread covers Home.
   const visible = useHomeRouteVisible();
-  const threads = useAtomValueWhileVisible(
+  const allThreads = useAtomValueWhileVisible(
     environmentThreadShells.navigationThreadShellsAtom,
     visible,
+  );
+  // The list shows the active bot's projects; with one bot it shows everything.
+  const activeBot = useActiveBot();
+  useRefreshBotsWhileOpen();
+  const botProjectKeys = activeBot.projectKeys;
+  const projects = useMemo(
+    () =>
+      botProjectKeys === null
+        ? allProjects
+        : allProjects.filter((project) =>
+            botProjectKeys.has(scopedProjectKey(project.environmentId, project.id)),
+          ),
+    [allProjects, botProjectKeys],
+  );
+  // Headquarters open from the bot row above the list instead.
+  const threads = useMemo(
+    () =>
+      allThreads.filter(
+        (thread) =>
+          headquartersBotId(thread.id) === null &&
+          (botProjectKeys === null ||
+            botProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId))),
+      ),
+    [allThreads, botProjectKeys],
   );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
@@ -69,13 +103,43 @@ export function HomeRouteScreen() {
     else setLocalSearchQuery(query);
   };
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) =>
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
       selectDetail({
         name: "Thread",
         params: { environmentId: String(thread.environmentId), threadId: String(thread.id) },
       }),
     [selectDetail],
   );
+  const openHeadquarters = useOpenBotHeadquarters(handleSelectThread);
+  const botProjectCount = useMemo(
+    () =>
+      activeBot.active === null
+        ? 0
+        : logicalBotProjectKeys(
+            activeBot.active,
+            activeBot.bots,
+            allProjects.filter((project) => !project.isScratch),
+          ).size,
+    [activeBot.active, activeBot.bots, allProjects],
+  );
+  const botHeader = activeBot.active ? (
+    <BotHeaderRow
+      bot={activeBot.active}
+      threads={allThreads}
+      projectCount={botProjectCount}
+      onOpen={(bot) => void openHeadquarters(bot)}
+    />
+  ) : null;
+  const botSwitcher = useMemo(
+    () =>
+      buildBotSwitcherMenu({
+        ...activeBot,
+        openHeadquarters: (bot) => void openHeadquarters(bot),
+      }),
+    [activeBot, openHeadquarters],
+  );
+  const boardProjects = useBoardProjects(botProjectKeys);
+  const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);
   const selectThreadRoute = useCallback(
     (params: ReactNavigation.RootParamList["Thread"]) => selectDetail({ name: "Thread", params }),
     [selectDetail],
@@ -114,7 +178,16 @@ export function HomeRouteScreen() {
     regenerateThreadTitle,
     unsettleThread,
   } = useThreadListActions();
-  const pendingTasks = usePendingNewTasks();
+  const allPendingTasks = usePendingNewTasks();
+  const pendingTasks = useMemo(
+    () =>
+      botProjectKeys === null
+        ? allPendingTasks
+        : allPendingTasks.filter((task) =>
+            botProjectKeys.has(scopedProjectKey(task.environmentId, task.projectId)),
+          ),
+    [allPendingTasks, botProjectKeys],
+  );
   const { openPendingTask, confirmDeletePendingTask } =
     usePendingTaskListActions(selectThreadRoute);
   const environments = useMemo(() => {
@@ -153,23 +226,39 @@ export function HomeRouteScreen() {
       setSelectedProjectKey(resolvedProjectKey);
     }
   }, [projectScopeKey, resolvedProjectKey, setSelectedProjectKey]);
-  const projectFilterOptions = useMemo(
+  const projectScopes = useMemo(
     () =>
       buildHomeProjectScopes({
         projects,
         environmentId: selectedEnvironmentId,
         projectGroupingMode: listOptions.projectGroupingMode,
-      }).map((scope) => ({
-        key: scope.key,
-        label: scope.title,
-      })),
+      }),
     [listOptions.projectGroupingMode, projects, selectedEnvironmentId],
+  );
+  const projectFilterOptions = useMemo(
+    () => projectScopes.map((scope) => ({ key: scope.key, label: scope.title })),
+    [projectScopes],
   );
   const selectedProjectKey = projectFilterOptions.some(
     (project) => project.key === resolvedProjectKey,
   )
     ? resolvedProjectKey
     : null;
+  // The board follows the same environment and project filters as the list.
+  const filteredBoardProjects = useMemo(() => {
+    const scope = findHomeProjectScope(projectScopes, selectedProjectKey);
+    const scopeKeys =
+      scope === null
+        ? null
+        : new Set(
+            scope.projectRefs.map((ref) => scopedProjectKey(ref.environmentId, ref.projectId)),
+          );
+    return boardProjects.filter(
+      (project) =>
+        (selectedEnvironmentId === null || project.environmentId === selectedEnvironmentId) &&
+        (scopeKeys === null || scopeKeys.has(scopedProjectKey(project.environmentId, project.id))),
+    );
+  }, [boardProjects, projectScopes, selectedEnvironmentId, selectedProjectKey]);
 
   if (layout.usesSplitView && !nativePrimaryColumn) {
     return (
@@ -221,11 +310,14 @@ export function HomeRouteScreen() {
         {/* Screen options merge shallowly; restore the header after split view. */}
         {workspace !== null && Platform.OS === "ios" ? null : (
           <NativeStackScreenOptions
-            optionsVersion={headerWidth}
+            optionsVersion={[headerWidth, botSwitcher !== null, viewToggle !== null]}
             options={{
               ...getConnectionAwareBrandHeaderOptions({
                 headerWidth,
-                trailingItemCount: nativePrimaryColumn && deviceType === "pad" ? 2 : 1,
+                trailingItemCount:
+                  (nativePrimaryColumn && deviceType === "pad" ? 2 : 1) +
+                  (botSwitcher ? 1 : 0) +
+                  (viewToggle ? 1 : 0),
                 onOpenEnvironments: () => openSettings(navigation, "SettingsEnvironments"),
               }),
               headerShown: Platform.OS !== "android",
@@ -242,55 +334,72 @@ export function HomeRouteScreen() {
           onProjectChange={setSelectedProjectKey}
           onOpenEnvironments={() => openSettings(navigation, "SettingsEnvironments")}
           onOpenSettings={() => selectTab("settings")}
+          botSwitcher={botSwitcher}
+          viewToggle={viewToggle}
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={startNewTask}
         />
 
-        <HomeScreen
-          catalogState={catalogState}
-          environments={environments}
-          onAddConnection={() => openSettings(navigation, "SettingsEnvironmentNew")}
-          onArchiveThread={archiveThread}
-          onDeleteThread={confirmDeleteThread}
-          onSettleThread={settleThread}
-          onSnoozeThread={snoozeThread}
-          onUnsnoozeThread={unsnoozeThread}
-          onUnsettleThread={unsettleThread}
-          onPinThread={pinThread}
-          onUnpinThread={unpinThread}
-          onSetThreadAutoSettle={setThreadAutoSettle}
-          onMoveThread={moveThread}
-          onRenameThread={renameThread}
-          onRegenerateThreadTitle={regenerateThreadTitle}
-          onEnvironmentChange={setSelectedEnvironmentId}
-          onProjectChange={setSelectedProjectKey}
-          onOpenSettings={() => selectTab("settings")}
-          onSearchQueryChange={setSearchQuery}
-          onSelectThread={handleSelectThread}
-          onSelectPendingTask={openPendingTask}
-          onDeletePendingTask={confirmDeletePendingTask}
-          onNewThreadOnBranch={handleNewThreadOnBranch}
-          onNewThreadInProject={(project) => {
-            selectThreadRoute({
-              draft: {
-                requestId: uuidv4(),
-                environmentId: String(project.environmentId),
-                projectId: String(project.id),
-                title: project.title,
-              },
-            });
-          }}
-          onStartNewTask={startNewTask}
-          pendingTasks={pendingTasks}
-          projectGroupingMode={listOptions.projectGroupingMode}
-          projects={projects}
-          projectSortOrder={listOptions.projectSortOrder}
-          savedConnectionsById={savedConnectionsById}
-          searchQuery={searchQuery}
-          selectedEnvironmentId={selectedEnvironmentId}
-          selectedProjectKey={selectedProjectKey}
-          threads={threads}
-        />
+        {viewToggle?.view === "board" ? (
+          <FeatureBoard
+            projects={filteredBoardProjects}
+            threads={threads}
+            active={visible}
+            searchQuery={searchQuery}
+            scopeKey={`${activeBot.viewKey}|${selectedEnvironmentId ?? "all"}|${selectedProjectKey ?? "all"}`}
+            onOpenThread={(environmentId, threadId) =>
+              handleSelectThread({ environmentId, id: threadId })
+            }
+            onStartFeature={startNewTask}
+          />
+        ) : (
+          <HomeScreen
+            botHeader={botHeader}
+            catalogState={catalogState}
+            environments={environments}
+            onAddConnection={() => openSettings(navigation, "SettingsEnvironmentNew")}
+            onArchiveThread={archiveThread}
+            onDeleteThread={confirmDeleteThread}
+            onSettleThread={settleThread}
+            onSnoozeThread={snoozeThread}
+            onUnsnoozeThread={unsnoozeThread}
+            onUnsettleThread={unsettleThread}
+            onPinThread={pinThread}
+            onUnpinThread={unpinThread}
+            onSetThreadAutoSettle={setThreadAutoSettle}
+            onMoveThread={moveThread}
+            onRenameThread={renameThread}
+            onRegenerateThreadTitle={regenerateThreadTitle}
+            onEnvironmentChange={setSelectedEnvironmentId}
+            onProjectChange={setSelectedProjectKey}
+            onOpenSettings={() => selectTab("settings")}
+            onSearchQueryChange={setSearchQuery}
+            onSelectThread={handleSelectThread}
+            onSelectPendingTask={openPendingTask}
+            onDeletePendingTask={confirmDeletePendingTask}
+            onNewThreadOnBranch={handleNewThreadOnBranch}
+            onNewThreadInProject={(project) => {
+              selectThreadRoute({
+                draft: {
+                  requestId: uuidv4(),
+                  environmentId: String(project.environmentId),
+                  projectId: String(project.id),
+                  title: project.title,
+                },
+              });
+            }}
+            onStartNewTask={startNewTask}
+            pendingTasks={pendingTasks}
+            projectGroupingMode={listOptions.projectGroupingMode}
+            projects={projects}
+            projectSortOrder={listOptions.projectSortOrder}
+            savedConnectionsById={savedConnectionsById}
+            searchQuery={searchQuery}
+            selectedEnvironmentId={selectedEnvironmentId}
+            selectedProjectKey={selectedProjectKey}
+            threads={threads}
+          />
+        )}
         <ThreadUndoNotice visible={visible} />
       </>
     </AndroidHomeFabLayout>

@@ -10,6 +10,7 @@ import { readProjects, waitForProject } from "../../state/entities";
 import { usePrimaryEnvironment } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentShellHasSnapshot } from "../../state/shell";
+import { activeBotInput } from "../../state/botRail";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 export function DesktopAppActivationCoordinator() {
@@ -56,6 +57,7 @@ export function DesktopAppActivationCoordinator() {
             workspaceRoot,
             createWorkspaceRootIfMissing: false,
             defaultModelSelection: null,
+            ...activeBotInput(environmentId),
           },
         });
         if (result._tag === "Failure") {

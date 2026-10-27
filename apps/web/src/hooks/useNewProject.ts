@@ -13,6 +13,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { waitForProject } from "~/state/entities";
 import { projectEnvironment } from "~/state/projects";
 import { sourceControlEnvironment } from "~/state/sourceControl";
+import { activeBotInput } from "~/state/botRail";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useNewThreadHandler } from "./useHandleNewThread";
 
@@ -72,7 +73,7 @@ export function useNewProject() {
   }): Promise<boolean> => {
     const result = await createNew({
       environmentId: input.environmentId,
-      input: { name: input.name },
+      input: { name: input.name, ...activeBotInput(input.environmentId) },
     });
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {

@@ -143,6 +143,8 @@ function pullRequestSettles(
   return pullRequestAtMs >= userAnchorMs;
 }
 
+const CREW_STATES_WAITING_ON_YOU = new Set(["approval", "input", "your-call", "failed"]);
+
 export function isAutoSettlementCandidate(
   thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestUserAuthoredMessageAt">,
   nowMs: number,
@@ -152,6 +154,8 @@ export function isAutoSettlementCandidate(
   if (thread.pendingRuntimeRequest !== null) return false;
   // A guest is waiting on the owner; settling would hide the Request.
   if ((thread.pendingGuestMessageCount ?? 0) > 0) return false;
+  // So is a feature stage waiting on a gate, a failure or a question.
+  if (thread.crew?.current && CREW_STATES_WAITING_ON_YOU.has(thread.crew.state)) return false;
   if (thread.activityRunStatus != null) return false;
   if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return false;
   if (threadHasQueuedTurnStart(thread, nowMs)) return false;

@@ -57,6 +57,7 @@ export interface ProjectCloneHooks {
     readonly title: string;
     readonly workspaceRoot: string;
     readonly createdAt: string;
+    readonly botId?: string;
   }) => Effect.Effect<void, OrchestrationDispatchCommandError>;
   readonly onCloned: (input: {
     readonly projectId: ProjectId;
@@ -316,6 +317,7 @@ export const make = Effect.gen(function* () {
             title: input.title,
             workspaceRoot: prepared.destinationPath,
             createdAt: input.createdAt,
+            ...(input.botId === undefined ? {} : { botId: input.botId }),
           });
           yield* publish;
           yield* launch(input.projectId);

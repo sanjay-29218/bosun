@@ -39,6 +39,8 @@ import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
+import { CrewStageBreadcrumb } from "../crew/CrewStageBreadcrumb";
+import { useCrewStageContext } from "../crew/useCrewStage";
 import { GuestShareIndicator } from "./GuestShareControls";
 
 interface ChatHeaderProps {
@@ -267,6 +269,8 @@ export const ChatHeader = memo(function ChatHeader({
       setRenaming(null);
     }
   };
+  // A stage thread's title is its feature, so the stage gets its own segment.
+  const crewStage = useCrewStageContext();
   return (
     <div
       ref={breadcrumbContainerRef}
@@ -341,7 +345,10 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+        <WorkspaceBreadcrumbItem
+          current={crewStage === null}
+          className={crewStage ? "min-w-10 shrink" : "min-w-10 flex-1"}
+        >
           {renamingTitle !== null ? (
             <input
               autoFocus
@@ -407,6 +414,16 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
         </WorkspaceBreadcrumbItem>
+        {crewStage ? (
+          <>
+            <WorkspaceBreadcrumbSeparator>
+              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+            </WorkspaceBreadcrumbSeparator>
+            <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+              <CrewStageBreadcrumb stage={crewStage} />
+            </WorkspaceBreadcrumbItem>
+          </>
+        ) : null}
       </WorkspaceBreadcrumb>
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>

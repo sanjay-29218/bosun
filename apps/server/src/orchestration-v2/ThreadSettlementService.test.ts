@@ -130,6 +130,30 @@ function persistedLink(
 }
 
 describe("isAutoSettlementCandidate", () => {
+  it("keeps a feature stage that waits on a person out of Settled", () => {
+    const crew = {
+      featureId: "feature",
+      stepId: "design",
+      index: 2,
+      total: 6,
+      state: "approval",
+      current: true,
+    } as const;
+    expect(ThreadSettlementService.isAutoSettlementCandidate(shell({ crew }), NOW_MS)).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ crew: { ...crew, current: false } }),
+        NOW_MS,
+      ),
+    ).toBe(true);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ crew: { ...crew, state: "done" } }),
+        NOW_MS,
+      ),
+    ).toBe(true);
+  });
+
   it("settles a thread whose only background work is a command left running", () => {
     expect(
       ThreadSettlementService.isAutoSettlementCandidate(

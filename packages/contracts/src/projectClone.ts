@@ -55,6 +55,8 @@ export const ProjectCloneStartInput = Schema.Struct({
   remoteUrl: Schema.optional(TrimmedNonEmptyString),
   destinationPath: TrimmedNonEmptyString,
   protocol: Schema.optional(SourceControlCloneProtocol),
+  /** The bot that will own the project; Captain when omitted. */
+  botId: Schema.optionalKey(Schema.String),
 });
 export type ProjectCloneStartInput = typeof ProjectCloneStartInput.Type;
 

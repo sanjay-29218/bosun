@@ -116,6 +116,15 @@ export interface Preferences {
   readonly threadListWorkingShelfExpanded?: boolean;
   readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestListFilters?: PullRequestListPreferences;
+  /**
+   * Features screen Workflow switch, by scope (a project key, or "all"): the workflow whose
+   * stages group the list. Absent means grouped by phase.
+   */
+  readonly crewWorkflowView?: Readonly<Record<string, string>>;
+  /** The bot the thread list shows, per environment, like web's rail. */
+  readonly activeBotIdByEnvironmentId?: Readonly<Record<string, string>>;
+  /** List or Board, per logical bot key. Absent means List. */
+  readonly threadListViewByBot?: Readonly<Record<string, "list" | "board">>;
   readonly workspaceSelections?: WorkspaceSelections;
 }
 
@@ -189,6 +198,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListWorkingShelfExpanded?: boolean;
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
+    crewWorkflowView?: Readonly<Record<string, string>>;
+    activeBotIdByEnvironmentId?: Readonly<Record<string, string>>;
+    threadListViewByBot?: Readonly<Record<string, "list" | "board">>;
     workspaceSelections?: WorkspaceSelections;
   } = {};
 
@@ -328,6 +340,28 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isPullRequestListPreferences(parsed.pullRequestListFilters)) {
     preferences.pullRequestListFilters = parsed.pullRequestListFilters;
+  }
+  if (typeof parsed.crewWorkflowView === "object" && parsed.crewWorkflowView !== null) {
+    preferences.crewWorkflowView = Object.fromEntries(
+      Object.entries(parsed.crewWorkflowView).filter(([, value]) => typeof value === "string"),
+    );
+  }
+  if (
+    typeof parsed.activeBotIdByEnvironmentId === "object" &&
+    parsed.activeBotIdByEnvironmentId !== null
+  ) {
+    preferences.activeBotIdByEnvironmentId = Object.fromEntries(
+      Object.entries(parsed.activeBotIdByEnvironmentId).filter(
+        ([, value]) => typeof value === "string",
+      ),
+    );
+  }
+  if (typeof parsed.threadListViewByBot === "object" && parsed.threadListViewByBot !== null) {
+    preferences.threadListViewByBot = Object.fromEntries(
+      Object.entries(parsed.threadListViewByBot).filter(
+        ([, value]) => value === "list" || value === "board",
+      ),
+    );
   }
   if (isWorkspaceSelections(parsed.workspaceSelections)) {
     preferences.workspaceSelections = parsed.workspaceSelections;

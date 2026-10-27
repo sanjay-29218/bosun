@@ -47,6 +47,7 @@ import {
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
+import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
@@ -176,7 +177,7 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { projectScriptIdFromCommand } from "~/projectScripts";
@@ -271,6 +272,19 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { CrewRunStatusStrip } from "./chat/CrewRunStatusStrip";
+import { CrewHandoffCard } from "./crew/CrewHandoffCard";
+import {
+  ComposerCrewControl,
+  ComposerWorkflowPicker,
+  useDraftWorkflow,
+} from "./crew/ComposerWorkflowPicker";
+import { useCrewDraftStore } from "./crew/crewDraftStore";
+import type { ComposerControlSize } from "./chat/ComposerControl";
+import { featuresEnvironment } from "../state/features";
+import { CrewStageBanner } from "./crew/CrewStageBanner";
+import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
+import { buildThreadRouteParams } from "../threadRoutes";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
@@ -888,6 +902,19 @@ export default function ChatView(props: ChatViewProps) {
   );
   const browserAvailable = isPreviewSupportedInRuntime() || activeEnvironmentServerBrowser;
   const activeThreadShell = serverThread;
+  // A stage thread's feature, shared with the header, composer banner and Feature tab.
+  const crewStage = useCrewStage(isServerThread ? activeThreadShell : null);
+  const crewHandoffCard = crewStage ? (
+    <CrewHandoffCard
+      environmentId={crewStage.thread.environmentId}
+      projectId={crewStage.thread.projectId}
+      threadId={crewStage.thread.id}
+    />
+  ) : null;
+  const addFeatureSurface = () => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "feature");
+  };
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
     serverRuntime.lastErrorClass === "usage_limit" &&
@@ -1019,6 +1046,138 @@ export default function ChatView(props: ChatViewProps) {
     !isServerThread && activeProject
       ? deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings)
       : undefined;
+  // Workflows and roles are environment-wide settings, not a project's.
+  const handleManageWorkflows = () => {
+    void navigate({ to: "/settings/workflows", search: { machine: environmentId } });
+  };
+  const handleEditCrew = () => {
+    void navigate({ to: "/settings/roles", search: { machine: environmentId } });
+  };
+  // A new thread with a workflow picked starts a feature; its first message is the brief.
+  const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
+  const draftWorkflow = useDraftWorkflow({ environmentId, projectId: draftProjectId, draftId });
+  const createFeature = useAtomCommand(featuresEnvironment.create);
+  const startFeature = useAtomCommand(featuresEnvironment.start);
+  const renderWorkflowPicker =
+    draftWorkflow.supported && draftId && draftProjectId
+      ? (size: ComposerControlSize) => (
+          <ComposerWorkflowPicker
+            environmentId={environmentId}
+            projectId={draftProjectId}
+            draftId={draftId}
+            size={size}
+            onManageWorkflows={handleManageWorkflows}
+          />
+        )
+      : undefined;
+  const draftWorkflowId = draftWorkflow.workflow?.id ?? null;
+  const renderCrewControl =
+    draftWorkflowId && draftId && draftProjectId
+      ? (size: ComposerControlSize) => (
+          <ComposerCrewControl
+            environmentId={environmentId}
+            projectId={draftProjectId}
+            draftId={draftId}
+            size={size}
+            onEditCrew={handleEditCrew}
+          />
+        )
+      : null;
+  // The feature a draft created, kept until it starts, so retrying a failed start (or a
+  // second Enter) reuses it instead of creating another. Create is idempotent per id.
+  const pendingCrewFeatureRef = useRef<{
+    readonly key: string;
+    readonly featureId: string;
+  } | null>(null);
+  const startCrewFeature = async (workflowId: string, brief: string) => {
+    if (!draftProjectId || !draftId) return;
+    if (composerHasNonPromptContent) {
+      toastManager.add({
+        type: "warning",
+        title: "A brief is text only",
+        description: "Remove attachments and context before starting a feature.",
+      });
+      return;
+    }
+    if (brief.length > 16_000) {
+      toastManager.add({
+        type: "warning",
+        title: "The brief is too long",
+        description: "Keep it under 16,000 characters.",
+      });
+      return;
+    }
+    const title = brief.split("\n")[0]!.trim().slice(0, 120) || "New feature";
+    const key = JSON.stringify([draftId, draftProjectId, workflowId, brief]);
+    const featureId =
+      pendingCrewFeatureRef.current?.key === key
+        ? pendingCrewFeatureRef.current.featureId
+        : `feature:${randomUUID()}`;
+    pendingCrewFeatureRef.current = { key, featureId };
+    // A refused start usually means the workflow is out of date (an edited role, say), and
+    // the workflow editor is where that gets fixed.
+    const reportFailure = (result: AtomCommandResult<unknown, unknown>) => {
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not start the feature",
+          description: error instanceof Error ? error.message : "An error occurred.",
+          actionProps: {
+            children: "Open workflow",
+            onClick: () => {
+              void navigate({
+                to: "/settings/workflow",
+                search: { environment: environmentId, workflow: workflowId },
+              });
+            },
+          },
+        }),
+      );
+    };
+    sendInFlightRef.current = true;
+    await (async () => {
+      const created = await createFeature({
+        environmentId,
+        input: {
+          id: featureId,
+          projectId: draftProjectId,
+          title,
+          brief,
+          workflowId,
+          autoTitle: true,
+        },
+      });
+      if (created._tag !== "Success") return reportFailure(created);
+      const started = await startFeature({
+        environmentId,
+        input: { projectId: draftProjectId, featureId },
+      });
+      if (started._tag !== "Success") return reportFailure(started);
+      pendingCrewFeatureRef.current = null;
+      promptRef.current = "";
+      setComposerDraftPrompt(composerDraftTarget, "");
+      useCrewDraftStore.getState().clearWorkflow(draftId);
+      const snapshot = started.value;
+      const firstThreadId = snapshot.steps.find(
+        (step) => step.id === snapshot.activeStepId,
+      )?.threadId;
+      if (firstThreadId) {
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(scopeThreadRef(environmentId, firstThreadId)),
+        });
+      } else {
+        toastManager.add({
+          type: "info",
+          title: "Feature queued",
+          description: "Its first stage starts when an agent slot frees up.",
+        });
+      }
+    })();
+    sendInFlightRef.current = false;
+  };
   const handleOpenDraftProjectSettings = () => {
     if (!activeDraftLogicalProjectKey) return;
     void navigate({
@@ -2809,6 +2968,9 @@ export default function ChatView(props: ChatViewProps) {
     respondingRequestIds,
     activePendingProgress,
     onAdvanceActivePendingUserInput,
+    startCrewFeature: draftWorkflowId
+      ? (brief: string) => startCrewFeature(draftWorkflowId, brief)
+      : null,
     onRespondToApproval: onRespondToApprovalStable,
     beginLocalDispatch,
     resetLocalDispatch,
@@ -3099,6 +3261,7 @@ export default function ChatView(props: ChatViewProps) {
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
       }}
+      onEditWorkflow={handleManageWorkflows}
     />
   ) : null;
   const panelToggleControlProps = {
@@ -3198,6 +3361,13 @@ export default function ChatView(props: ChatViewProps) {
               : {})}
           />
         </header>
+        {isServerThread && activeProject && isCrewThreadId(activeThread.id) && !crewStage ? (
+          <CrewRunStatusStrip
+            environmentId={activeThread.environmentId}
+            projectId={activeProject.id}
+            threadId={activeThread.id}
+          />
+        ) : null}
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <ThreadFindCanvas
@@ -3319,6 +3489,7 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 onOpenThread={onOpenRelatedThreadStable}
                 parentThreadLink={paintOnlyDisplayedTimeline ? null : parentThreadLink}
+                headerContent={paintOnlyDisplayedTimeline ? null : crewHandoffCard}
                 workflowOpening={paintOnlyDisplayedTimeline ? null : workflowOpening}
                 onForkFromRun={paintOnlyDisplayedTimeline ? async () => {} : onForkFromRunStable}
                 onRollbackCheckpoint={onTimelineRollbackCheckpointStable}
@@ -3462,6 +3633,9 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
+                              crewBanner={crewStage?.prompt ? <CrewStageBanner /> : null}
+                              renderWorkflowPicker={renderWorkflowPicker}
+                              renderCrewControl={renderCrewControl}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}
@@ -3738,6 +3912,7 @@ export default function ChatView(props: ChatViewProps) {
               forceNewWorktree={multipleModelSelections !== null}
               environmentId={activeThread.environmentId}
               threadId={activeThread.id}
+              onOpenFeature={crewStage ? addFeatureSurface : undefined}
               projectId={activeThread.projectId}
               worktreePath={activeThread.worktreePath}
               isServerThread={isServerThread}
@@ -3861,6 +4036,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
+          onAddFeature={crewStage ? addFeatureSurface : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -3885,7 +4061,7 @@ export default function ChatView(props: ChatViewProps) {
       cwd={activeWorkspaceRoot}
       checkpoints={serverProjection?.checkpoints}
     >
-      {content}
+      <CrewStageContext value={crewStage}>{content}</CrewStageContext>
     </FileMetadataThreadProvider>
   );
 }

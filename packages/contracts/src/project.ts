@@ -160,6 +160,8 @@ export const Project = Schema.Struct({
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
   scripts: Schema.Array(ProjectScript),
+  /** The bot that owns the project. Absent from older servers: Captain. */
+  botId: Schema.optional(Schema.String),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -188,6 +190,8 @@ export const ProjectCreatePayload = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  /** The bot that will own the project; Captain when omitted. Move it later with bots.moveProject. */
+  botId: Schema.optional(Schema.String),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
@@ -526,6 +530,8 @@ export type ProjectEnsureScratchResult = typeof ProjectEnsureScratchResult.Type;
 
 export const ProjectCreateNewInput = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  /** The bot that will own the project; Captain when omitted. */
+  botId: Schema.optionalKey(Schema.String),
 });
 export type ProjectCreateNewInput = typeof ProjectCreateNewInput.Type;
 

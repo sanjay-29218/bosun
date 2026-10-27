@@ -21,6 +21,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
+  "feature",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -52,6 +53,8 @@ export type RightPanelSurface =
       /** Set when breadcrumbs moved a folder browser up to the workspace root. */
       folderTrail?: string;
     }
+  /** A stage thread's feature: its stages, outputs and workspace. */
+  | { id: "feature"; kind: "feature" }
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -213,6 +216,8 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "device":
       return { id: "device", kind };
+    case "feature":
+      return { id: "feature", kind };
   }
 };
 

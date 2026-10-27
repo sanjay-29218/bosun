@@ -49,6 +49,8 @@ export interface CreateProjectInput extends CommandMetadata {
   readonly createWorkspaceRootIfMissing?: boolean;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  /** The bot that will own the project; Captain when omitted. */
+  readonly botId?: string;
 }
 
 export interface UpdateProjectInput extends CommandMetadata {
@@ -321,6 +323,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly createWorkspaceRootIfMissing?: boolean;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
+        readonly botId?: string;
       }
     | {
         readonly type: "project.update";
@@ -357,6 +360,7 @@ export const createProject = Effect.fn("EnvironmentCommands.createProject")(func
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.botId === undefined ? {} : { botId: input.botId }),
   });
 });
 

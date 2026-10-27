@@ -12,7 +12,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { readMainView, useShowMainView } from "../components/sidebar/mainAppLocation";
 import {
+  readActiveEnvironmentId,
   readProject,
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -32,6 +34,10 @@ function ChatIndexRouteView() {
   return <IndexDraftLanding />;
 }
 
+/**
+ * Landing on the index route drops into a draft thread for the most recently active
+ * project, or onto the board when the environment last showed it.
+ */
 function IndexDraftLanding() {
   const projects = useProjects();
   const threads = useThreadShells();
@@ -40,6 +46,7 @@ function IndexDraftLanding() {
   const router = useRouter();
   // Read at effect time; this page can stay mounted while the router is already navigating away.
   const isStillOnIndex = useEffectEvent(() => router.state.location.pathname === "/");
+  const showMainView = useShowMainView();
   const startedAttemptRef = useRef<number | null>(null);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
 
@@ -57,6 +64,10 @@ function IndexDraftLanding() {
       return;
     }
     startedAttemptRef.current = attempt;
+    if (readMainView(readActiveEnvironmentId()) === "board") {
+      void showMainView("board", { replace: true });
+      return;
+    }
     void handleNewThread(projectRef, { replace: true })
       .then((opened) => {
         if (opened === null) {
@@ -66,7 +77,7 @@ function IndexDraftLanding() {
       .catch(() => {
         setStartState((state) => ({ ...state, failed: true }));
       });
-  }, [attempt, handleNewThread, mostRecentProject]);
+  }, [attempt, handleNewThread, mostRecentProject, showMainView]);
 
   if (mostRecentProject !== null) {
     return startState.failed ? (

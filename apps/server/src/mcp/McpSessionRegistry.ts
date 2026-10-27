@@ -109,12 +109,14 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           subagent: request.subagent === true,
         },
         client: undefined,
-        capabilities: new Set<McpInvocationContext.McpCapability>([
-          "orchestration",
-          "worktree",
-          "pull-requests",
-          ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
-        ]),
+        capabilities: new Set<McpInvocationContext.McpCapability>(
+          request.capabilities ?? [
+            "orchestration",
+            "worktree",
+            "pull-requests",
+            ...(browserToolsAvailable ? (["preview"] as const) : []),
+          ],
+        ),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {

@@ -7,13 +7,19 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
+import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import {
   threadSearchMatchKey,
   threadSearchSubject,
   type ThreadSearchShell,
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
-import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  headquartersBotId,
+  type ContextMenuItem,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
@@ -580,8 +586,13 @@ export function resolveSidebarRowThreadId(
   return thread?.id ?? threadId;
 }
 
+/**
+ * A feature is one row: its current stage thread. Earlier ones open from the breadcrumb.
+ * Bot headquarters open from the bot header above the list instead.
+ */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "crew"> & {
+    id: string;
     environmentId: string;
     projectId: string;
   },
@@ -590,9 +601,45 @@ export function filterSidebarV2VisibleThreads<
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
+      !isHiddenStageThread(thread) &&
+      headquartersBotId(thread.id) === null &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
+}
+
+/**
+ * Folds each feature's threads into one row: the feature's current stage thread (or, without
+ * one, its most recently updated thread) stays in the list, and its other threads, such as the
+ * project manager's, become that row's children. Threads outside a feature pass through.
+ */
+export function groupFeatureThreads<
+  T extends {
+    readonly id: string;
+    readonly environmentId: string;
+    readonly updatedAt: string;
+    readonly feature?: { readonly id: string } | null;
+    readonly crew?: { readonly current: boolean } | null;
+  },
+>(threads: readonly T[]): { primaries: T[]; childrenByThreadKey: Map<string, T[]> } {
+  const byFeature = new Map<string, T[]>();
+  for (const thread of threads) {
+    if (!thread.feature) continue;
+    const key = `${thread.environmentId}:${thread.feature.id}`;
+    byFeature.set(key, [...(byFeature.get(key) ?? []), thread]);
+  }
+  const childrenByThreadKey = new Map<string, T[]>();
+  const folded = new Set<T>();
+  for (const members of byFeature.values()) {
+    if (members.length < 2) continue;
+    const primary =
+      members.find((thread) => thread.crew?.current) ??
+      members.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]!;
+    const children = members.filter((thread) => thread !== primary);
+    for (const child of children) folded.add(child);
+    childrenByThreadKey.set(`${primary.environmentId}:${primary.id}`, children);
+  }
+  return { primaries: threads.filter((thread) => !folded.has(thread)), childrenByThreadKey };
 }
 
 export function buildBulkTitleRegenerationContextMenuItem(input: {
@@ -866,14 +913,29 @@ type SidebarThreadStatusInput = Pick<
   | "pendingGuestMessageCount"
   | "runtime"
   | "blockedOnThreadWait"
->;
+> &
+  Partial<Pick<SidebarThreadSummary, "crew">>;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
-  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
+  // A stage waiting on a person outranks its thread's own runtime, which has usually stopped.
+  const crewState = thread.crew?.current ? thread.crew.state : null;
+  if (
+    thread.hasPendingApprovals ||
+    thread.pendingSubagentRequest === "approval" ||
+    crewState === "approval" ||
+    crewState === "your-call"
+  ) {
     return "approval";
   }
-  if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
+  if (
+    thread.hasPendingUserInput ||
+    thread.pendingSubagentRequest === "user_input" ||
+    crewState === "input"
+  ) {
     return "input";
+  }
+  if (crewState === "failed") {
+    return "failed";
   }
   // A guest is waiting on the owner; the agent's own requests come first.
   if ((thread.pendingGuestMessageCount ?? 0) > 0) {
@@ -1299,7 +1361,7 @@ export function sortLogicalProjectsForSidebar<
 
 export function sortSidebarV2ProjectGroups<
   TProject extends LogicalSidebarProject,
-  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage">,
+  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage"> & { id: string },
 >(
   projects: readonly TProject[],
   threads: readonly TThread[],

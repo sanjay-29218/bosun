@@ -739,7 +739,7 @@ function AdaptiveWorkspaceLayoutContent(
     ),
   );
 
-  const handleSelectThread = (thread: EnvironmentThreadShell) => {
+  const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
     handleSelectThreadRoute({
       environmentId: String(thread.environmentId),
       threadId: String(thread.id),

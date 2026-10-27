@@ -30,6 +30,8 @@ interface CommandPaletteResultsProps {
   highlightedItemValue?: string | null;
   isActionsOnly: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  /** Shortcut labels follow the bot rail: with several bots, Mod+1-9 switches bots. */
+  multipleBots?: boolean | undefined;
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }
 
@@ -63,6 +65,7 @@ export function CommandPaletteResults(props: CommandPaletteResultsProps) {
                   item={item}
                   key={item.value}
                   keybindings={props.keybindings}
+                  multipleBots={props.multipleBots}
                   isActive={props.highlightedItemValue === item.value}
                   onExecuteItem={props.onExecuteItem}
                 />
@@ -129,6 +132,7 @@ export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualize
               index={row.itemIndex}
               item={row.item}
               keybindings={props.keybindings}
+              multipleBots={props.multipleBots}
               isActive={props.highlightedItemValue === row.item.value}
               onExecuteItem={props.onExecuteItem}
             />
@@ -225,10 +229,13 @@ function CommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
   isActive: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  multipleBots?: boolean | undefined;
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }) {
   const shortcutLabel = props.item.shortcutCommand
-    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand)
+    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand, {
+        context: { multipleBots: props.multipleBots ?? false },
+      })
     : null;
 
   return (

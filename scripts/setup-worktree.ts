@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - runs before `vp i`, so only Node built-ins exist.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 const ENV_FILES = [".env", NodePath.join("infra", "relay", ".env")];
@@ -10,7 +11,7 @@ const worktree = NodePath.dirname(import.meta.dirname);
 // T3 runs setup in the background, so agents can start before it ends.
 // `setup-running` holds this PID until setup ends with `setup-done` or
 // `setup-failed`, so agents wait instead of racing it with their own `vp i`.
-const markerDir = NodePath.join(worktree, ".t3");
+const markerDir = NodePath.join(worktree, ".bosun");
 const runningMarker = NodePath.join(markerDir, "setup-running");
 const doneMarker = NodePath.join(markerDir, "setup-done");
 const failedMarker = NodePath.join(markerDir, "setup-failed");
@@ -113,4 +114,34 @@ for (const file of ENV_FILES) {
   if (existing && !existing.isSymbolicLink()) continue;
   if (existing) NodeFS.rmSync(target);
   NodeFS.symlinkSync(source, target);
+}
+
+// A fresh worktree's dev home starts from the installed Bosun's settings,
+// keybindings, themes and provider keys. The first `vp run dev` then seeds its
+// database (projects, bots, roles, workflows, recent threads). Copies only, so
+// dev never writes back. An existing dev home is left alone.
+const SEED_FILES = ["settings.json", "keybindings.json", "client-settings.json", "themes"];
+const seedHome = NodePath.join(NodeOS.homedir(), ".bosun", "userdata");
+const devHome = NodePath.join(worktree, ".bosun", "userdata");
+if (
+  NodeFS.existsSync(NodePath.join(seedHome, "statev2.sqlite")) &&
+  !NodeFS.existsSync(NodePath.join(devHome, "statev2.sqlite"))
+) {
+  NodeFS.mkdirSync(NodePath.join(devHome, "secrets"), { recursive: true });
+  for (const file of SEED_FILES) {
+    const source = NodePath.join(seedHome, file);
+    if (NodeFS.existsSync(source)) {
+      NodeFS.cpSync(source, NodePath.join(devHome, file), { recursive: true, force: false });
+    }
+  }
+  // Provider API keys only. Signing keys and cloud links stay per instance.
+  const seedSecrets = NodePath.join(seedHome, "secrets");
+  for (const file of NodeFS.existsSync(seedSecrets) ? NodeFS.readdirSync(seedSecrets) : []) {
+    if (file.startsWith("provider-env-")) {
+      NodeFS.copyFileSync(
+        NodePath.join(seedSecrets, file),
+        NodePath.join(devHome, "secrets", file),
+      );
+    }
+  }
 }

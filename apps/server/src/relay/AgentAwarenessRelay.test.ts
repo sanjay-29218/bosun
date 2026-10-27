@@ -264,6 +264,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
       create: unused,
       bootstrap: unused,
       update: unused,
+      assignBot: unused,
       delete: unused,
       getByWorkspaceRoot: unused,
       snapshot: Effect.succeed({ projects: [] } as never),

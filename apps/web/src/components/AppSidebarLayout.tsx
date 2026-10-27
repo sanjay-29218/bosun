@@ -39,10 +39,13 @@ import {
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
+import { BOT_RAIL_WIDTH, BotRail } from "./sidebar/BotRail";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
+import { useShowBotRail } from "../state/botRail";
+import { useIsMobile } from "../hooks/useMediaQuery";
 import {
   clampThreadSidebarWidth,
   resolveInitialThreadSidebarWidth,
@@ -373,6 +376,19 @@ function SidebarControl() {
   );
 }
 
+const BOT_RAIL_WIDTH_PX = 56;
+
+// In the mobile sidebar sheet the rail sits beside the sidebar's content.
+function MobileBotRailFrame({ show, children }: { show: boolean; children: ReactNode }) {
+  if (!show) return children;
+  return (
+    <div className="flex min-h-0 flex-1">
+      <BotRail placement="sheet" />
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
@@ -387,7 +403,13 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // A clamped drag may not change width, so viewport changes need a separate subscription.
-  const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
+  const windowWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
+  // The bot rail stays pinned left of the sidebar, collapsed or not; on mobile it lives in
+  // the sidebar sheet instead.
+  const isMobile = useIsMobile();
+  const showBotRail = useShowBotRail();
+  const pinnedBotRail = showBotRail && !isMobile;
+  const viewportWidth = windowWidth - (pinnedBotRail ? BOT_RAIL_WIDTH_PX : 0);
   const [brandWidth, setBrandWidth] = useState(0);
   const sidebarMinimumWidth = resolveThreadSidebarMinimumWidth(brandWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth, sidebarMinimumWidth);
@@ -412,6 +434,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
+    ...(pinnedBotRail ? { "--sidebar-leading-width": BOT_RAIL_WIDTH } : {}),
   } as CSSProperties;
 
   return (
@@ -423,6 +446,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         style={sidebarProviderStyle}
       >
         <SidebarBrandWidthProbe onWidthChange={setBrandWidth} />
+        {pinnedBotRail ? <BotRail placement="window" /> : null}
         <Sidebar
           side="left"
           collapsible="offcanvas"
@@ -434,17 +458,20 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             minWidth: sidebarMinimumWidth,
             shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
               nextWidth <= currentWidth ||
-              wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+              wrapper.clientWidth - (pinnedBotRail ? BOT_RAIL_WIDTH_PX : 0) - nextWidth >=
+                THREAD_MAIN_CONTENT_MIN_WIDTH,
             storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
             onResize: setSidebarWidth,
           }}
           style={windowControlsInsetStyle}
         >
-          {legacySidebarEnabled ? (
-            <LegacyThreadSidebar routeReveal={sidebarRouteReveal} />
-          ) : (
-            <ThreadSidebar routeReveal={sidebarRouteReveal} />
-          )}
+          <MobileBotRailFrame show={showBotRail && isMobile}>
+            {legacySidebarEnabled ? (
+              <LegacyThreadSidebar routeReveal={sidebarRouteReveal} />
+            ) : (
+              <ThreadSidebar routeReveal={sidebarRouteReveal} />
+            )}
+          </MobileBotRailFrame>
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}

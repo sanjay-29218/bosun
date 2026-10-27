@@ -17,6 +17,8 @@ import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
+import { FeatureIssueDialogHost } from "../components/crew/FeatureIssue";
+import { MakeFeatureDialogHost } from "../components/features/MakeFeatureDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
@@ -165,6 +167,8 @@ function RootRouteBranch() {
     return (
       <>
         <CustomSnoozeDialogHost />
+        <MakeFeatureDialogHost />
+        <FeatureIssueDialogHost />
         <GuestShareDialogHost />
         <CommandPalette>
           <AppSidebarLayout>
@@ -204,6 +208,8 @@ function RootRouteBranch() {
         <ReopenClosedViewShortcut />
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />
+        <MakeFeatureDialogHost />
+        <FeatureIssueDialogHost />
         <GuestShareDialogHost />
         <ProjectCloneToastCoordinator />
         <AddProjectToMachineDialogHost />

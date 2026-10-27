@@ -216,6 +216,8 @@ interface ComposerSendInput {
   readonly respondingRequestIds: PendingThreadRequests["respondingRequestIds"];
   readonly activePendingProgress: PendingThreadRequests["activePendingProgress"];
   readonly onAdvanceActivePendingUserInput: PendingThreadRequests["onAdvanceActivePendingUserInput"];
+  /** Set while a new thread has a workflow picked: sending starts a feature with the prompt as its brief. */
+  readonly startCrewFeature: ((brief: string) => Promise<void>) | null;
   readonly onRespondToApproval: PendingThreadRequests["onRespondToApproval"];
   readonly beginLocalDispatch: LocalDispatchState["beginLocalDispatch"];
   readonly resetLocalDispatch: LocalDispatchState["resetLocalDispatch"];
@@ -471,6 +473,11 @@ export function useComposerSend(input: ComposerSendInput) {
         return;
       }
       onAdvanceActivePendingUserInput();
+      return;
+    }
+    if (input.startCrewFeature && !directAnnotation) {
+      const brief = promptRef.current.trim();
+      if (brief.length > 0) await input.startCrewFeature(brief);
       return;
     }
     if (!sendCtx?.providerAvailable) {

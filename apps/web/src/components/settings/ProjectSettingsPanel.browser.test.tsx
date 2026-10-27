@@ -120,6 +120,15 @@ vi.mock(import("./ProjectActionsSettings"), async (original) => ({
   ...(await original()),
   ProjectActionsSettings: (() => null) as never,
 }));
+// Crew sections build permission-guarded commands, which need a real connection runtime.
+vi.mock(import("./BotsSettings"), async (original) => ({
+  ...(await original()),
+  ProjectBotSection: (() => null) as never,
+}));
+vi.mock(import("./CrewProjectSection"), async (original) => ({
+  ...(await original()),
+  CrewProjectSection: (() => null) as never,
+}));
 
 vi.mock(import("../files/projectFilesQueryState"), async (original) => ({
   ...(await original()),
@@ -145,7 +154,7 @@ const environments = [primaryId, remoteId].map((environmentId) => ({
   serverConfig: {
     keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     settings: DEFAULT_SERVER_SETTINGS,
-    environment: { platform: { machine: "server" } },
+    environment: { platform: { machine: "server" }, capabilities: {} },
   },
 }));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({

@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ContextMenuItem, FeatureCardState } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 export type ThreadActionMenuId =
@@ -23,6 +23,15 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "make-feature"
+  | "detach-feature"
+  | "feature"
+  | "feature-pause"
+  | "feature-resume"
+  | "feature-cancel"
+  | "feature-reopen"
+  | "feature-issue"
+  | "feature-open-issue"
   | "archive"
   | "delete";
 
@@ -87,9 +96,40 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /**
+   * The thread's place in Crew: a feature's current stage, or a plain thread that can
+   * become one. Absent for crew threads and servers without features.
+   */
+  readonly feature?: { readonly isStage: boolean } | null;
+  /**
+   * Where the thread's feature stands, for pausing, resuming, cancelling or reopening it, and
+   * the number of the issue it links, for opening or changing it.
+   */
+  readonly featureLifecycle?: {
+    readonly state: FeatureCardState;
+    readonly issueNumber: number | null;
+  } | null;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
+  /** A bot's headquarters is permanent, so it can be archived but never deleted. */
+  readonly isHeadquarters?: boolean;
 }
+
+/** The feature-wide actions that apply in `state`. */
+export function featureLifecycleActions(
+  state: FeatureCardState,
+): ReadonlyArray<"feature-pause" | "feature-resume" | "feature-cancel" | "feature-reopen"> {
+  if (state === "done" || state === "cancelled") return ["feature-reopen"];
+  if (state === "paused") return ["feature-resume", "feature-cancel"];
+  return ["feature-pause", "feature-cancel"];
+}
+
+const FEATURE_LIFECYCLE_LABELS = {
+  "feature-pause": "Pause feature",
+  "feature-resume": "Resume feature",
+  "feature-cancel": "Cancel feature…",
+  "feature-reopen": "Reopen feature",
+} as const;
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
@@ -198,6 +238,56 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
+    ...(state.featureLifecycle
+      ? [
+          {
+            id: "feature" as const,
+            label: "Feature",
+            icon: "workflow",
+            separatorBefore: true,
+            children: [
+              ...featureLifecycleActions(state.featureLifecycle.state).map((id) => ({
+                id,
+                label: FEATURE_LIFECYCLE_LABELS[id],
+                ...(id === "feature-cancel" ? { destructive: true } : {}),
+              })),
+              ...(state.featureLifecycle.issueNumber === null
+                ? []
+                : [
+                    {
+                      id: "feature-open-issue" as const,
+                      label: `Open issue #${state.featureLifecycle.issueNumber}`,
+                      separatorBefore: true,
+                    },
+                  ]),
+              {
+                id: "feature-issue" as const,
+                label:
+                  state.featureLifecycle.issueNumber === null ? "Link issue…" : "Change issue…",
+                ...(state.featureLifecycle.issueNumber === null ? { separatorBefore: true } : {}),
+              },
+            ],
+          },
+        ]
+      : []),
+    ...(state.feature
+      ? [
+          state.feature.isStage
+            ? {
+                id: "detach-feature" as const,
+                label: "Detach from workflow",
+                icon: "unlink",
+                destructive: true,
+                separatorBefore: true,
+              }
+            : {
+                id: "make-feature" as const,
+                label: "Make it a feature…",
+                icon: "workflow",
+                separatorBefore: true,
+              },
+        ]
+      : []),
     {
       id: "copy",
       label: "Copy",
@@ -219,12 +309,9 @@ export function buildThreadActionMenuItems(
       disabled: state.isRunning,
       separatorBefore: true,
     },
-    {
-      id: "delete",
-      label: "Delete",
-      destructive: true,
-      icon: "trash",
-    },
+    ...(state.isHeadquarters
+      ? []
+      : [{ id: "delete" as const, label: "Delete", destructive: true, icon: "trash" }]),
   ];
   return state.canOperate
     ? items

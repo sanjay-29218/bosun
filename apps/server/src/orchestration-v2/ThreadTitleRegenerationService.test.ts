@@ -76,6 +76,7 @@ function makeHarness(
               defaultModelSelection: modelSelection,
               defaultThreadEnvMode: null,
               autoPull: false,
+              botId: "bot-captain",
               faviconPath: null,
               projectIcon: null,
               scripts: [],
