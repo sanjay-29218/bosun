@@ -7,7 +7,15 @@ import {
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { ClockIcon, InboxIcon, LayersIcon, PlusIcon, ServerIcon } from "lucide-react";
+import {
+  ChartNoAxesColumnIcon,
+  ClockIcon,
+  InboxIcon,
+  LayersIcon,
+  PlusIcon,
+  ServerIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useState, type ReactNode } from "react";
 
@@ -57,10 +65,9 @@ import { useOpenBotHeadquarters } from "./openBotHeadquarters";
 export const BOT_RAIL_WIDTH = "3.5rem";
 
 /**
- * The bot rail: All bots, then a column of bots left of the sidebar, then its places at the
- * bottom. Picking a bot narrows the sidebar, board and Needs you to its projects; All bots
- * shows every bot's. A place swaps the sidebar for its own list. `window` pins it to the
- * window's left edge under the titlebar; `sheet` puts it inside the mobile sheet.
+ * The bot rail: All bots and the bots, then its places, then Usage and Settings. A bot narrows
+ * the sidebar, board and Needs you to its projects; a place swaps the sidebar's list. `window`
+ * pins it to the window's left edge under the titlebar; `sheet` puts it in the mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
@@ -186,7 +193,6 @@ export const BotRail = memo(function BotRail({
               <BotAvatar avatar={bot.avatar} color={bot.color} size={28} />
             </RailItem>
           ))}
-          <RailDivider />
           <Tooltip>
             <TooltipTrigger
               render={
@@ -204,10 +210,11 @@ export const BotRail = memo(function BotRail({
             <TooltipPopup side="right">Add bot</TooltipPopup>
           </Tooltip>
         </div>
+        <RailDivider />
+        <RailPlaces destination={destination} />
         <div className="mt-auto flex w-full flex-col items-center gap-2">
-          <RailDivider />
-          <RailPlaces destination={destination} />
           <EnvironmentFilterMenu />
+          <RailAppPages />
         </div>
       </div>
       {addingOn ? (
@@ -291,6 +298,43 @@ function RailPlaces({
           <PullRequestGlyph.pullRequest className="size-5" strokeWidth={1.75} />
         </RailItem>
       ) : null}
+    </>
+  );
+}
+
+/** Usage and Settings, which open as modals over whatever the rail points at. */
+function RailAppPages() {
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const open = (to: "/usage" | "/settings") => {
+    if (isMobile) setOpenMobile(false);
+    void navigate({ to });
+  };
+  return (
+    <>
+      <RailItem
+        label="Usage"
+        hint={null}
+        active={pathname === "/usage"}
+        signal={null}
+        shortcut={null}
+        variant="icon"
+        onSelect={() => open("/usage")}
+      >
+        <ChartNoAxesColumnIcon className="size-5" strokeWidth={1.75} />
+      </RailItem>
+      <RailItem
+        label="Settings"
+        hint={null}
+        active={pathname === "/settings" || pathname.startsWith("/settings/")}
+        signal={null}
+        shortcut={null}
+        variant="icon"
+        onSelect={() => open("/settings")}
+      >
+        <SettingsIcon className="size-5" strokeWidth={1.75} />
+      </RailItem>
     </>
   );
 }

@@ -11,6 +11,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { useShowBotRail } from "../../state/botRail";
 import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
@@ -175,6 +176,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
   const pullRequestsSupported = usePullRequestsSupported();
+  const showBotRail = useShowBotRail();
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -212,6 +214,14 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigateToMainApp();
   };
 
+  // The rail holds these, and picking a bot there is the way back.
+  if (showBotRail) {
+    return (
+      <SidebarMenu className="flex-row items-center">
+        <SidebarUpdatePill />
+      </SidebarMenu>
+    );
+  }
   return (
     <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
