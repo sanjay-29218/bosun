@@ -28,6 +28,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { botDefaultWorkflowId, resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
 
 const NO_WORKFLOW = "";
@@ -98,16 +99,35 @@ export function ComposerWorkflowPicker(props: {
   const setWorkflow = useCrewDraftStore((state) => state.setWorkflow);
   return (
     <Menu>
-      <MenuTrigger
-        render={<ComposerControl size={props.size} aria-label="Workflow" />}
-        data-chat-composer-workflow-picker="true"
-      >
-        <ComposerControlIcon icon={WorkflowIcon} size={props.size} />
-        <span data-composer-control-label className="max-w-40 truncate">
-          {workflow?.name ?? "No workflow"}
-        </span>
-        <ComposerControlChevron size={props.size} />
-      </MenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <ComposerControl
+                  size={props.size}
+                  aria-label={workflow ? `Workflow: ${workflow.name}` : "Workflow"}
+                  className={workflow ? "bg-accent text-foreground" : undefined}
+                />
+              }
+              data-chat-composer-workflow-picker="true"
+            />
+          }
+        >
+          <ComposerControlIcon icon={WorkflowIcon} size={props.size} />
+          {workflow ? (
+            <>
+              <span data-composer-control-label className="max-w-40 truncate">
+                {workflow.name}
+              </span>
+              <ComposerControlChevron size={props.size} />
+            </>
+          ) : null}
+        </TooltipTrigger>
+        <TooltipPopup side="top">
+          {workflow ? "Change workflow" : "Start a feature with a workflow"}
+        </TooltipPopup>
+      </Tooltip>
       <MenuPopup {...menuProps} side="top" align="start" className="min-w-64">
         <MenuGroup>
           <MenuGroupLabel>Workflow</MenuGroupLabel>
@@ -168,9 +188,12 @@ export function ComposerCrewControl(props: {
   if (!workflow) return null;
   return (
     <Menu>
-      <MenuTrigger render={<ComposerControl size={props.size} aria-label="Crew defaults" />}>
+      <MenuTrigger render={<ComposerControl size={props.size} aria-label="Crew" />}>
         <ComposerControlIcon icon={UsersIcon} size={props.size} />
-        <span data-composer-control-label>Crew defaults</span>
+        <span data-composer-control-label>Crew</span>
+        <span className="text-muted-foreground tabular-nums">
+          {Object.keys(workflow.roles).length}
+        </span>
         <ComposerControlChevron size={props.size} />
       </MenuTrigger>
       <MenuPopup {...menuProps} side="top" align="start">
