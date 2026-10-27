@@ -2,13 +2,20 @@ import {
   botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   EnvironmentId,
+  ProjectId,
+  RunId,
+  ThreadId,
   type BotAvatar,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  botActivityByBot,
+  botActivityByLogicalBot,
   botRailShowsThread,
+  botRailSignal,
   buildLogicalBots,
+  combineBotActivity,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
@@ -100,9 +107,21 @@ describe("resolveActiveLogicalBot", () => {
     ).toBe("Finance");
   });
 
-  it("falls back to the first entry", () => {
-    expect(resolveActiveLogicalBot(bots, {}, [local, remote])?.name).toBe("Captain");
+  it("reads as All bots when nothing remembered is still listed", () => {
+    expect(resolveActiveLogicalBot(bots, {}, [local, remote])).toBeNull();
+    expect(resolveActiveLogicalBot(bots, { local: "bot-gone" }, [local, remote])).toBeNull();
     expect(resolveActiveLogicalBot([], {}, [local])).toBeNull();
+  });
+
+  it("always selects a lone bot, which has no All bots beside it", () => {
+    const [captain] = bots;
+    expect(resolveActiveLogicalBot([captain!], {}, [local])?.name).toBe("Captain");
+  });
+
+  it("selects All bots by forgetting every environment's bot", () => {
+    const next = selectLogicalBot({ local: "bot-social", remote: "bot-social-2" }, null);
+    expect(next).toEqual({});
+    expect(resolveActiveLogicalBot(bots, next, [local, remote])).toBeNull();
   });
 
   it("remembers the bot on each of its environments", () => {
@@ -199,5 +218,129 @@ describe("botRailShowsThread", () => {
         null,
       ),
     ).toBe(true);
+  });
+});
+
+describe("bot activity", () => {
+  const [captain, social] = buildLogicalBots([
+    {
+      environmentId: local,
+      bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot-social", "Social", 1)],
+    },
+  ]);
+  const projects = [
+    { environmentId: local, id: ProjectId.make("p-captain") },
+    { environmentId: local, id: ProjectId.make("p-social"), botId: "bot-social" },
+  ];
+  const runId = RunId.make("run-1");
+  const shell = (
+    id: string,
+    projectId: string,
+    run: { status: "running" | "completed" | "failed"; completedAt: string | null } | null,
+    lastVisitedAt: string | null | undefined,
+  ) => ({
+    environmentId: local,
+    id: ThreadId.make(id),
+    projectId: ProjectId.make(projectId),
+    archivedAt: null,
+    lastVisitedAt,
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    pendingSubagentRequest: null,
+    interactionMode: "default" as const,
+    latestRun:
+      run === null
+        ? null
+        : {
+            runId,
+            status: run.status,
+            requestedAt: null,
+            startedAt: null,
+            completedAt: run.completedAt,
+            assistantMessageId: null,
+          },
+    runtime:
+      run?.status === "running"
+        ? {
+            status: "running" as const,
+            activeRunId: runId,
+            providerInstanceId: "codex" as never,
+            providerName: null,
+            lastError: null,
+            updatedAt: "2026-10-01T00:00:00.000Z",
+          }
+        : null,
+  });
+  const before = "2026-10-01T00:00:00.000Z";
+  const after = "2026-10-01T01:00:00.000Z";
+
+  it("flags failed, working and unread threads under their bot", () => {
+    const activity = botActivityByBot(
+      [
+        shell("failed", "p-social", { status: "failed", completedAt: after }, before),
+        shell("working", "p-captain", { status: "running", completedAt: null }, before),
+        shell("done", "p-captain", { status: "completed", completedAt: after }, before),
+        // Opened since it finished: nothing to flag.
+        shell("seen", "p-social", { status: "completed", completedAt: before }, after),
+      ],
+      projects,
+    );
+    // A failed run is also an unread one; the signal shows the failure.
+    expect(activity.get(botNeedsYouKey(local, "bot-social"))).toEqual({
+      failed: true,
+      working: false,
+      unread: true,
+    });
+    expect(activity.get(botNeedsYouKey(local, CAPTAIN_BOT_ID))).toEqual({
+      failed: false,
+      working: true,
+      unread: true,
+    });
+  });
+
+  it("counts a headquarters under its own bot, and nothing from servers without visits", () => {
+    const activity = botActivityByBot(
+      [
+        shell(
+          botHeadquartersThreadId("bot-social"),
+          "scratch",
+          { status: "completed", completedAt: after },
+          before,
+        ),
+        shell("old-server", "p-captain", { status: "failed", completedAt: after }, undefined),
+      ],
+      projects,
+    );
+    expect([...activity.keys()]).toEqual([botNeedsYouKey(local, "bot-social")]);
+  });
+
+  it("merges per rail entry and across entries for All bots", () => {
+    const perEntry = botActivityByLogicalBot(
+      [captain!, social!],
+      new Map([
+        [botNeedsYouKey(local, "bot-social"), { failed: false, working: true, unread: false }],
+        [botNeedsYouKey(local, "bot-unknown"), { failed: false, working: false, unread: true }],
+      ]),
+    );
+    // A bot the rail doesn't know falls under Captain, like its projects.
+    expect(perEntry.get(captain!.key)).toEqual({ failed: false, working: false, unread: true });
+    expect(combineBotActivity(perEntry.values())).toEqual({
+      failed: false,
+      working: true,
+      unread: true,
+    });
+    expect(combineBotActivity([])).toBeUndefined();
+  });
+
+  it("shows one signal, the most urgent", () => {
+    const everything = { failed: true, working: true, unread: true };
+    expect(botRailSignal(2, everything)).toEqual({ kind: "needs-you", count: 2 });
+    expect(botRailSignal(0, everything)).toEqual({ kind: "failed" });
+    expect(botRailSignal(0, { ...everything, failed: false })).toEqual({ kind: "working" });
+    expect(botRailSignal(0, { failed: false, working: false, unread: true })).toEqual({
+      kind: "unread",
+    });
+    expect(botRailSignal(0, undefined)).toBeNull();
   });
 });

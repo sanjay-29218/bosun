@@ -38,13 +38,19 @@ again. Opening it also brings back a deleted or archived headquarters.
 
 With two or more bots, or two connected environments, a rail of bot avatars sits at the left edge
 of the window. Pick a bot to see only its projects in the sidebar, Needs you and the board; the
-List / Board choice is remembered per bot. A badge on an avatar counts the threads waiting on you
-there. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or **Switch
-to …** in the command palette. With several bots, jumping to a thread moves to **Ctrl+Cmd+1–9**
-(**Ctrl+Alt+1–9**).
+List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
+threads again. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or
+**Switch to …** and **Show All bots** in the command palette. **Bots: Show All Bots** has no
+shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
+thread moves to **Ctrl+Cmd+1–9** (**Ctrl+Alt+1–9**). On mobile, the bot button in the thread
+list header lists **All bots** first.
+
+Each rail icon shows one thing at a time: an amber count of threads waiting on you, a red dot when
+a run failed, a ring while a bot works, or a blue dot when a run finished that you haven't opened.
+All bots shows the same across every bot.
 
 Bots with the same name on different environments share one avatar, and new projects go to the
-bot you're looking at. **+** adds a bot, and the pencil on the bot at the top of the sidebar edits
+bot you're looking at, or to Captain from All bots. **+** adds a bot, and the pencil on the bot at the top of the sidebar edits
 it. The server icon
 filters the rail and sidebar to some environments; pick **All environments** to show every one
 again. To move a project, right-click it in the sidebar's project picker and choose **Move to

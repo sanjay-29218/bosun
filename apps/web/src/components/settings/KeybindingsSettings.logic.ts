@@ -370,6 +370,7 @@ export function commandLabel(command: KeybindingCommand): string {
   if (usagePeriod) return `Usage: Period: ${usagePeriod.label}`;
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
   if (command === "preview.focusUrl") return "Preview: Focus URL";
+  if (command === "bot.inbox") return "Bots: Show All Bots";
   const botJump = /^bot\.jump\.(\d)$/.exec(command);
   if (botJump) return `Bots: Switch to Bot ${botJump[1]}`;
   const raw = String(command);

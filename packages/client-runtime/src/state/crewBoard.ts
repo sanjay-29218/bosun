@@ -271,29 +271,45 @@ export const botNeedsYouKey = (environmentId: EnvironmentId, botId: string) =>
  */
 export function countNeedsYouByBot(
   shells: ReadonlyArray<NeedsYouShell & { readonly projectId: ProjectId }>,
-  projects: ReadonlyArray<{
-    readonly environmentId: EnvironmentId;
-    readonly id: ProjectId;
-    readonly botId?: string | undefined;
-  }>,
+  projects: ReadonlyArray<BotOwnedProject>,
 ): ReadonlyMap<string, number> {
+  const ownerKey = createThreadBotKeyResolver(projects);
+  const counts = new Map<string, number>();
+  for (const shell of shells) {
+    if (threadNeedsYouKind(shell) === null) continue;
+    const key = ownerKey(shell);
+    if (key === undefined) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export interface BotOwnedProject {
+  readonly environmentId: EnvironmentId;
+  readonly id: ProjectId;
+  readonly botId?: string | undefined;
+}
+
+/**
+ * The `botNeedsYouKey` of the bot a thread works for, or undefined when its project isn't
+ * loaded. A headquarters belongs to its bot, not to the project it lives in.
+ */
+export function createThreadBotKeyResolver(projects: ReadonlyArray<BotOwnedProject>) {
   const owners = new Map(
     projects.map((project) => [
       `${project.environmentId}:${project.id}`,
       project.botId ?? CAPTAIN_BOT_ID,
     ]),
   );
-  const counts = new Map<string, number>();
-  for (const shell of shells) {
-    if (threadNeedsYouKind(shell) === null) continue;
-    // A headquarters belongs to its bot, not to the project it lives in.
+  return (shell: {
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+    readonly projectId: ProjectId;
+  }): string | undefined => {
     const botId =
       headquartersBotId(shell.id) ?? owners.get(`${shell.environmentId}:${shell.projectId}`);
-    if (botId === undefined) continue;
-    const key = botNeedsYouKey(shell.environmentId, botId);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
+    return botId === undefined ? undefined : botNeedsYouKey(shell.environmentId, botId);
+  };
 }
 
 export type NeedsYouItem<

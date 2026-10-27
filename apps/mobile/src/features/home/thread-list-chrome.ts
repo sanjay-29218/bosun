@@ -1,18 +1,17 @@
 import type { LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
-import type { BotAvatar, ProjectIconColor } from "@t3tools/contracts";
 
 /**
  * The bot switcher and List / Board toggle every thread-list header shows: the iPhone and
  * iPad native headers, the iPad sidebar, and Android's toolbar.
  */
 export interface BotSwitcherMenu {
-  readonly avatar: BotAvatar;
-  readonly color: ProjectIconColor;
+  /** The active bot's look, or null for All bots. */
+  readonly bot: Pick<LogicalBot, "avatar" | "color"> | null;
   readonly name: string;
   readonly accessibilityLabel: string;
   /** Threads waiting on you under the other bots, which this list doesn't show. */
   readonly elsewhereNeedsYou: number;
-  /** The bots to switch to (with `state`), then an action that opens the active bot. */
+  /** All bots and each bot to switch to (with `state`), then the active bot's headquarters. */
   readonly items: ReadonlyArray<{
     readonly key: string;
     readonly title: string;
@@ -25,33 +24,48 @@ export interface BotSwitcherMenu {
 export const needsYouLabel = (count: number) => `${count} need${count === 1 ? "s" : ""} you`;
 
 /**
- * The bots to switch between, then the active bot's headquarters. A single bot still gets the
- * button, for its headquarters; null only before any bot loads.
+ * All bots and the bots to switch between, then the active bot's headquarters. A single bot
+ * still gets the button, for its headquarters; null only before any bot loads.
  */
 export function buildBotSwitcherMenu(input: {
   readonly bots: ReadonlyArray<LogicalBot>;
+  /** Null is All bots. */
   readonly active: LogicalBot | null;
   readonly needsYou: ReadonlyMap<string, number>;
-  readonly select: (bot: LogicalBot) => void;
+  readonly select: (bot: LogicalBot | null) => void;
   readonly openHeadquarters: (bot: LogicalBot) => void;
 }): BotSwitcherMenu | null {
   const { active } = input;
-  if (active === null) return null;
+  if (input.bots.length === 0) return null;
   const switching = input.bots.length > 1;
+  let totalNeedsYou = 0;
   let elsewhereNeedsYou = 0;
   for (const bot of input.bots) {
-    if (bot.key !== active.key) elsewhereNeedsYou += input.needsYou.get(bot.key) ?? 0;
+    const count = input.needsYou.get(bot.key) ?? 0;
+    totalNeedsYou += count;
+    if (active !== null && bot.key !== active.key) elsewhereNeedsYou += count;
   }
+  const name = active?.name ?? "All bots";
   return {
-    avatar: active.avatar,
-    color: active.color,
-    name: active.name,
+    bot: active,
+    name,
     accessibilityLabel:
       elsewhereNeedsYou > 0
-        ? `Bot: ${active.name}. ${needsYouLabel(elsewhereNeedsYou)} in other bots`
-        : `Bot: ${active.name}`,
+        ? `Bot: ${name}. ${needsYouLabel(elsewhereNeedsYou)} in other bots`
+        : `Bot: ${name}`,
     elsewhereNeedsYou,
     items: [
+      ...(switching
+        ? [
+            {
+              key: "all-bots",
+              title: "All bots",
+              ...(totalNeedsYou > 0 ? { subtitle: needsYouLabel(totalNeedsYou) } : {}),
+              state: active === null ? ("on" as const) : ("off" as const),
+              onPress: () => input.select(null),
+            },
+          ]
+        : []),
       ...(switching
         ? input.bots.map((bot) => {
             const count = input.needsYou.get(bot.key) ?? 0;
@@ -59,17 +73,21 @@ export function buildBotSwitcherMenu(input: {
               key: bot.key,
               title: bot.name,
               ...(count > 0 ? { subtitle: needsYouLabel(count) } : {}),
-              state: bot.key === active.key ? ("on" as const) : ("off" as const),
+              state: bot.key === active?.key ? ("on" as const) : ("off" as const),
               onPress: () => input.select(bot),
             };
           })
         : []),
-      {
-        key: "headquarters",
-        title: `Open ${active.name}'s thread`,
-        subtitle: "Where it oversees its projects",
-        onPress: () => input.openHeadquarters(active),
-      },
+      ...(active === null
+        ? []
+        : [
+            {
+              key: "headquarters",
+              title: `Open ${active.name}'s thread`,
+              subtitle: "Where it oversees its projects",
+              onPress: () => input.openHeadquarters(active),
+            },
+          ]),
     ],
   };
 }
