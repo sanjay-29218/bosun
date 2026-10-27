@@ -1,4 +1,10 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, ClockIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  ClockIcon,
+  LayersIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -24,7 +30,12 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { AUTOMATIONS_PATH, isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
+import {
+  AUTOMATIONS_PATH,
+  isSidebarUtilityPage,
+  LIBRARY_PATH,
+  useNavigateToMainApp,
+} from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -180,6 +191,10 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     closeMobileSidebar();
     void navigate({ to: AUTOMATIONS_PATH });
   };
+  const handleLibraryClick = () => {
+    closeMobileSidebar();
+    void navigate({ to: LIBRARY_PATH });
+  };
   const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -218,6 +233,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Automations"
             onClick={handleAutomationsClick}
           />
+          <SidebarUtilityItem icon={<LayersIcon />} label="Library" onClick={handleLibraryClick} />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}

@@ -107,6 +107,7 @@ interface ThreadNavigationSidebarProps {
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironmentSettings: () => void;
   readonly onOpenAutomations: () => void;
+  readonly onOpenLibrary: () => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onOpenPendingTask: (pendingTask: PendingNewTask) => void;
@@ -199,8 +200,9 @@ function ThreadNavigationSidebarPane(
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
         openAutomations: props.onOpenAutomations,
+        openLibrary: props.onOpenLibrary,
       }),
-    [activeBot, openHeadquarters, props.onOpenAutomations],
+    [activeBot, openHeadquarters, props.onOpenAutomations, props.onOpenLibrary],
   );
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);

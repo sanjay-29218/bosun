@@ -1,7 +1,7 @@
 import type { WorkflowDefinition } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { removeStage } from "../settings/WorkflowEditor.logic";
+import { removeStage } from "../library/WorkflowEditor.logic";
 import {
   CANVAS_COLUMN_WIDTH,
   CANVAS_ROW_GAP,

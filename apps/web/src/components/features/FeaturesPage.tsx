@@ -398,7 +398,7 @@ export function FeaturesPage(props: {
     }
     await newThread(scopeProjectRef(newFeatureProject.environmentId, newFeatureProject.id));
   };
-  const browseWorkflows = () => void navigate({ to: "/settings/projects" });
+  const browseWorkflows = () => void navigate({ to: "/library", search: {} });
 
   const shortcutTitle = (label: string, command: Parameters<typeof shortcutLabelForCommand>[1]) => {
     const shortcut = shortcutLabelForCommand(keybindings, command, {
@@ -755,7 +755,7 @@ export function FeaturesPage(props: {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Uses “Feature delivery” and the default crew. Both can be changed in Settings.
+          Uses “Feature delivery” and the default crew. Both can be changed in the Library.
         </p>
         <IssueSuggestions
           issues={suggestedIssues}

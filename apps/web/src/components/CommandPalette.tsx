@@ -55,6 +55,7 @@ import {
   ChartNoAxesColumnIcon,
   ClockIcon,
   KanbanIcon,
+  LayersIcon,
   ListIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -273,7 +274,12 @@ import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { useUiStateStore } from "../uiStateStore";
 import { openNextNeedsYou } from "./features/featuresNavigation";
-import { AUTOMATIONS_PATH, BOARD_PATH, useToggleMainView } from "./sidebar/mainAppLocation";
+import {
+  AUTOMATIONS_PATH,
+  BOARD_PATH,
+  LIBRARY_PATH,
+  useToggleMainView,
+} from "./sidebar/mainAppLocation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -383,11 +389,11 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
-      if (command === "automations.open") {
+      if (command === "automations.open" || command === "library.open") {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
-        void navigate({ to: AUTOMATIONS_PATH });
+        void navigate({ to: command === "library.open" ? LIBRARY_PATH : AUTOMATIONS_PATH });
         return;
       }
       if (command === "board.toggle" || command === "needsYou.next") {
@@ -1892,6 +1898,18 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "automations.open",
     run: async () => {
       await navigate({ to: AUTOMATIONS_PATH });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:library",
+    searchTerms: ["library", "workflows", "roles", "crew", "stages", "canvas"],
+    title: "Open library",
+    icon: <LayersIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "library.open",
+    run: async () => {
+      await navigate({ to: LIBRARY_PATH });
     },
   });
 

@@ -98,6 +98,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "usage.open",
   // No default key.
   "automations.open",
+  // No default key.
+  "library.open",
   "board.toggle",
   "needsYou.next",
   "theme.select",

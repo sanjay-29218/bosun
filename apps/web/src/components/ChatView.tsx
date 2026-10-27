@@ -1046,12 +1046,12 @@ export default function ChatView(props: ChatViewProps) {
     !isServerThread && activeProject
       ? deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings)
       : undefined;
-  // Workflows and roles are environment-wide settings, not a project's.
+  // Workflows and roles are the environment's, in the Library, not a project's.
   const handleManageWorkflows = () => {
-    void navigate({ to: "/settings/workflows", search: { machine: environmentId } });
+    void navigate({ to: "/library", search: {} });
   };
   const handleEditCrew = () => {
-    void navigate({ to: "/settings/roles", search: { machine: environmentId } });
+    void navigate({ to: "/library", search: {} });
   };
   // A new thread with a workflow picked starts a feature; its first message is the brief.
   const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
@@ -1128,8 +1128,8 @@ export default function ChatView(props: ChatViewProps) {
             children: "Open workflow",
             onClick: () => {
               void navigate({
-                to: "/settings/workflow",
-                search: { environment: environmentId, workflow: workflowId },
+                to: "/library",
+                search: { environmentId, workflowId },
               });
             },
           },

@@ -12,13 +12,14 @@ import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
+import { SettingsRow } from "./components/SettingsRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 
 /**
  * Each environment's workflow library, read-only. Tap a workflow to see its stages; editing
- * stays on web and desktop.
+ * stays on web and desktop. It links to Roles, since the bot menu's Library opens here.
  */
 export function SettingsWorkflowsRouteScreen() {
   const { selectedTargets } = useSettingsEnvironmentFilter();
@@ -47,6 +48,9 @@ export function SettingsWorkflowsRouteScreen() {
               </SettingsSection>
             ))
           )}
+          <SettingsSection>
+            <SettingsRow target="SettingsRoles" icon="person.2" label="Roles" />
+          </SettingsSection>
           <Text className="px-1 text-sm text-foreground-muted">
             Workflows are edited in T3 Code on web or desktop.
           </Text>

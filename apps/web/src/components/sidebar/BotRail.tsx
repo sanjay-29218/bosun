@@ -47,6 +47,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   AUTOMATIONS_PATH,
   isSidebarUtilityPage,
+  LIBRARY_PATH,
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
@@ -240,7 +241,7 @@ function RailPlaces({
   const { isMobile, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
-  // Automations keeps the mobile sheet open, since its list is what the sheet shows next.
+  // Automations and Library keep the mobile sheet open, since their list is what it shows next.
   const leaveSheet = () => {
     if (isMobile) setOpenMobile(false);
   };
@@ -261,14 +262,13 @@ function RailPlaces({
       </RailItem>
       <RailItem
         label="Library"
-        hint="Workflows, for now"
-        active={false}
+        hint={null}
+        active={destination === "library"}
         signal={null}
         shortcut={null}
         variant="icon"
         onSelect={() => {
-          leaveSheet();
-          void navigate({ to: "/settings/workflows" });
+          if (destination !== "library") void navigate({ to: LIBRARY_PATH });
         }}
       >
         <LayersIcon className="size-5" strokeWidth={1.75} />

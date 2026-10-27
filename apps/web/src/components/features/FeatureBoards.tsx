@@ -228,7 +228,7 @@ export function FeaturePhaseList(props: {
 
 /**
  * One workflow's stages as columns: role headers, gates with their waiting counts, and loops
- * drawn as labelled arcs. Read-only; the graph is edited in Settings → Workflows.
+ * drawn as labelled arcs. Read-only; the graph is edited in the Library.
  */
 export function FeatureStageBoardView(props: {
   readonly board: FeatureStageBoard;

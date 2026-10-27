@@ -26,8 +26,6 @@ export type SettingsPath =
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/bots"
-  | "/settings/workflows"
-  | "/settings/roles"
   | "/settings/threads"
   | "/settings/browser"
   | "/settings/devices"
@@ -94,8 +92,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/bots": "Bots",
-  "/settings/workflows": "Workflows",
-  "/settings/roles": "Roles",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
   "/settings/devices": "Devices",
@@ -125,7 +121,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/snap-shot",
     ],
   },
-  { heading: "Crew", paths: ["/settings/bots", "/settings/workflows", "/settings/roles"] },
+  { heading: "Crew", paths: ["/settings/bots"] },
   {
     heading: "Agents",
     paths: ["/settings/providers", "/settings/threads", "/settings/browser", "/settings/devices"],
@@ -1115,25 +1111,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "workflows",
-    title: "Workflows",
-    to: "/settings/workflows",
-    searchTerms: [
-      "stages gates approve publish version starter feature delivery plan design build test review routes",
-    ],
-  },
-  {
-    id: "roles",
-    title: "Roles",
-    to: "/settings/roles",
-    searchTerms: [
-      "crew planner designer builder qa tester reviewer project manager instructions tools model act ask first starter",
-    ],
-  },
-  {
     id: "role-limits",
     title: "Crew limits",
-    to: "/settings/roles",
+    to: "/settings/bots",
     searchTerms: [
       "agents running at once concurrency queued per provider caps rate limit retries stage fails",
     ],
@@ -1162,8 +1142,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/providers": null,
   // Environment-local; the page pins one environment, like Providers.
   "/settings/bots": null,
-  "/settings/workflows": null,
-  "/settings/roles": null,
   "/settings/threads": null,
   "/settings/browser": null,
   "/settings/devices": null,
