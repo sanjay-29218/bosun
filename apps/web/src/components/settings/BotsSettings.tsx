@@ -54,12 +54,20 @@ import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from
 import { toastManager } from "../ui/toast";
 import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 import { CrewToolPicker, EditorField } from "./CrewAgentFields";
+import { CrewLimitsSettings } from "./CrewLimitsSettings";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
-import { RoleModelPicker, RuntimeModeSelect, useEnvironmentDefaultModel } from "./RolesSettings";
+import {
+  RoleModelPicker,
+  RuntimeModeSelect,
+  useEnvironmentDefaultModel,
+} from "../library/RoleEditor";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-/** Top-level bots and the projects each one owns. Bots are environment-local. */
+/**
+ * Top-level bots and the projects each one owns, then the limits on the agents their features
+ * run. Bots are environment-local.
+ */
 export function BotsSettings() {
   const { environment, supported } = useCrewSettingsEnvironment("bots");
   return (
@@ -79,6 +87,7 @@ export function BotsSettings() {
           />
         </SettingsSection>
       )}
+      <CrewLimitsSettings />
     </SettingsPageContainer>
   );
 }

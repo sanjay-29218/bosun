@@ -11,8 +11,8 @@ workflows, and the app opens on whichever view you used last.
 The first time the board opens, **Start a feature** adds the starter workflow, "Feature
 delivery", to the environment's workflows and opens a new thread. **New feature** opens a new
 thread in the scoped project. A new thread's **Workflow** picker starts on the default workflow of
-the bot that owns the project; pick **No workflow** for a plain thread. Change workflows in
-**Settings → Workflows**.
+the bot that owns the project; pick **No workflow** for a plain thread. Change workflows in the
+**Library**, in the bot rail or at the bottom of the sidebar.
 
 ## The board
 

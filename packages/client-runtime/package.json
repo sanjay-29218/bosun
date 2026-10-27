@@ -59,6 +59,10 @@
       "types": "./src/state/automations.ts",
       "default": "./src/state/automations.ts"
     },
+    "./state/library": {
+      "types": "./src/state/library.ts",
+      "default": "./src/state/library.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

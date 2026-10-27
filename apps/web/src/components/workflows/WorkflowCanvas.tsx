@@ -54,7 +54,7 @@ import {
   humanizeWorkflowId,
   removeStage,
   stageCapableRoles,
-} from "../settings/WorkflowEditor.logic";
+} from "../library/WorkflowEditor.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Group } from "../ui/group";
@@ -340,7 +340,7 @@ export default function WorkflowCanvas({
     onChange(next);
   };
 
-  // Expanded, the canvas fills the settings content area (not the app) until Escape.
+  // Expanded, the canvas fills the Library's main pane (not the app) until Escape.
   const [expanded, setExpanded] = useState(false);
   // oxlint-disable-next-line t3code/react-effect-budget -- Listens for Escape on the window only while the canvas is expanded.
   useEffect(() => {
@@ -351,7 +351,7 @@ export default function WorkflowCanvas({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expanded]);
-  const host = expanded ? document.querySelector<HTMLElement>("[data-settings-content]") : null;
+  const host = expanded ? document.querySelector<HTMLElement>("[data-workflow-canvas-host]") : null;
 
   const canvas = (
     <CanvasLabels value={labels}>

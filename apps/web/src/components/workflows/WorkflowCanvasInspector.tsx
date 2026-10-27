@@ -1,3 +1,4 @@
+import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import type { RoleConfig, WorkflowDefinition } from "@t3tools/contracts";
 import { GripVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { memo } from "react";
@@ -9,12 +10,11 @@ import {
   canRemoveStage,
   describeStageInputs,
   humanizeWorkflowId,
-  orderWorkflowStages,
   removeStage,
   setRouteLimit,
   updateTask,
   workflowEndStepId,
-} from "../settings/WorkflowEditor.logic";
+} from "../library/WorkflowEditor.logic";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { canRemoveRoute, connectRoute, removeRoute, stagesRoutingTo } from "./WorkflowCanvas.logic";

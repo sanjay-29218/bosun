@@ -7,11 +7,6 @@ import { Label } from "../ui/label";
 
 const KNOWN_TOOLS: ReadonlySet<string> = new Set(CREW_TOOL_GRANTS.map((grant) => grant.id));
 
-/** A grant's name for people; grants this client doesn't know show as stored. */
-export function crewToolLabel(id: string): string {
-  return CREW_TOOL_GRANTS.find((grant) => grant.id === id)?.label ?? id;
-}
-
 /**
  * The tools a bot or role may use, as a checklist. Grants it doesn't know, from an older
  * client or the MCP tools, stay listed so they can still be removed.

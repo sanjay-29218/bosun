@@ -557,6 +557,9 @@ function AdaptiveWorkspaceLayoutContent(
   const handleOpenAutomations = () => {
     openSettings(navigation, "SettingsScheduledTasks");
   };
+  const handleOpenLibrary = () => {
+    openSettings(navigation, "SettingsWorkflows");
+  };
 
   const handleOpenThreadPullRequests = useOpenThreadPullRequests();
   const { openPendingTask: handleOpenPendingTask } =
@@ -860,6 +863,7 @@ function AdaptiveWorkspaceLayoutContent(
                           onOpenSettings={handleOpenSettings}
                           onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                           onOpenAutomations={handleOpenAutomations}
+                          onOpenLibrary={handleOpenLibrary}
                           onNewThreadInProject={handleNewThreadInProject}
                           onNewThreadOnBranch={handleNewThreadOnBranch}
                           onOpenPendingTask={handleOpenPendingTask}

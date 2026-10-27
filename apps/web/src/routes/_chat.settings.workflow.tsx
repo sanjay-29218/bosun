@@ -1,38 +1,19 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { EnvironmentId } from "@t3tools/contracts";
 
-import { WorkflowEditorPage } from "../components/settings/WorkflowEditor";
+import { validateLibrarySearch } from "../components/library/librarySearch";
 
-function SettingsWorkflowRoute() {
-  const target = Route.useSearch();
-  if (!target.environment || !target.workflow) {
-    return <p className="p-8 text-sm text-muted-foreground">Choose a workflow in Workflows.</p>;
-  }
-  return <WorkflowEditorPage environment={target.environment} workflow={target.workflow} />;
-}
-
-// Not `environmentId`: the settings layout reads that key as a legacy machine scope.
+// The workflow editor moved to the Library destination; old links open the same workflow there.
 export const Route = createFileRoute("/_chat/settings/workflow")({
-  validateSearch: (raw: Record<string, unknown>) => ({
-    ...(typeof raw.environment === "string" && raw.environment.trim()
-      ? { environment: EnvironmentId.make(raw.environment) }
-      : {}),
-    ...(typeof raw.workflow === "string" && raw.workflow.trim() ? { workflow: raw.workflow } : {}),
-  }),
-  // The settings scope pins one environment here; make it the workflow's, so a link to a
-  // workflow on another environment doesn't open against the primary one.
+  validateSearch: (raw: Record<string, unknown>) =>
+    validateLibrarySearch({ environmentId: raw.environment, workflowId: raw.workflow }),
   beforeLoad: ({ search }) => {
-    if (search.environment && search.machine !== search.environment) {
-      throw redirect({
-        to: "/settings/workflow",
-        search: {
-          environment: search.environment,
-          ...(search.workflow ? { workflow: search.workflow } : {}),
-          machine: search.environment,
-        },
-        replace: true,
-      });
-    }
+    throw redirect({
+      to: "/library",
+      search:
+        search.environmentId === undefined || search.workflowId === undefined
+          ? {}
+          : { environmentId: search.environmentId, workflowId: search.workflowId },
+      replace: true,
+    });
   },
-  component: SettingsWorkflowRoute,
 });

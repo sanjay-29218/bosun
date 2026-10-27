@@ -136,6 +136,7 @@ export function HomeRouteScreen() {
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
         openAutomations: () => openSettings(navigation, "SettingsScheduledTasks"),
+        openLibrary: () => openSettings(navigation, "SettingsWorkflows"),
       }),
     [activeBot, navigation, openHeadquarters],
   );

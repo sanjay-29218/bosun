@@ -1,10 +1,7 @@
+import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import type { WorkflowDefinition, WorkflowLayout } from "@t3tools/contracts";
 
-import {
-  orderWorkflowStages,
-  setStageOutcomes,
-  updateTask,
-} from "../settings/WorkflowEditor.logic";
+import { setStageOutcomes, updateTask } from "../library/WorkflowEditor.logic";
 
 export type CanvasPosition = WorkflowLayout[string];
 

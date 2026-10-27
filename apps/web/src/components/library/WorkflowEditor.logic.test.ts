@@ -11,7 +11,6 @@ import {
   canRemoveStage,
   describeStageInputs,
   ensureWorkflowRole,
-  orderWorkflowStages,
   pruneUnusedRoles,
   refreshWorkflowRoles,
   removeStage,
@@ -77,12 +76,6 @@ function workflow(): WorkflowDefinition {
     defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 30 },
   };
 }
-
-describe("orderWorkflowStages", () => {
-  it("follows routes from the start, with unreachable stages last", () => {
-    expect(orderWorkflowStages(workflow())).toEqual(["plan", "build", "review", "orphan"]);
-  });
-});
 
 describe("describeStageInputs", () => {
   it("names picked files and diffs, and every earlier output by default", () => {

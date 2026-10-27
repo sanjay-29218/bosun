@@ -37,7 +37,7 @@ const WorkflowSummary = Schema.Struct({
 const ListWorkflows = Tool.make("t3_workflow_list", {
   ...shared,
   description:
-    "List the environment's workflows: the global library features start from, also shown in Settings → Workflows. t3_workflow_get returns one in full.",
+    "List the environment's workflows: the global library features start from, also shown in the app's Library. t3_workflow_get returns one in full.",
   success: Schema.Struct({ workflows: Schema.Array(WorkflowSummary) }),
 })
   .annotate(Tool.Readonly, true)
@@ -80,7 +80,7 @@ const DeleteWorkflow = Tool.make("t3_workflow_delete", {
 const ListRoles = Tool.make("t3_role_list", {
   ...shared,
   description:
-    "List the global roles (job descriptions) workflows assign to stages, with each one's current revision, also shown in Settings → Roles.",
+    "List the global roles (job descriptions) workflows assign to stages, with each one's current revision, also shown in the app's Library.",
   success: Schema.Struct({ roles: Schema.Array(RoleConfig) }),
 })
   .annotate(Tool.Readonly, true)
