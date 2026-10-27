@@ -6,6 +6,7 @@ import {
   VcsProcessSpawnError,
 } from "@t3tools/contracts";
 import { newProjectFolderName } from "@t3tools/shared/path";
+import * as NodeOS from "node:os";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -13,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Hex from "effect/encoding/Hex";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -234,12 +236,23 @@ const make = Effect.gen(function* () {
     }
   });
 
-  // Scratch inside a checkout would inherit its git status and checkpoints; require a data dir outside work trees.
+  // Scratch inside a checkout would inherit its git status and checkpoints, so a data dir in
+  // one (a dev worktree's) keeps Scratch in the system temp folder, one per data dir.
   const [probe, invalidate] = yield* Effect.cachedInvalidateWithTTL(
     gitWorkflow.isRepository(config.baseDir).pipe(
       Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
-      Effect.map((isRepository) =>
-        isRepository ? Option.none<string>() : Option.some(path.resolve(config.baseDir, "scratch")),
+      Effect.flatMap((isRepository) =>
+        isRepository
+          ? crypto
+              .digest("SHA-256", new TextEncoder().encode(config.baseDir))
+              .pipe(
+                Effect.map((hash) =>
+                  Option.some(
+                    path.join(NodeOS.tmpdir(), "bosun-scratch", Hex.encode(hash).slice(0, 16)),
+                  ),
+                ),
+              )
+          : Effect.succeedSome(path.resolve(config.baseDir, "scratch")),
       ),
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause) ? Effect.interrupt : Effect.succeed(Option.none<string>()),
