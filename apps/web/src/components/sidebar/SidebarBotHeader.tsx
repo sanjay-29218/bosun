@@ -59,7 +59,7 @@ export const SidebarBotHeader = memo(function SidebarBotHeader({
                 openHeadquarters(bot);
               }}
               className={cn(
-                "flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                "flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                 onBackdrop
                   ? "text-white hover:bg-white/15"
                   : "text-sidebar-foreground hover:bg-sidebar-row-hover",

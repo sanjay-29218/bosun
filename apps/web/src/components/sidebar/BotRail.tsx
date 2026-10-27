@@ -399,7 +399,7 @@ const RailItem = memo(function RailItem({
             <button
               type="button"
               className={cn(
-                "relative flex size-9 items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                "relative flex size-9 cursor-pointer items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                 variant === "tile"
                   ? "bg-sidebar-row-hover"
                   : active

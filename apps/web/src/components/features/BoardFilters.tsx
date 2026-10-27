@@ -95,7 +95,7 @@ export function BoardFilterChips(props: {
           <button
             type="button"
             aria-label={`Remove ${section.label} ${option.label}`}
-            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             onClick={() => section.onChange(option.value, false)}
           >
             <XIcon aria-hidden className="size-3" />
