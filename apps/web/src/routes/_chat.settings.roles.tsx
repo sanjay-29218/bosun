@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { RolesSettings } from "../components/settings/RolesSettings";
-
+// Roles moved to the Library destination; old links land there.
 export const Route = createFileRoute("/_chat/settings/roles")({
-  component: RolesSettings,
+  beforeLoad: () => {
+    throw redirect({ to: "/library", search: {}, replace: true });
+  },
 });

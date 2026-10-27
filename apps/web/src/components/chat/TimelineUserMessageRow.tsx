@@ -195,7 +195,7 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           <div className="flex shrink-0 items-center gap-2">
             {scheduledTaskId ? (
               <Link
-                to="/settings/scheduled-tasks"
+                to="/automations"
                 search={{ environmentId: ctx.activeThreadEnvironmentId, taskId: scheduledTaskId }}
                 className="rounded-sm text-xs text-muted-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
               >

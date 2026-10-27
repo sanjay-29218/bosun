@@ -1,5 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  botActivityByBot,
+  botActivityByLogicalBot,
   buildLogicalBots,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
@@ -7,6 +9,7 @@ import {
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
+  type BotActivity,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
@@ -23,6 +26,7 @@ import { environmentProjects } from "./projects";
 import { needsYouThreadsAtom } from "./needsYou";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentServerConfigsAtom } from "./server";
+import { environmentThreadShells } from "./threads";
 
 const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
   left.length === right.length && left.every((id, index) => id === right[index]);
@@ -72,23 +76,56 @@ const needsYouByBotAtom = Atom.make((get): ReadonlyMap<string, number> => {
     : next;
 }).pipe(Atom.withLabel("web-bot-rail:needs-you"));
 
+const sameActivity = (left: BotActivity, right: BotActivity) =>
+  left.failed === right.failed && left.working === right.working && left.unread === right.unread;
+
+/**
+ * Failed, working and unread threads per environment's bot, keyed by `botNeedsYouKey`. Shells
+ * stream while agents work, so the same map returns until a flag flips.
+ */
+const activityByBotAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
+  const next = botActivityByBot(
+    get(environmentThreadShells.threadShellsAtom),
+    get(environmentProjects.projectsAtom),
+  );
+  const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
+  return previous !== null &&
+    previous.size === next.size &&
+    [...next].every(([key, activity]) => {
+      const before = previous.get(key);
+      return before !== undefined && sameActivity(before, activity);
+    })
+    ? previous
+    : next;
+}).pipe(Atom.withLabel("web-bot-rail:activity"));
+
+// Member keys are `botNeedsYouKey`s, so the environment is their prefix.
+const onShownEnvironments = <Value>(
+  byMember: ReadonlyMap<string, Value>,
+  environmentFilter: ReadonlySet<EnvironmentId> | null,
+): ReadonlyMap<string, Value> =>
+  environmentFilter === null
+    ? byMember
+    : new Map(
+        [...byMember].filter(([memberKey]) =>
+          [...environmentFilter].some((environmentId) => memberKey.startsWith(`${environmentId}:`)),
+        ),
+      );
+
 /** Threads waiting on you per rail entry key, on the environments the filter shows. */
 export function useNeedsYouByLogicalBot(): ReadonlyMap<string, number> {
   const counts = useAtomValue(needsYouByBotAtom);
   const bots = useLogicalBots();
   const environmentFilter = useEnvironmentFilter();
-  return countNeedsYouByLogicalBot(
-    bots,
-    environmentFilter === null
-      ? counts
-      : new Map(
-          [...counts].filter(([memberKey]) =>
-            [...environmentFilter].some((environmentId) =>
-              memberKey.startsWith(`${environmentId}:`),
-            ),
-          ),
-        ),
-  );
+  return countNeedsYouByLogicalBot(bots, onShownEnvironments(counts, environmentFilter));
+}
+
+/** Activity per rail entry key, on the environments the filter shows. */
+export function useActivityByLogicalBot(): ReadonlyMap<string, BotActivity> {
+  const activity = useAtomValue(activityByBotAtom);
+  const bots = useLogicalBots();
+  const environmentFilter = useEnvironmentFilter();
+  return botActivityByLogicalBot(bots, onShownEnvironments(activity, environmentFilter));
 }
 
 function useLogicalBots(): ReadonlyArray<LogicalBot> {
@@ -138,7 +175,8 @@ export function activeBotInput(environmentId: EnvironmentId): { botId?: string }
   return botId === undefined ? {} : { botId };
 }
 
-export function useSelectLogicalBot(): (bot: LogicalBot) => void {
+/** Selects a rail entry, or All bots for null. */
+export function useSelectLogicalBot(): (bot: LogicalBot | null) => void {
   const setActive = useUiStateStore((store) => store.setActiveBotIdByEnvironmentId);
   return (bot) =>
     setActive(selectLogicalBot(useUiStateStore.getState().activeBotIdByEnvironmentId, bot));
@@ -162,8 +200,8 @@ export function useVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
 }
 
 /**
- * The active entry among the visible ones. Filtering out its environments falls back to the
- * first visible entry without forgetting what each environment remembers.
+ * The active entry among the visible ones, or null for All bots. Filtering out its
+ * environments falls back to All bots without forgetting what each environment remembers.
  */
 export function useVisibleActiveLogicalBot(): LogicalBot | null {
   const bots = useVisibleLogicalBots();
@@ -172,11 +210,11 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** The rail shows once there is a choice to make: two bots, or two connected environments. */
+/** The rail holds the app's places too, so it shows whenever there is a bot or a second environment. */
 export function useShowBotRail(): boolean {
   const botCount = useLogicalBots().length;
   const environmentCount = useConnectedEnvironmentIds().length;
-  return botCount > 1 || environmentCount > 1;
+  return botCount > 0 || environmentCount > 1;
 }
 
 /**

@@ -53,7 +53,9 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  ClockIcon,
   KanbanIcon,
+  LayersIcon,
   ListIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -61,6 +63,7 @@ import {
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
+  InboxIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
@@ -271,7 +274,12 @@ import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { useUiStateStore } from "../uiStateStore";
 import { openNextNeedsYou } from "./features/featuresNavigation";
-import { BOARD_PATH, useToggleMainView } from "./sidebar/mainAppLocation";
+import {
+  AUTOMATIONS_PATH,
+  BOARD_PATH,
+  LIBRARY_PATH,
+  useToggleMainView,
+} from "./sidebar/mainAppLocation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -379,6 +387,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         event.stopPropagation();
         setOpen(false);
         void navigate({ to: "/usage" });
+        return;
+      }
+      if (command === "automations.open" || command === "library.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        void navigate({ to: command === "library.open" ? LIBRARY_PATH : AUTOMATIONS_PATH });
         return;
       }
       if (command === "board.toggle" || command === "needsYou.next") {
@@ -1876,6 +1891,30 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:automations",
+    searchTerms: ["automations", "scheduled tasks", "schedule", "cron", "webhook", "recurring"],
+    title: "Open automations",
+    icon: <ClockIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "automations.open",
+    run: async () => {
+      await navigate({ to: AUTOMATIONS_PATH });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:library",
+    searchTerms: ["library", "workflows", "roles", "crew", "stages", "canvas"],
+    title: "Open library",
+    icon: <LayersIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "library.open",
+    run: async () => {
+      await navigate({ to: LIBRARY_PATH });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:usage",
     searchTerms: ["usage", "use", "tokens", "cost", "spend", "limits", "stats", "analytics"],
     title: "Open usage",
@@ -1936,25 +1975,43 @@ function OpenCommandPaletteDialog(props: {
 
   // The bot rail's switches; Mod+1-9 runs them while the palette is open too.
   const botItems: CommandPaletteActionItem[] = multipleBots
-    ? railBots.map((bot, index) => {
-        const shortcutCommand = botJumpCommandForIndex(index);
-        return {
+    ? [
+        {
           kind: "action",
-          value: `bot:${bot.key}`,
-          searchTerms: [bot.name, "bot", "switch"],
+          value: "bot:all",
+          searchTerms: ["all bots", "inbox", "bot", "switch", "everything"],
           title: (
             <>
-              Switch to <span className="font-semibold">{bot.name}</span>
+              Show <span className="font-semibold">All bots</span>
             </>
           ),
-          ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
-          icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
-          ...(shortcutCommand ? { shortcutCommand } : {}),
+          description: activeRailBot === null ? "Current" : "Every bot's threads",
+          icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+          shortcutCommand: "bot.inbox",
           run: async () => {
-            if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
+            if (activeRailBot !== null) switchBotMainView(() => selectRailBot(null));
           },
-        };
-      })
+        },
+        ...railBots.map((bot, index): CommandPaletteActionItem => {
+          const shortcutCommand = botJumpCommandForIndex(index);
+          return {
+            kind: "action",
+            value: `bot:${bot.key}`,
+            searchTerms: [bot.name, "bot", "switch"],
+            title: (
+              <>
+                Switch to <span className="font-semibold">{bot.name}</span>
+              </>
+            ),
+            ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
+            icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
+            ...(shortcutCommand ? { shortcutCommand } : {}),
+            run: async () => {
+              if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
+            },
+          };
+        }),
+      ]
     : [];
   // Every bot's headquarters, so a single bot (no rail) can be reached too.
   for (const bot of railBots) {

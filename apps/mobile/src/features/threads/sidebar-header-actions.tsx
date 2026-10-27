@@ -57,7 +57,16 @@ export function SidebarHeaderActions(props: SidebarHeaderActionsProps) {
           }
         >
           <View className="size-11 items-center justify-center rounded-full bg-subtle">
-            <BotAvatar avatar={botSwitcher.avatar} color={botSwitcher.color} size={34} />
+            {botSwitcher.bot ? (
+              <BotAvatar avatar={botSwitcher.bot.avatar} color={botSwitcher.bot.color} size={34} />
+            ) : (
+              <SymbolView
+                name="tray"
+                size={20}
+                tintColorClassName="accent-foreground"
+                type="monochrome"
+              />
+            )}
           </View>
         </Menu>
       ) : null}

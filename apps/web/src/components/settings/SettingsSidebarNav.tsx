@@ -13,7 +13,6 @@ import {
   BotIcon,
   BotMessageSquareIcon,
   createLucideIcon,
-  CalendarClockIcon,
   FileDiffIcon,
   FolderTreeIcon,
   GitBranchIcon,
@@ -29,8 +28,6 @@ import {
   Settings2Icon,
   ShieldCheckIcon,
   SmartphoneIcon,
-  UsersIcon,
-  WorkflowIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
@@ -96,12 +93,9 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
   "/settings/bots": BotMessageSquareIcon,
-  "/settings/workflows": WorkflowIcon,
-  "/settings/roles": UsersIcon,
   "/settings/threads": MessagesSquareIcon,
   "/settings/browser": GlobeIcon,
   "/settings/devices": SmartphoneIcon,
-  "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/worktrees": FolderTreeIcon,
   "/settings/connections": ServerIcon,
@@ -116,7 +110,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
 const SETTINGS_DETAIL_PAGE_PARENTS: Readonly<Record<string, SettingsPath>> = {
   "/settings/diagnostics": "/settings/maintenance",
   "/settings/open-source-licenses": "/settings/about",
-  "/settings/workflow": "/settings/workflows",
 };
 
 // Attached only to the highlighted result, so it runs whenever the highlight lands on a row.

@@ -1,3 +1,4 @@
+import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import {
   PROJECT_MANAGER_ROLE_ID,
   type RoleConfig,
@@ -15,30 +16,6 @@ export const WORKFLOW_ID_PATTERN = /^[a-z][a-z0-9_-]{0,79}$/;
 export function humanizeWorkflowId(id: string): string {
   const words = id.replace(/[_-]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-/**
- * Task stages in the order a feature meets them: breadth-first from the start
- * stage, following each stage's routes in their listed order. Stages only
- * reachable through nothing come last, so an edit in progress never hides one.
- */
-export function orderWorkflowStages(definition: WorkflowDefinition): string[] {
-  const ordered: string[] = [];
-  const queue = [definition.start];
-  const seen = new Set<string>();
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const step = definition.steps[id];
-    if (step?.type !== "task") continue;
-    ordered.push(id);
-    queue.push(...Object.values(step.next));
-  }
-  for (const [id, step] of Object.entries(definition.steps)) {
-    if (step.type === "task" && !seen.has(id)) ordered.push(id);
-  }
-  return ordered;
 }
 
 export function workflowEndStepId(definition: WorkflowDefinition): string {

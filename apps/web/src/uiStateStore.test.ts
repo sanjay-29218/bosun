@@ -26,6 +26,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    seenAutomationFailureAtByKey: {},
     ...overrides,
   };
 }
@@ -131,6 +132,7 @@ describe("parsePersistedState", () => {
       activeBotIdByEnvironmentId: {},
       sidebarEnvironmentIds: null,
       pullRequestMergeMethod: "merge",
+      seenAutomationFailureAtByKey: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -245,9 +247,22 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      seenAutomationFailureAtByKey: {},
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
+    });
+  });
+
+  it("restores seen automation failures, dropping entries that aren't timestamps", () => {
+    const parsed = parsePersistedState({
+      seenAutomationFailureAtByKey: {
+        "local:nightly": "2026-10-02T01:00:00.000Z",
+        "local:broken": "yesterday",
+      },
+    });
+    expect(parsed.seenAutomationFailureAtByKey).toEqual({
+      "local:nightly": "2026-10-02T01:00:00.000Z",
     });
   });
 

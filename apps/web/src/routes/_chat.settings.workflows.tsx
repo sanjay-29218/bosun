@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { WorkflowsSettings } from "../components/settings/WorkflowsSettings";
-
+// Workflows moved to the Library destination; old links land there.
 export const Route = createFileRoute("/_chat/settings/workflows")({
-  component: WorkflowsSettings,
+  beforeLoad: () => {
+    throw redirect({ to: "/library", search: {}, replace: true });
+  },
 });

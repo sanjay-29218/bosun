@@ -130,10 +130,8 @@ function SettingsContentLayout() {
               <AppRouteModalClose />
             </div>
           </header>
-          {/* Positioned so a settings page can expand into it, as the workflow canvas does. */}
           <div
             key={`${contentScopeKey}:${restoreSignal}`}
-            data-settings-content=""
             className="relative min-h-0 flex flex-1 flex-col"
           >
             <SettingsScopeBoundary pathname={location.pathname}>
@@ -150,9 +148,6 @@ function SettingsContentLayout() {
 const SINGLE_ENVIRONMENT_PATHS: ReadonlySet<string> = new Set([
   "/settings/providers",
   "/settings/bots",
-  "/settings/workflows",
-  "/settings/workflow",
-  "/settings/roles",
 ]);
 
 function SettingsRouteLayout() {

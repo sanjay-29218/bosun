@@ -25,9 +25,15 @@ describe("buildBotSwitcherMenu", () => {
       needsYou: new Map([[captain.key, 2]]),
       select: vi.fn(),
       openHeadquarters,
+      openAutomations: vi.fn(),
+      openLibrary: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
-    expect(menu?.items.map((item) => item.title)).toEqual(["Open Captain's thread"]);
+    expect(menu?.items.map((item) => item.title)).toEqual([
+      "Open Captain's thread",
+      "Automations",
+      "Library",
+    ]);
     menu!.items[0]!.onPress();
     expect(openHeadquarters).toHaveBeenCalledWith(captain);
   });
@@ -45,6 +51,8 @@ describe("buildBotSwitcherMenu", () => {
       ]),
       select,
       openHeadquarters,
+      openAutomations: vi.fn(),
+      openLibrary: vi.fn(),
     });
 
     expect(menu).toMatchObject({
@@ -52,18 +60,84 @@ describe("buildBotSwitcherMenu", () => {
       elsewhereNeedsYou: 3,
       accessibilityLabel: "Bot: Captain. 3 need you in other bots",
       items: [
+        { title: "All bots", subtitle: "6 need you", state: "off" },
         { title: "Captain", subtitle: "3 need you", state: "on" },
         { title: "Social", subtitle: "1 needs you", state: "off" },
         { title: "Finance", subtitle: "2 need you", state: "off" },
         { title: "Open Captain's thread" },
+        { title: "Automations" },
+        { title: "Library" },
       ],
     });
-    menu!.items[1]!.onPress();
+    menu!.items[2]!.onPress();
     expect(select).toHaveBeenCalledWith(social);
     // The last item opens the active bot's headquarters rather than switching.
-    menu!.items[3]!.onPress();
+    menu!.items[4]!.onPress();
     expect(openHeadquarters).toHaveBeenCalledWith(captain);
-    expect(menu!.items[3]).not.toHaveProperty("state");
+    expect(menu!.items[4]).not.toHaveProperty("state");
+  });
+
+  it("shows All bots with nothing elsewhere and no headquarters", () => {
+    const select = vi.fn();
+    const menu = buildBotSwitcherMenu({
+      bots: [captain, social],
+      active: null,
+      needsYou: new Map([[social.key, 1]]),
+      select,
+      openHeadquarters: vi.fn(),
+      openAutomations: vi.fn(),
+      openLibrary: vi.fn(),
+    });
+    expect(menu).toMatchObject({
+      bot: null,
+      name: "All bots",
+      elsewhereNeedsYou: 0,
+      items: [
+        { title: "All bots", subtitle: "1 needs you", state: "on" },
+        { title: "Captain", state: "off" },
+        { title: "Social", state: "off" },
+        { title: "Automations" },
+        { title: "Library" },
+      ],
+    });
+    menu!.items[0]!.onPress();
+    expect(select).toHaveBeenCalledWith(null);
+  });
+
+  it("ends with the places: Automations, then Library", () => {
+    const openAutomations = vi.fn();
+    const openLibrary = vi.fn();
+    const menu = buildBotSwitcherMenu({
+      bots: [captain, social],
+      active: null,
+      needsYou: new Map(),
+      select: vi.fn(),
+      openHeadquarters: vi.fn(),
+      openAutomations,
+      openLibrary,
+    });
+    const [automations, library] = menu!.items.slice(-2);
+    expect(automations).toMatchObject({ title: "Automations", subtitle: "Scheduled tasks" });
+    expect(library).toMatchObject({ title: "Library", subtitle: "Workflows and roles" });
+    expect(library).not.toHaveProperty("state");
+    automations!.onPress();
+    library!.onPress();
+    expect(openAutomations).toHaveBeenCalledOnce();
+    expect(openLibrary).toHaveBeenCalledOnce();
+  });
+
+  it("has no menu before any bot loads", () => {
+    expect(
+      buildBotSwitcherMenu({
+        bots: [],
+        active: null,
+        needsYou: new Map(),
+        select: vi.fn(),
+        openHeadquarters: vi.fn(),
+        openAutomations: vi.fn(),
+        openLibrary: vi.fn(),
+      }),
+    ).toBeNull();
   });
 
   it("leaves a bot with nothing waiting without a subtitle", () => {
@@ -73,8 +147,10 @@ describe("buildBotSwitcherMenu", () => {
       needsYou: new Map(),
       select: vi.fn(),
       openHeadquarters: vi.fn(),
+      openAutomations: vi.fn(),
+      openLibrary: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
-    expect(menu?.items[0]).not.toHaveProperty("subtitle");
+    expect(menu?.items[1]).not.toHaveProperty("subtitle");
   });
 });

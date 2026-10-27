@@ -96,6 +96,10 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "filePicker.toggle",
   "projectSearch.toggle",
   "usage.open",
+  // No default key.
+  "automations.open",
+  // No default key.
+  "library.open",
   "board.toggle",
   "needsYou.next",
   "theme.select",
@@ -130,6 +134,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "features.needsYou",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
+  // No default: Mod+0 is the desktop's Actual Size.
+  "bot.inbox",
   ...BOT_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 

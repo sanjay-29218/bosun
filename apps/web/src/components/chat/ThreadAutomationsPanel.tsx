@@ -16,7 +16,7 @@ import {
 
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { cn } from "../../lib/utils";
-import { ScheduledRelativeLabel, scheduleLabel } from "../settings/ScheduledTasksSettings";
+import { ScheduledRelativeLabel, scheduleLabel } from "../automations/ScheduledTaskEditor";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -137,10 +137,10 @@ export function ThreadAutomationsPanel(props: {
                 size="icon-xs"
                 variant="ghost"
                 part="icon"
-                aria-label="Manage scheduled tasks"
+                aria-label="Open Automations"
                 onClick={() =>
                   void navigate({
-                    to: "/settings/scheduled-tasks",
+                    to: "/automations",
                     search: { environmentId: props.environmentId },
                   })
                 }
@@ -149,7 +149,7 @@ export function ThreadAutomationsPanel(props: {
               </ThreadDetailsControl>
             }
           />
-          <TooltipPopup>Manage scheduled tasks</TooltipPopup>
+          <TooltipPopup>Open Automations</TooltipPopup>
         </Tooltip>
       }
     >
@@ -200,7 +200,7 @@ export function ThreadAutomationsPanel(props: {
                     aria-label={`Edit ${task.title}`}
                     onClick={() =>
                       void navigate({
-                        to: "/settings/scheduled-tasks",
+                        to: "/automations",
                         search: { environmentId: props.environmentId, taskId: task.id },
                       })
                     }

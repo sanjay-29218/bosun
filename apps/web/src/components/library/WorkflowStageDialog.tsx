@@ -1,3 +1,4 @@
+import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import {
   PROJECT_MANAGER_ROLE_ID,
   type RoleConfig,
@@ -26,7 +27,6 @@ import {
   earlierStageOutputs,
   ensureWorkflowRole,
   normalizeReceives,
-  orderWorkflowStages,
   parseList,
   setStageOutcomes,
   updateTask,

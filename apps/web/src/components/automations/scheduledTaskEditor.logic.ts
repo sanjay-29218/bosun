@@ -25,30 +25,23 @@ import {
 } from "@t3tools/shared/projectSettings";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
-import type { ResolvedSettingsScope } from "./settingsScope";
-
-export function matchesScheduledTaskScope(
-  scope: ResolvedSettingsScope,
-  environmentId: EnvironmentId,
-  projectId: ProjectId,
-): boolean {
-  if (scope.kind === "unavailable" || !scope.environmentIds.includes(environmentId)) return false;
-  if (scope.kind === "project" || scope.kind === "checkout") {
-    return scope.members.some(
-      (member) => member.environmentId === environmentId && member.id === projectId,
-    );
-  }
-  return true;
+export interface AutomationsSearch {
+  readonly environmentId?: EnvironmentId;
+  readonly taskId?: ScheduledTaskId;
+  /** The editor for a new task, on `environmentId` when given. */
+  readonly new?: true;
 }
 
-export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
+export function validateAutomationsSearch(raw: Record<string, unknown>): AutomationsSearch {
   return {
     ...(typeof raw.environmentId === "string" && raw.environmentId.trim()
       ? { environmentId: EnvironmentId.make(raw.environmentId) }
       : {}),
     ...(typeof raw.taskId === "string" && raw.taskId.trim()
       ? { taskId: ScheduledTaskId.make(raw.taskId) }
-      : {}),
+      : raw.new === true || raw.new === "1" || raw.new === 1
+        ? { new: true as const }
+        : {}),
   };
 }
 

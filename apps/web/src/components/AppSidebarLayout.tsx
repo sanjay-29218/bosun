@@ -36,12 +36,14 @@ import {
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
+import { AutomationsSidebar } from "./automations/AutomationsSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import LegacyThreadSidebar from "./LegacySidebar";
+import { LibrarySidebar } from "./library/LibrarySidebar";
 import ThreadSidebar from "./Sidebar";
 import { BOT_RAIL_WIDTH, BotRail } from "./sidebar/BotRail";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
-import { isAppModalPage } from "./sidebar/mainAppLocation";
+import { isAppModalPage, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useShowBotRail } from "../state/botRail";
@@ -391,6 +393,7 @@ function MobileBotRailFrame({ show, children }: { show: boolean; children: React
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const legacySidebarEnabled = useLegacySidebarEnabled();
+  const railDestination = useRailDestination();
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
     pendingKey: null,
@@ -466,7 +469,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           style={windowControlsInsetStyle}
         >
           <MobileBotRailFrame show={showBotRail && isMobile}>
-            {legacySidebarEnabled ? (
+            {railDestination === "automations" ? (
+              <AutomationsSidebar />
+            ) : railDestination === "library" ? (
+              <LibrarySidebar />
+            ) : legacySidebarEnabled ? (
               <LegacyThreadSidebar routeReveal={sidebarRouteReveal} />
             ) : (
               <ThreadSidebar routeReveal={sidebarRouteReveal} />

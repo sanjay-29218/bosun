@@ -1,6 +1,7 @@
-import { useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { useState } from "react";
 
 import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
@@ -12,8 +13,44 @@ export function isAppModalPage(pathname: string) {
   return pathname === "/settings" || pathname.startsWith("/settings/") || pathname === "/usage";
 }
 
+export const AUTOMATIONS_PATH = "/automations";
+export const LIBRARY_PATH = "/library";
+
 export function isSidebarUtilityPage(pathname: string) {
-  return pathname.startsWith("/projects/") || pathname === "/pull-requests";
+  return (
+    pathname.startsWith("/projects/") ||
+    pathname === "/pull-requests" ||
+    pathname === AUTOMATIONS_PATH ||
+    pathname === LIBRARY_PATH
+  );
+}
+
+/**
+ * What the rail points at: the bots (each bot's or All bots' threads) or one of its places.
+ * The sidebar column shows the destination's list.
+ */
+export type RailDestination = "bots" | "automations" | "library" | "pull-requests";
+
+const railDestinationForPathname = (pathname: string): RailDestination =>
+  pathname === AUTOMATIONS_PATH
+    ? "automations"
+    : pathname === LIBRARY_PATH
+      ? "library"
+      : pathname === "/pull-requests"
+        ? "pull-requests"
+        : "bots";
+
+/** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
+export function useRailDestination(): RailDestination {
+  const routeDestination = useLocation({
+    select: (location) =>
+      isAppModalPage(location.pathname) ? null : railDestinationForPathname(location.pathname),
+  });
+  const [destination, setDestination] = useState<RailDestination>(routeDestination ?? "bots");
+  if (routeDestination !== null && routeDestination !== destination) {
+    setDestination(routeDestination);
+  }
+  return routeDestination ?? destination;
 }
 
 // Neither List nor Board: a modal or a utility page is showing.
@@ -56,7 +93,7 @@ function readMainViews(): Record<string, MainView> {
   }
 }
 
-// Each bot remembers its view; before the rail knows a bot, the environment does.
+// Each bot remembers its view; All bots, or a rail that knows no bot yet, uses the environment.
 function mainViewKey(environmentId: EnvironmentId | null): string | null {
   const botKey = readActiveLogicalBotKey();
   return botKey === null ? environmentId : `bot:${botKey}`;

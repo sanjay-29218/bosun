@@ -1,10 +1,17 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  ClockIcon,
+  LayersIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { useShowBotRail } from "../../state/botRail";
 import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
@@ -24,7 +31,13 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
+import {
+  AUTOMATIONS_PATH,
+  isSidebarUtilityPage,
+  LIBRARY_PATH,
+  useNavigateToMainApp,
+} from "./mainAppLocation";
+import { SidebarBotHeader } from "./SidebarBotHeader";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -63,7 +76,10 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         />
       </div>
       <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
-        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        <SidebarBotHeader
+          onBackdrop={backdropVariant !== null}
+          fallback={<SidebarBrand onBackdrop={backdropVariant !== null} />}
+        />
         {pillLabel ? (
           <div className="ml-1 flex h-7 items-center">
             <Badge data-environment-identification="pill" size="sm" variant="secondary">
@@ -164,6 +180,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
   const pullRequestsSupported = usePullRequestsSupported();
+  const showBotRail = useShowBotRail();
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -175,6 +192,14 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       to: "/pull-requests",
       search: readPullRequestListPreferences(),
     });
+  };
+  const handleAutomationsClick = () => {
+    closeMobileSidebar();
+    void navigate({ to: AUTOMATIONS_PATH });
+  };
+  const handleLibraryClick = () => {
+    closeMobileSidebar();
+    void navigate({ to: LIBRARY_PATH });
   };
   const handleSettingsClick = () => {
     closeMobileSidebar();
@@ -193,6 +218,14 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigateToMainApp();
   };
 
+  // The rail holds these, and picking a bot there is the way back.
+  if (showBotRail) {
+    return (
+      <SidebarMenu className="flex-row items-center">
+        <SidebarUpdatePill />
+      </SidebarMenu>
+    );
+  }
   return (
     <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
@@ -209,6 +242,12 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
+          <SidebarUtilityItem
+            icon={<ClockIcon />}
+            label="Automations"
+            onClick={handleAutomationsClick}
+          />
+          <SidebarUtilityItem icon={<LayersIcon />} label="Library" onClick={handleLibraryClick} />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}

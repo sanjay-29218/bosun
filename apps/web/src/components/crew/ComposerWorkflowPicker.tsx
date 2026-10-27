@@ -1,14 +1,14 @@
+import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { MessageSquareIcon, SettingsIcon, UsersIcon, WorkflowIcon } from "lucide-react";
+import { LayersIcon, MessageSquareIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
 import { useProject, useServerConfigs } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
-import { orderWorkflowStages } from "../settings/WorkflowEditor.logic";
 import { workflowsEnvironment } from "../../state/workflows";
 import {
   ComposerControl,
@@ -141,7 +141,7 @@ export function ComposerWorkflowPicker(props: {
         </MenuGroup>
         <MenuSeparator />
         <MenuItem onClick={props.onManageWorkflows}>
-          <SettingsIcon />
+          <LayersIcon />
           Manage workflows…
         </MenuItem>
       </MenuPopup>
@@ -151,7 +151,7 @@ export function ComposerWorkflowPicker(props: {
 
 /**
  * Stands in for the model picker while a workflow is picked: every role brings its own model,
- * set in Crew settings.
+ * set in the Library.
  */
 export function ComposerCrewControl(props: {
   readonly environmentId: EnvironmentId;

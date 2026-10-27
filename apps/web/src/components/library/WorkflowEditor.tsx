@@ -1,6 +1,7 @@
+import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import { type RoleConfig, type EnvironmentId, type WorkflowDefinition } from "@t3tools/contracts";
-import { useBlocker, useNavigate } from "@tanstack/react-router";
-import { ArrowLeftIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { useBlocker } from "@tanstack/react-router";
+import { MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { lazy, Suspense, useState } from "react";
 
@@ -8,8 +9,7 @@ import { requestConfirmDialog } from "../../confirmDialog";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
-import { rolesEnvironment } from "../../state/roles";
-import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
+import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Alert, AlertDescription } from "../ui/alert";
@@ -20,15 +20,14 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { WorkflowStageSelect } from "../workflows/WorkflowStageSelect";
-import { LimitField } from "./CrewLimitsSettings";
-import { SettingsGroup } from "./SettingsGroup";
-import { useSettingsScope } from "./SettingsScopeContext";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import { LimitField } from "../settings/CrewLimitsSettings";
+import { SettingsGroup } from "../settings/SettingsGroup";
+import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import {
   canRemoveStage,
   describeStageInputs,
   humanizeWorkflowId,
-  orderWorkflowStages,
   pruneUnusedRoles,
   refreshWorkflowRoles,
   removeStage,
@@ -39,7 +38,6 @@ import {
   workflowIdFromName,
   type WorkflowRoleIssue,
 } from "./WorkflowEditor.logic";
-import { useDeleteWorkflow } from "./WorkflowsSettings";
 import { WorkflowStageDialog } from "./WorkflowStageDialog";
 
 // React Flow only loads once someone opens the canvas.
@@ -47,86 +45,46 @@ const WorkflowCanvas = lazy(() => import("../workflows/WorkflowCanvas"));
 const EDITOR_VIEW_KEY = "t3code:workflow-editor-view";
 const EditorView = Schema.Literals(["canvas", "form"]);
 
-/** Search params of `/settings/workflow`, for links from the Workflows page. */
-export interface WorkflowEditorTarget {
-  readonly environment: EnvironmentId;
-  readonly workflow: string;
-}
-
-/** One workflow as a settings page: stages, routes, then Publish to make a new version. */
-export function WorkflowEditorPage(target: WorkflowEditorTarget) {
-  const { connectedEnvironments } = useSettingsScope();
-  const navigate = useNavigate();
-  const environment = connectedEnvironments.find(
-    (candidate) => candidate.environmentId === target.environment,
-  );
-  const connected = environment?.serverConfig?.environment.capabilities.workflows === true;
-  const definitions = useEnvironmentQuery(
-    connected
-      ? workflowsEnvironment.definitions({ environmentId: target.environment, input: {} })
-      : null,
-  );
-  const roles = useEnvironmentQuery(
-    connected ? rolesEnvironment.roles({ environmentId: target.environment, input: {} }) : null,
-  );
-  const saved = definitions.data?.find((definition) => definition.id === target.workflow);
-  const back = () => void navigate({ to: "/settings/workflows" });
-
-  const message = !connected
-    ? "Reconnect this workflow's environment to edit it."
-    : (definitions.error ?? roles.error ?? null);
-  if (message || !definitions.data || !roles.data || !saved) {
-    return (
-      <SettingsPageContainer>
-        <div>
-          <Button size="xs" variant="ghost" onClick={back}>
-            <ArrowLeftIcon />
-            Workflows
-          </Button>
-        </div>
-        <SettingsSection title="Workflow">
-          <SettingsRow
-            title={
-              message
-                ? "Workflow unavailable"
-                : definitions.data && roles.data
-                  ? "Workflow not found"
-                  : "Loading workflow…"
-            }
-            {...(message ? { description: message } : {})}
-            role="status"
-          />
-        </SettingsSection>
-      </SettingsPageContainer>
+/**
+ * Deletes a workflow after confirming. The server refuses while an unfinished feature runs on
+ * it or a bot starts its features with it, and says which. Resolves true once deleted.
+ */
+function useDeleteWorkflow(environmentId: EnvironmentId) {
+  const remove = useAtomCommand(workflowsEnvironment.delete);
+  return async (definition: Pick<WorkflowDefinition, "id" | "name">) => {
+    const confirmed = await requestConfirmDialog(
+      `Delete ${definition.name}?\nFeatures that already finished keep their copy of it.`,
+      { variant: "destructive" },
     );
-  }
-  return (
-    <WorkflowEditor
-      key={saved.id}
-      environmentId={target.environment}
-      latest={saved}
-      allWorkflowIds={definitions.data.map((definition) => definition.id)}
-      roles={roles.data}
-      onBack={back}
-    />
-  );
+    if (confirmed !== true) return false;
+    const result = await remove({ environmentId, input: { id: definition.id } });
+    if (result._tag === "Success") return true;
+    toastManager.add({
+      type: "error",
+      title: `Could not delete ${definition.name}`,
+      description: formatEnvironmentQueryError(result.cause),
+    });
+    return false;
+  };
 }
 
-function WorkflowEditor({
+/** One workflow: stages and routes on the canvas or as a form, then Publish to make a new version. */
+export function WorkflowEditor({
   environmentId,
   latest,
   allWorkflowIds,
   roles,
-  onBack,
+  onOpenWorkflow,
+  onDeleted,
 }: {
   readonly environmentId: EnvironmentId;
   /** The newest published version, which can change while the editor is open. */
   readonly latest: WorkflowDefinition;
   readonly allWorkflowIds: readonly string[];
   readonly roles: readonly RoleConfig[];
-  readonly onBack: () => void;
+  readonly onOpenWorkflow: (workflowId: string) => void;
+  readonly onDeleted: () => void;
 }) {
-  const navigate = useNavigate();
   const validate = useAtomCommand(workflowsEnvironment.validate);
   const revise = useAtomCommand(workflowsEnvironment.revise);
   const create = useAtomCommand(workflowsEnvironment.create);
@@ -226,10 +184,7 @@ function WorkflowEditor({
         setError(formatEnvironmentQueryError(result.cause));
         return;
       }
-      void navigate({
-        to: "/settings/workflow",
-        search: { environment: environmentId, workflow: result.value.id },
-      });
+      onOpenWorkflow(result.value.id);
     })();
     setBusy(false);
   };
@@ -282,73 +237,67 @@ function WorkflowEditor({
   );
 
   return (
-    <SettingsPageContainer width={view === "canvas" ? "expanded" : "readable"}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button size="xs" variant="ghost" onClick={onBack}>
-          <ArrowLeftIcon />
-          Workflows
-        </Button>
-        <div className="flex items-center gap-2">
-          {canvasAvailable ? (
-            <ToggleGroup
-              aria-label="Workflow editor view"
-              variant="segmented"
-              value={[view]}
-              onValueChange={(value) => {
-                const next = value[0];
-                if (next === "canvas" || next === "form") setView(next);
-              }}
-            >
-              <Toggle value="canvas">Canvas</Toggle>
-              <Toggle value="form">Form</Toggle>
-            </ToggleGroup>
-          ) : null}
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={!edited || busy}
-            onClick={() => {
-              setDraft(refreshed.definition);
-              setError(null);
+    <WorkspacePageContainer width={view === "canvas" ? "expanded" : "readable"}>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {canvasAvailable ? (
+          <ToggleGroup
+            aria-label="Workflow editor view"
+            variant="segmented"
+            value={[view]}
+            onValueChange={(value) => {
+              const next = value[0];
+              if (next === "canvas" || next === "form") setView(next);
             }}
           >
-            Discard
-          </Button>
-          <Button
-            size="xs"
-            disabled={!publishable || superseded || busy}
-            onClick={() => void publish()}
+            <Toggle value="canvas">Canvas</Toggle>
+            <Toggle value="form">Form</Toggle>
+          </ToggleGroup>
+        ) : null}
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={!edited || busy}
+          onClick={() => {
+            setDraft(refreshed.definition);
+            setError(null);
+          }}
+        >
+          Discard
+        </Button>
+        <Button
+          size="xs"
+          disabled={!publishable || superseded || busy}
+          onClick={() => void publish()}
+        >
+          Publish v{nextRevision}
+        </Button>
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                disabled={busy}
+                aria-label="More workflow actions"
+              />
+            }
           >
-            Publish v{nextRevision}
-          </Button>
-          <Menu>
-            <MenuTrigger
-              render={
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label="More workflow actions"
-                />
+            <MoreHorizontalIcon />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem onClick={() => void duplicate()}>Duplicate as new workflow</MenuItem>
+            <MenuItem
+              variant="destructive"
+              onClick={() =>
+                void deleteWorkflow(draft).then((deleted) => {
+                  if (deleted) onDeleted();
+                })
               }
             >
-              <MoreHorizontalIcon />
-            </MenuTrigger>
-            <MenuPopup align="end">
-              <MenuItem onClick={() => void duplicate()}>Duplicate as new workflow</MenuItem>
-              <MenuItem
-                variant="destructive"
-                onClick={() =>
-                  void deleteWorkflow(draft).then((deleted) => {
-                    if (deleted) void navigate({ to: "/settings/workflows" });
-                  })
-                }
-              >
-                Delete workflow
-              </MenuItem>
-            </MenuPopup>
-          </Menu>
-        </div>
+              Delete workflow
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       </div>
       {error ? (
         <Alert variant="error">
@@ -585,7 +534,7 @@ function WorkflowEditor({
           onClose={() => setStageDialog(null)}
         />
       ) : null}
-    </SettingsPageContainer>
+    </WorkspacePageContainer>
   );
 }
 
@@ -599,7 +548,7 @@ function roleIssueText(issues: readonly WorkflowRoleIssue[], revision: number): 
       ? `${changed.join(", ")} changed since v${revision}. Publish to start new features with the change.`
       : null,
     unavailable.length > 0
-      ? `${unavailable.join(", ")} is turned off or removed. Turn it on in Crew or give its stages another role.`
+      ? `${unavailable.join(", ")} is turned off or removed. Turn it on in Roles or give its stages another role.`
       : null,
   ]
     .filter(Boolean)
