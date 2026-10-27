@@ -7,7 +7,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
-import { useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { rolesEnvironment } from "../../state/roles";
@@ -79,15 +79,11 @@ function MakeFeatureDialog({
   const [featureId] = useState(() => `feature:${randomUUID()}`);
 
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0] ?? null;
-  const roles = useMemo(
-    () =>
-      new Map(
-        (roleConfigs.data ?? []).map((role) => [
-          role.id,
-          { name: role.name, model: role.modelSelection.model },
-        ]),
-      ),
-    [roleConfigs.data],
+  const roles = new Map(
+    (roleConfigs.data ?? []).map((role) => [
+      role.id,
+      { name: role.name, model: role.modelSelection.model },
+    ]),
   );
   const draft = workflow
     ? makeFeatureDraft(workflow, stageId ?? workflow.start, roles)

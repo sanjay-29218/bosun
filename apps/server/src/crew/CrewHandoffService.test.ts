@@ -180,7 +180,7 @@ describe("Bot handoffs", () => {
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
-      yield* withSystem(databasePath, ({ bots, handoffs, engine }) =>
+      yield* withSystem(databasePath, ({ bots, handoffs }) =>
         Effect.gen(function* () {
           yield* seedCrewProject({
             projectId,

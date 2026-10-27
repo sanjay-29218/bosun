@@ -1,7 +1,6 @@
 import { useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { useCallback } from "react";
 
 import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
@@ -106,7 +105,7 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
 // the app was opened directly on a utility page.
 export function useNavigateToMainApp() {
   const navigate = useNavigate();
-  return useCallback(() => navigate({ href: mainAppHref ?? "/" }), [navigate]);
+  return () => navigate({ href: mainAppHref ?? "/" });
 }
 
 /** Leaves Settings or Usage for the page that opened it. */
@@ -121,28 +120,25 @@ export function useCloseAppModal() {
  */
 export function useShowMainView() {
   const navigate = useNavigate();
-  return useCallback(
-    (view: MainView, options?: { readonly replace?: boolean }) => {
-      rememberMainView(readActiveEnvironmentId(), view);
-      return navigate({
-        href: mainViewHrefs[view] ?? (view === "board" ? BOARD_PATH : "/"),
-        replace: options?.replace ?? false,
-      });
-    },
-    [navigate],
-  );
+  return (view: MainView, options?: { readonly replace?: boolean }) => {
+    rememberMainView(readActiveEnvironmentId(), view);
+    return navigate({
+      href: mainViewHrefs[view] ?? (view === "board" ? BOARD_PATH : "/"),
+      replace: options?.replace ?? false,
+    });
+  };
 }
 
 /** `board.toggle`: flips between the views from wherever the app is when it runs. */
 export function useToggleMainView() {
   const router = useRouter();
   const showMainView = useShowMainView();
-  return useCallback(() => {
+  return () => {
     const { pathname } = router.state.location;
     return showMainView(
       toggledMainView(isOutsideMainView(pathname) ? null : mainViewForPathname(pathname)),
     );
-  }, [router, showMainView]);
+  };
 }
 
 /**
@@ -153,25 +149,22 @@ export function useToggleMainView() {
 export function useSwitchBotMainView() {
   const router = useRouter();
   const showMainView = useShowMainView();
-  return useCallback(
-    (select: () => void) => {
-      const { pathname } = router.state.location;
-      const utility = isOutsideMainView(pathname);
-      const current = pathname === "/" || utility ? null : mainViewForPathname(pathname);
-      if (current) rememberMainView(readActiveEnvironmentId(), current);
-      select();
-      // From Settings, Usage and the utility pages, picking a bot opens its list or board.
-      if (utility) {
-        const key = mainViewKey(readActiveEnvironmentId());
-        void showMainView((key === null ? undefined : readMainViews()[key]) ?? "list");
-        return;
-      }
-      if (!current) return;
+  return (select: () => void) => {
+    const { pathname } = router.state.location;
+    const utility = isOutsideMainView(pathname);
+    const current = pathname === "/" || utility ? null : mainViewForPathname(pathname);
+    if (current) rememberMainView(readActiveEnvironmentId(), current);
+    select();
+    // From Settings, Usage and the utility pages, picking a bot opens its list or board.
+    if (utility) {
       const key = mainViewKey(readActiveEnvironmentId());
-      const remembered = key === null ? undefined : readMainViews()[key];
-      if (!remembered) rememberMainView(readActiveEnvironmentId(), current);
-      else if (remembered !== current) void showMainView(remembered);
-    },
-    [router, showMainView],
-  );
+      void showMainView((key === null ? undefined : readMainViews()[key]) ?? "list");
+      return;
+    }
+    if (!current) return;
+    const key = mainViewKey(readActiveEnvironmentId());
+    const remembered = key === null ? undefined : readMainViews()[key];
+    if (!remembered) rememberMainView(readActiveEnvironmentId(), current);
+    else if (remembered !== current) void showMainView(remembered);
+  };
 }

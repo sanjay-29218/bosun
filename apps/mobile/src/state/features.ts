@@ -19,7 +19,7 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -109,7 +109,9 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, acti
   const registry = useContext(RegistryContext);
   const key = JSON.stringify(targets.map(boardKey));
   // Callers rebuild `targets` every render; the key is what identifies the set.
-  const stableTargets = useMemo(() => targets, [key]);
+  const [stable, setStable] = useState({ key, targets });
+  if (stable.key !== key) setStable({ key, targets });
+  const stableTargets = stable.key === key ? stable.targets : targets;
   const resultsAtom = useMemo(
     () =>
       Atom.make((get) =>
@@ -122,6 +124,7 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, acti
   const refresh = useCallback(() => {
     for (const target of stableTargets) registry.refresh(boardAtom(target));
   }, [registry, stableTargets]);
+  // oxlint-disable-next-line t3code/react-effect-budget -- polls boards and listens to AppState while the board is on screen; both are torn down on hide or unmount.
   useEffect(() => {
     if (!active || stableTargets.length === 0) return undefined;
     refresh();
@@ -180,6 +183,7 @@ export function useCrewThreadStage(thread: EnvironmentThreadShell): CrewThreadSt
   const changeKey = crewStageRefreshKey(crew, thread.latestRun?.status);
   const lastKey = useRef(changeKey);
   const { refresh } = query;
+  // oxlint-disable-next-line t3code/react-effect-budget -- reloads the feature query when the shell's crew summary or run status moves; a refresh can't run during render.
   useEffect(() => {
     if (changeKey === lastKey.current) return;
     lastKey.current = changeKey;

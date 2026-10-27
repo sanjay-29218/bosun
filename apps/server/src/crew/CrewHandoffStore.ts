@@ -149,15 +149,14 @@ export const CrewHandoffStoreLive = Layer.effect(
         Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
         Effect.mapError(error),
       );
-    const receipt = (id: string) =>
-      Effect.gen(function* () {
-        const handoff = yield* get(id);
-        if (handoff)
-          yield* sql`
+    const receipt = Effect.fn("CrewHandoffStore.receipt")(function* (id: string) {
+      const handoff = yield* get(id);
+      if (handoff)
+        yield* sql`
         INSERT INTO crew_handoff_receipts (handoff_id, handoff_json)
         VALUES (${id}, ${encodeHandoff(handoff)})
       `;
-      });
+    });
     const mutate = <A>(
       id: string,
       operation: Effect.Effect<ReadonlyArray<A>, import("effect/sql/SqlError").SqlError>,

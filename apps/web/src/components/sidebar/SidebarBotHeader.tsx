@@ -6,7 +6,7 @@ import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { botHeadquartersThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { PencilIcon } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo } from "react";
 
 import { cn } from "../../lib/utils";
 import {
@@ -43,15 +43,14 @@ export const SidebarBotHeader = memo(function SidebarBotHeader() {
     member && threadId ? scopeThreadRef(member.environmentId, threadId) : null,
   );
   const open = useParams({ strict: false, select: (params) => params.threadId === threadId });
-  const projectCount = useMemo(() => {
-    if (bot === null) return 0;
-    const owned = logicalBotProjectKeys(
-      bot,
-      bots,
-      projects.filter((project) => !project.isScratch),
-    );
-    return owned.size;
-  }, [bot, bots, projects]);
+  const projectCount =
+    bot === null
+      ? 0
+      : logicalBotProjectKeys(
+          bot,
+          bots,
+          projects.filter((project) => !project.isScratch),
+        ).size;
   if (bot === null || member === undefined) return null;
 
   const waiting = shell !== null && threadNeedsYouKind(shell) !== null;

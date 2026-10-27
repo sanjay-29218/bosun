@@ -1,7 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 import { useEnvironmentFilter } from "../../state/botRail";
 import { botsEnvironment } from "../../state/bots";
@@ -33,29 +32,26 @@ export function useOpenBotHeadquarters() {
   const connected = useConnectedEnvironmentIds();
   const environmentFilter = useEnvironmentFilter();
   const open = useAtomCommand(botsEnvironment.openHeadquarters, { reportFailure: false });
-  return useCallback(
-    (bot: LogicalBot) => {
-      const member = headquartersMember(bot, connected, environmentFilter);
-      if (!member) return;
-      void open({ environmentId: member.environmentId, input: { botId: member.botId } }).then(
-        (result) => {
-          if (result._tag === "Success") {
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(
-                scopeThreadRef(member.environmentId, result.value.threadId),
-              ),
-            });
-          } else {
-            toastManager.add({
-              type: "error",
-              title: `Could not open ${bot.name}`,
-              description: formatEnvironmentQueryError(result.cause),
-            });
-          }
-        },
-      );
-    },
-    [connected, environmentFilter, navigate, open],
-  );
+  return (bot: LogicalBot) => {
+    const member = headquartersMember(bot, connected, environmentFilter);
+    if (!member) return;
+    void open({ environmentId: member.environmentId, input: { botId: member.botId } }).then(
+      (result) => {
+        if (result._tag === "Success") {
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(
+              scopeThreadRef(member.environmentId, result.value.threadId),
+            ),
+          });
+        } else {
+          toastManager.add({
+            type: "error",
+            title: `Could not open ${bot.name}`,
+            description: formatEnvironmentQueryError(result.cause),
+          });
+        }
+      },
+    );
+  };
 }

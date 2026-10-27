@@ -265,7 +265,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
           {
             title: "Crew",
             rows: [
-              page("SettingsWorkflows", "square.3.layers.3d", "Workflows"),
+              page("SettingsWorkflows", "point.3.connected.trianglepath.dotted", "Workflows"),
               page("SettingsRoles", "person.2", "Roles"),
             ],
           },

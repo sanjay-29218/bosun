@@ -30,7 +30,7 @@ import {
   Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { cn, randomUUID } from "../../lib/utils";
@@ -95,14 +95,10 @@ function BotsSections({
     workflowsSupported ? workflowsEnvironment.definitions({ environmentId, input: {} }) : null,
   );
   const allProjects = useProjects();
-  const projects = useMemo(
-    () =>
-      allProjects
-        .filter((project) => project.environmentId === environmentId)
-        .toSorted((left, right) => left.title.localeCompare(right.title)),
-    [allProjects, environmentId],
-  );
-  const projectsByBot = useMemo(() => groupProjectsByBot(projects), [projects]);
+  const projects = allProjects
+    .filter((project) => project.environmentId === environmentId)
+    .toSorted((left, right) => left.title.localeCompare(right.title));
+  const projectsByBot = groupProjectsByBot(projects);
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const canEdit = useAtomValue(botsEnvironment.update.permissionAtom(environmentId));
   const reorder = useAtomCommand(botsEnvironment.reorder);

@@ -80,7 +80,7 @@ const withSystem = <A, E>(
       sql: yield* SqlClient.SqlClient,
       query: {
         getThreadDetailById: (threadId) =>
-          engine.getThreadRecords(threadId, ["messages"]).pipe(Effect.map(Option.some)),
+          engine.getThreadRecords(threadId, ["messages"]).pipe(Effect.asSome),
       },
     });
   }).pipe(Effect.provide(layer));
@@ -110,7 +110,7 @@ describe("Bot foundation", () => {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-custom-")),
       );
-      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine, sql }) =>
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine }) =>
         Effect.gen(function* () {
           yield* createProject(engine);
           yield* Effect.all(

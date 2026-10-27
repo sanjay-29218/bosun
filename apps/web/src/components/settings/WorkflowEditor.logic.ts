@@ -88,11 +88,9 @@ export type WorkflowRoleIssue = {
 };
 
 /**
- * A workflow pins each role's revision, and the server refuses to start a
- * feature once a pinned role has been edited or turned off. This moves every
- * pin to the role's current revision and reports what moved, so publishing
- * brings the workflow up to date. The project manager slot binds to the
- * project's manager, so it is left alone.
+ * Moves every pinned role to its current revision and reports what moved: the server refuses
+ * to start a feature once a pinned role was edited or turned off. The project manager slot
+ * binds to the project's manager, so it is left alone.
  */
 export function refreshWorkflowRoles(
   definition: WorkflowDefinition,

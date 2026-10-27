@@ -39,12 +39,12 @@ export const BotAvatar = memo(function BotAvatar({
           <stop offset="1" stopColor={palette.visorBottom} />
         </linearGradient>
       </defs>
-      {botAvatarShapes(avatar).map((shape, index) => {
+      {botAvatarShapes(avatar).map((shape) => {
         switch (shape.kind) {
           case "rect":
             return (
               <rect
-                key={index}
+                key={JSON.stringify(shape)}
                 x={shape.x}
                 y={shape.y}
                 width={shape.width}
@@ -57,7 +57,7 @@ export const BotAvatar = memo(function BotAvatar({
           case "ellipse":
             return (
               <ellipse
-                key={index}
+                key={JSON.stringify(shape)}
                 cx={shape.cx}
                 cy={shape.cy}
                 rx={shape.rx}
@@ -67,11 +67,11 @@ export const BotAvatar = memo(function BotAvatar({
               />
             );
           case "path":
-            return <path key={index} d={shape.d} fill={paint(shape.fill)} />;
+            return <path key={JSON.stringify(shape)} d={shape.d} fill={paint(shape.fill)} />;
           case "stroke":
             return (
               <path
-                key={index}
+                key={JSON.stringify(shape)}
                 d={shape.d}
                 fill="none"
                 stroke={paint(shape.stroke)}

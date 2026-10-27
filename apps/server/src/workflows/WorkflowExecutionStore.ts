@@ -100,17 +100,19 @@ export const WorkflowExecutionStoreLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const error = toPersistenceSqlError("WorkflowExecutionStore.query");
     return WorkflowExecutionStore.of({
-      findFeatureForHandoff: (handoffId) =>
-        sql<{ readonly featureId: string }>`
+      findFeatureForHandoff: Effect.fn("WorkflowExecutionStore.findFeatureForHandoff")(
+        (handoffId) =>
+          sql<{ readonly featureId: string }>`
         SELECT feature_id AS featureId FROM workflow_step_events
         WHERE json_extract(event_json, '$.kind') = 'started'
           AND json_extract(event_json, '$.sourceId') = ${handoffId}
         LIMIT 1
       `.pipe(
-          Effect.mapError(error),
-          Effect.map((rows) => rows[0]?.featureId ?? null),
-        ),
-      findFeaturesForThread: (threadId) =>
+            Effect.mapError(error),
+            Effect.map((rows) => rows[0]?.featureId ?? null),
+          ),
+      ),
+      findFeaturesForThread: Effect.fn("WorkflowExecutionStore.findFeaturesForThread")((threadId) =>
         sql<{ readonly featureId: string }>`
         SELECT feature_id AS featureId FROM workflow_step_events
         WHERE json_extract(event_json, '$.kind') = 'attached'
@@ -120,12 +122,14 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           Effect.mapError(error),
           Effect.map((rows) => rows.map((row) => row.featureId)),
         ),
-      attach: (featureId, bindings) =>
+      ),
+      attach: Effect.fn("WorkflowExecutionStore.attach")((featureId, bindings) =>
         sql`
       INSERT OR IGNORE INTO workflow_executions (feature_id, bindings_json)
       VALUES (${featureId}, ${encodeBindings(bindings)})
     `.pipe(Effect.asVoid, Effect.mapError(error)),
-      get: (featureId) =>
+      ),
+      get: Effect.fn("WorkflowExecutionStore.get")((featureId) =>
         sql<{
           readonly featureId: string;
           readonly projectId: string;
@@ -172,7 +176,8 @@ export const WorkflowExecutionStoreLive = Layer.effect(
             }),
           ),
         ),
-      listActive: (projectId) =>
+      ),
+      listActive: Effect.fn("WorkflowExecutionStore.listActive")((projectId) =>
         sql<{ readonly featureId: string }>`
       SELECT e.feature_id AS featureId FROM workflow_executions AS e
       JOIN feature_workflows AS w ON w.feature_id = e.feature_id
@@ -182,24 +187,28 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           Effect.mapError(error),
           Effect.map((rows) => rows.map((row) => row.featureId)),
         ),
-      update: (featureId, lastError, settled) =>
+      ),
+      update: Effect.fn("WorkflowExecutionStore.update")((featureId, lastError, settled) =>
         sql`
       UPDATE workflow_executions SET last_error = ${lastError}, settled = ${settled ? 1 : 0}
       WHERE feature_id = ${featureId}
     `.pipe(Effect.asVoid, Effect.mapError(error)),
-      listSlots: () =>
+      ),
+      listSlots: Effect.fn("WorkflowExecutionStore.listSlots")(() =>
         sql<WorkflowSlot>`
       SELECT feature_id AS featureId, queued_at AS queuedAt, slot_instance_id AS slotInstanceId
       FROM workflow_executions
       WHERE settled = 0 AND (queued_at IS NOT NULL OR slot_instance_id IS NOT NULL)
       ORDER BY queued_at, feature_id
     `.pipe(Effect.mapError(error)),
-      setSlot: (featureId, queuedAt, slotInstanceId) =>
+      ),
+      setSlot: Effect.fn("WorkflowExecutionStore.setSlot")((featureId, queuedAt, slotInstanceId) =>
         sql`
       UPDATE workflow_executions SET queued_at = ${queuedAt}, slot_instance_id = ${slotInstanceId}
       WHERE feature_id = ${featureId}
     `.pipe(Effect.asVoid, Effect.mapError(error)),
-      listStageThreads: (featureId) =>
+      ),
+      listStageThreads: Effect.fn("WorkflowExecutionStore.listStageThreads")((featureId) =>
         sql<{ readonly threadId: string; readonly summaryJson: string }>`
       SELECT thread_id AS threadId, summary_json AS summaryJson
       FROM crew_stage_threads WHERE feature_id = ${featureId}
@@ -207,8 +216,10 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           Effect.mapError(error),
           Effect.map((rows) => new Map(rows.map((row) => [row.threadId, row.summaryJson]))),
         ),
-      listUnsyncedSettledFeatures: (projectId) =>
-        sql<{ readonly featureId: string }>`
+      ),
+      listUnsyncedSettledFeatures: Effect.fn("WorkflowExecutionStore.listUnsyncedSettledFeatures")(
+        (projectId) =>
+          sql<{ readonly featureId: string }>`
       SELECT DISTINCT s.feature_id AS featureId FROM crew_stage_threads AS s
       JOIN workflow_executions AS e ON e.feature_id = s.feature_id
       JOIN feature_workflows AS w ON w.feature_id = s.feature_id
@@ -217,16 +228,19 @@ export const WorkflowExecutionStoreLive = Layer.effect(
         AND json_extract(s.summary_json, '$.state') NOT IN ('done', 'cancelled')
         ${projectId === undefined ? sql`` : sql`AND w.project_id = ${projectId}`}
     `.pipe(
-          Effect.mapError(error),
-          Effect.map((rows) => rows.map((row) => row.featureId)),
-        ),
-      setStageThread: (threadId, featureId, summaryJson) =>
-        sql`
+            Effect.mapError(error),
+            Effect.map((rows) => rows.map((row) => row.featureId)),
+          ),
+      ),
+      setStageThread: Effect.fn("WorkflowExecutionStore.setStageThread")(
+        (threadId, featureId, summaryJson) =>
+          sql`
       INSERT INTO crew_stage_threads (thread_id, feature_id, summary_json)
       VALUES (${threadId}, ${featureId}, ${summaryJson})
       ON CONFLICT (thread_id) DO UPDATE SET
         feature_id = excluded.feature_id, summary_json = excluded.summary_json
     `.pipe(Effect.asVoid, Effect.mapError(error)),
+      ),
     });
   }),
 );

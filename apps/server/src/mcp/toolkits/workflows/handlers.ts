@@ -7,6 +7,7 @@ import {
   workflowForwardStages,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { CrewService } from "../../../crew/CrewService.ts";
@@ -100,12 +101,8 @@ const make = Effect.gen(function* () {
         workflows
           .getLatestDefinition(input.id)
           .pipe(
-            Effect.flatMap((definition) =>
-              definition === null
-                ? Effect.fail(
-                    invalid(`Workflow not found: ${input.id}. t3_workflow_list shows the library.`),
-                  )
-                : Effect.succeed(definition),
+            Effect.filterOrFail(Predicate.isNotNull, () =>
+              invalid(`Workflow not found: ${input.id}. t3_workflow_list shows the library.`),
             ),
           ),
       ),

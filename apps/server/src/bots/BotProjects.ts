@@ -15,6 +15,7 @@ import { newProjectFolderName } from "@t3tools/shared/path";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -102,10 +103,9 @@ export const layer = Layer.effect(
     const requireBot = (botId: string) =>
       bots.get(botId).pipe(
         Effect.mapError(failWith("Bots are unavailable")),
-        Effect.flatMap((bot) =>
-          bot
-            ? Effect.succeed(bot)
-            : Effect.fail(new BotProjectsError({ reason: "Bot not found" })),
+        Effect.filterOrFail(
+          Predicate.isNotNull,
+          () => new BotProjectsError({ reason: "Bot not found" }),
         ),
       );
 
@@ -121,68 +121,66 @@ export const layer = Layer.effect(
       );
 
     return BotProjects.of({
-      list: (botId) =>
-        Effect.gen(function* () {
-          yield* requireBot(botId);
-          const snapshot = yield* projects.snapshot.pipe(
-            Effect.mapError(failWith("Projects are unavailable")),
+      list: Effect.fn("BotProjects.list")(function* (botId) {
+        yield* requireBot(botId);
+        const snapshot = yield* projects.snapshot.pipe(
+          Effect.mapError(failWith("Projects are unavailable")),
+        );
+        const scratch = Option.getOrNull(yield* folders.scratchRoot);
+        const owned = snapshot.projects.filter(
+          (project) =>
+            project.deletedAt === null &&
+            (project.botId ?? CAPTAIN_BOT_ID) === botId &&
+            project.workspaceRoot !== scratch,
+        );
+        return yield* Effect.forEach(owned, describe);
+      }),
+      create: Effect.fn("BotProjects.create")(function* ({ botId, name, repositoryUrl }) {
+        yield* requireBot(botId);
+        const title = name.trim();
+        if (title.length === 0 || title.length > 200) {
+          return yield* new BotProjectsError({ reason: "Name the project in 1-200 characters" });
+        }
+        if (repositoryUrl === undefined) {
+          const created = yield* folders
+            .createNamedProject({ name: title, botId })
+            .pipe(Effect.mapError((error) => new BotProjectsError({ reason: error.message })));
+          const project = yield* describe(yield* readProject(created.projectId));
+          return created.commitError === undefined
+            ? project
+            : { ...project, commitError: created.commitError };
+        }
+        // Like a named project: the first free `<slug>`, `<slug>-2`, ... folder.
+        const slug = newProjectFolderName(title);
+        let destinationPath = path.join(folders.namedProjectsRoot, slug);
+        for (
+          let suffix = 2;
+          yield* fileSystem
+            .exists(destinationPath)
+            .pipe(Effect.mapError(failWith("The projects folder is unreadable")));
+          suffix++
+        ) {
+          destinationPath = path.join(folders.namedProjectsRoot, `${slug}-${suffix}`);
+        }
+        const cloned = yield* repositories
+          .cloneRepository({ remoteUrl: repositoryUrl, destinationPath })
+          .pipe(Effect.mapError((error) => new BotProjectsError({ reason: error.detail })));
+        const id = yield* crypto.randomUUIDv4().pipe(Effect.mapError(failWith("No project id")));
+        // The clone is only ours until the project exists, so a failed create removes it.
+        const project = yield* projects
+          .create({
+            commandId: CommandId.make(`bot-project-clone:${id}`),
+            projectId: ProjectId.make(id),
+            title,
+            workspaceRoot: cloned.cwd,
+            botId,
+          })
+          .pipe(
+            Effect.tapError(() => repositories.discardClone(cloned.cwd).pipe(Effect.ignore)),
+            Effect.mapError(failWith("The clone worked, but the project wasn't created")),
           );
-          const scratch = Option.getOrNull(yield* folders.scratchRoot);
-          const owned = snapshot.projects.filter(
-            (project) =>
-              project.deletedAt === null &&
-              (project.botId ?? CAPTAIN_BOT_ID) === botId &&
-              project.workspaceRoot !== scratch,
-          );
-          return yield* Effect.forEach(owned, describe);
-        }),
-      create: ({ botId, name, repositoryUrl }) =>
-        Effect.gen(function* () {
-          yield* requireBot(botId);
-          const title = name.trim();
-          if (title.length === 0 || title.length > 200) {
-            return yield* new BotProjectsError({ reason: "Name the project in 1-200 characters" });
-          }
-          if (repositoryUrl === undefined) {
-            const created = yield* folders
-              .createNamedProject({ name: title, botId })
-              .pipe(Effect.mapError((error) => new BotProjectsError({ reason: error.message })));
-            const project = yield* describe(yield* readProject(created.projectId));
-            return created.commitError === undefined
-              ? project
-              : { ...project, commitError: created.commitError };
-          }
-          // Like a named project: the first free `<slug>`, `<slug>-2`, ... folder.
-          const slug = newProjectFolderName(title);
-          let destinationPath = path.join(folders.namedProjectsRoot, slug);
-          for (
-            let suffix = 2;
-            yield* fileSystem
-              .exists(destinationPath)
-              .pipe(Effect.mapError(failWith("The projects folder is unreadable")));
-            suffix++
-          ) {
-            destinationPath = path.join(folders.namedProjectsRoot, `${slug}-${suffix}`);
-          }
-          const cloned = yield* repositories
-            .cloneRepository({ remoteUrl: repositoryUrl, destinationPath })
-            .pipe(Effect.mapError((error) => new BotProjectsError({ reason: error.detail })));
-          const id = yield* crypto.randomUUIDv4().pipe(Effect.mapError(failWith("No project id")));
-          // The clone is only ours until the project exists, so a failed create removes it.
-          const project = yield* projects
-            .create({
-              commandId: CommandId.make(`bot-project-clone:${id}`),
-              projectId: ProjectId.make(id),
-              title,
-              workspaceRoot: cloned.cwd,
-              botId,
-            })
-            .pipe(
-              Effect.tapError(() => repositories.discardClone(cloned.cwd).pipe(Effect.ignore)),
-              Effect.mapError(failWith("The clone worked, but the project wasn't created")),
-            );
-          return yield* describe(project);
-        }),
+        return yield* describe(project);
+      }),
     });
   }),
 );

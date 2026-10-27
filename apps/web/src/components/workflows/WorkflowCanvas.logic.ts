@@ -129,11 +129,9 @@ export function arrangeWorkflow(definition: WorkflowDefinition): Record<string, 
 }
 
 /**
- * How a route is drawn, from where its target sits in canvas order:
- * - `forward` to the next step, straight across the gap between them;
- * - `skip` to a later step past others, over the row;
- * - `back` to an earlier stage, under the row into the stage's bottom;
- * - `loop` to its own stage, in a small loop under it.
+ * How a route is drawn, by where its target sits: `forward` straight to the next step,
+ * `skip` over the row to a later step, `back` under the row to an earlier stage's bottom,
+ * `loop` in a small loop under its own stage.
  */
 export type RouteKind = "forward" | "skip" | "back" | "loop";
 
@@ -270,12 +268,10 @@ export function planWorkflowRoutes(definition: WorkflowDefinition): Map<string, 
       plan(route.id, { exit: TRACK_START + track * trackStep(column(stepId)) }),
     );
   }
-  // Arriving on the left, only a route from the previous stage's first row
-  // lands on the handle, keeping the main path straight. The rest land above
-  // it, where no outcome row leaves the previous stage: skip routes highest
-  // with the outermost lane on top and dropping nearest the target, then
-  // forward routes by outcome row, packed closer if the target is short.
-  // Arriving underneath, the deepest lane lands leftmost and loops rightmost.
+  // On the left, only the previous stage's first-row route lands on the handle, keeping the
+  // main path straight; the rest land above it: skips highest (outermost lane on top), then
+  // forwards by outcome row, packed closer on a short target.
+  // Underneath, the deepest lane lands leftmost and loops rightmost.
   for (const target of new Set(routes.map((route) => route.target))) {
     const into = routes.filter((route) => route.target === target);
     const skips = into

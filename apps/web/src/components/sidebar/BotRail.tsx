@@ -3,7 +3,7 @@ import { logicalBotKey, type LogicalBot } from "@t3tools/client-runtime/state/bo
 import type { EnvironmentId } from "@t3tools/contracts";
 import { PlusIcon, ServerIcon } from "lucide-react";
 import { useLocation } from "@tanstack/react-router";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
@@ -82,6 +82,7 @@ export const BotRail = memo(function BotRail({
   };
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
+  // oxlint-disable-next-line t3code/react-effect-budget -- a window keydown listener for the bot jump shortcuts, removed on unmount.
   useEffect(() => {
     if (!multipleBots) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -248,10 +249,7 @@ function EnvironmentFilterMenu() {
   const identities = useEnvironmentIdentities();
   const filter = useEnvironmentFilter();
   const setEnvironmentIds = useUiStateStore((store) => store.setSidebarEnvironmentIds);
-  const labelById = useMemo(
-    () => new Map(identities.map((identity) => [identity.environmentId, identity.label])),
-    [identities],
-  );
+  const labelById = new Map(identities.map((identity) => [identity.environmentId, identity.label]));
   if (connected.length < 2) return null;
   const shown = connected.filter((environmentId) => filter === null || filter.has(environmentId));
   const label =

@@ -2,7 +2,7 @@ import { type RoleConfig, type EnvironmentId, type WorkflowDefinition } from "@t
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -139,7 +139,7 @@ function WorkflowEditor({
   // newer one; a clean editor moves to it, while edits stay until they're discarded.
   const [saved, setSaved] = useState(latest);
   // Roles edited since this version are picked up here; publishing records them.
-  const refreshed = useMemo(() => refreshWorkflowRoles(saved, roles), [saved, roles]);
+  const refreshed = refreshWorkflowRoles(saved, roles);
   const [draft, setDraft] = useState(refreshed.definition);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

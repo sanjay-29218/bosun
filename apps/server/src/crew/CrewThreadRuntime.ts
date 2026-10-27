@@ -204,13 +204,14 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         });
     });
     return CrewThreadRuntime.of({
-      projectExists: (projectId) =>
+      projectExists: Effect.fn("CrewThreadRuntime.projectExists")((projectId) =>
         projects
           .get(projectId)
           .pipe(
             Effect.map(Option.isSome),
             Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectExists")),
           ),
+      ),
       headquartersProjectId: Option.match(folders, {
         onNone: () => Effect.succeed(null),
         onSome: (managed) =>
@@ -221,48 +222,51 @@ export const CrewThreadRuntimeV2 = Layer.effect(
             ),
           ),
       }),
-      pin: (threadId, commandId) =>
+      pin: Effect.fn("CrewThreadRuntime.pin")((threadId, commandId) =>
         engine
           .dispatch({ type: "thread.pin", commandId: CommandId.make(commandId), threadId })
           .pipe(Effect.asVoid),
+      ),
       restore,
       syncSettings,
       start,
       // V2 owns accepted-run recovery through the durable effect outbox. Reusing
       // the original receipts only fills a crash between thread creation and start.
-      replayPending: (input) => start(input),
-      notify: (threadId, handoffId, version, recipientRunId, _runtimeMode, prompt, _createdAt) =>
-        engine
-          .dispatch({
-            type: "message.dispatch",
-            commandId: CommandId.make(
-              `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
-            ),
-            threadId,
-            messageId: MessageId.make(
-              `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
-            ),
-            text: prompt,
-            attachments: [],
-            context: {
-              version: 1,
-              records: [
-                {
-                  version: 1,
-                  contextId: ComposerContextId.make("bot-origin"),
-                  label: "Crew",
-                  kind: "bot",
-                  payload: { memberId: "crew", runId: recipientRunId, handoffId },
-                },
-              ],
-            },
-            createdBy: "agent",
-            creationSource: "mcp",
-            dispatchMode: { type: "queue_after_active" },
-          })
-          .pipe(Effect.asVoid),
-      interrupt: (threadId, handoffId, _createdAt) =>
-        Effect.gen(function* () {
+      replayPending: Effect.fn("CrewThreadRuntime.replayPending")((input) => start(input)),
+      notify: Effect.fn("CrewThreadRuntime.notify")(
+        (threadId, handoffId, version, recipientRunId, _runtimeMode, prompt, _createdAt) =>
+          engine
+            .dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(
+                `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
+              ),
+              threadId,
+              messageId: MessageId.make(
+                `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
+              ),
+              text: prompt,
+              attachments: [],
+              context: {
+                version: 1,
+                records: [
+                  {
+                    version: 1,
+                    contextId: ComposerContextId.make("bot-origin"),
+                    label: "Crew",
+                    kind: "bot",
+                    payload: { memberId: "crew", runId: recipientRunId, handoffId },
+                  },
+                ],
+              },
+              createdBy: "agent",
+              creationSource: "mcp",
+              dispatchMode: { type: "queue_after_active" },
+            })
+            .pipe(Effect.asVoid),
+      ),
+      interrupt: Effect.fn("CrewThreadRuntime.interrupt")(
+        function* (threadId, handoffId, _createdAt) {
           // Cancel the queue first: interrupting the active run starts the next queued one.
           const { runs } = yield* engine.getThreadRecords(threadId, ["runs"]);
           for (const run of runs) {
@@ -284,9 +288,11 @@ export const CrewThreadRuntimeV2 = Layer.effect(
               runId: shell.activeRunId,
               commandId: CommandId.make(`${handoffCommandPrefix(threadId)}:${handoffId}:interrupt`),
             });
-        }),
-      listPendingStartedRunIds: (afterId, limit) =>
-        sql<{ readonly id: string }>`
+        },
+      ),
+      listPendingStartedRunIds: Effect.fn("CrewThreadRuntime.listPendingStartedRunIds")(
+        (afterId, limit) =>
+          sql<{ readonly id: string }>`
       SELECT r.id FROM crew_runs AS r WHERE r.dispatch_state = ${CREW_DISPATCH_STATE.STARTED}
         AND r.id > ${afterId} AND NOT EXISTS (
           SELECT 1 FROM orchestration_v2_projection_runs AS t WHERE t.thread_id = r.thread_id
@@ -294,28 +300,29 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           SELECT 1 FROM orchestration_v2_legacy_imports AS legacy WHERE legacy.thread_id = r.thread_id
         ) ORDER BY r.id LIMIT ${limit}
     `.pipe(
-          Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.listPendingStartedRunIds")),
-          Effect.map((rows) => rows.map((row) => row.id)),
-        ),
-      getTurnState: (threadId) =>
-        Effect.gen(function* () {
+            Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.listPendingStartedRunIds")),
+            Effect.map((rows) => rows.map((row) => row.id)),
+          ),
+      ),
+      getTurnState: Effect.fn("CrewThreadRuntime.getTurnState")(
+        function* (threadId) {
           const runs = yield* sql<{ readonly status: string }>`
           SELECT status FROM orchestration_v2_projection_runs
           WHERE thread_id = ${threadId} ORDER BY ordinal DESC LIMIT 1
-        `.pipe(Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")));
+        `;
           if (runs[0]) return crewTurnStateFromStatus(runs[0].status);
           // Imported V1 threads have no V2 runs. Their work ended with the V1
           // runtime, so treat it as done and never restart it.
           const legacy = yield* sql<{ readonly threadId: string }>`
           SELECT thread_id AS threadId FROM orchestration_v2_legacy_imports
           WHERE thread_id = ${threadId}
-        `.pipe(Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")));
+        `;
           if (legacy[0]) return CREW_TURN_STATE.COMPLETED;
-          const thread = yield* engine
-            .getThreadShell(threadId)
-            .pipe(Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")));
+          const thread = yield* engine.getThreadShell(threadId);
           return thread === null ? CREW_TURN_STATE.MISSING : CREW_TURN_STATE.PENDING;
-        }),
+        },
+        Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.getTurnState")),
+      ),
     });
   }),
 );

@@ -2,11 +2,9 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 /*
- * Crew bots become Roles. Per-project bot templates merge into global roles, bot instances
- * become crew members, and workflows become one global library on schema version 2:
- * `bots` -> `roles` of `{ roleId, roleRevision, supervisor }`, step `bot` -> `role`, and the
- * `existing-project-bot` binding becomes the project manager role. Persisted JSON that names
- * the old fields (step events, executions, handoff receipts) is rewritten to match.
+ * Crew bots become global Roles and workflows one library on schema version 2 (`bots` ->
+ * `roles`, step `bot` -> `role`, `existing-project-bot` -> the project manager role).
+ * Persisted JSON naming the old fields (step events, executions, receipts) is rewritten too.
  */
 
 const PROJECT_MANAGER_ROLE_ID = "role:project-manager";

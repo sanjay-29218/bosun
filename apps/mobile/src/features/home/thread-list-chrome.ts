@@ -85,6 +85,6 @@ export interface ThreadListViewToggle {
 /** The button shows where it goes: the board from List, the threads from Board. */
 export function threadListViewToggleButton(view: ThreadListView) {
   return view === "list"
-    ? ({ icon: "square.3.layers.3d", accessibilityLabel: "Show board" } as const)
+    ? ({ icon: "square.split.2x1", accessibilityLabel: "Show board" } as const)
     : ({ icon: "list.bullet", accessibilityLabel: "Show threads" } as const);
 }

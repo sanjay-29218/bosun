@@ -36,15 +36,7 @@ import {
   WorkflowIcon,
   XIcon,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
+import { useEffect, useEffectEvent, useState, type MouseEvent } from "react";
 
 import { useOpenLink } from "../../browser/useOpenLink";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -187,41 +179,29 @@ export function FeaturesPage(props: {
   const allProjects = useProjects();
   // The board follows the bot rail like the sidebar does.
   const railProjectKeys = useBotRailProjectKeys();
-  const projects = useMemo(
-    () =>
-      allProjects
-        .filter(
-          (project) =>
-            workflowEnvironmentIds.has(project.environmentId) &&
-            (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
-        )
-        .toSorted((a, b) => a.title.localeCompare(b.title)),
-    [allProjects, railProjectKeys, workflowEnvironmentIds],
-  );
-  const projectByKey = useMemo(
-    () => new Map(projects.map((project) => [projectKey(project), project])),
-    [projects],
-  );
+  const projects = allProjects
+    .filter(
+      (project) =>
+        workflowEnvironmentIds.has(project.environmentId) &&
+        (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
+    )
+    .toSorted((a, b) => a.title.localeCompare(b.title));
+  const projectByKey = new Map(projects.map((project) => [projectKey(project), project]));
   const scopedProject = props.search.project
     ? (projectByKey.get(props.search.project) ?? null)
     : null;
   const scopeKey = scopedProject ? projectKey(scopedProject) : ALL_PROJECTS_SCOPE;
   const scopePreferences: FeaturesScopePreferences =
     preferences.scopes[scopeKey] ?? DEFAULT_SCOPE_PREFERENCES;
-  const targets = useMemo(
-    () =>
-      (scopedProject ? [scopedProject] : projects).map((project) => ({
-        environmentId: project.environmentId,
-        projectId: project.id,
-      })),
-    [projects, scopedProject],
-  );
+  const targets = (scopedProject ? [scopedProject] : projects).map((project) => ({
+    environmentId: project.environmentId,
+    projectId: project.id,
+  }));
   const board = useFeatureBoard(targets);
-  const projectFor = useCallback(
-    (item: { readonly environmentId: EnvironmentId; readonly projectId: ProjectId }) =>
-      projectByKey.get(`${item.environmentId}:${item.projectId}`) ?? null,
-    [projectByKey],
-  );
+  const projectFor = (item: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }) => projectByKey.get(`${item.environmentId}:${item.projectId}`) ?? null;
 
   const updatePreferences = (patch: Partial<FeaturesPagePreferences>) => {
     const next = { ...preferences, ...patch };
@@ -238,38 +218,27 @@ export function FeaturesPage(props: {
     updatePreferences({ issues: { ...issueDisplay, ...patch } });
 
   // Search and filters narrow every view; Needs you ignores the state filter.
-  const parsedSearch = useMemo(() => parseFeatureSearch(query), [query]);
-  const visibleCards = useMemo(
-    () =>
-      board.cards.filter(
-        (card) =>
-          matchesFeatureSearch(card, parsedSearch, [projectFor(card)?.title]) &&
-          (needsYou || stateFilters.size === 0 || stateFilters.has(cardFilterState(card))),
-      ),
-    [board.cards, needsYou, parsedSearch, projectFor, stateFilters],
+  const parsedSearch = parseFeatureSearch(query);
+  const visibleCards = board.cards.filter(
+    (card) =>
+      matchesFeatureSearch(card, parsedSearch, [projectFor(card)?.title]) &&
+      (needsYou || stateFilters.size === 0 || stateFilters.has(cardFilterState(card))),
   );
-  const queuePositions = useMemo(() => featureQueuePositions(board.cards), [board.cards]);
-  const phaseGroups = useMemo(() => groupFeaturesByPhase(visibleCards), [visibleCards]);
+  const queuePositions = featureQueuePositions(board.cards);
+  const phaseGroups = groupFeaturesByPhase(visibleCards);
 
   const waitingThreads = useAtomValue(needsYouThreadsAtom);
-  const scopedWaitingThreads = useMemo(
-    () =>
-      waitingThreads.filter(
-        (shell) =>
-          (scopedProject === null
-            ? railProjectKeys === null ||
-              railProjectKeys.has(`${shell.environmentId}:${shell.projectId}`)
-            : shell.environmentId === scopedProject.environmentId &&
-              shell.projectId === scopedProject.id) &&
-          (!parsedSearch.text || shell.title.toLowerCase().includes(parsedSearch.text)) &&
-          parsedSearch.workflows.length === 0,
-      ),
-    [parsedSearch, railProjectKeys, scopedProject, waitingThreads],
+  const scopedWaitingThreads = waitingThreads.filter(
+    (shell) =>
+      (scopedProject === null
+        ? railProjectKeys === null ||
+          railProjectKeys.has(`${shell.environmentId}:${shell.projectId}`)
+        : shell.environmentId === scopedProject.environmentId &&
+          shell.projectId === scopedProject.id) &&
+      (!parsedSearch.text || shell.title.toLowerCase().includes(parsedSearch.text)) &&
+      parsedSearch.workflows.length === 0,
   );
-  const needsYouGroups = useMemo(
-    () => collectNeedsYou({ cards: visibleCards, shells: scopedWaitingThreads }),
-    [scopedWaitingThreads, visibleCards],
-  );
+  const needsYouGroups = collectNeedsYou({ cards: visibleCards, shells: scopedWaitingThreads });
   const needsYouCount = needsYouGroups.reduce((total, group) => total + group.items.length, 0);
 
   // The Workflow toggle draws one workflow's stages; definitions load only while it is on.
@@ -287,17 +256,17 @@ export function FeaturesPage(props: {
         })
       : null,
   );
-  const workflowOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    for (const definition of definitions.data ?? []) options.set(definition.id, definition.name);
-    for (const card of board.cards) options.set(card.workflow.id, card.workflow.name);
-    return [...options].map(([id, name]) => ({ id, name }));
-  }, [board.cards, definitions.data]);
+  const workflowNames = new Map<string, string>();
+  for (const definition of definitions.data ?? [])
+    workflowNames.set(definition.id, definition.name);
+  for (const card of board.cards) workflowNames.set(card.workflow.id, card.workflow.name);
+  const workflowOptions = [...workflowNames].map(([id, name]) => ({ id, name }));
   const selectedDefinition =
     definitions.data?.find((definition) => definition.id === selectedWorkflowId) ?? null;
   // Definitions are per project, so the stage board draws only the source project's cards;
   // the same workflow id elsewhere may be a different graph, and is counted as hidden.
-  const stageBoard = useMemo(() => {
+  const stageBoard = buildStageBoard();
+  function buildStageBoard() {
     if (!selectedDefinition || !definitionSource) return null;
     const inSource = (card: EnvironmentFeatureCard) =>
       card.environmentId === definitionSource.environmentId &&
@@ -315,96 +284,60 @@ export function FeaturesPage(props: {
           ...stages,
           hidden: [...stages.hidden, ...[...elsewhere].map(([name, count]) => ({ name, count }))],
         };
-  }, [definitionSource, projectFor, selectedDefinition, visibleCards]);
+  }
 
   const actions = useFeatureActions({ onNoteRequest: setNoteRequest });
   const newThread = useNewThreadHandler();
-  const handlers = useMemo<FeatureBoardHandlers>(
-    () => ({
-      projectFor,
-      queuePositions,
-      onOpen: (card) => {
-        actions.openCard(card);
-      },
-      onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) =>
-        void actions.showMenu(card, { x: event.clientX, y: event.clientY }),
-      onDrop: (card, action, position) =>
-        void (action === "cancel"
-          ? actions.run(card, "cancel")
-          : actions.reopenFromDrop(card, position)),
-    }),
-    [actions, projectFor, queuePositions],
-  );
+  const handlers: FeatureBoardHandlers = {
+    projectFor,
+    queuePositions,
+    onOpen: (card) => {
+      actions.openCard(card);
+    },
+    onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) =>
+      void actions.showMenu(card, { x: event.clientX, y: event.clientY }),
+    onDrop: (card, action, position) =>
+      void (action === "cancel"
+        ? actions.run(card, "cancel")
+        : actions.reopenFromDrop(card, position)),
+  };
   // Issues load on the Issues and Milestones views, and on an empty Features board to
   // suggest a first feature.
   const featuresEmpty = board.loaded && board.errors.length === 0 && board.cards.length === 0;
   const issueBoard = useIssueBoard(targets, !isFeatures || featuresEmpty);
-  const issueFeatures = useMemo(() => featuresByIssue(board.cards), [board.cards]);
-  const featureFor = useCallback(
-    (issue: EnvironmentIssue) => featureForIssue(issueFeatures, issue),
-    [issueFeatures],
-  );
-  const laneFor = useCallback(
-    (issue: EnvironmentIssue) => issueLane(issue, featureFor(issue)),
-    [featureFor],
-  );
+  const issueFeatures = featuresByIssue(board.cards);
+  const featureFor = (issue: EnvironmentIssue) => featureForIssue(issueFeatures, issue);
+  const laneFor = (issue: EnvironmentIssue) => issueLane(issue, featureFor(issue));
   const milestoneFilter = props.search.milestone ?? null;
   const filteredMilestone = milestoneFilter
     ? (issueBoard.milestones.find((milestone) => milestoneKey(milestone) === milestoneFilter) ??
       null)
     : null;
   const issueBoardLayout = issueDisplay.layout === "board";
-  const visibleIssues = useMemo(
-    () =>
-      issueBoard.issues.filter(
-        (issue) =>
-          // The board always has a Done lane, so it always shows what was closed lately.
-          (issue.state === "open" || issueDisplay.showClosed || issueBoardLayout) &&
-          (milestoneFilter === null ||
-            (issue.milestone !== null &&
-              milestoneKey({ ...issue, number: issue.milestone.number }) === milestoneFilter)) &&
-          (laneFilters.size === 0 || laneFilters.has(laneFor(issue))) &&
-          (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
-          matchesIssueSearch(issue, parsedSearch.text),
-      ),
-    [
-      issueBoard.issues,
-      issueBoardLayout,
-      issueDisplay.showClosed,
-      labelFilters,
-      laneFilters,
-      laneFor,
-      milestoneFilter,
-      parsedSearch.text,
-    ],
+  const visibleIssues = issueBoard.issues.filter(
+    (issue) =>
+      // The board always has a Done lane, so it always shows what was closed lately.
+      (issue.state === "open" || issueDisplay.showClosed || issueBoardLayout) &&
+      (milestoneFilter === null ||
+        (issue.milestone !== null &&
+          milestoneKey({ ...issue, number: issue.milestone.number }) === milestoneFilter)) &&
+      (laneFilters.size === 0 || laneFilters.has(laneFor(issue))) &&
+      (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
+      matchesIssueSearch(issue, parsedSearch.text),
   );
-  const issueGroups = useMemo(
-    () =>
-      groupIssues({
-        issues: visibleIssues,
-        milestones: issueBoard.milestones,
-        groupBy: issueBoardLayout ? "status" : issueDisplay.groupBy,
-        nested: issueDisplay.nested && !issueBoardLayout,
-        laneFor,
-        projectTitle: (owner) => projectFor(owner)?.title ?? null,
-      }),
-    [
-      issueBoard.milestones,
-      issueBoardLayout,
-      issueDisplay.groupBy,
-      issueDisplay.nested,
-      laneFor,
-      projectFor,
-      visibleIssues,
-    ],
-  );
-  const issueLabels = useMemo(
-    () =>
-      [...new Set(issueBoard.issues.flatMap((issue) => issue.labels.map((label) => label.name)))]
-        .toSorted((a, b) => a.localeCompare(b))
-        .slice(0, 30),
-    [issueBoard.issues],
-  );
+  const issueGroups = groupIssues({
+    issues: visibleIssues,
+    milestones: issueBoard.milestones,
+    groupBy: issueBoardLayout ? "status" : issueDisplay.groupBy,
+    nested: issueDisplay.nested && !issueBoardLayout,
+    laneFor,
+    projectTitle: (owner) => projectFor(owner)?.title ?? null,
+  });
+  const issueLabels = [
+    ...new Set(issueBoard.issues.flatMap((issue) => issue.labels.map((label) => label.name))),
+  ]
+    .toSorted((a, b) => a.localeCompare(b))
+    .slice(0, 30);
 
   const openLink = useOpenLink(null);
   // Start feature: a new thread in the issue's project whose brief links the issue. The
@@ -429,14 +362,10 @@ export function FeaturesPage(props: {
     showProject: scopedProject === null && projects.length > 1,
     display: issueDisplay,
   };
-  const suggestedIssues = useMemo(
-    () =>
-      issueBoard.issues
-        .filter((issue) => issue.state === "open" && featureFor(issue) === null)
-        .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .slice(0, 5),
-    [featureFor, issueBoard.issues],
-  );
+  const suggestedIssues = issueBoard.issues
+    .filter((issue) => issue.state === "open" && featureFor(issue) === null)
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 5);
   const setView = (next: BoardView) =>
     props.onSearchChange({
       view: next === "features" ? undefined : next,
@@ -501,6 +430,7 @@ export function FeaturesPage(props: {
     if (command === "features.workflow") toggleWorkflow();
     else toggleNeedsYou();
   });
+  // oxlint-disable-next-line t3code/react-effect-budget -- Subscribes the page's shortcuts to window keydown while it is mounted.
   useEffect(() => {
     window.addEventListener("keydown", onPageKeyDown, true);
     return () => window.removeEventListener("keydown", onPageKeyDown, true);
@@ -510,16 +440,20 @@ export function FeaturesPage(props: {
   // A URL change that isn't our own write (back, a link) replaces the field instead.
   const { onSearchChange } = props;
   const urlQuery = props.search.q ?? "";
-  const writtenQuery = useRef(urlQuery);
-  useEffect(() => {
-    if (urlQuery === writtenQuery.current) return;
-    writtenQuery.current = urlQuery;
-    setQuery(urlQuery);
-  }, [urlQuery]);
+  const [writtenQuery, setWrittenQuery] = useState(urlQuery);
+  const [seenUrlQuery, setSeenUrlQuery] = useState(urlQuery);
+  if (urlQuery !== seenUrlQuery) {
+    setSeenUrlQuery(urlQuery);
+    if (urlQuery !== writtenQuery) {
+      setWrittenQuery(urlQuery);
+      setQuery(urlQuery);
+    }
+  }
+  // oxlint-disable-next-line t3code/react-effect-budget -- Debounces the field into the URL; the timer is cleared on the next keystroke or unmount.
   useEffect(() => {
     if (urlQuery === query) return;
     const handle = window.setTimeout(() => {
-      writtenQuery.current = query;
+      setWrittenQuery(query);
       onSearchChange({ q: query || undefined });
     }, 300);
     return () => window.clearTimeout(handle);

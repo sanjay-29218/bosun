@@ -8,6 +8,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
@@ -129,102 +130,103 @@ export const CrewHandoffServiceLive = Layer.effect(
     const bots = yield* BotStore.BotStore;
     const changes = yield* PubSub.unbounded<string>();
 
-    const deliver = (handoff: CrewHandoff) =>
-      Effect.gen(function* () {
-        if (handoff.notificationState !== "queued") return;
-        const recipientRunId =
-          handoff.status === "running" ? handoff.targetRunId : handoff.sourceRunId;
-        const recipient = yield* runs.getRun(recipientRunId);
-        if (!recipient) return;
-        // A headquarters follows its bot's current settings, so its next turn uses them.
-        if (headquartersBotId(recipient.threadId) !== null) {
-          yield* runtime.syncSettings(
-            recipient.threadId,
-            recipient.runtimeMode,
-            recipient.modelSelection,
-          );
-        }
-        // A lead thread can follow many handoffs, so name the task each notice is about.
-        const about = `${handoff.id} (${handoff.taskText.split("\n", 1)[0]!.slice(0, 160)})`;
-        const prompt =
-          handoff.status === "running"
-            ? `Crew answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
-            : handoff.status === "needs-input"
-              ? `Crew handoff ${about} needs input from you: ${handoff.questionText ?? ""}`
-              : `Crew handoff ${about} is ${handoff.status}. ${handoff.responseText ?? ""}`;
-        yield* runtime.notify(
+    const deliver = Effect.fn("CrewHandoffService.deliver")(function* (handoff: CrewHandoff) {
+      if (handoff.notificationState !== "queued") return;
+      const recipientRunId =
+        handoff.status === "running" ? handoff.targetRunId : handoff.sourceRunId;
+      const recipient = yield* runs.getRun(recipientRunId);
+      if (!recipient) return;
+      // A headquarters follows its bot's current settings, so its next turn uses them.
+      if (headquartersBotId(recipient.threadId) !== null) {
+        yield* runtime.syncSettings(
           recipient.threadId,
-          handoff.id,
-          handoff.noticeVersion,
-          recipient.id,
           recipient.runtimeMode,
-          prompt,
-          handoff.updatedAt,
+          recipient.modelSelection,
         );
-        yield* handoffs.markDelivered(handoff.id, handoff.noticeVersion);
-      });
+      }
+      // A lead thread can follow many handoffs, so name the task each notice is about.
+      const about = `${handoff.id} (${handoff.taskText.split("\n", 1)[0]!.slice(0, 160)})`;
+      const prompt =
+        handoff.status === "running"
+          ? `Crew answer for handoff ${handoff.id}: ${handoff.responseText ?? ""}`
+          : handoff.status === "needs-input"
+            ? `Crew handoff ${about} needs input from you: ${handoff.questionText ?? ""}`
+            : `Crew handoff ${about} is ${handoff.status}. ${handoff.responseText ?? ""}`;
+      yield* runtime.notify(
+        recipient.threadId,
+        handoff.id,
+        handoff.noticeVersion,
+        recipient.id,
+        recipient.runtimeMode,
+        prompt,
+        handoff.updatedAt,
+      );
+      yield* handoffs.markDelivered(handoff.id, handoff.noticeVersion);
+    });
 
-    const requireRun = (threadId: ThreadId, grant: string) =>
-      Effect.gen(function* () {
-        const runId = yield* handoffs.getRunByThread(threadId);
-        const run = runId ? yield* runs.getRun(runId) : null;
-        if (!run || !run.allowedTools.includes(grant)) {
-          return yield* Effect.fail(new CrewHandoffError(`This thread cannot use ${grant}`));
-        }
-        return run;
-      });
+    const requireRun = Effect.fn("CrewHandoffService.requireRun")(function* (
+      threadId: ThreadId,
+      grant: string,
+    ) {
+      const runId = yield* handoffs.getRunByThread(threadId);
+      const run = runId ? yield* runs.getRun(runId) : null;
+      if (!run || !run.allowedTools.includes(grant)) {
+        return yield* Effect.fail(new CrewHandoffError(`This thread cannot use ${grant}`));
+      }
+      return run;
+    });
 
     const requireIncoming = (run: CrewRun) =>
       handoffs
         .getForTargetRun(run.id)
         .pipe(
-          Effect.flatMap((handoff) =>
-            handoff
-              ? Effect.succeed(handoff)
-              : Effect.fail(new CrewHandoffError("This run has no incoming handoff")),
+          Effect.filterOrFail(
+            Predicate.isNotNull,
+            () => new CrewHandoffError("This run has no incoming handoff"),
           ),
         );
 
-    const startQueued = (handoff: CrewHandoff) =>
-      Effect.gen(function* () {
-        if (handoff.status !== "queued") return handoff;
-        const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-        const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
-        const targetMember = yield* runs.getMember(handoff.targetMemberId);
-        if (
-          !sourceRun ||
-          !sourceMember?.enabled ||
-          !targetMember?.enabled ||
-          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, handoff.projectId))
-        ) {
-          const now = DateTime.formatIso(yield* DateTime.now);
-          yield* handoffs.transition(
-            handoff.id,
-            ["queued"],
-            "failed",
-            now,
-            { lastError: "Delegation permission is unavailable" },
-            true,
-          );
-          const updated = (yield* handoffs.get(handoff.id))!;
-          yield* PubSub.publish(changes, updated.id);
-          yield* deliver(updated).pipe(Effect.result);
-          return updated;
-        }
-        yield* crew.createRun({
-          id: handoff.targetRunId,
-          memberId: handoff.targetMemberId,
-          projectId: handoff.projectId,
-          taskText: `${handoff.taskText}${handoff.contextText ? `\n\nContext:\n${handoff.contextText}` : ""}`,
-          ...(handoff.modelSelection ? { modelSelection: handoff.modelSelection } : {}),
-        });
+    const startQueued = Effect.fn("CrewHandoffService.startQueued")(function* (
+      handoff: CrewHandoff,
+    ) {
+      if (handoff.status !== "queued") return handoff;
+      const sourceRun = yield* runs.getRun(handoff.sourceRunId);
+      const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
+      const targetMember = yield* runs.getMember(handoff.targetMemberId);
+      if (
+        !sourceRun ||
+        !sourceMember?.enabled ||
+        !targetMember?.enabled ||
+        !(yield* runs.canDelegate(sourceMember.id, targetMember.id, handoff.projectId))
+      ) {
         const now = DateTime.formatIso(yield* DateTime.now);
-        yield* handoffs.transition(handoff.id, ["queued"], "running", now);
-        return (yield* handoffs.get(handoff.id))!;
+        yield* handoffs.transition(
+          handoff.id,
+          ["queued"],
+          "failed",
+          now,
+          { lastError: "Delegation permission is unavailable" },
+          true,
+        );
+        const updated = (yield* handoffs.get(handoff.id))!;
+        yield* PubSub.publish(changes, updated.id);
+        yield* deliver(updated).pipe(Effect.result);
+        return updated;
+      }
+      yield* crew.createRun({
+        id: handoff.targetRunId,
+        memberId: handoff.targetMemberId,
+        projectId: handoff.projectId,
+        taskText: `${handoff.taskText}${handoff.contextText ? `\n\nContext:\n${handoff.contextText}` : ""}`,
+        ...(handoff.modelSelection ? { modelSelection: handoff.modelSelection } : {}),
       });
+      const now = DateTime.formatIso(yield* DateTime.now);
+      yield* handoffs.transition(handoff.id, ["queued"], "running", now);
+      return (yield* handoffs.get(handoff.id))!;
+    });
 
-    const delegate: CrewHandoffServiceShape["delegate"] = (input) =>
-      Effect.gen(function* () {
+    const delegate: CrewHandoffServiceShape["delegate"] = Effect.fn("CrewHandoffService.delegate")(
+      function* (input) {
         const id = yield* Effect.try({
           try: () => bounded(input.id, "Request ID", 128),
           catch: () => new CrewHandoffError("Invalid request ID"),
@@ -314,46 +316,45 @@ export const CrewHandoffServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewHandoffError("Request ID belongs to another handoff"));
         }
         return yield* startQueued(persisted);
-      });
+      },
+    );
 
-    const updateFromRecipient = (
+    const updateFromRecipient = Effect.fn("CrewHandoffService.updateFromRecipient")(function* (
       threadId: ThreadId,
       grant: "crew.respond" | "crew.ask",
       status: "completed" | "failed" | "needs-input",
       text: string,
-    ) =>
-      Effect.gen(function* () {
-        const value = yield* Effect.try({
-          try: () => bounded(text, status === "needs-input" ? "Question" : "Summary", 8_000),
-          catch: () => new CrewHandoffError("Invalid response text"),
-        });
-        const run = yield* requireRun(threadId, grant);
-        const handoff = yield* requireIncoming(run);
-        if (handoff.status === status && (handoff.responseText ?? handoff.questionText) === value) {
-          return handoff;
-        }
-        if (handoff.status !== "running") {
-          return yield* Effect.fail(new CrewHandoffError("Handoff is not running"));
-        }
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const changed = yield* handoffs.transition(
-          handoff.id,
-          ["running"],
-          status,
-          now,
-          status === "needs-input" ? { questionText: value } : { responseText: value },
-          true,
-        );
-        if (!changed)
-          return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
-        const updated = (yield* handoffs.get(handoff.id))!;
-        yield* PubSub.publish(changes, updated.id);
-        yield* deliver(updated).pipe(Effect.result);
-        return (yield* handoffs.get(handoff.id))!;
+    ) {
+      const value = yield* Effect.try({
+        try: () => bounded(text, status === "needs-input" ? "Question" : "Summary", 8_000),
+        catch: () => new CrewHandoffError("Invalid response text"),
       });
+      const run = yield* requireRun(threadId, grant);
+      const handoff = yield* requireIncoming(run);
+      if (handoff.status === status && (handoff.responseText ?? handoff.questionText) === value) {
+        return handoff;
+      }
+      if (handoff.status !== "running") {
+        return yield* Effect.fail(new CrewHandoffError("Handoff is not running"));
+      }
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const changed = yield* handoffs.transition(
+        handoff.id,
+        ["running"],
+        status,
+        now,
+        status === "needs-input" ? { questionText: value } : { responseText: value },
+        true,
+      );
+      if (!changed) return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
+      const updated = (yield* handoffs.get(handoff.id))!;
+      yield* PubSub.publish(changes, updated.id);
+      yield* deliver(updated).pipe(Effect.result);
+      return (yield* handoffs.get(handoff.id))!;
+    });
 
-    const answer: CrewHandoffServiceShape["answer"] = (id, answerText) =>
-      Effect.gen(function* () {
+    const answer: CrewHandoffServiceShape["answer"] = Effect.fn("CrewHandoffService.answer")(
+      function* (id, answerText) {
         const value = yield* Effect.try({
           try: () => bounded(answerText, "Answer", 8_000),
           catch: () => new CrewHandoffError("Invalid answer"),
@@ -383,92 +384,89 @@ export const CrewHandoffServiceLive = Layer.effect(
         yield* PubSub.publish(changes, id);
         yield* deliver(updated).pipe(Effect.result);
         return (yield* handoffs.get(id))!;
-      });
+      },
+    );
 
-    const settleIfExited = (handoff: CrewHandoff) =>
-      Effect.gen(function* () {
-        // The answer turn may not have reached its recipient yet. The previous
-        // completed turn does not settle the newly resumed handoff.
-        if (handoff.notificationState === "queued") return;
-        const view = yield* crew.getRun(handoff.targetRunId);
-        if (!view || !["completed", "failed", "interrupted"].includes(view.status)) return;
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const detail =
-          view.status === "completed"
-            ? "Recipient ended without a structured crew_respond outcome"
-            : `Recipient run ${view.status}`;
-        const changed = yield* handoffs.transition(
-          handoff.id,
-          ["running"],
-          "failed",
-          now,
-          { lastError: detail, responseText: detail },
-          true,
+    const settleIfExited = Effect.fn("CrewHandoffService.settleIfExited")(function* (
+      handoff: CrewHandoff,
+    ) {
+      // The answer turn may not have reached its recipient yet. The previous
+      // completed turn does not settle the newly resumed handoff.
+      if (handoff.notificationState === "queued") return;
+      const view = yield* crew.getRun(handoff.targetRunId);
+      if (!view || !["completed", "failed", "interrupted"].includes(view.status)) return;
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const detail =
+        view.status === "completed"
+          ? "Recipient ended without a structured crew_respond outcome"
+          : `Recipient run ${view.status}`;
+      const changed = yield* handoffs.transition(
+        handoff.id,
+        ["running"],
+        "failed",
+        now,
+        { lastError: detail, responseText: detail },
+        true,
+      );
+      if (changed) yield* PubSub.publish(changes, handoff.id);
+    });
+
+    const cancel = Effect.fn("CrewHandoffService.cancel")(function* (id: string) {
+      const handoff = yield* handoffs.get(id);
+      if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
+      if (handoff.status === "cancelled") return handoff;
+      if (handoff.status === "completed") {
+        return yield* Effect.fail(new CrewHandoffError("Completed handoff cannot be cancelled"));
+      }
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const target = yield* runs.getRun(handoff.targetRunId);
+      if (target && ["running", "pending"].includes(yield* runtime.getTurnState(target.threadId))) {
+        yield* runtime.interrupt(target.threadId, id, now);
+      }
+      yield* handoffs.transition(id, [handoff.status], "cancelled", now, undefined, true);
+      const updated = (yield* handoffs.get(id))!;
+      yield* PubSub.publish(changes, id);
+      yield* deliver(updated).pipe(Effect.result);
+      return (yield* handoffs.get(id))!;
+    });
+
+    const retry = Effect.fn("CrewHandoffService.retry")(function* (id: string) {
+      const handoff = yield* handoffs.get(id);
+      if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
+      if (handoff.status === "queued" || handoff.status === "running") return handoff;
+      if (handoff.status !== "failed" && handoff.status !== "cancelled") {
+        return yield* Effect.fail(
+          new CrewHandoffError("Only failed or cancelled handoffs can retry"),
         );
-        if (changed) yield* PubSub.publish(changes, handoff.id);
-      });
+      }
+      const sourceRun = yield* runs.getRun(handoff.sourceRunId);
+      const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
+      const targetMember = yield* runs.getMember(handoff.targetMemberId);
+      if (
+        !sourceRun ||
+        !sourceMember?.enabled ||
+        !targetMember?.enabled ||
+        !(yield* runs.canDelegate(sourceMember.id, targetMember.id, handoff.projectId))
+      ) {
+        return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
+      }
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const changed = yield* handoffs.retry(id, now);
+      if (!changed) return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
+      return yield* startQueued((yield* handoffs.get(id))!);
+    });
 
-    const cancel = (id: string) =>
-      Effect.gen(function* () {
-        const handoff = yield* handoffs.get(id);
-        if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
-        if (handoff.status === "cancelled") return handoff;
-        if (handoff.status === "completed") {
-          return yield* Effect.fail(new CrewHandoffError("Completed handoff cannot be cancelled"));
-        }
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const target = yield* runs.getRun(handoff.targetRunId);
-        if (
-          target &&
-          ["running", "pending"].includes(yield* runtime.getTurnState(target.threadId))
-        ) {
-          yield* runtime.interrupt(target.threadId, id, now);
-        }
-        yield* handoffs.transition(id, [handoff.status], "cancelled", now, undefined, true);
-        const updated = (yield* handoffs.get(id))!;
-        yield* PubSub.publish(changes, id);
-        yield* deliver(updated).pipe(Effect.result);
-        return (yield* handoffs.get(id))!;
+    const refreshProject = Effect.fn("CrewHandoffService.refreshProject")(function* (
+      projectId: ProjectId,
+    ) {
+      const running = yield* handoffs.listRunningByProject(projectId);
+      yield* Effect.forEach(running, settleIfExited, { concurrency: 1, discard: true });
+      const notifications = yield* handoffs.listUndeliveredByProject(projectId);
+      yield* Effect.forEach(notifications, (handoff) => deliver(handoff).pipe(Effect.result), {
+        concurrency: 1,
+        discard: true,
       });
-
-    const retry = (id: string) =>
-      Effect.gen(function* () {
-        const handoff = yield* handoffs.get(id);
-        if (!handoff) return yield* Effect.fail(new CrewHandoffError("Handoff not found"));
-        if (handoff.status === "queued" || handoff.status === "running") return handoff;
-        if (handoff.status !== "failed" && handoff.status !== "cancelled") {
-          return yield* Effect.fail(
-            new CrewHandoffError("Only failed or cancelled handoffs can retry"),
-          );
-        }
-        const sourceRun = yield* runs.getRun(handoff.sourceRunId);
-        const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
-        const targetMember = yield* runs.getMember(handoff.targetMemberId);
-        if (
-          !sourceRun ||
-          !sourceMember?.enabled ||
-          !targetMember?.enabled ||
-          !(yield* runs.canDelegate(sourceMember.id, targetMember.id, handoff.projectId))
-        ) {
-          return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
-        }
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const changed = yield* handoffs.retry(id, now);
-        if (!changed)
-          return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
-        return yield* startQueued((yield* handoffs.get(id))!);
-      });
-
-    const refreshProject = (projectId: ProjectId) =>
-      Effect.gen(function* () {
-        const running = yield* handoffs.listRunningByProject(projectId);
-        yield* Effect.forEach(running, settleIfExited, { concurrency: 1, discard: true });
-        const notifications = yield* handoffs.listUndeliveredByProject(projectId);
-        yield* Effect.forEach(notifications, (handoff) => deliver(handoff).pipe(Effect.result), {
-          concurrency: 1,
-          discard: true,
-        });
-      });
+    });
 
     return {
       delegate,
@@ -477,42 +475,46 @@ export const CrewHandoffServiceLive = Layer.effect(
       ask: (threadId, question) =>
         updateFromRecipient(threadId, "crew.ask", "needs-input", question),
       answer,
-      answerFromBot: (threadId, id, answerText) =>
-        Effect.gen(function* () {
+      answerFromBot: Effect.fn("CrewHandoffService.answerFromBot")(
+        function* (threadId, id, answerText) {
           const run = yield* requireRun(threadId, "crew.answer");
           const handoff = yield* handoffs.get(id);
           if (handoff?.sourceRunId !== run.id) {
             return yield* Effect.fail(new CrewHandoffError("Handoff is unavailable to this run"));
           }
           return yield* answer(id, answerText);
-        }),
+        },
+      ),
       cancel,
       retry,
-      actInProject: ({ projectId, requestId, action, text }) =>
-        Effect.gen(function* () {
-          const handoff = yield* handoffs.get(requestId);
-          if (handoff?.projectId !== projectId) {
-            return yield* Effect.fail(new CrewHandoffError("Handoff not found in project"));
-          }
-          if (action === "answer") {
-            if (!text) return yield* Effect.fail(new CrewHandoffError("Answer is required"));
-            return yield* answer(requestId, text);
-          }
-          return yield* action === "cancel" ? cancel(requestId) : retry(requestId);
-        }),
-      projectSnapshot: (projectId) =>
-        Effect.gen(function* () {
-          if (!(yield* runtime.projectExists(projectId))) {
-            return yield* Effect.fail(new CrewHandoffError("Project not found"));
-          }
-          yield* refreshProject(projectId);
-          const [members, runSummaries, recent] = yield* Effect.all([
-            runs.listMembersForProject(projectId),
-            crew.listRunSummaries(projectId, 50),
-            handoffs.listByProject(projectId, 100),
-          ]);
-          return { members, runs: runSummaries, handoffs: recent };
-        }),
+      actInProject: Effect.fn("CrewHandoffService.actInProject")(function* ({
+        projectId,
+        requestId,
+        action,
+        text,
+      }) {
+        const handoff = yield* handoffs.get(requestId);
+        if (handoff?.projectId !== projectId) {
+          return yield* Effect.fail(new CrewHandoffError("Handoff not found in project"));
+        }
+        if (action === "answer") {
+          if (!text) return yield* Effect.fail(new CrewHandoffError("Answer is required"));
+          return yield* answer(requestId, text);
+        }
+        return yield* action === "cancel" ? cancel(requestId) : retry(requestId);
+      }),
+      projectSnapshot: Effect.fn("CrewHandoffService.projectSnapshot")(function* (projectId) {
+        if (!(yield* runtime.projectExists(projectId))) {
+          return yield* Effect.fail(new CrewHandoffError("Project not found"));
+        }
+        yield* refreshProject(projectId);
+        const [members, runSummaries, recent] = yield* Effect.all([
+          runs.listMembersForProject(projectId),
+          crew.listRunSummaries(projectId, 50),
+          handoffs.listByProject(projectId, 100),
+        ]);
+        return { members, runs: runSummaries, handoffs: recent };
+      }),
       listForThread: (threadId) =>
         requireRun(threadId, "crew.status").pipe(
           Effect.flatMap((run) => handoffs.listBySourceRun(run.id)),
@@ -525,15 +527,13 @@ export const CrewHandoffServiceLive = Layer.effect(
             const run = yield* requireRun(threadId, "crew.status");
             const subscription = yield* PubSub.subscribe(changes);
             const read = () =>
-              handoffs
-                .get(id)
-                .pipe(
-                  Effect.flatMap((handoff) =>
-                    handoff?.sourceRunId === run.id
-                      ? Effect.succeed(handoff)
-                      : Effect.fail(new CrewHandoffError("Handoff is unavailable to this run")),
-                  ),
-                );
+              handoffs.get(id).pipe(
+                Effect.filterOrFail(
+                  (handoff): handoff is NonNullable<typeof handoff> =>
+                    handoff?.sourceRunId === run.id,
+                  () => new CrewHandoffError("Handoff is unavailable to this run"),
+                ),
+              );
             let handoff = yield* read();
             if (handoff.status !== "queued" && handoff.status !== "running") return handoff;
             while (true) {
@@ -547,29 +547,27 @@ export const CrewHandoffServiceLive = Layer.effect(
             }
           }),
         ),
-      reconcile: () =>
-        Effect.gen(function* () {
-          const pending = yield* handoffs.listPending();
-          yield* Effect.forEach(pending, (handoff) => startQueued(handoff).pipe(Effect.result), {
-            concurrency: 1,
-            discard: true,
-          });
-          const running = yield* handoffs.listRunning();
-          yield* Effect.forEach(running, settleIfExited, { concurrency: 1, discard: true });
-          const notifications = yield* handoffs.listUndelivered();
-          yield* Effect.forEach(notifications, (handoff) => deliver(handoff).pipe(Effect.result), {
-            concurrency: 1,
-            discard: true,
-          });
-        }),
+      reconcile: Effect.fn("CrewHandoffService.reconcile")(function* () {
+        const pending = yield* handoffs.listPending();
+        yield* Effect.forEach(pending, (handoff) => startQueued(handoff).pipe(Effect.result), {
+          concurrency: 1,
+          discard: true,
+        });
+        const running = yield* handoffs.listRunning();
+        yield* Effect.forEach(running, settleIfExited, { concurrency: 1, discard: true });
+        const notifications = yield* handoffs.listUndelivered();
+        yield* Effect.forEach(notifications, (handoff) => deliver(handoff).pipe(Effect.result), {
+          concurrency: 1,
+          discard: true,
+        });
+      }),
       refreshProject,
-      refreshRun: (runId) =>
-        Effect.gen(function* () {
-          const handoff = yield* handoffs.getForTargetRun(runId);
-          if (handoff?.status === "running") yield* settleIfExited(handoff);
-          const updated = handoff ? yield* handoffs.get(handoff.id) : null;
-          if (updated) yield* deliver(updated).pipe(Effect.result);
-        }),
+      refreshRun: Effect.fn("CrewHandoffService.refreshRun")(function* (runId) {
+        const handoff = yield* handoffs.getForTargetRun(runId);
+        if (handoff?.status === "running") yield* settleIfExited(handoff);
+        const updated = handoff ? yield* handoffs.get(handoff.id) : null;
+        if (updated) yield* deliver(updated).pipe(Effect.result);
+      }),
     } satisfies CrewHandoffServiceShape;
   }),
 );

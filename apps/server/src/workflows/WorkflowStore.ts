@@ -181,7 +181,7 @@ export const WorkflowStoreLive = Layer.effect(
 
     return WorkflowStore.of({
       subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
-      getExecutionStatus: (featureId) =>
+      getExecutionStatus: Effect.fn("WorkflowStore.getExecutionStatus")((featureId) =>
         sql<{ readonly lastError: string | null; readonly queuedAt: string | null }>`
         SELECT last_error AS lastError, queued_at AS queuedAt
         FROM workflow_executions WHERE feature_id = ${featureId}
@@ -189,7 +189,8 @@ export const WorkflowStoreLive = Layer.effect(
           Effect.mapError(queryError),
           Effect.map((rows) => rows[0] ?? null),
         ),
-      createDefinition: (definition, createdAt) =>
+      ),
+      createDefinition: Effect.fn("WorkflowStore.createDefinition")((definition, createdAt) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
@@ -208,33 +209,37 @@ export const WorkflowStoreLive = Layer.effect(
             }),
           )
           .pipe(Effect.mapError(queryError)),
-      updateDefinition: (definition, expectedRevision, createdAt) =>
-        sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const updated = yield* sql<{ readonly id: string }>`
+      ),
+      updateDefinition: Effect.fn("WorkflowStore.updateDefinition")(
+        (definition, expectedRevision, createdAt) =>
+          sql
+            .withTransaction(
+              Effect.gen(function* () {
+                const updated = yield* sql<{ readonly id: string }>`
                 UPDATE workflow_definition_heads SET revision = ${definition.revision}
                 WHERE id = ${definition.id} AND revision = ${expectedRevision}
                 RETURNING id
               `;
-              if (updated.length === 0) return false;
-              yield* sql`
+                if (updated.length === 0) return false;
+                yield* sql`
                 INSERT INTO workflow_definition_revisions (id, revision, definition_json, created_at)
                 VALUES (${definition.id}, ${definition.revision},
                   ${encodeDefinition(definition)}, ${createdAt})
               `;
-              return true;
-            }),
-          )
-          .pipe(Effect.mapError(queryError)),
-      listOpenFeaturesUsing: (workflowId) =>
+                return true;
+              }),
+            )
+            .pipe(Effect.mapError(queryError)),
+      ),
+      listOpenFeaturesUsing: Effect.fn("WorkflowStore.listOpenFeaturesUsing")((workflowId) =>
         sql<{ readonly id: string; readonly title: string }>`
           SELECT f.id, f.title FROM feature_workflows AS w
           JOIN features AS f ON f.id = w.feature_id
           WHERE w.workflow_id = ${workflowId} AND f.status = 'open'
           ORDER BY f.created_at, f.id
         `.pipe(Effect.mapError(queryError)),
-      listBotsDefaultingTo: (workflowId) =>
+      ),
+      listBotsDefaultingTo: Effect.fn("WorkflowStore.listBotsDefaultingTo")((workflowId) =>
         sql<{ readonly name: string }>`
           SELECT name FROM bots
           WHERE default_workflow_id = ${workflowId} AND deleted_at IS NULL
@@ -243,7 +248,8 @@ export const WorkflowStoreLive = Layer.effect(
           Effect.map((rows) => rows.map((row) => row.name)),
           Effect.mapError(queryError),
         ),
-      deleteDefinition: (id) =>
+      ),
+      deleteDefinition: Effect.fn("WorkflowStore.deleteDefinition")((id) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
@@ -255,9 +261,10 @@ export const WorkflowStoreLive = Layer.effect(
             }),
           )
           .pipe(Effect.mapError(queryError)),
+      ),
       getDefinition,
       getLatestDefinition,
-      listLatestDefinitions: () =>
+      listLatestDefinitions: Effect.fn("WorkflowStore.listLatestDefinitions")(() =>
         sql<DefinitionRow>`
           SELECT r.definition_json AS definitionJson
           FROM workflow_definition_revisions AS r
@@ -269,24 +276,27 @@ export const WorkflowStoreLive = Layer.effect(
             Effect.try({ try: () => rows.map(decodeDefinition), catch: decodeError }),
           ),
         ),
-      copyForFeature: (featureId, projectId, workflowId, revision, createdAt) =>
-        sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const definition = yield* getDefinition(workflowId, revision);
-              if (definition === null) return null;
-              yield* sql`
+      ),
+      copyForFeature: Effect.fn("WorkflowStore.copyForFeature")(
+        (featureId, projectId, workflowId, revision, createdAt) =>
+          sql
+            .withTransaction(
+              Effect.gen(function* () {
+                const definition = yield* getDefinition(workflowId, revision);
+                if (definition === null) return null;
+                yield* sql`
                 INSERT OR IGNORE INTO feature_workflows
                   (feature_id, project_id, workflow_id, workflow_revision, definition_json, created_at)
                 VALUES (${featureId}, ${projectId}, ${workflowId}, ${definition.revision},
                   ${encodeDefinition(definition)}, ${createdAt})
               `;
-              return yield* getFeatureCopy(featureId);
-            }),
-          )
-          .pipe(Effect.mapError(queryError)),
+                return yield* getFeatureCopy(featureId);
+              }),
+            )
+            .pipe(Effect.mapError(queryError)),
+      ),
       getFeatureCopy,
-      listEvents: (featureId) =>
+      listEvents: Effect.fn("WorkflowStore.listEvents")((featureId) =>
         sql<EventRow>`
           SELECT event_json AS eventJson FROM workflow_step_events
           WHERE feature_id = ${featureId} ORDER BY sequence LIMIT 4097
@@ -302,7 +312,8 @@ export const WorkflowStoreLive = Layer.effect(
             }),
           ),
         ),
-      appendEvent: (featureId, expectedVersion, event) =>
+      ),
+      appendEvent: Effect.fn("WorkflowStore.appendEvent")((featureId, expectedVersion, event) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
@@ -332,6 +343,7 @@ export const WorkflowStoreLive = Layer.effect(
               result.kind === "inserted" ? PubSub.publish(changes, featureId) : Effect.void,
             ),
           ),
+      ),
     });
   }),
 );

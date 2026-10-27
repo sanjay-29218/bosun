@@ -17,7 +17,7 @@ export interface SidebarHeaderActionsProps {
 
 function FallbackHeaderButton(props: {
   readonly accessibilityLabel: string;
-  readonly icon: "gearshape" | "square.and.pencil" | "square.3.layers.3d" | "list.bullet";
+  readonly icon: "gearshape" | "square.and.pencil" | "square.split.2x1" | "list.bullet";
   readonly onPress: () => void;
 }) {
   return (

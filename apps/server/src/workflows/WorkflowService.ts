@@ -147,57 +147,57 @@ export const WorkflowServiceLive = Layer.effect(
     const library = yield* WorkflowLibrary;
 
     /** Newest version of every output so far, with each producing stage's thread diff. */
-    const stageOutputs = (
+    const stageOutputs = Effect.fn("WorkflowService.stageOutputs")(function* (
       definition: WorkflowDefinition,
       events: ReadonlyArray<WorkflowStepEvent>,
-    ) =>
-      Effect.gen(function* () {
-        const results = latestStageResults(events);
-        const threads = new Map<string, ThreadId>();
-        const diffs = new Map<ThreadId, StageThreadDiff>();
-        for (const result of results) {
-          const run = result.runId === null ? null : yield* crew.getRun(result.runId);
-          if (run) threads.set(run.id, run.threadId);
-          const threadId = result.threadId ?? run?.threadId;
-          if (!threadId) continue;
-          const diff = yield* workspace.threadDiff(threadId);
-          if (diff) diffs.set(threadId, diff);
-        }
-        return collectStageOutputs(definition, results, threads, diffs);
-      });
+    ) {
+      const results = latestStageResults(events);
+      const threads = new Map<string, ThreadId>();
+      const diffs = new Map<ThreadId, StageThreadDiff>();
+      for (const result of results) {
+        const run = result.runId === null ? null : yield* crew.getRun(result.runId);
+        if (run) threads.set(run.id, run.threadId);
+        const threadId = result.threadId ?? run?.threadId;
+        if (!threadId) continue;
+        const diff = yield* workspace.threadDiff(threadId);
+        if (diff) diffs.set(threadId, diff);
+      }
+      return collectStageOutputs(definition, results, threads, diffs);
+    });
 
-    const checkDefinition = (definition: WorkflowDefinition) =>
-      Effect.gen(function* () {
-        yield* Effect.try({
-          try: () => validateWorkflowDefinition(definition),
-          catch: (cause) =>
-            cause instanceof WorkflowValidationError
-              ? cause
-              : new WorkflowValidationError("Invalid workflow definition"),
-        });
-        for (const slot of Object.values(definition.roles)) {
-          const role = yield* crew.getRole(slot.roleId);
-          // The project manager slot binds to the project's existing manager rather than a
-          // member made from the pinned revision, so only stage roles check their pin.
-          const manager = slot.roleId === PROJECT_MANAGER_ROLE_ID;
-          const problem = !role
-            ? "does not exist"
-            : !role.enabled
-              ? "is turned off"
-              : manager
-                ? null
-                : !role.autoCreateForFeature
-                  ? "can't run workflow stages"
-                  : role.revision !== slot.roleRevision
-                    ? `was edited; pin roleRevision ${role.revision}`
-                    : null;
-          if (problem !== null) {
-            return yield* Effect.fail(
-              new WorkflowValidationError(`Workflow role ${slot.roleId} ${problem}`),
-            );
-          }
-        }
+    const checkDefinition = Effect.fn("WorkflowService.checkDefinition")(function* (
+      definition: WorkflowDefinition,
+    ) {
+      yield* Effect.try({
+        try: () => validateWorkflowDefinition(definition),
+        catch: (cause) =>
+          cause instanceof WorkflowValidationError
+            ? cause
+            : new WorkflowValidationError("Invalid workflow definition"),
       });
+      for (const slot of Object.values(definition.roles)) {
+        const role = yield* crew.getRole(slot.roleId);
+        // The project manager slot binds to the project's existing manager rather than a
+        // member made from the pinned revision, so only stage roles check their pin.
+        const manager = slot.roleId === PROJECT_MANAGER_ROLE_ID;
+        const problem = !role
+          ? "does not exist"
+          : !role.enabled
+            ? "is turned off"
+            : manager
+              ? null
+              : !role.autoCreateForFeature
+                ? "can't run workflow stages"
+                : role.revision !== slot.roleRevision
+                  ? `was edited; pin roleRevision ${role.revision}`
+                  : null;
+        if (problem !== null) {
+          return yield* Effect.fail(
+            new WorkflowValidationError(`Workflow role ${slot.roleId} ${problem}`),
+          );
+        }
+      }
+    });
 
     const projectState = (
       definition: WorkflowDefinition,
@@ -211,79 +211,74 @@ export const WorkflowServiceLive = Layer.effect(
             : new WorkflowTransitionError("Invalid workflow history"),
       });
 
-    const handoffEvidence = (
+    const handoffEvidence = Effect.fn("WorkflowService.handoffEvidence")(function* (
       id: string | null,
       status?: "completed" | "needs-input" | "running" | "failed" | "queued",
       runId?: string | null,
       detail?: string | null,
-    ) =>
-      Effect.gen(function* () {
-        if (id === null) return null;
-        const current = yield* handoffs.get(id);
-        const receipts = yield* handoffs.listReceipts(id);
-        const candidates = [
-          ...receipts.map((receipt) => receipt.handoff),
-          ...(current ? [current] : []),
-        ];
-        return (
-          candidates.findLast(
-            (handoff) =>
-              (status === undefined || handoff.status === status) &&
-              (runId === undefined || handoff.targetRunId === runId) &&
-              (detail === undefined ||
-                (status === "needs-input"
-                  ? handoff.questionText?.trim() === detail?.trim()
-                  : status === "failed"
-                    ? handoff.lastError?.trim() === detail?.trim() ||
-                      handoff.responseText?.trim() === detail?.trim()
-                    : handoff.responseText?.trim() === detail?.trim())),
-          ) ?? null
-        );
-      });
+    ) {
+      if (id === null) return null;
+      const current = yield* handoffs.get(id);
+      const receipts = yield* handoffs.listReceipts(id);
+      const candidates = [
+        ...receipts.map((receipt) => receipt.handoff),
+        ...(current ? [current] : []),
+      ];
+      return (
+        candidates.findLast(
+          (handoff) =>
+            (status === undefined || handoff.status === status) &&
+            (runId === undefined || handoff.targetRunId === runId) &&
+            (detail === undefined ||
+              (status === "needs-input"
+                ? handoff.questionText?.trim() === detail?.trim()
+                : status === "failed"
+                  ? handoff.lastError?.trim() === detail?.trim() ||
+                    handoff.responseText?.trim() === detail?.trim()
+                  : handoff.responseText?.trim() === detail?.trim())),
+        ) ?? null
+      );
+    });
 
     return WorkflowService.of({
       validateDefinition: checkDefinition,
-      ensureStarterDefinition: () =>
-        Effect.gen(function* () {
-          const existing = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
-          if (existing !== null) return existing;
-          const revisions: Record<string, number> = {};
-          for (const role of yield* crew.listRoles()) revisions[role.id] = role.revision;
-          const starter = makeStarterWorkflow(revisions);
-          yield* checkDefinition(starter);
-          const created = yield* store.createDefinition(
-            starter,
-            DateTime.formatIso(yield* DateTime.now),
-          );
-          if (created) {
-            yield* library.changed;
-            return starter;
-          }
-          const concurrent = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
-          if (concurrent === null) {
-            return yield* Effect.fail(
-              new WorkflowValidationError("Starter workflow is unavailable"),
-            );
-          }
-          return concurrent;
-        }),
-      createDefinition: (definition) =>
-        Effect.gen(function* () {
-          if (definition.revision !== 1) {
-            return yield* Effect.fail(
-              new WorkflowValidationError("New workflows start at revision 1"),
-            );
-          }
-          yield* checkDefinition(definition);
-          const createdAt = DateTime.formatIso(yield* DateTime.now);
-          if (!(yield* store.createDefinition(definition, createdAt))) {
-            return yield* Effect.fail(new WorkflowValidationError("Workflow ID is already in use"));
-          }
+      ensureStarterDefinition: Effect.fn("WorkflowService.ensureStarterDefinition")(function* () {
+        const existing = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
+        if (existing !== null) return existing;
+        const revisions: Record<string, number> = {};
+        for (const role of yield* crew.listRoles()) revisions[role.id] = role.revision;
+        const starter = makeStarterWorkflow(revisions);
+        yield* checkDefinition(starter);
+        const created = yield* store.createDefinition(
+          starter,
+          DateTime.formatIso(yield* DateTime.now),
+        );
+        if (created) {
           yield* library.changed;
-          return definition;
-        }),
-      reviseDefinition: (definition, expectedRevision) =>
-        Effect.gen(function* () {
+          return starter;
+        }
+        const concurrent = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
+        if (concurrent === null) {
+          return yield* Effect.fail(new WorkflowValidationError("Starter workflow is unavailable"));
+        }
+        return concurrent;
+      }),
+      createDefinition: Effect.fn("WorkflowService.createDefinition")(function* (definition) {
+        if (definition.revision !== 1) {
+          return yield* Effect.fail(
+            new WorkflowValidationError("New workflows start at revision 1"),
+          );
+        }
+        yield* checkDefinition(definition);
+        const createdAt = DateTime.formatIso(yield* DateTime.now);
+        if (!(yield* store.createDefinition(definition, createdAt))) {
+          return yield* Effect.fail(new WorkflowValidationError("Workflow ID is already in use"));
+        }
+        yield* library.changed;
+        return definition;
+      }),
+      reviseDefinition: Effect.fn("WorkflowService.reviseDefinition")(
+        function* (definition, expectedRevision) {
           if (
             !Number.isSafeInteger(expectedRevision) ||
             expectedRevision < 1 ||
@@ -300,9 +295,10 @@ export const WorkflowServiceLive = Layer.effect(
           }
           yield* library.changed;
           return definition;
-        }),
-      copyForFeature: (featureId, projectId, workflowId) =>
-        Effect.gen(function* () {
+        },
+      ),
+      copyForFeature: Effect.fn("WorkflowService.copyForFeature")(
+        function* (featureId, projectId, workflowId) {
           if (!validId(featureId) || !validId(workflowId)) {
             return yield* Effect.fail(
               new WorkflowValidationError("Invalid feature or workflow ID"),
@@ -338,55 +334,55 @@ export const WorkflowServiceLive = Layer.effect(
             );
           }
           return copy;
-        }),
+        },
+      ),
       getFeatureCopy: store.getFeatureCopy,
-      findRecordedEvent: (featureId, eventId) =>
+      findRecordedEvent: Effect.fn("WorkflowService.findRecordedEvent")((featureId, eventId) =>
         store
           .listEvents(featureId)
           .pipe(Effect.map((events) => events.find((event) => event.id === eventId) ?? null)),
-      deleteDefinition: (id) =>
-        Effect.gen(function* () {
-          const running: string[] = [];
-          for (const feature of yield* store.listOpenFeaturesUsing(id)) {
-            const copy = yield* store.getFeatureCopy(feature.id);
-            if (copy === null) continue;
-            const state = yield* projectState(copy.definition, yield* store.listEvents(feature.id));
-            if (!state.completed && !state.cancelled) running.push(feature.title);
-          }
-          const bots = yield* store.listBotsDefaultingTo(id);
-          const uses = [
-            ...(running.length > 0
-              ? [
-                  `${running.length === 1 ? "feature" : "features"} ${running.map((title) => `"${title}"`).join(", ")} still ${running.length === 1 ? "runs" : "run"} on it`,
-                ]
-              : []),
-            ...(bots.length > 0
-              ? [
-                  `${bots.join(", ")} ${bots.length === 1 ? "starts its" : "start their"} features with it`,
-                ]
-              : []),
-          ];
-          if (uses.length > 0) {
-            return yield* Effect.fail(
-              new WorkflowValidationError(`Can't delete this workflow: ${uses.join("; ")}.`),
-            );
-          }
-          if (!(yield* store.deleteDefinition(id))) {
-            return yield* Effect.fail(new WorkflowValidationError("Workflow not found"));
-          }
-          yield* library.changed;
-        }),
+      ),
+      deleteDefinition: Effect.fn("WorkflowService.deleteDefinition")(function* (id) {
+        const running: string[] = [];
+        for (const feature of yield* store.listOpenFeaturesUsing(id)) {
+          const copy = yield* store.getFeatureCopy(feature.id);
+          if (copy === null) continue;
+          const state = yield* projectState(copy.definition, yield* store.listEvents(feature.id));
+          if (!state.completed && !state.cancelled) running.push(feature.title);
+        }
+        const bots = yield* store.listBotsDefaultingTo(id);
+        const uses = [
+          ...(running.length > 0
+            ? [
+                `${running.length === 1 ? "feature" : "features"} ${running.map((title) => `"${title}"`).join(", ")} still ${running.length === 1 ? "runs" : "run"} on it`,
+              ]
+            : []),
+          ...(bots.length > 0
+            ? [
+                `${bots.join(", ")} ${bots.length === 1 ? "starts its" : "start their"} features with it`,
+              ]
+            : []),
+        ];
+        if (uses.length > 0) {
+          return yield* Effect.fail(
+            new WorkflowValidationError(`Can't delete this workflow: ${uses.join("; ")}.`),
+          );
+        }
+        if (!(yield* store.deleteDefinition(id))) {
+          return yield* Effect.fail(new WorkflowValidationError("Workflow not found"));
+        }
+        yield* library.changed;
+      }),
       getLatestDefinition: store.getLatestDefinition,
       listLatestDefinitions: store.listLatestDefinitions,
-      getFeatureState: (featureId) =>
-        Effect.gen(function* () {
-          const copy = yield* store.getFeatureCopy(featureId);
-          if (copy === null) return null;
-          const events = yield* store.listEvents(featureId);
-          return yield* projectState(copy.definition, events);
-        }),
-      getFeatureSnapshot: (featureId, projectId) =>
-        Effect.gen(function* () {
+      getFeatureState: Effect.fn("WorkflowService.getFeatureState")(function* (featureId) {
+        const copy = yield* store.getFeatureCopy(featureId);
+        if (copy === null) return null;
+        const events = yield* store.listEvents(featureId);
+        return yield* projectState(copy.definition, events);
+      }),
+      getFeatureSnapshot: Effect.fn("WorkflowService.getFeatureSnapshot")(
+        function* (featureId, projectId) {
           const copy = yield* store.getFeatureCopy(featureId);
           if (copy === null) return null;
           if (copy.projectId !== projectId) {
@@ -431,70 +427,71 @@ export const WorkflowServiceLive = Layer.effect(
             recentEvents: events.slice(-100),
             outputs: yield* stageOutputs(copy.definition, events),
           } satisfies WorkflowFeatureSnapshot;
-        }),
-      prepareStageHandoff: (input) =>
-        Effect.gen(function* () {
-          const existing = yield* stageHandoffs.get(input.handoffId);
-          if (existing) return existing;
-          const copy = yield* store.getFeatureCopy(input.featureId);
-          const step = copy?.definition.steps[input.stepId];
-          if (!copy || step?.type !== "task") {
-            return yield* Effect.fail(new WorkflowTransitionError("Stage is not a workflow task"));
-          }
-          const events = yield* store.listEvents(input.featureId);
-          const received = selectReceived(
-            copy.definition,
-            input.stepId,
-            yield* stageOutputs(copy.definition, events),
-          );
-          const files = received.flatMap((output) => (output.kind === "file" ? [output.path] : []));
-          const stageWorkspace = yield* workspace.describe(copy.projectId, files);
-          const outputs = received.map((output): WorkflowStageOutput =>
-            output.kind === "file" && stageWorkspace.cwd !== null
-              ? { ...output, exists: stageWorkspace.existing.has(output.path) }
-              : output,
-          );
-          const { from, notes } = collectNotes(events, input.executionId);
-          return yield* stageHandoffs.insertIfAbsent({
-            id: input.handoffId,
-            featureId: input.featureId,
-            stepId: input.stepId,
-            executionId: input.executionId,
-            attempt: input.attempt,
-            workflow: {
-              id: copy.definition.id,
-              name: copy.definition.name,
-              revision: copy.definition.revision,
-            },
-            from,
-            brief: yield* stageHandoffs.getFeatureBrief(input.featureId),
-            task: step.task,
-            scope: step.scope ?? null,
-            outcomes: Object.keys(step.next),
-            produces: [...(step.outputs ?? [])],
-            outputs,
-            notes: [...notes],
-            retry: previousFailure(events, input.executionId, input.attempt),
-            workspace: {
-              cwd: stageWorkspace.cwd,
-              branch: stageWorkspace.branch,
-              commit: stageWorkspace.commit,
-            },
-            createdAt: DateTime.formatIso(yield* DateTime.now),
-          });
-        }),
+        },
+      ),
+      prepareStageHandoff: Effect.fn("WorkflowService.prepareStageHandoff")(function* (input) {
+        const existing = yield* stageHandoffs.get(input.handoffId);
+        if (existing) return existing;
+        const copy = yield* store.getFeatureCopy(input.featureId);
+        const step = copy?.definition.steps[input.stepId];
+        if (!copy || step?.type !== "task") {
+          return yield* Effect.fail(new WorkflowTransitionError("Stage is not a workflow task"));
+        }
+        const events = yield* store.listEvents(input.featureId);
+        const received = selectReceived(
+          copy.definition,
+          input.stepId,
+          yield* stageOutputs(copy.definition, events),
+        );
+        const files = received.flatMap((output) => (output.kind === "file" ? [output.path] : []));
+        const stageWorkspace = yield* workspace.describe(copy.projectId, files);
+        const outputs = received.map((output): WorkflowStageOutput =>
+          output.kind === "file" && stageWorkspace.cwd !== null
+            ? { ...output, exists: stageWorkspace.existing.has(output.path) }
+            : output,
+        );
+        const { from, notes } = collectNotes(events, input.executionId);
+        return yield* stageHandoffs.insertIfAbsent({
+          id: input.handoffId,
+          featureId: input.featureId,
+          stepId: input.stepId,
+          executionId: input.executionId,
+          attempt: input.attempt,
+          workflow: {
+            id: copy.definition.id,
+            name: copy.definition.name,
+            revision: copy.definition.revision,
+          },
+          from,
+          brief: yield* stageHandoffs.getFeatureBrief(input.featureId),
+          task: step.task,
+          scope: step.scope ?? null,
+          outcomes: Object.keys(step.next),
+          produces: [...(step.outputs ?? [])],
+          outputs,
+          notes: [...notes],
+          retry: previousFailure(events, input.executionId, input.attempt),
+          workspace: {
+            cwd: stageWorkspace.cwd,
+            branch: stageWorkspace.branch,
+            commit: stageWorkspace.commit,
+          },
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+        });
+      }),
       getStageHandoff: stageHandoffs.get,
-      getStageHandoffForThread: (projectId, threadId) =>
-        Effect.gen(function* () {
+      getStageHandoffForThread: Effect.fn("WorkflowService.getStageHandoffForThread")(
+        function* (projectId, threadId) {
           const runId = yield* handoffs.getRunByThread(threadId);
           const handoff = runId ? yield* handoffs.getForTargetRun(runId) : null;
           const record = handoff ? yield* stageHandoffs.get(handoff.id) : null;
           if (!record) return null;
           const copy = yield* store.getFeatureCopy(record.featureId);
           return copy?.projectId === projectId ? record : null;
-        }),
-      recordTrustedEvent: (featureId, event) =>
-        Effect.gen(function* () {
+        },
+      ),
+      recordTrustedEvent: Effect.fn("WorkflowService.recordTrustedEvent")(
+        function* (featureId, event) {
           const copy = yield* store.getFeatureCopy(featureId);
           if (copy === null) {
             return yield* Effect.fail(
@@ -664,7 +661,8 @@ export const WorkflowServiceLive = Layer.effect(
             return yield* projectState(copy.definition, yield* store.listEvents(featureId));
           }
           return next;
-        }),
+        },
+      ),
     });
   }),
 );

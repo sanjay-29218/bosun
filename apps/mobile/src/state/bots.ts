@@ -94,6 +94,7 @@ export function useRefreshBotsWhileOpen() {
   const registry = useContext(RegistryContext);
   const environmentKey = useAtomValue(botEnvironmentIdsKeyAtom);
   const unknownKey = useAtomValue(unknownBotEnvironmentsKeyAtom);
+  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to AppState to re-read bots on foreground; removed on unmount.
   useEffect(() => {
     const refresh = () => {
       for (const environmentId of botEnvironmentIds(environmentKey)) {
@@ -105,6 +106,7 @@ export function useRefreshBotsWhileOpen() {
     });
     return () => subscription.remove();
   }, [environmentKey, registry]);
+  // oxlint-disable-next-line t3code/react-effect-budget -- fetches bots a project names but this client hasn't loaded; a fetch can't run during render.
   useEffect(() => {
     for (const environmentId of botEnvironmentIds(unknownKey)) {
       registry.refresh(botsEnvironment.list({ environmentId, input: {} }));

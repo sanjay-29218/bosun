@@ -3,7 +3,7 @@ import { botRailShowsThread } from "@t3tools/client-runtime/state/bot-rail";
 import { collectNeedsYou, type NeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
-import { memo, useMemo } from "react";
+import { memo } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { cn } from "../../lib/utils";
@@ -31,10 +31,8 @@ export const SidebarNeedsYouShelf = memo(function SidebarNeedsYouShelf() {
   const waitingShells = useAtomValue(needsYouThreadsAtom);
   const railProjectKeys = useBotRailProjectKeys();
   const railHeadquarters = useBotRailHeadquartersKeys();
-  const shells = useMemo(
-    () =>
-      waitingShells.filter((shell) => botRailShowsThread(shell, railProjectKeys, railHeadquarters)),
-    [railHeadquarters, railProjectKeys, waitingShells],
+  const shells = waitingShells.filter((shell) =>
+    botRailShowsThread(shell, railProjectKeys, railHeadquarters),
   );
   const [expanded, setExpanded] = useLocalStorage(EXPANDED_KEY, true, Schema.Boolean);
   if (shells.length === 0) return null;

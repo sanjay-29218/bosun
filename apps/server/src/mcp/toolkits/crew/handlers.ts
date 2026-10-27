@@ -87,15 +87,17 @@ const make = Effect.gen(function* () {
     );
 
   /** The bot behind the calling thread, when its run holds `grant`. */
-  const callingBot = (threadId: McpInvocationContext.McpThreadCaller["threadId"], grant: string) =>
-    Effect.gen(function* () {
-      const runId = yield* handoffStore.getRunByThread(threadId);
-      const run = runId ? yield* crewStore.getRun(runId) : null;
-      if (!run?.allowedTools.includes(grant)) {
-        return yield* new CrewToolFailedError({ reason: `This thread cannot use ${grant}` });
-      }
-      return run.memberId;
-    });
+  const callingBot = Effect.fn("CrewToolkit.callingBot")(function* (
+    threadId: McpInvocationContext.McpThreadCaller["threadId"],
+    grant: string,
+  ) {
+    const runId = yield* handoffStore.getRunByThread(threadId);
+    const run = runId ? yield* crewStore.getRun(runId) : null;
+    if (!run?.allowedTools.includes(grant)) {
+      return yield* new CrewToolFailedError({ reason: `This thread cannot use ${grant}` });
+    }
+    return run.memberId;
+  });
 
   return {
     crew_list_projects: McpToolAccess.readsAsCaller(() =>
@@ -184,15 +186,15 @@ const make = Effect.gen(function* () {
           const runId = yield* handoffStore.getRunByThread(threadId);
           const run = runId ? yield* crewStore.getRun(runId) : null;
           if (!run?.allowedTools.includes("crew.respond")) {
-            return yield* Effect.fail(
-              new CrewToolFailedError({ reason: "Caller is not a workflow stage member" }),
-            );
+            return yield* new CrewToolFailedError({
+              reason: "Caller is not a workflow stage member",
+            });
           }
           const record = yield* workflows.getStageHandoffForThread(run.projectId, threadId);
           if (!record) {
-            return yield* Effect.fail(
-              new CrewToolFailedError({ reason: "This run did not start from a workflow stage" }),
-            );
+            return yield* new CrewToolFailedError({
+              reason: "This run did not start from a workflow stage",
+            });
           }
           return record;
         }),

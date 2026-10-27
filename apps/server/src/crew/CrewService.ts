@@ -15,6 +15,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Semaphore from "effect/Semaphore";
 
 import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
@@ -326,8 +327,8 @@ export const CrewServiceLive = Layer.effect(
           ),
         );
 
-    const createMember: CrewServiceShape["createMember"] = (input) =>
-      Effect.gen(function* () {
+    const createMember: CrewServiceShape["createMember"] = Effect.fn("CrewService.createMember")(
+      function* (input) {
         const id = yield* Effect.try({
           try: () => nonEmpty(input.id, "Member ID", 128),
           catch: () => new CrewValidationError("Invalid crew member ID"),
@@ -377,37 +378,36 @@ export const CrewServiceLive = Layer.effect(
         };
         yield* store.insertMember(member);
         return member;
-      });
+      },
+    );
 
     /** Creates `input` unless a member with its ID exists, which must match its scope. */
-    const ensureMember = (input: CreateCrewMemberInput) =>
-      Effect.gen(function* () {
-        const existing = yield* store.getMember(input.id);
-        if (existing) {
-          if (existing.projectId !== input.projectId) {
-            return yield* Effect.fail(new CrewValidationError("Default member ID is in use"));
-          }
-          return { member: existing, created: false };
+    const ensureMember = Effect.fn("CrewService.ensureMember")(function* (
+      input: CreateCrewMemberInput,
+    ) {
+      const existing = yield* store.getMember(input.id);
+      if (existing) {
+        if (existing.projectId !== input.projectId) {
+          return yield* Effect.fail(new CrewValidationError("Default member ID is in use"));
         }
-        const member = yield* createMember(input).pipe(
-          // A concurrent caller may have created it first.
-          Effect.catch((error) =>
-            store
-              .getMember(input.id)
-              .pipe(
-                Effect.flatMap((persisted) =>
-                  persisted?.projectId === input.projectId
-                    ? Effect.succeed(persisted)
-                    : Effect.fail(error),
-                ),
-              ),
+        return { member: existing, created: false };
+      }
+      const member = yield* createMember(input).pipe(
+        // A concurrent caller may have created it first.
+        Effect.catch((error) =>
+          store.getMember(input.id).pipe(
+            Effect.filterOrFail(
+              (persisted): persisted is CrewMember => persisted?.projectId === input.projectId,
+              () => error,
+            ),
           ),
-        );
-        return { member, created: true };
-      });
+        ),
+      );
+      return { member, created: true };
+    });
 
-    const createRole: CrewServiceShape["createRole"] = (input) =>
-      Effect.gen(function* () {
+    const createRole: CrewServiceShape["createRole"] = Effect.fn("CrewService.createRole")(
+      function* (input) {
         const id = yield* Effect.try({
           try: () => nonEmpty(input.id, "Role ID", 128),
           catch: () => new CrewValidationError("Invalid role ID"),
@@ -446,10 +446,11 @@ export const CrewServiceLive = Layer.effect(
         yield* store.insertRole(role);
         yield* library.changed;
         return role;
-      });
+      },
+    );
 
-    const updateRole: CrewServiceShape["updateRole"] = (input) =>
-      Effect.gen(function* () {
+    const updateRole: CrewServiceShape["updateRole"] = Effect.fn("CrewService.updateRole")(
+      function* (input) {
         const previous = yield* store.getRole(input.id);
         if (!previous) {
           return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.id}`));
@@ -493,91 +494,94 @@ export const CrewServiceLive = Layer.effect(
         }
         yield* library.changed;
         return updated;
-      });
+      },
+    );
 
     /** A member of `roleId` for the project, carrying the role's configuration. */
-    const projectMemberFromRole = (
+    const projectMemberFromRole = Effect.fn("CrewService.projectMemberFromRole")(function* (
       id: string,
       projectId: ProjectId,
       roleId: string,
       context: string,
-    ) =>
-      Effect.gen(function* () {
-        // An existing member keeps working even if its role was turned off since.
-        const existing = yield* store.getMember(id);
-        if (existing?.projectId === projectId) return { member: existing, created: false };
-        const role = yield* store.getRole(roleId);
-        if (!role?.enabled) {
-          return yield* Effect.fail(
-            new CrewValidationError("Set up the crew before handing it project work"),
-          );
-        }
-        return yield* ensureMember({
-          id,
-          projectId,
-          roleId,
-          name: role.name,
-          instructions: `${role.instructions}\n\n${context}`,
-          allowedTools: role.allowedTools,
-          modelSelection: role.modelSelection,
-          runtimeMode: role.runtimeMode,
-        });
+    ) {
+      // An existing member keeps working even if its role was turned off since.
+      const existing = yield* store.getMember(id);
+      if (existing?.projectId === projectId) return { member: existing, created: false };
+      const role = yield* store.getRole(roleId);
+      if (!role?.enabled) {
+        return yield* Effect.fail(
+          new CrewValidationError("Set up the crew before handing it project work"),
+        );
+      }
+      return yield* ensureMember({
+        id,
+        projectId,
+        roleId,
+        name: role.name,
+        instructions: `${role.instructions}\n\n${context}`,
+        allowedTools: role.allowedTools,
+        modelSelection: role.modelSelection,
+        runtimeMode: role.runtimeMode,
       });
+    });
 
-    const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = (projectId) =>
-      Effect.gen(function* () {
-        if (!(yield* runtime.projectExists(projectId))) {
-          return yield* Effect.fail(new CrewValidationError("Project does not exist"));
-        }
-        const managerId = projectManagerMemberId(projectId);
-        const builderId = projectBuilderMemberId(projectId);
-        // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
-        // disabled role) is completed by the next request once the role is back.
-        const manager = yield* projectMemberFromRole(
-          managerId,
-          projectId,
-          PROJECT_MANAGER_ROLE_ID,
-          `You manage project ${projectId}. Its builder is crew member ${builderId}.`,
-        );
-        const builder = yield* projectMemberFromRole(
-          builderId,
-          projectId,
-          BUILDER_ROLE_ID,
-          `You work on project ${projectId}.`,
-        );
-        // The project's bot may delegate to the manager because it owns the project.
-        yield* store.grantDelegation(managerId, builderId);
-        if (builder.created) yield* store.setParent(builderId, managerId, 0);
-        return manager.member;
-      });
+    const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
+      "CrewService.ensureProjectManager",
+    )(function* (projectId) {
+      if (!(yield* runtime.projectExists(projectId))) {
+        return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+      }
+      const managerId = projectManagerMemberId(projectId);
+      const builderId = projectBuilderMemberId(projectId);
+      // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
+      // disabled role) is completed by the next request once the role is back.
+      const manager = yield* projectMemberFromRole(
+        managerId,
+        projectId,
+        PROJECT_MANAGER_ROLE_ID,
+        `You manage project ${projectId}. Its builder is crew member ${builderId}.`,
+      );
+      const builder = yield* projectMemberFromRole(
+        builderId,
+        projectId,
+        BUILDER_ROLE_ID,
+        `You work on project ${projectId}.`,
+      );
+      // The project's bot may delegate to the manager because it owns the project.
+      yield* store.grantDelegation(managerId, builderId);
+      if (builder.created) yield* store.setParent(builderId, managerId, 0);
+      return manager.member;
+    });
 
     /**
      * Who acts in a new run: a crew member on the run's project (or an environment-wide one),
      * or the top-level bot that owns the project.
      */
-    const runActor = (id: string, projectId: ProjectId) =>
-      Effect.gen(function* () {
-        // Bots first: Captain's pre-bot member row can survive, disabled, as history.
-        const bot = yield* bots.get(id);
-        if (bot !== null) {
-          if ((yield* bots.projectOwner(projectId)) !== bot.id) {
-            return yield* Effect.fail(
-              new CrewValidationError(`${bot.name} doesn't own this project`),
-            );
-          }
-          return { ...bot, enabled: true };
-        }
-        const member = yield* store.getMember(id);
-        if (member === null || !member.enabled) {
-          return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
-        }
-        if (member.projectId !== null && member.projectId !== projectId) {
+    const runActor = Effect.fn("CrewService.runActor")(function* (
+      id: string,
+      projectId: ProjectId,
+    ) {
+      // Bots first: Captain's pre-bot member row can survive, disabled, as history.
+      const bot = yield* bots.get(id);
+      if (bot !== null) {
+        if ((yield* bots.projectOwner(projectId)) !== bot.id) {
           return yield* Effect.fail(
-            new CrewValidationError("Crew member belongs to another project"),
+            new CrewValidationError(`${bot.name} doesn't own this project`),
           );
         }
-        return member;
-      });
+        return { ...bot, enabled: true };
+      }
+      const member = yield* store.getMember(id);
+      if (member === null || !member.enabled) {
+        return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
+      }
+      if (member.projectId !== null && member.projectId !== projectId) {
+        return yield* Effect.fail(
+          new CrewValidationError("Crew member belongs to another project"),
+        );
+      }
+      return member;
+    });
     const modelFor = (
       actor: { readonly name: string; readonly modelSelection: ModelSelection | null },
       requested: ModelSelection | undefined,
@@ -588,8 +592,8 @@ export const CrewServiceLive = Layer.effect(
         : Effect.fail(new CrewValidationError(`Choose a default model for ${actor.name}`));
     };
 
-    const createRun: CrewServiceShape["createRun"] = (input) =>
-      Effect.gen(function* () {
+    const createRun: CrewServiceShape["createRun"] = Effect.fn("CrewService.createRun")(
+      function* (input) {
         const id = yield* Effect.try({
           try: () => nonEmpty(input.id, "Run ID", 128),
           catch: () => new CrewValidationError("Invalid run ID"),
@@ -637,225 +641,212 @@ export const CrewServiceLive = Layer.effect(
         }
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
         return (yield* store.getRun(id))!;
-      });
+      },
+    );
 
     // One at a time, so two opens of a deleted headquarters restore it once.
     const headquartersLock = yield* Semaphore.make(1);
-    const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = (botId, fallbackProjectId) =>
-      Effect.gen(function* () {
-        const id = botHeadquartersRunId(botId);
-        const bot = yield* bots.get(botId);
-        if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
-        // The run keeps its last model for decoding, so a bot without one is refused here.
-        const modelSelection = yield* modelFor(bot, undefined);
-        const home = Effect.gen(function* () {
-          const ownedProject = yield* bots.firstOwnedProject(bot.id);
-          const projectId =
-            (yield* runtime.headquartersProjectId) ??
-            fallbackProjectId ??
-            (ownedProject === null ? null : ProjectId.make(ownedProject));
-          if (projectId === null) {
-            return yield* Effect.fail(new CrewValidationError(`Give ${bot.name} a project first`));
-          }
-          return projectId;
+    const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = Effect.fn(
+      "CrewService.ensureHeadquarters",
+    )(function* (botId, fallbackProjectId) {
+      const id = botHeadquartersRunId(botId);
+      const bot = yield* bots.get(botId);
+      if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
+      // The run keeps its last model for decoding, so a bot without one is refused here.
+      const modelSelection = yield* modelFor(bot, undefined);
+      const home = Effect.gen(function* () {
+        const ownedProject = yield* bots.firstOwnedProject(bot.id);
+        const projectId =
+          (yield* runtime.headquartersProjectId) ??
+          fallbackProjectId ??
+          (ownedProject === null ? null : ProjectId.make(ownedProject));
+        if (projectId === null) {
+          return yield* Effect.fail(new CrewValidationError(`Give ${bot.name} a project first`));
+        }
+        return projectId;
+      });
+      const existing = yield* store.getRun(id);
+      // A headquarters whose project was deleted moves, and `restore` restarts it there.
+      if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
+        yield* store.moveRun(id, yield* home);
+      }
+      if (existing === null) {
+        const projectId = yield* home;
+        yield* store.insertRun({
+          id,
+          memberId: bot.id,
+          projectId,
+          threadId: botHeadquartersThreadId(bot.id),
+          taskText: HEADQUARTERS_TASK,
+          title: bot.name,
+          instructions: bot.instructions,
+          allowedTools: bot.allowedTools,
+          memberRevision: bot.revision,
+          modelSelection,
+          runtimeMode: bot.runtimeMode,
+          dispatchState: CREW_DISPATCH_STATE.QUEUED,
+          recoveryAttempt: 0,
+          lastError: null,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          dispatchedAt: null,
         });
-        const existing = yield* store.getRun(id);
-        // A headquarters whose project was deleted moves, and `restore` restarts it there.
-        if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
-          yield* store.moveRun(id, yield* home);
-        }
-        if (existing === null) {
-          const projectId = yield* home;
-          yield* store.insertRun({
-            id,
-            memberId: bot.id,
-            projectId,
-            threadId: botHeadquartersThreadId(bot.id),
-            taskText: HEADQUARTERS_TASK,
-            title: bot.name,
-            instructions: bot.instructions,
-            allowedTools: bot.allowedTools,
-            memberRevision: bot.revision,
-            modelSelection,
-            runtimeMode: bot.runtimeMode,
-            dispatchState: CREW_DISPATCH_STATE.QUEUED,
-            recoveryAttempt: 0,
-            lastError: null,
-            createdAt: DateTime.formatIso(yield* DateTime.now),
-            dispatchedAt: null,
-          });
-        }
-        const run = (yield* store.getRun(id))!;
-        if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
-          yield* dispatch(run);
-        } else {
-          // A deleted thread restarts with the bot's instructions as they are now.
-          yield* runtime.restore({
-            ...threadInput(run),
-            prompt: `${bot.instructions}\n\nTask:\n${run.taskText}`,
-          });
-          yield* runtime.syncSettings(run.threadId, bot.runtimeMode, modelSelection);
-        }
-        yield* runtime
-          .pin(run.threadId, `${id}:pin`)
-          .pipe(
-            Effect.catch((error) => Effect.logWarning("Headquarters pin failed", { id, error })),
-          );
-        return (yield* store.getRun(id))!;
-      }).pipe(headquartersLock.withPermits(1));
+      }
+      const run = (yield* store.getRun(id))!;
+      if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
+        yield* dispatch(run);
+      } else {
+        // A deleted thread restarts with the bot's instructions as they are now.
+        yield* runtime.restore({
+          ...threadInput(run),
+          prompt: `${bot.instructions}\n\nTask:\n${run.taskText}`,
+        });
+        yield* runtime.syncSettings(run.threadId, bot.runtimeMode, modelSelection);
+      }
+      yield* runtime
+        .pin(run.threadId, `${id}:pin`)
+        .pipe(Effect.catch((error) => Effect.logWarning("Headquarters pin failed", { id, error })));
+      return (yield* store.getRun(id))!;
+    }, headquartersLock.withPermits(1));
 
-    const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = (botId) =>
-      Effect.gen(function* () {
-        const bot = yield* bots.get(botId);
-        const run = yield* store.getRun(botHeadquartersRunId(botId));
-        if (!bot?.modelSelection || run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
-        yield* runtime.syncSettings(run.threadId, bot.runtimeMode, bot.modelSelection);
-      });
+    const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(
+      "CrewService.syncHeadquarters",
+    )(function* (botId) {
+      const bot = yield* bots.get(botId);
+      const run = yield* store.getRun(botHeadquartersRunId(botId));
+      if (!bot?.modelSelection || run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
+      yield* runtime.syncSettings(run.threadId, bot.runtimeMode, bot.modelSelection);
+    });
 
-    const setHierarchyParent: CrewServiceShape["setHierarchyParent"] = (
-      memberId,
-      parentMemberId,
-      position = 0,
-    ) =>
-      Effect.gen(function* () {
-        const child = yield* store.getMember(memberId);
-        const parent = parentMemberId === null ? null : yield* store.getMember(parentMemberId);
-        if (!child?.enabled || (parentMemberId !== null && !parent?.enabled)) {
-          return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
-        }
-        if (
-          !Number.isSafeInteger(position) ||
-          position < 0 ||
-          position > 10_000 ||
-          (parent &&
-            ((child.projectId === null && parent.projectId !== null) ||
-              (parent.projectId !== null && parent.projectId !== child.projectId) ||
-              (parent.featureId !== null && parent.featureId !== child.featureId)))
-        ) {
-          return yield* Effect.fail(new CrewValidationError("Invalid hierarchy placement"));
-        }
-        if (!(yield* store.setParent(memberId, parentMemberId, position))) {
-          return yield* Effect.fail(new CrewValidationError("Hierarchy cycle rejected"));
-        }
-      });
+    const setHierarchyParent: CrewServiceShape["setHierarchyParent"] = Effect.fn(
+      "CrewService.setHierarchyParent",
+    )(function* (memberId, parentMemberId, position = 0) {
+      const child = yield* store.getMember(memberId);
+      const parent = parentMemberId === null ? null : yield* store.getMember(parentMemberId);
+      if (!child?.enabled || (parentMemberId !== null && !parent?.enabled)) {
+        return yield* Effect.fail(new CrewValidationError("Crew member is unavailable"));
+      }
+      if (
+        !Number.isSafeInteger(position) ||
+        position < 0 ||
+        position > 10_000 ||
+        (parent &&
+          ((child.projectId === null && parent.projectId !== null) ||
+            (parent.projectId !== null && parent.projectId !== child.projectId) ||
+            (parent.featureId !== null && parent.featureId !== child.featureId)))
+      ) {
+        return yield* Effect.fail(new CrewValidationError("Invalid hierarchy placement"));
+      }
+      if (!(yield* store.setParent(memberId, parentMemberId, position))) {
+        return yield* Effect.fail(new CrewValidationError("Hierarchy cycle rejected"));
+      }
+    });
 
-    const allowDelegation: CrewServiceShape["allowDelegation"] = (sourceMemberId, targetMemberId) =>
-      Effect.gen(function* () {
-        const source = yield* store.getMember(sourceMemberId);
-        const target = yield* store.getMember(targetMemberId);
-        if (
-          !source ||
-          !target ||
-          !source.enabled ||
-          !target.enabled ||
-          sourceMemberId === targetMemberId ||
-          (source.projectId !== null && target.projectId !== source.projectId)
-        ) {
-          return yield* Effect.fail(new CrewValidationError("Invalid delegation grant"));
-        }
-        yield* store.grantDelegation(sourceMemberId, targetMemberId);
-      });
+    const allowDelegation: CrewServiceShape["allowDelegation"] = Effect.fn(
+      "CrewService.allowDelegation",
+    )(function* (sourceMemberId, targetMemberId) {
+      const source = yield* store.getMember(sourceMemberId);
+      const target = yield* store.getMember(targetMemberId);
+      if (
+        !source ||
+        !target ||
+        !source.enabled ||
+        !target.enabled ||
+        sourceMemberId === targetMemberId ||
+        (source.projectId !== null && target.projectId !== source.projectId)
+      ) {
+        return yield* Effect.fail(new CrewValidationError("Invalid delegation grant"));
+      }
+      yield* store.grantDelegation(sourceMemberId, targetMemberId);
+    });
 
     return {
-      ensureDefaults: (modelSelection) =>
-        Effect.gen(function* () {
-          for (const role of DEFAULT_ROLES) {
-            if (yield* store.getRole(role.id)) continue;
-            yield* createRole({ ...role, modelSelection, runtimeMode: "approval-required" }).pipe(
-              Effect.catch((error) =>
-                store
-                  .getRole(role.id)
-                  .pipe(
-                    Effect.flatMap((persisted) =>
-                      persisted ? Effect.succeed(persisted) : Effect.fail(error),
-                    ),
-                  ),
-              ),
-            );
-          }
-          // Bots without a model can't run yet; give them the one the crew was set up with.
-          const now = DateTime.formatIso(yield* DateTime.now);
-          for (const bot of yield* bots.list) {
-            if (bot.modelSelection !== null) continue;
-            yield* bots.update(
-              { ...bot, modelSelection, revision: bot.revision + 1, updatedAt: now },
-              bot.revision,
-            );
-          }
-        }),
+      ensureDefaults: Effect.fn("CrewService.ensureDefaults")(function* (modelSelection) {
+        for (const role of DEFAULT_ROLES) {
+          if (yield* store.getRole(role.id)) continue;
+          yield* createRole({ ...role, modelSelection, runtimeMode: "approval-required" }).pipe(
+            Effect.catch((error) =>
+              store.getRole(role.id).pipe(Effect.filterOrFail(Predicate.isNotNull, () => error)),
+            ),
+          );
+        }
+        // Bots without a model can't run yet; give them the one the crew was set up with.
+        const now = DateTime.formatIso(yield* DateTime.now);
+        for (const bot of yield* bots.list) {
+          if (bot.modelSelection !== null) continue;
+          yield* bots.update(
+            { ...bot, modelSelection, revision: bot.revision + 1, updatedAt: now },
+            bot.revision,
+          );
+        }
+      }),
       ensureProjectManager,
-      startRequest: (input) =>
-        Effect.gen(function* () {
-          const existing = yield* store.getRun(input.id);
-          // A retry of an accepted request must not depend on today's crew or owner.
-          if (existing === null) yield* ensureProjectManager(input.projectId);
-          const memberId = existing?.memberId ?? (yield* bots.projectOwner(input.projectId));
-          if (memberId === null) {
-            return yield* Effect.fail(new CrewValidationError("Project does not exist"));
-          }
-          return yield* createRun({
-            id: input.id,
-            memberId,
-            projectId: input.projectId,
-            taskText: `Project: ${input.projectId}. Project manager: ${projectManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
-            modelSelection: input.modelSelection,
-          });
-        }),
+      startRequest: Effect.fn("CrewService.startRequest")(function* (input) {
+        const existing = yield* store.getRun(input.id);
+        // A retry of an accepted request must not depend on today's crew or owner.
+        if (existing === null) yield* ensureProjectManager(input.projectId);
+        const memberId = existing?.memberId ?? (yield* bots.projectOwner(input.projectId));
+        if (memberId === null) {
+          return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+        }
+        return yield* createRun({
+          id: input.id,
+          memberId,
+          projectId: input.projectId,
+          taskText: `Project: ${input.projectId}. Project manager: ${projectManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
+          modelSelection: input.modelSelection,
+        });
+      }),
       createMember,
       createRole,
       updateRole,
       getMember: store.getMember,
       getRole: store.getRole,
       listRoles: store.listRoles,
-      instantiate: (id, projectId, roleId) =>
-        Effect.gen(function* () {
-          const role = yield* store.getRole(roleId);
-          if (!role?.enabled) {
-            return yield* Effect.fail(new CrewValidationError("Source role is unavailable"));
-          }
-          return yield* createMember({
-            id,
-            projectId,
-            roleId,
-            name: role.name,
-            instructions: role.instructions,
-            allowedTools: role.allowedTools,
-            modelSelection: role.modelSelection,
-            runtimeMode: role.runtimeMode,
-          });
-        }),
+      instantiate: Effect.fn("CrewService.instantiate")(function* (id, projectId, roleId) {
+        const role = yield* store.getRole(roleId);
+        if (!role?.enabled) {
+          return yield* Effect.fail(new CrewValidationError("Source role is unavailable"));
+        }
+        return yield* createMember({
+          id,
+          projectId,
+          roleId,
+          name: role.name,
+          instructions: role.instructions,
+          allowedTools: role.allowedTools,
+          modelSelection: role.modelSelection,
+          runtimeMode: role.runtimeMode,
+        });
+      }),
       listDelegationGrantsForProject: store.listDelegationGrantsForProject,
       revokeDelegation: store.revokeDelegation,
       listHierarchyForProject: store.listHierarchyForProject,
       setHierarchyParent,
-      projectConfiguration: (projectId) =>
-        Effect.gen(function* () {
-          if (!(yield* runtime.projectExists(projectId))) {
-            return yield* Effect.fail(new CrewValidationError("Project not found"));
-          }
-          const [hierarchy, delegationGrants] = yield* Effect.all([
-            store.listHierarchyForProject(projectId),
-            store.listDelegationGrantsForProject(projectId),
-          ]);
-          return { hierarchy, delegationGrants };
-        }),
-      placeInProject: (input) =>
-        Effect.gen(function* () {
-          const child = yield* store.getMember(input.memberId);
-          if (child?.projectId !== input.projectId) {
-            return yield* Effect.fail(new CrewValidationError("Crew member not found in project"));
-          }
-          yield* setHierarchyParent(input.memberId, input.parentMemberId, input.position);
-        }),
-      setDelegationInProject: (input) =>
-        Effect.gen(function* () {
-          const target = yield* store.getMember(input.targetMemberId);
-          if (target?.projectId !== input.projectId) {
-            return yield* Effect.fail(new CrewValidationError("Crew member not found in project"));
-          }
-          if (input.allowed) yield* allowDelegation(input.sourceMemberId, input.targetMemberId);
-          else yield* store.revokeDelegation(input.sourceMemberId, input.targetMemberId);
-        }),
+      projectConfiguration: Effect.fn("CrewService.projectConfiguration")(function* (projectId) {
+        if (!(yield* runtime.projectExists(projectId))) {
+          return yield* Effect.fail(new CrewValidationError("Project not found"));
+        }
+        const [hierarchy, delegationGrants] = yield* Effect.all([
+          store.listHierarchyForProject(projectId),
+          store.listDelegationGrantsForProject(projectId),
+        ]);
+        return { hierarchy, delegationGrants };
+      }),
+      placeInProject: Effect.fn("CrewService.placeInProject")(function* (input) {
+        const child = yield* store.getMember(input.memberId);
+        if (child?.projectId !== input.projectId) {
+          return yield* Effect.fail(new CrewValidationError("Crew member not found in project"));
+        }
+        yield* setHierarchyParent(input.memberId, input.parentMemberId, input.position);
+      }),
+      setDelegationInProject: Effect.fn("CrewService.setDelegationInProject")(function* (input) {
+        const target = yield* store.getMember(input.targetMemberId);
+        if (target?.projectId !== input.projectId) {
+          return yield* Effect.fail(new CrewValidationError("Crew member not found in project"));
+        }
+        if (input.allowed) yield* allowDelegation(input.sourceMemberId, input.targetMemberId);
+        else yield* store.revokeDelegation(input.sourceMemberId, input.targetMemberId);
+      }),
       allowDelegation,
       createRun,
       ensureHeadquarters,
@@ -886,30 +877,29 @@ export const CrewServiceLive = Layer.effect(
         ),
       listRunSummaries: (projectId, limit = 50) =>
         store.listRunSummaries(projectId, Math.max(1, Math.min(100, Math.floor(limit)))),
-      reconcileRuns: () =>
-        Effect.gen(function* () {
-          // Recover accepted turns from a prior process before dispatching new queued runs.
-          // Otherwise a newly dispatched turn could look stale before its reactor worker starts.
-          let afterId = "";
-          while (true) {
-            const ids = yield* runtime.listPendingStartedRunIds(afterId, 100);
-            if (ids.length === 0) break;
-            yield* Effect.forEach(
-              ids,
-              (id) =>
-                store
-                  .getRun(id)
-                  .pipe(Effect.flatMap((run) => (run === null ? Effect.void : replayPending(run)))),
-              { concurrency: 1, discard: true },
-            );
-            afterId = ids[ids.length - 1]!;
-          }
-          const queued = yield* store.listQueuedRuns();
-          yield* Effect.forEach(queued, (run) => dispatch(run).pipe(Effect.result), {
-            concurrency: 1,
-            discard: true,
-          });
-        }),
+      reconcileRuns: Effect.fn("CrewService.reconcileRuns")(function* () {
+        // Recover accepted turns from a prior process before dispatching new queued runs.
+        // Otherwise a newly dispatched turn could look stale before its reactor worker starts.
+        let afterId = "";
+        while (true) {
+          const ids = yield* runtime.listPendingStartedRunIds(afterId, 100);
+          if (ids.length === 0) break;
+          yield* Effect.forEach(
+            ids,
+            (id) =>
+              store
+                .getRun(id)
+                .pipe(Effect.flatMap((run) => (run === null ? Effect.void : replayPending(run)))),
+            { concurrency: 1, discard: true },
+          );
+          afterId = ids[ids.length - 1]!;
+        }
+        const queued = yield* store.listQueuedRuns();
+        yield* Effect.forEach(queued, (run) => dispatch(run).pipe(Effect.result), {
+          concurrency: 1,
+          discard: true,
+        });
+      }),
     } satisfies CrewServiceShape;
   }),
 );

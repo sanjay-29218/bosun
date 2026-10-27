@@ -1,4 +1,4 @@
-import { useNavigation } from "@react-navigation/native";
+import { StackActions, useNavigation } from "@react-navigation/native";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { CREW_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -79,10 +79,12 @@ export function MobileCrewProjectSection(props: {
   const handoffs = snapshot.data?.handoffs ?? [];
 
   const openThread = (threadId: string) =>
-    navigation.navigate("Thread", {
-      environmentId: String(project.environmentId),
-      threadId,
-    });
+    navigation.dispatch(
+      StackActions.push("Thread", {
+        environmentId: String(project.environmentId),
+        threadId,
+      }),
+    );
 
   const startOwner = async () => {
     const task = taskText.trim();

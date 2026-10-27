@@ -40,12 +40,12 @@ export const BotAvatar = memo(function BotAvatar(props: {
           <Stop offset="1" stopColor={palette.visorBottom} />
         </LinearGradient>
       </Defs>
-      {botAvatarShapes(props.avatar).map((shape, index) => {
+      {botAvatarShapes(props.avatar).map((shape) => {
         switch (shape.kind) {
           case "rect":
             return (
               <Rect
-                key={index}
+                key={JSON.stringify(shape)}
                 x={shape.x}
                 y={shape.y}
                 width={shape.width}
@@ -58,7 +58,7 @@ export const BotAvatar = memo(function BotAvatar(props: {
           case "ellipse":
             return (
               <Ellipse
-                key={index}
+                key={JSON.stringify(shape)}
                 cx={shape.cx}
                 cy={shape.cy}
                 rx={shape.rx}
@@ -68,11 +68,11 @@ export const BotAvatar = memo(function BotAvatar(props: {
               />
             );
           case "path":
-            return <Path key={index} d={shape.d} fill={paint(shape.fill)} />;
+            return <Path key={JSON.stringify(shape)} d={shape.d} fill={paint(shape.fill)} />;
           case "stroke":
             return (
               <Path
-                key={index}
+                key={JSON.stringify(shape)}
                 d={shape.d}
                 fill="none"
                 stroke={paint(shape.stroke)}

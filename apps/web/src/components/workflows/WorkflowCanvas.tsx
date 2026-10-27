@@ -37,10 +37,8 @@ import {
 import {
   createContext,
   use,
-  useCallback,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -238,7 +236,7 @@ export default function WorkflowCanvas({
   onAddStage,
   roles,
 }: WorkflowCanvasProps) {
-  const stageRoles = useMemo(() => stageCapableRoles(roles), [roles]);
+  const stageRoles = stageCapableRoles(roles);
   // Set once React Flow mounts; drops need it to turn screen points into canvas points.
   const flow = useRef<ReactFlowInstance<CanvasNode, CanvasEdge> | null>(null);
   const onDragOver = (event: DragEvent) => {
@@ -274,19 +272,20 @@ export default function WorkflowCanvas({
       edges: canvasEdges(definition, graph.edges),
     });
   }
-  const labels = useMemo(() => ({ roleName, stageName }), [roleName, stageName]);
+  const labels = { roleName, stageName };
   // Rebuilt only when what is selected changes, so dragging does not re-render the inspector.
   const selected = canvasSelection(graph.nodes, graph.edges);
   const selectedKind = selected?.kind;
   const selectedStep = selected?.stepId;
   const selectedOutcome = selected?.kind === "route" ? selected.outcome : undefined;
-  const selection = useMemo((): CanvasSelection | null => {
-    if (!selectedKind || !selectedStep) return null;
-    if (selectedKind !== "route") return { kind: selectedKind, stepId: selectedStep };
-    return selectedOutcome === undefined
+  const selection: CanvasSelection | null =
+    !selectedKind || !selectedStep
       ? null
-      : { kind: "route", stepId: selectedStep, outcome: selectedOutcome };
-  }, [selectedKind, selectedStep, selectedOutcome]);
+      : selectedKind !== "route"
+        ? { kind: selectedKind, stepId: selectedStep }
+        : selectedOutcome === undefined
+          ? null
+          : { kind: "route", stepId: selectedStep, outcome: selectedOutcome };
 
   const [hovered, setHovered] = useState<string | null>(null);
   const markerId = useId().replace(/[^\w-]/g, "");
@@ -296,18 +295,15 @@ export default function WorkflowCanvas({
     : selection?.kind === "route"
       ? workflowRouteId(selection.stepId, selection.outcome)
       : null;
-  const highlight = useMemo(
-    () => ({
-      active,
-      hover: setHovered,
-      markers: {
-        forward: `${markerId}-forward`,
-        back: `${markerId}-back`,
-        active: `${markerId}-active`,
-      },
-    }),
-    [active, markerId],
-  );
+  const highlight = {
+    active,
+    hover: setHovered,
+    markers: {
+      forward: `${markerId}-forward`,
+      back: `${markerId}-back`,
+      active: `${markerId}-active`,
+    },
+  };
   const arrange = () => {
     onChange(withNodePositions(definition, arrangeWorkflow(definition)));
     requestAnimationFrame(() => void flow.current?.fitView(FIT_VIEW_OPTIONS));
@@ -323,11 +319,8 @@ export default function WorkflowCanvas({
       onChange(withNodePositions(definition, positions));
     }
   };
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange<CanvasEdge>[]) =>
-      setGraph((current) => ({ ...current, edges: applyEdgeChanges(changes, current.edges) })),
-    [],
-  );
+  const onEdgesChange = (changes: EdgeChange<CanvasEdge>[]) =>
+    setGraph((current) => ({ ...current, edges: applyEdgeChanges(changes, current.edges) }));
   const onConnect = (connection: Connection) => {
     if (connection.sourceHandle) {
       onChange(
@@ -349,6 +342,7 @@ export default function WorkflowCanvas({
 
   // Expanded, the canvas fills the settings content area (not the app) until Escape.
   const [expanded, setExpanded] = useState(false);
+  // oxlint-disable-next-line t3code/react-effect-budget -- Listens for Escape on the window only while the canvas is expanded.
   useEffect(() => {
     if (!expanded) return;
     const onKeyDown = (event: KeyboardEvent) => {

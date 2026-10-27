@@ -84,8 +84,8 @@ const make = Effect.gen(function* () {
 
   return BotStore.of({
     list: select(),
-    get: (id) => select(id).pipe(Effect.map((rows) => rows[0] ?? null)),
-    insert: (bot) => {
+    get: Effect.fn("BotStore.get")((id) => select(id).pipe(Effect.map((rows) => rows[0] ?? null))),
+    insert: Effect.fn("BotStore.insert")((bot) => {
       const row = encodeRow(bot);
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
@@ -102,8 +102,8 @@ const make = Effect.gen(function* () {
         Effect.map((rows) => rows.length > 0),
         Effect.mapError(queryError),
       );
-    },
-    update: (bot, expectedRevision) => {
+    }),
+    update: Effect.fn("BotStore.update")((bot, expectedRevision) => {
       const row = encodeRow(bot);
       return sql<{ readonly id: string }>`
         UPDATE bots SET
@@ -118,8 +118,8 @@ const make = Effect.gen(function* () {
         Effect.map((rows) => rows.length > 0),
         Effect.mapError(queryError),
       );
-    },
-    deleteUnlessOwning: (id, deletedAt) =>
+    }),
+    deleteUnlessOwning: Effect.fn("BotStore.deleteUnlessOwning")((id, deletedAt) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -136,7 +136,8 @@ const make = Effect.gen(function* () {
           }),
         )
         .pipe(Effect.mapError(queryError)),
-    setPositions: (botIds, updatedAt) =>
+    ),
+    setPositions: Effect.fn("BotStore.setPositions")((botIds, updatedAt) =>
       sql
         .withTransaction(
           Effect.forEach(
@@ -147,13 +148,15 @@ const make = Effect.gen(function* () {
           ),
         )
         .pipe(Effect.mapError(queryError)),
-    withOwnership: (effect) => ownership.withPermits(1)(effect),
-    idTaken: (id) =>
+    ),
+    withOwnership: ownership.withPermits(1),
+    idTaken: Effect.fn("BotStore.idTaken")((id) =>
       sql`SELECT 1 FROM bots WHERE id = ${id}`.pipe(
         Effect.map((rows) => rows.length > 0),
         Effect.mapError(queryError),
       ),
-    projectOwner: (projectId) =>
+    ),
+    projectOwner: Effect.fn("BotStore.projectOwner")((projectId) =>
       sql<{ readonly botId: string }>`
         SELECT bot_id AS "botId" FROM projection_projects
         WHERE project_id = ${projectId} AND deleted_at IS NULL
@@ -161,7 +164,8 @@ const make = Effect.gen(function* () {
         Effect.map((rows) => rows[0]?.botId ?? null),
         Effect.mapError(queryError),
       ),
-    firstOwnedProject: (botId) =>
+    ),
+    firstOwnedProject: Effect.fn("BotStore.firstOwnedProject")((botId) =>
       sql<{ readonly projectId: string }>`
         SELECT project_id AS "projectId" FROM projection_projects
         WHERE bot_id = ${botId} AND deleted_at IS NULL
@@ -170,6 +174,7 @@ const make = Effect.gen(function* () {
         Effect.map((rows) => rows[0]?.projectId ?? null),
         Effect.mapError(queryError),
       ),
+    ),
   });
 });
 

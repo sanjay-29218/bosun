@@ -62,8 +62,8 @@ export const WorkflowWorkspaceLive = Layer.effect(
     // Checkpoint refs never move, so a range's stats never change.
     const diffStats = new Map<string, Omit<StageThreadDiff, "turnCount">>();
 
-    const describe = (projectId: ProjectId, paths: ReadonlyArray<string>) =>
-      Effect.gen(function* () {
+    const describe = Effect.fn("WorkflowWorkspace.describe")(
+      function* (projectId: ProjectId, paths: ReadonlyArray<string>) {
         const project = yield* projects.get(projectId);
         if (Option.isNone(project)) return empty;
         const cwd = project.value.workspaceRoot;
@@ -89,16 +89,19 @@ export const WorkflowWorkspaceLive = Layer.effect(
           commit: commit || null,
           existing,
         };
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Workflow workspace read failed", { projectId, error }).pipe(
-            Effect.as(empty),
+      },
+      (effect, projectId) =>
+        effect.pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Workflow workspace read failed", { projectId, error }).pipe(
+              Effect.as(empty),
+            ),
           ),
         ),
-      );
+    );
 
-    const threadDiff = (threadId: ThreadId) =>
-      Effect.gen(function* () {
+    const threadDiff = Effect.fn("WorkflowWorkspace.threadDiff")(
+      function* (threadId: ThreadId) {
         const context = yield* engine.getCheckpointContext(threadId);
         const completed = new Set(
           context.runs.filter((run) => run.status === "completed").map((run) => run.id),
@@ -149,13 +152,16 @@ export const WorkflowWorkspaceLive = Layer.effect(
           diffStats.set(key, stats);
         }
         return { ...stats, turnCount: last.appRunOrdinal! };
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Workflow stage diff read failed", { threadId, error }).pipe(
-            Effect.as(null),
+      },
+      (effect, threadId) =>
+        effect.pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Workflow stage diff read failed", { threadId, error }).pipe(
+              Effect.as(null),
+            ),
           ),
         ),
-      );
+    );
 
     return WorkflowWorkspace.of({ describe, threadDiff });
   }),
@@ -165,7 +171,7 @@ export const WorkflowWorkspaceLive = Layer.effect(
 export const WorkflowWorkspaceEmpty = Layer.succeed(
   WorkflowWorkspace,
   WorkflowWorkspace.of({
-    describe: () => Effect.succeed(empty),
-    threadDiff: () => Effect.succeed(null),
+    describe: Effect.fn("WorkflowWorkspace.describe")(() => Effect.succeed(empty)),
+    threadDiff: Effect.fn("WorkflowWorkspace.threadDiff")(() => Effect.succeed(null)),
   }),
 );

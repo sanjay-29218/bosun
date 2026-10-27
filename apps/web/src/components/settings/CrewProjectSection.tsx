@@ -3,7 +3,7 @@ import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import { CREW_DISPATCH_STATE, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
@@ -58,10 +58,7 @@ export function CrewProjectSection(props: { readonly project: SidebarProjectGrou
   const [answerByRequest, setAnswerByRequest] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const members = useMemo(
-    () => new Map(snapshot.data?.members.map((member) => [member.id, member.name]) ?? []),
-    [snapshot.data?.members],
-  );
+  const members = new Map(snapshot.data?.members.map((member) => [member.id, member.name]) ?? []);
   const runs = snapshot.data?.runs ?? [];
   const handoffs = snapshot.data?.handoffs ?? [];
   const pendingQuestions = handoffs.filter((handoff) => handoff.status === "needs-input");

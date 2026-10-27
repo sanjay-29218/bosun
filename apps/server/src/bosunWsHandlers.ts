@@ -77,10 +77,10 @@ export const layerBosunWsRpc = (
         // The service already fails with the transport's error.
         [WS_METHODS.issuesList]: (input) => issues.list(input.projectId),
         [WS_METHODS.featuresGet]: (input) =>
-          Effect.gen(function* () {
-            const feature = yield* features.get(input.featureId);
-            return feature?.projectId === input.projectId ? feature : null;
-          }).pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+          features.get(input.featureId).pipe(
+            Effect.map((feature) => (feature?.projectId === input.projectId ? feature : null)),
+            Effect.mapError((error) => new FeatureOperationError({ reason: String(error) })),
+          ),
         [WS_METHODS.workflowsList]: () =>
           workflows
             .listLatestDefinitions()

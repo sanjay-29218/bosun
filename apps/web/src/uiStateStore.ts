@@ -2,6 +2,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
+import { useThreadSelectionStore } from "./threadSelectionStore";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
@@ -493,10 +494,15 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
-  setActiveBotIdByEnvironmentId: (next) =>
-    set((state) => setActiveBotIdByEnvironmentId(state, next)),
-  setSidebarEnvironmentIds: (environmentIds) =>
-    set((state) => setSidebarEnvironmentIds(state, environmentIds)),
+  // Switching bots or environments hides rows a thread selection may hold, so it clears.
+  setActiveBotIdByEnvironmentId: (next) => {
+    set((state) => setActiveBotIdByEnvironmentId(state, next));
+    useThreadSelectionStore.getState().clearSelection();
+  },
+  setSidebarEnvironmentIds: (environmentIds) => {
+    set((state) => setSidebarEnvironmentIds(state, environmentIds));
+    useThreadSelectionStore.getState().clearSelection();
+  },
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

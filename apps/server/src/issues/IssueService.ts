@@ -76,10 +76,11 @@ const make = Effect.gen(function* () {
 
   return IssueService.of({
     // A reader can join a lookup still finishing a previous reader's cancellation.
-    list: (projectId) =>
+    list: Effect.fn("IssueService.list")((projectId) =>
       Cache.get(listCache, projectId).pipe(
         Effect.catchCauseIf(Cause.hasInterruptsOnly, () => Cache.get(listCache, projectId)),
       ),
+    ),
   });
 });
 

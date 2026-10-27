@@ -1,6 +1,7 @@
 import { WorkflowStageHandoff } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -44,7 +45,7 @@ export const WorkflowStageHandoffStoreLive = Layer.effect(
       );
     return WorkflowStageHandoffStore.of({
       get,
-      insertIfAbsent: (record) =>
+      insertIfAbsent: Effect.fn("WorkflowStageHandoffStore.insertIfAbsent")((record) =>
         sql`
           INSERT OR IGNORE INTO workflow_stage_handoffs
             (id, feature_id, step_id, execution_id, attempt, record_json, created_at)
@@ -53,17 +54,17 @@ export const WorkflowStageHandoffStoreLive = Layer.effect(
         `.pipe(
           Effect.mapError(queryError),
           Effect.andThen(get(record.id)),
-          Effect.flatMap((persisted) =>
-            persisted
-              ? Effect.succeed(persisted)
-              : Effect.fail(queryError(new Error("Stage handoff was not persisted"))),
+          Effect.filterOrFail(Predicate.isNotNull, () =>
+            queryError(new Error("Stage handoff was not persisted")),
           ),
         ),
-      getFeatureBrief: (featureId) =>
+      ),
+      getFeatureBrief: Effect.fn("WorkflowStageHandoffStore.getFeatureBrief")((featureId) =>
         sql<{ readonly brief: string }>`SELECT brief FROM features WHERE id = ${featureId}`.pipe(
           Effect.mapError(queryError),
           Effect.map((rows) => rows[0]?.brief ?? ""),
         ),
+      ),
     });
   }),
 );

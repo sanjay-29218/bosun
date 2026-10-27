@@ -1,7 +1,6 @@
 import { projectBotId, type LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
 import type { ContextMenuItem, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback } from "react";
 
 import { botsEnvironment } from "../../state/bots";
 import { logicalBotsAtom } from "../../state/botRail";
@@ -86,42 +85,37 @@ export function parseMoveToBotMenuId(
 export function useMoveProjectToBotMenu() {
   const bots = useAtomValue(logicalBotsAtom);
   const moveProject = useAtomCommand(botsEnvironment.moveProject, { reportFailure: false });
-  const build = useCallback(
-    (members: ReadonlyArray<MoveProjectMember>) => buildMoveToBotMenuItem(members, bots),
-    [bots],
-  );
-  const run = useCallback(
-    (id: string, members: ReadonlyArray<MoveProjectMember>): boolean => {
-      const move = parseMoveToBotMenuId(id);
-      if (!move) return false;
-      const project = members.find(
-        (member) => member.environmentId === move.environmentId && member.id === move.projectId,
-      );
-      const bot = bots.find((candidate) =>
-        candidate.members.some(
-          (member) => member.environmentId === move.environmentId && member.botId === move.botId,
-        ),
-      );
-      void moveProject({
-        environmentId: move.environmentId,
-        input: { projectId: move.projectId, botId: move.botId },
-      }).then((result) => {
-        if (result._tag === "Success") {
-          toastManager.add({
-            type: "success",
-            title: `Moved ${project?.title ?? "the project"} to ${bot?.name ?? "another bot"}`,
-          });
-        } else {
-          toastManager.add({
-            type: "error",
-            title: `Could not move ${project?.title ?? "the project"}`,
-            description: formatEnvironmentQueryError(result.cause),
-          });
-        }
-      });
-      return true;
-    },
-    [bots, moveProject],
-  );
+  const build = (members: ReadonlyArray<MoveProjectMember>) =>
+    buildMoveToBotMenuItem(members, bots);
+  const run = (id: string, members: ReadonlyArray<MoveProjectMember>): boolean => {
+    const move = parseMoveToBotMenuId(id);
+    if (!move) return false;
+    const project = members.find(
+      (member) => member.environmentId === move.environmentId && member.id === move.projectId,
+    );
+    const bot = bots.find((candidate) =>
+      candidate.members.some(
+        (member) => member.environmentId === move.environmentId && member.botId === move.botId,
+      ),
+    );
+    void moveProject({
+      environmentId: move.environmentId,
+      input: { projectId: move.projectId, botId: move.botId },
+    }).then((result) => {
+      if (result._tag === "Success") {
+        toastManager.add({
+          type: "success",
+          title: `Moved ${project?.title ?? "the project"} to ${bot?.name ?? "another bot"}`,
+        });
+      } else {
+        toastManager.add({
+          type: "error",
+          title: `Could not move ${project?.title ?? "the project"}`,
+          description: formatEnvironmentQueryError(result.cause),
+        });
+      }
+    });
+    return true;
+  };
   return { build, run };
 }

@@ -103,11 +103,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { useUiStateStore } from "../uiStateStore";
-import {
-  useBotRailProjectKeys,
-  useVisibleActiveLogicalBot,
-  useVisibleLogicalBots,
-} from "../state/botRail";
+import { useBotRailProjectKeys, useVisibleLogicalBots } from "../state/botRail";
 import { useMoveProjectToBotMenu } from "./sidebar/moveProjectToBot";
 import {
   getThreadKeysToDeselectAfterDelete,
@@ -305,6 +301,7 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
 const EMPTY_EXPANDED_FEATURE_ROWS: readonly string[] = [];
+const EXPANDED_FEATURE_ROWS_SCHEMA = Schema.Array(Schema.String);
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -831,8 +828,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   // Several bots move thread jumps off Mod+1-9, which then switches bots.
   const multipleBots = useVisibleLogicalBots().length > 1;
-  const activeBotKey = useVisibleActiveLogicalBot()?.key ?? null;
-  const sidebarEnvironmentIds = useUiStateStore((store) => store.sidebarEnvironmentIds);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -948,7 +943,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const [expandedFeatureRows, setExpandedFeatureRows] = useLocalStorage(
     "t3code:sidebar:expanded-feature-rows",
     EMPTY_EXPANDED_FEATURE_ROWS,
-    Schema.Array(Schema.String),
+    EXPANDED_FEATURE_ROWS_SCHEMA,
   );
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
@@ -1081,10 +1076,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // Without a project scope, the bot rail's projects bound the list.
   const scopedProjectKeys =
     revealWidensScope || chosenScopeProjectKeys === null ? railProjectKeys : chosenScopeProjectKeys;
-  // Switching bots or environments hides rows a selection may hold.
-  useEffect(() => {
-    clearSelection();
-  }, [activeBotKey, clearSelection, sidebarEnvironmentIds]);
   const threadSearch = useThreadSearch(
     searchEnvironmentIds,
     threadSearchQuery,

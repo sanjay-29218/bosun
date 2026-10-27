@@ -13,7 +13,6 @@ import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useMemo } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useUiStateStore } from "../uiStateStore";
@@ -78,21 +77,17 @@ export function useNeedsYouByLogicalBot(): ReadonlyMap<string, number> {
   const counts = useAtomValue(needsYouByBotAtom);
   const bots = useLogicalBots();
   const environmentFilter = useEnvironmentFilter();
-  return useMemo(
-    () =>
-      countNeedsYouByLogicalBot(
-        bots,
-        environmentFilter === null
-          ? counts
-          : new Map(
-              [...counts].filter(([memberKey]) =>
-                [...environmentFilter].some((environmentId) =>
-                  memberKey.startsWith(`${environmentId}:`),
-                ),
-              ),
+  return countNeedsYouByLogicalBot(
+    bots,
+    environmentFilter === null
+      ? counts
+      : new Map(
+          [...counts].filter(([memberKey]) =>
+            [...environmentFilter].some((environmentId) =>
+              memberKey.startsWith(`${environmentId}:`),
             ),
-      ),
-    [bots, counts, environmentFilter],
+          ),
+        ),
   );
 }
 
@@ -145,18 +140,15 @@ export function activeBotInput(environmentId: EnvironmentId): { botId?: string }
 
 export function useSelectLogicalBot(): (bot: LogicalBot) => void {
   const setActive = useUiStateStore((store) => store.setActiveBotIdByEnvironmentId);
-  return useCallback(
-    (bot) =>
-      setActive(selectLogicalBot(useUiStateStore.getState().activeBotIdByEnvironmentId, bot)),
-    [setActive],
-  );
+  return (bot) =>
+    setActive(selectLogicalBot(useUiStateStore.getState().activeBotIdByEnvironmentId, bot));
 }
 
 /** The environments the rail and sidebar show, or null for all of them. */
 export function useEnvironmentFilter(): ReadonlySet<EnvironmentId> | null {
   const selected = useUiStateStore((store) => store.sidebarEnvironmentIds);
   const connected = useConnectedEnvironmentIds();
-  return useMemo(() => resolveEnvironmentFilter(selected, connected), [connected, selected]);
+  return resolveEnvironmentFilter(selected, connected);
 }
 
 /**
@@ -166,7 +158,7 @@ export function useEnvironmentFilter(): ReadonlySet<EnvironmentId> | null {
 export function useVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
   const bots = useLogicalBots();
   const environmentFilter = useEnvironmentFilter();
-  return useMemo(() => visibleLogicalBots(bots, environmentFilter), [bots, environmentFilter]);
+  return visibleLogicalBots(bots, environmentFilter);
 }
 
 /**
@@ -177,10 +169,7 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   const bots = useVisibleLogicalBots();
   const environmentIds = useBotEnvironmentIds();
   const remembered = useUiStateStore((store) => store.activeBotIdByEnvironmentId);
-  return useMemo(
-    () => resolveActiveLogicalBot(bots, remembered, environmentIds),
-    [bots, environmentIds, remembered],
-  );
+  return resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
 /** The rail shows once there is a choice to make: two bots, or two connected environments. */
@@ -198,13 +187,9 @@ export function useBotRailHeadquartersKeys(): ReadonlySet<string> | null {
   const bots = useVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
-  return useMemo(
-    () =>
-      active !== null && bots.length > 1
-        ? logicalBotHeadquartersKeys(active, environmentFilter)
-        : null,
-    [active, bots.length, environmentFilter],
-  );
+  return active !== null && bots.length > 1
+    ? logicalBotHeadquartersKeys(active, environmentFilter)
+    : null;
 }
 
 /**
@@ -216,16 +201,14 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
   const projects = useAtomValue(environmentProjects.projectsAtom);
-  return useMemo(() => {
-    const filterByBot = active !== null && bots.length > 1;
-    if (!filterByBot && environmentFilter === null) return null;
-    const inEnvironment =
-      environmentFilter === null
-        ? projects
-        : projects.filter((project) => environmentFilter.has(project.environmentId));
-    if (!filterByBot) {
-      return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
-    }
-    return logicalBotProjectKeys(active, bots, inEnvironment);
-  }, [active, bots, environmentFilter, projects]);
+  const filterByBot = active !== null && bots.length > 1;
+  if (!filterByBot && environmentFilter === null) return null;
+  const inEnvironment =
+    environmentFilter === null
+      ? projects
+      : projects.filter((project) => environmentFilter.has(project.environmentId));
+  if (!filterByBot) {
+    return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
+  }
+  return logicalBotProjectKeys(active, bots, inEnvironment);
 }

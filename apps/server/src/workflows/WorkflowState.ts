@@ -86,13 +86,10 @@ const reachableFrom = (definition: WorkflowDefinition, stepId: string) => {
 export const defaultForwardOutcome = workflowForwardOutcome;
 
 /**
- * Replays the active path; every rework execution remains in the durable event history.
- * Bots drive started/completed/question/answered/failed through verified handoff receipts.
- * Every other kind is a person's (or the workflow's own) decision, and each stuck state has
- * one: failed → retry/take over/send back/skip, awaiting-approval → approve/request changes,
- * limit-reached → accept/one more round/take over, taken-over → mark done/retry,
- * cancelled and done → reopen. An `attached` stage is a person's own thread: it starts
- * taken over, and the workflow completes it when that thread's turn finishes.
+ * Replays the active path; rework stays in the durable event history. Bots drive progress
+ * through verified handoff receipts; every other event is a person's or the workflow's
+ * decision, so each stuck state has a way out. An `attached` stage is a person's own thread:
+ * it starts taken over, and completes when that thread's turn finishes.
  */
 export const projectWorkflowState = (
   definition: WorkflowDefinition,

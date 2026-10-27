@@ -1220,7 +1220,7 @@ export function NewTaskDraftScreen(props: {
             accessibilityLabel="Workflow"
             disabled={isComposerInteractionLocked}
             emphasized={workflow !== null}
-            icon="square.3.layers.3d"
+            icon="point.3.connected.trianglepath.dotted"
             label={workflow ? `${workflow.name} · crew picks models` : "No workflow"}
             maxWidth="100%"
           />
