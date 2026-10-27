@@ -37,8 +37,8 @@ again. Opening it also brings back a deleted or archived headquarters.
 ### The bot rail
 
 A rail of bot avatars sits at the left edge of the window, with **Usage** and **Settings** at its
-bottom. With two or more bots, pick a bot to see only its projects in the sidebar, Needs you and the board; the
-List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
+bottom. With two or more bots, pick a bot to see only its projects in the sidebar, Needs you and
+the board; the List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
 threads again. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or
 **Switch to …** and **Show All bots** in the command palette. **Bots: Show All Bots** has no
 shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
