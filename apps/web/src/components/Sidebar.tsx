@@ -229,7 +229,7 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
-import { SidebarBotHeader } from "./sidebar/SidebarBotHeader";
+import { SidebarNewThreadRow } from "./sidebar/SidebarNewThreadRow";
 import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
@@ -2811,7 +2811,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
-            <SidebarBotHeader />
+            <SidebarNewThreadRow
+              onNewThread={handleNewThreadClick}
+              disabled={projects.length === 0}
+              shortcutLabel={newThreadShortcutLabel}
+              newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
+              showInProjectHint={projectGroups.length > 1}
+            />
             <SidebarViewToggle />
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
@@ -2942,6 +2948,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
+              showNewThread={false}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
               newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}

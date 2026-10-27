@@ -36,9 +36,9 @@ again. Opening it also brings back a deleted or archived headquarters.
 
 ### The bot rail
 
-With two or more bots, or two connected environments, a rail of bot avatars sits at the left edge
-of the window. Pick a bot to see only its projects in the sidebar, Needs you and the board; the
-List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
+A rail of bot avatars sits at the left edge of the window, with **Usage** and **Settings** at its
+bottom. With two or more bots, pick a bot to see only its projects in the sidebar, Needs you and
+the board; the List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
 threads again. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or
 **Switch to …** and **Show All bots** in the command palette. **Bots: Show All Bots** has no
 shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
@@ -53,9 +53,8 @@ Below the bots, the rail's places swap what the sidebar lists. **Automations** l
 scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
 recent runs. A red dot on Automations means a run failed and you haven't opened that task since.
 **Library** lists your workflows, each with its stages in order, and your roles; pick one to edit
-it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. Without
-the rail, open Automations and Library from the bottom of the sidebar, or **Open automations** and
-**Open library** in the command palette; on mobile, they're the last entries in the bot button's
+it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Automations and Library
+from the bottom of the sidebar, or **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
 menu.
 
 Bots with the same name on different environments share one avatar, and new projects go to the

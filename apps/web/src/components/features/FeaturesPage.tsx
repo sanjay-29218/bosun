@@ -70,7 +70,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { FeatureDisplayMenu, IssueDisplayMenu } from "./BoardDisplayMenu";
@@ -135,12 +134,6 @@ const STATE_FILTERS = [
   "done",
 ] as const;
 type StateFilter = (typeof STATE_FILTERS)[number] | "not-started";
-
-const FIRST_RUN_STEPS = [
-  { title: "Write a brief", detail: "Describe the work, or start from a GitHub issue." },
-  { title: "The crew runs it", detail: "Each workflow stage goes to the role that owns it." },
-  { title: "You approve the gates", detail: "Stages that need you wait under Needs you." },
-] as const;
 
 function toggled<Value>(current: ReadonlySet<Value>, value: Value, on: boolean): Set<Value> {
   const next = new Set(current);
@@ -484,15 +477,17 @@ export function FeaturesPage(props: {
       </InputGroup>
       {isFeatures ? (
         <>
-          <Button
-            variant={needsYou ? "default" : "outline"}
-            aria-pressed={needsYou}
-            title={shortcutTitle("Needs you", "features.needsYou")}
-            onClick={toggleNeedsYou}
-          >
-            Needs you
-            <span className="tabular-nums opacity-80">{needsYouCount}</span>
-          </Button>
+          {needsYouCount > 0 || needsYou ? (
+            <Button
+              variant={needsYou ? "default" : "outline"}
+              aria-pressed={needsYou}
+              title={shortcutTitle("Needs you", "features.needsYou")}
+              onClick={toggleNeedsYou}
+            >
+              Needs you
+              <span className="tabular-nums opacity-80">{needsYouCount}</span>
+            </Button>
+          ) : null}
           <Button
             variant={workflowToggle ? "default" : "outline"}
             aria-pressed={workflowToggle}
@@ -525,26 +520,28 @@ export function FeaturesPage(props: {
           ) : null}
         </>
       ) : null}
-      <Select
-        value={scopeKey}
-        onValueChange={(value) =>
-          props.onSearchChange({
-            project: !value || value === ALL_PROJECTS_SCOPE ? undefined : value,
-          })
-        }
-      >
-        <SelectTrigger aria-label="Project scope" className="w-auto min-w-36">
-          <SelectValue>{scopedProject?.title ?? "All projects"}</SelectValue>
-        </SelectTrigger>
-        <SelectPopup>
-          <SelectItem value={ALL_PROJECTS_SCOPE}>All projects</SelectItem>
-          {projects.map((project) => (
-            <SelectItem key={projectKey(project)} value={projectKey(project)}>
-              {project.title}
-            </SelectItem>
-          ))}
-        </SelectPopup>
-      </Select>
+      {projects.length > 1 || scopedProject ? (
+        <Select
+          value={scopeKey}
+          onValueChange={(value) =>
+            props.onSearchChange({
+              project: !value || value === ALL_PROJECTS_SCOPE ? undefined : value,
+            })
+          }
+        >
+          <SelectTrigger aria-label="Project scope" className="w-auto min-w-36">
+            <SelectValue>{scopedProject?.title ?? "All projects"}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value={ALL_PROJECTS_SCOPE}>All projects</SelectItem>
+            {projects.map((project) => (
+              <SelectItem key={projectKey(project)} value={projectKey(project)}>
+                {project.title}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      ) : null}
       {isFeatures ? (
         <Menu>
           <MenuTrigger
@@ -672,10 +669,6 @@ export function FeaturesPage(props: {
           <RefreshCwIcon aria-hidden />
         </Button>
       )}
-      <Button onClick={() => void startNewFeature(false)} disabled={!newFeatureProject}>
-        <PlusIcon aria-hidden />
-        New feature
-      </Button>
     </div>
   );
 
@@ -731,21 +724,10 @@ export function FeaturesPage(props: {
         <div className="flex flex-col items-center gap-2">
           <h2 className="text-lg font-medium">No features yet</h2>
           <p className="max-w-md text-sm text-muted-foreground">
-            A feature is a brief that your crew takes through a workflow. You approve the gates.
+            Write a brief and your crew takes it through a workflow, stage by stage. Stages that
+            need your approval wait under Needs you.
           </p>
         </div>
-        <ol className="grid w-full gap-2 text-left sm:grid-cols-3">
-          {FIRST_RUN_STEPS.map((step, index) => (
-            <li
-              key={step.title}
-              className="flex flex-col gap-1 rounded-xl border border-border/70 bg-card p-3"
-            >
-              <span className="text-xs text-muted-foreground tabular-nums">{index + 1}</span>
-              <span className="text-sm font-medium">{step.title}</span>
-              <span className="text-xs text-muted-foreground">{step.detail}</span>
-            </li>
-          ))}
-        </ol>
         <div className="flex gap-2">
           <Button onClick={() => void startNewFeature(true)} disabled={!newFeatureProject}>
             Start a feature
@@ -754,9 +736,6 @@ export function FeaturesPage(props: {
             Browse workflows
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Uses “Feature delivery” and the default crew. Both can be changed in the Library.
-        </p>
         <IssueSuggestions
           issues={suggestedIssues}
           handlers={issueHandlers}
@@ -849,11 +828,7 @@ export function FeaturesPage(props: {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
-          <WorkspaceBreadcrumb ariaLabel="Board breadcrumb">
-            <WorkspaceBreadcrumbItem current>
-              <h1>Board</h1>
-            </WorkspaceBreadcrumbItem>
-          </WorkspaceBreadcrumb>
+          <h1 className="sr-only">Board</h1>
           <ToggleGroup
             aria-label="Board view"
             variant="segmented"
@@ -876,10 +851,22 @@ export function FeaturesPage(props: {
               Milestones
             </Toggle>
           </ToggleGroup>
+          {isFeatures && !firstRun ? (
+            <div className="ms-auto">
+              <Button
+                size="sm"
+                onClick={() => void startNewFeature(false)}
+                disabled={!newFeatureProject}
+              >
+                <PlusIcon aria-hidden />
+                New feature
+              </Button>
+            </div>
+          ) : null}
         </WorkspacePageHeader>
         <ScrollArea className="min-h-0 flex-1">
           <WorkspacePageContainer width="full" className="gap-3">
-            {controls}
+            {isFeatures && firstRun ? null : controls}
             {board.errors.length > 0 ? (
               <p role="alert" className="text-sm text-destructive">
                 {board.errors[0]}

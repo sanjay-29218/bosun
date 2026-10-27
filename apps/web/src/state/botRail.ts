@@ -210,11 +210,11 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** The rail shows once there is a choice to make: two bots, or two connected environments. */
+/** The rail holds the app's places too, so it shows whenever there is a bot or a second environment. */
 export function useShowBotRail(): boolean {
   const botCount = useLogicalBots().length;
   const environmentCount = useConnectedEnvironmentIds().length;
-  return botCount > 1 || environmentCount > 1;
+  return botCount > 0 || environmentCount > 1;
 }
 
 /**
