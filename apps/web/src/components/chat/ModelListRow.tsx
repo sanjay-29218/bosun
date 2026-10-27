@@ -5,7 +5,6 @@ import {
   getDisplayModelName,
   getProviderRowLabel,
   getTriggerDisplayModelLabel,
-  type ModelEsque,
 } from "./providerIconUtils";
 import { ComboboxItem } from "../ui/combobox";
 import { Button } from "../ui/button";
@@ -18,16 +17,12 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 export const ModelListRow = memo(function ModelListRow(props: {
   index: number;
-  model: ModelEsque;
-  /** Instance the model belongs to — the routing key used in combobox values. */
+  slug: string;
+  name: string;
+  shortName?: string | undefined;
+  subProvider?: string | undefined;
   instanceId: ProviderInstanceId;
-  /** Driver kind of the instance — used for the provider icon glyph. */
   driverKind: ProviderDriverKind;
-  /**
-   * Display name to show in the secondary line (provider footer). Usually
-   * the instance's configured `displayName` so custom instances like
-   * "Codex Personal" render with their user-authored label.
-   */
   providerDisplayName: string;
   providerAccentColor?: string | undefined;
   acpRegistryAgentId?: string | undefined;
@@ -42,15 +37,21 @@ export const ModelListRow = memo(function ModelListRow(props: {
   unavailable?: boolean;
   jumpLabel?: string | null;
   disabledReason?: string | null;
-  onToggleFavorite: () => void;
+  onToggleFavorite: (instanceId: ProviderInstanceId, slug: string) => void;
 }) {
-  const providerLabel = getProviderRowLabel(props.providerDisplayName, props.model.subProvider);
+  const model = {
+    slug: props.slug,
+    name: props.name,
+    shortName: props.shortName,
+    subProvider: props.subProvider,
+  };
+  const providerLabel = getProviderRowLabel(props.providerDisplayName, props.subProvider);
 
   const row = (
     <ComboboxItem
       hideIndicator
       index={props.index}
-      value={modelPickerModelKey(props.instanceId, props.model.slug)}
+      value={modelPickerModelKey(props.instanceId, props.slug)}
       disabled={Boolean(props.disabledReason)}
       className={cn(
         "group relative w-full !min-w-0 max-w-full cursor-pointer",
@@ -60,11 +61,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
     >
       <div className="min-w-0 flex-1 text-left">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="min-w-0 truncate text-xs font-medium leading-snug">
+          <div className="min-w-0 truncate text-xs font-medium leading-snug redesign:text-sm redesign:font-normal">
             {props.useTriggerLabel
-              ? getTriggerDisplayModelLabel(props.model)
+              ? getTriggerDisplayModelLabel(model)
               : getDisplayModelName(
-                  props.model,
+                  model,
                   props.preferShortName ? { preferShortName: true } : undefined,
                 )}
           </div>
@@ -100,9 +101,6 @@ export const ModelListRow = memo(function ModelListRow(props: {
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
-        {props.showSelection && props.isSelected ? (
-          <CheckIcon className="size-3.5" aria-hidden="true" />
-        ) : null}
         {props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}
         <Tooltip>
           <TooltipTrigger
@@ -113,7 +111,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
                 className="-mr-1 shrink-0"
                 onClick={(event) => {
                   event.stopPropagation();
-                  props.onToggleFavorite();
+                  props.onToggleFavorite(props.instanceId, props.slug);
                 }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
@@ -124,7 +122,9 @@ export const ModelListRow = memo(function ModelListRow(props: {
                 <StarIcon
                   className={cn(
                     "size-3.5 sm:size-3",
-                    props.isFavorite && "fill-current text-warning",
+                    props.isFavorite
+                      ? "fill-current text-warning"
+                      : "redesign:opacity-0 redesign:group-hover:opacity-100 redesign:group-data-highlighted:opacity-100 redesign:in-focus-visible:opacity-100 redesign:pointer-coarse:opacity-100",
                   )}
                 />
               </Button>
@@ -134,6 +134,13 @@ export const ModelListRow = memo(function ModelListRow(props: {
             {props.isFavorite ? "Remove from favorites" : "Add to favorites"}
           </TooltipPopup>
         </Tooltip>
+        {/* Last, and always reserved, so stars and the check keep fixed columns. */}
+        {props.showSelection ? (
+          <CheckIcon
+            className={cn("size-3.5", !props.isSelected && "invisible")}
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
     </ComboboxItem>
   );

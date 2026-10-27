@@ -8,7 +8,6 @@ import type { BotSwitcherMenu, ThreadListViewToggle } from "./thread-list-chrome
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
 export interface HomeHeaderProps {
-  readonly usesWorkspaceToolbar?: boolean;
   readonly environments: ReadonlyArray<HomeHeaderEnvironment>;
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly searchQuery: string;

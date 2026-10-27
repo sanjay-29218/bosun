@@ -127,11 +127,10 @@ export class ElectronWindow extends Context.Service<
   }
 >()("@t3tools/desktop/electron/ElectronWindow") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
-  // The focus worker loads a native accessibility module. Start it on the first
-  // capture reveal so users who never capture pay nothing at launch.
+  // Lazy-load native accessibility on capture reveal to avoid startup cost for other users.
   let windowsForegroundFocus: ReturnType<typeof startWindowsForegroundFocusThread> | undefined;
   const ensureWindowsForegroundFocus = () => {
     windowsForegroundFocus ??= startWindowsForegroundFocusThread(
@@ -139,7 +138,6 @@ export const make = Effect.gen(function* () {
     );
     return windowsForegroundFocus;
   };
-  // Tracks a capture reveal in flight. Ordinary reveals keep Electron's native path.
   const captureRevealWindows = new Set<number>();
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -209,7 +207,7 @@ export const make = Effect.gen(function* () {
   });
 
   return ElectronWindow.of({
-    create: (options) => {
+    create: Effect.fn("ElectronWindow.create")(function (options) {
       const webPreferences = options.webPreferences;
       const diagnosticOptions = {
         title: options.title ?? null,
@@ -237,13 +235,15 @@ export const make = Effect.gen(function* () {
         try: () => new Electron.BrowserWindow(options),
         catch: (cause) => new ElectronWindowCreateError({ options: diagnosticOptions, cause }),
       });
-    },
+    }),
     main: liveMain,
     currentMainOrFirst,
     focusedMainOrFirst,
-    setMain: (window) => Ref.set(mainWindowRef, Option.some(window)),
-    clearMain: (window) =>
-      Ref.update(mainWindowRef, (current) => {
+    setMain: Effect.fn("ElectronWindow.setMain")(function (window) {
+      return Ref.set(mainWindowRef, Option.some(window));
+    }),
+    clearMain: Effect.fn("ElectronWindow.clearMain")(function (window) {
+      return Ref.update(mainWindowRef, (current) => {
         if (Option.isNone(current)) {
           return current;
         }
@@ -251,9 +251,10 @@ export const make = Effect.gen(function* () {
           return current;
         }
         return Option.none();
-      }),
-    prepareReveal: (window) =>
-      Effect.promise(async () => {
+      });
+    }),
+    prepareReveal: Effect.fn("ElectronWindow.prepareReveal")(function (window) {
+      return Effect.promise(async () => {
         if (platform !== "win32" || window.isDestroyed()) {
           return false;
         }
@@ -261,16 +262,15 @@ export const make = Effect.gen(function* () {
         return ensureWindowsForegroundFocus()
           .prepare(windowsForegroundFocusTarget(window))
           .catch(() => false);
-      }),
-    reveal: (window) =>
-      Effect.tryPromise({
+      });
+    }),
+    reveal: Effect.fn("ElectronWindow.reveal")(function (window) {
+      return Effect.tryPromise({
         try: async () => {
           if (window.isDestroyed()) {
             return;
           }
 
-          // Only a capture reveal fights another process for the foreground, which
-          // needs Win32 calls that load native modules. Everything else stays native.
           const captureReveal = platform === "win32" && captureRevealWindows.delete(window.id);
           const shellHostedForeground =
             captureReveal && (await isWindowsShellHostedForeground().catch(() => false));
@@ -326,9 +326,11 @@ export const make = Effect.gen(function* () {
             channel: null,
             cause,
           }),
-      }).pipe(Effect.orDie),
-    sendAll: (channel, ...args) =>
-      Effect.gen(function* () {
+      }).pipe(Effect.orDie);
+    }),
+    sendAll:
+      /* Window broadcasts run for streamed updates; avoid a span per broadcast. */
+      Effect.fnUntraced(function* (channel, ...args) {
         for (const window of yield* listWindows) {
           if (yield* isWindowDestroyed(window)) {
             continue;

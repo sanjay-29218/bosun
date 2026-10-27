@@ -9,7 +9,7 @@ import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
 import { resolveDefaultProviderModelSelection } from "../../providerInstances";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
-import { useEnvironments } from "../../state/environments";
+import { useEnvironmentProviders, useEnvironments } from "../../state/environments";
 import { randomUUID } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -27,8 +27,9 @@ export function CrewProjectSection(props: { readonly project: SidebarProjectGrou
   const serverConfig = environments.find(
     (environment) => environment.environmentId === environmentId,
   )?.serverConfig;
+  const providers = useEnvironmentProviders().get(environmentId);
   const defaultModelSelection = resolveDefaultProviderModelSelection(
-    serverConfig?.providers ?? [],
+    providers ?? [],
     resolveProjectSettings(
       serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
       projectId,

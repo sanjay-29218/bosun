@@ -1,12 +1,13 @@
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppText as Text } from "../../components/AppText";
-import { ScreenScrollView } from "../../components/ScreenScrollView";
+import { AppText as Text } from "../../components/ui/AppText";
+import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import {
   buildModelOptions,
   resolveDefaultableModelSelection,
   resolveNewTaskModelSelection,
 } from "../../lib/modelOptions";
+import { useEnvironmentServerConfig } from "../../state/entities";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
@@ -40,10 +41,7 @@ export function SettingsRolesRouteScreen() {
           ) : (
             targets.map((target) => (
               <SettingsSection key={target.environmentId} title={target.label}>
-                <MobileRolesPanel
-                  environmentId={target.environmentId}
-                  modelSelection={environmentModelSelection(target)}
-                />
+                <EnvironmentRolesPanel target={target} />
               </SettingsSection>
             ))
           )}
@@ -53,18 +51,19 @@ export function SettingsRolesRouteScreen() {
   );
 }
 
-/** The environment's default model, which new roles and the starter set begin with. */
-function environmentModelSelection(target: SettingsTarget) {
-  const config = target.serverConfig;
+/** The environment's roles, starting new roles and the starter set on its default model. */
+function EnvironmentRolesPanel({ target }: { readonly target: SettingsTarget }) {
+  const config = useEnvironmentServerConfig(target.environmentId);
   const defaultSelection = resolveDefaultableModelSelection(
     config,
-    config.settings.defaultModelSelection,
+    target.serverConfig.settings.defaultModelSelection,
     null,
   );
-  return resolveNewTaskModelSelection({
+  const modelSelection = resolveNewTaskModelSelection({
     draftSelection: null,
     projectDefaultSelection: defaultSelection,
     stickySelection: null,
     modelOptions: buildModelOptions(config, defaultSelection, undefined, null),
   });
+  return <MobileRolesPanel environmentId={target.environmentId} modelSelection={modelSelection} />;
 }

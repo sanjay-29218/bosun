@@ -4,7 +4,7 @@ import type { EnvironmentId, ProjectId, ThreadId, WorkflowStageHandoff } from "@
 import { memo, useState } from "react";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
 import { fileRoutePathSegments } from "../files/filePath";

@@ -1,10 +1,8 @@
-"use client";
-
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { CheckIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   type AcpRegistrySearchAgent,
@@ -49,19 +47,14 @@ import {
   type WizardNavigation,
 } from "./AddProviderInstanceDialog.logic";
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
-import { AcpRegistrySearchStep } from "./AcpRegistrySearchStep";
+import { AcpRegistrySearchStep, useAcpRegistrySearch } from "./AcpRegistrySearchStep";
 import { ProviderWizardAuthenticationStep } from "./ProviderWizardAuthenticationStep";
 import { resolveOfficialAcpRegistryIconUrl } from "./AcpRegistryIcon";
 import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
+import { MultipleAccountsNote } from "./MultipleAccountsNote";
 import { ProviderEnvironmentSection } from "./ProviderInstanceCard";
 
-/**
- * Normalize a user-provided label into a slug suffix for the instance id.
- * The full id is formed by prefixing the driver slug. For example, label "Work" on
- * driver "codex" becomes `codex_work`. Output is trimmed to 48 chars so the
- * final composed id stays under the 64-char slug cap enforced by
- * `ProviderInstanceId` in `@t3tools/contracts`.
- */
+/** Limit the slug to 48 chars so the composed ProviderInstanceId fits its 64-char cap. */
 function slugifyLabel(value: string): string {
   return value
     .trim()
@@ -81,11 +74,6 @@ const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 const ACP_REGISTRY_DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const DEFAULT_DRIVER_OPTION = providerClients.definitions[0]!;
 const EMPTY_CONFIG_DRAFT: Record<string, unknown> = {};
-/**
- * Validate an instance id against the same slug rules the server applies in
- * `ProviderInstanceId` (see `packages/contracts/src/providerInstance.ts`).
- * Returns a user-facing error string, or `null` if valid.
- */
 function validateInstanceId(id: string, existing: ReadonlySet<string>): string | null {
   if (id.length === 0) return "Instance ID is required.";
   if (id.length > 64) return "Instance ID must be 64 characters or fewer.";
@@ -126,26 +114,28 @@ export function AddProviderInstanceDialog({
     ReadonlyArray<ProviderInstanceEnvironmentVariable>
   >([]);
   const [isManualAcpConfiguration, setIsManualAcpConfiguration] = useState(false);
-  const [isRegistryLoading, setIsRegistryLoading] = useState(false);
-  const [isPreparingRegistryAgent, setIsPreparingRegistryAgent] = useState(false);
-  // Driver-specific config drafts keyed by driver so toggling between drivers
-  // during the same dialog session does not lose in-progress input.
   const [configByDriver, setConfigByDriver] = useState<Record<string, Record<string, unknown>>>({});
-  // Errors are suppressed until the user has tried to submit once. After that
-  // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [createdInstanceId, setCreatedInstanceId] = useState<ProviderInstanceId | null>(null);
 
-  // Codex and Claude run at their default slots before they are configured, so
-  // those ids stay reserved; other unconfigured default slots are free to take.
-  const existingIds = useMemo(
-    () => new Set(["codex", "claudeAgent", ...Object.keys(settings.providerInstances ?? {})]),
-    [settings.providerInstances],
-  );
+  // Reserve Codex/Claude default ids because they run before configuration; other unconfigured slots are
+  // available.
+  const existingIds = new Set([
+    "codex",
+    "claudeAgent",
+    ...Object.keys(settings.providerInstances ?? {}),
+  ]);
 
   const driverOption = providerClients.get(driver) ?? DEFAULT_DRIVER_OPTION;
   const isAcpRegistry = driver === ACP_REGISTRY_DRIVER_KIND;
+  const showRegistrySearch =
+    !createdInstanceId &&
+    !addingChatGptAccount &&
+    wizardStep === 0 &&
+    !(isAcpRegistry && isManualAcpConfiguration);
+  const registry = useAcpRegistrySearch(environmentId, showRegistrySearch);
+  const isPreparingRegistryAgent = registry.preparingId !== null;
   const defaultIdentity: ProviderIdentityDraft = {
     label: driverOption.label,
     accentColor: "",
@@ -164,10 +154,7 @@ export function AddProviderInstanceDialog({
       label,
       existingIds,
     );
-  const driverSettingsFields = useMemo(
-    () => deriveProviderSettingsFields(driverOption),
-    [driverOption],
-  );
+  const driverSettingsFields = deriveProviderSettingsFields(driverOption);
   const instanceIdError = validateInstanceId(instanceId, existingIds);
   const showInstanceIdError = hasAttemptedSubmit && instanceIdError !== null;
   const identityStep = 1;
@@ -326,10 +313,6 @@ export function AddProviderInstanceDialog({
       ...(hasConfig ? { config } : {}),
       ...(isLocalAcp && localEnvironment.length > 0 ? { environment: localEnvironment } : {}),
     };
-    // `ProviderInstanceId.make` revalidates the slug; we've already checked
-    // it via `validateInstanceId`, but going through the brand constructor
-    // keeps the type boundary honest and guards against any future drift in
-    // the slug rules.
     const brandedId = ProviderInstanceId.make(instanceId);
     setIsSaving(true);
     const result = await persistProviderInstance({
@@ -411,7 +394,7 @@ export function AddProviderInstanceDialog({
           <>
             <WizardPanel
               className={cn(isAcpRegistry && wizardStep === identityStep && "min-h-72")}
-              holdHeight={wizardStep === 0 && !isManualAcpConfiguration && isRegistryLoading}
+              holdHeight={showRegistrySearch && registry.search.isPending}
             >
               <div className={cn("grid gap-2", wizardStep !== 0 && "hidden")}>
                 <div id="add-instance-driver-label" className="text-sm font-medium text-foreground">
@@ -460,6 +443,7 @@ export function AddProviderInstanceDialog({
                       );
                     })}
                 </RadioGroup>
+                <MultipleAccountsNote environmentId={environmentId} driver={driver} />
               </div>
 
               {wizardStep === 0 ? (
@@ -516,12 +500,11 @@ export function AddProviderInstanceDialog({
                     <>
                       <AcpRegistrySearchStep
                         environmentId={environmentId}
+                        registry={registry}
                         providerInstances={settings.providerInstances}
                         onPrepared={handleAcpPrepared}
                         onManualConfiguration={handleManualAcpConfiguration}
                         onLocalConfiguration={handleLocalAcpConfiguration}
-                        onLoadingChange={setIsRegistryLoading}
-                        onPreparingChange={setIsPreparingRegistryAgent}
                       />
                       {isAcpRegistry && hasAttemptedSubmit && acpSelectionError ? (
                         <p className="mt-2 text-2xs text-destructive">{acpSelectionError}</p>

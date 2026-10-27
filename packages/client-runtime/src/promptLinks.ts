@@ -1,43 +1,41 @@
 import {
   repositoryGroupingKeyOf,
+  type EnvironmentId,
   type ModelSelection,
+  type PullRequestLinkedThreadsResult,
   type RepositoryIdentity,
   type ServerProvider,
   type ThreadLinkedPullRequest,
+  type ThreadId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { resolveSelectableModel, type SelectableModelOption } from "@t3tools/shared/model";
+import type { AsyncResult } from "effect/reactivity";
 import type { PromptLinkPullRequest, PromptLinkRepository } from "@t3tools/shared/promptLinks";
 import {
   threadPullRequestKeyOf,
   threadPullRequestsOf,
   visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
-
-/**
- * How web and mobile resolve a prompt link against what this client knows. Both read the same
- * shells, so a link lands in the same project and thread on every surface.
- */
+} from "./threadPullRequests.ts";
 
 const repositoryKey = (repository: PromptLinkRepository) =>
   `github.com/${repository.owner}/${repository.name}`.toLowerCase();
 
 /**
- * The project a link's repository names. Callers pass projects most recently active first, so
- * the user lands where they last worked. A fork only matches its own owner, not its upstream.
+ * The repository's projects in the order given. Callers pass projects most recently active
+ * first and open the first, so the user lands where they last worked.
  */
-export function findPromptLinkProject<
+export function findPromptLinkProjects<
   P extends { readonly repositoryIdentity?: RepositoryIdentity | null | undefined },
->(projects: ReadonlyArray<P>, repository: PromptLinkRepository): P | undefined {
+>(projects: ReadonlyArray<P>, repository: PromptLinkRepository): P[] {
   const key = repositoryKey(repository);
-  return projects.find(
+  return projects.filter(
     (project) =>
       project.repositoryIdentity != null &&
       repositoryGroupingKeyOf(project.repositoryIdentity).toLowerCase() === key,
   );
 }
 
-/** The most recently updated thread linked to the pull request, across every environment given. */
 export function findPromptLinkPullRequestThread<
   T extends {
     readonly updatedAt: string;
@@ -61,13 +59,33 @@ export function findPromptLinkPullRequestThread<
   return latest;
 }
 
-// People write the name they know. Driver kinds are what the server reports.
+/**
+ * The first open thread from per-environment pull request lookups, in the order given, once
+ * every lookup before it has answered. `null` when none has one; `undefined` until then.
+ */
+export function pickPromptLinkPullRequestThread(
+  lookups: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly result: AsyncResult.AsyncResult<PullRequestLinkedThreadsResult, unknown>;
+  }>,
+): { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined {
+  for (const { environmentId, result } of lookups) {
+    if (result._tag === "Initial" || result.waiting) return undefined;
+    const thread =
+      result._tag === "Success"
+        ? result.value.threads.find((candidate) => candidate.archivedAt === null)
+        : undefined;
+    if (thread !== undefined) return { environmentId, id: thread.id };
+  }
+  return null;
+}
+
 const PROVIDER_ALIASES: Record<string, string> = { claude: "claudeagent" };
 
 /**
- * The selection a link asks for, on one of the user's own provider instances. `exact` is false
- * when the instance exists but the model does not, so its default model stands in. Null when
- * no usable instance of that provider exists; the user's default applies then.
+ * `exact` is false when the instance exists but the model does not, so its default model
+ * stands in. Null when no usable instance of that provider exists; the user's default
+ * applies then.
  */
 export function resolvePromptLinkModelSelection(
   providers: ReadonlyArray<

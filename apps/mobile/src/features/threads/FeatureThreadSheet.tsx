@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { uuidv4 } from "../../lib/uuid";
 import { rolesEnvironment } from "../../state/roles";
 import { useThreadShell } from "../../state/entities";

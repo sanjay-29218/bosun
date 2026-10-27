@@ -7,11 +7,11 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ModelSelection } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { EllipsisIcon, FlagIcon, HandIcon, RepeatIcon, TriangleAlertIcon } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { getComposerDraftState, useComposerDraftStore } from "../../composerDraftStore";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
-import { useServerConfigs } from "../../state/entities";
+import { useEnvironmentProviders } from "../../state/environments";
 import { ComposerBanner, type ComposerBannerVariant } from "../chat/ComposerBanner";
 import { composerFloatingLayerProps } from "../chat/composerEventScope";
 import { Button } from "../ui/button";
@@ -292,13 +292,9 @@ function SendBackSubmenu(props: { stage: CrewStage; onPick: PickHandler }) {
 
 /** Same handoff, another provider or model: every available instance's models. */
 function RetryWithModel(props: { stage: CrewStage; onPick: PickHandler }) {
-  const providers = useServerConfigs().get(props.stage.thread.environmentId)?.providers;
-  const entries = useMemo(
-    () =>
-      deriveProviderInstanceEntries(providers ?? []).filter(
-        (entry) => entry.enabled && entry.isAvailable && entry.models.length > 0,
-      ),
-    [providers],
+  const providers = useEnvironmentProviders().get(props.stage.thread.environmentId);
+  const entries = deriveProviderInstanceEntries(providers ?? []).filter(
+    (entry) => entry.enabled && entry.isAvailable && entry.models.length > 0,
   );
   if (entries.length === 0) return null;
   const pick = (selection: ModelSelection) => props.onPick("retry", { modelSelection: selection });

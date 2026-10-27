@@ -206,6 +206,7 @@ The AUR packaging is maintained in the upstream repository under
 
 Full docs live in [docs/](./docs).
 
+- [FAQ](./docs/user/faq.md)
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)

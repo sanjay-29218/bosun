@@ -1,13 +1,17 @@
-import { RequestActionButton } from "./RequestActionButton";
+import { Button } from "../../components/ui/Button";
 import type {
   ProviderApprovalDecision,
   ProviderApprovalOption,
   RuntimeRequestId,
 } from "@t3tools/contracts";
-import type { ReactNode } from "react";
-import { View } from "react-native";
+import {
+  FULL_ACCESS_OVERRIDE_QUESTION,
+  fullAccessOverrideExplanation,
+} from "@t3tools/client-runtime/state/thread-requests";
+import { useState, type ReactNode } from "react";
+import { Pressable, View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 import type { PendingApproval } from "../../lib/threadActivity";
 
@@ -69,6 +73,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const warning = options.find((option) => option.warning)?.warning;
   const canRespond = props.approval.responseCapability === "live";
   const disabled = !canRespond || props.respondingApprovalId === props.approval.requestId;
+  const [explanationOpen, setExplanationOpen] = useState(false);
   return (
     <ApprovalCardLayout
       kicker="Approval needed"
@@ -76,6 +81,27 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
       detail={props.approval.detail}
       note={
         <>
+          {props.approval.reason ? (
+            <Text className="font-sans text-xs leading-normal text-warning-foreground">
+              {props.approval.reason}
+            </Text>
+          ) : null}
+          {props.approval.fullAccessOverride ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: explanationOpen }}
+              onPress={() => setExplanationOpen((open) => !open)}
+            >
+              <Text className="font-t3-bold text-xs text-foreground-secondary underline">
+                {FULL_ACCESS_OVERRIDE_QUESTION}
+              </Text>
+              {explanationOpen ? (
+                <Text className="mt-1 font-sans text-xs leading-normal text-foreground-muted">
+                  {fullAccessOverrideExplanation(props.approval.fullAccessOverride)}
+                </Text>
+              ) : null}
+            </Pressable>
+          ) : null}
           {!canRespond ? (
             <Text className="font-sans text-sm leading-5 text-foreground-muted">
               The provider process for this request is no longer available. Interrupt or restart the
@@ -91,7 +117,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
       }
     >
       {options.map((option) => (
-        <RequestActionButton
+        <Button
           key={option.decision}
           label={option.label}
           tone={

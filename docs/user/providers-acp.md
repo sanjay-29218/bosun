@@ -13,6 +13,10 @@ configuration, compaction, and agent-terminal updates when the agent supports th
 negotiates ACP v1 for Registry agents that have not migrated yet, so agents such as Pi continue to
 work through the same generic integration.
 
+Claude Agent uses the ACP v2 preview by default for Registry and local `claude-agent-acp`
+commands. If you encounter preview issues, set `CLAUDE_AGENT_ACP_EXPERIMENTAL_V2=0` in the
+provider instance's environment overrides to use ACP v1.
+
 ## Add an agent
 
 1. Open **Settings → Providers**.
@@ -50,7 +54,7 @@ but keeps package installs. To use an existing local binary, set **Executable ov
 
 Open the agent's account section in **Settings → Providers** on web or desktop. Choose
 **Sign in** and, if the agent offers several methods, select one. For an installed, configured
-provider, mobile also offers **Settings → Provider accounts**.
+provider, mobile also offers **Settings → Providers**.
 
 Browser sign-in shows the agent's URL and waits for you to open or copy it before telling the
 agent to proceed. The page opens on your device, while the agent runs on the environment.

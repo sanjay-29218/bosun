@@ -15,6 +15,7 @@ const makeTarget = (
 });
 
 // Each relay reply resolves after a few microtasks; one macrotask lets them all land.
+// oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary, not a wait for time
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe("CDP relay", () => {
@@ -27,7 +28,6 @@ describe("CDP relay", () => {
     relay.receive(JSON.stringify({ id: 2, method: "Target.createTarget", params: {} }));
     await settle();
     const attach = written.findIndex((message) => message["id"] === 1);
-    // The page is announced right after the auto-attach reply, never before it.
     expect(written.slice(attach, attach + 2)).toEqual([
       { id: 1, result: {} },
       {
@@ -58,7 +58,6 @@ describe("CDP relay", () => {
       JSON.stringify({ id: 5, method: "Page.captureScreenshot", sessionId: "t3-preview-page" }),
     );
     relay.receive(JSON.stringify({ id: 6, method: "DOM.enable", sessionId: "iframe-session" }));
-    // A slow screenshot must not hold up the reply behind it.
     pending[1]!();
     await settle();
     expect(written).toEqual([
@@ -66,8 +65,8 @@ describe("CDP relay", () => {
     ]);
     pending[0]!();
     await settle();
-    expect(send).toHaveBeenNthCalledWith(1, "Page.captureScreenshot", {}, undefined);
-    expect(send).toHaveBeenNthCalledWith(2, "DOM.enable", {}, "iframe-session");
+    expect(send).toHaveBeenNthCalledWith(1, "Page.captureScreenshot", {}, undefined, undefined);
+    expect(send).toHaveBeenNthCalledWith(2, "DOM.enable", {}, "iframe-session", undefined);
     expect(written.at(-1)).toEqual({
       id: 5,
       result: { method: "Page.captureScreenshot" },
@@ -78,7 +77,6 @@ describe("CDP relay", () => {
   it("resumes paused child frames, so cross-site iframes run", async () => {
     const send = vi.fn(async () => ({}));
     const relay = createCdpRelayConnection(makeTarget(send), () => {});
-    // The page's own session is already running; only its children wait.
     relay.receive(
       JSON.stringify({
         id: 1,
@@ -94,7 +92,30 @@ describe("CDP relay", () => {
       }),
     );
     await settle();
-    expect(send.mock.calls).toEqual([["Runtime.runIfWaitingForDebugger", {}, "iframe-session"]]);
+    expect(send.mock.calls).toEqual([
+      ["Runtime.runIfWaitingForDebugger", {}, "iframe-session", undefined],
+    ]);
+  });
+
+  // Playwright enables focus emulation on every page it connects to, and Chromium then
+  // counts the guest as captured: a preview the panel hides keeps its timers unthrottled.
+  it("acknowledges Playwright's focus emulation without forcing it onto the guest", async () => {
+    const send = vi.fn(async () => ({}));
+    const written: Array<Record<string, unknown>> = [];
+    const relay = createCdpRelayConnection(makeTarget(send), (raw) =>
+      written.push(JSON.parse(raw)),
+    );
+    relay.receive(
+      JSON.stringify({
+        id: 1,
+        method: "Emulation.setFocusEmulationEnabled",
+        params: { enabled: true },
+        sessionId: "t3-preview-page",
+      }),
+    );
+    await settle();
+    expect(written).toEqual([{ id: 1, result: {}, sessionId: "t3-preview-page" }]);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("routes tab events to the page session once the page is announced", async () => {
@@ -106,7 +127,6 @@ describe("CDP relay", () => {
     expect(written).toEqual([]);
     relay.receive(JSON.stringify({ id: 1, method: "Target.setAutoAttach", params: {} }));
     await settle();
-    // Electron passes an empty session id for the page's own events.
     relay.event("Page.loadEventFired", { timestamp: 1 }, "");
     relay.event("Runtime.consoleAPICalled", {}, "iframe-session");
     expect(written.slice(-2)).toEqual([
@@ -150,7 +170,7 @@ describe("CDP relay extra sessions", () => {
     expect(written.find((m) => m["id"] === 4)).toHaveProperty("error");
     relay.receive(JSON.stringify({ id: 5, method: "Page.startScreencast", sessionId: extra }));
     await settle();
-    expect(send).toHaveBeenLastCalledWith("Page.startScreencast", {}, undefined);
+    expect(send).toHaveBeenLastCalledWith("Page.startScreencast", {}, undefined, extra);
     written.length = 0;
     relay.event("Page.screencastFrame", { data: "x" }, undefined);
     expect(written.map((m) => m["sessionId"])).toEqual(["t3-preview-page", extra]);
@@ -181,7 +201,6 @@ describe("CDP relay downloads", () => {
     );
     await settle();
     expect(directories).toEqual(["/srv/artifacts"]);
-    // The tab's own debugger has no such context, so the id stays here.
     expect(send).toHaveBeenCalledWith(
       "Browser.setDownloadBehavior",
       { behavior: "allowAndName", downloadPath: "/srv/artifacts", eventsEnabled: true },

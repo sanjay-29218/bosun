@@ -4,9 +4,9 @@ import * as Cause from "effect/Cause";
 import { useState } from "react";
 import { View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { BotAvatar } from "../../components/BotAvatar";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { Menu } from "../../components/ui/Menu";
 import { botsEnvironment } from "../../state/bots";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -42,7 +42,7 @@ export function MobileProjectBotSection(props: {
       <View className="gap-3 p-4">
         <View className="flex-row items-center justify-between gap-3">
           <Text className="text-sm font-t3-medium text-foreground-muted">Owned by</Text>
-          <ControlPillMenu
+          <Menu
             accessibilityLabel="Move to another bot"
             title="Move to bot"
             actions={list.map((bot) => ({
@@ -58,7 +58,7 @@ export function MobileProjectBotSection(props: {
                 {owner?.name ?? "Captain"} ▾
               </Text>
             </View>
-          </ControlPillMenu>
+          </Menu>
         </View>
         {bots.error ? <Text className="text-sm text-red-500">{bots.error}</Text> : null}
         {error ? <Text className="text-sm text-red-500">{error}</Text> : null}

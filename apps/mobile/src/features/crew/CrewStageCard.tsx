@@ -20,13 +20,13 @@ import type {
 import { useState } from "react";
 import { Alert } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { AppText as Text } from "../../components/ui/AppText";
+import { Menu } from "../../components/ui/Menu";
 import { uuidv4 } from "../../lib/uuid";
 import { featuresEnvironment, type CrewThreadStage } from "../../state/features";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ApprovalCardLayout } from "../threads/PendingApprovalCard";
-import { RequestActionButton } from "../threads/RequestActionButton";
+import { RequestActionButton } from "./RequestActionButton";
 
 /** What the composer does while a Crew card is up: its text becomes the card's note. */
 export interface CrewComposerMode {
@@ -240,7 +240,7 @@ export function CrewStageCard(props: {
   };
   // A paused feature keeps showing what it waits on, so Resume rides along in More actions.
   const moreButton = (actions: MenuAction[]) => (
-    <ControlPillMenu
+    <Menu
       accessibilityLabel="More actions"
       actions={
         snapshot.paused && kind !== "paused"
@@ -250,7 +250,7 @@ export function CrewStageCard(props: {
       onPressAction={({ nativeEvent }) => handleMenu(nativeEvent.event)}
     >
       <RequestActionButton label="More actions" tone="secondary" disabled={disabled} />
-    </ControlPillMenu>
+    </Menu>
   );
   const hintNote = hint ? (
     <Text className="font-sans text-xs leading-normal text-warning-foreground">{hint}</Text>
@@ -331,7 +331,7 @@ export function CrewStageCard(props: {
             disabled={disabled}
             onPress={() => void run(() => retry(target(action("retry"))))}
           />
-          <ControlPillMenu
+          <Menu
             accessibilityLabel="Retry with another model"
             actions={modelMenu(props.providers)}
             onPressAction={({ nativeEvent }) => handleMenu(nativeEvent.event)}
@@ -341,7 +341,7 @@ export function CrewStageCard(props: {
               tone="secondary"
               disabled={disabled}
             />
-          </ControlPillMenu>
+          </Menu>
           {moreButton([
             takeOverItem,
             ...(targets.length > 0
@@ -397,7 +397,7 @@ export function CrewStageCard(props: {
           title={stageName}
           detail="The composer talks to this thread. Mark the stage done to hand your result on; your composer text becomes its summary."
         >
-          <ControlPillMenu
+          <Menu
             accessibilityLabel="Mark stage done"
             actions={outcomes.map((outcome) => ({
               id: `${MARK_DONE}${outcome}`,
@@ -406,7 +406,7 @@ export function CrewStageCard(props: {
             onPressAction={({ nativeEvent }) => handleMenu(nativeEvent.event)}
           >
             <RequestActionButton label="Mark stage done" disabled={disabled} />
-          </ControlPillMenu>
+          </Menu>
           {moreButton([cancelItem])}
         </ApprovalCardLayout>
       );
@@ -454,7 +454,7 @@ export function CrewStageCard(props: {
           title={props.stage.title}
           detail="Reopen to start a follow-up at a stage."
         >
-          <ControlPillMenu
+          <Menu
             accessibilityLabel="Reopen at a stage"
             actions={workflowStageIds(snapshot.definition).map((id) => ({
               id: `${REOPEN_AT}${id}`,
@@ -463,7 +463,7 @@ export function CrewStageCard(props: {
             onPressAction={({ nativeEvent }) => handleMenu(nativeEvent.event)}
           >
             <RequestActionButton label="Reopen at…" tone="secondary" disabled={disabled} />
-          </ControlPillMenu>
+          </Menu>
         </ApprovalCardLayout>
       );
   }

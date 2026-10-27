@@ -1,24 +1,25 @@
-import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
+import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 import { readActiveLogicalBotKey } from "../../state/botRail";
-import { readActiveEnvironmentId, useActiveEnvironmentId } from "../../state/entities";
+import { readActiveEnvironmentId } from "../../state/entities";
 
-// Settings, Usage, and Pull Requests replace the sidebar utility row with a
-// Back button. Everything else is the main app. Legacy `/projects/<key>` links
-// redirect into settings, so they count too and are never remembered.
-export function isSidebarUtilityPage(pathname: string) {
-  return (
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
-    pathname.startsWith("/projects/") ||
-    pathname === "/usage" ||
-    pathname === "/pull-requests"
-  );
+/** Settings and Usage open as modals over the last main-app view. */
+export function isAppModalPage(pathname: string) {
+  return pathname === "/settings" || pathname.startsWith("/settings/") || pathname === "/usage";
 }
+
+export function isSidebarUtilityPage(pathname: string) {
+  return pathname.startsWith("/projects/") || pathname === "/pull-requests";
+}
+
+// Neither List nor Board: a modal or a utility page is showing.
+const isOutsideMainView = (pathname: string) =>
+  isAppModalPage(pathname) || isSidebarUtilityPage(pathname);
 
 /**
  * The main app has two views, flipped by the sidebar's List / Board toggle: List is the
@@ -35,7 +36,13 @@ export const mainViewForPathname = (pathname: string): MainView =>
 export const toggledMainView = (current: MainView | null): MainView =>
   current === "board" ? "list" : "board";
 
+// Pages the root route always renders without the app shell, so they are never
+// a page to return to. Other paths seen before auth or on a prompt-link landing
+// are still recorded; they are real app URLs, so returning to one is harmless.
+const SHELL_LESS_PATHS = new Set(["/pair", "/connect", "/connect-agent", GUEST_PAGE_PATH]);
+
 let mainAppHref: string | null = null;
+let appModalReturnHref: string | null = null;
 // Where each view was left, so the toggle flips back to the same thread or board scope.
 const mainViewHrefs: Record<MainView, string | null> = { list: null, board: null };
 
@@ -74,25 +81,25 @@ function rememberMainView(environmentId: EnvironmentId | null, view: MainView) {
   }
 }
 
-// Mount once in the app shell. Records the latest main app URL so Back can
-// return there no matter how many utility pages were visited since, and the
-// view it shows so the toggle and the next launch return to it.
-export function MainAppLocationTracker() {
-  const href = useLocation({
-    select: (location) => (isSidebarUtilityPage(location.pathname) ? null : location.href),
-  });
-  const environmentId = useActiveEnvironmentId();
-  useEffect(() => {
-    if (href === null) return;
+/**
+ * Remembers where Settings, Usage, and the utility pages lead back to, and the main view
+ * each location shows so the List / Board toggle and the next launch return to it.
+ */
+export function startMainAppLocationTracking(router: AnyRouter): () => void {
+  const record = () => {
+    const { pathname, href } = router.state.location;
+    if (isAppModalPage(pathname) || SHELL_LESS_PATHS.has(pathname)) return;
+    appModalReturnHref = href;
+    if (isSidebarUtilityPage(pathname)) return;
     mainAppHref = href;
-    const pathname = href.split(/[?#]/, 1)[0] ?? href;
     // The index only forwards to a draft or the board, so it is neither view.
     if (pathname === "/") return;
     const view = mainViewForPathname(pathname);
     mainViewHrefs[view] = href;
-    rememberMainView(environmentId, view);
-  }, [environmentId, href]);
-  return null;
+    rememberMainView(readActiveEnvironmentId(), view);
+  };
+  record();
+  return router.subscribe("onResolved", record);
 }
 
 // Leaves a utility page for the last main app URL, or the thread list when
@@ -100,6 +107,12 @@ export function MainAppLocationTracker() {
 export function useNavigateToMainApp() {
   const navigate = useNavigate();
   return useCallback(() => navigate({ href: mainAppHref ?? "/" }), [navigate]);
+}
+
+/** Leaves Settings or Usage for the page that opened it. */
+export function useCloseAppModal() {
+  const navigate = useNavigate();
+  return () => navigate({ href: appModalReturnHref ?? mainAppHref ?? "/" });
 }
 
 /**
@@ -127,7 +140,7 @@ export function useToggleMainView() {
   return useCallback(() => {
     const { pathname } = router.state.location;
     return showMainView(
-      toggledMainView(isSidebarUtilityPage(pathname) ? null : mainViewForPathname(pathname)),
+      toggledMainView(isOutsideMainView(pathname) ? null : mainViewForPathname(pathname)),
     );
   }, [router, showMainView]);
 }
@@ -143,11 +156,11 @@ export function useSwitchBotMainView() {
   return useCallback(
     (select: () => void) => {
       const { pathname } = router.state.location;
-      const utility = isSidebarUtilityPage(pathname);
+      const utility = isOutsideMainView(pathname);
       const current = pathname === "/" || utility ? null : mainViewForPathname(pathname);
       if (current) rememberMainView(readActiveEnvironmentId(), current);
       select();
-      // From Settings and other utility pages, picking a bot opens its list or board.
+      // From Settings, Usage and the utility pages, picking a bot opens its list or board.
       if (utility) {
         const key = mainViewKey(readActiveEnvironmentId());
         void showMainView((key === null ? undefined : readMainViews()[key]) ?? "list");

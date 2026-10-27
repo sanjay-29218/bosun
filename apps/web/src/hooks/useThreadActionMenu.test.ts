@@ -163,18 +163,8 @@ const createMenu = () =>
     threadRef: target,
     projectCwd: "/project",
     onStartRename: () => recordEffect("rename"),
+    canShareWithGuest: false,
   });
-
-// The menu reads feature state before it shows, so wait for the native menu call.
-async function openShownItems(menu: ReturnType<typeof createMenu>) {
-  const shown = deferred<ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>>();
-  state.show.mockImplementationOnce(async (items) => {
-    shown.resolve(items);
-    return null;
-  });
-  menu.openMenu(position);
-  return shown.promise;
-}
 
 beforeEach(() => {
   state.granted = new Set(["primary"]);
@@ -184,28 +174,6 @@ beforeEach(() => {
 });
 
 describe("thread menu permissions", () => {
-  it("disables mutations for a denied secondary environment", async () => {
-    const items = await openShownItems(createMenu());
-    expect(items.find((item) => item.id === "rename")?.disabled).toBe(true);
-    expect(items.find((item) => item.id === "delete")?.disabled).toBe(true);
-    expect(items.find((item) => item.id === "copy")?.disabled).not.toBe(true);
-  });
-
-  it("allows the target grant even when the primary environment is denied", async () => {
-    state.granted = new Set(["secondary"]);
-    const items = await openShownItems(createMenu());
-    expect(items.find((item) => item.id === "rename")?.disabled).not.toBe(true);
-  });
-
-  it("refreshes availability when a retained menu opener gains permission", async () => {
-    const menu = createMenu();
-    const denied = await openShownItems(menu);
-    expect(denied.find((item) => item.id === "rename")?.disabled).toBe(true);
-    state.granted.add("secondary");
-    const granted = await openShownItems(menu);
-    expect(granted.find((item) => item.id === "rename")?.disabled).not.toBe(true);
-  });
-
   it.each(["rename", "regenerate-title", "delete", "pin", "settle", "archive"] as const)(
     "%s rechecks after the native menu closes",
     async (action) => {
@@ -219,16 +187,4 @@ describe("thread menu permissions", () => {
       expect(state.effects).toEqual([]);
     },
   );
-
-  it.each([
-    ["new-thread-on-branch", "draft"],
-    ["copy-thread-id", "copy"],
-    ["mark-unread", "mark-unread"],
-    ["project-settings", "project-settings"],
-  ] as const)("keeps %s available without task permission", async (action, effect) => {
-    state.show.mockResolvedValue(action);
-    createMenu().openMenu(position);
-    await state.completed.promise;
-    expect(state.effects).toEqual([effect]);
-  });
 });

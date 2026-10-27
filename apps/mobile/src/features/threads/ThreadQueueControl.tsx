@@ -1,9 +1,14 @@
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import { useAtomValue } from "@effect/atom-react";
+import {
+  makeQueuedRunsAtom,
+  queuedRunEditBlockedReason,
+} from "@t3tools/client-runtime/queued-run-edit";
 import type { ChatAttachment, EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Animated, Platform, Pressable, ScrollView, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import ReanimatedSwipeable, {
@@ -13,12 +18,12 @@ import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-scree
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
 
-import { MaterialButton } from "../../components/MaterialButton";
-import { AndroidSheetHeader } from "../../components/AndroidScreenHeader";
-import { AppText as Text } from "../../components/AppText";
-import { SymbolView } from "../../components/AppSymbol";
-import { ControlPillMenu } from "../../components/ControlPill";
-import { MaterialScreenContent } from "../../components/MaterialScreenContent";
+import { Button } from "../../components/ui/Button";
+import { AndroidSheetHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { Menu } from "../../components/ui/Menu";
+import { ScreenContent } from "../../components/ui/ScreenContent";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeStackScreenOptions, nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
@@ -40,17 +45,28 @@ import { threadDragGapOffset } from "./threadDragGap";
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 const REMOVE_ACTION_WIDTH = 76;
 const THUMBNAIL_LIMIT = 3;
+const EMPTY_QUEUED_COUNT_ATOM = Atom.make(0).pipe(
+  Atom.withLabel("mobile-thread-queue-count:empty"),
+);
 
 type QueueTarget = { readonly environmentId: EnvironmentId; readonly threadId: ThreadId };
 type QueueAction = "steer" | "edit" | "up" | "down" | "remove";
 type QueueRowLayout = { readonly id: RunId; readonly y?: number; readonly height?: number };
+type QueueDrag = {
+  readonly runId: RunId;
+  readonly order: string;
+  beforeRunId: RunId | null | undefined;
+  readonly rows: ReadonlyArray<QueueRowLayout>;
+};
 
 export function useThreadQueueWorkflow(target: QueueTarget) {
   return useAtomValue(environmentThreadDetails.queueWorkflowAtom(target));
 }
 
-export function useThreadQueuedCount(target: QueueTarget) {
-  return useAtomValue(environmentThreadDetails.queuedCountAtom(target));
+export function useThreadQueuedCount(target: QueueTarget | null) {
+  return useAtomValue(
+    target === null ? EMPTY_QUEUED_COUNT_ATOM : environmentThreadDetails.queuedCountAtom(target),
+  );
 }
 
 export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
@@ -62,6 +78,10 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const workflow = useThreadQueueWorkflow(target);
   const threadKey = scopedThreadKey(target.environmentId, target.threadId);
   const editing = useQueuedRunEdit(threadKey);
+  const pendingRequests = useAtomValue(environmentThreadDetails.pendingRequestsAtom(target));
+  const editBlockedReason = queuedRunEditBlockedReason({
+    openQuestionCount: pendingRequests?.userInputs.length ?? 0,
+  });
   const reorder = useAtomCommand(threadEnvironment.reorderQueuedRun, "reorder queued message");
   const promote = useAtomCommand(threadEnvironment.promoteQueuedRun, "promote queued message");
   const cancel = useAtomCommand(threadEnvironment.cancelQueuedRun, "remove queued message");
@@ -69,32 +89,19 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const [resuming, setResuming] = useState(false);
   const [busyRunId, setBusyRunId] = useState<RunId | null>(null);
   const busyRef = useRef(false);
-  const [draggedRunId, setDraggedRunId] = useState<RunId | null>(null);
-  const [previewBeforeRunId, setPreviewBeforeRunId] = useState<RunId | null | undefined>();
-  const [dragRows, setDragRows] = useState<ReadonlyArray<QueueRowLayout> | null>(null);
+  const [dragState, setDragState] = useState<QueueDrag | null>(null);
   const rowLayouts = useRef(new Map<RunId, { y: number; height: number }>());
-  const drag = useRef<{
-    runId: RunId;
-    order: string;
-    beforeRunId: RunId | null | undefined;
-    rows: ReadonlyArray<QueueRowLayout>;
-  } | null>(null);
+  const drag = useRef<QueueDrag | null>(null);
   const [translation] = useState(() => new Animated.Value(0));
   const queuedRuns = workflow?.queuedRuns ?? [];
   const order = queuedRuns.map(({ run }) => run.id).join(",");
+  // A queue that changed under the drag (delivery, another client) ends it:
+  // the gesture handlers ignore it from then on and its preview disappears.
+  const visibleDrag = dragState?.order === order ? dragState : null;
+  const draggedRunId = visibleDrag?.runId ?? null;
+  const previewBeforeRunId = visibleDrag?.beforeRunId;
+  const dragRows = visibleDrag?.rows ?? null;
 
-  useEffect(() => {
-    if (drag.current && drag.current.order !== order) {
-      drag.current = null;
-      setDraggedRunId(null);
-      setPreviewBeforeRunId(undefined);
-      setDragRows(null);
-      translation.setValue(0);
-    }
-  }, [order, translation]);
-
-  // Nothing left to manage: the sheet closes rather than sitting on an empty
-  // list the user has to dismiss themselves.
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
   useEffect(() => {
     if (queuedRuns.length > 0) {
@@ -109,12 +116,9 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     busyRef.current = true;
     setBusyRunId(runId);
     void Haptics.selectionAsync();
-    try {
-      await reorder({ ...target, input: { threadId: target.threadId, runId, beforeRunId } });
-    } finally {
-      busyRef.current = false;
-      setBusyRunId(null);
-    }
+    await reorder({ ...target, input: { threadId: target.threadId, runId, beforeRunId } });
+    busyRef.current = false;
+    setBusyRunId(null);
   };
 
   const act = async (runId: RunId, action: QueueAction) => {
@@ -130,15 +134,27 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       return;
     }
     if (action === "edit") {
+      if (editBlockedReason !== null) return;
       const entry = queuedRuns[index]!;
       void Haptics.selectionAsync();
-      beginQueuedRunEdit(threadKey, {
-        runId,
-        messageId: entry.messageId,
-        originalText: entry.text,
-        existingAttachments: entry.attachments,
-        ...(entry.context ? { context: entry.context } : {}),
-      });
+      beginQueuedRunEdit(
+        threadKey,
+        {
+          runId,
+          messageId: entry.messageId,
+          originalText: entry.text,
+          existingAttachments: entry.attachments,
+          ...(entry.context ? { context: entry.context } : {}),
+        },
+        makeQueuedRunsAtom({
+          threadId: target.threadId,
+          snapshot: threadEnvironment.snapshotAtom(target.environmentId),
+          detailStatus: environmentThreadDetails.statusAtom(target),
+          runs: Atom.make(
+            (get) => get(environmentThreadDetails.quietThreadAtom(target))?.projection.runs ?? null,
+          ),
+        }),
+      );
       navigation.goBack();
       return;
     }
@@ -146,23 +162,22 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     busyRef.current = true;
     setBusyRunId(runId);
     void Haptics.selectionAsync();
-    try {
-      if (action === "remove") {
-        await cancel(buildCancelQueuedRunCommand({ ...target, runId }));
-      } else if (workflow?.activeRun && workflow.canPromoteToSteer) {
-        await promote({
-          ...target,
-          input: {
-            threadId: target.threadId,
-            queuedRunId: runId,
-            targetRunId: workflow.activeRun.id,
-          },
-        });
-      }
-    } finally {
-      busyRef.current = false;
-      setBusyRunId(null);
+    if (action === "remove") {
+      await cancel(buildCancelQueuedRunCommand({ ...target, runId }));
+    } else if (workflow?.canSendNow) {
+      await resume({ ...target, input: { threadId: target.threadId, runId } });
+    } else if (workflow?.activeRun && workflow.canPromoteToSteer) {
+      await promote({
+        ...target,
+        input: {
+          threadId: target.threadId,
+          queuedRunId: runId,
+          targetRunId: workflow.activeRun.id,
+        },
+      });
     }
+    busyRef.current = false;
+    setBusyRunId(null);
   };
 
   const canReorder = workflow?.canReorder === true && queuedRuns.length > 1;
@@ -183,38 +198,37 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       nestedScrollEnabled
       className="flex-1"
       scrollEnabled={draggedRunId === null}
-      // The iOS header is translucent and floats over this view; UIKit has to
-      // inset the content or the first row sits underneath the title.
+      // UIKit must inset content beneath the floating translucent iOS header.
       contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
       contentContainerClassName="px-5 pb-6"
       contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
     >
       {workflow?.isHeld && queuedRuns.length > 0 ? (
         <View className="gap-2 py-3">
-          <Text className="text-sm text-foreground-muted">Queue held after restart</Text>
-          <MaterialButton
+          <Text className="text-sm text-foreground-muted">Queue paused</Text>
+          <Button
             label="Resume queue"
             disabled={resuming || busyRunId !== null}
             onPress={async () => {
               if (busyRef.current) return;
               busyRef.current = true;
               setResuming(true);
-              try {
-                await resume({ ...target, input: { threadId: target.threadId } });
-              } finally {
-                busyRef.current = false;
-                setResuming(false);
-              }
+              await resume({ ...target, input: { threadId: target.threadId } });
+              busyRef.current = false;
+              setResuming(false);
             }}
           />
         </View>
+      ) : null}
+      {editBlockedReason !== null && queuedRuns.length > 0 ? (
+        <Text className="py-3 text-sm text-foreground-muted">{editBlockedReason}</Text>
       ) : null}
       {queuedRuns.length === 0 ? (
         <Text className="pt-6 text-center text-sm text-foreground-muted">
           No messages waiting in this queue.
         </Text>
       ) : null}
-      {queuedRuns.map(({ run, text, attachments }, index) => {
+      {queuedRuns.map(({ run, text, attachments, context }, index) => {
         const layout = dragRows?.find((row) => row.id === run.id);
         const offset =
           sourceLayout?.y !== undefined &&
@@ -226,9 +240,12 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
         const controls = resolveThreadQueueRowControls({
           busy: busyRunId !== null || draggedRunId !== null,
           canPromoteToSteer: workflow?.canPromoteToSteer ?? false,
+          canSendNow: workflow?.canSendNow ?? false,
           canReorder: workflow?.canReorder ?? false,
+          editBlocked: editBlockedReason !== null,
           index,
           isEditing: editing?.runId === run.id,
+          isGuestMessage: context?.guest !== undefined,
           queuedCount: queuedRuns.length,
           text,
         });
@@ -251,8 +268,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
               }
             >
               {canReorder ? (
-                // Outside the swipeable: two pans on one row would race, and
-                // the handle owns vertical movement while the row owns sideways.
+                // Keep the vertical handle outside the sideways swipeable so their pans do not race.
                 <QueueDragHandle
                   disabled={busyRunId !== null}
                   title={title}
@@ -264,9 +280,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                     const beforeRunId = resolveQueueDragBeforeRunId(rows, run.id, 0);
                     drag.current = { runId: run.id, order, beforeRunId, rows };
                     translation.setValue(0);
-                    setDragRows(rows);
-                    setPreviewBeforeRunId(beforeRunId);
-                    setDraggedRunId(run.id);
+                    setDragState({ ...drag.current });
                     void Haptics.selectionAsync();
                   }}
                   onMove={(y) => {
@@ -276,7 +290,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                     const before = resolveQueueDragBeforeRunId(current.rows, run.id, y);
                     if (current.beforeRunId !== before) {
                       current.beforeRunId = before;
-                      setPreviewBeforeRunId(before);
+                      setDragState({ ...current });
                     }
                   }}
                   onEnd={(y, success) => {
@@ -284,12 +298,9 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                     const stop = () => {
                       if (drag.current !== started) return;
                       drag.current = null;
-                      setDraggedRunId(null);
-                      setPreviewBeforeRunId(undefined);
-                      setDragRows(null);
+                      setDragState(null);
                       translation.setValue(0);
                     };
-                    // A remote reorder or a newly started run invalidates this drag.
                     if (!success || started?.order !== order || started.runId !== run.id) {
                       stop();
                       return;
@@ -318,7 +329,8 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                         useNativeDriver: true,
                       }).start();
                     }
-                    setPreviewBeforeRunId(before);
+                    started.beforeRunId = before;
+                    setDragState({ ...started });
                     void move(run.id, before).finally(stop);
                   }}
                 />
@@ -328,84 +340,108 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                 background={theme["--color-sheet"]}
                 onRemove={() => void act(run.id, "remove")}
               >
-                <ControlPillMenu
-                  accessibilityLabel={`Actions for queued message ${index + 1}`}
-                  shouldOpenOnLongPress
-                  actions={[
-                    ...(workflow?.canPromoteToSteer
-                      ? [
-                          {
-                            id: "steer",
-                            title: "Steer now",
-                            attributes: { disabled: !controls.canSteer },
-                            image: Platform.OS === "ios" ? "arrow.turn.left.up" : "arrow_upward",
-                          },
-                        ]
-                      : []),
-                    {
-                      id: "edit",
-                      title: "Edit",
-                      attributes: { disabled: !controls.canEdit },
-                      image: Platform.OS === "ios" ? "pencil" : "edit",
-                    },
-                    { id: "up", title: "Move up", attributes: { disabled: !controls.canMoveUp } },
-                    {
-                      id: "down",
-                      title: "Move down",
-                      attributes: { disabled: !controls.canMoveDown },
-                    },
-                    {
-                      id: "remove",
-                      title: "Remove",
-                      attributes: { disabled: !controls.canDismiss, destructive: true },
-                    },
-                  ]}
-                  onPressAction={({ nativeEvent }) =>
-                    void act(run.id, nativeEvent.event as QueueAction)
-                  }
-                >
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={title}
-                    accessibilityHint="Opens this message in the composer for editing"
-                    disabled={!controls.canEdit}
-                    onPress={() => void act(run.id, "edit")}
-                    className="min-h-14 flex-row items-center gap-2.5 py-2.5 active:opacity-70"
+                <View className="flex-row items-center">
+                  <Menu
+                    accessibilityLabel={`Actions for queued message ${index + 1}`}
+                    shouldOpenOnLongPress
+                    style={{ flex: 1 }}
+                    actions={[
+                      ...(workflow?.canPromoteToSteer || workflow?.canSendNow
+                        ? [
+                            {
+                              id: "steer",
+                              title: workflow?.canSendNow ? "Send now" : "Steer now",
+                              attributes: { disabled: !controls.canSend },
+                              image: Platform.OS === "ios" ? "arrow.turn.left.up" : "arrow_upward",
+                            },
+                          ]
+                        : []),
+                      {
+                        id: "edit",
+                        title: "Edit",
+                        attributes: { disabled: !controls.canEdit },
+                        image: Platform.OS === "ios" ? "pencil" : "edit",
+                      },
+                      { id: "up", title: "Move up", attributes: { disabled: !controls.canMoveUp } },
+                      {
+                        id: "down",
+                        title: "Move down",
+                        attributes: { disabled: !controls.canMoveDown },
+                      },
+                      {
+                        id: "remove",
+                        title: "Remove",
+                        attributes: { disabled: !controls.canDismiss, destructive: true },
+                      },
+                    ]}
+                    onPressAction={({ nativeEvent }) =>
+                      void act(run.id, nativeEvent.event as QueueAction)
+                    }
                   >
-                    <QueueAttachmentThumbnails
-                      environmentId={target.environmentId}
-                      attachments={attachments}
-                    />
-                    <Text
-                      className={
-                        controls.isEditing
-                          ? "min-w-0 flex-1 text-sm text-foreground-muted"
-                          : "min-w-0 flex-1 text-sm text-foreground"
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={title}
+                      accessibilityHint={
+                        controls.canEdit
+                          ? "Opens this message in the composer for editing"
+                          : (editBlockedReason ?? undefined)
                       }
-                      numberOfLines={1}
+                      disabled={!controls.canEdit}
+                      onPress={() => void act(run.id, "edit")}
+                      className="min-h-14 flex-row items-center gap-2.5 py-2.5 active:opacity-70"
                     >
-                      {title}
-                    </Text>
-                    {controls.isEditing ? (
-                      <Text className="shrink-0 text-2xs uppercase tracking-wide text-primary">
-                        Editing
-                      </Text>
-                    ) : null}
-                    {workflow?.canPromoteToSteer ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Steer with message ${index + 1} now`}
-                        disabled={!controls.canSteer}
-                        onPress={() => void act(run.id, "steer")}
-                        className="h-8 shrink-0 justify-center rounded-full bg-primary px-3 active:opacity-70 disabled:opacity-40"
+                      <QueueAttachmentThumbnails
+                        environmentId={target.environmentId}
+                        attachments={attachments}
+                      />
+                      <Text
+                        className={
+                          controls.isEditing
+                            ? "min-w-0 flex-1 text-sm text-foreground-muted"
+                            : "min-w-0 flex-1 text-sm text-foreground"
+                        }
+                        numberOfLines={1}
                       >
-                        <Text className="font-t3-medium text-xs text-primary-foreground">
-                          Steer
+                        {context?.guest === undefined ? null : (
+                          <Text className="font-t3-medium text-adaptive-fuchsia-600-300">
+                            {`${context.guest.name}  `}
+                          </Text>
+                        )}
+                        {title}
+                      </Text>
+                      {controls.isEditing ? (
+                        <Text className="shrink-0 text-2xs uppercase tracking-wide text-primary">
+                          Editing
                         </Text>
-                      </Pressable>
-                    ) : null}
-                  </Pressable>
-                </ControlPillMenu>
+                      ) : null}
+                    </Pressable>
+                  </Menu>
+                  {workflow?.canPromoteToSteer || workflow?.canSendNow ? (
+                    // Outside the edit row and full row height, so a near miss never opens the editor.
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        workflow?.canSendNow
+                          ? `Send message ${index + 1} now`
+                          : `Steer with message ${index + 1} now`
+                      }
+                      disabled={!controls.canSend}
+                      onPress={() => void act(run.id, "steer")}
+                      className="shrink-0 justify-center self-stretch pl-4 active:opacity-70 disabled:opacity-40"
+                    >
+                      <View className="min-h-9 flex-row items-center gap-1.5 rounded-full bg-primary px-4">
+                        <SymbolView
+                          name={workflow?.canSendNow ? "arrow.up" : "arrow.turn.left.up"}
+                          size={13}
+                          tintColorClassName="accent-primary-foreground"
+                        />
+                        <Text className="font-t3-medium text-sm text-primary-foreground">
+                          {workflow?.canSendNow ? "Send now" : "Steer"}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+                </View>
               </QueueRowSwipeable>
             </Animated.View>
           </QueueShiftedRow>
@@ -415,8 +451,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   );
 
   if (Platform.OS === "ios") {
-    // A plain formSheet screen never renders a stack header, so it comes from
-    // a nested native stack inside the sheet (same shape as the git sheet).
+    // Plain formSheets lack stack headers; host one in a nested native stack.
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View collapsable={false} className="flex-1 bg-sheet">
@@ -453,9 +488,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       <View collapsable={false} className="flex-1 bg-sheet">
         <NativeStackScreenOptions options={{ sheetCornerRadius: 28 }} />
         <AndroidSheetHeader title="Queued" onBack={() => navigation.goBack()} />
-        <MaterialScreenContent insetHorizontal={layout.usesSplitView}>
-          {content}
-        </MaterialScreenContent>
+        <ScreenContent insetHorizontal={layout.usesSplitView}>{content}</ScreenContent>
       </View>
     </GestureHandlerRootView>
   );
@@ -485,7 +518,6 @@ function QueueShiftedRow(props: {
   );
 }
 
-/** Swipe left to remove, the one destructive action that needs no menu. */
 function QueueRowSwipeable(props: {
   readonly enabled: boolean;
   readonly background: string;
@@ -500,8 +532,7 @@ function QueueRowSwipeable(props: {
       friction={2}
       rightThreshold={40}
       overshootRight={false}
-      // The sheet's own vertical scroll and the drag handle both move up and
-      // down; a swipe has to be clearly sideways before it takes the gesture.
+      // Require a clearly sideways swipe to avoid competing with sheet scroll and drag handles.
       failOffsetY={[-12, 12]}
       containerStyle={{ backgroundColor: props.background, flex: 1 }}
       childrenContainerStyle={{ backgroundColor: props.background }}
@@ -596,22 +627,18 @@ function QueueDragHandle(props: {
   onMove: (y: number) => void;
   onEnd: (y: number, success: boolean) => void;
 }) {
-  const latest = useRef(props);
-  useLayoutEffect(() => {
-    latest.current = props;
-  });
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(!props.disabled)
-        .minDistance(0)
-        .shouldCancelWhenOutside(false)
-        .runOnJS(true)
-        .onStart(() => latest.current.onStart())
-        .onUpdate((event) => latest.current.onMove(event.translationY))
-        .onFinalize((event, success) => latest.current.onEnd(event.translationY, success)),
-    [props.disabled],
-  );
+  const onStart = useEffectEvent(() => props.onStart());
+  const onMove = useEffectEvent((y: number) => props.onMove(y));
+  const onEnd = useEffectEvent((y: number, success: boolean) => props.onEnd(y, success));
+  // oxlint-disable-next-line react/capitalized-calls -- Gesture.Pan is a gesture factory, not a React component.
+  const gesture = Gesture.Pan()
+    .enabled(!props.disabled)
+    .minDistance(0)
+    .shouldCancelWhenOutside(false)
+    .runOnJS(true)
+    .onStart(() => onStart())
+    .onUpdate((event) => onMove(event.translationY))
+    .onFinalize((event, success) => onEnd(event.translationY, success));
   return (
     <GestureDetector gesture={gesture}>
       <View

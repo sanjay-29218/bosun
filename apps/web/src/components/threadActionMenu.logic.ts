@@ -1,11 +1,6 @@
 import type { ContextMenuItem, FeatureCardState } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
-/**
- * Ids for the per-thread action menu. Snooze presets are dispatched as
- * `snooze:<presetId>` so the union stays closed while the preset list
- * remains data-driven.
- */
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "filter-by-project"
@@ -23,6 +18,7 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "share-guest"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -46,7 +42,6 @@ export type DraftActionMenuId =
   | "project-settings"
   | "discard";
 
-/** Right-click menu for an unsent draft row in the sidebar. */
 export function buildDraftActionMenuItems(options: {
   readonly hasPath: boolean;
   readonly hasBranch: boolean;
@@ -81,27 +76,20 @@ export function buildDraftActionMenuItems(options: {
 export interface ThreadActionMenuState {
   readonly canOperate: boolean;
   readonly branch: string | null;
-  /**
-   * Project scoping for the thread list. Null on surfaces with no scoped
-   * list behind the menu (the chat header), where the item must not show.
-   */
   readonly projectFilter: {
     readonly label: string;
-    /** True when the list is already scoped to this thread's project. */
     readonly isActive: boolean;
   } | null;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
-  /** False while the user has turned automatic settlement off for this thread. */
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
-  /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
+  /** Archive rejects attached providers, so disable it while running. */
   readonly isRunning: boolean;
   readonly supports: {
     readonly settlement: boolean;
-    /** Server understands thread.auto-settle.set. */
     readonly autoSettleOptOut: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
@@ -121,6 +109,8 @@ export interface ThreadActionMenuState {
     readonly state: FeatureCardState;
     readonly issueNumber: number | null;
   } | null;
+  /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
+  readonly canShareWithGuest?: boolean;
 }
 
 /** The feature-wide actions that apply in `state`. */
@@ -145,6 +135,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "new-thread-on-branch",
     "project-settings",
     "mark-unread",
+    "share-guest",
     "copy",
     "copy-path",
     "copy-branch",
@@ -152,11 +143,6 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
   ].includes(action);
 }
 
-/**
- * Single source for the per-thread action menu: the sidebar row's right-click
- * menu and the chat header menu share labels, ordering, and capability gating.
- * Each surface supplies state for the actions it supports.
- */
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
@@ -177,9 +163,6 @@ export function buildThreadActionMenuItems(
             : { id: "pin" as const, label: "Pin thread", icon: "pin" },
         ]
       : []),
-    // Both lifecycle actions stay available on pinned threads: settling
-    // clears the pin ("done" beats "keep on top"), and snoozing hides the
-    // card until wake with the pin intact.
     ...(state.supports.settlement
       ? [
           state.isSettled
@@ -218,6 +201,9 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.canShareWithGuest
+      ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
+      : []),
     ...(state.projectFilter
       ? [
           {
@@ -229,10 +215,6 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    // A submenu with the current option checked, not a one-shot action:
-    // this is a setting, and it sits with the other per-thread settings
-    // rather than the lifecycle verbs above. Disabled keeps long-running
-    // threads out of the settled shelf no matter how quiet they get.
     ...(state.supports.autoSettleOptOut
       ? [
           {
@@ -318,11 +300,6 @@ export function buildThreadActionMenuItems(
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },
-    // Archive removes the thread from the sidebar while keeping its
-    // conversation under Settings > Archived threads — distinct from Settle
-    // (stays visible in the Settled shelf) and Delete (clears history for
-    // good), so it sits beside Delete without borrowing its destructive
-    // styling.
     {
       id: "archive",
       label: "Archive thread",

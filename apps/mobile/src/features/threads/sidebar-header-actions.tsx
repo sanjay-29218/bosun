@@ -1,6 +1,6 @@
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { BotAvatar } from "../../components/BotAvatar";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { Menu } from "../../components/ui/Menu";
 import { Pressable, View } from "react-native";
 
 import {
@@ -43,7 +43,7 @@ export function SidebarHeaderActions(props: SidebarHeaderActionsProps) {
   return (
     <View className="flex-row items-center gap-0.5">
       {botSwitcher ? (
-        <ControlPillMenu
+        <Menu
           accessibilityLabel={botSwitcher.accessibilityLabel}
           title="Bots"
           actions={botSwitcher.items.map((item) => ({
@@ -59,7 +59,7 @@ export function SidebarHeaderActions(props: SidebarHeaderActionsProps) {
           <View className="size-11 items-center justify-center rounded-full bg-subtle">
             <BotAvatar avatar={botSwitcher.avatar} color={botSwitcher.color} size={34} />
           </View>
-        </ControlPillMenu>
+        </Menu>
       ) : null}
       {viewToggle ? (
         <FallbackHeaderButton

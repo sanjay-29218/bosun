@@ -12,7 +12,7 @@ import * as Cause from "effect/Cause";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { uuidv4 } from "../../lib/uuid";
 import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentQuery } from "../../state/query";

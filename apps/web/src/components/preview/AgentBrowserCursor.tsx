@@ -1,5 +1,3 @@
-"use client";
-
 import type { DesktopPreviewPointerEvent } from "@t3tools/contracts";
 import { MousePointer2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -57,7 +55,6 @@ function AgentBrowserCursorEvent(props: {
   );
 }
 
-/** The agent's pointer at a surface position; it fades once the agent stops acting. */
 export function AgentCursorMark(props: {
   readonly phase: "move" | "click";
   readonly sequence: number;
@@ -90,10 +87,7 @@ export function AgentCursorMark(props: {
           className="absolute left-0.5 top-0.5 size-4 animate-status-ping rounded-full bg-primary/25 motion-reduce:animate-none"
         />
       ) : null}
-      <MousePointer2
-        className="relative size-5 -translate-x-0.5 -translate-y-0.5 fill-background text-primary drop-shadow-sm"
-        strokeWidth={2}
-      />
+      <MousePointer2 className="relative size-5 -translate-x-0.5 -translate-y-0.5 fill-background stroke-2 text-primary drop-shadow-sm" />
     </div>
   );
 }

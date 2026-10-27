@@ -6,7 +6,7 @@ import * as Cause from "effect/Cause";
 import { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { uuidv4 } from "../../lib/uuid";
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import { botsEnvironment } from "../../state/bots";

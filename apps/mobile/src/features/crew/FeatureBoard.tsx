@@ -27,8 +27,8 @@ import { AsyncResult } from "effect/reactivity";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { AppText as Text } from "../../components/ui/AppText";
+import { Menu } from "../../components/ui/Menu";
 import { cn } from "../../lib/cn";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { uuidv4 } from "../../lib/uuid";
@@ -112,7 +112,7 @@ function FeatureRow(props: {
   const threadId = card.threadId;
 
   return (
-    <ControlPillMenu
+    <Menu
       accessibilityLabel={`${card.title} actions`}
       shouldOpenOnLongPress
       actions={actions}
@@ -151,7 +151,7 @@ function FeatureRow(props: {
           </Text>
         ) : null}
       </Pressable>
-    </ControlPillMenu>
+    </Menu>
   );
 }
 
@@ -470,7 +470,7 @@ export function FeatureBoard(props: {
     >
       {board.cards.length > 0 ? (
         <View className="flex-row flex-wrap gap-2 px-4 pt-3">
-          <ControlPillMenu
+          <Menu
             accessibilityLabel="Group features"
             actions={viewActions}
             onPressAction={({ nativeEvent }) => onViewAction(nativeEvent.event)}
@@ -480,7 +480,7 @@ export function FeatureBoard(props: {
                 {workflow === null ? "Phases" : `Workflow · ${workflow.name}`} ▾
               </Text>
             </View>
-          </ControlPillMenu>
+          </Menu>
         </View>
       ) : null}
       {board.errors.map((error) => (

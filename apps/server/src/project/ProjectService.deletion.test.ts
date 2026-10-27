@@ -60,6 +60,7 @@ const layerServices = Layer.mergeAll(
             resolve: () => Effect.succeed(null),
           }),
           Layer.succeed(ProjectFaviconResolver.ProjectFaviconResolver, {
+            invalidate: () => Effect.void,
             resolvePath: () => Effect.succeed(null),
           }),
         ),
@@ -205,6 +206,7 @@ it.effect("retries a partial project deletion without repeating child events or 
         partialCleanup.map((effect) => [effect.thread_id, effect.effect_type]),
         [
           [firstThreadId, "preview.cleanup"],
+          [firstThreadId, "scheduled-tasks.cleanup"],
           [firstThreadId, "terminal.cleanup"],
         ],
       );
@@ -228,7 +230,7 @@ it.effect("retries a partial project deletion without repeating child events or 
       assert.deepEqual(finalEvents[0], partialEvents[0]);
       assert.equal(finalEvents[2]?.command_id, commandId);
       const finalCleanup = yield* readCleanup;
-      assert.lengthOf(finalCleanup, 4);
+      assert.lengthOf(finalCleanup, 6);
       assert.deepEqual(
         finalCleanup.filter((effect) => effect.thread_id === firstThreadId),
         partialCleanup,
@@ -243,6 +245,12 @@ it.effect("retries a partial project deletion without repeating child events or 
               thread_id: threadId,
               command_id: expectedCommandId,
               effect_type: "preview.cleanup",
+            },
+            {
+              effect_id: `effect:${expectedCommandId}:scheduled-tasks.cleanup`,
+              thread_id: threadId,
+              command_id: expectedCommandId,
+              effect_type: "scheduled-tasks.cleanup",
             },
             {
               effect_id: `effect:${expectedCommandId}:terminal.cleanup`,
@@ -302,7 +310,6 @@ it.effect(
     `;
       yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00.000Z"));
 
-      // Build the engine after seeding the legacy database, as on a real restart.
       yield* Effect.gen(function* () {
         const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
         const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
@@ -344,7 +351,6 @@ it.effect(
         assert.lengthOf(rows, 1);
         assert.isNotNull(rows[0]?.v2_deleted_at);
         assert.isNotNull(rows[0]?.project_deleted_at);
-        // The legacy V1 row is only an import source; deletion writes V2 events only.
         const legacyEvents = yield* sql`
           SELECT sequence FROM orchestration_events
           WHERE application_event_version = 1 AND stream_id = ${threadId}
@@ -428,7 +434,6 @@ it.effect("deletes a project without force once its imported threads were delete
     const projectId = ProjectId.make("project:imported-emptied");
     const threadId = ThreadId.make("thread:imported-emptied");
     yield* seedProject(projectId);
-    // V2 never writes the V1 thread table, so this row stays live there.
     yield* sql`
       INSERT INTO projection_threads (
         thread_id, project_id, title, model_selection_json,
@@ -454,7 +459,6 @@ it.effect("deletes a project without force once its imported threads were delete
         .pipe(Effect.flip);
       assert.equal(early._tag, "ProjectNotEmptyError");
 
-      // Delete the imported thread the way thread.delete does.
       yield* importer.ensureTranscript(threadId);
       const command = {
         type: "thread.delete" as const,

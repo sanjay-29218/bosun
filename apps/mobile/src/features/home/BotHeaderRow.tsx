@@ -6,7 +6,7 @@ import { botHeadquartersThreadId } from "@t3tools/contracts";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { BotAvatar } from "../../components/BotAvatar";
 
 /**

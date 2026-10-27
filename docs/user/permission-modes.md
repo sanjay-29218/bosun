@@ -3,7 +3,7 @@
 Permission modes control when an agent needs your approval to act. Choose a mode in the message
 composer; it applies to that thread.
 
-Set the default for new threads in **Settings → General → New threads → Permissions**.
+Set the default for new threads in **Settings → Threads → New threads → Permissions**.
 Projects can override the environment default. New threads use this setting rather than the
 mode of the thread you were viewing. The initial default is **Full access**; existing threads
 and modes you choose in a draft keep their permissions.
@@ -34,6 +34,11 @@ session-wide choice, because Grok would remember that command for the whole proj
 
 ACP Registry agents run their own tools in their own mode; T3 Code answers their approval requests
 by the permission mode. See [ACP Registry permissions](./providers-acp.md#permissions-and-terminals).
+
+Claude can still ask in **Full access** when its settings disable bypass permissions or require
+approval for an action.
+While a Claude approval is pending, type a text reply to decline that request and give feedback
+directly to the agent that asked, including a subagent. Other pending requests stay unanswered.
 
 Antigravity can still send native approval requests in **Full access**. It only offers remembered
 approvals for actions that support them.

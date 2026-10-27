@@ -1,7 +1,8 @@
+import * as Dialog from "../../components/ui/Dialog";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { availableScratchWorkspaceRoot } from "@t3tools/client-runtime/operations/projects";
 import {
-  findPromptLinkProject,
+  findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   resolvePromptLinkModelSelection,
 } from "@t3tools/client-runtime/prompt-links";
@@ -10,7 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   parseNewThreadLink,
   type LinkedPrompt,
@@ -18,7 +19,6 @@ import {
   type PromptLinkRepository,
 } from "@t3tools/shared/promptLinks";
 import { useEffect, useEffectEvent, useRef } from "react";
-import { Alert } from "react-native";
 
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useServerConfigs, useThreadShells } from "../../state/entities";
@@ -45,7 +45,6 @@ import {
   promptLinkSearchFromParams,
 } from "./prompt-link-model";
 
-/** What a `new` link asks for, in one shape for every destination. */
 type LinkedDraftRequest = {
   readonly prompt: LinkedPrompt | null;
   readonly provider: string | null;
@@ -53,11 +52,6 @@ type LinkedDraftRequest = {
   readonly pullRequest: PromptLinkPullRequest | null;
 };
 
-/**
- * Opens a `t3code://new?…` link. The link lands on the New Task picker with its query as route
- * params; this resolves it to a project, a thread, or a choice, then fills a draft. Nothing is
- * ever sent: the user reads the prompt and presses Send. Used by `NewTaskRouteScreen`.
- */
 export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> | undefined) {
   const navigation = useNavigation();
   const flow = useNewTaskFlow();
@@ -69,21 +63,20 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
   const loadPullRequest = useAtomQueryRunner(composerPullRequests.detail, {
     reportFailure: false,
   });
+  const loadLinkedThreads = useAtomQueryRunner(composerPullRequests.linkedThreadsUncached, {
+    reportFailure: false,
+  });
   const search = promptLinkSearchFromParams(params);
-  // A cold launch from a link has no projects or threads yet. Matching then would offer to
-  // clone a repository the user already has.
+  // Wait for cold-launch shells or existing repositories may be offered for cloning.
   const waitingForShells =
     catalogState.isLoadingConnections ||
     catalogState.hasPendingShellSnapshot ||
-    // A machine still connecting may hold the repository or thread. One that keeps failing to
-    // reconnect has settled offline, and must not hold every link.
+    // Connecting machines may hold the target; persistently offline ones must not block every link.
     catalogState.connectingEnvironments.some(
       (environment) =>
         environment.connectionState === "connecting" || environment.connectionError === null,
     );
 
-  // Writes the prompt and the requested model into a draft. Returns true when the link named a
-  // model the user cannot use, so their default stands in.
   const writeDraft = (
     draftKey: string,
     environmentId: EnvironmentId,
@@ -99,11 +92,66 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     return resolved?.exact !== true;
   };
 
+  const openThread = (
+    thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId },
+    prompt: LinkedDraftRequest["prompt"],
+  ) => {
+    (navigation.getParent() ?? navigation).dispatch(
+      StackActions.replace("Thread", {
+        environmentId: String(thread.environmentId),
+        threadId: String(thread.id),
+      }),
+    );
+    if (prompt) {
+      void applyLinkedPromptToThreadDraft(
+        scopedThreadKey(thread.environmentId, thread.id),
+        prompt,
+        promptLinkNotice({ hiddenCharacters: prompt.hiddenCharacters }),
+      );
+    }
+  };
+
+  // A pull request's thread can be an older settled thread no shell holds, so ask every
+  // connected environment with the repository. A lookup on another one would wait forever.
+  const findServerPullRequestThread = async (
+    projects: ReadonlyArray<EnvironmentProject>,
+    pullRequest: PromptLinkPullRequest,
+  ) => {
+    const connected = new Set(
+      connectedEnvironments
+        .filter((environment) => environment.connectionState === "connected")
+        .map((environment) => environment.environmentId),
+    );
+    const lookups = projects
+      .filter((project) => connected.has(project.environmentId))
+      .map(async (project) => {
+        const linked = await loadLinkedThreads({
+          environmentId: project.environmentId,
+          input: {
+            projectId: project.id,
+            repository: promptLinkRepositoryName(pullRequest),
+            number: pullRequest.number,
+          },
+        });
+        const thread =
+          linked._tag === "Success"
+            ? linked.value.threads.find((candidate) => candidate.archivedAt === null)
+            : undefined;
+        return thread && { environmentId: project.environmentId, id: thread.id };
+      });
+    // The most recent project wins without waiting for the lookups after it.
+    for (const lookup of lookups) {
+      const thread = await lookup;
+      if (thread) return thread;
+    }
+    return undefined;
+  };
+
   const openProjectDraft = async (project: EnvironmentProject, request: LinkedDraftRequest) => {
     try {
       await waitForComposerDraftsLoaded();
     } catch {
-      Alert.alert(
+      Dialog.alert(
         "Could not open link",
         "Drafts could not be loaded, so the prompt was not added.",
       );
@@ -115,7 +163,6 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     });
     let pullRequestUnavailable: number | null = null;
     if (request.pullRequest) {
-      // The same draft the PR screen's Ask makes: Send checks out the PR head in a worktree.
       const detail = await loadPullRequest({
         environmentId: project.environmentId,
         input: {
@@ -140,9 +187,11 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     }
     const modelUnavailable = writeDraft(draftKey, project.environmentId, request);
     navigation.dispatch(
-      StackActions.push("NewTaskDraft", {
-        draftId: draftKey,
-        title: request.pullRequest ? `PR #${request.pullRequest.number}` : project.title,
+      StackActions.push("Thread", {
+        draft: {
+          draftId: draftKey,
+          title: request.pullRequest ? `PR #${request.pullRequest.number}` : project.title,
+        },
       }),
     );
     if (request.prompt || pullRequestUnavailable !== null || modelUnavailable) {
@@ -158,7 +207,6 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
 
   const openScratchDraft = async (request: LinkedDraftRequest) => {
     const environmentId = promptLinkScratchEnvironmentId(
-      // Machines by their latest thread, scratch threads included.
       latestThreadEnvironmentIds(threads),
       connectedEnvironments
         .filter(
@@ -171,7 +219,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
         .map((environment) => environment.environmentId),
     );
     if (environmentId === null) {
-      Alert.alert(
+      Dialog.alert(
         "Could not start without a project",
         "No connected environment offers threads without a project.",
       );
@@ -181,7 +229,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
-        Alert.alert(
+        Dialog.alert(
           "Could not start without a project",
           error instanceof Error
             ? error.message
@@ -193,17 +241,13 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     await openProjectDraft(result.value, { ...request, pullRequest: null });
   };
 
-  // Clone needs a tap on the destination screen, which then opens a draft in the cloned project
-  // holding the prompt. A pull request's prompt belongs on its branch, which only exists once the
-  // clone is done, so that link, like any on an older server, has to be opened again.
   const cloneRepository = (repository: PromptLinkRepository, request: LinkedDraftRequest) => {
     const environmentId =
       flow.selectedEnvironmentId ?? connectedEnvironments[0]?.environmentId ?? null;
     if (environmentId === null) {
-      Alert.alert("Could not clone", "Connect an environment first.");
+      Dialog.alert("Could not clone", "Connect an environment first.");
       return;
     }
-    // Only a tracked clone opens a draft the prompt can ride into; older servers do not.
     const prompt =
       request.pullRequest === null &&
       serverConfigs.get(environmentId)?.environment.capabilities.projectCloneTracking === true
@@ -236,7 +280,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
   const resolveLink = useEffectEvent((linkSearch: string) => {
     const parsed = parseNewThreadLink(linkSearch);
     if (!parsed.ok) {
-      Alert.alert("Could not open link", parsed.error);
+      Dialog.alert("Could not open link", parsed.error);
       return;
     }
     const link = parsed.value;
@@ -248,19 +292,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     if (link.kind === "pull-request") {
       const thread = findPromptLinkPullRequestThread(threads, link.pullRequest);
       if (thread) {
-        (navigation.getParent() ?? navigation).dispatch(
-          StackActions.replace("Thread", {
-            environmentId: String(thread.environmentId),
-            threadId: String(thread.id),
-          }),
-        );
-        if (link.prompt) {
-          void applyLinkedPromptToThreadDraft(
-            scopedThreadKey(thread.environmentId, thread.id),
-            link.prompt,
-            promptLinkNotice({ hiddenCharacters: link.prompt.hiddenCharacters }),
-          );
-        }
+        openThread(thread, link.prompt);
         return;
       }
     }
@@ -270,8 +302,6 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
       void openScratchDraft(request);
       return;
     }
-    // Most recently active first, so the user lands where they last worked. Scopes are ordered
-    // that way, but the checkouts inside one are not.
     const lastActivity = new Map<string, string>();
     for (const thread of threads) {
       const key = `${thread.environmentId}:${thread.projectId}`;
@@ -279,17 +309,23 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     }
     const activityOf = (project: EnvironmentProject) =>
       lastActivity.get(`${project.environmentId}:${project.id}`) ?? "";
-    const project = findPromptLinkProject(
+    const projects = findPromptLinkProjects(
       flow.projectScopes
         .flatMap((scope) => scope.projects)
         .sort((left, right) => activityOf(right).localeCompare(activityOf(left))),
       repository,
     );
+    const project = projects[0];
     if (project) {
-      void openProjectDraft(project, request);
+      const { pullRequest } = request;
+      void (async () => {
+        const thread = pullRequest && (await findServerPullRequestThread(projects, pullRequest));
+        if (thread) openThread(thread, request.prompt);
+        else await openProjectDraft(project, request);
+      })();
       return;
     }
-    Alert.alert(`You don't have ${promptLinkRepositoryName(repository)}`, undefined, [
+    Dialog.alert(`You don't have ${promptLinkRepositoryName(repository)}`, undefined, [
       { text: "Cancel", style: "cancel" },
       ...(request.prompt
         ? [{ text: "Use without project", onPress: () => void openScratchDraft(request) }]
@@ -298,7 +334,6 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     ]);
   });
 
-  // Handle each link once. Clearing the params lets the same link open again later.
   const handledSearchRef = useRef<string | null>(null);
   useEffect(() => {
     if (search === null) {
