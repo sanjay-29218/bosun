@@ -18,7 +18,7 @@ import {
   groupIssues,
   issueLane,
   matchesIssueSearch,
-  milestoneKey,
+  issueKey,
   type EnvironmentIssue,
   type IssueLane,
 } from "@t3tools/client-runtime/state/issue-board";
@@ -112,7 +112,7 @@ export interface FeaturesSearch {
   readonly project?: string;
   /** Absent is Features. */
   readonly view?: "issues" | "milestones";
-  /** The `milestoneKey` the Issues view is narrowed to. */
+  /** The `issueKey` of the milestone the Issues view is narrowed to. */
   readonly milestone?: string;
 }
 
@@ -310,8 +310,7 @@ export function FeaturesPage(props: {
   const laneFor = (issue: EnvironmentIssue) => issueLane(issue, featureFor(issue));
   const milestoneFilter = props.search.milestone ?? null;
   const filteredMilestone = milestoneFilter
-    ? (issueBoard.milestones.find((milestone) => milestoneKey(milestone) === milestoneFilter) ??
-      null)
+    ? (issueBoard.milestones.find((milestone) => issueKey(milestone) === milestoneFilter) ?? null)
     : null;
   const issueBoardLayout = issueDisplay.layout === "board";
   const visibleIssues = issueBoard.issues.filter(
@@ -320,7 +319,7 @@ export function FeaturesPage(props: {
       (issue.state === "open" || issueDisplay.showClosed || issueBoardLayout) &&
       (milestoneFilter === null ||
         (issue.milestone !== null &&
-          milestoneKey({ ...issue, number: issue.milestone.number }) === milestoneFilter)) &&
+          issueKey({ ...issue, number: issue.milestone.number }) === milestoneFilter)) &&
       (laneFilters.size === 0 || laneFilters.has(laneFor(issue))) &&
       (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
       matchesIssueSearch(issue, parsedSearch.text),
@@ -711,7 +710,7 @@ export function FeaturesPage(props: {
           issues={issueBoard.issues}
           handlers={issueHandlers}
           onOpenMilestone={(milestone) =>
-            props.onSearchChange({ view: "issues", milestone: milestoneKey(milestone) })
+            props.onSearchChange({ view: "issues", milestone: issueKey(milestone) })
           }
         />
       );

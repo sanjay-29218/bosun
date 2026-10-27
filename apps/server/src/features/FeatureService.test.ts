@@ -517,7 +517,7 @@ describe("feature creation", () => {
   );
 
   effectIt.effect(
-    "restores a deleted or archived headquarters and follows the bot's settings",
+    "keeps a headquarters undeletable, restores it once archived, and follows the bot's settings",
     () =>
       withSystem(
         Effect.gen(function* () {
@@ -537,16 +537,17 @@ describe("feature creation", () => {
           expect(unarchived).not.toBeNull();
           expect(unarchived!.archivedAt).toBeNull();
 
-          yield* engine.dispatch({
-            type: "thread.delete",
-            commandId: CommandId.make("test:delete-hq"),
-            threadId: headquarters.threadId,
-          });
-          yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
-          const restored = yield* shell();
-          expect(restored).not.toBeNull();
-          expect(restored!.deletedAt).toBeNull();
-          expect(restored!.pinnedAt).toBeTruthy();
+          const refused = yield* engine
+            .dispatch({
+              type: "thread.delete",
+              commandId: CommandId.make("test:delete-hq"),
+              threadId: headquarters.threadId,
+            })
+            .pipe(Effect.flip);
+          expect(refused._tag).toBe("OrchestratorHeadquartersThreadDeleteError");
+          const kept = yield* shell();
+          expect(kept!.deletedAt).toBeNull();
+          expect(kept!.pinnedAt).toBeTruthy();
 
           // Switching the bot to Ask first reaches its headquarters' next turns.
           const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;

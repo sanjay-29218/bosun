@@ -28,8 +28,6 @@ export const issueKey = (issue: {
   readonly number: number;
 }) => `${issue.environmentId}:${issue.projectId}:${issue.number}`;
 
-export const milestoneKey = issueKey;
-
 const issueUrlKey = (environmentId: EnvironmentId, url: string) =>
   `${environmentId}:${url.split(/[?#]/u)[0]!.replace(/\/+$/u, "").toLowerCase()}`;
 
@@ -190,7 +188,7 @@ export function groupIssues(input: {
     );
   }
 
-  const known = new Map(input.milestones.map((milestone) => [milestoneKey(milestone), milestone]));
+  const known = new Map(input.milestones.map((milestone) => [issueKey(milestone), milestone]));
   const byMilestone = new Map<string, { title: string; issues: EnvironmentIssue[] }>();
   const unscheduled: EnvironmentIssue[] = [];
   for (const issue of input.issues) {
@@ -198,7 +196,7 @@ export function groupIssues(input: {
       unscheduled.push(issue);
       continue;
     }
-    const key = milestoneKey({ ...issue, number: issue.milestone.number });
+    const key = issueKey({ ...issue, number: issue.milestone.number });
     const entry = byMilestone.get(key) ?? { title: issue.milestone.title, issues: [] };
     entry.issues.push(issue);
     byMilestone.set(key, entry);

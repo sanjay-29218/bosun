@@ -10,6 +10,7 @@ import {
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import {
   AuthOrchestrationOperateScope,
+  headquartersBotId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -152,6 +153,7 @@ export function useThreadActionMenu(input: {
         supports,
         snoozePresets,
         canShareWithGuest,
+        isHeadquarters: headquartersBotId(thread.id) !== null,
         feature,
         // The header knows only its own thread: a stage thread offers the feature actions.
         featureLifecycle: featureLifecycleFor(thread, []),

@@ -111,6 +111,8 @@ export interface ThreadActionMenuState {
   } | null;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
+  /** A bot's headquarters is permanent, so it can be archived but never deleted. */
+  readonly isHeadquarters?: boolean;
 }
 
 /** The feature-wide actions that apply in `state`. */
@@ -307,12 +309,9 @@ export function buildThreadActionMenuItems(
       disabled: state.isRunning,
       separatorBefore: true,
     },
-    {
-      id: "delete",
-      label: "Delete",
-      destructive: true,
-      icon: "trash",
-    },
+    ...(state.isHeadquarters
+      ? []
+      : [{ id: "delete" as const, label: "Delete", destructive: true, icon: "trash" }]),
   ];
   return state.canOperate
     ? items

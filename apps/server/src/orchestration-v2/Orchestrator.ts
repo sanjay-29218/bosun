@@ -37,6 +37,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2ContextSourcePoint,
+  headquartersBotId,
   type OrchestrationV2ContextTransfer,
   type OrchestrationV2ContextTransferResolution,
   type OrchestrationV2ConversationMessage,
@@ -258,6 +259,15 @@ export class OrchestratorThreadAboveModeLimitError extends Schema.TaggedError<Or
   }
 }
 
+export class OrchestratorHeadquartersThreadDeleteError extends Schema.TaggedError<OrchestratorHeadquartersThreadDeleteError>()(
+  "OrchestratorHeadquartersThreadDeleteError",
+  { commandId: CommandId, threadId: ThreadId },
+) {
+  override get message(): string {
+    return "A bot's headquarters can't be deleted. Archive it to hide it instead.";
+  }
+}
+
 export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedError<OrchestratorCommandPreviouslyRejectedError>()(
   "OrchestratorCommandPreviouslyRejectedError",
   {
@@ -306,6 +316,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorCommandIdConflictError,
   OrchestratorSubagentThreadReadOnlyError,
   OrchestratorThreadAboveModeLimitError,
+  OrchestratorHeadquartersThreadDeleteError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
@@ -11819,6 +11830,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       }
       case "thread.delete": {
+        // Its id is fixed per bot, and a deleted thread's id can never be reused.
+        if (headquartersBotId(command.threadId) !== null) {
+          return yield* new OrchestratorHeadquartersThreadDeleteError({
+            commandId: command.commandId,
+            threadId: command.threadId,
+          });
+        }
         const projection = yield* projectionStore
           .getThreadRecords(command.threadId, [
             "runs",

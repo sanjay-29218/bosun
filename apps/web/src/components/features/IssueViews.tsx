@@ -2,7 +2,6 @@ import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-
 import {
   ISSUE_LANE_LABELS,
   issueKey,
-  milestoneKey,
   milestoneProgress,
   type EnvironmentIssue,
   type EnvironmentMilestone,
@@ -24,7 +23,7 @@ import { featureOwnerLine, featureStatus } from "./FeatureCard";
 import type { IssueDisplayPreferences } from "./featuresPagePreferences";
 import { PhaseIcon } from "./PhaseIcon";
 
-export const LANE_PROGRESS: Record<IssueLane, number | "done"> = {
+const LANE_PROGRESS: Record<IssueLane, number | "done"> = {
   todo: 0,
   "in-crew": 0.5,
   "in-review": 0.75,
@@ -171,7 +170,7 @@ function SubIssueCount(props: { readonly issue: EnvironmentIssue }) {
 }
 
 /** One issue as a list row, in the dense single-line style Linear lists use. */
-export const IssueRow = memo(function IssueRow(props: {
+const IssueRow = memo(function IssueRow(props: {
   readonly issue: EnvironmentIssue;
   readonly depth: 0 | 1;
   readonly showMilestone: boolean;
@@ -465,7 +464,7 @@ export function MilestonesView(props: {
     if (!issue.milestone || issue.state === "closed") continue;
     const lane = props.handlers.laneFor(issue);
     if (lane !== "in-crew" && lane !== "in-review") continue;
-    const key = milestoneKey({ ...issue, number: issue.milestone.number });
+    const key = issueKey({ ...issue, number: issue.milestone.number });
     inCrew.set(key, (inCrew.get(key) ?? 0) + 1);
   }
   const sorted = props.milestones.toSorted(
@@ -478,10 +477,10 @@ export function MilestonesView(props: {
       {sorted.map((milestone) => {
         const progress = milestoneProgress(milestone);
         const project = props.handlers.showProject ? props.handlers.projectFor(milestone) : null;
-        const crewCount = inCrew.get(milestoneKey(milestone)) ?? 0;
+        const crewCount = inCrew.get(issueKey(milestone)) ?? 0;
         return (
           <button
-            key={milestoneKey(milestone)}
+            key={issueKey(milestone)}
             type="button"
             onClick={() => props.onOpenMilestone(milestone)}
             className="flex min-w-0 flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5 text-left shadow-xs/5 outline-hidden ring-ring hover:border-border hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset"
