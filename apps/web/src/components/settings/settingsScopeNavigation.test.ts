@@ -1,4 +1,4 @@
-import { EnvironmentId, ProviderInstanceId, ScheduledTaskId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -10,8 +10,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { resolveSettingsScope } from "./settingsScope";
 import { retainSettingsScope, validateSettingsRouteSearch } from "./settingsScopeNavigation";
-
-import { validateScheduledTasksSearch } from "./scheduledTasksSettings.logic";
 
 const checkoutSearch = {
   project: "repository:t3code",
@@ -48,11 +46,6 @@ function createSettingsRouter(initialEntry = "/settings/general") {
         : {}),
     }),
   });
-  const scheduledTasks = createRoute({
-    getParentRoute: () => settings,
-    path: "scheduled-tasks",
-    validateSearch: validateScheduledTasksSearch,
-  });
   const legacyProject = createRoute({
     getParentRoute: () => root,
     path: "projects/$projectKey",
@@ -66,14 +59,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   return createRouter({
     routeTree: root.addChildren([
-      settings.addChildren([
-        general,
-        projects,
-        integrations,
-        sourceControl,
-        providers,
-        scheduledTasks,
-      ]),
+      settings.addChildren([general, projects, integrations, sourceControl, providers]),
       legacyProject,
     ]),
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -106,7 +92,7 @@ describe("settings scope navigation", () => {
     expect(router.state.location.search).toEqual(checkoutSearch);
   });
 
-  it.each(["/settings/projects", "/settings/scheduled-tasks"] as const)(
+  it.each(["/settings/projects", "/settings/providers"] as const)(
     "keeps %s when regrouping or selecting a target from the shared settings layout",
     async (to) => {
       const router = createSettingsRouter();
@@ -236,20 +222,20 @@ describe("settings scope navigation", () => {
   });
 });
 
-describe("scheduled task scope navigation", () => {
-  it("opens a task link on its owning environment, then clears the task when changing filters", async () => {
+describe("environment link scope navigation", () => {
+  it("opens a link on its owning environment, then clears the target when changing filters", async () => {
     const router = createSettingsRouter();
     await router.navigate({
-      to: "/settings/scheduled-tasks",
+      to: "/settings/providers",
       search: {
         environmentId: EnvironmentId.make("remote-server"),
-        taskId: ScheduledTaskId.make("task-1"),
+        instanceId: ProviderInstanceId.make("codex"),
       },
     });
     expect(router.state.matches.at(-1)?.search).toEqual({
       machine: "remote-server",
       environmentId: "remote-server",
-      taskId: "task-1",
+      instanceId: "codex",
     });
     await router.navigate({
       from: "/settings",

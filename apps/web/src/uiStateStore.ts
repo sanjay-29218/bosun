@@ -33,6 +33,7 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  seenAutomationFailureAtByKey?: Record<string, string>;
 }
 
 export interface UiProjectState {
@@ -59,8 +60,13 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
+export interface UiAutomationState {
+  // The `lastRunAt` of each scheduled task's failure last seen, by `automationKey`.
+  seenAutomationFailureAtByKey: Record<string, string>;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiAutomationState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -72,6 +78,7 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
+  seenAutomationFailureAtByKey: {},
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -180,6 +187,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    seenAutomationFailureAtByKey: sanitizeTimestampRecord(parsed.seenAutomationFailureAtByKey),
   };
 }
 
@@ -256,6 +264,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        seenAutomationFailureAtByKey: state.seenAutomationFailureAtByKey,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -382,6 +391,15 @@ function setSidebarEnvironmentIds(state: UiState, environmentIds: string[] | nul
   return unchanged ? state : { ...state, sidebarEnvironmentIds: next };
 }
 
+function markAutomationFailureSeen(state: UiState, key: string, lastRunAt: string): UiState {
+  return state.seenAutomationFailureAtByKey[key] === lastRunAt
+    ? state
+    : {
+        ...state,
+        seenAutomationFailureAtByKey: { ...state.seenAutomationFailureAtByKey, [key]: lastRunAt },
+      };
+}
+
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
   return state.pullRequestMergeMethod === method
     ? state
@@ -474,6 +492,7 @@ interface UiStateStore extends UiState {
   setActiveBotIdByEnvironmentId: (next: Record<string, string>) => void;
   setSidebarEnvironmentIds: (environmentIds: string[] | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  markAutomationFailureSeen: (key: string, lastRunAt: string) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -504,6 +523,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     useThreadSelectionStore.getState().clearSelection();
   },
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  markAutomationFailureSeen: (key, lastRunAt) =>
+    set((state) => markAutomationFailureSeen(state, key, lastRunAt)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>

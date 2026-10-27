@@ -49,6 +49,14 @@ Each rail icon shows one thing at a time: an amber count of threads waiting on y
 a run failed, a ring while a bot works, or a blue dot when a run finished that you haven't opened.
 All bots shows the same across every bot.
 
+Below the bots, the rail's places swap what the sidebar lists. **Automations** lists your
+scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
+recent runs. A red dot on Automations means a run failed and you haven't opened that task since.
+**Library** opens **Settings → Workflows** for now, and the pull request icon opens **Pull
+requests**. Pick a bot to go back to its threads. Without the rail, open Automations from the
+clock at the bottom of the sidebar or **Open automations** in the command palette; on mobile,
+it's the last entry in the bot button's menu.
+
 Bots with the same name on different environments share one avatar, and new projects go to the
 bot you're looking at, or to Captain from All bots. **+** adds a bot, and the pencil on the bot at the top of the sidebar edits
 it. The server icon

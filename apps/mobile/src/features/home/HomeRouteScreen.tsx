@@ -135,8 +135,9 @@ export function HomeRouteScreen() {
       buildBotSwitcherMenu({
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
+        openAutomations: () => openSettings(navigation, "SettingsScheduledTasks"),
       }),
-    [activeBot, openHeadquarters],
+    [activeBot, navigation, openHeadquarters],
   );
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);

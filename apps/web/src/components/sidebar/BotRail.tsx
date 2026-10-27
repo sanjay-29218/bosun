@@ -7,8 +7,8 @@ import {
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { InboxIcon, PlusIcon, ServerIcon } from "lucide-react";
-import { useLocation } from "@tanstack/react-router";
+import { ClockIcon, InboxIcon, LayersIcon, PlusIcon, ServerIcon } from "lucide-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useState, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -18,6 +18,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindin
 import { cn } from "../../lib/utils";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
+import { useHasUnseenAutomationFailure } from "../../state/automations";
 import { botsEnvironment } from "../../state/bots";
 import {
   useActivityByLogicalBot,
@@ -28,25 +29,37 @@ import {
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../../state/botRail";
-import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
+import {
+  useConnectedEnvironmentIds,
+  useEnvironmentIdentities,
+  usePullRequestsSupported,
+} from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { useUiStateStore } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { AddBotDialog } from "../settings/BotsSettings";
 import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { isSidebarUtilityPage, useSwitchBotMainView } from "./mainAppLocation";
+import {
+  AUTOMATIONS_PATH,
+  isSidebarUtilityPage,
+  useRailDestination,
+  useSwitchBotMainView,
+} from "./mainAppLocation";
 import { useOpenBotHeadquarters } from "./openBotHeadquarters";
 
 /** The rail's width; the sidebar sits right of it. */
 export const BOT_RAIL_WIDTH = "3.5rem";
 
 /**
- * The bot rail: All bots, then a column of bots left of the sidebar. Picking a bot narrows
- * the sidebar, board and Needs you to its projects; All bots shows every bot's. `window` pins
- * it to the window's left edge under the titlebar; `sheet` puts it inside the mobile sheet.
+ * The bot rail: All bots, then a column of bots left of the sidebar, then its places at the
+ * bottom. Picking a bot narrows the sidebar, board and Needs you to its projects; All bots
+ * shows every bot's. A place swaps the sidebar for its own list. `window` pins it to the
+ * window's left edge under the titlebar; `sheet` puts it inside the mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
@@ -77,6 +90,8 @@ export const BotRail = memo(function BotRail({
   const canAdd = useAtomValue(botsEnvironment.create.permissionAtom(addEnvironmentId));
 
   const openHeadquarters = useOpenBotHeadquarters();
+  const destination = useRailDestination();
+  const onBots = destination === "bots";
   const onUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
@@ -147,7 +162,7 @@ export const BotRail = memo(function BotRail({
               <RailItem
                 label="All bots"
                 hint="Every bot's threads"
-                active={active === null}
+                active={onBots && active === null}
                 signal={botRailSignal(totalNeedsYou, combineBotActivity(activity.values()))}
                 shortcut={shortcutFor("bot.inbox")}
                 onSelect={() => switchTo(null)}
@@ -162,7 +177,7 @@ export const BotRail = memo(function BotRail({
               key={bot.key}
               label={bot.name}
               hint={bot.key === active?.key ? "Click to open its thread" : null}
-              active={bot.key === active?.key}
+              active={onBots && bot.key === active?.key}
               signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
               shortcut={shortcutFor(botJumpCommandForIndex(index))}
               onSelect={() => select(bot)}
@@ -188,7 +203,9 @@ export const BotRail = memo(function BotRail({
             <TooltipPopup side="right">Add bot</TooltipPopup>
           </Tooltip>
         </div>
-        <div className="mt-auto flex flex-col items-center gap-1">
+        <div className="mt-auto flex w-full flex-col items-center gap-2">
+          <RailDivider />
+          <RailPlaces destination={destination} />
           <EnvironmentFilterMenu />
         </div>
       </div>
@@ -213,6 +230,71 @@ export const BotRail = memo(function BotRail({
   );
 });
 
+/** Automations, Library and pull requests: monochrome icons that swap the sidebar's list. */
+function RailPlaces({
+  destination,
+}: {
+  readonly destination: ReturnType<typeof useRailDestination>;
+}) {
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const automationFailed = useHasUnseenAutomationFailure();
+  const pullRequestsSupported = usePullRequestsSupported();
+  // Automations keeps the mobile sheet open, since its list is what the sheet shows next.
+  const leaveSheet = () => {
+    if (isMobile) setOpenMobile(false);
+  };
+  return (
+    <>
+      <RailItem
+        label="Automations"
+        hint={null}
+        active={destination === "automations"}
+        signal={automationFailed ? { kind: "failed" } : null}
+        shortcut={null}
+        variant="icon"
+        onSelect={() => {
+          if (destination !== "automations") void navigate({ to: AUTOMATIONS_PATH });
+        }}
+      >
+        <ClockIcon className="size-5" strokeWidth={1.75} />
+      </RailItem>
+      <RailItem
+        label="Library"
+        hint="Workflows, for now"
+        active={false}
+        signal={null}
+        shortcut={null}
+        variant="icon"
+        onSelect={() => {
+          leaveSheet();
+          void navigate({ to: "/settings/workflows" });
+        }}
+      >
+        <LayersIcon className="size-5" strokeWidth={1.75} />
+      </RailItem>
+      {pullRequestsSupported ? (
+        <RailItem
+          label="Pull requests"
+          hint={null}
+          active={destination === "pull-requests"}
+          signal={null}
+          shortcut={null}
+          variant="icon"
+          onSelect={() => {
+            leaveSheet();
+            if (destination !== "pull-requests") {
+              void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+            }
+          }}
+        >
+          <PullRequestGlyph.pullRequest className="size-5" strokeWidth={1.75} />
+        </RailItem>
+      ) : null}
+    </>
+  );
+}
+
 const RailDivider = () => (
   <div aria-hidden className="h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
 );
@@ -233,8 +315,9 @@ const signalLabel = (signal: BotRailSignal | null): string | null => {
 };
 
 /**
- * One rail entry: a rounded-square tile with one signal. A count when threads wait on you,
- * a red dot for a failed run, a ring while working, a blue dot for an unread run.
+ * One rail entry with one signal: a count when threads wait on you, a red dot for a failed
+ * run, a ring while working, a blue dot for an unread run. Bots sit on a rounded-square tile;
+ * places are bare `icon`s that pick up the tile on hover and while selected.
  */
 const RailItem = memo(function RailItem({
   label,
@@ -242,6 +325,7 @@ const RailItem = memo(function RailItem({
   active,
   signal,
   shortcut,
+  variant = "tile",
   onSelect,
   children,
 }: {
@@ -250,6 +334,7 @@ const RailItem = memo(function RailItem({
   readonly active: boolean;
   readonly signal: BotRailSignal | null;
   readonly shortcut: string | null;
+  readonly variant?: "tile" | "icon";
   readonly onSelect: () => void;
   readonly children: ReactNode;
 }) {
@@ -270,7 +355,12 @@ const RailItem = memo(function RailItem({
             <button
               type="button"
               className={cn(
-                "relative flex size-9 items-center justify-center rounded-xl bg-sidebar-row-hover outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                "relative flex size-9 items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                variant === "tile"
+                  ? "bg-sidebar-row-hover"
+                  : active
+                    ? "bg-sidebar-row-hover text-sidebar-foreground"
+                    : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
                 signal?.kind === "working" && "ring-2 ring-info ring-inset",
               )}
               aria-pressed={active}

@@ -96,6 +96,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "filePicker.toggle",
   "projectSearch.toggle",
   "usage.open",
+  // No default key.
+  "automations.open",
   "board.toggle",
   "needsYou.next",
   "theme.select",

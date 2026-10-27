@@ -25,9 +25,10 @@ describe("buildBotSwitcherMenu", () => {
       needsYou: new Map([[captain.key, 2]]),
       select: vi.fn(),
       openHeadquarters,
+      openAutomations: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
-    expect(menu?.items.map((item) => item.title)).toEqual(["Open Captain's thread"]);
+    expect(menu?.items.map((item) => item.title)).toEqual(["Open Captain's thread", "Automations"]);
     menu!.items[0]!.onPress();
     expect(openHeadquarters).toHaveBeenCalledWith(captain);
   });
@@ -45,6 +46,7 @@ describe("buildBotSwitcherMenu", () => {
       ]),
       select,
       openHeadquarters,
+      openAutomations: vi.fn(),
     });
 
     expect(menu).toMatchObject({
@@ -57,6 +59,7 @@ describe("buildBotSwitcherMenu", () => {
         { title: "Social", subtitle: "1 needs you", state: "off" },
         { title: "Finance", subtitle: "2 need you", state: "off" },
         { title: "Open Captain's thread" },
+        { title: "Automations" },
       ],
     });
     menu!.items[2]!.onPress();
@@ -75,6 +78,7 @@ describe("buildBotSwitcherMenu", () => {
       needsYou: new Map([[social.key, 1]]),
       select,
       openHeadquarters: vi.fn(),
+      openAutomations: vi.fn(),
     });
     expect(menu).toMatchObject({
       bot: null,
@@ -84,10 +88,28 @@ describe("buildBotSwitcherMenu", () => {
         { title: "All bots", subtitle: "1 needs you", state: "on" },
         { title: "Captain", state: "off" },
         { title: "Social", state: "off" },
+        { title: "Automations" },
       ],
     });
     menu!.items[0]!.onPress();
     expect(select).toHaveBeenCalledWith(null);
+  });
+
+  it("ends with Automations, which opens the scheduled tasks", () => {
+    const openAutomations = vi.fn();
+    const menu = buildBotSwitcherMenu({
+      bots: [captain, social],
+      active: null,
+      needsYou: new Map(),
+      select: vi.fn(),
+      openHeadquarters: vi.fn(),
+      openAutomations,
+    });
+    const last = menu!.items.at(-1)!;
+    expect(last).toMatchObject({ title: "Automations", subtitle: "Scheduled tasks" });
+    expect(last).not.toHaveProperty("state");
+    last.onPress();
+    expect(openAutomations).toHaveBeenCalledOnce();
   });
 
   it("has no menu before any bot loads", () => {
@@ -98,6 +120,7 @@ describe("buildBotSwitcherMenu", () => {
         needsYou: new Map(),
         select: vi.fn(),
         openHeadquarters: vi.fn(),
+        openAutomations: vi.fn(),
       }),
     ).toBeNull();
   });
@@ -109,6 +132,7 @@ describe("buildBotSwitcherMenu", () => {
       needsYou: new Map(),
       select: vi.fn(),
       openHeadquarters: vi.fn(),
+      openAutomations: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
     expect(menu?.items[1]).not.toHaveProperty("subtitle");
