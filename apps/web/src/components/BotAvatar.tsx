@@ -8,16 +8,18 @@ import { memo, useId } from "react";
 
 const SIZES = { xs: 18, sm: 24, md: 32, lg: 64 } as const;
 
-/** A bot's robot avatar, tinted with its color. */
+/** A bot's robot avatar, tinted with its color. `shaded={false}` draws it in flat colors. */
 export const BotAvatar = memo(function BotAvatar({
   avatar,
   color,
   size = "md",
+  shaded = true,
   className,
 }: {
   readonly avatar: BotAvatarParts;
   readonly color: ProjectIconColor;
   readonly size?: keyof typeof SIZES | number;
+  readonly shaded?: boolean;
   readonly className?: string;
 }) {
   // Gradient ids are document-wide, so each avatar names its own.
@@ -39,7 +41,7 @@ export const BotAvatar = memo(function BotAvatar({
           <stop offset="1" stopColor={palette.visorBottom} />
         </linearGradient>
       </defs>
-      {botAvatarShapes(avatar).map((shape) => {
+      {botAvatarShapes(avatar, { shaded }).map((shape) => {
         switch (shape.kind) {
           case "rect":
             return (

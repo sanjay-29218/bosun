@@ -46,7 +46,8 @@ thread moves to **Ctrl+Cmd+1–9** (**Ctrl+Alt+1–9**). On mobile, the bot butt
 list header lists **All bots** first.
 
 Each rail icon shows one thing at a time: an amber count of threads waiting on you, a red dot when
-a run failed, a ring while a bot works, or a blue dot when a run finished that you haven't opened.
+a run failed, a blue dot on its lower corner while a bot works, or a plain dot when a run finished
+that you haven't opened. Bots other than the one you picked are dimmed until you point at them.
 All bots shows the same across every bot.
 
 Below the bots, the rail's places swap what the sidebar lists. **Automations** lists your

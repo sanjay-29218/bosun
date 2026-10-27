@@ -173,9 +173,10 @@ export const BotRail = memo(function BotRail({
                 active={onBots && active === null}
                 signal={botRailSignal(totalNeedsYou, combineBotActivity(activity.values()))}
                 shortcut={shortcutFor("bot.inbox")}
+                variant="icon"
                 onSelect={() => switchTo(null)}
               >
-                <InboxIcon className="size-5 text-sidebar-foreground" strokeWidth={1.75} />
+                <InboxIcon className="size-5" strokeWidth={1.75} />
               </RailItem>
               <RailDivider />
             </>
@@ -190,7 +191,7 @@ export const BotRail = memo(function BotRail({
               shortcut={shortcutFor(botJumpCommandForIndex(index))}
               onSelect={() => select(bot)}
             >
-              <BotAvatar avatar={bot.avatar} color={bot.color} size={28} />
+              <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
             </RailItem>
           ))}
           <Tooltip>
@@ -360,8 +361,9 @@ const signalLabel = (signal: BotRailSignal | null): string | null => {
 
 /**
  * One rail entry with one signal: a count when threads wait on you, a red dot for a failed
- * run, a ring while working, a blue dot for an unread run. Bots sit on a rounded-square tile;
- * places are bare `icon`s that pick up the tile on hover and while selected.
+ * run, a blue dot low on the corner while working (a ring would read as selected), and a
+ * neutral dot for an unread run. Bots fade until picked or hovered; `icon`s (All bots and
+ * the places) pick up a tile on hover and while selected.
  */
 const RailItem = memo(function RailItem({
   label,
@@ -369,7 +371,7 @@ const RailItem = memo(function RailItem({
   active,
   signal,
   shortcut,
-  variant = "tile",
+  variant = "bot",
   onSelect,
   children,
 }: {
@@ -378,7 +380,7 @@ const RailItem = memo(function RailItem({
   readonly active: boolean;
   readonly signal: BotRailSignal | null;
   readonly shortcut: string | null;
-  readonly variant?: "tile" | "icon";
+  readonly variant?: "bot" | "icon";
   readonly onSelect: () => void;
   readonly children: ReactNode;
 }) {
@@ -400,12 +402,11 @@ const RailItem = memo(function RailItem({
               type="button"
               className={cn(
                 "relative flex size-9 cursor-pointer items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                variant === "tile"
-                  ? "bg-sidebar-row-hover"
+                variant === "bot"
+                  ? undefined
                   : active
                     ? "bg-sidebar-row-hover text-sidebar-foreground"
                     : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                signal?.kind === "working" && "ring-2 ring-info ring-inset",
               )}
               aria-pressed={active}
               aria-label={status ? `${label}, ${status}` : label}
@@ -413,7 +414,20 @@ const RailItem = memo(function RailItem({
             />
           }
         >
-          {children}
+          {variant === "bot" ? (
+            // The signal stays at full strength on a faded bot.
+            <span
+              className={cn(
+                "flex transition-[opacity,filter] duration-150",
+                !active &&
+                  "opacity-50 saturate-50 group-hover/bot:opacity-100 group-hover/bot:saturate-100",
+              )}
+            >
+              {children}
+            </span>
+          ) : (
+            children
+          )}
           {signal?.kind === "needs-you" ? (
             <span
               aria-hidden
@@ -426,8 +440,13 @@ const RailItem = memo(function RailItem({
               aria-hidden
               className={cn(
                 "absolute -top-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-sidebar",
-                signal.kind === "failed" ? "bg-error" : "bg-info",
+                signal.kind === "failed" ? "bg-error" : "bg-sidebar-foreground",
               )}
+            />
+          ) : signal?.kind === "working" ? (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
             />
           ) : null}
         </TooltipTrigger>

@@ -163,10 +163,10 @@ export function AutomationsPage(search: AutomationsSearch) {
                   <EmptyMedia variant="icon">
                     <CalendarClockIcon />
                   </EmptyMedia>
-                  <EmptyTitle>Automations</EmptyTitle>
+                  <EmptyTitle>Run prompts on a schedule</EmptyTitle>
                   <EmptyDescription>
-                    Run a prompt on an interval, at a fixed time, or when a webhook is called. Pick
-                    a task to edit it and see its runs.
+                    On an interval, at a fixed time, or when a webhook is called. Pick a task to
+                    edit it and see its runs.
                   </EmptyDescription>
                 </EmptyHeader>
                 <Button
