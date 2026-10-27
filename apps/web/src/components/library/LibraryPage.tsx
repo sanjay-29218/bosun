@@ -190,10 +190,9 @@ export function LibraryPage(search: LibrarySearch) {
           <EmptyMedia variant="icon">
             <LayersIcon />
           </EmptyMedia>
-          <EmptyTitle>Library</EmptyTitle>
+          <EmptyTitle>Pick a workflow or role</EmptyTitle>
           <EmptyDescription>
-            Workflows are the stages a feature goes through, and roles run each stage. Pick one to
-            edit it.
+            Workflows are the stages a feature goes through, and roles run each stage.
           </EmptyDescription>
         </EmptyHeader>
         <div className="flex items-center gap-2">

@@ -3039,6 +3039,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             )
           ) : null}
           {!isSearchingThreads ? <SidebarNeedsYouShelf /> : null}
+          {!isSearchingThreads &&
+          visibleDraftSessionCount === 0 &&
+          pinnedThreads.length +
+            activeThreads.length +
+            workingThreads.length +
+            snoozedThreads.length ===
+            0 &&
+          settledCount > 0 ? (
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground/60">
+              Nothing active right now
+            </p>
+          ) : null}
           {!isSearchingThreads ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"

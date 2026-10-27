@@ -68,7 +68,7 @@ export const SidebarBotHeader = memo(function SidebarBotHeader({
             />
           }
         >
-          <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />
+          <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" shaded={false} />
           <span className="truncate">{bot.name}</span>
           {waiting ? (
             <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
