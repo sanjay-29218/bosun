@@ -13,13 +13,14 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import { hasStarterRoles, useAddStarterRoles } from "./RoleEditor";
 import { workflowIdFromName } from "./WorkflowEditor.logic";
 
 const STARTER_WORKFLOW_ID = "feature-delivery";
 
-/** Starts a workflow from Feature delivery or from scratch, then opens it. */
+/** Starts a named workflow from scratch, or adds Feature delivery, then opens it. */
 export function NewWorkflow({
   environmentId,
   workflows,
@@ -39,6 +40,7 @@ export function NewWorkflow({
   );
   const canCreate = useAtomValue(workflowsEnvironment.create.permissionAtom(environmentId));
   const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
   const hasStarter = workflows.some((definition) => definition.id === STARTER_WORKFLOW_ID);
 
   /** Both starting points run as the starter roles, so add them first when they're missing. */
@@ -46,16 +48,16 @@ export function NewWorkflow({
     hasStarterRoles(roles) || !starterRoles.ready || (await starterRoles.add());
 
   const addBlank = async () => {
+    if (name.trim().length === 0) return;
     setAdding(true);
     const createdId = await (async () => {
       if (!(await ensureStarterRoles())) return null;
-      const name = "New workflow";
       const definition = blankWorkflow(
         workflowIdFromName(
           name,
           workflows.map((workflow) => workflow.id),
         ),
-        name,
+        name.trim(),
         (roleId) => roles.find((role) => role.id === roleId)?.revision ?? 1,
       );
       const result = await create({ environmentId, input: { definition } });
@@ -96,26 +98,38 @@ export function NewWorkflow({
         </EmptyMedia>
         <EmptyTitle>New workflow</EmptyTitle>
         <EmptyDescription>
-          {hasStarter
-            ? "Start from scratch with one Build stage, then add stages and routes. To build on an existing workflow, open it and duplicate it."
-            : "Start from Feature delivery: plan, design, build, test and review, with your approval after planning and design. Or start from scratch."}
+          Name it to start with one Build stage, then add stages and routes. To build on an existing
+          workflow, open it and duplicate it.
         </EmptyDescription>
       </EmptyHeader>
-      <div className="flex items-center gap-2">
-        {hasStarter ? null : (
-          <Button size="sm" disabled={adding || !canAddStarter} onClick={() => void addStarter()}>
-            Add Feature delivery
-          </Button>
-        )}
+      <form
+        className="flex w-full max-w-sm items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void addBlank();
+        }}
+      >
+        <Input
+          aria-label="Workflow name"
+          placeholder="Bug fix"
+          value={name}
+          maxLength={200}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={adding || !canCreate || name.trim().length === 0}>
+          Create
+        </Button>
+      </form>
+      {hasStarter ? null : (
         <Button
           size="sm"
-          variant={hasStarter ? "default" : "outline"}
-          disabled={adding || !canCreate}
-          onClick={() => void addBlank()}
+          variant="ghost"
+          disabled={adding || !canAddStarter}
+          onClick={() => void addStarter()}
         >
-          Start from scratch
+          Or add Feature delivery: plan, design, build, test and review
         </Button>
-      </div>
+      )}
     </Empty>
   );
 }

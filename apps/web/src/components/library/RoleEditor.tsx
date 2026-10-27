@@ -9,7 +9,6 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useBlocker } from "@tanstack/react-router";
-import { MoreHorizontalIcon, PowerIcon } from "lucide-react";
 import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -32,11 +31,11 @@ import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
 import { SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** The composer's provider and model choices for one environment. */
 function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
@@ -240,26 +239,26 @@ export function RoleActions({
     setBusy(false);
   };
   return (
-    <Menu>
-      <MenuTrigger
+    <Tooltip>
+      <TooltipTrigger
         render={
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            disabled={busy || !canEdit}
-            aria-label={`Actions for ${role.name}`}
-          />
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground" />
         }
       >
-        <MoreHorizontalIcon />
-      </MenuTrigger>
-      <MenuPopup align="end">
-        <MenuItem onClick={() => void toggle()}>
-          <PowerIcon />
-          {role.enabled ? "Turn off" : "Turn on"}
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
+        {role.enabled ? "On" : "Off"}
+        <Switch
+          aria-label={`${role.name} is on`}
+          checked={role.enabled}
+          disabled={busy || !canEdit}
+          onCheckedChange={() => void toggle()}
+        />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" className="max-w-64">
+        {role.enabled
+          ? "Turn off to retire this role. Running features keep it."
+          : "Turned off: new stages can't use this role."}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -385,7 +384,7 @@ export function RoleEditorForm({
               onChange={setRuntimeMode}
             />
           </EditorField>
-          <EditorField label="Workflow stages" htmlFor="crew-role-workflow-stages">
+          <EditorField label="Available in workflows" htmlFor="crew-role-workflow-stages">
             <div className="flex h-9 items-center">
               <Switch
                 id="crew-role-workflow-stages"

@@ -182,7 +182,7 @@ function BotsSections({
                 <BotMessageSquareIcon />
               </EmptyMedia>
               <EmptyTitle>No bots yet</EmptyTitle>
-              <EmptyDescription>Update this environment to get Captain.</EmptyDescription>
+              <EmptyDescription>Add a bot to look after your projects.</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (

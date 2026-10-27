@@ -4,8 +4,10 @@ import {
   type RoleConfig,
   type WorkflowDefinition,
 } from "@t3tools/contracts";
+import { XIcon } from "lucide-react";
 import { useId, useState } from "react";
 
+import { DisclosureSection } from "../DisclosureSection";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import {
@@ -26,9 +28,12 @@ import {
   WORKFLOW_ID_PATTERN,
   earlierStageOutputs,
   ensureWorkflowRole,
+  humanizeWorkflowId,
   normalizeReceives,
   parseList,
+  renameStage,
   setStageOutcomes,
+  stageIdFromName,
   updateTask,
 } from "./WorkflowEditor.logic";
 
@@ -80,7 +85,8 @@ export function WorkflowStageDialog({
           : `slot:${step.role}`;
       })()
     : (roleOptions.find((option) => option.value.startsWith("role:"))?.value ?? "");
-  const [id, setId] = useState("");
+  const [name, setName] = useState(stepId ? stageName(stepId) : "");
+  const [attempted, setAttempted] = useState(false);
   const [after, setAfter] = useState(
     initialAfter && stages.includes(initialAfter)
       ? initialAfter
@@ -90,12 +96,16 @@ export function WorkflowStageDialog({
   const [task, setTask] = useState(step?.task ?? "");
   const [outputs, setOutputs] = useState(step?.outputs?.join(", ") ?? "");
   const [scope, setScope] = useState(step?.scope ?? "");
-  const [outcomes, setOutcomes] = useState(step ? Object.keys(step.next).join(", ") : "done");
+  const [outcomes, setOutcomes] = useState<readonly string[]>(
+    step ? Object.keys(step.next) : ["done"],
+  );
   const [receivesMode, setReceivesMode] = useState<ReceivesMode>(step?.receives ? "picked" : "all");
   const [files, setFiles] = useState<readonly string[]>(step?.receives?.files ?? []);
   const [diffs, setDiffs] = useState<readonly string[]>(step?.receives?.diffs ?? []);
 
-  const targetId = stepId ?? id;
+  // Renaming a stage gives it a new id; `qa` named "QA" keeps its own.
+  const nameId = stageIdFromName(name, []);
+  const targetId = stepId !== null && nameId === stepId ? stepId : nameId;
   // A new stage sits after `after`, so it can pick what that stage and the ones before it produce.
   const earlier = stepId
     ? earlierStageOutputs(definition, stepId)
@@ -113,13 +123,13 @@ export function WorkflowStageDialog({
           diffs: upTo,
         };
       })();
-  const outcomeList = parseList(outcomes);
+  const outcomeList = outcomes;
   const outputList = parseList(outputs);
   const problem =
-    !stepId && !WORKFLOW_ID_PATTERN.test(id)
-      ? "Stage ids start with a letter and use lowercase letters, numbers, - and _."
-      : !stepId && Object.hasOwn(definition.steps, id)
-        ? "Another stage already uses this id."
+    name.trim().length === 0
+      ? "Name the stage."
+      : targetId !== stepId && Object.hasOwn(definition.steps, targetId)
+        ? "Another stage already has this name."
         : !role
           ? "Choose a role."
           : task.trim().length === 0
@@ -133,8 +143,10 @@ export function WorkflowStageDialog({
                   : null;
 
   const save = () => {
+    setAttempted(true);
     if (problem) return;
-    let next = definition;
+    let next =
+      stepId && targetId !== stepId ? renameStage(definition, stepId, targetId) : definition;
     let slot: string;
     if (role.startsWith("role:")) {
       const config = roles.find((candidate) => `role:${candidate.id}` === role);
@@ -155,8 +167,8 @@ export function WorkflowStageDialog({
         ...next,
         steps: {
           ...next.steps,
-          [after]: { ...previous, next: { ...previous.next, [firstOutcome]: id } },
-          [id]: {
+          [after]: { ...previous, next: { ...previous.next, [firstOutcome]: targetId } },
+          [targetId]: {
             type: "task",
             role: slot,
             task: "",
@@ -207,17 +219,18 @@ export function WorkflowStageDialog({
         </DialogHeader>
         <DialogPanel>
           <div className="space-y-4">
-            {!stepId ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor={`${formId}-id`}>Stage id</Label>
-                  <Input
-                    id={`${formId}-id`}
-                    value={id}
-                    placeholder="security-review"
-                    onChange={(event) => setId(event.target.value)}
-                  />
-                </div>
+            <div className={stepId ? undefined : "grid gap-4 sm:grid-cols-2"}>
+              <div className="space-y-1.5">
+                <Label htmlFor={`${formId}-name`}>Name</Label>
+                <Input
+                  id={`${formId}-name`}
+                  value={name}
+                  maxLength={72}
+                  placeholder="Security review"
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
+              {!stepId ? (
                 <div className="space-y-1.5">
                   <Label>Runs after</Label>
                   <OptionSelect
@@ -227,8 +240,8 @@ export function WorkflowStageDialog({
                     onChange={setAfter}
                   />
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
             <div className="space-y-1.5">
               <Label>Role</Label>
               <OptionSelect label="Role" value={role} options={roleOptions} onChange={setRole} />
@@ -244,90 +257,161 @@ export function WorkflowStageDialog({
                 onChange={(event) => setTask(event.target.value)}
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor={`${formId}-outputs`}>Writes</Label>
-                <Input
-                  id={`${formId}-outputs`}
-                  value={outputs}
-                  placeholder="plan.md"
-                  onChange={(event) => setOutputs(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor={`${formId}-scope`}>Scope</Label>
-                <Input
-                  id={`${formId}-scope`}
-                  value={scope}
-                  placeholder="apps/web"
-                  onChange={(event) => setScope(event.target.value)}
-                />
-              </div>
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor={`${formId}-outcomes`}>Outcomes</Label>
-              <Input
-                id={`${formId}-outcomes`}
-                value={outcomes}
-                placeholder="approved, changes_requested"
-                onChange={(event) => setOutcomes(event.target.value)}
-              />
+              <OutcomeChips id={`${formId}-outcomes`} value={outcomes} onChange={setOutcomes} />
             </div>
-            <div className="space-y-2">
-              <Label>Gets</Label>
-              <OptionSelect
-                label="What this stage gets"
-                value={receivesMode}
-                options={[
-                  { value: "all", label: "Every earlier output" },
-                  { value: "picked", label: "Only what I pick" },
-                ]}
-                onChange={(value) => setReceivesMode(value === "picked" ? "picked" : "all")}
-              />
-              {receivesMode === "picked" ? (
-                earlier.files.length + earlier.diffs.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No earlier stage writes anything yet. This stage gets the brief and your notes.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {earlier.files.map((file) => (
-                      <label key={`file:${file}`} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={files.includes(file)}
-                          onCheckedChange={(checked) =>
-                            toggle(files, setFiles, file, checked === true)
-                          }
-                        />
-                        {file}
-                      </label>
-                    ))}
-                    {earlier.diffs.map((stage) => (
-                      <label key={`diff:${stage}`} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={diffs.includes(stage)}
-                          onCheckedChange={(checked) =>
-                            toggle(diffs, setDiffs, stage, checked === true)
-                          }
-                        />
-                        {stageName(stage)} changes
-                      </label>
-                    ))}
-                  </div>
-                )
-              ) : null}
-            </div>
-            {problem ? <p className="text-xs text-muted-foreground">{problem}</p> : null}
+            <DisclosureSection
+              title="Advanced"
+              summary={
+                [
+                  outputList.length > 0 ? "writes files" : null,
+                  scope.trim() ? "scoped" : null,
+                  receivesMode === "picked" ? "picked inputs" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || null
+              }
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${formId}-outputs`}>Writes</Label>
+                  <Input
+                    id={`${formId}-outputs`}
+                    value={outputs}
+                    placeholder="plan.md"
+                    onChange={(event) => setOutputs(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${formId}-scope`}>Scope</Label>
+                  <Input
+                    id={`${formId}-scope`}
+                    value={scope}
+                    placeholder="apps/web"
+                    onChange={(event) => setScope(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Gets</Label>
+                <OptionSelect
+                  label="What this stage gets"
+                  value={receivesMode}
+                  options={[
+                    { value: "all", label: "Every earlier output" },
+                    { value: "picked", label: "Only what I pick" },
+                  ]}
+                  onChange={(value) => setReceivesMode(value === "picked" ? "picked" : "all")}
+                />
+                {receivesMode === "picked" ? (
+                  earlier.files.length + earlier.diffs.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No earlier stage writes anything yet. This stage gets the brief and your
+                      notes.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {earlier.files.map((file) => (
+                        <label key={`file:${file}`} className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={files.includes(file)}
+                            onCheckedChange={(checked) =>
+                              toggle(files, setFiles, file, checked === true)
+                            }
+                          />
+                          {file}
+                        </label>
+                      ))}
+                      {earlier.diffs.map((stage) => (
+                        <label key={`diff:${stage}`} className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={diffs.includes(stage)}
+                            onCheckedChange={(checked) =>
+                              toggle(diffs, setDiffs, stage, checked === true)
+                            }
+                          />
+                          {stageName(stage)} changes
+                        </label>
+                      ))}
+                    </div>
+                  )
+                ) : null}
+              </div>
+            </DisclosureSection>
+            {attempted && problem ? (
+              <p role="alert" className="text-xs text-destructive">
+                {problem}
+              </p>
+            ) : null}
           </div>
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" size="sm" />}>Cancel</DialogClose>
-          <Button size="sm" disabled={problem !== null} onClick={save}>
+          <Button size="sm" onClick={save}>
             {stepId ? "Save stage" : "Add stage"}
           </Button>
         </DialogFooter>
       </DialogPopup>
     </Dialog>
+  );
+}
+
+/** Outcomes as chips: Enter or a comma adds one, Backspace in the empty field removes the last. */
+function OutcomeChips({
+  id,
+  value,
+  onChange,
+}: {
+  readonly id: string;
+  readonly value: readonly string[];
+  readonly onChange: (value: readonly string[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const add = () => {
+    const outcome = text
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    setText("");
+    if (outcome && !value.includes(outcome)) onChange([...value, outcome]);
+  };
+  return (
+    <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-input bg-background px-2 py-1.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/24 dark:bg-input/32">
+      {value.map((outcome) => (
+        <span
+          key={outcome}
+          className="inline-flex h-6 items-center gap-1 rounded-md bg-secondary ps-2 pe-0.5 text-sm text-secondary-foreground"
+        >
+          {humanizeWorkflowId(outcome)}
+          <button
+            type="button"
+            aria-label={`Remove ${humanizeWorkflowId(outcome)}`}
+            className="flex size-4 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => onChange(value.filter((item) => item !== outcome))}
+          >
+            <XIcon aria-hidden className="size-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        value={text}
+        placeholder={value.length === 0 ? "approved, changes requested" : "Add outcome"}
+        className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        onChange={(event) => setText(event.target.value)}
+        onBlur={add}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            add();
+          } else if (event.key === "Backspace" && text === "" && value.length > 0) {
+            onChange(value.slice(0, -1));
+          }
+        }}
+      />
+    </div>
   );
 }
 

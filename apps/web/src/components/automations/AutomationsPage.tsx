@@ -202,7 +202,7 @@ function NoEnvironments() {
 
 const LAST_RUN_BADGE = {
   running: { variant: "info", label: "Running" },
-  succeeded: { variant: "success", label: "Started" },
+  succeeded: { variant: "success", label: "Ran" },
   failed: { variant: "error", label: "Failed" },
 } as const;
 
