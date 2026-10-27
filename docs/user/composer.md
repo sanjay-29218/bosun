@@ -264,9 +264,9 @@ its progress.
 
 ## Start a feature with a workflow
 
-In a project whose environment runs workflows, a new thread's composer has a **Workflow** picker
+In a project whose environment runs workflows, a new thread's composer has a **Workflow** button
 next to the model picker. **No workflow** keeps it a normal thread. Pick a workflow and the model
-picker becomes **Crew defaults**, because each role brings its own model (change them under the
+picker becomes **Crew**, because each role brings its own model (change them under the
 project's crew settings). Your first message becomes the feature's brief, and you land in its
 first stage thread. **New feature…** in the command palette opens the same composer.
 
