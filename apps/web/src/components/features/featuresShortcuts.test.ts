@@ -42,6 +42,13 @@ describe("Board shortcuts", () => {
     expect(
       resolveFeaturesShortcut(key("w", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
     ).toBeNull();
+    // `/` opens the board's search, but types a slash into a field.
+    expect(resolveFeaturesShortcut(key("/", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
+      "features.search",
+    );
+    expect(
+      resolveFeaturesShortcut(key("/", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
+    ).toBeNull();
     // The sidebar toggle owns List / Board, so the board no longer takes `l` and `b`.
     expect(resolveFeaturesShortcut(key("b", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBeNull();
     // Off the board, a bare letter is not a shortcut.

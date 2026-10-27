@@ -28,8 +28,10 @@ Cards move when the workflow moves them. The only moves you can drag are into Do
 cancels the feature, and out of Done, which reopens it. Reopening a finished feature asks which
 stage the follow-up starts at; a cancelled one resumes where it stopped.
 
-Search matches titles, stages, projects and linked issues, and `workflow:feature-delivery` limits
-the board to one workflow. **Display** switches between the columns and a list grouped by phase.
+Search (the magnifier in the board's header, or `/`) matches titles, stages, projects and linked
+issues, and `workflow:feature-delivery` limits the board to one workflow. **Filter** narrows the
+board to a project or to feature states; each filter in effect shows below the header, where its
+× removes it. **Display** switches between the columns and a list grouped by phase.
 
 ## Issues
 
@@ -49,21 +51,21 @@ open one to see its issues. Issues are read with the environment's GitHub sign-i
 or a token in Settings) and refresh every two minutes while the page is open. The crew can list
 them too.
 
-## The Workflow toggle
+## Workflow stages
 
-**Workflow** turns the columns into one workflow's stages, with each stage's role, its gate and
-how many features wait there, and loops back to earlier stages. Pick the workflow next to the
-toggle. Click a gate to show only the features waiting at it. Features on other workflows are
-hidden; **Show phases** turns the toggle off. The toggle and the workflow are remembered per
-project.
+**Display → Workflow stages** turns the columns into one workflow's stages, with each stage's
+role, its gate and how many features wait there, and loops back to earlier stages. Pick the
+workflow in the same menu. Click a gate to show only the features waiting at it. Features on
+other workflows are hidden; **Show phases** goes back to phase columns. The choice and the
+workflow are remembered per project.
 
 ## Needs you
 
-**Needs you** lists approvals, problems and questions, oldest first. Approve, Retry and Answer
-work from the row; anything else opens the stage thread. Threads waiting on a tool approval or a
-question are included.
+When something waits on you, an amber **Needs you** count shows in the board's header. It lists
+approvals, problems and questions, oldest first. Approve, Retry and Answer work from the row;
+anything else opens the stage thread. Threads waiting on a tool approval or a question are included.
 
 The same threads appear in the **Needs you** shelf at the top of the sidebar, and
 `mod+shift+y` opens the one that has waited longest.
 
-On the board, `w` toggles Workflow and `n` toggles Needs you.
+On the board, `w` toggles workflow stages, `n` toggles Needs you, and `/` opens search.

@@ -15,31 +15,72 @@ import {
 import type { IssueDisplayPreferences } from "./featuresPagePreferences";
 
 const DisplayTrigger = (
-  <Button variant="outline" aria-label="Display options">
+  <Button size="sm" variant="ghost" aria-label="Display options">
     <SlidersHorizontalIcon aria-hidden />
-    Display
+    <span className="hidden md:inline">Display</span>
   </Button>
 );
 
-/** How the Features view draws: phase columns, or rows grouped by phase. */
+/**
+ * How the Features view draws: columns by phase (as a board or as rows), or one workflow's
+ * stages as columns.
+ */
 export function FeatureDisplayMenu(props: {
   readonly layout: "board" | "list";
   readonly onLayout: (layout: "board" | "list") => void;
+  readonly stages: boolean;
+  /** Labelled with the stages shortcut, when it has one. */
+  readonly stagesLabel: string;
+  readonly onStages: (stages: boolean) => void;
+  readonly workflows: ReadonlyArray<{ readonly id: string; readonly name: string }>;
+  readonly workflowId: string | null;
+  readonly onWorkflow: (workflowId: string) => void;
 }) {
   return (
     <Menu>
       <MenuTrigger render={DisplayTrigger} />
       <MenuPopup align="end">
         <MenuGroup>
-          <MenuGroupLabel>Layout</MenuGroupLabel>
+          <MenuGroupLabel>Columns</MenuGroupLabel>
           <MenuRadioGroup
-            value={props.layout}
-            onValueChange={(value) => props.onLayout(value === "list" ? "list" : "board")}
+            value={props.stages ? "stages" : "phase"}
+            onValueChange={(value) => props.onStages(value === "stages")}
           >
-            <MenuRadioItem value="board">Board</MenuRadioItem>
-            <MenuRadioItem value="list">List</MenuRadioItem>
+            <MenuRadioItem value="phase">Phase</MenuRadioItem>
+            <MenuRadioItem value="stages">{props.stagesLabel}</MenuRadioItem>
           </MenuRadioGroup>
         </MenuGroup>
+        <MenuSeparator />
+        {props.stages ? (
+          props.workflows.length > 0 ? (
+            <MenuGroup>
+              <MenuGroupLabel>Workflow</MenuGroupLabel>
+              <MenuRadioGroup
+                value={props.workflowId ?? ""}
+                onValueChange={(value) => {
+                  if (typeof value === "string" && value) props.onWorkflow(value);
+                }}
+              >
+                {props.workflows.map((workflow) => (
+                  <MenuRadioItem key={workflow.id} value={workflow.id}>
+                    {workflow.name}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuGroup>
+          ) : null
+        ) : (
+          <MenuGroup>
+            <MenuGroupLabel>Layout</MenuGroupLabel>
+            <MenuRadioGroup
+              value={props.layout}
+              onValueChange={(value) => props.onLayout(value === "list" ? "list" : "board")}
+            >
+              <MenuRadioItem value="board">Board</MenuRadioItem>
+              <MenuRadioItem value="list">List</MenuRadioItem>
+            </MenuRadioGroup>
+          </MenuGroup>
+        )}
       </MenuPopup>
     </Menu>
   );
