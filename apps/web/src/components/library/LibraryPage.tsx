@@ -1,9 +1,8 @@
 import type { EnvironmentId, RoleConfig } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { LayersIcon, PlusIcon, UsersIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
-import { isElectron } from "../../env";
 import {
   useLibraries,
   useLibraryByEnvironment,
@@ -12,13 +11,10 @@ import {
 import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../../state/environments";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
-import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { SidebarInset } from "../ui/sidebar";
-import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
-import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { LIBRARY_PATH } from "../sidebar/mainAppLocation";
+import { LibraryFrame } from "./LibraryFrame";
 import type { LibrarySearch } from "./librarySearch";
 import { NewWorkflow } from "./NewWorkflow";
 import {
@@ -142,17 +138,16 @@ export function LibraryPage(search: LibrarySearch) {
     body = <LibraryStatus status={status} />;
   } else if (workflow !== null && library !== null) {
     return (
-      <LibraryFrame title={title} actions={null}>
-        <WorkflowEditor
-          key={`${library.environmentId}:${workflow.id}`}
-          environmentId={library.environmentId}
-          latest={workflow}
-          allWorkflowIds={library.workflows.map((definition) => definition.id)}
-          roles={library.roles}
-          onOpenWorkflow={(workflowId) => open({ workflowId })}
-          onDeleted={close}
-        />
-      </LibraryFrame>
+      <WorkflowEditor
+        key={`${library.environmentId}:${workflow.id}`}
+        title={title}
+        environmentId={library.environmentId}
+        latest={workflow}
+        allWorkflowIds={library.workflows.map((definition) => definition.id)}
+        roles={library.roles}
+        onOpenWorkflow={(workflowId) => open({ workflowId })}
+        onDeleted={close}
+      />
     );
   } else if (role !== null && library !== null) {
     return (
@@ -220,40 +215,6 @@ export function LibraryPage(search: LibrarySearch) {
     <LibraryFrame title={title} actions={null}>
       <WorkspacePageContainer>{body}</WorkspacePageContainer>
     </LibraryFrame>
-  );
-}
-
-function LibraryFrame({
-  title,
-  actions,
-  children,
-}: {
-  readonly title: string | null;
-  readonly actions: ReactNode;
-  readonly children: ReactNode;
-}) {
-  return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <WorkspacePageHeader electron={isElectron}>
-          <WorkspaceBreadcrumb ariaLabel="Library breadcrumb" className="flex-1">
-            <WorkspaceBreadcrumbItem current={title === null}>
-              {title === null ? <h1>Library</h1> : "Library"}
-            </WorkspaceBreadcrumbItem>
-            {title === null ? null : (
-              <WorkspaceBreadcrumbItem current>
-                <h1 className="truncate">{title}</h1>
-              </WorkspaceBreadcrumbItem>
-            )}
-          </WorkspaceBreadcrumb>
-          {actions}
-        </WorkspacePageHeader>
-        {/* The workflow canvas expands to fill this. */}
-        <div data-workflow-canvas-host="" className="relative flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>
-        </div>
-      </div>
-    </SidebarInset>
   );
 }
 

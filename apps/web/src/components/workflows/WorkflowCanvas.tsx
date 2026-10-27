@@ -356,84 +356,92 @@ export default function WorkflowCanvas({
   const canvas = (
     <CanvasLabels value={labels}>
       <CanvasHighlight value={highlight}>
-        <div
-          className={cn(
-            "grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]",
-            host && "h-full min-h-0 lg:grid-rows-1",
-          )}
-        >
-          <SettingsGroup className={cn("overflow-hidden", host ? "h-full min-h-0" : "h-[32rem]")}>
-            <RouteMarkers ids={highlight.markers} />
-            <ReactFlow<CanvasNode, CanvasEdge>
-              aria-label={`${definition.name} stages and routes`}
-              nodes={graph.nodes}
-              edges={graph.edges}
-              nodeTypes={NODE_TYPES}
-              edgeTypes={EDGE_TYPES}
-              onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
-              onEdgeMouseLeave={() => setHovered(null)}
-              connectionLineType={ConnectionLineType.SmoothStep}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              isValidConnection={(connection) => connection.source !== connection.target}
-              onDelete={onDelete}
-              onInit={(instance) => {
-                flow.current = instance;
-              }}
-              onDragOver={onDragOver}
-              onDrop={onDrop}
-              deleteKeyCode={DELETE_KEYS}
-              fitView
-              fitViewOptions={FIT_VIEW_OPTIONS}
-              minZoom={0.25}
-              maxZoom={1.5}
-              // The page scrolls; inside the canvas the wheel pans and a pinch zooms.
-              panOnScroll
-              zoomOnScroll={false}
-              style={CANVAS_THEME}
+        {/* Sized by the pane, not the window, so the inspector stays beside the canvas. */}
+        <div className={cn("@container/workflow-canvas", host && "h-full min-h-0")}>
+          <div
+            className={cn(
+              "grid gap-4 @3xl/workflow-canvas:grid-cols-[minmax(0,1fr)_20rem]",
+              host && "h-full min-h-0 @3xl/workflow-canvas:grid-rows-1",
+            )}
+          >
+            <SettingsGroup
+              className={cn(
+                "overflow-hidden",
+                host ? "h-full min-h-0" : "h-[min(40rem,calc(100dvh-12rem))] min-h-96",
+              )}
             >
-              <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-              <Panel position="top-right">
-                <div className="flex items-center gap-1.5">
-                  <Button size="xs" variant="outline" onClick={arrange}>
-                    <AlignHorizontalDistributeCenterIcon />
-                    Arrange
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      onAddStage(selection?.kind === "stage" ? selection.stepId : undefined)
-                    }
-                  >
-                    <PlusIcon />
-                    {selection?.kind === "stage"
-                      ? `Add stage after ${stageName(selection.stepId)}`
-                      : "Add stage"}
-                  </Button>
-                  <Button
-                    size="icon-xs"
-                    variant="outline"
-                    aria-label={host ? "Exit full view (Esc)" : "Expand canvas"}
-                    onClick={() => setExpanded((value) => !value)}
-                  >
-                    {host ? <ShrinkIcon /> : <ExpandIcon />}
-                  </Button>
-                </div>
-              </Panel>
-              <CanvasZoomControls />
-            </ReactFlow>
-          </SettingsGroup>
-          <WorkflowCanvasInspector
-            definition={definition}
-            selection={selection}
-            roleName={roleName}
-            stageName={stageName}
-            onChange={onChange}
-            onEditStage={onEditStage}
-            roles={stageRoles}
-          />
+              <RouteMarkers ids={highlight.markers} />
+              <ReactFlow<CanvasNode, CanvasEdge>
+                aria-label={`${definition.name} stages and routes`}
+                nodes={graph.nodes}
+                edges={graph.edges}
+                nodeTypes={NODE_TYPES}
+                edgeTypes={EDGE_TYPES}
+                onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
+                onEdgeMouseLeave={() => setHovered(null)}
+                connectionLineType={ConnectionLineType.SmoothStep}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                isValidConnection={(connection) => connection.source !== connection.target}
+                onDelete={onDelete}
+                onInit={(instance) => {
+                  flow.current = instance;
+                }}
+                onDragOver={onDragOver}
+                onDrop={onDrop}
+                deleteKeyCode={DELETE_KEYS}
+                fitView
+                fitViewOptions={FIT_VIEW_OPTIONS}
+                minZoom={0.25}
+                maxZoom={1.5}
+                // The page scrolls; inside the canvas the wheel pans and a pinch zooms.
+                panOnScroll
+                zoomOnScroll={false}
+                style={CANVAS_THEME}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+                <Panel position="top-right">
+                  <div className="flex items-center gap-1.5">
+                    <Button size="xs" variant="outline" onClick={arrange}>
+                      <AlignHorizontalDistributeCenterIcon />
+                      Arrange
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() =>
+                        onAddStage(selection?.kind === "stage" ? selection.stepId : undefined)
+                      }
+                    >
+                      <PlusIcon />
+                      {selection?.kind === "stage"
+                        ? `Add stage after ${stageName(selection.stepId)}`
+                        : "Add stage"}
+                    </Button>
+                    <Button
+                      size="icon-xs"
+                      variant="outline"
+                      aria-label={host ? "Exit full view (Esc)" : "Expand canvas"}
+                      onClick={() => setExpanded((value) => !value)}
+                    >
+                      {host ? <ShrinkIcon /> : <ExpandIcon />}
+                    </Button>
+                  </div>
+                </Panel>
+                <CanvasZoomControls />
+              </ReactFlow>
+            </SettingsGroup>
+            <WorkflowCanvasInspector
+              definition={definition}
+              selection={selection}
+              roleName={roleName}
+              stageName={stageName}
+              onChange={onChange}
+              onEditStage={onEditStage}
+              roles={stageRoles}
+            />
+          </div>
         </div>
       </CanvasHighlight>
     </CanvasLabels>
