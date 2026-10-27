@@ -14,9 +14,11 @@ import {
   pruneUnusedRoles,
   refreshWorkflowRoles,
   removeStage,
+  renameStage,
   sameWorkflow,
   setRouteLimit,
   setStageOutcomes,
+  stageIdFromName,
 } from "./WorkflowEditor.logic";
 
 function role(name: string, overrides: Partial<RoleConfig> = {}): RoleConfig {
@@ -152,6 +154,38 @@ describe("stage edits", () => {
       "builder",
       "reviewer",
     ]);
+  });
+});
+
+describe("renameStage", () => {
+  it("moves the stage and every reference to it under the new id", () => {
+    const definition = renameStage(
+      { ...workflow(), layout: { build: { x: 1, y: 2 } } },
+      "build",
+      "implement",
+    );
+    expect(Object.keys(definition.steps)).not.toContain("build");
+    expect(definition.steps.implement).toMatchObject({ task: "Build", next: { built: "review" } });
+    expect(definition.steps.plan?.type === "task" && definition.steps.plan.next).toEqual({
+      ready: "implement",
+    });
+    const review = definition.steps.review;
+    expect(review?.type === "task" && review.next.changes_requested).toBe("implement");
+    expect(review?.type === "task" && review.receives?.diffs).toEqual(["implement"]);
+    expect(definition.layout).toEqual({ implement: { x: 1, y: 2 } });
+  });
+
+  it("moves the first stage too", () => {
+    expect(renameStage(workflow(), "plan", "scope").start).toBe("scope");
+  });
+});
+
+describe("stageIdFromName", () => {
+  it("reads like the starter ids and stays unique", () => {
+    expect(stageIdFromName("Security review", [])).toBe("security_review");
+    expect(stageIdFromName("QA", [])).toBe("qa");
+    expect(stageIdFromName("Build", ["build"])).toBe("build_2");
+    expect(stageIdFromName("2nd pass", [])).toBe("stage_2nd_pass");
   });
 });
 

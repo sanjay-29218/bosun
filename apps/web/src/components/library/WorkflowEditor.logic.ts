@@ -1,3 +1,4 @@
+import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import {
   PROJECT_MANAGER_ROLE_ID,
@@ -12,10 +13,9 @@ type TaskStep = Extract<WorkflowStep, { type: "task" }>;
 /** Step and outcome ids share the server's id rule. */
 export const WORKFLOW_ID_PATTERN = /^[a-z][a-z0-9_-]{0,79}$/;
 
-/** `change_review` reads as "Change review". */
+/** `change_review` reads as "Change review" and `qa` as "QA", as everywhere else stages show. */
 export function humanizeWorkflowId(id: string): string {
-  const words = id.replace(/[_-]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return formatStageName(id);
 }
 
 export function workflowEndStepId(definition: WorkflowDefinition): string {
@@ -134,6 +134,56 @@ export function removeStage(definition: WorkflowDefinition, stepId: string): Wor
   }
   const { [stepId]: _removed, ...layout } = definition.layout;
   return normalizeReceives({ ...definition, steps, layout });
+}
+
+/** A stage id for a stage name: `Security review` → `security_review`, unique among `taken`. */
+export function stageIdFromName(name: string, taken: readonly string[]): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 72);
+  const base = /^[a-z]/.test(slug) ? slug : `stage_${slug}`.replace(/_+$/, "");
+  let id = base;
+  for (let suffix = 2; taken.includes(id); suffix++) id = `${base}_${suffix}`;
+  return id;
+}
+
+/** Gives a stage a new id, and moves every route, pick and position that names it. */
+export function renameStage(
+  definition: WorkflowDefinition,
+  from: string,
+  to: string,
+): WorkflowDefinition {
+  const rename = (id: string) => (id === from ? to : id);
+  const steps = Object.fromEntries(
+    Object.entries(definition.steps).map(([id, step]) => [
+      rename(id),
+      step.type !== "task"
+        ? step
+        : {
+            ...step,
+            next: Object.fromEntries(
+              Object.entries(step.next).map(([outcome, target]) => [outcome, rename(target)]),
+            ),
+            ...(step.receives
+              ? { receives: { ...step.receives, diffs: step.receives.diffs.map(rename) } }
+              : {}),
+          },
+    ]),
+  );
+  return {
+    ...definition,
+    start: rename(definition.start),
+    steps,
+    ...(definition.layout
+      ? {
+          layout: Object.fromEntries(
+            Object.entries(definition.layout).map(([id, position]) => [rename(id), position]),
+          ),
+        }
+      : {}),
+  };
 }
 
 /** After stages or outputs change, later stages' picks only name what still exists. */

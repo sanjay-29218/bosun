@@ -68,21 +68,21 @@ bot**.
 ## Workflows
 
 The **Library** lists every connected environment's workflows; pick one to open its editor. **+
-New** beside Workflows offers **Add Feature delivery** or **Start from scratch** for a one-stage
-workflow to build on. Both add the starter roles too if they're missing. With more than one
+New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
+**Add Feature delivery**. Both add the starter roles too if they're missing. With more than one
 environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
 changed and it needs a new version.
 
-- **Stages** run in order from the first stage. Each stage runs as a crew role, has a task, and
-  can write files such as `plan.md`. Its last line says what it gets in its handoff: every earlier
-  output by default, or only the files and changes you pick. **Approve …** switches make the
-  feature wait for your approval after that stage. A stage can be removed once nothing starts at
+- **Stages** run in order from the first stage. Each stage has a name, runs as a crew role, has a
+  task, and reports one of its outcomes. Under **Advanced** it can write files such as `plan.md`
+  and pick what it gets in its handoff: every earlier output by default, or only the files and
+  changes you pick. **Needs your approval** makes the feature wait for you after that stage. A stage can be removed once nothing starts at
   it or routes to it.
 - **Routes** say where each outcome goes next, for example back to Build when Review requests
   changes. Give a route a number to stop the feature at **Your call** after it has been taken that
-  many times. Questions go to the project manager first, then to you. A failed stage retries the number of
-  times you set (empty uses **Retries before a stage fails** in **Settings → Bots**), then pauses
-  and notifies you.
+  many times. Questions go to the project manager first, then to you. A failed stage retries the
+  number of times set under **Settings** (empty uses **Retries before a stage fails** in
+  **Settings → Bots**), then pauses and notifies you.
 - **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the
   canvas, drag a role from the panel beside it onto the canvas and describe its task. Drag from
   an outcome on a stage's right edge to another stage to route it there, and select a stage or
@@ -91,7 +91,7 @@ changed and it needs a new version.
   the canvas the whole page; **Esc** shrinks it back. Where you place stages is saved with
   the workflow, and **Arrange** lines them up left to right again.
   Narrow screens always show the form.
-- **Publish vN** saves a new version; **Discard** drops your edits. Features that already started
+- **Publish vN**, at the top of the page, saves a new version; **Discard** drops your edits. Features that already started
   keep the version they began with. Use the **⋯** menu to duplicate or delete a workflow; deleting waits until no unfinished feature runs on it and no bot starts its features with it.
 
 Workflows record the version of each role they use. After you edit or turn off a role in Roles, the
@@ -103,9 +103,9 @@ The **Library**'s Roles are what workflow stages run as. **+ New** beside Roles 
 offers **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA Tester and
 Reviewer when an environment doesn't have them yet. The Builder can split its work into subagents that run at the same time; give any role
 **Threads and subagents** to let it do the same. Each role has instructions, crew tools and a default model. **Access** sets how freely its
-threads work, from **Supervised** to **Full access**. Pick a role to edit it, and use the **⋯**
-menu to turn it off. Only roles with **Workflow stages can use this role** switched on can be
-picked for a stage. Each project gets its own project manager the first time a request or
+threads work, from **Supervised** to **Full access**. Pick a role to edit it. Roles aren't deleted: the **On** switch at the top turns one off
+to retire it, and back on. Only roles with **Available in workflows** switched on can be picked
+for a stage. Each project gets its own project manager the first time a request or
 feature needs one; editing a role changes the members made from it later, not existing ones.
 
 **Limits**, at the bottom of **Settings → Bots**, are environment-wide:
