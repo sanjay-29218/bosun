@@ -837,7 +837,7 @@ export function NewTaskDraftScreen(props: {
     draftKey: NonNullable<typeof flow.draftKey>,
   ): Promise<void> {
     flow.setSubmitting(true);
-    try {
+    await (async () => {
       const featureId = `feature-${uuidv4()}`;
       const firstLine = brief.split("\n", 1)[0]!.trim();
       const created = await createFeature({
@@ -876,9 +876,8 @@ export function NewTaskDraftScreen(props: {
           ),
         );
       }
-    } finally {
-      flow.setSubmitting(false);
-    }
+    })();
+    flow.setSubmitting(false);
   }
 
   async function handleStart(): Promise<import("@t3tools/contracts").MessageId | null> {

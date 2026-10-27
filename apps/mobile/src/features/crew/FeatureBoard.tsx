@@ -302,7 +302,9 @@ export function FeatureBoard(props: {
   const setWorkflowView = (workflowId: string | null) =>
     savePreferences({
       transform: (current) => {
-        const { [scopeKey]: _previous, ...rest } = current.crewWorkflowView ?? {};
+        const rest = Object.fromEntries(
+          Object.entries(current.crewWorkflowView ?? {}).filter(([key]) => key !== scopeKey),
+        );
         return {
           crewWorkflowView: workflowId === null ? rest : { ...rest, [scopeKey]: workflowId },
         };

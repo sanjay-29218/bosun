@@ -198,14 +198,11 @@ function useRun(onSuccess: () => void) {
   ) => {
     setBusy(true);
     setError(null);
-    try {
-      const result = await action();
-      if (result._tag !== "Success") setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
-      else onSuccess();
-      return result._tag === "Success";
-    } finally {
-      setBusy(false);
-    }
+    const result = await action();
+    setBusy(false);
+    if (result._tag !== "Success") setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
+    else onSuccess();
+    return result._tag === "Success";
   };
   return { busy, error, run };
 }

@@ -175,12 +175,9 @@ export function CrewStageCard(props: {
     if (busy) return;
     setBusy(true);
     setHint(null);
-    try {
-      const result = await send();
-      if (result._tag === "Success" && options.sendsNote && note.length > 0) props.onNoteSent();
-    } finally {
-      setBusy(false);
-    }
+    const result = await send();
+    if (result._tag === "Success" && options.sendsNote && note.length > 0) props.onNoteSent();
+    setBusy(false);
   };
   const withNote = note.length > 0 ? { note } : {};
 

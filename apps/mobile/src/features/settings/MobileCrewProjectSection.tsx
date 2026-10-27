@@ -91,25 +91,22 @@ export function MobileCrewProjectSection(props: {
     if (!task || !modelSelection || busyId) return;
     setActionError(null);
     setBusyId("start");
-    try {
-      const result = await start({
-        environmentId: project.environmentId,
-        input: {
-          id: `bot-captain:${uuidv4()}`,
-          projectId: project.id,
-          modelSelection,
-          taskText: task,
-        },
-      });
-      if (result._tag === "Success") {
-        setTaskText("");
-        openThread(result.value.threadId);
-      } else {
-        setActionError(Cause.pretty(result.cause));
-      }
-    } finally {
-      setBusyId(null);
+    const result = await start({
+      environmentId: project.environmentId,
+      input: {
+        id: `bot-captain:${uuidv4()}`,
+        projectId: project.id,
+        modelSelection,
+        taskText: task,
+      },
+    });
+    if (result._tag === "Success") {
+      setTaskText("");
+      openThread(result.value.threadId);
+    } else {
+      setActionError(Cause.pretty(result.cause));
     }
+    setBusyId(null);
   };
 
   const answerQuestion = async (requestId: string) => {
@@ -117,52 +114,43 @@ export function MobileCrewProjectSection(props: {
     if (!text || busyId) return;
     setActionError(null);
     setBusyId(requestId);
-    try {
-      const result = await answer({
-        environmentId: project.environmentId,
-        input: { projectId: project.id, requestId, text },
-      });
-      if (result._tag === "Success") {
-        setAnswers((current) => ({ ...current, [requestId]: "" }));
-        snapshot.refresh();
-      } else {
-        setActionError(Cause.pretty(result.cause));
-      }
-    } finally {
-      setBusyId(null);
+    const result = await answer({
+      environmentId: project.environmentId,
+      input: { projectId: project.id, requestId, text },
+    });
+    if (result._tag === "Success") {
+      setAnswers((current) => ({ ...current, [requestId]: "" }));
+      snapshot.refresh();
+    } else {
+      setActionError(Cause.pretty(result.cause));
     }
+    setBusyId(null);
   };
 
   const cancelRequest = async (requestId: string) => {
     if (busyId) return;
     setActionError(null);
     setBusyId(requestId);
-    try {
-      const result = await cancel({
-        environmentId: project.environmentId,
-        input: { projectId: project.id, requestId },
-      });
-      if (result._tag === "Success") snapshot.refresh();
-      else setActionError(Cause.pretty(result.cause));
-    } finally {
-      setBusyId(null);
-    }
+    const result = await cancel({
+      environmentId: project.environmentId,
+      input: { projectId: project.id, requestId },
+    });
+    if (result._tag === "Success") snapshot.refresh();
+    else setActionError(Cause.pretty(result.cause));
+    setBusyId(null);
   };
 
   const retryRequest = async (requestId: string) => {
     if (busyId) return;
     setActionError(null);
     setBusyId(requestId);
-    try {
-      const result = await retry({
-        environmentId: project.environmentId,
-        input: { projectId: project.id, requestId },
-      });
-      if (result._tag === "Success") snapshot.refresh();
-      else setActionError(Cause.pretty(result.cause));
-    } finally {
-      setBusyId(null);
-    }
+    const result = await retry({
+      environmentId: project.environmentId,
+      input: { projectId: project.id, requestId },
+    });
+    if (result._tag === "Success") snapshot.refresh();
+    else setActionError(Cause.pretty(result.cause));
+    setBusyId(null);
   };
 
   return (
