@@ -12,6 +12,7 @@ import {
 import type { MenuAction } from "@react-native-menu/menu";
 
 import { BotAvatar } from "../../components/BotAvatar";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
 import { Menu } from "../../components/ui/Menu";
@@ -165,7 +166,16 @@ function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
           style={{ width: buttonSize, height: buttonSize }}
           onPress={open}
         >
-          <BotAvatar avatar={menu.avatar} color={menu.color} size={iconSize + 10} />
+          {menu.bot ? (
+            <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 10} />
+          ) : (
+            <SymbolView
+              name="tray"
+              size={iconSize}
+              tintColorClassName="accent-foreground"
+              type="monochrome"
+            />
+          )}
         </Pressable>
       )}
     </AndroidAnchoredMenu>

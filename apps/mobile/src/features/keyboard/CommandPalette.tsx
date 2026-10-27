@@ -301,9 +301,19 @@ export function CommandPalette(props: {
             },
           ]
         : []),
-      ...(activeBot.projectKeys === null
-        ? []
-        : activeBot.bots
+      ...(activeBot.bots.length > 1 && activeBot.active !== null
+        ? [
+            {
+              key: "bot:all",
+              kind: "action" as const,
+              title: "Show all bots",
+              searchTerms: ["bot", "all bots", "inbox"],
+              run: () => activeBot.select(null),
+            },
+          ]
+        : []),
+      ...(activeBot.bots.length > 1
+        ? activeBot.bots
             .filter((bot) => bot.key !== activeBot.active?.key)
             .map((bot) => {
               const waiting = activeBot.needsYou.get(bot.key) ?? 0;
@@ -315,7 +325,8 @@ export function CommandPalette(props: {
                 searchTerms: ["bot", bot.name],
                 run: () => activeBot.select(bot),
               };
-            })),
+            })
+        : []),
       {
         key: "settings",
         kind: "action",

@@ -56,7 +56,7 @@ function readMainViews(): Record<string, MainView> {
   }
 }
 
-// Each bot remembers its view; before the rail knows a bot, the environment does.
+// Each bot remembers its view; All bots, or a rail that knows no bot yet, uses the environment.
 function mainViewKey(environmentId: EnvironmentId | null): string | null {
   const botKey = readActiveLogicalBotKey();
   return botKey === null ? environmentId : `bot:${botKey}`;

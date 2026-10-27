@@ -8,7 +8,9 @@ import {
   type ProjectIconColor,
 } from "@t3tools/contracts";
 
-import { botNeedsYouKey } from "./crewBoard.ts";
+import type { EnvironmentThreadShell } from "./models.ts";
+import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
+import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
 
 /** A project's owner. Projects from older servers have no `botId` and belong to Captain. */
 export function projectBotId(project: { readonly botId?: string | undefined }): string {
@@ -73,9 +75,10 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
 }
 
 /**
- * The selected rail entry. Each environment remembers its own active bot; the first
- * environment (primary first) whose remembered bot is still listed wins. Falls back to the
- * first entry, so a deleted bot or a new environment never leaves the rail without a selection.
+ * The selected rail entry, or null for All bots. Each environment remembers its own active bot;
+ * the first environment (primary first) whose remembered bot is still listed wins. Nothing
+ * remembered, or a deleted bot, reads as All bots. A lone bot is always selected: All bots
+ * only exists beside two or more.
  */
 export function resolveActiveLogicalBot(
   bots: ReadonlyArray<LogicalBot>,
@@ -92,18 +95,19 @@ export function resolveActiveLogicalBot(
     );
     if (match) return match;
   }
-  return bots[0] ?? null;
+  return bots.length === 1 ? bots[0]! : null;
 }
 
 /**
- * What selecting `bot` remembers: its bot on each of its environments. Other environments
- * forget theirs, since an older choice there would otherwise outrank this one in
- * `resolveActiveLogicalBot` when `bot` lives only on a later environment.
+ * What selecting `bot` remembers: its bot on each of its environments, or nothing for All bots.
+ * Other environments forget theirs, since an older choice there would otherwise outrank this
+ * one in `resolveActiveLogicalBot` when `bot` lives only on a later environment.
  */
 export function selectLogicalBot(
   _activeBotIdByEnvironmentId: Readonly<Record<string, string>>,
-  bot: LogicalBot,
+  bot: LogicalBot | null,
 ): Record<string, string> {
+  if (bot === null) return {};
   return Object.fromEntries(bot.members.map((member) => [member.environmentId, member.botId]));
 }
 
@@ -173,23 +177,120 @@ export function botRailShowsThread(
   return projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`);
 }
 
-/** Sums `countNeedsYouByBot` counts (keyed by `botNeedsYouKey`) per rail entry. */
-export function countNeedsYouByLogicalBot(
-  bots: ReadonlyArray<LogicalBot>,
-  countsByBot: ReadonlyMap<string, number>,
-): ReadonlyMap<string, number> {
+/** Rail entry keys by `botNeedsYouKey`; a key no entry lists falls under Captain. */
+function logicalBotKeysByMember(bots: ReadonlyArray<LogicalBot>) {
   const owners = new Map<string, string>();
   for (const bot of bots) {
     for (const member of bot.members) {
       owners.set(botNeedsYouKey(member.environmentId, member.botId), bot.key);
     }
   }
+  return (memberKey: string) => owners.get(memberKey) ?? CAPTAIN_KEY;
+}
+
+/** Sums `countNeedsYouByBot` counts (keyed by `botNeedsYouKey`) per rail entry. */
+export function countNeedsYouByLogicalBot(
+  bots: ReadonlyArray<LogicalBot>,
+  countsByBot: ReadonlyMap<string, number>,
+): ReadonlyMap<string, number> {
+  const owner = logicalBotKeysByMember(bots);
   const counts = new Map<string, number>();
   for (const [memberKey, count] of countsByBot) {
-    const key = owners.get(memberKey) ?? CAPTAIN_KEY;
+    const key = owner(memberKey);
     counts.set(key, (counts.get(key) ?? 0) + count);
   }
   return counts;
+}
+
+/** What a bot's threads are doing besides waiting on you. */
+export interface BotActivity {
+  /** A run failed and nobody has opened the thread since. */
+  readonly failed: boolean;
+  readonly working: boolean;
+  /** A run finished and nobody has opened the thread since. */
+  readonly unread: boolean;
+}
+
+type BotActivityShell = Parameters<typeof isThreadWorking>[0] &
+  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt"> & {
+    readonly lastVisitedAt?: string | null | undefined;
+  };
+
+const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotActivity =>
+  left === undefined
+    ? right
+    : {
+        failed: left.failed || right.failed,
+        working: left.working || right.working,
+        unread: left.unread || right.unread,
+      };
+
+/**
+ * Activity per environment's bot, keyed by `botNeedsYouKey`. Bots with nothing going on are
+ * left out. A server without visit tracking (`lastVisitedAt` undefined) never reads as unseen.
+ */
+export function botActivityByBot(
+  shells: ReadonlyArray<BotActivityShell>,
+  projects: ReadonlyArray<BotOwnedProject>,
+): ReadonlyMap<string, BotActivity> {
+  const ownerKey = createThreadBotKeyResolver(projects);
+  const activity = new Map<string, BotActivity>();
+  for (const shell of shells) {
+    if (shell.archivedAt !== null) continue;
+    const visits = shell.lastVisitedAt !== undefined;
+    const next: BotActivity = {
+      failed: visits && hasUnseenFailure(shell),
+      working: isThreadWorking(shell),
+      unread: visits && hasUnseenCompletion(shell),
+    };
+    if (!next.failed && !next.working && !next.unread) continue;
+    const key = ownerKey(shell);
+    if (key === undefined) continue;
+    activity.set(key, mergeActivity(activity.get(key), next));
+  }
+  return activity;
+}
+
+/** `botActivityByBot` merged per rail entry. */
+export function botActivityByLogicalBot(
+  bots: ReadonlyArray<LogicalBot>,
+  activityByBot: ReadonlyMap<string, BotActivity>,
+): ReadonlyMap<string, BotActivity> {
+  const owner = logicalBotKeysByMember(bots);
+  const merged = new Map<string, BotActivity>();
+  for (const [memberKey, activity] of activityByBot) {
+    const key = owner(memberKey);
+    merged.set(key, mergeActivity(merged.get(key), activity));
+  }
+  return merged;
+}
+
+/** Every entry's activity at once, for All bots. */
+export function combineBotActivity(activities: Iterable<BotActivity>): BotActivity | undefined {
+  let combined: BotActivity | undefined;
+  for (const activity of activities) combined = mergeActivity(combined, activity);
+  return combined;
+}
+
+export type BotRailSignal =
+  | { readonly kind: "needs-you"; readonly count: number }
+  | { readonly kind: "failed" }
+  | { readonly kind: "working" }
+  | { readonly kind: "unread" };
+
+/**
+ * The one thing a rail icon shows, most urgent first: threads waiting on you, a failed run,
+ * work in progress, then a finished run nobody has read.
+ */
+export function botRailSignal(
+  needsYou: number,
+  activity: BotActivity | undefined,
+): BotRailSignal | null {
+  if (needsYou > 0) return { kind: "needs-you", count: needsYou };
+  if (activity?.failed) return { kind: "failed" };
+  if (activity?.working) return { kind: "working" };
+  if (activity?.unread) return { kind: "unread" };
+  return null;
 }
 
 /**

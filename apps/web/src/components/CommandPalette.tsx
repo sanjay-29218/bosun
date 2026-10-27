@@ -61,6 +61,7 @@ import {
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
+  InboxIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
@@ -1936,25 +1937,43 @@ function OpenCommandPaletteDialog(props: {
 
   // The bot rail's switches; Mod+1-9 runs them while the palette is open too.
   const botItems: CommandPaletteActionItem[] = multipleBots
-    ? railBots.map((bot, index) => {
-        const shortcutCommand = botJumpCommandForIndex(index);
-        return {
+    ? [
+        {
           kind: "action",
-          value: `bot:${bot.key}`,
-          searchTerms: [bot.name, "bot", "switch"],
+          value: "bot:all",
+          searchTerms: ["all bots", "inbox", "bot", "switch", "everything"],
           title: (
             <>
-              Switch to <span className="font-semibold">{bot.name}</span>
+              Show <span className="font-semibold">All bots</span>
             </>
           ),
-          ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
-          icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
-          ...(shortcutCommand ? { shortcutCommand } : {}),
+          description: activeRailBot === null ? "Current" : "Every bot's threads",
+          icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+          shortcutCommand: "bot.inbox",
           run: async () => {
-            if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
+            if (activeRailBot !== null) switchBotMainView(() => selectRailBot(null));
           },
-        };
-      })
+        },
+        ...railBots.map((bot, index): CommandPaletteActionItem => {
+          const shortcutCommand = botJumpCommandForIndex(index);
+          return {
+            kind: "action",
+            value: `bot:${bot.key}`,
+            searchTerms: [bot.name, "bot", "switch"],
+            title: (
+              <>
+                Switch to <span className="font-semibold">{bot.name}</span>
+              </>
+            ),
+            ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
+            icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
+            ...(shortcutCommand ? { shortcutCommand } : {}),
+            run: async () => {
+              if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
+            },
+          };
+        }),
+      ]
     : [];
   // Every bot's headquarters, so a single bot (no rail) can be reached too.
   for (const bot of railBots) {

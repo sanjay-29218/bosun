@@ -1,9 +1,15 @@
 import { useAtomValue } from "@effect/atom-react";
-import { logicalBotKey, type LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
+import {
+  botRailSignal,
+  combineBotActivity,
+  logicalBotKey,
+  type BotRailSignal,
+  type LogicalBot,
+} from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { PlusIcon, ServerIcon } from "lucide-react";
+import { InboxIcon, PlusIcon, ServerIcon } from "lucide-react";
 import { useLocation } from "@tanstack/react-router";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
@@ -14,6 +20,7 @@ import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { botsEnvironment } from "../../state/bots";
 import {
+  useActivityByLogicalBot,
   useBotEnvironmentIds,
   useEnvironmentFilter,
   useNeedsYouByLogicalBot,
@@ -37,9 +44,9 @@ import { useOpenBotHeadquarters } from "./openBotHeadquarters";
 export const BOT_RAIL_WIDTH = "3.5rem";
 
 /**
- * The bot rail: a column of bots left of the sidebar. Picking one narrows the sidebar,
- * board and Needs you to that bot's projects. `window` pins it to the window's left edge
- * under the titlebar; `sheet` puts it inside the mobile sidebar sheet.
+ * The bot rail: All bots, then a column of bots left of the sidebar. Picking a bot narrows
+ * the sidebar, board and Needs you to its projects; All bots shows every bot's. `window` pins
+ * it to the window's left edge under the titlebar; `sheet` puts it inside the mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
@@ -50,6 +57,7 @@ export const BotRail = memo(function BotRail({
   const bots = useVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const needsYou = useNeedsYouByLogicalBot();
+  const activity = useActivityByLogicalBot();
   const selectBot = useSelectLogicalBot();
   const switchBotMainView = useSwitchBotMainView();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -72,13 +80,19 @@ export const BotRail = memo(function BotRail({
   const onUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
+  // Null is All bots. Switching saves and restores List / Board per selection.
+  const switchTo = (bot: LogicalBot | null) => {
+    if ((bot?.key ?? null) !== (active?.key ?? null) || onUtilityPage) {
+      switchBotMainView(() => selectBot(bot));
+      return true;
+    }
+    return false;
+  };
   // Picking a bot shows its threads; picking it again there opens its headquarters.
   const select = (bot: LogicalBot) => {
-    if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
-    else {
-      if (isMobile) setOpenMobile(false);
-      openHeadquarters(bot);
-    }
+    if (switchTo(bot)) return;
+    if (isMobile) setOpenMobile(false);
+    openHeadquarters(bot);
   };
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
@@ -93,15 +107,21 @@ export const BotRail = memo(function BotRail({
         context: { terminalFocus: isTerminalFocused(), multipleBots },
       });
       const index = botJumpIndexFromCommand(command ?? "");
-      const bot = index === null ? undefined : bots[index];
-      if (!bot) return;
+      const bot = command === "bot.inbox" ? null : index === null ? undefined : bots[index];
+      if (bot === undefined) return;
       event.preventDefault();
       event.stopPropagation();
-      if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
+      switchTo(bot);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active?.key, bots, keybindings, multipleBots, onUtilityPage, selectBot, switchBotMainView]);
+  }, [keybindings, multipleBots, switchTo, bots]);
+
+  const shortcutFor = (command: Parameters<typeof shortcutLabelForCommand>[1]) =>
+    multipleBots
+      ? shortcutLabelForCommand(keybindings, command, { context: { multipleBots } })
+      : null;
+  const totalNeedsYou = [...needsYou.values()].reduce((sum, count) => sum + count, 0);
 
   return (
     <nav
@@ -122,22 +142,35 @@ export const BotRail = memo(function BotRail({
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border py-2">
         <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto scrollbar-gutter-both">
+          {multipleBots ? (
+            <>
+              <RailItem
+                label="All bots"
+                hint="Every bot's threads"
+                active={active === null}
+                signal={botRailSignal(totalNeedsYou, combineBotActivity(activity.values()))}
+                shortcut={shortcutFor("bot.inbox")}
+                onSelect={() => switchTo(null)}
+              >
+                <InboxIcon className="size-5 text-sidebar-foreground" strokeWidth={1.75} />
+              </RailItem>
+              <RailDivider />
+            </>
+          ) : null}
           {bots.map((bot, index) => (
-            <BotRailItem
+            <RailItem
               key={bot.key}
-              bot={bot}
+              label={bot.name}
+              hint={bot.key === active?.key ? "Click to open its thread" : null}
               active={bot.key === active?.key}
-              needsYou={needsYou.get(bot.key) ?? 0}
-              shortcut={
-                multipleBots
-                  ? shortcutLabelForCommand(keybindings, botJumpCommandForIndex(index), {
-                      context: { multipleBots },
-                    })
-                  : null
-              }
+              signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
+              shortcut={shortcutFor(botJumpCommandForIndex(index))}
               onSelect={() => select(bot)}
-            />
+            >
+              <BotAvatar avatar={bot.avatar} color={bot.color} size={28} />
+            </RailItem>
           ))}
+          <RailDivider />
           <Tooltip>
             <TooltipTrigger
               render={
@@ -180,23 +213,50 @@ export const BotRail = memo(function BotRail({
   );
 });
 
-const BotRailItem = memo(function BotRailItem({
-  bot,
+const RailDivider = () => (
+  <div aria-hidden className="h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
+);
+
+const signalLabel = (signal: BotRailSignal | null): string | null => {
+  switch (signal?.kind) {
+    case "needs-you":
+      return `${signal.count} need${signal.count === 1 ? "s" : ""} you`;
+    case "failed":
+      return "a run failed";
+    case "working":
+      return "working";
+    case "unread":
+      return "unread";
+    default:
+      return null;
+  }
+};
+
+/**
+ * One rail entry: a rounded-square tile with one signal. A count when threads wait on you,
+ * a red dot for a failed run, a ring while working, a blue dot for an unread run.
+ */
+const RailItem = memo(function RailItem({
+  label,
+  hint,
   active,
-  needsYou,
+  signal,
   shortcut,
   onSelect,
+  children,
 }: {
-  readonly bot: LogicalBot;
+  readonly label: string;
+  readonly hint: string | null;
   readonly active: boolean;
-  readonly needsYou: number;
+  readonly signal: BotRailSignal | null;
   readonly shortcut: string | null;
   readonly onSelect: () => void;
+  readonly children: ReactNode;
 }) {
-  const waiting = needsYou > 0 ? `${needsYou} need${needsYou === 1 ? "s" : ""} you` : null;
+  const status = signalLabel(signal);
   return (
     <div className="group/bot relative flex w-full justify-center">
-      {/* The selected bot's marker on the rail's leading edge; hovering hints at it. */}
+      {/* The selected entry's marker on the rail's leading edge; hovering hints at it. */}
       <span
         aria-hidden
         className={cn(
@@ -209,34 +269,38 @@ const BotRailItem = memo(function BotRailItem({
           render={
             <button
               type="button"
-              className="relative rounded-lg outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              className={cn(
+                "relative flex size-9 items-center justify-center rounded-xl bg-sidebar-row-hover outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                signal?.kind === "working" && "ring-2 ring-info ring-inset",
+              )}
               aria-pressed={active}
-              aria-label={waiting ? `${bot.name}, ${waiting}` : bot.name}
+              aria-label={status ? `${label}, ${status}` : label}
               onClick={onSelect}
             />
           }
         >
-          <BotAvatar
-            avatar={bot.avatar}
-            color={bot.color}
-            className={cn(
-              "transition-opacity duration-150",
-              active ? "opacity-100" : "opacity-55 group-hover/bot:opacity-100",
-            )}
-          />
-          {needsYou > 0 ? (
+          {children}
+          {signal?.kind === "needs-you" ? (
             <span
               aria-hidden
               className="absolute -top-1 -right-1.5 h-4 min-w-4 rounded-full bg-warning px-1 text-center text-3xs leading-4 font-semibold text-black tabular-nums ring-2 ring-sidebar"
             >
-              {needsYou > 99 ? "99+" : needsYou}
+              {signal.count > 99 ? "99+" : signal.count}
             </span>
+          ) : signal?.kind === "failed" || signal?.kind === "unread" ? (
+            <span
+              aria-hidden
+              className={cn(
+                "absolute -top-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-sidebar",
+                signal.kind === "failed" ? "bg-error" : "bg-info",
+              )}
+            />
           ) : null}
         </TooltipTrigger>
         <TooltipPopup side="right">
-          {[bot.name, waiting].filter(Boolean).join(" · ")}
+          {[label, status].filter(Boolean).join(" · ")}
           {shortcut ? ` (${shortcut})` : ""}
-          {active ? <div className="text-muted-foreground">Click to open its thread</div> : null}
+          {hint ? <div className="text-muted-foreground">{hint}</div> : null}
         </TooltipPopup>
       </Tooltip>
     </div>
