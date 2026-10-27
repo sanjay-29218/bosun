@@ -139,7 +139,9 @@ export function WorkflowStageDialog({
     if (role.startsWith("role:")) {
       const config = roles.find((candidate) => `role:${candidate.id}` === role);
       if (!config) return;
-      ({ definition: next, slot } = ensureWorkflowRole(next, config));
+      const ensured = ensureWorkflowRole(next, config);
+      next = ensured.definition;
+      slot = ensured.slot;
     } else {
       slot = role.slice("slot:".length);
     }

@@ -118,17 +118,14 @@ function BotsSections({
     );
     if (!botIds) return;
     setBusyId(bot.id);
-    try {
-      const result = await reorder({ environmentId, input: { botIds } });
-      if (result._tag !== "Success")
-        toastManager.add({
-          type: "error",
-          title: `Could not move ${bot.name}`,
-          description: formatEnvironmentQueryError(result.cause),
-        });
-    } finally {
-      setBusyId(null);
-    }
+    const result = await reorder({ environmentId, input: { botIds } });
+    if (result._tag !== "Success")
+      toastManager.add({
+        type: "error",
+        title: `Could not move ${bot.name}`,
+        description: formatEnvironmentQueryError(result.cause),
+      });
+    setBusyId(null);
   };
 
   const deleteBot = async (bot: Bot) => {
@@ -138,17 +135,14 @@ function BotsSections({
     );
     if (confirmed !== true) return;
     setBusyId(bot.id);
-    try {
-      const result = await remove({ environmentId, input: { id: bot.id } });
-      if (result._tag !== "Success")
-        toastManager.add({
-          type: "error",
-          title: `Could not delete ${bot.name}`,
-          description: formatEnvironmentQueryError(result.cause),
-        });
-    } finally {
-      setBusyId(null);
-    }
+    const result = await remove({ environmentId, input: { id: bot.id } });
+    if (result._tag !== "Success")
+      toastManager.add({
+        type: "error",
+        title: `Could not delete ${bot.name}`,
+        description: formatEnvironmentQueryError(result.cause),
+      });
+    setBusyId(null);
   };
 
   return (
@@ -271,17 +265,14 @@ function useMoveProject(environmentId: EnvironmentId) {
   const [moving, setMoving] = useState(false);
   const move = async (project: { id: ProjectId; title: string }, botId: string) => {
     setMoving(true);
-    try {
-      const result = await moveProject({ environmentId, input: { projectId: project.id, botId } });
-      if (result._tag !== "Success")
-        toastManager.add({
-          type: "error",
-          title: `Could not move ${project.title}`,
-          description: formatEnvironmentQueryError(result.cause),
-        });
-    } finally {
-      setMoving(false);
-    }
+    const result = await moveProject({ environmentId, input: { projectId: project.id, botId } });
+    if (result._tag !== "Success")
+      toastManager.add({
+        type: "error",
+        title: `Could not move ${project.title}`,
+        description: formatEnvironmentQueryError(result.cause),
+      });
+    setMoving(false);
   };
   return { canMove, moving, move };
 }
@@ -329,11 +320,8 @@ function BotRow({
   const locked = busy || disabled;
   const run = async (change: BotChange) => {
     setBusy(true);
-    try {
-      await save(bot, change);
-    } finally {
-      setBusy(false);
-    }
+    await save(bot, change);
+    setBusy(false);
   };
   const summary = bot.instructions.split("\n")[0]?.trim() ?? "";
   const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects.length);
@@ -647,7 +635,7 @@ function BotDialog({
   const submit = async () => {
     if (!canSave) return;
     setSaving(true);
-    try {
+    await (async () => {
       const fields = {
         name: name.trim(),
         avatar,
@@ -678,9 +666,8 @@ function BotDialog({
           title: "Could not add the bot",
           description: formatEnvironmentQueryError(result.cause),
         });
-    } finally {
-      setSaving(false);
-    }
+    })();
+    setSaving(false);
   };
 
   return (

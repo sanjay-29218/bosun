@@ -201,21 +201,18 @@ function RolesSection({ environmentId }: { readonly environmentId: EnvironmentId
   const addStarterRoles = async () => {
     if (!defaultModel) return;
     setInitializing(true);
-    try {
-      const result = await initialize({
-        environmentId,
-        input: { modelSelection: defaultModel },
+    const result = await initialize({
+      environmentId,
+      input: { modelSelection: defaultModel },
+    });
+    if (result._tag !== "Success") {
+      toastManager.add({
+        type: "error",
+        title: "Could not add the starter roles",
+        description: formatEnvironmentQueryError(result.cause),
       });
-      if (result._tag !== "Success") {
-        toastManager.add({
-          type: "error",
-          title: "Could not add the starter roles",
-          description: formatEnvironmentQueryError(result.cause),
-        });
-      }
-    } finally {
-      setInitializing(false);
     }
+    setInitializing(false);
   };
 
   return (
@@ -351,11 +348,8 @@ function RoleRow({
   const locked = busy || disabled;
   const run = async (change: RoleChange) => {
     setBusy(true);
-    try {
-      await save(role, change);
-    } finally {
-      setBusy(false);
-    }
+    await save(role, change);
+    setBusy(false);
   };
   const summary = role.instructions.split("\n")[0]?.trim() ?? "";
   const status = [
@@ -458,7 +452,7 @@ function RoleDialog({
   const submit = async () => {
     if (!canSave) return;
     setSaving(true);
-    try {
+    await (async () => {
       const fields = {
         name: name.trim(),
         instructions: instructions.trim(),
@@ -482,9 +476,8 @@ function RoleDialog({
           title: "Could not add the role",
           description: formatEnvironmentQueryError(result.cause),
         });
-    } finally {
-      setSaving(false);
-    }
+    })();
+    setSaving(false);
   };
 
   return (

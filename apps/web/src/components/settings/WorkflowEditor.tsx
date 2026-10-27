@@ -189,7 +189,7 @@ function WorkflowEditor({
     if (busy) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const definition = pruneUnusedRoles({ ...draft, revision: nextRevision });
       if (!(await check(definition))) return;
       const result = await revise({
@@ -203,16 +203,15 @@ function WorkflowEditor({
       setSaved(result.value);
       setDraft(result.value);
       toastManager.add({ type: "success", title: `Published ${draft.name} v${nextRevision}` });
-    } finally {
-      setBusy(false);
-    }
+    })();
+    setBusy(false);
   };
 
   const duplicate = async () => {
     if (busy) return;
     setBusy(true);
     setError(null);
-    try {
+    await (async () => {
       const name = `${draft.name} copy`;
       const definition = pruneUnusedRoles({
         ...draft,
@@ -231,9 +230,8 @@ function WorkflowEditor({
         to: "/settings/workflow",
         search: { environment: environmentId, workflow: result.value.id },
       });
-    } finally {
-      setBusy(false);
-    }
+    })();
+    setBusy(false);
   };
 
   const questionAndLimitRows = (

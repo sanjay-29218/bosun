@@ -1137,7 +1137,7 @@ export default function ChatView(props: ChatViewProps) {
       );
     };
     sendInFlightRef.current = true;
-    try {
+    await (async () => {
       const created = await createFeature({
         environmentId,
         input: {
@@ -1175,9 +1175,8 @@ export default function ChatView(props: ChatViewProps) {
           description: "Its first stage starts when an agent slot frees up.",
         });
       }
-    } finally {
-      sendInFlightRef.current = false;
-    }
+    })();
+    sendInFlightRef.current = false;
   };
   const handleOpenDraftProjectSettings = () => {
     if (!activeDraftLogicalProjectKey) return;

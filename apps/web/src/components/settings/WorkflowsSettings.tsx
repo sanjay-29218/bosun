@@ -110,7 +110,7 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
 
   const addBlank = async () => {
     setAdding(true);
-    try {
+    await (async () => {
       if (!(await ensureStarterRoles())) return;
       const name = "New workflow";
       const definition = blankWorkflow(
@@ -134,14 +134,13 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
         to: "/settings/workflow",
         search: { environment: environmentId, workflow: result.value.id },
       });
-    } finally {
-      setAdding(false);
-    }
+    })();
+    setAdding(false);
   };
 
   const addStarter = async () => {
     setAdding(true);
-    try {
+    await (async () => {
       if (!(await ensureStarterRoles())) return;
       const result = await ensureStarter({ environmentId, input: {} });
       if (result._tag !== "Success")
@@ -150,9 +149,8 @@ function WorkflowsSection({ environmentId }: { readonly environmentId: Environme
           title: "Could not add the starter workflow",
           description: formatEnvironmentQueryError(result.cause),
         });
-    } finally {
-      setAdding(false);
-    }
+    })();
+    setAdding(false);
   };
 
   return (

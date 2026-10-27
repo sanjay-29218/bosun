@@ -68,28 +68,25 @@ export function CrewProjectSection(props: { readonly project: SidebarProjectGrou
     if (!task || !defaultModelSelection || busyId) return;
     setActionError(null);
     setBusyId("start");
-    try {
-      const result = await start({
-        environmentId,
-        input: {
-          id: `bot-captain:${randomUUID()}`,
-          projectId,
-          modelSelection: defaultModelSelection,
-          taskText: task,
-        },
+    const result = await start({
+      environmentId,
+      input: {
+        id: `bot-captain:${randomUUID()}`,
+        projectId,
+        modelSelection: defaultModelSelection,
+        taskText: task,
+      },
+    });
+    if (result._tag === "Success") {
+      setTaskText("");
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId: result.value.threadId },
       });
-      if (result._tag === "Success") {
-        setTaskText("");
-        void navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId, threadId: result.value.threadId },
-        });
-      } else {
-        setActionError(Cause.pretty(result.cause));
-      }
-    } finally {
-      setBusyId(null);
+    } else {
+      setActionError(Cause.pretty(result.cause));
     }
+    setBusyId(null);
   };
 
   const answerQuestion = async (id: string) => {
@@ -97,52 +94,43 @@ export function CrewProjectSection(props: { readonly project: SidebarProjectGrou
     if (!text || busyId) return;
     setActionError(null);
     setBusyId(id);
-    try {
-      const result = await answer({
-        environmentId,
-        input: { projectId, requestId: id, text },
-      });
-      if (result._tag === "Success") {
-        setAnswerByRequest((current) => ({ ...current, [id]: "" }));
-        snapshot.refresh();
-      } else {
-        setActionError(Cause.pretty(result.cause));
-      }
-    } finally {
-      setBusyId(null);
+    const result = await answer({
+      environmentId,
+      input: { projectId, requestId: id, text },
+    });
+    if (result._tag === "Success") {
+      setAnswerByRequest((current) => ({ ...current, [id]: "" }));
+      snapshot.refresh();
+    } else {
+      setActionError(Cause.pretty(result.cause));
     }
+    setBusyId(null);
   };
 
   const cancelRequest = async (id: string) => {
     if (busyId) return;
     setActionError(null);
     setBusyId(id);
-    try {
-      const result = await cancel({
-        environmentId,
-        input: { projectId, requestId: id },
-      });
-      if (result._tag === "Success") snapshot.refresh();
-      else setActionError(Cause.pretty(result.cause));
-    } finally {
-      setBusyId(null);
-    }
+    const result = await cancel({
+      environmentId,
+      input: { projectId, requestId: id },
+    });
+    if (result._tag === "Success") snapshot.refresh();
+    else setActionError(Cause.pretty(result.cause));
+    setBusyId(null);
   };
 
   const retryRequest = async (id: string) => {
     if (busyId) return;
     setActionError(null);
     setBusyId(id);
-    try {
-      const result = await retry({
-        environmentId,
-        input: { projectId, requestId: id },
-      });
-      if (result._tag === "Success") snapshot.refresh();
-      else setActionError(Cause.pretty(result.cause));
-    } finally {
-      setBusyId(null);
-    }
+    const result = await retry({
+      environmentId,
+      input: { projectId, requestId: id },
+    });
+    if (result._tag === "Success") snapshot.refresh();
+    else setActionError(Cause.pretty(result.cause));
+    setBusyId(null);
   };
 
   const openRun = (threadId: (typeof runs)[number]["threadId"]) => {

@@ -44,13 +44,10 @@ export function CrewStageBanner() {
     getComposerDraftState(useComposerDraftStore.getState(), threadRef)?.prompt.trim() ?? "";
   const act = async (action: CrewAction, input: Parameters<CrewStage["run"]>[1] = {}) => {
     setBusy(true);
-    try {
-      const ok = await stage.run(action, input);
-      // A note that reached the stage is spent.
-      if (ok && input.text) useComposerDraftStore.getState().setPrompt(threadRef, "");
-    } finally {
-      setBusy(false);
-    }
+    const ok = await stage.run(action, input);
+    // A note that reached the stage is spent.
+    if (ok && input.text) useComposerDraftStore.getState().setPrompt(threadRef, "");
+    setBusy(false);
   };
   const withNote = (action: CrewAction, extra: Parameters<CrewStage["run"]>[1] = {}) =>
     void act(action, { ...extra, text: readNote() });

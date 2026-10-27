@@ -58,11 +58,8 @@ export function FeaturePanel(props: { readonly onEditWorkflow: () => void }) {
     input?: Parameters<typeof stage.run>[1],
   ) => {
     setBusy(true);
-    try {
-      await stage.run(action, input);
-    } finally {
-      setBusy(false);
-    }
+    await stage.run(action, input);
+    setBusy(false);
   };
   const rows = featureStageRows(snapshot);
   const activeTask = snapshot.activeStepId

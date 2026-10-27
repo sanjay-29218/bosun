@@ -45,11 +45,8 @@ function AnswerField(props: { readonly onAnswer: (text: string) => Promise<boole
     const value = text.trim();
     if (!value || busy) return;
     setBusy(true);
-    try {
-      if (await props.onAnswer(value)) setText("");
-    } finally {
-      setBusy(false);
-    }
+    if (await props.onAnswer(value)) setText("");
+    setBusy(false);
   };
   return (
     <form

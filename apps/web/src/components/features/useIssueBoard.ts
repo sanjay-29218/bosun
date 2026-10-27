@@ -76,7 +76,7 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
       for (const issue of value.issues) issues.push({ ...issue, ...owner });
       for (const milestone of value.milestones) milestones.push({ ...milestone, ...owner });
       if (value.unavailable !== null) unavailable.push({ ...target, reason: value.unavailable });
-      truncated ||= value.truncated;
+      if (value.truncated) truncated = true;
       // The oldest read is what the page can vouch for.
       if (readAt === null || value.readAt < readAt) readAt = value.readAt;
     }
