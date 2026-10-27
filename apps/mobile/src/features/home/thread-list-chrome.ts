@@ -11,7 +11,10 @@ export interface BotSwitcherMenu {
   readonly accessibilityLabel: string;
   /** Threads waiting on you under the other bots, which this list doesn't show. */
   readonly elsewhereNeedsYou: number;
-  /** All bots and each bot to switch to (with `state`), then the active bot's headquarters. */
+  /**
+   * All bots and each bot to switch to (with `state`), then the active bot's headquarters,
+   * then Automations, the web rail's place for scheduled tasks.
+   */
   readonly items: ReadonlyArray<{
     readonly key: string;
     readonly title: string;
@@ -24,8 +27,8 @@ export interface BotSwitcherMenu {
 export const needsYouLabel = (count: number) => `${count} need${count === 1 ? "s" : ""} you`;
 
 /**
- * All bots and the bots to switch between, then the active bot's headquarters. A single bot
- * still gets the button, for its headquarters; null only before any bot loads.
+ * All bots and the bots to switch between, then the active bot's headquarters and Automations.
+ * A single bot still gets the button; null only before any bot loads.
  */
 export function buildBotSwitcherMenu(input: {
   readonly bots: ReadonlyArray<LogicalBot>;
@@ -34,6 +37,7 @@ export function buildBotSwitcherMenu(input: {
   readonly needsYou: ReadonlyMap<string, number>;
   readonly select: (bot: LogicalBot | null) => void;
   readonly openHeadquarters: (bot: LogicalBot) => void;
+  readonly openAutomations: () => void;
 }): BotSwitcherMenu | null {
   const { active } = input;
   if (input.bots.length === 0) return null;
@@ -88,6 +92,12 @@ export function buildBotSwitcherMenu(input: {
               onPress: () => input.openHeadquarters(active),
             },
           ]),
+      {
+        key: "automations",
+        title: "Automations",
+        subtitle: "Scheduled tasks",
+        onPress: input.openAutomations,
+      },
     ],
   };
 }

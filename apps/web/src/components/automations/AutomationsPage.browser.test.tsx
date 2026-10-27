@@ -11,11 +11,12 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 import { render } from "../../../test/render";
-import { ScheduledTasksSettings } from "./ScheduledTasksSettings";
+import { useUiStateStore } from "../../uiStateStore";
+import { AutomationsPage } from "./AutomationsPage";
 
 const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
-const task: ScheduledTask = {
+const baseTask: ScheduledTask = {
   id: ScheduledTaskId.make("nightly"),
   title: "Review issues",
   prompt: "Review open issues",
@@ -38,7 +39,16 @@ const task: ScheduledTask = {
   runCount: 0,
 };
 
-const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true }));
+const state = vi.hoisted(() => ({
+  connected: true,
+  tasks: [] as ScheduledTask[],
+}));
+
+function setup(tasks: ScheduledTask[]) {
+  state.connected = true;
+  state.tasks = tasks;
+  useUiStateStore.setState({ seenAutomationFailureAtByKey: {} });
+}
 
 function environment() {
   return {
@@ -49,23 +59,11 @@ function environment() {
   };
 }
 
-vi.mock(import("./SettingsScopeContext"), async (original) => {
-  const scope = () => {
-    const entry = environment();
-    return {
-      scope: { kind: "all", label: "All", members: [], environmentIds: [environmentId] },
-      environments: [entry],
-      connectedEnvironments: state.connected ? [entry] : [],
-      environment: entry,
-      target: null,
-      targets: [],
-    };
-  };
-  return {
-    ...(await original()),
-    useSettingsScope: scope as never,
-  };
-});
+vi.mock(import("../../state/automations"), async (original) => ({
+  ...(await original()),
+  useScheduledTasksByEnvironment: (() =>
+    state.connected ? [{ environmentId, tasks: state.tasks, error: null }] : []) as never,
+}));
 vi.mock(import("../../state/server"), async (original) => {
   const actual = await original();
   const { Atom } = await import("effect/reactivity");
@@ -85,7 +83,7 @@ vi.mock(import("../../state/server"), async (original) => {
 vi.mock(import("../../state/query"), async (original) => ({
   ...(await original()),
   useEnvironmentQuery: ((request: unknown) => ({
-    data: request === null ? null : { tasks: state.tasksLoaded ? [task] : [] },
+    data: request === null ? null : { tasks: state.tasks },
     error: null,
     isPending: false,
     refresh: vi.fn(),
@@ -94,6 +92,9 @@ vi.mock(import("../../state/query"), async (original) => ({
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
   useEnvironment: (() => environment()) as never,
+  useEnvironments: (() => ({ environments: [environment()] })) as never,
+  useConnectedEnvironmentIds: (() => (state.connected ? [environmentId] : [])) as never,
+  usePrimaryEnvironmentId: (() => environmentId) as never,
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
@@ -104,38 +105,41 @@ vi.mock(import("../../hooks/useSettings"), async (original) => ({
   useEnvironmentSettings: (() => DEFAULT_UNIFIED_SETTINGS) as never,
 }));
 
-describe("ScheduledTasksSettings", () => {
-  it("keeps a linked task's unsaved edits across a disconnect and reconnect", async () => {
-    state.connected = true;
-    state.tasksLoaded = true;
-    await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    const name = page.getByRole("dialog").getByRole("textbox", { name: "Name" });
+describe("AutomationsPage", () => {
+  it("keeps a selected task's unsaved edits across a disconnect and reconnect", async () => {
+    setup([baseTask]);
+    const selection = { environmentId, taskId: baseTask.id };
+    await using screen = await render(<AutomationsPage {...selection} />);
+    const name = page.getByRole("textbox", { name: "Name" });
     await expect.element(name).toHaveValue("Review issues");
     await userEvent.fill(name, "Review stale issues");
 
     state.connected = false;
-    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
-
+    await screen.rerender(<AutomationsPage {...selection} />);
     await expect.element(name).toHaveValue("Review stale issues");
 
     state.connected = true;
-    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
+    await screen.rerender(<AutomationsPage {...selection} />);
     await expect.element(name).toHaveValue("Review stale issues");
   });
 
-  it("keeps an editor the user opened when the linked task loads later", async () => {
-    state.connected = true;
-    state.tasksLoaded = false;
-    await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await userEvent.click(page.getByRole("button", { name: "New task" }));
-    const dialog = page.getByRole("dialog");
-    const name = dialog.getByRole("textbox", { name: "Name" });
-    await userEvent.fill(name, "My draft");
+  it("says when the selected task no longer exists", async () => {
+    setup([]);
+    await using _screen = await render(
+      <AutomationsPage environmentId={environmentId} taskId={baseTask.id} />,
+    );
+    await expect.element(page.getByText("Task unavailable")).toBeInTheDocument();
+  });
 
-    state.tasksLoaded = true;
-    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
-
-    await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
-    await expect.element(name).toHaveValue("My draft");
+  it("marks a failed run seen once its task is open", async () => {
+    const failedAt = "2026-09-18T00:00:00.000Z";
+    setup([{ ...baseTask, lastRunStatus: "failed", lastRunAt: failedAt, lastRunError: "boom" }]);
+    await using _screen = await render(
+      <AutomationsPage environmentId={environmentId} taskId={baseTask.id} />,
+    );
+    await expect.element(page.getByText("boom")).toBeInTheDocument();
+    expect(useUiStateStore.getState().seenAutomationFailureAtByKey).toEqual({
+      "laptop:nightly": failedAt,
+    });
   });
 });

@@ -55,6 +55,10 @@
       "types": "./src/state/botRail.ts",
       "default": "./src/state/botRail.ts"
     },
+    "./state/automations": {
+      "types": "./src/state/automations.ts",
+      "default": "./src/state/automations.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

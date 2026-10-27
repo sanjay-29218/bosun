@@ -60,25 +60,25 @@ to override its environment defaults. Worktree directories keep their original n
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
 
-## Scheduled tasks on mobile
+## Scheduled tasks
 
-Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
-ones across your connected environments. Use the settings filter to narrow the
-list by environment or project. Each task runs on the environment you choose,
+On web and desktop, scheduled tasks live in **Automations**, in the bot rail or
+at the bottom of the sidebar. On mobile, open **Settings → Scheduled tasks**, or
+**Automations** in the bot button's menu, and use the settings filter to narrow
+the list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's.
 
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.
 
-You can edit, pause, resume, run immediately, or delete a task from the list.
-Webhook tasks only run when their URL is called, so they can't be run
-immediately.
-Leaving an edited form asks before discarding unsaved changes.
+Open a task to edit, pause, resume, run it now, or delete it. Webhook tasks only
+run when their URL is called, so they can't be run immediately. On mobile,
+leaving an edited form asks before discarding unsaved changes.
 
 ## Webhook automations
 
-In **Settings → Scheduled tasks**, choose **On webhook**
+In a scheduled task's editor, choose **On webhook**
 as a task's schedule to run it whenever another service calls its URL, such as
 GitHub on a new pull request or a CI job that failed. A public URL needs a
 [T3 Connect](remote-access.md) managed tunnel; after you save the task, copy
@@ -132,7 +132,7 @@ Additional deliveries are accepted without a log entry, and coalesced deliveries
 always replace the persisted payload. Coalesced updates count toward a separate
 60-per-minute validation limit; exceeding it receives HTTP 429.
 
-On desktop and web, pick **Deliveries** from a task's menu to see recent
+On desktop and web, open the task and pick **Deliveries** to see recent
 requests and the prompt each one produced.
 
 If the environment is offline, the sender gets an error and nothing runs;

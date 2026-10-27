@@ -53,6 +53,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  ClockIcon,
   KanbanIcon,
   ListIcon,
   CheckIcon,
@@ -272,7 +273,7 @@ import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { useUiStateStore } from "../uiStateStore";
 import { openNextNeedsYou } from "./features/featuresNavigation";
-import { BOARD_PATH, useToggleMainView } from "./sidebar/mainAppLocation";
+import { AUTOMATIONS_PATH, BOARD_PATH, useToggleMainView } from "./sidebar/mainAppLocation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -380,6 +381,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         event.stopPropagation();
         setOpen(false);
         void navigate({ to: "/usage" });
+        return;
+      }
+      if (command === "automations.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        void navigate({ to: AUTOMATIONS_PATH });
         return;
       }
       if (command === "board.toggle" || command === "needsYou.next") {
@@ -1874,6 +1882,18 @@ function OpenCommandPaletteDialog(props: {
       },
     );
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:automations",
+    searchTerms: ["automations", "scheduled tasks", "schedule", "cron", "webhook", "recurring"],
+    title: "Open automations",
+    icon: <ClockIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "automations.open",
+    run: async () => {
+      await navigate({ to: AUTOMATIONS_PATH });
+    },
+  });
 
   actionItems.push({
     kind: "action",
