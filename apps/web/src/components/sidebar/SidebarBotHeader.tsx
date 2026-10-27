@@ -84,7 +84,7 @@ export const SidebarBotHeader = memo(function SidebarBotHeader({
           <TooltipTrigger
             render={
               <Button
-                variant={onBackdrop ? "media-navigation" : "ghost-muted"}
+                variant="ghost-muted"
                 size="icon-xs"
                 aria-label={`Edit ${bot.name}`}
                 onClick={() => {
