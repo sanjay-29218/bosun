@@ -171,10 +171,12 @@ export function ThreadDisclosureChevron(props: {
   const rotation = useSharedValue(props.expanded ? expandedAngle : 0);
 
   useLayoutEffect(() => {
-    rotation.value = withTiming(props.expanded ? expandedAngle : 0, {
-      duration: THREAD_DISCLOSURE_TRANSITION_MS,
-      reduceMotion: ReduceMotion.System,
-    });
+    rotation.set(
+      withTiming(props.expanded ? expandedAngle : 0, {
+        duration: THREAD_DISCLOSURE_TRANSITION_MS,
+        reduceMotion: ReduceMotion.System,
+      }),
+    );
   }, [expandedAngle, props.expanded, rotation]);
 
   const rotationStyle = useAnimatedStyle(() => ({
@@ -1214,18 +1216,20 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
                 call.argsText,
               ]
                 .filter((line) => Boolean(line))
-                .map((line, index) =>
-                  typeof line === "string" ? (
-                    <Text
-                      key={`${index}:${line}`}
-                      selectable
-                      className="font-mono text-2xs leading-normal text-foreground"
-                    >
-                      {line}
-                    </Text>
-                  ) : (
-                    line
-                  ),
+                .map(
+                  (line, index) =>
+                    /* oxlint-disable react/no-array-index-key -- Log lines are stateless positions within this output. */ typeof line ===
+                    "string" ? (
+                      <Text
+                        key={`${index}:${line}`}
+                        selectable
+                        className="font-mono text-2xs leading-normal text-foreground"
+                      >
+                        {line}
+                      </Text>
+                    ) : (
+                      line
+                    ) /* oxlint-enable react/no-array-index-key */,
                 )
             ) : fullDetail ? (
               <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
