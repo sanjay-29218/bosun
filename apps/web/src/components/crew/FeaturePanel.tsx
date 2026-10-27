@@ -179,8 +179,6 @@ export function FeaturePanel(props: { readonly onEditWorkflow: () => void }) {
             <dd className="truncate">
               {supervisor ? `${formatStageName(supervisor)}, then you` : "You"}
             </dd>
-            <dt className="text-muted-foreground">On failure</dt>
-            <dd>Pause and notify me</dd>
           </dl>
           {snapshot.executionError ? (
             <p role="alert" className="px-2 text-xs break-words text-destructive">

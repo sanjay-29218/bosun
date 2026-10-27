@@ -13,20 +13,22 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Alert, AlertDescription } from "../ui/alert";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkflowStageSelect } from "../workflows/WorkflowStageSelect";
 import { LimitField } from "../settings/CrewLimitsSettings";
 import { SettingsGroup } from "../settings/SettingsGroup";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
+import { LibraryFrame } from "./LibraryFrame";
 import {
   canRemoveStage,
-  describeStageInputs,
   humanizeWorkflowId,
   pruneUnusedRoles,
   refreshWorkflowRoles,
@@ -70,6 +72,7 @@ function useDeleteWorkflow(environmentId: EnvironmentId) {
 
 /** One workflow: stages and routes on the canvas or as a form, then Publish to make a new version. */
 export function WorkflowEditor({
+  title,
   environmentId,
   latest,
   allWorkflowIds,
@@ -77,6 +80,7 @@ export function WorkflowEditor({
   onOpenWorkflow,
   onDeleted,
 }: {
+  readonly title: string | null;
   readonly environmentId: EnvironmentId;
   /** The newest published version, which can change while the editor is open. */
   readonly latest: WorkflowDefinition;
@@ -189,16 +193,23 @@ export function WorkflowEditor({
     setBusy(false);
   };
 
-  const questionAndLimitRows = (
+  const settingsRows = (
     <>
       <SettingsRow
-        title="When a crew member asks a question"
-        description="The Manager answers first and asks you only when it can't."
-        control={<span className="text-sm text-muted-foreground">Manager first, then you</span>}
+        title="Name"
+        control={
+          <Input
+            size="sm"
+            aria-label="Workflow name"
+            value={draft.name}
+            maxLength={200}
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+          />
+        }
       />
       <SettingsRow
-        title="When a stage fails"
-        description={`Pause and notify me after its automatic retries. Empty uses the Crew setting (${crewRetries}).`}
+        title="Retries before a stage fails"
+        description="Then the feature pauses and you're notified."
         control={
           <LimitField
             label="Retries before a stage fails"
@@ -219,7 +230,7 @@ export function WorkflowEditor({
       />
       <SettingsRow
         title="Stage runs per feature"
-        description="A feature stops at Your call after this many stage runs in total."
+        description="Then the feature stops at Your call."
         control={
           <LimitField
             label="Stage runs per feature"
@@ -236,122 +247,107 @@ export function WorkflowEditor({
     </>
   );
 
-  return (
-    <WorkspacePageContainer width={view === "canvas" ? "expanded" : "readable"}>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {canvasAvailable ? (
-          <ToggleGroup
-            aria-label="Workflow editor view"
-            variant="segmented"
-            value={[view]}
-            onValueChange={(value) => {
-              const next = value[0];
-              if (next === "canvas" || next === "form") setView(next);
-            }}
-          >
-            <Toggle value="canvas">Canvas</Toggle>
-            <Toggle value="form">Form</Toggle>
-          </ToggleGroup>
-        ) : null}
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={!edited || busy}
-          onClick={() => {
-            setDraft(refreshed.definition);
-            setError(null);
+  const actions = (
+    <div className="flex items-center gap-2">
+      {canvasAvailable ? (
+        <ToggleGroup
+          aria-label="Workflow editor view"
+          variant="segmented"
+          value={[view]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next === "canvas" || next === "form") setView(next);
           }}
         >
-          Discard
-        </Button>
-        <Button
-          size="xs"
-          disabled={!publishable || superseded || busy}
-          onClick={() => void publish()}
+          <Toggle value="canvas">Canvas</Toggle>
+          <Toggle value="form">Form</Toggle>
+        </ToggleGroup>
+      ) : null}
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={!edited || busy}
+        onClick={() => {
+          setDraft(refreshed.definition);
+          setError(null);
+        }}
+      >
+        Discard
+      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size="xs"
+              disabled={!publishable || superseded || busy}
+              onClick={() => void publish()}
+            />
+          }
         >
           Publish v{nextRevision}
-        </Button>
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                disabled={busy}
-                aria-label="More workflow actions"
-              />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" className="max-w-64">
+          Features that already started keep the version they began with.
+        </TooltipPopup>
+      </Tooltip>
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              disabled={busy}
+              aria-label="More workflow actions"
+            />
+          }
+        >
+          <MoreHorizontalIcon />
+        </MenuTrigger>
+        <MenuPopup align="end">
+          <MenuItem onClick={() => void duplicate()}>Duplicate as new workflow</MenuItem>
+          <MenuItem
+            variant="destructive"
+            onClick={() =>
+              void deleteWorkflow(draft).then((deleted) => {
+                if (deleted) onDeleted();
+              })
             }
           >
-            <MoreHorizontalIcon />
-          </MenuTrigger>
-          <MenuPopup align="end">
-            <MenuItem onClick={() => void duplicate()}>Duplicate as new workflow</MenuItem>
-            <MenuItem
-              variant="destructive"
-              onClick={() =>
-                void deleteWorkflow(draft).then((deleted) => {
-                  if (deleted) onDeleted();
-                })
-              }
-            >
-              Delete workflow
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
-      </div>
-      {error ? (
-        <Alert variant="error">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      {superseded ? (
-        <Alert variant="warning">
-          <AlertDescription>
-            Version {latest.revision} was published while you were editing. Discard your edits to
-            load it.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+            Delete workflow
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
+    </div>
+  );
 
-      <SettingsSection title="Workflow" inert={busy}>
-        <SettingsRow
-          title="Name"
-          control={
-            <Input
-              size="sm"
-              aria-label="Workflow name"
-              value={draft.name}
-              maxLength={200}
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            />
-          }
-        />
-        <SettingsRow
-          title={`Version ${saved.revision}`}
-          description="Features that already started keep the version they began with. Publishing makes a new version for features started after it."
-          status={
-            refreshed.issues.length > 0
-              ? roleIssueText(refreshed.issues, saved.revision)
-              : undefined
-          }
-        />
-        <SettingsRow
-          title="First stage"
-          control={
-            <WorkflowStageSelect
-              label="First stage"
-              value={draft.start}
-              options={stages}
-              stageName={stageName}
-              onChange={(start) => setDraft({ ...draft, start })}
-            />
-          }
-        />
-      </SettingsSection>
+  return (
+    <LibraryFrame
+      title={title}
+      badge={<Badge variant="outline">v{saved.revision}</Badge>}
+      actions={actions}
+    >
+      <WorkspacePageContainer width={view === "canvas" ? "expanded" : "readable"}>
+        {error ? (
+          <Alert variant="error">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {superseded ? (
+          <Alert variant="warning">
+            <AlertDescription>
+              Version {latest.revision} was published while you were editing. Discard your edits to
+              load it.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {refreshed.issues.length > 0 ? (
+          <Alert variant="warning">
+            <AlertDescription>{roleIssueText(refreshed.issues, saved.revision)}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      {view === "canvas" ? (
-        <>
-          <SettingsSection title="Stages and routes" variant="plain" inert={busy}>
+        {view === "canvas" ? (
+          <div inert={busy}>
             <Suspense
               fallback={
                 <SettingsGroup>
@@ -371,116 +367,102 @@ export function WorkflowEditor({
                 roles={roles}
               />
             </Suspense>
-          </SettingsSection>
-          <SettingsSection title="Questions and limits" inert={busy}>
-            {questionAndLimitRows}
-          </SettingsSection>
-        </>
-      ) : (
-        <>
-          <SettingsSection
-            title="Stages"
-            inert={busy}
-            headerAction={
-              <Button
-                size="xs"
-                variant="ghost-muted"
-                onClick={() => setStageDialog({ stepId: null })}
-              >
-                <PlusIcon className="size-3" />
-                Add stage
-              </Button>
-            }
-          >
-            {stages.map((stepId, index) => {
-              const step = draft.steps[stepId];
-              if (step?.type !== "task") return null;
-              const description = [
-                roleName(step.role),
-                step.scope ? `scope ${step.scope}` : null,
-                step.task,
-              ]
-                .filter(Boolean)
-                .join(" · ");
-              const status = [
-                describeStageInputs(draft, stepId),
-                step.outputs?.length ? `writes ${step.outputs.join(", ")}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <div key={stepId}>
-                  <SettingsRow
-                    title={`${index + 1}. ${stageName(stepId)}`}
-                    description={description}
-                    status={status}
-                    control={
-                      <Menu>
-                        <MenuTrigger
-                          render={
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              aria-label={`Actions for ${stageName(stepId)}`}
-                            />
-                          }
-                        >
-                          <MoreHorizontalIcon className="size-4" />
-                        </MenuTrigger>
-                        <MenuPopup align="end">
-                          <MenuItem onClick={() => setStageDialog({ stepId })}>
-                            <PencilIcon />
-                            Edit
-                          </MenuItem>
-                          <MenuItem
-                            disabled={!canRemoveStage(draft, stepId)}
-                            onClick={() => setDraft(removeStage(draft, stepId))}
-                          >
-                            <Trash2Icon />
-                            Remove
-                          </MenuItem>
-                        </MenuPopup>
-                      </Menu>
-                    }
+          </div>
+        ) : (
+          <>
+            <SettingsSection
+              title="Stages"
+              inert={busy}
+              headerAction={
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  onClick={() => setStageDialog({ stepId: null })}
+                >
+                  <PlusIcon className="size-3" />
+                  Add stage
+                </Button>
+              }
+            >
+              <SettingsRow
+                title="First stage"
+                control={
+                  <WorkflowStageSelect
+                    label="First stage"
+                    value={draft.start}
+                    options={stages}
+                    stageName={stageName}
+                    onChange={(start) => setDraft({ ...draft, start })}
                   />
-                  <SettingsRow
-                    className="ps-8 sm:ps-10"
-                    title={`Approve ${stageName(stepId).toLowerCase()}`}
-                    description="You approve or request changes before the feature moves on."
-                    control={
-                      <Switch
-                        aria-label={`Approve ${stageName(stepId)}`}
-                        checked={step.gate === true}
-                        onCheckedChange={(gate) =>
-                          setDraft(
-                            updateTask(draft, stepId, ({ gate: _gate, ...rest }) =>
-                              gate ? { ...rest, gate: true } : rest,
-                            ),
-                          )
-                        }
-                      />
-                    }
-                  />
-                </div>
-              );
-            })}
-          </SettingsSection>
-
-          <SettingsSection title="Routes" inert={busy}>
-            {stages.flatMap((stepId) => {
-              const step = draft.steps[stepId];
-              if (step?.type !== "task") return [];
-              return Object.entries(step.next).map(([outcome, target]) => {
-                const limit = step.limits?.[outcome] ?? null;
+                }
+              />
+              {stages.map((stepId, index) => {
+                const step = draft.steps[stepId];
+                if (step?.type !== "task") return null;
                 return (
+                  <div key={stepId}>
+                    <SettingsRow
+                      title={`${index + 1}. ${stageName(stepId)}`}
+                      description={[roleName(step.role), step.task].filter(Boolean).join(" · ")}
+                      control={
+                        <Menu>
+                          <MenuTrigger
+                            render={
+                              <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label={`Actions for ${stageName(stepId)}`}
+                              />
+                            }
+                          >
+                            <MoreHorizontalIcon className="size-4" />
+                          </MenuTrigger>
+                          <MenuPopup align="end">
+                            <MenuItem onClick={() => setStageDialog({ stepId })}>
+                              <PencilIcon />
+                              Edit
+                            </MenuItem>
+                            <MenuItem
+                              disabled={!canRemoveStage(draft, stepId)}
+                              onClick={() => setDraft(removeStage(draft, stepId))}
+                            >
+                              <Trash2Icon />
+                              Remove
+                            </MenuItem>
+                          </MenuPopup>
+                        </Menu>
+                      }
+                    />
+                    <SettingsRow
+                      className="ps-8 sm:ps-10"
+                      title="Needs your approval"
+                      control={
+                        <Switch
+                          aria-label={`Approve ${stageName(stepId)}`}
+                          checked={step.gate === true}
+                          onCheckedChange={(gate) =>
+                            setDraft(
+                              updateTask(draft, stepId, ({ gate: _gate, ...rest }) =>
+                                gate ? { ...rest, gate: true } : rest,
+                              ),
+                            )
+                          }
+                        />
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </SettingsSection>
+
+            <SettingsSection title="Routes" inert={busy}>
+              {stages.flatMap((stepId) => {
+                const step = draft.steps[stepId];
+                if (step?.type !== "task") return [];
+                return Object.entries(step.next).map(([outcome, target]) => (
                   <SettingsRow
                     key={`${stepId}:${outcome}`}
-                    title={`When ${stageName(stepId)} reports “${humanizeWorkflowId(outcome).toLowerCase()}”`}
-                    description={
-                      limit === null
-                        ? "Empty means no limit on how often this route is taken."
-                        : `After ${limit} ${limit === 1 ? "time" : "times"}, the feature stops at Your call.`
-                    }
+                    title={`${stageName(stepId)} · ${humanizeWorkflowId(outcome)}`}
                     control={
                       <>
                         <WorkflowStageSelect
@@ -499,10 +481,10 @@ export function WorkflowEditor({
                         />
                         <LimitField
                           label={`Most times ${stageName(stepId)} ${outcome} is taken`}
-                          value={limit}
+                          value={step.limits?.[outcome] ?? null}
                           min={1}
                           max={20}
-                          placeholder="–"
+                          placeholder="No limit"
                           allowEmpty
                           onCommit={(value) =>
                             setDraft(setRouteLimit(draft, stepId, outcome, value))
@@ -511,30 +493,33 @@ export function WorkflowEditor({
                       </>
                     }
                   />
-                );
-              });
-            })}
-            {questionAndLimitRows}
-          </SettingsSection>
-        </>
-      )}
+                ));
+              })}
+            </SettingsSection>
+          </>
+        )}
 
-      {stageDialog ? (
-        <WorkflowStageDialog
-          definition={draft}
-          stepId={stageDialog.stepId}
-          after={stageDialog.after}
-          roles={roles}
-          roleName={roleName}
-          stageName={stageName}
-          onSave={(definition) => {
-            setDraft(definition);
-            setStageDialog(null);
-          }}
-          onClose={() => setStageDialog(null)}
-        />
-      ) : null}
-    </WorkspacePageContainer>
+        <SettingsSection title="Settings" inert={busy}>
+          {settingsRows}
+        </SettingsSection>
+
+        {stageDialog ? (
+          <WorkflowStageDialog
+            definition={draft}
+            stepId={stageDialog.stepId}
+            after={stageDialog.after}
+            roles={roles}
+            roleName={roleName}
+            stageName={stageName}
+            onSave={(definition) => {
+              setDraft(definition);
+              setStageDialog(null);
+            }}
+            onClose={() => setStageDialog(null)}
+          />
+        ) : null}
+      </WorkspacePageContainer>
+    </LibraryFrame>
   );
 }
 

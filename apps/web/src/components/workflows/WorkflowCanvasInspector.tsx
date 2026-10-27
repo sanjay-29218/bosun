@@ -17,6 +17,7 @@ import {
 } from "../library/WorkflowEditor.logic";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { canRemoveRoute, connectRoute, removeRoute, stagesRoutingTo } from "./WorkflowCanvas.logic";
 import { WorkflowStageSelect } from "./WorkflowStageSelect";
 
@@ -53,7 +54,7 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
       <SettingsGroup className="self-start">
         <SettingsRow
           title="Add a stage"
-          description="Drag a role onto the canvas. Then drag from an outcome on a stage's right edge to the new stage to route work to it."
+          description="Drag a role onto the canvas, then drag from a stage's outcome to route work."
         />
         <div className="grid gap-1 px-3 pb-3 sm:px-4">
           {roles.map((role) => (
@@ -117,17 +118,12 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
   const stepId = selection.stepId;
   const routedFrom = stagesRoutingTo(definition, stepId);
   const removable = canRemoveStage(definition, stepId);
+  const first = definition.start === stepId;
   return (
     <SettingsGroup className="self-start">
       <SettingsRow
         title={stageName(stepId)}
-        description={[
-          props.roleName(step.role),
-          step.scope ? `scope ${step.scope}` : null,
-          step.task,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        description={[props.roleName(step.role), step.task].filter(Boolean).join(" · ")}
         status={[
           describeStageInputs(definition, stepId),
           step.outputs?.length ? `writes ${step.outputs.join(", ")}` : null,
@@ -142,8 +138,7 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
         }
       />
       <SettingsRow
-        title="Approve before moving on"
-        description="You approve or request changes before the feature moves on."
+        title="Needs your approval"
         control={
           <Switch
             aria-label={`Approve ${stageName(stepId)}`}
@@ -161,46 +156,44 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
       {Object.keys(step.next).map((outcome) => (
         <RouteRow key={outcome} {...props} stepId={stepId} outcome={outcome} />
       ))}
-      <SettingsRow
-        title="First stage"
-        description={
-          definition.start === stepId
-            ? "Features start here."
-            : `Features start at ${stageName(definition.start)}.`
-        }
-        control={
-          definition.start === stepId ? null : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => props.onChange({ ...definition, start: stepId })}
-            >
-              Start here
-            </Button>
-          )
-        }
-      />
-      <SettingsRow
-        title="Remove stage"
-        description={
-          definition.start === stepId
-            ? "Make another stage first before removing this one."
-            : !removable
-              ? `Route ${routedFrom.map(stageName).join(", ")} elsewhere first.`
-              : "Its routes go with it."
-        }
-        control={
+      <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:px-4">
+        {first ? (
+          <span className="text-xs text-muted-foreground">Features start here</span>
+        ) : (
           <Button
-            size="sm"
-            variant="destructive-outline"
-            disabled={!removable}
-            onClick={() => props.onChange(removeStage(definition, stepId))}
+            size="xs"
+            variant="outline"
+            onClick={() => props.onChange({ ...definition, start: stepId })}
           >
-            <Trash2Icon />
-            Remove
+            Start here
           </Button>
-        }
-      />
+        )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              // A disabled button gets no pointer events, so the span carries the tooltip.
+              <span className="ms-auto" />
+            }
+          >
+            <Button
+              size="xs"
+              variant="destructive-outline"
+              disabled={!removable}
+              onClick={() => props.onChange(removeStage(definition, stepId))}
+            >
+              <Trash2Icon />
+              Remove
+            </Button>
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {first
+              ? "Make another stage first before removing this one."
+              : !removable
+                ? `Route ${routedFrom.map(stageName).join(", ")} elsewhere first.`
+                : "Its routes go with it."}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
     </SettingsGroup>
   );
 });
@@ -221,12 +214,7 @@ function RouteRow({
   const endId = workflowEndStepId(definition);
   return (
     <SettingsRow
-      title={`When ${stageName(stepId)} reports “${humanizeWorkflowId(outcome).toLowerCase()}”`}
-      description={
-        limit === null
-          ? "Empty means no limit on how often this route is taken."
-          : `After ${limit} ${limit === 1 ? "time" : "times"}, the feature stops at Your call.`
-      }
+      title={humanizeWorkflowId(outcome)}
       control={
         <>
           <WorkflowStageSelect
@@ -241,7 +229,7 @@ function RouteRow({
             value={limit}
             min={1}
             max={20}
-            placeholder="–"
+            placeholder="No limit"
             allowEmpty
             onCommit={(value) => onChange(setRouteLimit(definition, stepId, outcome, value))}
           />
