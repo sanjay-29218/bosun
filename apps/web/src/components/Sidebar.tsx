@@ -229,7 +229,6 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
-import { SidebarBotHeader } from "./sidebar/SidebarBotHeader";
 import { SidebarNewThreadRow } from "./sidebar/SidebarNewThreadRow";
 import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -2812,7 +2811,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
-            <SidebarBotHeader />
             <SidebarNewThreadRow
               onNewThread={handleNewThreadClick}
               disabled={projects.length === 0}
