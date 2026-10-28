@@ -216,6 +216,12 @@ export const ScheduledTask = Schema.Struct({
   lastRunError: Schema.NullOr(Schema.String),
   runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),
+  /**
+   * Set when the task runs as a bot: every run goes to the bot's headquarters, which uses the
+   * bot's own model, access, tools and instructions, so `threadId`, `workspaceStrategy` and
+   * `modelSelection` don't apply. `projectId` is only where the task is filed.
+   */
+  botId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ScheduledTask = typeof ScheduledTask.Type;
 
@@ -237,7 +243,13 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   prompt: TrimmedNonEmptyString,
   enabled: Schema.Boolean,
   schedule: ScheduledTaskUpsertSchedule,
-  projectId: ProjectId,
+  projectId: Schema.optional(ProjectId).annotate({
+    description: "Required unless `botId` is set. Omitted for a bot: keep stored, or the bot's.",
+  }),
+  botId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).annotate({
+    description:
+      "Run as this bot, in its headquarters. Omitted: keep stored. Null: a new thread per run.",
+  }),
   threadId: Schema.optional(Schema.NullOr(ThreadId)),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   modelSelection: ModelSelection,

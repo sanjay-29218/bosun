@@ -12,6 +12,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  botAutomationsDeleteWarning,
   createAutomationRunIndex,
   groupAutomationsByBot,
   hasUnseenAutomationFailure,
@@ -159,6 +160,17 @@ describe("groupAutomationsByBot", () => {
     expect(groups.map((group) => group.bot?.name)).toEqual(["Social"]);
   });
 
+  it("puts a task that runs as a bot under that bot, whatever its project", () => {
+    const groups = groupAutomationsByBot({
+      environments: [
+        { environmentId: local, tasks: [task("Weekly post", { botId: "bot-social" })] },
+      ],
+      projects: [{ environmentId: local, id: ProjectId.make("app") }],
+      bots,
+    });
+    expect(groups.map((group) => group.bot?.name)).toEqual(["Social"]);
+  });
+
   it("keeps tasks visible when the rail knows no bots", () => {
     const groups = groupAutomationsByBot({
       environments: [{ environmentId: local, tasks: [task("Nightly")] }],
@@ -193,6 +205,35 @@ describe("createAutomationRunIndex", () => {
     expect(
       runs(local, task("Nightly", { threadId: ThreadId.make("bound") })).map((thread) => thread.id),
     ).toEqual(["bound"]);
+  });
+});
+
+describe("bot automations", () => {
+  it("finds a bot task's runs in the bot's headquarters", () => {
+    const headquarters = botHeadquartersThreadId("bot-social");
+    const runs = createAutomationRunIndex([
+      shell(headquarters, { title: "Social", createdAt: "2026-09-01T00:00:00.000Z" }),
+      shell("same-title", { title: "Weekly post", createdAt: "2026-10-02T00:00:00.000Z" }),
+    ]);
+    expect(
+      runs(local, task("Weekly post", { botId: "bot-social" })).map((thread) => thread.id),
+    ).toEqual([headquarters]);
+  });
+
+  it("warns that deleting a bot deletes its automations, naming the count", () => {
+    const tasks = [
+      task("a", { botId: "bot-social" }),
+      task("b", { botId: "bot-social" }),
+      task("c", { botId: "bot-finance" }),
+      task("d"),
+    ];
+    expect(botAutomationsDeleteWarning(tasks, "bot-social")).toBe(
+      "Its 2 automations will be deleted too.",
+    );
+    expect(botAutomationsDeleteWarning(tasks, "bot-finance")).toBe(
+      "Its 1 automation will be deleted too.",
+    );
+    expect(botAutomationsDeleteWarning(tasks, "bot-quiet")).toBeNull();
   });
 });
 

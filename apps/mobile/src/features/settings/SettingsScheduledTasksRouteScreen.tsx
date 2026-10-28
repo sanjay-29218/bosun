@@ -41,6 +41,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../../components/ui/Button";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
+import { BotAvatar } from "../../components/BotAvatar";
 import {
   EnvironmentMachineSymbol,
   ENVIRONMENT_MACHINE_SYMBOLS,
@@ -58,6 +59,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useProjects, useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
+import { botsEnvironment } from "../../state/bots";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { resolveNewTaskBranchLabel } from "../threads/new-task-context-presentation";
@@ -73,6 +75,7 @@ import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-en
 import {
   editDraft,
   scheduledTaskDefaultModel,
+  scheduledTaskRunTarget,
   scheduleFromDraft,
   type ScheduledTaskDraft as Draft,
 } from "./scheduledTaskDraft";
@@ -95,6 +98,9 @@ type ScheduledTaskRoutes = {
   SettingsScheduledTaskModel: undefined;
   SettingsScheduledTaskBranch: undefined;
 };
+
+/** The "Runs as" menu's id for a task that starts a new thread per run; bots use their ids. */
+const RUNS_AS_THREAD = "runs-as:thread";
 
 const DAYS = [
   { index: 1, label: "Mon" },
@@ -667,6 +673,8 @@ function TaskForm({
   );
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const config = useEnvironmentServerConfig(environmentId);
+  const bots = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} })).data ?? [];
+  const runsAsBot = draft.botId === null ? null : bots.find((bot) => bot.id === draft.botId);
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
@@ -730,21 +738,23 @@ function TaskForm({
       );
       return;
     }
+    const target = scheduledTaskRunTarget(draft);
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||
-      !draft.projectId ||
+      !target ||
       !draft.modelSelection ||
-      !schedule ||
-      (draft.workspace === "existing_worktree" && !draft.checkoutPath.trim())
+      !schedule
     ) {
       Dialog.alert(
         "Incomplete task",
-        "Add a name, prompt, project, model, valid schedule, and checkout path if needed.",
+        draft.botId === null
+          ? "Add a name, prompt, project, model, valid schedule, and checkout path if needed."
+          : "Add a name, prompt, and valid schedule.",
       );
       return;
     }
-    if (!projects.some((project) => project.id === draft.projectId)) {
+    if (draft.botId === null && !projects.some((project) => project.id === draft.projectId)) {
       Dialog.alert("Project unavailable", "Choose a project in this environment.");
       return;
     }
@@ -752,21 +762,12 @@ function TaskForm({
       ...(draft.task ? { id: draft.task.id, requireExisting: true } : {}),
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
-      projectId: draft.projectId,
+      ...target,
+      // A bot's headquarters uses the bot's model; the stored one only seeds thread tasks.
       modelSelection: draft.modelSelection,
       schedule,
       enabled: draft.enabled,
       threadId: draft.task?.threadId ?? null,
-      workspaceStrategy:
-        draft.workspace === "root"
-          ? { type: "root" }
-          : draft.workspace === "existing_worktree"
-            ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
-            : {
-                type: "worktree",
-                baseRef: draft.baseRef.trim() || "main",
-                startFromOrigin: draft.startFromOrigin,
-              },
       runtimeMode: draft.runtimeMode,
       interactionMode: draft.task?.interactionMode ?? "default",
       creationSource: draft.task?.creationSource ?? "mobile",
@@ -829,6 +830,35 @@ function TaskForm({
               if (target) onChangeEnvironment(target);
             }}
           />
+          {bots.length > 0 || draft.botId !== null ? (
+            <SelectRow
+              label="Runs as"
+              borderTop
+              value={draft.botId === null ? "A new thread" : (runsAsBot?.name ?? draft.botId)}
+              valueIcon={
+                runsAsBot ? (
+                  <BotAvatar avatar={runsAsBot.avatar} color={runsAsBot.color} size={22} />
+                ) : null
+              }
+              actions={
+                saving || dictationPending
+                  ? []
+                  : [
+                      {
+                        id: RUNS_AS_THREAD,
+                        title: "A new thread in a project",
+                        state: draft.botId === null ? "on" : undefined,
+                      },
+                      ...bots.map((bot) => ({
+                        id: bot.id,
+                        title: bot.name,
+                        state: bot.id === draft.botId ? ("on" as const) : undefined,
+                      })),
+                    ]
+              }
+              onSelect={(id) => setDraft({ ...draft, botId: id === RUNS_AS_THREAD ? null : id })}
+            />
+          ) : null}
         </SettingsSection>
         <SettingsSection title="Task">
           <FormField
@@ -841,112 +871,125 @@ function TaskForm({
           {promptField}
         </SettingsSection>
 
-        <SettingsSection title="Context">
-          <SelectRow
-            label="Project"
-            value={
-              projects.find((project) => project.id === draft.projectId)?.title ??
-              (projects.length ? "Choose project" : "No projects available")
-            }
-            actions={projects.map((project) => ({
-              id: project.id,
-              title: project.title,
-              state: project.id === draft.projectId ? "on" : undefined,
-            }))}
-            onSelect={(id) => {
-              const project = projects.find((item) => item.id === id);
-              if (!project) return;
-              const keepsExplicitModel =
-                draft.modelSelectionIsExplicit &&
-                (draft.modelSelection === null ||
-                  !config?.settings ||
-                  resolveProjectProviderInstanceEnabled(
-                    config.settings,
-                    project.id,
-                    draft.modelSelection.instanceId,
-                  ));
-              setDraft({
-                ...draft,
-                projectId: project.id,
-                modelSelection: keepsExplicitModel
-                  ? draft.modelSelection
-                  : scheduledTaskDefaultModel(config, project),
-                modelSelectionIsExplicit: keepsExplicitModel,
-              });
-            }}
-          />
-          <PickerRow
-            label="Model"
-            borderTop
-            value={
-              modelOptions.find(
-                (option) =>
-                  option.selection.instanceId === draft.modelSelection?.instanceId &&
-                  option.selection.model === draft.modelSelection?.model,
-              )?.label ??
-              draft.modelSelection?.model ??
-              (modelOptions.length ? "Choose model" : "No models available")
-            }
-            onPress={() => navigation.navigate("SettingsScheduledTaskModel")}
-            disabled={saving || dictationPending || environmentUnavailable}
-          />
-        </SettingsSection>
+        {draft.botId !== null ? (
+          <Text textRole="footnote" className="px-1 text-foreground-muted">
+            Runs in {runsAsBot?.name ?? "the bot"}'s headquarters, with its model, tools and
+            instructions.
+          </Text>
+        ) : null}
 
-        <SettingsSection title="Workspace">
-          <SelectRow
-            label="Run in"
-            value={
-              draft.workspace === "worktree"
-                ? "New worktree"
-                : draft.workspace === "root"
-                  ? "Project checkout"
-                  : "Specific checkout"
-            }
-            actions={[
-              {
-                id: "worktree",
-                title: "New worktree",
-                state: draft.workspace === "worktree" ? "on" : undefined,
-              },
-              {
-                id: "root",
-                title: "Project checkout",
-                state: draft.workspace === "root" ? "on" : undefined,
-              },
-              {
-                id: "existing_worktree",
-                title: "Specific checkout",
-                state: draft.workspace === "existing_worktree" ? "on" : undefined,
-              },
-            ]}
-            onSelect={(id) => {
-              if (id === "worktree" || id === "root" || id === "existing_worktree")
-                setDraft({ ...draft, workspace: id });
-            }}
-          />
-          {draft.workspace === "worktree" ? (
-            <PickerRow
-              label="Base branch"
-              value={resolveNewTaskBranchLabel({
-                branchName: draft.baseRef,
-                startFromOrigin: draft.startFromOrigin,
-                workspaceMode: "worktree",
-              })}
-              borderTop
-              disabled={!draft.projectId || saving || dictationPending || environmentUnavailable}
-              onPress={() => navigation.navigate("SettingsScheduledTaskBranch")}
-            />
-          ) : null}
-          {draft.workspace === "existing_worktree" ? (
-            <FormField
-              label="Checkout path"
-              disabled={saving}
-              value={draft.checkoutPath}
-              borderTop
-              onChange={(checkoutPath) => setDraft({ ...draft, checkoutPath })}
-            />
-          ) : null}
-        </SettingsSection>
+        {draft.botId === null ? (
+          <>
+            <SettingsSection title="Context">
+              <SelectRow
+                label="Project"
+                value={
+                  projects.find((project) => project.id === draft.projectId)?.title ??
+                  (projects.length ? "Choose project" : "No projects available")
+                }
+                actions={projects.map((project) => ({
+                  id: project.id,
+                  title: project.title,
+                  state: project.id === draft.projectId ? "on" : undefined,
+                }))}
+                onSelect={(id) => {
+                  const project = projects.find((item) => item.id === id);
+                  if (!project) return;
+                  const keepsExplicitModel =
+                    draft.modelSelectionIsExplicit &&
+                    (draft.modelSelection === null ||
+                      !config?.settings ||
+                      resolveProjectProviderInstanceEnabled(
+                        config.settings,
+                        project.id,
+                        draft.modelSelection.instanceId,
+                      ));
+                  setDraft({
+                    ...draft,
+                    projectId: project.id,
+                    modelSelection: keepsExplicitModel
+                      ? draft.modelSelection
+                      : scheduledTaskDefaultModel(config, project),
+                    modelSelectionIsExplicit: keepsExplicitModel,
+                  });
+                }}
+              />
+              <PickerRow
+                label="Model"
+                borderTop
+                value={
+                  modelOptions.find(
+                    (option) =>
+                      option.selection.instanceId === draft.modelSelection?.instanceId &&
+                      option.selection.model === draft.modelSelection?.model,
+                  )?.label ??
+                  draft.modelSelection?.model ??
+                  (modelOptions.length ? "Choose model" : "No models available")
+                }
+                onPress={() => navigation.navigate("SettingsScheduledTaskModel")}
+                disabled={saving || dictationPending || environmentUnavailable}
+              />
+            </SettingsSection>
+
+            <SettingsSection title="Workspace">
+              <SelectRow
+                label="Run in"
+                value={
+                  draft.workspace === "worktree"
+                    ? "New worktree"
+                    : draft.workspace === "root"
+                      ? "Project checkout"
+                      : "Specific checkout"
+                }
+                actions={[
+                  {
+                    id: "worktree",
+                    title: "New worktree",
+                    state: draft.workspace === "worktree" ? "on" : undefined,
+                  },
+                  {
+                    id: "root",
+                    title: "Project checkout",
+                    state: draft.workspace === "root" ? "on" : undefined,
+                  },
+                  {
+                    id: "existing_worktree",
+                    title: "Specific checkout",
+                    state: draft.workspace === "existing_worktree" ? "on" : undefined,
+                  },
+                ]}
+                onSelect={(id) => {
+                  if (id === "worktree" || id === "root" || id === "existing_worktree")
+                    setDraft({ ...draft, workspace: id });
+                }}
+              />
+              {draft.workspace === "worktree" ? (
+                <PickerRow
+                  label="Base branch"
+                  value={resolveNewTaskBranchLabel({
+                    branchName: draft.baseRef,
+                    startFromOrigin: draft.startFromOrigin,
+                    workspaceMode: "worktree",
+                  })}
+                  borderTop
+                  disabled={
+                    !draft.projectId || saving || dictationPending || environmentUnavailable
+                  }
+                  onPress={() => navigation.navigate("SettingsScheduledTaskBranch")}
+                />
+              ) : null}
+              {draft.workspace === "existing_worktree" ? (
+                <FormField
+                  label="Checkout path"
+                  disabled={saving}
+                  value={draft.checkoutPath}
+                  borderTop
+                  onChange={(checkoutPath) => setDraft({ ...draft, checkoutPath })}
+                />
+              ) : null}
+            </SettingsSection>
+          </>
+        ) : null}
 
         <SettingsSection title="Schedule">
           <View className="px-4 py-3">

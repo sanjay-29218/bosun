@@ -1,8 +1,10 @@
 import {
+  botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   headquartersBotId,
   type EnvironmentId,
   type ScheduledTask,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import { createLogicalBotResolver, projectBotId, type LogicalBot } from "./botRail.ts";
@@ -33,9 +35,9 @@ export interface AutomationGroup {
 }
 
 /**
- * Tasks grouped under the bot that owns them, in rail order. A task posting into a bot's
- * headquarters belongs to that bot; otherwise its project's bot does. Groups sort their tasks
- * by title.
+ * Tasks grouped under the bot that owns them, in rail order. A task that runs as a bot, or posts
+ * into a bot's headquarters, belongs to that bot; otherwise its project's bot does. Groups sort
+ * their tasks by title.
  */
 export function groupAutomationsByBot(input: {
   readonly environments: ReadonlyArray<EnvironmentScheduledTasks>;
@@ -53,6 +55,7 @@ export function groupAutomationsByBot(input: {
   for (const { environmentId, tasks } of input.environments) {
     for (const task of tasks) {
       const botId =
+        task.botId ??
         (task.threadId === null ? undefined : headquartersBotId(task.threadId)) ??
         projectBot.get(`${environmentId}:${task.projectId}`) ??
         CAPTAIN_BOT_ID;
@@ -87,9 +90,16 @@ export type AutomationRunShell = Parameters<typeof isThreadWorking>[0] &
 const runIndexKey = (environmentId: EnvironmentId, projectId: string, title: string) =>
   `${environmentId}:${projectId}:${title}`;
 
+/** The thread a task posts every run into: the bot's headquarters or its bound thread. */
+export function automationRunThreadId(
+  task: Pick<ScheduledTask, "botId" | "threadId">,
+): ThreadId | null {
+  return task.botId === undefined ? task.threadId : botHeadquartersThreadId(task.botId);
+}
+
 /**
- * Finds the threads a task's runs went to. A task bound to a thread posts every run there.
- * Otherwise each run starts a thread in the task's project titled after the task, so runs are
+ * Finds the threads a task's runs went to. A task that runs as a bot posts every run into its
+ * headquarters, and a task bound to a thread into that thread. Otherwise each run starts a thread in the task's project titled after the task, so runs are
  * matched by project and title; a thread renamed since, or a task renamed since, drops out.
  */
 export function createAutomationRunIndex<Shell extends AutomationRunShell>(
@@ -106,8 +116,9 @@ export function createAutomationRunIndex<Shell extends AutomationRunShell>(
   }
   /** The task's run threads, newest first. */
   return (environmentId: EnvironmentId, task: ScheduledTask): Shell[] => {
-    if (task.threadId !== null) {
-      const bound = byId.get(`${environmentId}:${task.threadId}`);
+    const boundThreadId = automationRunThreadId(task);
+    if (boundThreadId !== null) {
+      const bound = byId.get(`${environmentId}:${boundThreadId}`);
       return bound === undefined ? [] : [bound];
     }
     return (byTitle.get(runIndexKey(environmentId, task.projectId, task.title)) ?? [])
@@ -170,4 +181,17 @@ export function hasUnseenAutomationFailure(
       isAutomationFailureUnseen(task, seen[automationKey(environmentId, task.id)]),
     ),
   );
+}
+
+/**
+ * The sentence a bot's delete confirmation adds for the automations that run as it, which are
+ * deleted with it, or null when it has none.
+ */
+export function botAutomationsDeleteWarning(
+  tasks: ReadonlyArray<Pick<ScheduledTask, "botId">>,
+  botId: string,
+): string | null {
+  const count = tasks.filter((task) => task.botId === botId).length;
+  if (count === 0) return null;
+  return `Its ${count} ${count === 1 ? "automation" : "automations"} will be deleted too.`;
 }

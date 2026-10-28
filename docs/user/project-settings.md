@@ -72,6 +72,11 @@ environment's time zone, which may differ from your phone's.
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.
 
+**Runs as**, at the top of the editor, can pick a bot instead of a new thread in a
+project. Each run then goes to the bot's headquarters, with the bot's model, tools
+and instructions, so it can hand work to project managers or start features.
+Deleting a bot deletes the tasks that run as it; the confirmation says how many.
+
 Open a task to edit, pause, resume, run it now, or delete it. Webhook tasks only
 run when their URL is called, so they can't be run immediately. On mobile,
 leaving an edited form asks before discarding unsaved changes.

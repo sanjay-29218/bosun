@@ -56,6 +56,16 @@ const runningAutomationKeysAtom = Atom.make((get): ReadonlySet<string> => {
     : next;
 }).pipe(Atom.withLabel("web-automations:running"));
 
+/** One connected environment's tasks, or null until they load. */
+export function useEnvironmentScheduledTasks(
+  environmentId: EnvironmentId,
+): ReadonlyArray<ScheduledTask> | null {
+  return (
+    useAtomValue(scheduledTasksStateAtom).find((state) => state.environmentId === environmentId)
+      ?.tasks ?? null
+  );
+}
+
 /** Each environment's tasks, on the environments the rail's filter shows. */
 export function useScheduledTasksByEnvironment(): ReadonlyArray<EnvironmentScheduledTasksState> {
   const states = useAtomValue(scheduledTasksStateAtom);

@@ -5,6 +5,7 @@ import {
   type ProjectId,
   ScheduledTaskId,
   type ScheduledTask,
+  type ScheduledTaskUpsertInput,
   type ScheduledTaskUpsertSchedule,
   type ModelSelection,
   type RuntimeMode,
@@ -57,6 +58,8 @@ export interface DraftState {
   readonly intervalMinutes: string;
   readonly timeOfDay: string;
   readonly weekdays: ReadonlySet<number>;
+  /** The bot the task runs as, or empty for a new thread in the project per run. */
+  readonly botId: string;
   readonly projectId: string;
   readonly threadId: string;
   readonly workspaceMode: WorkspaceMode;
@@ -205,6 +208,7 @@ export function taskToDraft(task: ScheduledTask): DraftState {
       schedule.type === "interval" ? String(Math.max(1, schedule.everyMs / 60_000)) : "15",
     timeOfDay: schedule.type === "fixed_time" ? schedule.timeOfDay : "09:00",
     weekdays,
+    botId: task.botId ?? "",
     projectId: task.projectId,
     threadId: task.threadId ?? "",
     workspaceMode: task.workspaceStrategy.type,
@@ -277,4 +281,17 @@ export function scheduledTaskDefaultModel(
   );
   const fallback = models.find(({ model }) => model.isDefault) ?? models[0];
   return fallback ? { instanceId: fallback.instanceId, model: fallback.model.slug } : null;
+}
+
+/**
+ * Where a save sends the task's runs. A bot task runs in its headquarters, so it sends no
+ * project, thread or checkout; the server files it where the headquarters lives.
+ */
+export function runTargetFromDraft(
+  draft: Pick<DraftState, "botId">,
+  thread: Pick<ScheduledTaskUpsertInput, "projectId" | "threadId" | "workspaceStrategy">,
+): Pick<ScheduledTaskUpsertInput, "botId" | "projectId" | "threadId" | "workspaceStrategy"> {
+  return draft.botId
+    ? { botId: draft.botId, threadId: null, workspaceStrategy: { type: "root" } }
+    : { ...thread, botId: null };
 }

@@ -1,6 +1,12 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CAPTAIN_BOT_ID, CommandId, ProjectId } from "@t3tools/contracts";
+import {
+  CAPTAIN_BOT_ID,
+  CommandId,
+  ProjectId,
+  ProviderInstanceId,
+  type ScheduledTaskUpsertInput,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -9,6 +15,12 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
@@ -20,6 +32,22 @@ import * as BotService from "./BotService.ts";
 import * as BotStore from "./BotStore.ts";
 
 const layer = BotService.layer.pipe(
+  Layer.provideMerge(
+    ScheduledTaskService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+            namedProjectsRoot: "/projects",
+            isScratchProject: () => Effect.succeed(false),
+          }),
+          Scheduler.layer,
+        ),
+      ),
+    ),
+  ),
   Layer.provideMerge(RuntimeLayer.layerProjectService),
   Layer.provideMerge(BotStore.layer),
   Layer.provideMerge(WorkflowStoreLive),
@@ -45,6 +73,19 @@ const layer = BotService.layer.pipe(
   Layer.provide(ServerSettings.layerTest()),
   Layer.provideMerge(NodeServices.layer),
 );
+
+const automation = (title: string, botId: string | null): ScheduledTaskUpsertInput => ({
+  title,
+  prompt: "Post the weekly update",
+  enabled: true,
+  schedule: { type: "interval", everyMs: 60_000 },
+  projectId: ProjectId.make("project:automations"),
+  botId,
+  workspaceStrategy: { type: "root" },
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+});
 
 const social = {
   id: "bot:social",
@@ -183,6 +224,29 @@ it.layer(layer)("BotService", (it) => {
         Exit.isFailure(
           yield* Effect.exit(bots.moveProject({ projectId: owned.id, botId: "bot:missing" })),
         ),
+      );
+    }),
+  );
+
+  it.effect("deleting a bot deletes the automations that run as it, and only those", () =>
+    Effect.gen(function* () {
+      const bots = yield* BotService.BotService;
+      const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const bot = yield* bots.create({ ...social, id: "bot:automations" });
+      const asBot = (yield* scheduledTasks.upsert(automation("Weekly post", bot.id))).task;
+      const asCaptain = (yield* scheduledTasks.upsert(automation("Captain's", CAPTAIN_BOT_ID)))
+        .task;
+      const plain = (yield* scheduledTasks.upsert(automation("Plain", null))).task;
+      assert.strictEqual(asBot.botId, bot.id);
+
+      yield* bots.delete(bot.id);
+      assert.deepStrictEqual(
+        (yield* scheduledTasks.list()).tasks.map((task) => task.id).toSorted(),
+        [asCaptain.id, plain.id].toSorted(),
+      );
+      // A deleted bot can't be given new automations either.
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(scheduledTasks.upsert(automation("Late", bot.id)))),
       );
     }),
   );

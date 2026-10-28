@@ -4,11 +4,14 @@ import * as NodeUtil from "node:util";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
   ProjectId,
   ProviderInstanceId,
   ScheduledTaskError,
   ScheduledTaskId,
   ThreadId,
+  type ScheduledTaskUpsertInput,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -400,5 +403,121 @@ it.effect("thread cleanup notifies subscribers and a finishing run cannot recrea
       yield* Fiber.join(run);
       assert.lengthOf((yield* service.list()).tasks, 0);
     }).pipe(Effect.provide(layer));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+const botTaskInput = (botId: string): ScheduledTaskUpsertInput => ({
+  id: ScheduledTaskId.make("task:as-bot"),
+  title: "Morning brief",
+  prompt: "Summarize what changed overnight",
+  enabled: true,
+  schedule: { type: "interval", everyMs: 60_000 },
+  projectId: ProjectId.make("project:test"),
+  botId,
+  // A bot task has no thread of its own; a stray binding is dropped.
+  threadId: ThreadId.make("thread:stray"),
+  workspaceStrategy: { type: "root" },
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+});
+
+const botTaskLayer = (
+  sent: Ref.Ref<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>,
+) =>
+  ScheduledTaskService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+          launch: () => Effect.die("a bot task never launches a thread"),
+        }),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          sendToThread: (input) =>
+            Ref.update(sent, (all) => [...all, input]).pipe(Effect.as({} as never)),
+        }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: "/projects",
+          isScratchProject: () => Effect.succeed(false),
+        }),
+        NodeCrypto.layer,
+        Scheduler.layer,
+      ),
+    ),
+  );
+
+it.effect("a bot task runs in its bot's headquarters and outlives the headquarters thread", () =>
+  Effect.gen(function* () {
+    const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
+      [],
+    );
+    const opened = yield* Ref.make<ReadonlyArray<string>>([]);
+    const headquarters = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      // Stands in for the crew, which creates or restores the headquarters on open.
+      yield* service.connectBotHeadquarters((botId) =>
+        Ref.update(opened, (all) => [...all, botId]).pipe(
+          Effect.as({ threadId: headquarters, projectId: ProjectId.make("project:scratch") }),
+        ),
+      );
+      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      assert.strictEqual(task.botId, CAPTAIN_BOT_ID);
+      assert.isNull(task.threadId);
+
+      const run = yield* service.runNow({ id: task.id });
+      assert.strictEqual(run.threadId, headquarters);
+      assert.strictEqual(run.task.lastRunStatus, "succeeded");
+      assert.deepStrictEqual(yield* Ref.get(opened), [CAPTAIN_BOT_ID]);
+      const [send] = yield* Ref.get(sent);
+      assert.strictEqual(send?.threadId, headquarters);
+      assert.strictEqual(send?.projectId, "project:scratch");
+      assert.strictEqual(send?.mode, "queue");
+      assert.strictEqual(send?.text, "Summarize what changed overnight");
+      // The headquarters runs on the bot's model, not the one stored with the task.
+      assert.isUndefined(send?.modelSelection);
+
+      // Headquarters threads get deleted and restored; the task stays.
+      yield* service.deleteForThread(headquarters);
+      // A client that predates bot tasks re-saves without botId and keeps the bot.
+      const { botId: _botId, ...legacySave } = botTaskInput(CAPTAIN_BOT_ID);
+      yield* service.upsert(legacySave);
+      const [kept] = (yield* service.list()).tasks;
+      assert.strictEqual(kept?.botId, CAPTAIN_BOT_ID);
+
+      // Null turns it back into a task that starts a thread per run.
+      const { task: plain } = yield* service.upsert({
+        ...botTaskInput(CAPTAIN_BOT_ID),
+        botId: null,
+        threadId: null,
+      });
+      assert.isUndefined(plain.botId);
+    }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("refuses unknown bots and fails a run whose bot is gone with a clear error", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
+      [],
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const unknown = yield* Effect.flip(service.upsert(botTaskInput("bot:missing")));
+      assert.strictEqual(unknown.message, "That bot doesn't exist.");
+
+      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      // Nothing connected the crew yet.
+      const early = yield* service.runNow({ id: task.id });
+      assert.strictEqual(early.task.lastRunStatus, "failed");
+      assert.strictEqual(early.task.lastRunError, "Bots aren't available on this server.");
+
+      yield* sql`UPDATE bots SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ${CAPTAIN_BOT_ID}`;
+      const gone = yield* service.runNow({ id: task.id });
+      assert.strictEqual(gone.task.lastRunStatus, "failed");
+      assert.strictEqual(gone.task.lastRunError, "The bot this task runs as no longer exists.");
+      assert.lengthOf(yield* Ref.get(sent), 0);
+    }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

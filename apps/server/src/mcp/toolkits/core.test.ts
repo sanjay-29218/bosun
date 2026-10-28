@@ -627,6 +627,12 @@ it.effect("a caller cannot rewrite a scheduled task that runs above its own mode
       enabled: false,
     });
     expect(allowed.isError).toBe(false);
+    // A bot without a headquarters yet may run at any mode, so only full access may give it work.
+    const asBot = yield* call("schedule_task", {
+      scheduledTaskId: "task-auto",
+      botId: "bot-social",
+    });
+    expect(declaredFailure(asBot)).toMatchObject({ code: "runtime_mode_escalation_denied" });
     const incomplete = yield* call("schedule_task", { prompt: "Run nightly" });
     expect(declaredFailure(incomplete)).toMatchObject({ code: "invalid_request" });
   }).pipe(
@@ -634,7 +640,11 @@ it.effect("a caller cannot rewrite a scheduled task that runs above its own mode
       layerOrchestratorToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
         Layer.provide(NodeCrypto.layer),
-        Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
+        Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: () => Effect.succeed(null),
+          }),
+        ),
         Layer.provide(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
         Layer.provide(Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({})),

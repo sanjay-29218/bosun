@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 import type {
+  Bot,
   EnvironmentId,
   ModelSelection,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
@@ -62,10 +63,12 @@ import {
   useEnvironments,
 } from "../../state/environments";
 import { useProjects } from "../../state/entities";
+import { botsEnvironment } from "../../state/bots";
 import { useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { WorktreeBaseBranchPicker } from "../WorktreeBaseBranchPicker";
+import { BotAvatar } from "../BotAvatar";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope } from "~/state/session";
@@ -75,6 +78,7 @@ import {
   WEBHOOK_SIGNATURE_DEFAULTS,
   webhookDraftErrors,
   webhookDeliveryLabel,
+  runTargetFromDraft,
   scheduleFromDraft,
   scheduledTaskDefaultModel,
   taskToDraft,
@@ -125,6 +129,7 @@ const EMPTY_DRAFT: DraftState = {
   intervalMinutes: "15",
   timeOfDay: "09:00",
   weekdays: new Set([1, 2, 3, 4, 5]),
+  botId: "",
   projectId: "",
   threadId: "",
   workspaceMode: "worktree",
@@ -260,6 +265,18 @@ function Field({
       </Label>
       {children}
     </div>
+  );
+}
+
+const NEW_THREAD_RUN = "thread";
+
+function RunsAsOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "color"> | null }) {
+  if (bot === null) return <>A new thread in a project</>;
+  return (
+    <span className="flex items-center gap-2">
+      <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />
+      {bot.name}
+    </span>
   );
 }
 
@@ -731,6 +748,11 @@ export function ScheduledTaskEditorForm({
   );
   const allProjects = useProjects();
   const projects = allProjects.filter((project) => project.environmentId === environmentId);
+  // Servers without bots fail this query; the form then only offers a new thread.
+  const botsQuery = useEnvironmentQuery(
+    connected ? botsEnvironment.list({ environmentId, input: {} }) : null,
+  );
+  const bots = botsQuery.data ?? [];
   const settings = useEnvironmentSettings(environmentId);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
@@ -751,6 +773,8 @@ export function ScheduledTaskEditorForm({
   const liveTask = tasksQuery.data
     ? (tasksQuery.data.tasks.find((entry) => entry.id === draft.editingId) ?? null)
     : task;
+  const runsAsBot = draft.botId !== "";
+  const runsAs = bots.find((bot) => bot.id === draft.botId) ?? null;
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const instanceEntries = sortProviderInstanceEntries(
@@ -798,14 +822,18 @@ export function ScheduledTaskEditorForm({
       tasksQuery.data === null
     )
       return;
-    const selection = activeSelection;
+    // A bot task runs on the bot's model; the stored one only seeds a later switch to a thread.
+    const selection = activeSelection ?? (runsAsBot ? (liveTask?.modelSelection ?? null) : null);
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||
-      !projects.some((project) => project.id === selectedProjectId) ||
+      (!runsAsBot && !projects.some((project) => project.id === selectedProjectId)) ||
       selection === null
     ) {
-      reportFailure("Scheduled task is incomplete", "Add a title, prompt, project, and model.");
+      reportFailure(
+        "Scheduled task is incomplete",
+        runsAsBot ? "Add a title and prompt." : "Add a title, prompt, project, and model.",
+      );
       return;
     }
     const parsedFilters = parseWebhookFilterDrafts(draft.filters);
@@ -835,7 +863,11 @@ export function ScheduledTaskEditorForm({
       reportFailure("Invalid interval", "Enter an interval of at least one minute.");
       return;
     }
-    if (draft.workspaceMode === "existing_worktree" && !draft.existingWorktreePath.trim()) {
+    if (
+      !runsAsBot &&
+      draft.workspaceMode === "existing_worktree" &&
+      !draft.existingWorktreePath.trim()
+    ) {
       reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
       return;
     }
@@ -862,9 +894,11 @@ export function ScheduledTaskEditorForm({
       // Pause and Resume live in the header, so an edit keeps whatever they set since.
       enabled: draft.editingId ? (liveTask?.enabled ?? draft.enabled) : draft.enabled,
       schedule,
-      projectId: selectedProjectId as ProjectId,
-      threadId: draft.threadId ? (draft.threadId as ThreadId) : null,
-      workspaceStrategy,
+      ...runTargetFromDraft(draft, {
+        projectId: selectedProjectId as ProjectId,
+        threadId: draft.threadId ? (draft.threadId as ThreadId) : null,
+        workspaceStrategy,
+      }),
       modelSelection,
       runtimeMode: draft.runtimeMode,
       interactionMode: draft.interactionMode,
@@ -904,6 +938,7 @@ export function ScheduledTaskEditorForm({
               setEnvironmentId(next.environmentId);
               setDraft((current) => ({
                 ...current,
+                botId: "",
                 projectId: "",
                 modelKey: "",
                 baseModelSelection: null,
@@ -953,6 +988,51 @@ export function ScheduledTaskEditorForm({
             </SelectPopup>
           </Select>
         </Field>
+        {bots.length > 0 || runsAsBot ? (
+          <Field label="Runs as" htmlFor="scheduled-task-runs-as">
+            <Select
+              value={draft.botId || NEW_THREAD_RUN}
+              onValueChange={(value) =>
+                setDraft((current) => ({
+                  ...current,
+                  botId: value === NEW_THREAD_RUN || value === null ? "" : value,
+                }))
+              }
+            >
+              <SelectTrigger id="scheduled-task-runs-as" size="sm">
+                <SelectValue>
+                  {() =>
+                    runsAsBot && runsAs === null ? (
+                      botsQuery.data ? (
+                        "Unavailable bot"
+                      ) : (
+                        "Loading…"
+                      )
+                    ) : (
+                      <RunsAsOption bot={runsAs} />
+                    )
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value={NEW_THREAD_RUN}>
+                  <RunsAsOption bot={null} />
+                </SelectItem>
+                {bots.map((bot) => (
+                  <SelectItem key={bot.id} value={bot.id} label={bot.name}>
+                    <RunsAsOption bot={bot} />
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {runsAsBot ? (
+              <p className="text-xs text-muted-foreground">
+                Runs in {runsAs?.name ?? "the bot"}'s headquarters with its model, tools and
+                instructions.
+              </p>
+            ) : null}
+          </Field>
+        ) : null}
         {tasksQuery.error ? (
           <p className="text-sm text-destructive" role="status">
             {tasksQuery.error}
@@ -972,56 +1052,59 @@ export function ScheduledTaskEditorForm({
           />
         </Field>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Project" htmlFor="scheduled-task-project">
-            <Select
-              value={selectedProjectId}
-              onValueChange={(projectId) =>
-                setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
-              }
-            >
-              <SelectTrigger size="sm" id="scheduled-task-project">
-                <SelectValue placeholder="Select a project">{selectedProject?.title}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {projects.map((project) => (
-                  <SelectItem key={project.id} value={project.id} label={project.title}>
-                    <span className="block truncate">{project.title}</span>
-                    {allProjects.some(
-                      (other) =>
-                        other.title === project.title &&
-                        (other.environmentId !== project.environmentId || other.id !== project.id),
-                    ) ? (
-                      <span className="block max-w-72 truncate text-xs text-muted-foreground">
-                        {project.workspaceRoot}
-                      </span>
-                    ) : null}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          </Field>
+        {runsAsBot ? null : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Project" htmlFor="scheduled-task-project">
+              <Select
+                value={selectedProjectId}
+                onValueChange={(projectId) =>
+                  setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
+                }
+              >
+                <SelectTrigger size="sm" id="scheduled-task-project">
+                  <SelectValue placeholder="Select a project">{selectedProject?.title}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id} label={project.title}>
+                      <span className="block truncate">{project.title}</span>
+                      {allProjects.some(
+                        (other) =>
+                          other.title === project.title &&
+                          (other.environmentId !== project.environmentId ||
+                            other.id !== project.id),
+                      ) ? (
+                        <span className="block max-w-72 truncate text-xs text-muted-foreground">
+                          {project.workspaceRoot}
+                        </span>
+                      ) : null}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
 
-          <Field label="Workspace" htmlFor="scheduled-task-workspace">
-            <Select
-              value={draft.workspaceMode}
-              onValueChange={(value) =>
-                setDraft((current) => ({ ...current, workspaceMode: value as WorkspaceMode }))
-              }
-            >
-              <SelectTrigger size="sm" id="scheduled-task-workspace">
-                <SelectValue>{WORKSPACE_MODE_LABELS[draft.workspaceMode]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                <SelectItem value="worktree">Create a new worktree</SelectItem>
-                <SelectItem value="root">Use the project checkout</SelectItem>
-                <SelectItem value="existing_worktree">Use a specific checkout</SelectItem>
-              </SelectPopup>
-            </Select>
-          </Field>
-        </div>
+            <Field label="Workspace" htmlFor="scheduled-task-workspace">
+              <Select
+                value={draft.workspaceMode}
+                onValueChange={(value) =>
+                  setDraft((current) => ({ ...current, workspaceMode: value as WorkspaceMode }))
+                }
+              >
+                <SelectTrigger size="sm" id="scheduled-task-workspace">
+                  <SelectValue>{WORKSPACE_MODE_LABELS[draft.workspaceMode]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="worktree">Create a new worktree</SelectItem>
+                  <SelectItem value="root">Use the project checkout</SelectItem>
+                  <SelectItem value="existing_worktree">Use a specific checkout</SelectItem>
+                </SelectPopup>
+              </Select>
+            </Field>
+          </div>
+        )}
 
-        {draft.workspaceMode === "worktree" ? (
+        {!runsAsBot && draft.workspaceMode === "worktree" ? (
           <Field label="Base branch" htmlFor="scheduled-task-base-ref">
             <WorktreeBaseBranchPicker
               key={`${environmentId}:${selectedProjectId}`}
@@ -1038,7 +1121,7 @@ export function ScheduledTaskEditorForm({
             />
           </Field>
         ) : null}
-        {draft.workspaceMode === "existing_worktree" ? (
+        {!runsAsBot && draft.workspaceMode === "existing_worktree" ? (
           <Field label="Checkout path" htmlFor="scheduled-task-checkout">
             <Input
               id="scheduled-task-checkout"
@@ -1066,24 +1149,26 @@ export function ScheduledTaskEditorForm({
           />
         </Field>
 
-        <Field label="Model">
-          <div>
-            <ProviderModelPicker
-              environmentId={environmentId}
-              disabled={saving || !connected}
-              activeInstanceId={activeInstanceId}
-              model={activeModel}
-              lockedProvider={null}
-              instanceEntries={instanceEntries}
-              modelOptionsByInstance={modelOptionsByInstance}
-              isComposerOwned={false}
-              triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-              onInstanceModelChange={(instanceId, model) =>
-                setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
-              }
-            />
-          </div>
-        </Field>
+        {runsAsBot ? null : (
+          <Field label="Model">
+            <div>
+              <ProviderModelPicker
+                environmentId={environmentId}
+                disabled={saving || !connected}
+                activeInstanceId={activeInstanceId}
+                model={activeModel}
+                lockedProvider={null}
+                instanceEntries={instanceEntries}
+                modelOptionsByInstance={modelOptionsByInstance}
+                isComposerOwned={false}
+                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                onInstanceModelChange={(instanceId, model) =>
+                  setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
+                }
+              />
+            </div>
+          </Field>
+        )}
 
         <div className="space-y-3">
           {task?.schedule.type === "interval" &&

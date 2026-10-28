@@ -1,4 +1,5 @@
 import {
+  botHeadquartersThreadId,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -297,6 +298,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     enabled: task.enabled,
     projectId: task.projectId,
     boundThreadId: task.threadId,
+    ...(task.botId === undefined ? {} : { botId: task.botId }),
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
@@ -1709,8 +1711,34 @@ const make = Effect.gen(function* () {
       effect.pipe(Effect.timeoutOption(Duration.millis(timeoutMs)), Effect.map(Option.flatten)),
   );
 
+  /**
+   * A bot's runs take its headquarters' modes, which follow the bot. Before the headquarters
+   * exists they are unknown, so only a full-access caller may give the bot work.
+   */
+  const botRunModes = Effect.fn("OrchestratorMcpService.botRunModes")(function* (botId: string) {
+    const headquarters = yield* threadManagement
+      .getThreadShell(botHeadquartersThreadId(botId))
+      .pipe(Effect.mapError(threadManagementFailure));
+    return headquarters === null || headquarters.deletedAt !== null
+      ? { runtimeMode: "full-access" as const, interactionMode: "default" as const }
+      : headquarters;
+  });
+
+  const assertCoversBotRuns = Effect.fn("OrchestratorMcpService.assertCoversBotRuns")(function* (
+    botId: string,
+    limits: {
+      readonly runtimeMode: RuntimeMode;
+      readonly interactionMode: ProviderInteractionMode;
+    },
+  ) {
+    const modes = yield* botRunModes(botId);
+    yield* resolveRuntimeMode(limits.runtimeMode, modes.runtimeMode);
+    yield* resolveInteractionMode(limits.interactionMode, modes.interactionMode);
+  });
+
   const scheduledTaskRunModes = Effect.fn("OrchestratorMcpService.scheduledTaskRunModes")(
     function* (task: ScheduledTask) {
+      if (task.botId !== undefined) return [yield* botRunModes(task.botId)];
       const modes = [{ runtimeMode: task.runtimeMode, interactionMode: task.interactionMode }];
       if (task.threadId === null) return modes;
       const bound = yield* threadManagement
@@ -1797,9 +1825,13 @@ const make = Effect.gen(function* () {
       const projectId = yield* resolveProjectTarget(parent, input.projectId);
       yield* assertLiveCallerForOtherProject(scope, parent, projectId);
       const project = yield* requireProject(projectId);
+      const botId = input.botId ?? null;
+      if (botId !== null) yield* assertCoversBotRuns(botId, limits);
+      // A bot's runs go to its headquarters, never to this thread.
       const bindToCurrentThread =
-        input.bindToCurrentThread ??
-        (parent !== undefined && parent.thread.projectId === projectId);
+        botId === null &&
+        (input.bindToCurrentThread ??
+          (parent !== undefined && parent.thread.projectId === projectId));
       if (bindToCurrentThread && (parent === undefined || parent.thread.projectId !== projectId)) {
         return yield* failure(
           "invalid_request",
@@ -1819,6 +1851,7 @@ const make = Effect.gen(function* () {
         enabled: input.enabled ?? true,
         schedule: input.schedule,
         projectId,
+        ...(botId === null ? {} : { botId }),
         threadId: bindToCurrentThread && parent !== undefined ? parent.thread.id : null,
         workspaceStrategy: scheduledTaskWorkspaceStrategy(bindToCurrentThread),
         modelSelection,
@@ -1871,7 +1904,10 @@ const make = Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope);
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
+        const botId = input.botId === undefined ? (existing.botId ?? null) : input.botId;
+        if (botId !== null && botId !== existing.botId) yield* assertCoversBotRuns(botId, limits);
         if (
+          botId === null &&
           input.bindToCurrentThread === true &&
           (parent === undefined || parent.thread.projectId !== existing.projectId)
         ) {
@@ -1900,7 +1936,9 @@ const make = Effect.gen(function* () {
           enabled: input.enabled ?? existing.enabled,
           schedule: input.schedule ?? existing.schedule,
           projectId: existing.projectId,
-          threadId,
+          // Omitted keeps the stored bot.
+          ...(input.botId === undefined ? {} : { botId: input.botId }),
+          threadId: botId === null ? threadId : null,
           workspaceStrategy,
           modelSelection: existing.modelSelection,
           runtimeMode: existing.runtimeMode,

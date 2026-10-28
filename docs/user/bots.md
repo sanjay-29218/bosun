@@ -18,7 +18,7 @@ edit a bot, move it up or down, or delete it.
 **Projects** on the same page shows which bot owns each project. Pick another bot to move a
 project; work that already started keeps running as the bot that started it. You can also change
 a project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no
-projects, and Captain can't be deleted.
+projects, and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
@@ -54,7 +54,7 @@ All bots shows the same across every bot.
 
 Below the bots, the rail's places swap what the sidebar lists. **Automations** lists your
 scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
-recent runs. A red dot on Automations means a run failed and you haven't opened that task since.
+recent runs. A task can also run as a bot: see [Scheduled tasks](project-settings.md#scheduled-tasks). A red dot on Automations means a run failed and you haven't opened that task since.
 **Library** lists your workflows, each with its stages in order, and your roles; pick one to edit
 it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Automations and Library
 from the bottom of the sidebar, or **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
