@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import { ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -18,7 +18,7 @@ import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { CrewService } from "./CrewService.ts";
-import { CrewHandoffService } from "./CrewHandoffService.ts";
+import { CrewHandoffService, WORKFLOW_HANDOFF_PREFIX } from "./CrewHandoffService.ts";
 import { CrewHandoffStore } from "./CrewHandoffStore.ts";
 import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
@@ -293,6 +293,78 @@ describe("Bot handoffs", () => {
             WHERE message_id = 'bot-handoff:captain-to-manager:notice:1'
           `;
           expect(noticesAfter).toEqual(noticesBefore);
+        }),
+      );
+      yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
+    }),
+  );
+  effectIt.effect("hands off with the delegator's access and model, except workflow stages", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-carried-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, handoffs, engine }) =>
+        Effect.gen(function* () {
+          yield* seedCrewProject({
+            projectId,
+            title: "Carried settings",
+            workspaceRoot: directory,
+          });
+          yield* bots.ensureDefaults(modelSelection);
+          yield* bots.ensureProjectManager(projectId);
+          const captain = yield* bots.createRun({
+            id: "captain-carried",
+            memberId: "bot-captain",
+            projectId,
+            taskText: "Coordinate with full access",
+          });
+          const captainModel = {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-6-sol-max",
+          };
+          yield* engine.dispatch({
+            type: "thread.runtime-mode.set",
+            commandId: CommandId.make("captain-carried:full-access"),
+            threadId: captain.threadId,
+            runtimeMode: "full-access",
+          });
+          yield* engine.dispatch({
+            type: "thread.model-selection.set",
+            commandId: CommandId.make("captain-carried:model"),
+            threadId: captain.threadId,
+            modelSelection: captainModel,
+          });
+          const delegateToManager = (id: string) =>
+            handoffs.delegate({
+              id,
+              sourceThreadId: captain.threadId,
+              targetMemberId: `bot-manager:${projectId}`,
+              projectId,
+              taskText: `Run ${id}`,
+            });
+
+          const manager = (yield* bots.getRun((yield* delegateToManager("carried")).targetRunId))!
+            .run;
+          expect(manager.runtimeMode).toBe("full-access");
+          expect(manager.modelSelection).toEqual(captainModel);
+
+          const builderRequest = yield* handoffs.delegate({
+            id: "carried-builder",
+            sourceThreadId: manager.threadId,
+            targetMemberId: `bot-builder:${projectId}`,
+            projectId,
+            taskText: "Build it on the named model",
+            modelSelection,
+          });
+          const builder = (yield* bots.getRun(builderRequest.targetRunId))!.run;
+          expect(builder.runtimeMode).toBe("full-access");
+          expect(builder.modelSelection).toEqual(modelSelection);
+
+          const stage = (yield* bots.getRun(
+            (yield* delegateToManager(`${WORKFLOW_HANDOFF_PREFIX}carried-stage`)).targetRunId,
+          ))!.run;
+          expect(stage.runtimeMode).toBe("approval-required");
+          expect(stage.modelSelection).toEqual(modelSelection);
         }),
       );
       yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));

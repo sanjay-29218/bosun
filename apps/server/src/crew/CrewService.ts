@@ -128,6 +128,11 @@ export interface CreateCrewRunInput {
   readonly projectId: ProjectId;
   readonly taskText: string;
   readonly modelSelection?: ModelSelection;
+  /**
+   * The delegator's access and model, used instead of the member's own. Not part of the
+   * request's identity, so a retry matches after the delegator's settings change.
+   */
+  readonly carried?: { readonly runtimeMode: RuntimeMode; readonly modelSelection: ModelSelection };
   /** The thread's title; defaults to the member's name and the start of the task. */
   readonly title?: string;
 }
@@ -626,8 +631,11 @@ export const CrewServiceLive = Layer.effect(
           instructions: member.instructions,
           allowedTools: member.allowedTools,
           memberRevision: member.revision,
-          modelSelection: yield* modelFor(member, input.modelSelection),
-          runtimeMode: member.runtimeMode,
+          modelSelection: yield* modelFor(
+            member,
+            input.modelSelection ?? input.carried?.modelSelection,
+          ),
+          runtimeMode: input.carried?.runtimeMode ?? member.runtimeMode,
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
           lastError: null,

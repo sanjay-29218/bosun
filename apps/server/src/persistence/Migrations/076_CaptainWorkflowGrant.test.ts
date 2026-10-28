@@ -20,7 +20,7 @@ it.effect("lets Captain manage workflows, leaving other bots as they are", () =>
         '2026-10-01', '2026-10-01')
     `;
 
-    yield* runMigrations();
+    yield* BosunMigrations.runMigrations(76);
 
     const rows = yield* sql<{ readonly id: string; readonly tools: string }>`
       SELECT id, allowed_tools_json AS tools FROM bots ORDER BY position

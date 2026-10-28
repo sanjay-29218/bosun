@@ -69,6 +69,7 @@ const fixture = (
       headquartersProjectId: Effect.succeed(null),
       restore: () => Effect.void,
       syncSettings: () => Effect.void,
+      settings: () => Effect.succeed(null),
       pin: () => Effect.void,
       start: (input) =>
         Effect.gen(function* () {

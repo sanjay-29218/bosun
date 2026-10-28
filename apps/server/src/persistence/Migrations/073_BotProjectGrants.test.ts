@@ -22,7 +22,7 @@ it.effect("lets bots that delegate see their projects and answer, once", () =>
     yield* bot("social", '["crew.delegate","crew.answer"]', 1);
     yield* bot("quiet", '["preview"]', 2);
 
-    yield* runMigrations();
+    yield* BosunMigrations.runMigrations(73);
 
     const rows = yield* sql<{ readonly id: string; readonly tools: string }>`
       SELECT id, allowed_tools_json AS tools FROM bots ORDER BY position
@@ -30,10 +30,7 @@ it.effect("lets bots that delegate see their projects and answer, once", () =>
     assert.deepStrictEqual(
       rows.map((row) => [row.id, JSON.parse(row.tools)]),
       [
-        [
-          "bot-captain",
-          ["crew.delegate", "crew.status", "crew.answer", "crew.projects", "crew.workflows"],
-        ],
+        ["bot-captain", ["crew.delegate", "crew.status", "crew.answer", "crew.projects"]],
         ["social", ["crew.delegate", "crew.answer", "crew.projects"]],
         ["quiet", ["preview"]],
       ],
