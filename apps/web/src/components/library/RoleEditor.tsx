@@ -28,7 +28,11 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
-import { SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
+import {
+  SETTINGS_PICKER_TRIGGER_CLASSNAME,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -345,61 +349,73 @@ export function RoleEditorForm({
         void submit();
       }}
     >
-      <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-5">
-        <EditorField label="Name" htmlFor="crew-role-name">
-          <Input
-            id="crew-role-name"
-            value={name}
-            maxLength={200}
-            placeholder="Security reviewer"
-            onChange={(event) => setName(event.target.value)}
-          />
-        </EditorField>
-        <EditorField label="Instructions" htmlFor="crew-role-instructions">
-          <Textarea
-            id="crew-role-instructions"
-            value={instructions}
-            maxLength={16_000}
-            rows={8}
-            placeholder="What this role does and how it reports back"
-            onChange={(event) => setInstructions(event.target.value)}
-          />
-        </EditorField>
-        <div className="grid gap-5 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-          <EditorField label="Model">
-            <div>
+      <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
+        <SettingsSection title="Role">
+          <div className="space-y-5 px-3 py-4 sm:px-4">
+            <EditorField label="Name" htmlFor="crew-role-name">
+              <Input
+                id="crew-role-name"
+                value={name}
+                maxLength={200}
+                placeholder="Security reviewer"
+                onChange={(event) => setName(event.target.value)}
+              />
+            </EditorField>
+            <EditorField label="Instructions" htmlFor="crew-role-instructions">
+              <Textarea
+                id="crew-role-instructions"
+                value={instructions}
+                maxLength={16_000}
+                rows={8}
+                placeholder="What this role does and how it reports back"
+                onChange={(event) => setInstructions(event.target.value)}
+              />
+            </EditorField>
+          </div>
+        </SettingsSection>
+        <SettingsSection title="Runs with">
+          <SettingsRow
+            title="Model"
+            control={
               <RoleModelPicker
                 environmentId={environmentId}
                 selection={modelSelection}
                 disabled={saving || !canEdit}
                 onChange={setModelSelection}
               />
-            </div>
-          </EditorField>
-          <EditorField label="Access">
-            <RuntimeModeSelect
-              label="Access"
-              value={runtimeMode}
-              disabled={saving || !canEdit}
-              onChange={setRuntimeMode}
-            />
-          </EditorField>
-          <EditorField label="Available in workflows" htmlFor="crew-role-workflow-stages">
-            <div className="flex h-9 items-center">
+            }
+          />
+          <SettingsRow
+            title="Access"
+            control={
+              <RuntimeModeSelect
+                label="Access"
+                value={runtimeMode}
+                disabled={saving || !canEdit}
+                onChange={setRuntimeMode}
+              />
+            }
+          />
+          <SettingsRow
+            title="Available in workflows"
+            description="Workflow stages can run as this role."
+            control={
               <Switch
-                id="crew-role-workflow-stages"
                 aria-label="Workflow stages can use this role"
                 checked={workflowStages}
                 onCheckedChange={setWorkflowStages}
               />
-            </div>
-          </EditorField>
-        </div>
-        <EditorField label={`Tools · ${tools.length}`}>
-          <CrewToolPicker value={tools} onChange={setTools} />
-        </EditorField>
+            }
+          />
+        </SettingsSection>
+        <SettingsSection title={`Tools · ${tools.length}`}>
+          <div className="px-3 py-4 sm:px-4">
+            <CrewToolPicker value={tools} onChange={setTools} />
+          </div>
+        </SettingsSection>
       </fieldset>
-      <div className="flex justify-end gap-2">
+      {/* Pinned to the pane's bottom, so Save stays in reach below a long tool list. */}
+      <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <Button
           type="button"
           variant="ghost-muted"

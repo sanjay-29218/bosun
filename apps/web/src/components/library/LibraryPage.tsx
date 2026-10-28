@@ -9,6 +9,7 @@ import {
   type EnvironmentLibraryState,
 } from "../../state/library";
 import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../../state/environments";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -240,29 +241,27 @@ function NewRole({
   return (
     <>
       {hasStarterRoles(roles) ? null : (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <UsersIcon />
-            </EmptyMedia>
-            <EmptyTitle>No starter roles yet</EmptyTitle>
-            <EmptyDescription>
-              Add a Project manager, Planner, Designer, Builder, QA Tester and Reviewer. You can
-              change each one afterwards.
-            </EmptyDescription>
-          </EmptyHeader>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={adding}
-            onClick={() => {
-              setAdding(true);
-              void starterRoles.add().then(() => setAdding(false));
-            }}
-          >
-            Add the starter roles
-          </Button>
-        </Empty>
+        <Alert variant="info">
+          <UsersIcon />
+          <AlertTitle>No starter roles yet</AlertTitle>
+          <AlertDescription>
+            Add a Project manager, Planner, Designer, Builder, QA Tester and Reviewer, then change
+            each one as you like.
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={adding}
+              onClick={() => {
+                setAdding(true);
+                void starterRoles.add().then(() => setAdding(false));
+              }}
+            >
+              Add starter roles
+            </Button>
+          </AlertAction>
+        </Alert>
       )}
       <RoleEditorForm
         environmentId={environmentId}

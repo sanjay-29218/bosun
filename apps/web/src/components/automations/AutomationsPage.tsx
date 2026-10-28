@@ -132,7 +132,7 @@ export function AutomationsPage(search: AutomationsSearch) {
                 <TaskStatus task={task} />
                 <RecentRuns environmentId={search.environmentId} task={task} />
                 <section aria-labelledby="automation-settings-heading" className="space-y-3">
-                  <h2 id="automation-settings-heading" className="text-sm font-medium">
+                  <h2 id="automation-settings-heading" className="text-base font-semibold">
                     Settings
                   </h2>
                   <ScheduledTaskEditorForm
