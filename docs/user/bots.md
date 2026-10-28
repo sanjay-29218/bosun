@@ -27,7 +27,9 @@ working or needs you. From there the bot can list its projects, hand work to any
 manager, and answer their questions. With **Create projects** ticked in its tools, it can also start
 projects from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
 start, it can create and edit workflows and roles when you ask, such as "add a QA stage to Feature
-delivery"; they show up in Settings like ones you made. Features report to the headquarters too. A feature's
+delivery"; they show up in Settings like ones you made. It can also start a feature in one of its
+projects, on the workflow you name or its default one, just as you would from the composer. Features
+report to the headquarters too. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
 
 The headquarters follows the bot's current tools, model and **Access**. Its

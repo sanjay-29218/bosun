@@ -1,6 +1,6 @@
 /**
- * BotProjects - a bot's view of the projects it owns, for its headquarters, and the new
- * projects it starts.
+ * BotProjects - a bot's view of the projects it owns, for its headquarters, the new projects it
+ * starts, and the features it starts in them.
  *
  * @module BotProjects
  */
@@ -10,6 +10,7 @@ import {
   ProjectId,
   type FeatureCardState,
   type Project,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { newProjectFolderName } from "@t3tools/shared/path";
 import * as Context from "effect/Context";
@@ -52,6 +53,20 @@ export interface BotProject {
   }>;
 }
 
+/** A feature a bot started, and where to follow it. */
+export interface BotFeatureStart {
+  readonly featureId: string;
+  readonly projectId: ProjectId;
+  readonly title: string;
+  readonly workflowId: string;
+  readonly workflowRevision: number;
+  readonly state: FeatureCardState | null;
+  /** The current stage, such as "build". */
+  readonly stage: string | null;
+  /** The current stage's thread; null while the stage waits for an agent slot. */
+  readonly threadId: ThreadId | null;
+}
+
 export class BotProjects extends Context.Service<
   BotProjects,
   {
@@ -66,6 +81,19 @@ export class BotProjects extends Context.Service<
       readonly name: string;
       readonly repositoryUrl?: string | undefined;
     }) => Effect.Effect<BotProject & { readonly commitError?: string }, BotProjectsError>;
+    /**
+     * Creates a feature in a project `botId` owns and starts it, as a person does from the
+     * composer: on `workflowId`, or the bot's default workflow. A retry with the same
+     * `featureId` returns the same feature.
+     */
+    readonly startFeature: (input: {
+      readonly botId: string;
+      readonly projectId: ProjectId;
+      readonly title: string;
+      readonly brief: string;
+      readonly workflowId?: string | undefined;
+      readonly featureId?: string | undefined;
+    }) => Effect.Effect<BotFeatureStart, BotProjectsError>;
   }
 >()("t3/bots/BotProjects") {}
 
@@ -180,6 +208,55 @@ export const layer = Layer.effect(
             Effect.mapError(failWith("The clone worked, but the project wasn't created")),
           );
         return yield* describe(project);
+      }),
+      startFeature: Effect.fn("BotProjects.startFeature")(function* (input) {
+        const bot = yield* requireBot(input.botId);
+        const owner = yield* bots
+          .projectOwner(input.projectId)
+          .pipe(Effect.mapError(failWith("Projects are unavailable")));
+        // Like `list`, this leaves out Scratch, where the headquarters lives.
+        if (owner !== bot.id || (yield* folders.isScratchProject(input.projectId))) {
+          return yield* new BotProjectsError({
+            reason: `${bot.name} doesn't own project ${input.projectId}`,
+          });
+        }
+        const workflowId = input.workflowId ?? bot.defaultWorkflowId;
+        if (workflowId === null) {
+          return yield* new BotProjectsError({
+            reason: `${bot.name} has no default workflow, so pass a workflowId`,
+          });
+        }
+        const id =
+          input.featureId ??
+          `feature:${yield* crypto.randomUUIDv4().pipe(Effect.mapError(failWith("No feature id")))}`;
+        const feature = yield* features
+          .create({
+            id,
+            projectId: input.projectId,
+            title: input.title.trim(),
+            brief: input.brief.trim(),
+            workflowId,
+          })
+          .pipe(Effect.mapError((error) => new BotProjectsError({ reason: error.message })));
+        const snapshot = yield* features.start(id, input.projectId).pipe(
+          Effect.mapError(
+            (error) =>
+              new BotProjectsError({
+                reason: `Feature ${id} was created but didn't start: ${error.message}`,
+              }),
+          ),
+        );
+        return {
+          featureId: feature.id,
+          projectId: feature.projectId,
+          title: feature.title,
+          workflowId,
+          workflowRevision: snapshot.definition.revision,
+          state: snapshot.state ?? null,
+          stage: snapshot.activeStepId,
+          threadId:
+            snapshot.steps.find((step) => step.id === snapshot.activeStepId)?.threadId ?? null,
+        };
       }),
     });
   }),

@@ -1,8 +1,10 @@
 import {
+  FeatureCardState,
   OrchestratorMcpFailure,
   RoleConfig,
   RoleCreateInput,
   RoleUpdateInput,
+  ThreadId,
   WorkflowCreateInput,
   WorkflowDefinition,
   WorkflowReviseInput,
@@ -10,6 +12,7 @@ import {
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
@@ -23,6 +26,7 @@ const shared = {
     ThreadManagementService.ThreadManagementService,
     WorkflowService,
     CrewService,
+    BotProjects,
   ],
 };
 
@@ -102,6 +106,29 @@ const UpdateRole = Tool.make("t3_role_update", {
   success: RoleConfig,
 });
 
+const StartFeature = Tool.make("t3_feature_start", {
+  ...shared,
+  description:
+    "Start work in a project this bot owns (projectId from crew_list_projects): create a feature from a short title and a brief (the task, up to 16,000 characters) and run it on a workflow, as a person does from the composer. Omit workflowId for the bot's default workflow; t3_workflow_list shows the others. Stage notices come back to this thread, and threadId is the current stage's thread, null while it waits for an agent slot. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
+  parameters: Schema.Struct({
+    projectId: Schema.String,
+    title: Schema.String,
+    brief: Schema.String,
+    workflowId: Schema.optional(Schema.String),
+    featureId: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    featureId: Schema.String,
+    projectId: Schema.String,
+    title: Schema.String,
+    workflowId: Schema.String,
+    workflowRevision: Schema.Int,
+    state: Schema.NullOr(FeatureCardState),
+    stage: Schema.NullOr(Schema.String),
+    threadId: Schema.NullOr(ThreadId),
+  }),
+}).annotate(Tool.Destructive, false);
+
 export const WorkflowsToolkit = Toolkit.make(
   ListWorkflows,
   GetWorkflow,
@@ -111,4 +138,5 @@ export const WorkflowsToolkit = Toolkit.make(
   ListRoles,
   CreateRole,
   UpdateRole,
+  StartFeature,
 );
