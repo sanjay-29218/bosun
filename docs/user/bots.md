@@ -91,7 +91,7 @@ changed and it needs a new version.
   the canvas the whole page; **Esc** shrinks it back. Where you place stages is saved with
   the workflow, and **Arrange** lines them up left to right again.
   Narrow screens always show the form.
-- **Publish vN**, at the top of the page, saves a new version; **Discard** drops your edits. Features that already started
+- **Publish** appears at the top of the page once you change something and saves a new version; **Discard** drops your edits. Features that already started
   keep the version they began with. Use the **⋯** menu to duplicate or delete a workflow; deleting waits until no unfinished feature runs on it and no bot starts its features with it.
 
 Workflows record the version of each role they use. After you edit or turn off a role in Roles, the

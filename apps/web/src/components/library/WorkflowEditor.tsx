@@ -1,9 +1,16 @@
 import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import { type RoleConfig, type EnvironmentId, type WorkflowDefinition } from "@t3tools/contracts";
 import { useBlocker } from "@tanstack/react-router";
-import { MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  ListIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+  WorkflowIcon,
+} from "lucide-react";
 import * as Schema from "effect/Schema";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -247,6 +254,13 @@ export function WorkflowEditor({
     </>
   );
 
+  const viewToggle = (value: typeof EditorView.Type, label: string, icon: ReactNode) => (
+    <Tooltip>
+      <TooltipTrigger render={<Toggle value={value} aria-label={label} />}>{icon}</TooltipTrigger>
+      <TooltipPopup side="bottom">{label}</TooltipPopup>
+    </Tooltip>
+  );
+
   const actions = (
     <div className="flex items-center gap-2">
       {canvasAvailable ? (
@@ -259,37 +273,38 @@ export function WorkflowEditor({
             if (next === "canvas" || next === "form") setView(next);
           }}
         >
-          <Toggle value="canvas">Canvas</Toggle>
-          <Toggle value="form">Form</Toggle>
+          {viewToggle("canvas", "Canvas", <WorkflowIcon />)}
+          {viewToggle("form", "Form", <ListIcon />)}
         </ToggleGroup>
       ) : null}
-      <Button
-        size="xs"
-        variant="outline"
-        disabled={!edited || busy}
-        onClick={() => {
-          setDraft(refreshed.definition);
-          setError(null);
-        }}
-      >
-        Discard
-      </Button>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="xs"
-              disabled={!publishable || superseded || busy}
-              onClick={() => void publish()}
-            />
-          }
+      {edited ? (
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            setDraft(refreshed.definition);
+            setError(null);
+          }}
         >
-          Publish v{nextRevision}
-        </TooltipTrigger>
-        <TooltipPopup side="bottom" className="max-w-64">
-          Features that already started keep the version they began with.
-        </TooltipPopup>
-      </Tooltip>
+          Discard
+        </Button>
+      ) : null}
+      {publishable ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button size="xs" disabled={superseded || busy} onClick={() => void publish()} />
+            }
+          >
+            Publish
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" className="max-w-64">
+            Publishes v{nextRevision}. Features that already started keep the version they began
+            with.
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
       <Menu>
         <MenuTrigger
           render={
