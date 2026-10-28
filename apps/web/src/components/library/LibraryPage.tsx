@@ -122,6 +122,7 @@ export function LibraryPage(search: LibrarySearch) {
             workflows={library.workflows}
             roles={library.roles}
             onCreated={(workflowId) => open({ workflowId }, true)}
+            onCancel={close}
           />
         ) : (
           <NewRole

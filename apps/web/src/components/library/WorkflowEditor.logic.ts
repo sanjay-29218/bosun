@@ -378,6 +378,26 @@ export function routeLoopsBack(
   return order.indexOf(target) <= order.indexOf(stepId);
 }
 
+/**
+ * A workflow's stages along each stage's first route from the start, for a one-line preview,
+ * and how many other stages it has (change reviews and other branches).
+ */
+export function workflowMainPath(definition: WorkflowDefinition): {
+  readonly stages: readonly string[];
+  readonly more: number;
+} {
+  const stages: string[] = [];
+  let id: string | undefined = definition.start;
+  while (id !== undefined && !stages.includes(id)) {
+    const step: WorkflowStep | undefined = definition.steps[id];
+    if (step?.type !== "task") break;
+    stages.push(id);
+    id = Object.values(step.next)[0];
+  }
+  const taskCount = Object.values(definition.steps).filter((step) => step.type === "task").length;
+  return { stages, more: taskCount - stages.length };
+}
+
 /** Splits a comma or newline list, trimming and dropping blanks and repeats. */
 export function parseList(value: string): string[] {
   return [
