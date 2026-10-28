@@ -3,7 +3,6 @@ import type { RoleConfig, WorkflowDefinition } from "@t3tools/contracts";
 import { GripVerticalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { memo } from "react";
 
-import { LimitField } from "../settings/CrewLimitsSettings";
 import { SettingsGroup } from "../settings/SettingsGroup";
 import { SettingsRow } from "../settings/settingsLayout";
 import {
@@ -11,6 +10,7 @@ import {
   describeStageInputs,
   humanizeWorkflowId,
   removeStage,
+  routeLoopsBack,
   setRouteLimit,
   updateTask,
   workflowEndStepId,
@@ -18,6 +18,7 @@ import {
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { RouteLimitSelect } from "./RouteLimitSelect";
 import { canRemoveRoute, connectRoute, removeRoute, stagesRoutingTo } from "./WorkflowCanvas.logic";
 import { WorkflowStageSelect } from "./WorkflowStageSelect";
 
@@ -198,7 +199,7 @@ export const WorkflowCanvasInspector = memo(function WorkflowCanvasInspector({
   );
 });
 
-/** Where one outcome leads and how often it may be taken, as in the form's Routes section. */
+/** Where one outcome leads and, on a loop, how often it may be taken, as in the form. */
 function RouteRow({
   definition,
   stageName,
@@ -221,18 +222,16 @@ function RouteRow({
             label={`Next stage after ${stageName(stepId)} ${outcome}`}
             value={target}
             options={[...orderWorkflowStages(definition).filter((id) => id !== stepId), endId]}
-            stageName={(id) => (id === endId ? "Finish" : `Go to ${stageName(id)}`)}
+            stageName={(id) => (id === endId ? "Finish" : stageName(id))}
             onChange={(next) => onChange(connectRoute(definition, stepId, outcome, next))}
           />
-          <LimitField
-            label={`Most times ${stageName(stepId)} ${outcome} is taken`}
-            value={limit}
-            min={1}
-            max={20}
-            placeholder="No limit"
-            allowEmpty
-            onCommit={(value) => onChange(setRouteLimit(definition, stepId, outcome, value))}
-          />
+          {routeLoopsBack(definition, stepId, outcome) ? (
+            <RouteLimitSelect
+              label={`Most times ${stageName(stepId)} ${outcome} is taken`}
+              value={limit}
+              onChange={(next) => onChange(setRouteLimit(definition, stepId, outcome, next))}
+            />
+          ) : null}
         </>
       }
     />

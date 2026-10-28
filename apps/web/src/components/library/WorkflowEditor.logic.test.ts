@@ -15,6 +15,7 @@ import {
   refreshWorkflowRoles,
   removeStage,
   renameStage,
+  routeLoopsBack,
   sameWorkflow,
   setRouteLimit,
   setStageOutcomes,
@@ -177,6 +178,20 @@ describe("renameStage", () => {
 
   it("moves the first stage too", () => {
     expect(renameStage(workflow(), "plan", "scope").start).toBe("scope");
+  });
+});
+
+describe("routeLoopsBack", () => {
+  it("is true only for routes back to the same or an earlier stage", () => {
+    const definition = setRouteLimit(workflow(), "review", "changes_requested", null);
+    expect(routeLoopsBack(definition, "review", "changes_requested")).toBe(true);
+    expect(routeLoopsBack(definition, "plan", "ready")).toBe(false);
+    expect(routeLoopsBack(definition, "review", "approved")).toBe(false);
+  });
+
+  it("keeps a forward route with a limit editable", () => {
+    const definition = setRouteLimit(workflow(), "plan", "ready", 2);
+    expect(routeLoopsBack(definition, "plan", "ready")).toBe(true);
   });
 });
 
