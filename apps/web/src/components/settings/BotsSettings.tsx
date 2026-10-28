@@ -48,7 +48,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { Textarea } from "../ui/textarea";
+import { InstructionsEditor } from "../InstructionsEditor";
 import { Toggle } from "../ui/toggle";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from "../ui/wizard";
 import { toastManager } from "../ui/toast";
@@ -707,17 +707,18 @@ function BotDialog({
             {tab === "behavior" ? (
               <>
                 <EditorField label="Instructions" htmlFor="bot-instructions">
-                  <Textarea
+                  <InstructionsEditor
                     id="bot-instructions"
+                    label="Instructions"
                     value={instructions}
                     maxLength={16_000}
-                    rows={6}
+                    disabled={saving}
                     placeholder={
                       bot
                         ? "What this bot does for its projects"
                         : "Leave empty to coordinate its projects' managers"
                     }
-                    onChange={(event) => setInstructions(event.target.value)}
+                    onChange={setInstructions}
                   />
                 </EditorField>
                 <div className="grid gap-5 sm:grid-cols-2">

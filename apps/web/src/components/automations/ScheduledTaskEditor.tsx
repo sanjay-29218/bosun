@@ -102,7 +102,7 @@ import {
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { Textarea } from "../ui/textarea";
+import { InstructionsEditor } from "../InstructionsEditor";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
 
@@ -1055,14 +1055,14 @@ export function ScheduledTaskEditorForm({
         ) : null}
 
         <Field label="Prompt" htmlFor="scheduled-task-prompt">
-          <Textarea
+          <InstructionsEditor
             id="scheduled-task-prompt"
-            className="max-h-64 overflow-y-auto"
+            label="Prompt"
+            size="sm"
+            disabled={saving}
             placeholder="What should the agent do each time this runs?"
             value={draft.prompt}
-            onChange={(event) =>
-              setDraft((current) => ({ ...current, prompt: event.target.value }))
-            }
+            onChange={(prompt) => setDraft((current) => ({ ...current, prompt }))}
           />
         </Field>
 

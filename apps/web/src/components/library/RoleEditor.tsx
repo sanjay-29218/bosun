@@ -37,7 +37,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { Textarea } from "../ui/textarea";
+import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -362,13 +362,15 @@ export function RoleEditorForm({
               />
             </EditorField>
             <EditorField label="Instructions" htmlFor="crew-role-instructions">
-              <Textarea
+              <InstructionsEditor
                 id="crew-role-instructions"
+                label="Instructions"
                 value={instructions}
                 maxLength={16_000}
-                rows={8}
+                size="lg"
+                disabled={saving || !canEdit}
                 placeholder="What this role does and how it reports back"
-                onChange={(event) => setInstructions(event.target.value)}
+                onChange={setInstructions}
               />
             </EditorField>
           </div>
