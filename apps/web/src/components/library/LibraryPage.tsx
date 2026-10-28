@@ -20,7 +20,6 @@ import type { LibrarySearch } from "./librarySearch";
 import { NewWorkflow } from "./NewWorkflow";
 import {
   hasStarterRoles,
-  RoleActions,
   RoleEditorForm,
   useAddStarterRoles,
   useEnvironmentDefaultModel,
@@ -152,10 +151,7 @@ export function LibraryPage(search: LibrarySearch) {
     );
   } else if (role !== null && library !== null) {
     return (
-      <LibraryFrame
-        title={title}
-        actions={<RoleActions environmentId={library.environmentId} role={role} />}
-      >
+      <LibraryFrame title={title} actions={null}>
         <WorkspacePageContainer>
           <RoleEditorForm
             key={`${library.environmentId}:${role.id}:${formRevision}`}
