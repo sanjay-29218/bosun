@@ -3,9 +3,11 @@ import {
   CopyIcon,
   InboxIcon,
   MoreHorizontalIcon,
+  PauseIcon,
   PlayIcon,
   PlusIcon,
   Trash2Icon,
+  ZapIcon,
 } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 import type {
@@ -85,6 +87,7 @@ import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { ToggleGroup, Toggle } from "../ui/toggle-group";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Badge } from "../ui/badge";
+import { DisclosureSection } from "../DisclosureSection";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -347,7 +350,10 @@ export function ScheduledTaskActions({
   const remove = useAtomCommand(serverEnvironment.deleteScheduledTask, {
     label: "scheduled task delete",
   });
-  const act = async (action: "run" | "delete") => {
+  const setEnabled = useAtomCommand(serverEnvironment.setScheduledTaskEnabled, {
+    label: "scheduled task set enabled",
+  });
+  const act = async (action: "run" | "toggle" | "delete") => {
     if (busy || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
     if (action === "delete") {
       const confirmed =
@@ -359,7 +365,9 @@ export function ScheduledTaskActions({
     const result =
       action === "run"
         ? await run({ environmentId, input: { id: task.id } })
-        : await remove({ environmentId, input: { id: task.id } });
+        : action === "toggle"
+          ? await setEnabled({ environmentId, input: { id: task.id, enabled: !task.enabled } })
+          : await remove({ environmentId, input: { id: task.id } });
     setBusy(false);
     if (result._tag === "Failure") {
       if (isAtomCommandInterrupted(result)) return;
@@ -376,6 +384,15 @@ export function ScheduledTaskActions({
   };
   return (
     <div className="flex items-center gap-2">
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={busy || !canOperate}
+        onClick={() => void act("toggle")}
+      >
+        {task.enabled ? <PauseIcon /> : <PlayIcon />}
+        {task.enabled ? "Pause" : "Resume"}
+      </Button>
       {isWebhook ? (
         <Button size="xs" variant="outline" onClick={() => setDeliveriesOpen(true)}>
           <InboxIcon />
@@ -388,7 +405,7 @@ export function ScheduledTaskActions({
           disabled={busy || !canOperate || task.lastRunStatus === "running"}
           onClick={() => void act("run")}
         >
-          <PlayIcon />
+          <ZapIcon />
           Run now
         </Button>
       )}
@@ -842,7 +859,8 @@ export function ScheduledTaskEditorForm({
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
-      enabled: draft.enabled,
+      // Pause and Resume live in the header, so an edit keeps whatever they set since.
+      enabled: draft.editingId ? (liveTask?.enabled ?? draft.enabled) : draft.enabled,
       schedule,
       projectId: selectedProjectId as ProjectId,
       threadId: draft.threadId ? (draft.threadId as ThreadId) : null,
@@ -1108,167 +1126,194 @@ export function ScheduledTaskEditorForm({
                   "Each request runs the prompt. Use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} or {{request}} in the prompt; only what it names reaches the agent."
                 }
               </p>
-              <Field
-                label="Skip requests older than"
-                hint="minutes, optional"
-                htmlFor="scheduled-task-max-age"
+              <DisclosureSection
+                title="Filters"
+                summary={
+                  [
+                    draft.filters.length > 0
+                      ? `${draft.filters.length} ${draft.filters.length === 1 ? "filter" : "filters"}`
+                      : null,
+                    draft.maxDeliveryAgeMinutes.trim() ? "skips old requests" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || null
+                }
+                defaultOpen={draft.filters.length > 0 || draft.maxDeliveryAgeMinutes.trim() !== ""}
               >
-                <Input
-                  id="scheduled-task-max-age"
-                  type="number"
-                  nativeInput
-                  min={1}
-                  max={MAX_WEBHOOK_DELIVERY_AGE_MINUTES}
-                  placeholder="Run every request"
-                  value={draft.maxDeliveryAgeMinutes}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      maxDeliveryAgeMinutes: event.target.value,
-                    }))
-                  }
+                <Field
+                  label="Skip requests older than"
+                  hint="minutes, optional"
+                  htmlFor="scheduled-task-max-age"
+                >
+                  <Input
+                    id="scheduled-task-max-age"
+                    type="number"
+                    nativeInput
+                    min={1}
+                    max={MAX_WEBHOOK_DELIVERY_AGE_MINUTES}
+                    placeholder="Run every request"
+                    value={draft.maxDeliveryAgeMinutes}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        maxDeliveryAgeMinutes: event.target.value,
+                      }))
+                    }
+                  />
+                </Field>
+                <WebhookFiltersField
+                  filters={draft.filters}
+                  onChange={(filters) => setDraft((current) => ({ ...current, filters }))}
                 />
-              </Field>
-              <WebhookFiltersField
-                filters={draft.filters}
-                onChange={(filters) => setDraft((current) => ({ ...current, filters }))}
-              />
-              <Field
-                label="Replay key"
-                hint="template, optional"
-                htmlFor="scheduled-task-replay-key"
+              </DisclosureSection>
+              <DisclosureSection
+                title="Deduplication"
+                summary={draft.replayKey.trim() || draft.coalesceKey.trim() ? "On" : null}
+                defaultOpen={draft.replayKey.trim() !== "" || draft.coalesceKey.trim() !== ""}
               >
-                <Input
-                  id="scheduled-task-replay-key"
-                  placeholder="{{headers.delivery-id}}"
-                  value={draft.replayKey}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, replayKey: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field
-                label="Coalesce key"
-                hint="template, optional"
-                htmlFor="scheduled-task-coalesce-key"
+                <Field
+                  label="Replay key"
+                  hint="template, optional"
+                  htmlFor="scheduled-task-replay-key"
+                >
+                  <Input
+                    id="scheduled-task-replay-key"
+                    placeholder="{{headers.delivery-id}}"
+                    value={draft.replayKey}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, replayKey: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Coalesce key"
+                  hint="template, optional"
+                  htmlFor="scheduled-task-coalesce-key"
+                >
+                  <Input
+                    id="scheduled-task-coalesce-key"
+                    placeholder="{{body.id}}"
+                    value={draft.coalesceKey}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, coalesceKey: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Coalesce window"
+                  hint="seconds, 10–3600"
+                  htmlFor="scheduled-task-coalesce-window"
+                >
+                  <Input
+                    id="scheduled-task-coalesce-window"
+                    type="number"
+                    nativeInput
+                    min={10}
+                    max={3600}
+                    placeholder="120"
+                    value={draft.coalesceWindowSeconds}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        coalesceWindowSeconds: event.target.value,
+                      }))
+                    }
+                  />
+                </Field>
+                <p className="text-xs text-muted-foreground">
+                  Replay keys suppress repeat deliveries for 7 days. Coalescing runs the latest
+                  payload once when the window from the first delivery closes. Empty keys run
+                  normally.
+                </p>
+              </DisclosureSection>
+              <DisclosureSection
+                title="Signature"
+                summary={draft.signatureEnabled ? "On" : null}
+                defaultOpen={draft.signatureEnabled}
               >
-                <Input
-                  id="scheduled-task-coalesce-key"
-                  placeholder="{{body.id}}"
-                  value={draft.coalesceKey}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, coalesceKey: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field
-                label="Coalesce window"
-                hint="seconds, 10–3600"
-                htmlFor="scheduled-task-coalesce-window"
-              >
-                <Input
-                  id="scheduled-task-coalesce-window"
-                  type="number"
-                  nativeInput
-                  min={10}
-                  max={3600}
-                  placeholder="120"
-                  value={draft.coalesceWindowSeconds}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      coalesceWindowSeconds: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <p className="text-xs text-muted-foreground">
-                Replay keys suppress repeat deliveries for 7 days. Coalescing runs the latest
-                payload once when the window from the first delivery closes. Empty keys run
-                normally.
-              </p>
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0 space-y-1">
-                  <Label htmlFor="scheduled-task-signature">Require signature</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Reject requests without a valid HMAC-SHA256 signature of the body.
-                  </p>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 space-y-1">
+                    <Label htmlFor="scheduled-task-signature">Require signature</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Reject requests without a valid HMAC-SHA256 signature of the body.
+                    </p>
+                  </div>
+                  <Switch
+                    id="scheduled-task-signature"
+                    checked={draft.signatureEnabled}
+                    onCheckedChange={(signatureEnabled) =>
+                      setDraft((current) => ({ ...current, signatureEnabled }))
+                    }
+                  />
                 </div>
-                <Switch
-                  id="scheduled-task-signature"
-                  checked={draft.signatureEnabled}
-                  onCheckedChange={(signatureEnabled) =>
-                    setDraft((current) => ({ ...current, signatureEnabled }))
-                  }
-                />
-              </div>
-              {draft.signatureEnabled ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Header" htmlFor="scheduled-task-signature-header">
-                    <Input
-                      id="scheduled-task-signature-header"
-                      value={draft.signatureHeader}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          signatureHeader: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Prefix" htmlFor="scheduled-task-signature-prefix">
-                    <Input
-                      id="scheduled-task-signature-prefix"
-                      value={draft.signaturePrefix}
-                      placeholder="None"
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          signaturePrefix: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Encoding" htmlFor="scheduled-task-signature-encoding">
-                    <Select
-                      value={draft.signatureEncoding}
-                      onValueChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          signatureEncoding: value === "base64" ? "base64" : "hex",
-                        }))
-                      }
-                    >
-                      <SelectTrigger size="sm" id="scheduled-task-signature-encoding">
-                        <SelectValue>{draft.signatureEncoding}</SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup>
-                        <SelectItem value="hex">hex</SelectItem>
-                        <SelectItem value="base64">base64</SelectItem>
-                      </SelectPopup>
-                    </Select>
-                  </Field>
-                  <Field label="Secret" htmlFor="scheduled-task-signature-secret">
-                    <Input
-                      id="scheduled-task-signature-secret"
-                      type="password"
-                      autoComplete="off"
-                      value={draft.signatureSecret}
-                      placeholder={
-                        liveTask?.schedule.type === "webhook" && liveTask.webhook?.hasSecret
-                          ? "Unchanged"
-                          : "Shared secret"
-                      }
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          signatureSecret: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-                </div>
-              ) : null}
+                {draft.signatureEnabled ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Header" htmlFor="scheduled-task-signature-header">
+                      <Input
+                        id="scheduled-task-signature-header"
+                        value={draft.signatureHeader}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            signatureHeader: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Prefix" htmlFor="scheduled-task-signature-prefix">
+                      <Input
+                        id="scheduled-task-signature-prefix"
+                        value={draft.signaturePrefix}
+                        placeholder="None"
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            signaturePrefix: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Encoding" htmlFor="scheduled-task-signature-encoding">
+                      <Select
+                        value={draft.signatureEncoding}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            signatureEncoding: value === "base64" ? "base64" : "hex",
+                          }))
+                        }
+                      >
+                        <SelectTrigger size="sm" id="scheduled-task-signature-encoding">
+                          <SelectValue>{draft.signatureEncoding}</SelectValue>
+                        </SelectTrigger>
+                        <SelectPopup>
+                          <SelectItem value="hex">hex</SelectItem>
+                          <SelectItem value="base64">base64</SelectItem>
+                        </SelectPopup>
+                      </Select>
+                    </Field>
+                    <Field label="Secret" htmlFor="scheduled-task-signature-secret">
+                      <Input
+                        id="scheduled-task-signature-secret"
+                        type="password"
+                        autoComplete="off"
+                        value={draft.signatureSecret}
+                        placeholder={
+                          liveTask?.schedule.type === "webhook" && liveTask.webhook?.hasSecret
+                            ? "Unchanged"
+                            : "Shared secret"
+                        }
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            signatureSecret: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                ) : null}
+              </DisclosureSection>
             </div>
           ) : draft.scheduleMode === "fixed" ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -1327,20 +1372,22 @@ export function ScheduledTaskEditorForm({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <Label htmlFor="scheduled-task-enabled">Enabled</Label>
-            <p id="scheduled-task-enabled-description" className="text-sm text-muted-foreground">
-              Disabled tasks stay saved but do not run.
-            </p>
+        {draft.editingId ? null : (
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor="scheduled-task-enabled">Start enabled</Label>
+              <p id="scheduled-task-enabled-description" className="text-sm text-muted-foreground">
+                Paused tasks stay saved but do not run.
+              </p>
+            </div>
+            <Switch
+              id="scheduled-task-enabled"
+              aria-describedby="scheduled-task-enabled-description"
+              checked={draft.enabled}
+              onCheckedChange={(enabled) => setDraft((current) => ({ ...current, enabled }))}
+            />
           </div>
-          <Switch
-            id="scheduled-task-enabled"
-            aria-describedby="scheduled-task-enabled-description"
-            checked={draft.enabled}
-            onCheckedChange={(enabled) => setDraft((current) => ({ ...current, enabled }))}
-          />
-        </div>
+        )}
       </fieldset>
 
       <div className="flex justify-end gap-2">

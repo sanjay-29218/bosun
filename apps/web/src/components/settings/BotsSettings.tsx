@@ -54,6 +54,8 @@ import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from
 import { toastManager } from "../ui/toast";
 import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
 import { CrewToolPicker, EditorField } from "./CrewAgentFields";
+import { runtimeModeConfig } from "../chat/runtimeModeConfig";
+import { DisclosureSection } from "../DisclosureSection";
 import { CrewLimitsSettings } from "./CrewLimitsSettings";
 import { CrewEnvironmentNotice, useCrewSettingsEnvironment } from "./crewSettingsEnvironment";
 import {
@@ -197,7 +199,6 @@ function BotsSections({
               first={index === 0}
               last={index === bots.length - 1}
               disabled={!canEdit || busyId !== null}
-              onConflict={botsQuery.refresh}
               onEdit={() => setEditor({ botId: bot.id })}
               onMove={(offset) => void move(bot, offset)}
               onDelete={() => void deleteBot(bot)}
@@ -309,7 +310,6 @@ function BotRow({
   onEdit,
   onMove,
   onDelete,
-  onConflict,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: Bot;
@@ -322,18 +322,10 @@ function BotRow({
   readonly onEdit: () => void;
   readonly onMove: (offset: -1 | 1) => void;
   readonly onDelete: () => void;
-  readonly onConflict: () => void;
 }) {
-  const save = useSaveBot(environmentId, onConflict);
-  const [busy, setBusy] = useState(false);
-  const locked = busy || disabled;
-  const run = async (change: BotChange) => {
-    setBusy(true);
-    await save(bot, change);
-    setBusy(false);
-  };
   const summary = bot.instructions.split("\n")[0]?.trim() ?? "";
   const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects.length);
+  const projectCount = `${ownedProjects.length} ${ownedProjects.length === 1 ? "project" : "projects"}`;
 
   return (
     <SettingsRow
@@ -343,35 +335,30 @@ function BotRow({
           {bot.name}
         </span>
       }
-      description={summary.length > 160 ? `${summary.slice(0, 157)}…` : summary}
+      description={[bot.modelSelection?.model ?? null, runtimeModeConfig[bot.runtimeMode].label]
+        .filter(Boolean)
+        .join(" · ")}
       status={
         // Runs need a model; the server doesn't fall back to the environment's default.
-        bot.modelSelection ? null : "No model yet. Edit it to choose one before it can run."
+        bot.modelSelection
+          ? summary.length > 120
+            ? `${summary.slice(0, 117)}…`
+            : summary
+          : "No model yet. Edit it to choose one before it can run."
       }
       control={
         <>
-          {bot.modelSelection ? (
-            <RoleModelPicker
-              environmentId={environmentId}
-              selection={bot.modelSelection}
-              disabled={locked}
-              onChange={(modelSelection) => void run({ modelSelection })}
-            />
-          ) : null}
-          <RuntimeModeSelect
-            label={`When ${bot.name} acts`}
-            value={bot.runtimeMode}
-            disabled={locked}
-            size="sm"
-            onChange={(mode) => void run({ runtimeMode: mode })}
-          />
+          <Button size="sm" variant="outline" disabled={disabled} onClick={onEdit}>
+            <PencilIcon />
+            Edit
+          </Button>
           <Menu>
             <MenuTrigger
               render={
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  disabled={locked}
+                  disabled={disabled}
                   aria-label={`Actions for ${bot.name}`}
                 />
               }
@@ -379,10 +366,6 @@ function BotRow({
               <MoreHorizontalIcon className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end">
-              <MenuItem onClick={onEdit}>
-                <PencilIcon />
-                Edit
-              </MenuItem>
               <MenuItem disabled={first} onClick={() => onMove(-1)}>
                 <ArrowUpIcon />
                 Move up
@@ -406,13 +389,17 @@ function BotRow({
         </>
       }
     >
-      <BotProjectList
-        environmentId={environmentId}
-        bot={bot}
-        bots={bots}
-        ownedProjects={ownedProjects}
-        allProjects={allProjects}
-      />
+      <div className="mt-2 mb-2">
+        <DisclosureSection title="Projects" summary={projectCount}>
+          <BotProjectList
+            environmentId={environmentId}
+            bot={bot}
+            bots={bots}
+            ownedProjects={ownedProjects}
+            allProjects={allProjects}
+          />
+        </DisclosureSection>
+      </div>
     </SettingsRow>
   );
 }
@@ -438,9 +425,8 @@ function BotProjectList({
   const locked = moving || !canMove;
 
   return (
-    // Bordered like other nested lists in Settings; it carries the bottom spacing
-    // `SettingsRow` leaves to its children.
-    <div className="mt-3 mb-2 overflow-hidden rounded-lg border border-border/60">
+    // Bordered like other nested lists in Settings.
+    <div className="overflow-hidden rounded-lg border border-border/60">
       {ownedProjects.map((project, index) => (
         <div
           key={project.id}
