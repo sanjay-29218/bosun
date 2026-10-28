@@ -23,7 +23,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { Textarea } from "../ui/textarea";
+import { InstructionsEditor } from "../InstructionsEditor";
 import {
   WORKFLOW_ID_PATTERN,
   earlierStageOutputs,
@@ -248,13 +248,14 @@ export function WorkflowStageDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`${formId}-task`}>Task</Label>
-              <Textarea
+              <InstructionsEditor
                 id={`${formId}-task`}
+                label="Task"
                 value={task}
-                rows={3}
                 maxLength={8_000}
+                size="sm"
                 placeholder="What this stage does"
-                onChange={(event) => setTask(event.target.value)}
+                onChange={setTask}
               />
             </div>
             <div className="space-y-1.5">

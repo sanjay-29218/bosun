@@ -83,16 +83,16 @@ describe("LibraryPage", () => {
     const selection = { environmentId, roleId: reviewer.id };
     await using screen = await render(<LibraryPage {...selection} />);
     const instructions = page.getByRole("textbox", { name: "Instructions" });
-    await expect.element(instructions).toHaveValue("Review the change");
+    await expect.element(instructions).toHaveTextContent("Review the change");
     await userEvent.fill(instructions, "Review the change for security");
 
     state.connected = false;
     await screen.rerender(<LibraryPage {...selection} />);
-    await expect.element(instructions).toHaveValue("Review the change for security");
+    await expect.element(instructions).toHaveTextContent("Review the change for security");
 
     state.connected = true;
     await screen.rerender(<LibraryPage {...selection} />);
-    await expect.element(instructions).toHaveValue("Review the change for security");
+    await expect.element(instructions).toHaveTextContent("Review the change for security");
   });
 
   it("says when the selected workflow no longer exists", async () => {
