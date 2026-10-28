@@ -1,6 +1,6 @@
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
 import { TriangleAlertIcon } from "lucide-react";
-import { type ComponentProps, useId, useRef, useState } from "react";
+import { type ComponentProps, type ReactNode, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { isElectron } from "../../env";
@@ -185,11 +185,36 @@ async function installLocalUpdate(
   }
 }
 
-export function SidebarUpdatePill() {
-  return <SidebarUpdateControl />;
+/**
+ * The desktop update button. The sidebar footer holds it as a menu item; the bot rail holds it
+ * under Settings, where an update run shrinks to its icon and popovers open to the right.
+ */
+export function SidebarUpdatePill({
+  placement = "sidebar",
+}: {
+  readonly placement?: "sidebar" | "rail";
+}) {
+  return <SidebarUpdateControl placement={placement} />;
 }
 
-function SidebarUpdateControl() {
+function UpdateSlot({
+  placement,
+  className,
+  children,
+}: {
+  readonly placement: "sidebar" | "rail";
+  readonly className: string;
+  readonly children: ReactNode;
+}) {
+  return placement === "rail" ? (
+    <div className="flex w-full justify-center">{children}</div>
+  ) : (
+    <SidebarMenuItem className={className}>{children}</SidebarMenuItem>
+  );
+}
+
+function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "rail" }) {
+  const popupSide = placement === "rail" ? "right" : "top";
   const state = useDesktopUpdateState();
   const [isActionPending, setIsActionPending] = useState(false);
   const [isConfirmingEverything, setIsConfirmingEverything] = useState(false);
@@ -412,8 +437,9 @@ function SidebarUpdateControl() {
           ? { status: "downloading", percent: state.downloadPercent }
           : { status: "waiting" };
     return (
-      <SidebarMenuItem className="ml-auto flex min-w-0 flex-1">
+      <UpdateSlot placement={placement} className="ml-auto flex min-w-0 flex-1">
         <SidebarUpdateCapsule
+          compact={placement === "rail"}
           run={run}
           local={local}
           icon={statusIcon}
@@ -435,7 +461,7 @@ function SidebarUpdateControl() {
             : {})}
         />
         {confirmDialog}
-      </SidebarMenuItem>
+      </UpdateSlot>
     );
   }
 
@@ -487,7 +513,7 @@ function SidebarUpdateControl() {
   );
 
   return (
-    <SidebarMenuItem className="ml-auto shrink-0">
+    <UpdateSlot placement={placement} className="ml-auto shrink-0">
       <Popover
         handle={releaseNotesPopoverHandle}
         open={releaseNotesOpen && showReleaseNotesPopover}
@@ -524,7 +550,7 @@ function SidebarUpdateControl() {
           {!showReleaseNotesPopover ? (
             <TooltipPopup
               align="center"
-              side="top"
+              side={popupSide}
               variant={showUpdateDetails ? "glass" : "default"}
             >
               {idleTooltip?.detail ? (
@@ -552,7 +578,7 @@ function SidebarUpdateControl() {
               }
             }}
             ref={releaseNotesPopupRef}
-            side="top"
+            side={popupSide}
             tooltipStyle
           >
             <SidebarUpdateReleaseNotes
@@ -564,6 +590,6 @@ function SidebarUpdateControl() {
         ) : null}
       </Popover>
       {confirmDialog}
-    </SidebarMenuItem>
+    </UpdateSlot>
   );
 }

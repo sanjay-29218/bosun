@@ -218,14 +218,8 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigateToMainApp();
   };
 
-  // The rail holds these, and picking a bot there is the way back.
-  if (showBotRail) {
-    return (
-      <SidebarMenu className="flex-row items-center">
-        <SidebarUpdatePill />
-      </SidebarMenu>
-    );
-  }
+  // The rail holds these and the update button, and picking a bot there is the way back.
+  if (showBotRail) return null;
   return (
     <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
