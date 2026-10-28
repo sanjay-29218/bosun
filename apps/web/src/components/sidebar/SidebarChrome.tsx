@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
   LayersIcon,
@@ -33,6 +34,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import {
   AUTOMATIONS_PATH,
+  BOTS_PATH,
   isSidebarUtilityPage,
   LIBRARY_PATH,
   useNavigateToMainApp,
@@ -193,6 +195,10 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   };
+  const handleBotsClick = () => {
+    closeMobileSidebar();
+    void navigate({ to: BOTS_PATH });
+  };
   const handleAutomationsClick = () => {
     closeMobileSidebar();
     void navigate({ to: AUTOMATIONS_PATH });
@@ -242,6 +248,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
+          <SidebarUtilityItem icon={<BotIcon />} label="Bots" onClick={handleBotsClick} />
           <SidebarUtilityItem
             icon={<ClockIcon />}
             label="Automations"

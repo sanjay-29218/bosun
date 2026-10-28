@@ -1,7 +1,7 @@
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./BotsSettings.logic";
+import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder, moveBotTo } from "./bots.logic";
 
 describe("groupProjectsByBot", () => {
   it("groups projects by owner in order, with unowned ones under Captain", () => {
@@ -27,6 +27,20 @@ describe("moveBotInOrder", () => {
     expect(moveBotInOrder(order, "captain", -1)).toBeNull();
     expect(moveBotInOrder(order, "finance", 1)).toBeNull();
     expect(moveBotInOrder(order, "missing", 1)).toBeNull();
+  });
+});
+
+describe("moveBotTo", () => {
+  const order = ["captain", "social", "finance"];
+
+  it("drops a bot where another one is, either way", () => {
+    expect(moveBotTo(order, "finance", "captain")).toEqual(["finance", "captain", "social"]);
+    expect(moveBotTo(order, "captain", "finance")).toEqual(["social", "finance", "captain"]);
+  });
+
+  it("does nothing for a drop on itself or an unknown bot", () => {
+    expect(moveBotTo(order, "social", "social")).toBeNull();
+    expect(moveBotTo(order, "social", "missing")).toBeNull();
   });
 });
 

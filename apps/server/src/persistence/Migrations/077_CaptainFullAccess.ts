@@ -7,26 +7,15 @@ import * as SqlClient from "effect/sql/SqlClient";
  * person keeps their choices.
  */
 
-const ALL_TOOLS = [
-  "crew.delegate",
-  "crew.status",
-  "crew.answer",
-  "crew.ask",
-  "crew.respond",
-  "crew.projects",
-  "crew.create-project",
-  "crew.workflows",
-  "orchestration",
-  "worktree",
-  "pull-requests",
-  "preview",
-  "device",
-];
+const ALL_TOOLS =
+  '["crew.delegate","crew.status","crew.answer","crew.ask","crew.respond","crew.projects",' +
+  '"crew.create-project","crew.workflows","orchestration","worktree","pull-requests","preview",' +
+  '"device"]';
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
-    UPDATE bots SET runtime_mode = 'full-access', allowed_tools_json = ${JSON.stringify(ALL_TOOLS)}
+    UPDATE bots SET runtime_mode = 'full-access', allowed_tools_json = ${ALL_TOOLS}
     WHERE id = 'bot-captain' AND revision = 1 AND created_at = updated_at
   `;
 });

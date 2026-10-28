@@ -2,22 +2,21 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   botRailSignal,
   combineBotActivity,
-  logicalBotKey,
   type BotRailSignal,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
+  BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
   InboxIcon,
   LayersIcon,
-  PlusIcon,
   ServerIcon,
   SettingsIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { memo, useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
@@ -27,10 +26,8 @@ import { cn } from "../../lib/utils";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useHasUnseenAutomationFailure } from "../../state/automations";
-import { botsEnvironment } from "../../state/bots";
 import {
   useActivityByLogicalBot,
-  useBotEnvironmentIds,
   useEnvironmentFilter,
   useNeedsYouByLogicalBot,
   useSelectLogicalBot,
@@ -47,13 +44,13 @@ import { useUiStateStore } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { AddBotDialog } from "../settings/BotsSettings";
 import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   AUTOMATIONS_PATH,
+  BOTS_PATH,
   isSidebarUtilityPage,
   LIBRARY_PATH,
   useRailDestination,
@@ -82,20 +79,7 @@ export const BotRail = memo(function BotRail({
   const selectBot = useSelectLogicalBot();
   const switchBotMainView = useSwitchBotMainView();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const botEnvironmentIds = useBotEnvironmentIds();
-  const environmentFilter = useEnvironmentFilter();
-  const [addingOn, setAddingOn] = useState<EnvironmentId | null>(null);
   const multipleBots = bots.length > 1;
-
-  // New bots go to the first connected, shown environment with bots, primary first.
-  const connectedEnvironmentIds = useConnectedEnvironmentIds();
-  const addEnvironmentId =
-    botEnvironmentIds.find(
-      (environmentId) =>
-        connectedEnvironmentIds.includes(environmentId) &&
-        (environmentFilter === null || environmentFilter.has(environmentId)),
-    ) ?? null;
-  const canAdd = useAtomValue(botsEnvironment.create.permissionAtom(addEnvironmentId));
 
   const openHeadquarters = useOpenBotHeadquarters();
   const destination = useRailDestination();
@@ -194,22 +178,6 @@ export const BotRail = memo(function BotRail({
               <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
             </RailItem>
           ))}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost-muted"
-                  size="icon-sm"
-                  aria-label="Add bot"
-                  disabled={addEnvironmentId === null || !canAdd}
-                  onClick={() => setAddingOn(addEnvironmentId)}
-                />
-              }
-            >
-              <PlusIcon />
-            </TooltipTrigger>
-            <TooltipPopup side="right">Add bot</TooltipPopup>
-          </Tooltip>
         </div>
         <RailDivider />
         <RailPlaces destination={destination} />
@@ -218,28 +186,14 @@ export const BotRail = memo(function BotRail({
           <RailAppPages />
         </div>
       </div>
-      {addingOn ? (
-        <AddBotDialog
-          environmentId={addingOn}
-          onClose={() => setAddingOn(null)}
-          onCreated={(bot) =>
-            switchBotMainView(() =>
-              selectBot({
-                key: logicalBotKey(bot),
-                name: bot.name,
-                avatar: bot.avatar,
-                color: bot.color,
-                members: [{ environmentId: addingOn, botId: bot.id }],
-              }),
-            )
-          }
-        />
-      ) : null}
     </nav>
   );
 });
 
-/** Automations, Library and pull requests: monochrome icons that swap the sidebar's list. */
+/**
+ * Bots (where bots are added and edited), then Automations, Library and pull requests:
+ * monochrome icons that swap the sidebar's list.
+ */
 function RailPlaces({
   destination,
 }: {
@@ -255,6 +209,20 @@ function RailPlaces({
   };
   return (
     <>
+      <RailItem
+        label="Bots"
+        hint="Add and edit bots"
+        active={destination === "bot-list"}
+        signal={null}
+        shortcut={null}
+        variant="icon"
+        onSelect={() => {
+          if (destination !== "bot-list") void navigate({ to: BOTS_PATH });
+        }}
+      >
+        <BotIcon className="size-5" strokeWidth={1.75} />
+      </RailItem>
+      <RailDivider />
       <RailItem
         label="Automations"
         hint={null}
