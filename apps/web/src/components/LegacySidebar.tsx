@@ -2892,7 +2892,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     <SidebarContent
       fixedHeader={
         <SidebarGroup className="z-[1]">
-          <SidebarViewToggle />
           <SidebarMenu>
             <SidebarMenuItem>
               <CommandDialogTrigger
@@ -3655,7 +3654,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
       {prewarmedSidebarThreadRefs.map((threadRef) => (
         <SidebarThreadDetailPrewarmer key={scopedThreadKey(threadRef)} threadRef={threadRef} />
       ))}
-      <SidebarChromeHeader isElectron={isElectron} />
+      <SidebarChromeHeader isElectron={isElectron} trailing={<SidebarViewToggle />} />
 
       <SidebarProjectsContent
         showArm64IntelBuildWarning={showArm64IntelBuildWarning}

@@ -59,7 +59,14 @@ import {
 } from "@t3tools/contracts";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
-import { ChevronDownIcon, FolderIcon, ListFilterIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  ListFilterIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -229,7 +236,6 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
-import { SidebarNewThreadRow } from "./sidebar/SidebarNewThreadRow";
 import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
@@ -793,6 +799,9 @@ function checkThreadOperations(
   return false;
 }
 
+/** The project filter's last entry, which opens Add project instead of filtering. */
+const ADD_PROJECT_SCOPE_ITEM = { value: "add-project", label: "Add project…" } as const;
+
 const SIDEBAR_DRAG_DISTANCE = 6;
 
 const SIDEBAR_DRAG_LABEL_HEIGHT = 24;
@@ -1066,12 +1075,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const selectedProjectScopeItem =
     projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
     projectScopeItems[0]!;
+  const projectScopeMenuItems = [...projectScopeItems, ADD_PROJECT_SCOPE_ITEM];
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectScopeItems,
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
+  // Add project ends the list until you type, so a search with no hits can say so.
+  const filteredProjectScopeMenuItems =
+    projectScopeMenuState.query.trim().length === 0
+      ? projectScopeMenuItems
+      : filteredProjectScopeItems;
   const scopedProjectGroup = revealWidensScope ? null : chosenProjectGroup;
   // Without a project scope, the bot rail's projects bound the list.
   const scopedProjectKeys =
@@ -2806,26 +2821,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   return (
     <>
       <ThreadContextDragGhost />
-      <SidebarChromeHeader isElectron={isElectron} />
+      <SidebarChromeHeader isElectron={isElectron} trailing={<SidebarViewToggle />} />
       <SidebarContent
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
-            <SidebarNewThreadRow
-              onNewThread={handleNewThreadClick}
-              disabled={projects.length === 0}
-              shortcutLabel={newThreadShortcutLabel}
-              newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
-              showInProjectHint={projectGroups.length > 1}
-            />
-            <SidebarViewToggle />
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
-                  items={projectScopeItems}
-                  filteredItems={filteredProjectScopeItems}
+                  items={projectScopeMenuItems}
+                  filteredItems={filteredProjectScopeMenuItems}
                   autoHighlight
                   itemToStringLabel={(item) => item.label}
                   isItemEqualToValue={(a, b) => a.value === b.value}
@@ -2844,6 +2851,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       return;
                     }
                     if (!item) return;
+                    if (item.value === ADD_PROJECT_SCOPE_ITEM.value) {
+                      dispatchProjectScopeMenu({ type: "open-changed", open: false });
+                      openAddProjectCommandPalette();
+                      return;
+                    }
                     setProjectScopeKey(item.value === "all" ? null : item.value);
                   }}
                 >
@@ -2899,7 +2911,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     />
                     <ComboboxEmpty>No matching projects.</ComboboxEmpty>
                     <ComboboxList>
-                      {(item: (typeof projectScopeItems)[number]) => {
+                      {(item: (typeof projectScopeMenuItems)[number]) => {
+                        if (item.value === ADD_PROJECT_SCOPE_ITEM.value) {
+                          return (
+                            <ComboboxItem key={item.value} hideIndicator value={item}>
+                              <FolderPlusIcon className="size-4 shrink-0" />
+                              <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                                {item.label}
+                              </span>
+                            </ComboboxItem>
+                          );
+                        }
                         const project = projectGroupByScopeKey.get(item.value) ?? null;
                         return (
                           <ComboboxItem
@@ -2946,9 +2968,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   </ComboboxPopup>
                 </Combobox>
               }
-              onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
-              showNewThread={false}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
               newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
