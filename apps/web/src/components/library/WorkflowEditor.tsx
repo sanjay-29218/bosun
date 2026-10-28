@@ -2,6 +2,8 @@ import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import { type RoleConfig, type EnvironmentId, type WorkflowDefinition } from "@t3tools/contracts";
 import { useBlocker } from "@tanstack/react-router";
 import {
+  ArrowRightIcon,
+  FlagIcon,
   ListIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -28,6 +30,7 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { RouteLimitSelect } from "../workflows/RouteLimitSelect";
 import { WorkflowStageSelect } from "../workflows/WorkflowStageSelect";
 import { LimitField } from "../settings/CrewLimitsSettings";
 import { SettingsGroup } from "../settings/SettingsGroup";
@@ -40,6 +43,7 @@ import {
   pruneUnusedRoles,
   refreshWorkflowRoles,
   removeStage,
+  routeLoopsBack,
   sameWorkflow,
   setRouteLimit,
   updateTask,
@@ -399,34 +403,39 @@ export function WorkflowEditor({
                 </Button>
               }
             >
-              <SettingsRow
-                title="First stage"
-                control={
-                  <WorkflowStageSelect
-                    label="First stage"
-                    value={draft.start}
-                    options={stages}
-                    stageName={stageName}
-                    onChange={(start) => setDraft({ ...draft, start })}
-                  />
-                }
-              />
               {stages.map((stepId, index) => {
                 const step = draft.steps[stepId];
                 if (step?.type !== "task") return null;
+                const name = stageName(stepId);
                 return (
-                  <div key={stepId}>
-                    <SettingsRow
-                      title={`${index + 1}. ${stageName(stepId)}`}
-                      description={[roleName(step.role), step.task].filter(Boolean).join(" · ")}
-                      control={
+                  <SettingsRow
+                    key={stepId}
+                    title={`${index + 1}. ${name}`}
+                    description={[roleName(step.role), step.task].filter(Boolean).join(" · ")}
+                    control={
+                      <>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          Approval
+                          <Switch
+                            size="sm"
+                            aria-label={`${name} needs your approval`}
+                            checked={step.gate === true}
+                            onCheckedChange={(gate) =>
+                              setDraft(
+                                updateTask(draft, stepId, ({ gate: _gate, ...rest }) =>
+                                  gate ? { ...rest, gate: true } : rest,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
                         <Menu>
                           <MenuTrigger
                             render={
                               <Button
                                 size="icon-sm"
                                 variant="ghost"
-                                aria-label={`Actions for ${stageName(stepId)}`}
+                                aria-label={`Actions for ${name}`}
                               />
                             }
                           >
@@ -438,6 +447,13 @@ export function WorkflowEditor({
                               Edit
                             </MenuItem>
                             <MenuItem
+                              disabled={draft.start === stepId}
+                              onClick={() => setDraft({ ...draft, start: stepId })}
+                            >
+                              <FlagIcon />
+                              Start here
+                            </MenuItem>
+                            <MenuItem
                               disabled={!canRemoveStage(draft, stepId)}
                               onClick={() => setDraft(removeStage(draft, stepId))}
                             >
@@ -446,69 +462,51 @@ export function WorkflowEditor({
                             </MenuItem>
                           </MenuPopup>
                         </Menu>
-                      }
-                    />
-                    <SettingsRow
-                      className="ps-8 sm:ps-10"
-                      title="Needs your approval"
-                      control={
-                        <Switch
-                          aria-label={`Approve ${stageName(stepId)}`}
-                          checked={step.gate === true}
-                          onCheckedChange={(gate) =>
-                            setDraft(
-                              updateTask(draft, stepId, ({ gate: _gate, ...rest }) =>
-                                gate ? { ...rest, gate: true } : rest,
-                              ),
-                            )
-                          }
-                        />
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </SettingsSection>
-
-            <SettingsSection title="Routes" inert={busy}>
-              {stages.flatMap((stepId) => {
-                const step = draft.steps[stepId];
-                if (step?.type !== "task") return [];
-                return Object.entries(step.next).map(([outcome, target]) => (
-                  <SettingsRow
-                    key={`${stepId}:${outcome}`}
-                    title={`${stageName(stepId)} · ${humanizeWorkflowId(outcome)}`}
-                    control={
-                      <>
-                        <WorkflowStageSelect
-                          label={`Next stage after ${stageName(stepId)} ${outcome}`}
-                          value={target}
-                          options={[...stages, endId]}
-                          stageName={(id) => (id === endId ? "Finish" : `Go to ${stageName(id)}`)}
-                          onChange={(next) =>
-                            setDraft(
-                              updateTask(draft, stepId, (task) => ({
-                                ...task,
-                                next: { ...task.next, [outcome]: next },
-                              })),
-                            )
-                          }
-                        />
-                        <LimitField
-                          label={`Most times ${stageName(stepId)} ${outcome} is taken`}
-                          value={step.limits?.[outcome] ?? null}
-                          min={1}
-                          max={20}
-                          placeholder="No limit"
-                          allowEmpty
-                          onCommit={(value) =>
-                            setDraft(setRouteLimit(draft, stepId, outcome, value))
-                          }
-                        />
                       </>
                     }
-                  />
-                ));
+                  >
+                    <ul className="space-y-1.5 pt-2.5 pb-2 ps-4">
+                      {Object.entries(step.next).map(([outcome, target]) => (
+                        <li
+                          key={outcome}
+                          className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5"
+                        >
+                          <span className="min-w-0 flex-1 basis-32 truncate text-sm text-muted-foreground">
+                            {humanizeWorkflowId(outcome)}
+                          </span>
+                          <ArrowRightIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                          <div className="w-40">
+                            <WorkflowStageSelect
+                              label={`Next stage after ${name} ${outcome}`}
+                              value={target}
+                              options={[...stages, endId]}
+                              stageName={stageName}
+                              onChange={(next) =>
+                                setDraft(
+                                  updateTask(draft, stepId, (task) => ({
+                                    ...task,
+                                    next: { ...task.next, [outcome]: next },
+                                  })),
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="w-36">
+                            {routeLoopsBack(draft, stepId, outcome) ? (
+                              <RouteLimitSelect
+                                label={`Most times ${name} ${outcome} is taken`}
+                                value={step.limits?.[outcome] ?? null}
+                                onChange={(limit) =>
+                                  setDraft(setRouteLimit(draft, stepId, outcome, limit))
+                                }
+                              />
+                            ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </SettingsRow>
+                );
               })}
             </SettingsSection>
           </>

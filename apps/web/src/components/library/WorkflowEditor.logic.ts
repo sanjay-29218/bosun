@@ -360,6 +360,24 @@ export function setRouteLimit(
   });
 }
 
+/**
+ * Whether an outcome's route goes back to its own stage or an earlier one, where a feature can
+ * loop and a route limit matters. A limit already set counts too, so it stays editable.
+ */
+export function routeLoopsBack(
+  definition: WorkflowDefinition,
+  stepId: string,
+  outcome: string,
+): boolean {
+  const step = definition.steps[stepId];
+  if (step?.type !== "task") return false;
+  if (step.limits?.[outcome] !== undefined) return true;
+  const target = step.next[outcome];
+  if (target === undefined || definition.steps[target]?.type !== "task") return false;
+  const order = orderWorkflowStages(definition);
+  return order.indexOf(target) <= order.indexOf(stepId);
+}
+
 /** Splits a comma or newline list, trimming and dropping blanks and repeats. */
 export function parseList(value: string): string[] {
   return [

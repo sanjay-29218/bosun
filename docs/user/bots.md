@@ -73,14 +73,14 @@ New** beside Workflows asks for a name and starts a one-stage workflow to build 
 environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
 changed and it needs a new version.
 
-- **Stages** run in order from the first stage. Each stage has a name, runs as a crew role, has a
+- **Stages** run in order from the first stage; **Start here** in a stage's menu changes which one that is. Each stage has a name, runs as a crew role, has a
   task, and reports one of its outcomes. Under **Advanced** it can write files such as `plan.md`
   and pick what it gets in its handoff: every earlier output by default, or only the files and
   changes you pick. **Needs your approval** makes the feature wait for you after that stage. A stage can be removed once nothing starts at
   it or routes to it.
-- **Routes** say where each outcome goes next, for example back to Build when Review requests
-  changes. Give a route a number to stop the feature at **Your call** after it has been taken that
-  many times. Questions go to the project manager first, then to you. A failed stage retries the
+- **Routes**, listed under each stage, say where each outcome goes next, for example back to Build
+  when Review requests changes. A route back to an earlier stage can have a limit: after it has
+  been taken that many times, the feature stops at **Your call**. Questions go to the project manager first, then to you. A failed stage retries the
   number of times set under **Settings** (empty uses **Retries before a stage fails** in
   **Settings → Bots**), then pauses and notifies you.
 - **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the
