@@ -4,9 +4,12 @@ import {
   formatStageName,
 } from "@t3tools/client-runtime/crew-stage";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { workGroupLead } from "@t3tools/client-runtime/state/work-groups";
+import { ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDownIcon } from "lucide-react";
 
+import { useWorkGroup } from "../../state/workGroup";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { WorkspaceBreadcrumbText } from "../WorkspaceBreadcrumb";
@@ -25,18 +28,27 @@ const STEP_STATUS_LABELS: Record<string, string> = {
   skipped: "Skipped",
 };
 
-/** The breadcrumb's stage segment: a menu of the feature's stage threads. */
+/**
+ * The breadcrumb's crew segment: where this thread sits in its feature, as a menu of the lead's
+ * thread and the stage threads.
+ */
 export function CrewStageBreadcrumb({ stage }: { readonly stage: CrewStage }) {
   const navigate = useNavigate();
+  const group = useWorkGroup(scopeThreadRef(stage.thread.environmentId, stage.thread.id));
+  const lead = group ? workGroupLead(group) : null;
   const rows = stage.snapshot ? featureStageRows(stage.snapshot) : [];
-  const name = formatStageName(stage.crew.stepId);
+  const name = stage.crew
+    ? formatStageName(stage.crew.stepId)
+    : stage.thread.id === lead?.id
+      ? "Lead"
+      : (stage.thread.crewRequest?.member ?? "Helper");
   return (
     <Menu>
       <MenuTrigger
         render={
           <button
             type="button"
-            aria-label={`Stage ${name}, switch stage thread`}
+            aria-label={`${name}, switch to the lead or a stage thread`}
             className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           />
         }
@@ -48,17 +60,24 @@ export function CrewStageBreadcrumb({ stage }: { readonly stage: CrewStage }) {
         <MenuRadioGroup
           value={stage.thread.id}
           onValueChange={(threadId: string) => {
-            const row = rows.find((item) => item.threadId === threadId);
-            if (!row?.threadId) return;
+            if (threadId.startsWith("stage:")) return;
             void navigate({
               to: "/$environmentId/$threadId",
               params: buildThreadRouteParams(
-                scopeThreadRef(stage.thread.environmentId, row.threadId),
+                scopeThreadRef(stage.thread.environmentId, ThreadId.make(threadId)),
               ),
             });
           }}
         >
-          {rows.length === 0 ? (
+          {lead ? (
+            <MenuRadioItem value={lead.id}>
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                <span className="truncate">{lead.title}</span>
+                <span className="text-xs text-muted-foreground">Lead</span>
+              </span>
+            </MenuRadioItem>
+          ) : null}
+          {rows.length === 0 && stage.crew ? (
             <MenuRadioItem value={stage.thread.id}>
               {name} · {CREW_STATE_LABELS[stage.crew.state]}
             </MenuRadioItem>

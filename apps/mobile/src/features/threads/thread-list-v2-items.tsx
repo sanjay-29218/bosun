@@ -32,6 +32,13 @@ import {
 } from "@t3tools/contracts";
 import { featureTagColor, formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
+import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
+import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
+import {
+  workGroupOpenThread,
+  type WorkGroup,
+  type WorkStageStatus,
+} from "@t3tools/client-runtime/state/work-groups";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
@@ -578,8 +585,120 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   );
 });
 
+const STAGE_CLASS_NAMES: Record<WorkStageStatus, string> = {
+  done: "bg-foreground-muted opacity-50",
+  working: "bg-adaptive-sky-600-400",
+  "needs-you": "bg-warning",
+  failed: "bg-danger-foreground",
+  paused: "bg-foreground-muted",
+  pending: "bg-border",
+};
+
+/**
+ * Line 3 of a feature or bot request row: its color, where it is (a strip of stages, or the
+ * crew members it went through), and a menu of its crew for a quick jump between threads.
+ */
+function ThreadListV2WorkGroupLine(props: {
+  readonly group: WorkGroup<EnvironmentThreadShell>;
+  readonly selected: boolean;
+  readonly mutedClassName: string;
+  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+}) {
+  const { group } = props;
+  const color = featureTagColor(
+    group.primary.feature?.id ?? group.primary.crewRequest?.id ?? group.key,
+  );
+  const chain =
+    group.kind === "request"
+      ? [group.primary, ...group.children.map((entry) => entry.thread)]
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+          .map((thread) => thread.crewRequest?.member ?? thread.title)
+          .join(" → ")
+      : null;
+  // The row's own status is its primary thread's; another thread waiting on you shows here.
+  const waiting = group.children.find((entry) => threadNeedsYouKind(entry.thread) !== null);
+  const threads = [group.primary, ...group.children.map((entry) => entry.thread)];
+  const roster = buildCrewRoster(group, null);
+  return (
+    <View className="min-w-0 shrink flex-row items-center gap-1.5">
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+      {group.stages.length > 0 ? (
+        <View className="flex-row items-center" style={{ gap: 2 }}>
+          {group.stages.map((status, index) => (
+            <View
+              // oxlint-disable-next-line react/no-array-index-key -- stages are positional
+              key={index}
+              className={cn("rounded-full", STAGE_CLASS_NAMES[status])}
+              style={{ width: 10, height: 4 }}
+            />
+          ))}
+        </View>
+      ) : null}
+      <Text className={cn("shrink text-xs", props.mutedClassName)} numberOfLines={1}>
+        {group.stageLine ?? chain}
+      </Text>
+      {waiting ? (
+        <Pressable
+          className="-m-2 shrink p-2"
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${waiting.label}, which needs you`}
+          onPress={() => props.onSelectThread(waiting.thread)}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
+          <Text
+            className={cn(
+              "text-xs font-t3-medium",
+              props.selected
+                ? selectedThreadRowColors.foregroundClassName
+                : "text-warning-foreground",
+            )}
+            numberOfLines={1}
+          >
+            {waiting.label} needs you
+          </Text>
+        </Pressable>
+      ) : null}
+      {roster.length > 1 ? (
+        <Menu
+          accessibilityLabel={`Open one of its crew: ${roster.length} threads`}
+          title={group.title}
+          actions={roster.map((entry) => ({
+            id: entry.key,
+            title: entry.kind === "lead" ? `${entry.name} · lead` : entry.name,
+            subtitle: entry.status,
+            attributes: { disabled: entry.threadId === null },
+          }))}
+          onPressAction={({ nativeEvent }) => {
+            const threadId = roster.find((entry) => entry.key === nativeEvent.event)?.threadId;
+            const target = threads.find((candidate) => candidate.id === threadId);
+            if (target) props.onSelectThread(target);
+          }}
+        >
+          <View className="flex-row items-center gap-0.5 rounded-md bg-subtle px-1.5 py-0.5">
+            <SymbolView
+              name="chevron.down"
+              size={9}
+              tintColorClassName={
+                props.selected
+                  ? selectedThreadRowColors.iconTintClassName
+                  : "accent-foreground-muted"
+              }
+              type="monochrome"
+            />
+            <Text className={cn("text-2xs font-t3-medium tabular-nums", props.mutedClassName)}>
+              {roster.length}
+            </Text>
+          </View>
+        </Menu>
+      ) : null}
+    </View>
+  );
+}
+
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly thread: EnvironmentThreadShell;
+  /** The feature or bot request this row stands for, with its other threads. */
+  readonly workGroup?: WorkGroup<EnvironmentThreadShell> | undefined;
   readonly variant: "card" | "slim";
   readonly hasQueuedMessages?: boolean;
   readonly snoozed?: boolean;
@@ -657,7 +776,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const pinnedRow = props.pinned === true;
   const dormant = useSwipeRowDormant(props.activationKey);
 
-  const selectThread = () => onSelectThread(thread);
+  // A feature's or request's row opens the thread waiting on you, else its lead.
+  const selectThread = () =>
+    onSelectThread(props.workGroup ? workGroupOpenThread(props.workGroup) : thread);
   const { providerDrivers, providerIconUrl } = useMemo(() => {
     const provider = props.providers?.find(
       (candidate) =>
@@ -1065,7 +1186,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           )}
           numberOfLines={2}
         >
-          {thread.title}
+          {props.workGroup?.title ?? thread.title}
         </Text>
         <View className="flex-row items-center gap-1.5" style={{ marginTop: 3 }}>
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
@@ -1159,7 +1280,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
-        {thread.feature ? (
+        {props.workGroup ? (
+          <ThreadListV2WorkGroupLine
+            group={props.workGroup}
+            selected={selected}
+            mutedClassName={
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : rowAppearance.mutedForegroundClassName
+            }
+            onSelectThread={onSelectThread}
+          />
+        ) : thread.feature ? (
           /* A feature's threads share its tag, in the same chip as pull request labels. */
           <View
             className="min-w-0 shrink flex-row items-center gap-1 rounded-md px-1.5 py-0.5"
@@ -1198,7 +1330,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             #{thread.feature.issue.number}
           </Text>
         ) : null}
-        {crewLine !== null ? (
+        {crewLine !== null && !props.workGroup ? (
           <Text
             className={cn(
               "flex-1 text-xs",

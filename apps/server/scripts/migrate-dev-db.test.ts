@@ -156,6 +156,60 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     }),
   );
 
+  it.effect("copies crew handoffs before their runs, dropping those whose runs are left out", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-src-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`INSERT INTO crew_members
+            (id, project_id, name, instructions, allowed_tools_json, model_selection_json,
+              runtime_mode, created_at, updated_at)
+            VALUES ('manager', 'project-kept', 'Manager', 'Manage.', '[]', '{}',
+              'full-access', '2026-08-01', '2026-08-01')`;
+          // Kept, never copied (archived), and copied then pruned (still running).
+          for (const [runId, threadId] of [
+            ["run-kept", "stopped-thread"],
+            ["run-archived", "archived-thread"],
+            ["run-running", "running-thread"],
+          ] as const) {
+            yield* sql`INSERT INTO crew_runs
+              (id, member_id, project_id, thread_id, task_text, title, instructions,
+                allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+              VALUES (${runId}, 'manager', 'project-kept', ${threadId}, 'Task', 'Task',
+                'Manage.', '[]', 1, '{}', 'full-access', '2026-08-01')`;
+            yield* sql`INSERT INTO crew_handoffs
+              (id, source_run_id, target_member_id, target_run_id, project_id, task_text,
+                context_text, depth, status, created_at, updated_at)
+              VALUES (${`handoff-${runId}`}, ${runId}, 'manager', ${`bot-handoff:${runId}`},
+                'project-kept', 'Task', '', 1, 'completed', '2026-08-01', '2026-08-01')`;
+          }
+        }),
+      );
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 2 },
+        { sharedHome: sourceDir },
+      );
+
+      const handoffs = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ id: string }>`SELECT id FROM crew_handoffs`;
+        }),
+      );
+      assert.deepStrictEqual(
+        handoffs.map((row) => row.id),
+        ["handoff-run-kept"],
+      );
+    }),
+  );
+
   it.effect("never copies an archived thread, and new events append after the source's", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

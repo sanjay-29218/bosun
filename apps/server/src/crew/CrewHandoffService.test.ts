@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import { ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -293,6 +293,81 @@ describe("Bot handoffs", () => {
             WHERE message_id = 'bot-handoff:captain-to-manager:notice:1'
           `;
           expect(noticesAfter).toEqual(noticesBefore);
+        }),
+      );
+      yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
+    }),
+  );
+
+  effectIt.effect("tags a handoff chain's threads with the request or feature they work on", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-tag-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, handoffs, engine }) =>
+        Effect.gen(function* () {
+          yield* seedCrewProject({ projectId, title: "Handoff tags", workspaceRoot: directory });
+          yield* bots.ensureDefaults(modelSelection);
+          yield* bots.ensureProjectManager(projectId);
+          const captain = yield* bots.createRun({
+            id: "captain-tags",
+            memberId: "bot-captain",
+            projectId,
+            taskText: "Coordinate triage",
+          });
+          const delegateTo = (
+            id: string,
+            sourceThreadId: typeof captain.threadId,
+            member: string,
+          ) =>
+            handoffs
+              .delegate({
+                id,
+                sourceThreadId,
+                targetMemberId: `${member}:${projectId}`,
+                projectId,
+                taskText: `${id}.\n\nDetails follow.`,
+              })
+              .pipe(Effect.flatMap((handoff) => bots.getRun(handoff.targetRunId)));
+          const shellOf = (threadId: typeof captain.threadId) => engine.getThreadShell(threadId);
+
+          const manager = (yield* delegateTo(
+            "Triage open issues",
+            captain.threadId,
+            "bot-manager",
+          ))!.run;
+          const builder = (yield* delegateTo("Check each issue", manager.threadId, "bot-builder"))!
+            .run;
+          const request = { id: "Triage open issues", title: "Triage open issues" };
+          expect((yield* shellOf(manager.threadId))?.crewRequest).toMatchObject(request);
+          expect((yield* shellOf(builder.threadId))?.crewRequest).toEqual({
+            ...request,
+            member: (yield* bots.getMember(`bot-builder:${projectId}`))!.name,
+          });
+          expect((yield* shellOf(captain.threadId))?.crewRequest).toBeUndefined();
+
+          yield* handoffs.cancel("Triage open issues");
+          const retried = (yield* bots.getRun(
+            (yield* handoffs.retry("Triage open issues")).targetRunId,
+          ))!.run;
+          expect(retried.threadId).not.toBe(manager.threadId);
+          expect((yield* shellOf(retried.threadId))?.crewRequest).toMatchObject(request);
+
+          const feature = { id: "feature-1", title: "Clip crop editing" };
+          yield* engine.dispatch({
+            type: "thread.crew-stage.set",
+            commandId: CommandId.make("test:feature-lead"),
+            threadId: retried.threadId,
+            feature,
+          });
+          const helper = (yield* delegateTo("Build the handles", retried.threadId, "bot-builder"))!
+            .run;
+          const helperShell = yield* shellOf(helper.threadId);
+          expect(helperShell?.feature).toEqual(feature);
+          expect(helperShell?.crewRequest).toEqual({
+            ...request,
+            member: (yield* bots.getMember(`bot-builder:${projectId}`))!.name,
+          });
         }),
       );
       yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));

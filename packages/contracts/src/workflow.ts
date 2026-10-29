@@ -236,6 +236,15 @@ export const ThreadFeatureTag = Schema.Struct({
   issue: Schema.optionalKey(FeatureIssue),
 });
 export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
+
+/** The bot request a crew handoff thread works on: the first handoff of its chain. */
+export const ThreadCrewRequestTag = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  /** The crew member this thread runs as, such as "Builder". */
+  member: Schema.String,
+});
+export type ThreadCrewRequestTag = typeof ThreadCrewRequestTag.Type;
 /**
  * A stage result a later stage can receive. `version` counts the producing step's
  * completed executions, so a reworked design is `design.md` version 2.

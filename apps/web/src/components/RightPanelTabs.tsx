@@ -130,7 +130,7 @@ export interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
-  /** Only stage threads offer the Feature tab; leave unset elsewhere. */
+  /** Only feature and bot request threads offer the Crew tab; leave unset elsewhere. */
   onAddFeature?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -306,7 +306,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
-  /** Only stage threads offer the Feature tab; leave unset elsewhere. */
+  /** Only feature and bot request threads offer the Crew tab; leave unset elsewhere. */
   onAddFeature?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -379,7 +379,7 @@ function RightPanelEmptyState(props: {
     ...(props.onAddFeature
       ? [
           {
-            label: "Feature",
+            label: "Crew",
             icon: ListChecks,
             shortcut: "E",
             available: true,
@@ -571,7 +571,7 @@ function surfaceTitle(
     case "pull-requests":
       return "Pull requests";
     case "feature":
-      return "Feature";
+      return "Crew";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -1090,7 +1090,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     ...(props.onAddFeature
       ? [
           {
-            label: "Feature",
+            label: "Crew",
             icon: ListChecks,
             shortcut: "E",
             available: true,

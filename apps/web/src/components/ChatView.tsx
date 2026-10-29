@@ -284,6 +284,7 @@ import type { ComposerControlSize } from "./chat/ComposerControl";
 import { featuresEnvironment } from "../state/features";
 import { CrewStageBanner } from "./crew/CrewStageBanner";
 import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
+import { CrewWaitingBanner } from "./crew/CrewWaitingBanner";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -902,9 +903,9 @@ export default function ChatView(props: ChatViewProps) {
   );
   const browserAvailable = isPreviewSupportedInRuntime() || activeEnvironmentServerBrowser;
   const activeThreadShell = serverThread;
-  // A stage thread's feature, shared with the header, composer banner and Feature tab.
+  // A feature thread's feature, shared with the header, composer banner and Crew tab.
   const crewStage = useCrewStage(isServerThread ? activeThreadShell : null);
-  const crewHandoffCard = crewStage ? (
+  const crewHandoffCard = crewStage?.crew ? (
     <CrewHandoffCard
       environmentId={crewStage.thread.environmentId}
       projectId={crewStage.thread.projectId}
@@ -3361,7 +3362,7 @@ export default function ChatView(props: ChatViewProps) {
               : {})}
           />
         </header>
-        {isServerThread && activeProject && isCrewThreadId(activeThread.id) && !crewStage ? (
+        {isServerThread && activeProject && isCrewThreadId(activeThread.id) && !crewStage?.crew ? (
           <CrewRunStatusStrip
             environmentId={activeThread.environmentId}
             projectId={activeProject.id}
@@ -3633,7 +3634,13 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              crewBanner={crewStage?.prompt ? <CrewStageBanner /> : null}
+                              crewBanner={
+                                crewStage?.prompt ? (
+                                  <CrewStageBanner />
+                                ) : crewStage?.waiting ? (
+                                  <CrewWaitingBanner />
+                                ) : null
+                              }
                               renderWorkflowPicker={renderWorkflowPicker}
                               renderCrewControl={renderCrewControl}
                               canOperateThread={canOperateThread}
@@ -3912,7 +3919,9 @@ export default function ChatView(props: ChatViewProps) {
               forceNewWorktree={multipleModelSelections !== null}
               environmentId={activeThread.environmentId}
               threadId={activeThread.id}
-              onOpenFeature={crewStage ? addFeatureSurface : undefined}
+              onOpenFeature={
+                crewStage || activeThreadShell?.crewRequest ? addFeatureSurface : undefined
+              }
               projectId={activeThread.projectId}
               worktreePath={activeThread.worktreePath}
               isServerThread={isServerThread}
@@ -4036,7 +4045,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
-          onAddFeature={crewStage ? addFeatureSurface : undefined}
+          onAddFeature={crewStage || activeThreadShell?.crewRequest ? addFeatureSurface : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}

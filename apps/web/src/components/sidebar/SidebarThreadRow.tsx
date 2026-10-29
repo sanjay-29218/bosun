@@ -6,6 +6,7 @@ import {
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { featureIssueMeta, FeatureIssueIcon } from "../crew/FeatureIssue";
 import { FeatureTag } from "../crew/FeatureTag";
+import { SidebarWorkGroupSummary, type SidebarWorkGroup } from "./SidebarWorkGroup";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -39,7 +40,6 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
-  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -603,14 +603,8 @@ type SidebarThreadRowProps = {
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
-  /** The feature's other threads folded under this row, and whether they show. */
-  featureGroup?: {
-    readonly count: number;
-    readonly expanded: boolean;
-    readonly onToggle: () => void;
-  } | null;
-  /** Shown under its feature's row, indented. */
-  nested?: boolean;
+  /** The feature or bot request this row stands for. */
+  workGroup?: SidebarWorkGroup | null;
 };
 
 // Mounted only while renaming, so each rename starts uncommitted.
@@ -1012,13 +1006,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     ) : null;
 
+  // A feature or request row reads as the work; renaming still edits the thread.
+  const displayTitle = props.workGroup?.title ?? thread.title;
   const accessibility = resolveSidebarRowAccessibility({
-    title: thread.title,
+    title: displayTitle,
     statusLabel: topStatus?.label ?? null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isActive,
   });
-
   const title = isRenaming ? (
     <ThreadRenameInput
       title={renamingTitle}
@@ -1055,12 +1050,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             ),
         isRegeneratingTitle && "opacity-55",
       )}
-      dir={textDirection(thread.title)}
+      dir={textDirection(displayTitle)}
     >
-      {thread.title}
+      {displayTitle}
     </span>
   );
-  const accessibleTitle = isRenaming ? null : <span className="sr-only">{thread.title}</span>;
+  const accessibleTitle = isRenaming ? null : <span className="sr-only">{displayTitle}</span>;
 
   const prBadgeShape = supportsMultiplePullRequests
     ? resolveThreadPullRequestBadge(thread.pullRequests)
@@ -1150,7 +1145,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
-          props.nested && "ms-4",
         )}
       >
         <Tooltip disabled={sortable?.isDragging}>
@@ -1306,6 +1300,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const diff = latestRunDiff(thread);
   // Only the provider icon would remain; the New design drops the line instead of leaving it blank.
   const metaLineEmpty =
+    !props.workGroup &&
     !thread.feature &&
     !thread.crew &&
     !thread.branch &&
@@ -1324,7 +1319,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         metaLineEmpty && "redesign:[contain-intrinsic-size:auto_58px]",
         sortable?.isDragging && "relative z-20",
-        props.nested && "ms-4",
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
@@ -1534,34 +1528,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 metaLineEmpty && "redesign:hidden",
               )}
             >
-              {/* A feature's threads lead with its tag, and its stage thread with the stage. */}
-              {thread.feature ? <FeatureTag feature={thread.feature} /> : null}
+              {/* A feature or request row leads with where the work is; other threads with their tag. */}
+              {props.workGroup ? (
+                <SidebarWorkGroupSummary group={props.workGroup} />
+              ) : thread.feature ? (
+                <FeatureTag feature={thread.feature} />
+              ) : null}
               {thread.feature?.issue ? (
                 <span className="shrink-0 text-muted-foreground tabular-nums">
                   #{thread.feature.issue.number}
                 </span>
               ) : null}
-              {props.featureGroup ? (
-                <button
-                  type="button"
-                  aria-expanded={props.featureGroup.expanded}
-                  aria-label={`${props.featureGroup.expanded ? "Hide" : "Show"} the feature's other ${props.featureGroup.count === 1 ? "thread" : `${props.featureGroup.count} threads`}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    props.featureGroup?.onToggle();
-                  }}
-                  onPointerDown={handleActionPointerDown}
-                  className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <ChevronRightIcon
-                    aria-hidden
-                    className={cn("size-3", props.featureGroup.expanded && "rotate-90")}
-                  />
-                  {props.featureGroup.count}
-                </button>
-              ) : null}
-              {thread.crew ? (
+              {thread.crew && !props.workGroup ? (
                 <span className="shrink-0 text-muted-foreground">
                   {formatCrewStageLine(thread.crew)}
                 </span>

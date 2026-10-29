@@ -225,6 +225,29 @@ export const CrewHandoffServiceLive = Layer.effect(
       return (yield* handoffs.get(handoff.id))!;
     });
 
+    // A workflow stage's thread is tagged with its feature by the workflow instead.
+    const tagThread = Effect.fn("CrewHandoffService.tagThread")(
+      function* (handoff: CrewHandoff, sourceThreadId: ThreadId) {
+        const run = yield* runs.getRun(handoff.targetRunId);
+        const member = yield* runs.getMember(handoff.targetMemberId);
+        if (!run || !member) return;
+        yield* runtime.tagHandoff({
+          threadId: run.threadId,
+          sourceThreadId,
+          request: {
+            id: handoff.id,
+            title: handoff.taskText
+              .split("\n", 1)[0]!
+              .trim()
+              .replace(/[.:]+$/, "")
+              .slice(0, 120),
+            member: member.name,
+          },
+        });
+      },
+      Effect.catch((error) => Effect.logWarning("Handoff thread tag failed", { error })),
+    );
+
     const delegate: CrewHandoffServiceShape["delegate"] = Effect.fn("CrewHandoffService.delegate")(
       function* (input) {
         const id = yield* Effect.try({
@@ -247,7 +270,9 @@ export const CrewHandoffServiceLive = Layer.effect(
               new CrewHandoffError("Request ID belongs to another handoff"),
             );
           }
-          return yield* startQueued(existing);
+          const started = yield* startQueued(existing);
+          if (!input.boundByWorkflow) yield* tagThread(started, source.threadId);
+          return started;
         }
         const sourceMember = yield* runs.getActor(source.memberId);
         // A bot reaches into the other projects it owns; everyone else stays on its run's
@@ -315,7 +340,9 @@ export const CrewHandoffServiceLive = Layer.effect(
         if (!persisted || !sameRequest(persisted, { ...input, taskText, contextText }, source)) {
           return yield* Effect.fail(new CrewHandoffError("Request ID belongs to another handoff"));
         }
-        return yield* startQueued(persisted);
+        const started = yield* startQueued(persisted);
+        if (!input.boundByWorkflow) yield* tagThread(started, source.threadId);
+        return started;
       },
     );
 
@@ -450,10 +477,14 @@ export const CrewHandoffServiceLive = Layer.effect(
       ) {
         return yield* Effect.fail(new CrewHandoffError("Delegation permission is unavailable"));
       }
+      const previous = yield* runs.getRun(handoff.targetRunId);
       const now = DateTime.formatIso(yield* DateTime.now);
       const changed = yield* handoffs.retry(id, now);
       if (!changed) return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
-      return yield* startQueued((yield* handoffs.get(id))!);
+      const started = yield* startQueued((yield* handoffs.get(id))!);
+      // The retry runs in a new thread; it joins the work its first attempt was on.
+      if (previous) yield* tagThread(started, previous.threadId);
+      return started;
     });
 
     const refreshProject = Effect.fn("CrewHandoffService.refreshProject")(function* (

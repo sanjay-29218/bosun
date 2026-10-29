@@ -270,11 +270,12 @@ picker becomes **Crew**, because each role brings its own model (change them und
 project's crew settings). Your first message becomes the feature's brief, and you land in its
 first stage thread. **New feature…** in the command palette opens the same composer.
 
-Each stage runs in an ordinary thread. The sidebar shows one row per feature, with the stage on
-its third line (`Design · 2/6`); earlier stage threads open from the stage name in the title bar
-or from the **Feature** tab in the right panel, which also lists outputs and lets you pause,
-resume, cancel or reopen the feature. A stage thread opens with a handoff card listing exactly
-what it was given.
+Each stage runs in an ordinary thread. The sidebar shows one row per feature, with a strip of its
+stages and the current one on its third line (`Design · 2/6`). The lead's and other stages'
+threads open from the stage name in the title bar, the thread's details panel, or the **Crew** tab
+in the right panel, which also lists outputs and lets you pause, resume, cancel or reopen the
+feature. A stage thread opens with a handoff card listing exactly what it was given. See
+[Feature threads](./bots.md#feature-threads).
 
 When a stage needs you, its composer shows a banner:
 

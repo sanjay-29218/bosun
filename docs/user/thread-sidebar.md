@@ -133,11 +133,12 @@ choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
-### Needs you
+### Threads waiting on you
 
-On web and desktop, threads waiting on an approval, an answer, or a failed workflow stage also
-appear in a **Needs you** shelf at the top of the sidebar, oldest first. The shelf hides when
-nothing waits. `mod+shift+y` opens the oldest one. See [Features](./features.md#needs-you).
+A thread waiting on an approval or an answer says so on its row and never counts as working. With
+the Working section on, it stays at the top of the active list until you answer. A feature or bot
+request row does the same when any of its threads waits on you, and shows that thread under it.
+`mod+shift+y` opens the one that has waited longest. See [Features](./features.md#needs-you).
 
 ## Settle finished work
 

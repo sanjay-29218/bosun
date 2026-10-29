@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { MenuAction } from "@react-native-menu/menu";
 import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
+import { workThreadLabel } from "@t3tools/client-runtime/state/work-groups";
 import {
   buildFeatureStageBoard,
   collectNeedsYou,
@@ -184,7 +185,7 @@ function NeedsYouThreadRow(props: {
         <Text className={cn("font-t3-bold text-xs", label.className)}>{label.label}</Text>
       </View>
       <Text className="font-t3-medium text-base text-foreground" numberOfLines={2}>
-        {props.shell.title || "Untitled thread"}
+        {workThreadLabel(props.shell) || "Untitled thread"}
       </Text>
     </Pressable>
   );

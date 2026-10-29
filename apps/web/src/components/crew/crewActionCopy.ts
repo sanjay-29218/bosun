@@ -1,6 +1,6 @@
 import type { CrewAction } from "@t3tools/client-runtime/crew-stage";
 
-/** Labels and one-line consequences, shared by the banner menus, Feature tab and palette. */
+/** Labels and one-line consequences, shared by the banner menus, Crew tab and palette. */
 export const CREW_ACTION_COPY: Record<
   CrewAction,
   { readonly label: string; readonly description: string }

@@ -9,6 +9,7 @@ import {
   type ProjectId,
   type RuntimeMode,
   type CrewTurnState,
+  type ThreadCrewRequestTag,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -82,6 +83,15 @@ export interface CrewThreadRuntimeShape {
     limit: number,
   ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
   readonly getTurnState: (threadId: ThreadId) => Effect.Effect<CrewTurnState, CrewReadError>;
+  /**
+   * Tags a handoff's thread with the work its source thread is on: the source's feature, else
+   * its bot request, else `request`, which starts a new one. Tags a thread at most once.
+   */
+  readonly tagHandoff: (input: {
+    readonly threadId: ThreadId;
+    readonly sourceThreadId: ThreadId;
+    readonly request: ThreadCrewRequestTag;
+  }) => Effect.Effect<void, OrchestrationDispatchError>;
 }
 
 export class CrewThreadRuntime extends Context.Service<CrewThreadRuntime, CrewThreadRuntimeShape>()(
@@ -203,7 +213,28 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           modelSelection,
         });
     });
+    const tagHandoff = Effect.fn("CrewThreadRuntime.tagHandoff")(function* (input: {
+      readonly threadId: ThreadId;
+      readonly sourceThreadId: ThreadId;
+      readonly request: ThreadCrewRequestTag;
+    }) {
+      const thread = yield* engine.getThreadShell(input.threadId);
+      if (thread === null || thread.feature || thread.crewRequest) return;
+      const source = yield* engine.getThreadShell(input.sourceThreadId);
+      yield* engine.dispatch({
+        type: "thread.crew-stage.set",
+        commandId: CommandId.make(`${handoffCommandPrefix(input.threadId)}:${input.threadId}:tag`),
+        threadId: input.threadId,
+        // A helper inside a feature keeps the request too, which names its role and tells it
+        // apart from the feature's lead.
+        ...(source?.feature ? { feature: source.feature } : {}),
+        crewRequest: source?.crewRequest
+          ? { ...source.crewRequest, member: input.request.member }
+          : input.request,
+      });
+    });
     return CrewThreadRuntime.of({
+      tagHandoff,
       projectExists: Effect.fn("CrewThreadRuntime.projectExists")((projectId) =>
         projects
           .get(projectId)

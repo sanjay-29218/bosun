@@ -34,6 +34,13 @@ import {
 } from "@t3tools/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
 import {
+  groupWorkThreads,
+  resolveWorkGroupRouteRowKey,
+  waitingWorkGroupEntry,
+  workGroupInbox,
+  workGroupOpenThread,
+} from "@t3tools/client-runtime/state/work-groups";
+import {
   nextShownOrder,
   threadSearchMatchKey,
   threadSearchSubject,
@@ -167,8 +174,8 @@ import {
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
+  filterSidebarStageHistory,
   filterSidebarV2VisibleThreads,
-  groupFeatureThreads,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
@@ -228,7 +235,7 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
-import { SidebarNeedsYouShelf } from "./sidebar/SidebarNeedsYouShelf";
+import { SidebarWorkGroupEntry, type SidebarWorkGroup } from "./sidebar/SidebarWorkGroup";
 import { SidebarNewThreadRow } from "./sidebar/SidebarNewThreadRow";
 import { SidebarViewToggle } from "./sidebar/SidebarViewToggle";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -300,8 +307,6 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
-const EMPTY_EXPANDED_FEATURE_ROWS: readonly string[] = [];
-const EXPANDED_FEATURE_ROWS_SCHEMA = Schema.Array(Schema.String);
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -349,9 +354,11 @@ function resolveDraggedOrders(input: {
   readonly threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
+  readonly workGroups: ReadonlyMap<string, SidebarWorkGroup>;
   readonly workingShelfEnabled: boolean;
 }): typeof NO_DRAGGED_ORDERS {
-  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
+  const { drag, threadByKey, settledThreads, activeThreads, workGroups, workingShelfEnabled } =
+    input;
   const thread = threadByKey.get(drag.activeKey);
   if (thread === undefined) return NO_DRAGGED_ORDERS;
   const others = (list: readonly EnvironmentThreadShell[]) =>
@@ -364,7 +371,7 @@ function resolveDraggedOrders(input: {
     activeOrder: workingShelfEnabled
       ? sortInboxThreadsByReturn(
           [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
+          workGroupInbox(workGroups, inboxReturns).returnedAt,
         ).map(threadShellKey)
       : undefined,
   };
@@ -499,8 +506,10 @@ function useSidebarThreads(input: {
       ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
-      // Threads folded under their feature's row still turn up in search.
-      ...[...partition.featureChildren.values()].flat(),
+      // Threads folded into a feature's or request's row still turn up in search.
+      ...[...partition.workGroups.values()].flatMap((group) =>
+        group.children.map((entry) => entry.thread),
+      ),
     ],
     settledVisibleCount,
     settledCount,
@@ -540,10 +549,15 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const { threads, scopedProjectKeys, serverConfigs, optimisticDrop, workingShelfEnabled } = input;
   const preciseNow = new Date().toISOString();
   const scopedThreads = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
-  // A feature's threads fold under its current stage thread's row.
-  const { primaries: visible, childrenByThreadKey: featureChildren } =
-    groupFeatureThreads(scopedThreads);
-  const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
+  // A feature's or bot request's threads fold into one row; earlier stages show only inside it.
+  const { primaries: visible, groupByThreadKey: workGroups } = groupWorkThreads(
+    scopedThreads,
+    filterSidebarStageHistory(threads, scopedProjectKeys),
+  );
+  const inboxObservation = workGroupInbox(
+    workGroups,
+    inboxReturns.observe(workingShelfEnabled ? threads : null),
+  );
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
@@ -631,7 +645,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     settledThreads: sortSettledThreads(settled),
     visibleThreads: scopedThreads,
     snoozeNow: preciseNow,
-    featureChildren,
+    workGroups,
   };
 }
 
@@ -939,12 +953,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [searchHighlightKey, setSearchHighlightKey] = useState<string | null>(null);
   const searchEnvironmentIds = useConnectedEnvironmentIds();
-  // Features whose folded threads show under their row; collapsed by default.
-  const [expandedFeatureRows, setExpandedFeatureRows] = useLocalStorage(
-    "t3code:sidebar:expanded-feature-rows",
-    EMPTY_EXPANDED_FEATURE_ROWS,
-    EXPANDED_FEATURE_ROWS_SCHEMA,
-  );
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
   const [renamingThreadRef, setRenamingThreadRef] = useState<ScopedThreadRef | null>(null);
@@ -1181,7 +1189,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     snoozedThreads,
     settledThreads,
     snoozeNow,
-    featureChildren,
+    workGroups,
     searchableThreads,
     settledVisibleCount,
     settledCount,
@@ -1425,6 +1433,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     })();
   };
 
+  const routeGroupRowKey = resolveWorkGroupRouteRowKey(workGroups, routeThreadKey);
+  // A feature's or request's row opens the thread waiting on you, else its lead.
+  const rowOpenRef = (threadRef: ScopedThreadRef): ScopedThreadRef => {
+    const group = workGroups.get(scopedThreadKey(threadRef));
+    if (!group) return threadRef;
+    const target = workGroupOpenThread(group);
+    return scopeThreadRef(target.environmentId, target.id);
+  };
   const handleThreadClick = (event: ReactMouseEvent, threadRef: ScopedThreadRef) => {
     if (isSidebarNestedLinkClick(event.target)) return;
     const isMac = isMacPlatform(navigator.platform);
@@ -1443,8 +1459,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (isTrailingDoubleClick(event.detail)) {
       return;
     }
-    navigateToThread(threadRef);
+    navigateToThread(rowOpenRef(threadRef));
   };
+  const activateThreadRow = (threadRef: ScopedThreadRef) => navigateToThread(rowOpenRef(threadRef));
 
   // Snapshot navigation before partition mutation; background parks use a null plan.
   const planForwardNavigation = (
@@ -1862,6 +1879,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           threadByKey,
           settledThreads,
           activeThreads,
+          workGroups,
           workingShelfEnabled,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
@@ -3038,7 +3056,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               </p>
             )
           ) : null}
-          {!isSearchingThreads ? <SidebarNeedsYouShelf /> : null}
           {!isSearchingThreads &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
@@ -3083,25 +3100,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
-                        nested = false,
+                        workGroup: SidebarWorkGroup | undefined,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
                         const isCard =
-                          !nested &&
-                          (section === "active" || section === "pinned" || section === "working");
+                          section === "active" || section === "pinned" || section === "working";
                         const rowVariant = isCard ? "card" : "slim";
-                        const folded = nested
-                          ? undefined
-                          : featureChildren.get(`${thread.environmentId}:${thread.id}`);
                         return (
                           <SortableThreadRow
                             key={threadKey}
                             sortableId={threadKey}
                             contextDrag={isContextDrag}
                             sortableDisabled={
-                              nested ||
                               renamingThreadKey === threadKey ||
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null
@@ -3147,7 +3159,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 : null
                             }
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
-                            isActive={routeRowThreadKey === threadKey}
+                            isActive={
+                              routeRowThreadKey === threadKey || routeGroupRowKey === threadKey
+                            }
                             revealRef={
                               routeRowThreadKey === threadKey ? revealActiveRow : undefined
                             }
@@ -3179,7 +3193,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             timestampFormat={timestampFormat}
                             onThreadClick={handleThreadClick}
-                            onThreadActivate={navigateToThread}
+                            onThreadActivate={activateThreadRow}
                             onStartRename={startThreadRename}
                             onRenameTitleChange={setRenamingTitle}
                             onCommitRename={commitThreadRename}
@@ -3195,21 +3209,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}
-                            nested={nested}
-                            featureGroup={
-                              folded
-                                ? {
-                                    count: folded.length,
-                                    expanded: expandedFeatureRows.includes(threadKey),
-                                    onToggle: () =>
-                                      setExpandedFeatureRows((current) =>
-                                        current.includes(threadKey)
-                                          ? current.filter((key) => key !== threadKey)
-                                          : [...current, threadKey],
-                                      ),
-                                  }
-                                : null
-                            }
+                            workGroup={workGroup ?? null}
                           />
                         );
                       };
@@ -3228,14 +3228,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
                           const thread = threadByKey.get(item.key)!;
-                          items.push(renderThreadRow(thread, item.section));
-                          if (expandedFeatureRows.includes(item.key)) {
-                            for (const child of featureChildren.get(
-                              `${thread.environmentId}:${thread.id}`,
-                            ) ?? []) {
-                              items.push(renderThreadRow(child, item.section, true));
-                            }
-                          }
+                          const workGroup = workGroups.get(`${thread.environmentId}:${thread.id}`);
+                          items.push(renderThreadRow(thread, item.section, workGroup));
+                          const waiting = workGroup ? waitingWorkGroupEntry(workGroup) : undefined;
+                          if (!waiting) continue;
+                          const entryKey = scopedThreadKey(
+                            scopeThreadRef(waiting.thread.environmentId, waiting.thread.id),
+                          );
+                          items.push(
+                            <SidebarWorkGroupEntry
+                              key={`${item.key}:${entryKey}`}
+                              entry={waiting}
+                              isActive={routeThreadKey === entryKey}
+                              onOpen={navigateToThread}
+                            />,
+                          );
                           continue;
                         }
                         switch (item.marker) {
