@@ -35,21 +35,32 @@ board to a project or to feature states; each filter in effect shows below the h
 
 ## Issues
 
-A feature can link one issue. Every thread of the feature shows its number, and the thread's
-details panel and hover card show its title, milestone and sub-issue progress. A brief that
-contains an issue link links it when the feature starts, and the crew can link the issue it opens.
-To link, change or unlink one yourself, choose **Link issue…** in a card's menu, in a thread's
-**Feature** menu, or in the thread's details panel. Issue links work for GitHub.
+A feature can link one issue or ticket. Every thread of the feature shows its number, and the
+thread's details panel and hover card show its title, milestone and sub-issue progress. A brief
+that contains an issue link, or a `Ticket T-14` line, links it when the feature starts, and the
+crew can link the issue it opens. To link, change or unlink one yourself, choose **Link issue…** in
+a card's menu, in a thread's **Feature** menu, or in the thread's details panel, and paste an issue
+link or a ticket number such as `T-14`. Issue links work for GitHub.
 
-The **Issues** view at the top of the board lists the open issues of each project's GitHub
-repository, grouped by milestone with sub-issues under their parent. Each row's status says where
-it stands with the crew: Todo, In crew, In review once its feature reaches verify or ship, or Done
-once the issue is closed. **Start feature** on an issue opens a new thread whose brief links it,
-and a row with a feature opens the feature. **Display** changes the grouping, switches to status
-columns, and shows recently closed issues. **Milestones** shows each open milestone's progress;
-open one to see its issues. Issues are read with the environment's GitHub sign-in (`gh auth login`
-or a token in Settings) and refresh every two minutes while the page is open. The crew can list
-them too.
+The **Issues** view at the top of the board lists each project's todos: the open issues of its
+GitHub repository and its tickets. A ticket is a todo kept in Bosun, numbered `T-1`, `T-2` and so
+on per project, for work that shouldn't be a public issue or a project without GitHub. Issues are
+grouped by milestone with sub-issues under their parent. Each row's status says where it stands
+with the crew: Todo, In crew, In review once its feature reaches verify or ship, or Done once the
+todo is closed. **Filter → Source** shows only tickets or only GitHub issues. **Display** changes
+the grouping, switches to status columns, and shows recently closed issues. **Milestones** shows
+each open milestone's progress; open one to see its issues. Issues are read with the environment's
+GitHub sign-in (`gh auth login` or a token in Settings) and refresh every two minutes while the
+page is open.
+
+**New todo** (the header button, `C` on the board, or the command palette) asks for a title and a
+description with headings, lists and checklists. When the project has GitHub issues, choose
+**Ticket** or **GitHub issue**; the choice is remembered. Click a todo to open it beside the board.
+A ticket's title, description and status edit in place, and **Move to GitHub issue** files it on
+GitHub, moves its features to the new issue and deletes the ticket. A GitHub issue shows its
+description, status and comments as GitHub has them; close or reopen it there, and edit its text on
+GitHub. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
+create and close todos too.
 
 ## Workflow stages
 

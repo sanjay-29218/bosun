@@ -30,6 +30,7 @@ import {
   type EnvironmentMachineKind,
   type FeatureCardState,
 } from "@t3tools/contracts";
+import { featureIssueRef } from "@t3tools/contracts";
 import { featureTagColor, formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -1195,7 +1196,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 : rowAppearance.mutedForegroundClassName,
             )}
           >
-            #{thread.feature.issue.number}
+            {featureIssueRef(thread.feature.issue)}
           </Text>
         ) : null}
         {crewLine !== null ? (

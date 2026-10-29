@@ -28,6 +28,7 @@ import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { isSshRemoteUrl } from "@t3tools/shared/sourceControl";
 
 import { GH_PROCESS_CONCURRENCY } from "./GitHubCredentials.ts";
+import * as GitHubIssues from "./gitHubIssues.ts";
 import * as GitHubRest from "./GitHubRest.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as GitHubChangeRequestTemplate from "./gitHubChangeRequestTemplate.ts";
@@ -953,6 +954,99 @@ export const make = Effect.gen(function* () {
     } satisfies SourceControlProvider.SourceControlIssueList;
   });
 
+  const issueRepository = (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) =>
+    resolveRepository({ cwd: input.cwd, host: contextHost(input.context), context: input.context });
+  const issuePath = (locator: { readonly owner: string; readonly name: string }) =>
+    `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}/issues`;
+  const decodedIssue = (body: string) => {
+    const decoded = GitHubIssues.decodeRestIssue(body);
+    return Result.isFailure(decoded)
+      ? Effect.fail(failure("GitHub returned an invalid issue.", decoded.failure))
+      : Effect.succeed(decoded.success);
+  };
+
+  const getIssue = Effect.fn("GitHubSourceControlProvider.getIssue")(function* (input: {
+    readonly cwd: string;
+    readonly number: number;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) {
+    const locator = yield* issueRepository(input);
+    const path = `${issuePath(locator)}/${input.number}`;
+    const [issueResponse, commentsResponse] = yield* Effect.all(
+      [
+        rest(
+          { host: locator.host, operation: "getIssue", path, allowReserve: true },
+          `Issue #${input.number} was not found.`,
+        ),
+        rest(
+          {
+            host: locator.host,
+            operation: "getIssueComments",
+            path: `${path}/comments?per_page=${GitHubIssues.ISSUE_COMMENTS_PAGE}`,
+            allowReserve: true,
+          },
+          `Issue #${input.number} was not found.`,
+        ),
+      ],
+      { concurrency: 2 },
+    );
+    const issue = yield* decodedIssue(issueResponse.body);
+    const comments = GitHubIssues.decodeRestComments(commentsResponse.body);
+    if (Result.isFailure(comments)) {
+      return yield* failure("GitHub returned invalid issue comments.", comments.failure);
+    }
+    return GitHubIssues.restIssueDetail(issue, comments.success);
+  });
+
+  const createIssue = Effect.fn("GitHubSourceControlProvider.createIssue")(function* (input: {
+    readonly cwd: string;
+    readonly title: string;
+    readonly body: string;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) {
+    const locator = yield* issueRepository(input);
+    const response = yield* rest(
+      {
+        host: locator.host,
+        operation: "createIssue",
+        method: "POST",
+        allowReserve: true,
+        path: issuePath(locator),
+        body: { title: input.title, body: input.body },
+      },
+      REPOSITORY_NOT_FOUND,
+    );
+    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+  });
+
+  const setIssueState = Effect.fn("GitHubSourceControlProvider.setIssueState")(function* (input: {
+    readonly cwd: string;
+    readonly number: number;
+    readonly state: "open" | "closed";
+    readonly reason?: "completed" | "not_planned" | undefined;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) {
+    const locator = yield* issueRepository(input);
+    const response = yield* rest(
+      {
+        host: locator.host,
+        operation: "setIssueState",
+        method: "PATCH",
+        allowReserve: true,
+        path: `${issuePath(locator)}/${input.number}`,
+        body:
+          input.state === "closed"
+            ? { state: "closed", state_reason: input.reason ?? "completed" }
+            : { state: "open", state_reason: "reopened" },
+      },
+      `Issue #${input.number} was not found.`,
+    );
+    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+  });
+
   const providerError =
     (
       operation: string,
@@ -1106,6 +1200,23 @@ export const make = Effect.gen(function* () {
     listIssues: Effect.fn("GitHubSourceControlProvider.listIssues")(function (input) {
       return listIssues(input).pipe(Effect.mapError(providerError("listIssues", input.cwd)));
     }),
+    getIssue: Effect.fn("GitHubSourceControlProvider.getIssueForCaller")(function (input) {
+      return getIssue(input).pipe(
+        Effect.mapError(providerError("getIssue", input.cwd, { reference: `#${input.number}` })),
+      );
+    }),
+    createIssue: Effect.fn("GitHubSourceControlProvider.createIssueForCaller")(function (input) {
+      return createIssue(input).pipe(Effect.mapError(providerError("createIssue", input.cwd)));
+    }),
+    setIssueState: Effect.fn("GitHubSourceControlProvider.setIssueStateForCaller")(
+      function (input) {
+        return setIssueState(input).pipe(
+          Effect.mapError(
+            providerError("setIssueState", input.cwd, { reference: `#${input.number}` }),
+          ),
+        );
+      },
+    ),
     listChangeRequests: Effect.fn("GitHubSourceControlProvider.listChangeRequests")(
       function (input) {
         return (

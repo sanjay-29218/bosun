@@ -43,6 +43,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.featuresList]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresBoard]: AuthOrchestrationReadScope,
   [WS_METHODS.issuesList]: AuthOrchestrationReadScope,
+  [WS_METHODS.issuesGet]: AuthOrchestrationReadScope,
+  [WS_METHODS.ticketsList]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresGet]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresThreadLink]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresSetStatus]: AuthOrchestrationOperateScope,

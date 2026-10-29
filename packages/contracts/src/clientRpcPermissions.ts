@@ -76,6 +76,13 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.featuresStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresReopen]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresSetIssue]: AuthOrchestrationOperateScope,
+  [WS_METHODS.issuesCreate]: AuthSourceControlWriteScope,
+  [WS_METHODS.issuesSetState]: AuthSourceControlWriteScope,
+  [WS_METHODS.ticketsCreate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.ticketsUpdate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.ticketsDelete]: AuthOrchestrationOperateScope,
+  // Moving a ticket files an issue on the host.
+  [WS_METHODS.ticketsMoveToIssue]: AuthSourceControlWriteScope,
   [WS_METHODS.featuresAttachThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresDetachThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsApprove]: AuthOrchestrationOperateScope,

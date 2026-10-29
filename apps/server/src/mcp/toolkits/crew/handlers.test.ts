@@ -6,6 +6,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type IssueList,
+  type Ticket,
   type WorkflowStageHandoff,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -15,6 +16,7 @@ import * as Stream from "effect/Stream";
 import { BotProjects } from "../../../bots/BotProjects.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
+import { TicketService } from "../../../tickets/TicketService.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
@@ -97,6 +99,19 @@ const issueList: IssueList = {
   ],
 };
 
+const ticket: Ticket = {
+  id: "ticket:1",
+  projectId,
+  number: 3,
+  title: "Sketch the board",
+  description: "",
+  state: "open",
+  closedReason: null,
+  createdAt: "2026-10-09T00:00:00Z",
+  updatedAt: "2026-10-09T00:00:00Z",
+  closedAt: null,
+};
+
 const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const toolkit = yield* CrewToolkit;
@@ -141,6 +156,13 @@ const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
             project === projectId
               ? Effect.succeed(issueList)
               : Effect.fail(new IssueOperationError({ reason: "Project not found." })),
+        }),
+        Layer.mock(TicketService)({
+          list: () => Effect.succeed([ticket]),
+          getByNumber: (_project, number) =>
+            number === ticket.number
+              ? Effect.succeed(ticket)
+              : Effect.die(`unexpected ticket ${number}`),
         }),
       ),
     ),
@@ -196,10 +218,28 @@ it.effect("lists the issues of the calling thread's project as compact rows", ()
       expect.objectContaining({ number: 4, milestone: null, parent: 1 }),
     ]);
 
+    expect(open.tickets).toEqual([{ ref: "T-3", title: "Sketch the board", state: "open" }]);
+
     const v1 = yield* call({ state: "all", milestone: "V1" });
     expect(v1.issues.map((issue) => issue.number)).toEqual([1, 3]);
+    // Tickets have no milestone, so a milestone filter leaves none.
+    expect(v1.tickets).toEqual([]);
 
     const first = yield* call({ state: "all", limit: 1 });
     expect(first.issues.map((issue) => issue.number)).toEqual([1]);
+  }).pipe(Effect.provide(layerAs(stageThread, []))),
+);
+
+it.effect("reads a todo as a ticket for T-<number> and refuses an unnamed one", () =>
+  Effect.gen(function* () {
+    const toolkit = yield* CrewToolkit;
+    const read = (ref: string) =>
+      toolkit.handle("crew_read_todo", { ref }).pipe(Stream.unwrap, Stream.runCollect);
+
+    const found = yield* read("t-3");
+    expect(found.at(-1)?.result).toEqual({ kind: "ticket", ticket });
+
+    const unnamed = yield* Effect.flip(read("the board one"));
+    expect(unnamed.message).toContain("T-<number>");
   }).pipe(Effect.provide(layerAs(stageThread, []))),
 );

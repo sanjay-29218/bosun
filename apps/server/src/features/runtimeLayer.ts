@@ -7,6 +7,7 @@ import * as BotService from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as TicketService from "../tickets/TicketService.ts";
 import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
 import { FeatureServiceLive } from "./FeatureService.ts";
 
@@ -39,8 +40,9 @@ const BotAutomationsLive = Layer.effectDiscard(
  * and the managed folders and clone service `BotProjects` starts projects with.
  */
 export const FeatureRuntimeLive = Layer.mergeAll(
-  BotProjects.layer.pipe(Layer.provideMerge(FeatureServiceLive)),
+  Layer.mergeAll(BotProjects.layer, TicketService.layer).pipe(
+    Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
+  ),
   BotService.layer,
-  IssueService.layer,
   BotAutomationsLive,
 ).pipe(Layer.provideMerge(WorkflowRuntimeLive));

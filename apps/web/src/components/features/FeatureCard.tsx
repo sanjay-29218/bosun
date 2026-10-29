@@ -4,6 +4,7 @@ import {
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { featureIssueRef } from "@t3tools/contracts";
 import { GitBranchIcon } from "lucide-react";
 import { memo, type ComponentProps, type DragEvent, type MouseEvent } from "react";
 
@@ -145,7 +146,8 @@ export const FeatureCard = memo(function FeatureCard(props: {
           <span className="truncate">{project?.title ?? "Project"}</span>
           {card.issue ? (
             <span className="flex shrink-0 items-center gap-1">
-              <FeatureIssueIcon issue={card.issue} className="size-3" />#{card.issue.number}
+              <FeatureIssueIcon issue={card.issue} className="size-3" />
+              {featureIssueRef(card.issue)}
             </span>
           ) : null}
           {waiting ? <span className="ms-auto shrink-0 tabular-nums">{waiting}</span> : null}
@@ -243,7 +245,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
       {card.issue ? (
         <span className="flex w-40 min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
           <FeatureIssueIcon issue={card.issue} className="size-3.5" />
-          <span className="shrink-0">#{card.issue.number}</span>
+          <span className="shrink-0">{featureIssueRef(card.issue)}</span>
           {featureIssueMeta(card.issue) ? (
             <span className="truncate">· {featureIssueMeta(card.issue)}</span>
           ) : null}

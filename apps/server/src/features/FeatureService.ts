@@ -47,9 +47,10 @@ import {
   decodeFeatureIssue,
   encodeFeatureIssue,
   featureTag,
-  firstIssueUrl,
+  firstIssueRef,
   issueNumberFromUrl,
 } from "./featureIssue.ts";
+import { readTicketByNumber, ticketNumberFromRef } from "../tickets/ticketRows.ts";
 import {
   WorkflowExecutionService,
   type WorkflowExecutionError,
@@ -122,8 +123,9 @@ export interface FeatureServiceShape {
     threadId: ThreadId,
   ) => Effect.Effect<FeatureThreadLink, FeatureServiceError>;
   /**
-   * Links the issue at `url`, read through the project's source control, replacing any other;
-   * null unlinks it. The feature's threads show it from their feature tag.
+   * Links the issue at `url`, read through the project's source control, or the project's
+   * ticket when `url` is `T-<number>`, replacing any other; null unlinks it. The feature's
+   * threads show it from their feature tag.
    */
   readonly setIssue: (input: {
     readonly id: string;
@@ -542,7 +544,7 @@ export const FeatureServiceLive = Layer.effect(
           )
           .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
         // An issue linked in the brief comes first, so a generated title can read it.
-        const issueUrl = created ? firstIssueUrl(feature.brief) : null;
+        const issueUrl = created ? firstIssueRef(feature.brief) : null;
         if (issueUrl !== null || (input.autoTitle && created)) {
           yield* Effect.gen(function* () {
             if (issueUrl !== null) {
@@ -572,7 +574,27 @@ export const FeatureServiceLive = Layer.effect(
       function* (input) {
         const feature = yield* requireFeature(input.id, input.projectId);
         let issue: FeatureRecord["issue"] = null;
-        if (input.url !== null) {
+        const ticketNumber = input.url === null ? null : ticketNumberFromRef(input.url);
+        if (ticketNumber !== null) {
+          const ticket = yield* readTicketByNumber(feature.projectId, ticketNumber).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.mapError(queryError),
+          );
+          if (!ticket) {
+            return yield* Effect.fail(
+              new FeatureValidationError(`No ticket T-${ticketNumber} in this project`),
+            );
+          }
+          issue = {
+            url: "",
+            ticketId: ticket.id,
+            number: ticket.number,
+            title: ticket.title.slice(0, 300),
+            state: ticket.state,
+            milestone: null,
+            subIssues: null,
+          };
+        } else if (input.url !== null) {
           const candidate = input.url.trim();
           const url = URL.canParse(candidate) ? new URL(candidate) : null;
           const number = url ? issueNumberFromUrl(url) : null;

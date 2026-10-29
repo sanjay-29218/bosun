@@ -217,9 +217,13 @@ export const CrewStageSummary = Schema.Struct({
 });
 export type CrewStageSummary = typeof CrewStageSummary.Type;
 
-/** The issue a feature works on, as it read when linked. */
+/**
+ * The issue a feature works on, as it read when linked. A Bosun ticket has `ticketId` and an
+ * empty `url`; `featureIssueRef` names either kind.
+ */
 export const FeatureIssue = Schema.Struct({
   url: Schema.String,
+  ticketId: Schema.optionalKey(Schema.String),
   number: Schema.Int,
   title: Schema.String,
   state: Schema.Literals(["open", "closed"]),
@@ -228,6 +232,10 @@ export const FeatureIssue = Schema.Struct({
   subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
 });
 export type FeatureIssue = typeof FeatureIssue.Type;
+
+/** `#12` for an issue, `T-12` for a ticket. */
+export const featureIssueRef = (issue: Pick<FeatureIssue, "number" | "ticketId">) =>
+  issue.ticketId === undefined ? `#${issue.number}` : `T-${issue.number}`;
 
 /** The feature a crew thread works on: its stage threads and its lead's thread. */
 export const ThreadFeatureTag = Schema.Struct({

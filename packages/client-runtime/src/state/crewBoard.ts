@@ -1,5 +1,6 @@
 import {
   CAPTAIN_BOT_ID,
+  featureIssueRef,
   headquartersBotId,
   type CrewStageSummary,
   type EnvironmentId,
@@ -451,7 +452,7 @@ export function matchesFeatureSearch(
     card.stage?.stepId,
     card.stage?.role,
     card.workflow.name,
-    card.issue ? `#${card.issue.number} ${card.issue.title}` : null,
+    card.issue ? `${featureIssueRef(card.issue)} ${card.issue.title}` : null,
     card.issue?.milestone,
     ...extra,
   ]

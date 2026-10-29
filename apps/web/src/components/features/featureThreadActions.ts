@@ -12,6 +12,8 @@ import type {
   ThreadFeatureTag,
 } from "@t3tools/contracts";
 
+import { featureIssueRef } from "@t3tools/contracts";
+
 import { randomUUID } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
@@ -21,6 +23,7 @@ import { workflowsEnvironment } from "../../state/workflows";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { openFeatureIssueDialog } from "../crew/FeatureIssue";
 import { openMakeFeatureDialog } from "./MakeFeatureDialog";
+import { openFeatureIssue } from "./todoDialogs";
 
 /** Menus wait this long for the thread's feature link before showing without it. */
 const MENU_WAIT_MS = 500;
@@ -169,7 +172,7 @@ export function runFeatureIssueAction(
 ): void {
   const issue = thread.feature.issue ?? null;
   if (action === "feature-open-issue") {
-    if (issue) void readLocalApi()?.shell.openExternal(issue.url);
+    if (issue) openFeatureIssue(thread, issue);
     return;
   }
   openFeatureIssueDialog({
@@ -192,17 +195,17 @@ export function featureLifecycleFor(
     readonly crew?: { readonly current: boolean; readonly state: FeatureCardState } | null;
   },
   threads: Iterable<typeof thread>,
-): { readonly state: FeatureCardState; readonly issueNumber: number | null } | null {
+): { readonly state: FeatureCardState; readonly issueRef: string | null } | null {
   if (!thread.feature) return null;
-  const issueNumber = thread.feature.issue?.number ?? null;
-  if (thread.crew?.current) return { state: thread.crew.state, issueNumber };
+  const issueRef = thread.feature.issue ? featureIssueRef(thread.feature.issue) : null;
+  if (thread.crew?.current) return { state: thread.crew.state, issueRef };
   for (const other of threads) {
     if (
       other.environmentId === thread.environmentId &&
       other.feature?.id === thread.feature.id &&
       other.crew?.current
     ) {
-      return { state: other.crew.state, issueNumber };
+      return { state: other.crew.state, issueRef };
     }
   }
   return null;

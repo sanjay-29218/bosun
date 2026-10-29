@@ -115,6 +115,7 @@ import { CrewService } from "./crew/CrewService.ts";
 import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as IssueService from "./issues/IssueService.ts";
+import * as TicketService from "./tickets/TicketService.ts";
 import { WorkflowLibrary } from "./workflows/WorkflowLibrary.ts";
 import { WorkflowService } from "./workflows/WorkflowService.ts";
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
@@ -3321,6 +3322,7 @@ export const layer = Layer.unwrap(
       crewHandoffs: yield* CrewHandoffService,
       features: yield* FeatureService,
       issues: yield* IssueService.IssueService,
+      tickets: yield* TicketService.TicketService,
       workflows: yield* WorkflowService,
       workflowLibrary: yield* WorkflowLibrary,
       workflowExecution: yield* WorkflowExecutionService,

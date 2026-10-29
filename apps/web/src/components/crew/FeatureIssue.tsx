@@ -4,7 +4,12 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, FeatureIssue, ProjectId } from "@t3tools/contracts";
+import {
+  featureIssueRef,
+  type EnvironmentId,
+  type FeatureIssue,
+  type ProjectId,
+} from "@t3tools/contracts";
 import { CircleCheckIcon, CircleDotIcon } from "lucide-react";
 import { Atom } from "effect/reactivity";
 import { useState } from "react";
@@ -81,7 +86,12 @@ export function FeatureIssueDialogHost() {
 }
 
 function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget }) {
-  const [url, setUrl] = useState(target.issue?.url ?? "");
+  const current = target.issue
+    ? target.issue.ticketId === undefined
+      ? target.issue.url
+      : featureIssueRef(target.issue)
+    : "";
+  const [url, setUrl] = useState(current);
   const [busy, setBusy] = useState<"link" | "unlink" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,7 +126,7 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
           <DialogTitle>{target.issue ? "Feature issue" : "Link an issue"}</DialogTitle>
           <DialogDescription>
             Every thread of <span className="font-medium">{target.featureTitle}</span> shows the
-            issue it works on. A feature has one issue.
+            issue or ticket it works on. A feature has one.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -130,7 +140,7 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
               <Input
                 autoFocus
                 aria-label="Issue link"
-                placeholder="https://github.com/owner/repo/issues/123"
+                placeholder="https://github.com/owner/repo/issues/123 or T-14"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
               />
@@ -156,10 +166,7 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
             <Button type="button" variant="ghost" onClick={close} disabled={busy !== null}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={busy !== null || !url.trim() || url.trim() === target.issue?.url}
-            >
+            <Button type="submit" disabled={busy !== null || !url.trim() || url.trim() === current}>
               {target.issue ? "Replace" : "Link"}
             </Button>
           </DialogFooter>

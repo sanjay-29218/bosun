@@ -194,13 +194,24 @@ function bindProviderContext(
     return provider;
   }
 
-  const listIssues = provider.listIssues;
+  const { listIssues, getIssue, createIssue, setIssueState } = provider;
   return SourceControlProvider.SourceControlProvider.of({
     ...provider,
     ...(listIssues === undefined
       ? {}
       : {
           listIssues: (input) => listIssues({ ...input, context: input.context ?? context }),
+        }),
+    ...(getIssue === undefined
+      ? {}
+      : { getIssue: (input) => getIssue({ ...input, context: input.context ?? context }) }),
+    ...(createIssue === undefined
+      ? {}
+      : { createIssue: (input) => createIssue({ ...input, context: input.context ?? context }) }),
+    ...(setIssueState === undefined
+      ? {}
+      : {
+          setIssueState: (input) => setIssueState({ ...input, context: input.context ?? context }),
         }),
     listChangeRequests: Effect.fnUntraced(function* (input) {
       return yield* provider.listChangeRequests({

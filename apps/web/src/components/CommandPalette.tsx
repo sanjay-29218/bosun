@@ -58,6 +58,7 @@ import {
   KanbanIcon,
   LayersIcon,
   ListIcon,
+  ListTodoIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -79,6 +80,7 @@ import {
   UserPlusIcon,
   WorkflowIcon,
 } from "lucide-react";
+import { openNewTodoDialog } from "./features/todoDialogs";
 import {
   featureStageRows,
   formatStageName,
@@ -1943,6 +1945,26 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:new-todo",
+    searchTerms: ["new todo", "ticket", "issue", "create", "task"],
+    title: "New todo",
+    icon: <ListTodoIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openNewTodoDialog(
+        contextualProjectRef
+          ? {
+              project: {
+                environmentId: contextualProjectRef.environmentId,
+                projectId: contextualProjectRef.projectId,
+              },
+            }
+          : {},
+      );
     },
   });
 

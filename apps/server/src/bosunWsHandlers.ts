@@ -14,6 +14,7 @@ import type { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import type { CrewService } from "./crew/CrewService.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
+import type { TicketService } from "./tickets/TicketService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import type {
   WorkflowControl,
@@ -28,6 +29,7 @@ export interface BosunWsServices {
   readonly crewHandoffs: CrewHandoffService["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
+  readonly tickets: TicketService["Service"];
   readonly workflows: WorkflowService["Service"];
   readonly workflowLibrary: WorkflowLibrary["Service"];
   readonly workflowExecution: WorkflowExecutionService["Service"];
@@ -45,6 +47,7 @@ export const layerBosunWsRpc = (
     crewHandoffs,
     features,
     issues,
+    tickets,
     workflows,
     workflowLibrary,
     workflowExecution,
@@ -74,8 +77,17 @@ export const layerBosunWsRpc = (
           features
             .board(input.projectId)
             .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
-        // The service already fails with the transport's error.
+        // The issue and ticket services already fail with the transport's errors.
         [WS_METHODS.issuesList]: (input) => issues.list(input.projectId),
+        [WS_METHODS.issuesGet]: (input) => issues.get(input.projectId, input.number),
+        [WS_METHODS.issuesCreate]: (input) => issues.create(input),
+        [WS_METHODS.issuesSetState]: (input) => issues.setState(input),
+        [WS_METHODS.ticketsList]: (input) => tickets.list(input.projectId),
+        [WS_METHODS.ticketsCreate]: (input) => tickets.create(input),
+        [WS_METHODS.ticketsUpdate]: (input) => tickets.update(input),
+        [WS_METHODS.ticketsDelete]: (input) => tickets.remove(input.projectId, input.ticketId),
+        [WS_METHODS.ticketsMoveToIssue]: (input) =>
+          tickets.moveToIssue(input.projectId, input.ticketId),
         [WS_METHODS.featuresGet]: (input) =>
           features.get(input.featureId).pipe(
             Effect.map((feature) => (feature?.projectId === input.projectId ? feature : null)),

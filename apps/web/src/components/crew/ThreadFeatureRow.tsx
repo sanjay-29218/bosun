@@ -1,16 +1,16 @@
 import { CREW_STATE_LABELS, formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { featureIssueRef, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, CircleDotIcon, PencilIcon, WorkflowIcon } from "lucide-react";
 
-import { readLocalApi } from "../../localApi";
 import { useThreadShell, useThreadShells } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS } from "../chat/threadDetailsPanelStyles";
 import { FeatureIssueIcon, openFeatureIssueDialog } from "./FeatureIssue";
 import { FeatureTag } from "./FeatureTag";
+import { openFeatureIssue } from "../features/todoDialogs";
 
 /**
  * The feature a thread works on, in its details panel, with where the feature stands. A stage
@@ -77,12 +77,12 @@ export function ThreadFeatureRow(props: {
         <div className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}>
           <ThreadDetailsControl
             part="primary"
-            aria-label={`Open issue #${issue.number} ${issue.title}`}
-            onClick={() => void readLocalApi()?.shell.openExternal(issue.url)}
+            aria-label={`Open ${featureIssueRef(issue)} ${issue.title}`}
+            onClick={() => openFeatureIssue(thread, issue)}
           >
             <FeatureIssueIcon issue={issue} />
             <span className="min-w-0 truncate">
-              #{issue.number} {issue.title}
+              {featureIssueRef(issue)} {issue.title}
             </span>
           </ThreadDetailsControl>
           <ThreadDetailsControl part="secondary" aria-label="Change issue" onClick={editIssue}>

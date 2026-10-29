@@ -31,6 +31,8 @@ const FeaturesPagePreferencesSchema = Schema.Struct({
   /** Features as phase columns, or as rows grouped by phase. */
   featureLayout: Schema.optionalKey(Schema.Literals(["board", "list"])),
   issues: Schema.optionalKey(IssueDisplayPreferences),
+  /** What New todo files when the project has GitHub issues; a ticket otherwise. */
+  newTodoKind: Schema.optionalKey(Schema.Literals(["ticket", "issue"])),
 });
 export type FeaturesPagePreferences = typeof FeaturesPagePreferencesSchema.Type;
 

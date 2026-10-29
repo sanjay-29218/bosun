@@ -71,7 +71,24 @@ import {
   FeatureThreadInput,
   FeatureThreadLink,
 } from "./features.ts";
-import { IssueList, IssueListInput, IssueOperationError } from "./issues.ts";
+import {
+  IssueCreateInput,
+  IssueDetail,
+  IssueGetInput,
+  IssueList,
+  IssueListInput,
+  IssueOperationError,
+  IssueSetStateInput,
+  RepositoryIssue,
+} from "./issues.ts";
+import {
+  Ticket,
+  TicketCreateInput,
+  TicketGetInput,
+  TicketListInput,
+  TicketOperationError,
+  TicketUpdateInput,
+} from "./tickets.ts";
 import {
   WorkflowCreateInput,
   WorkflowActionInput,
@@ -457,6 +474,14 @@ export const WS_METHODS = {
   featuresThreadLink: "features.threadLink",
   featuresBoard: "features.board",
   issuesList: "issues.list",
+  issuesGet: "issues.get",
+  issuesCreate: "issues.create",
+  issuesSetState: "issues.setState",
+  ticketsList: "tickets.list",
+  ticketsCreate: "tickets.create",
+  ticketsUpdate: "tickets.update",
+  ticketsDelete: "tickets.delete",
+  ticketsMoveToIssue: "tickets.moveToIssue",
   workflowsList: "workflows.list",
   workflowsEnsureStarter: "workflows.ensureStarter",
   workflowsValidate: "workflows.validate",
@@ -1104,6 +1129,49 @@ const WsIssuesListRpc = Rpc.make(WS_METHODS.issuesList, {
   payload: IssueListInput,
   success: IssueList,
   error: Schema.Union([IssueOperationError, EnvironmentAuthorizationError]),
+});
+const IssueRpcError = Schema.Union([IssueOperationError, EnvironmentAuthorizationError]);
+/** One issue with its description and comments, read from the host each time. */
+const WsIssuesGetRpc = Rpc.make(WS_METHODS.issuesGet, {
+  payload: IssueGetInput,
+  success: IssueDetail,
+  error: IssueRpcError,
+});
+const WsIssuesCreateRpc = Rpc.make(WS_METHODS.issuesCreate, {
+  payload: IssueCreateInput,
+  success: RepositoryIssue,
+  error: IssueRpcError,
+});
+const WsIssuesSetStateRpc = Rpc.make(WS_METHODS.issuesSetState, {
+  payload: IssueSetStateInput,
+  success: RepositoryIssue,
+  error: IssueRpcError,
+});
+const TicketRpcError = Schema.Union([TicketOperationError, EnvironmentAuthorizationError]);
+const WsTicketsListRpc = Rpc.make(WS_METHODS.ticketsList, {
+  payload: TicketListInput,
+  success: Schema.Array(Ticket),
+  error: TicketRpcError,
+});
+const WsTicketsCreateRpc = Rpc.make(WS_METHODS.ticketsCreate, {
+  payload: TicketCreateInput,
+  success: Ticket,
+  error: TicketRpcError,
+});
+const WsTicketsUpdateRpc = Rpc.make(WS_METHODS.ticketsUpdate, {
+  payload: TicketUpdateInput,
+  success: Ticket,
+  error: TicketRpcError,
+});
+const WsTicketsDeleteRpc = Rpc.make(WS_METHODS.ticketsDelete, {
+  payload: TicketGetInput,
+  error: TicketRpcError,
+});
+/** Files the ticket as an issue on the project's host, moves its features over, and deletes it. */
+const WsTicketsMoveToIssueRpc = Rpc.make(WS_METHODS.ticketsMoveToIssue, {
+  payload: TicketGetInput,
+  success: RepositoryIssue,
+  error: TicketRpcError,
 });
 const WsFeaturesGetRpc = Rpc.make(WS_METHODS.featuresGet, {
   payload: FeatureGetInput,
@@ -2307,6 +2375,14 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesThreadLinkRpc,
   WsFeaturesBoardRpc,
   WsIssuesListRpc,
+  WsIssuesGetRpc,
+  WsIssuesCreateRpc,
+  WsIssuesSetStateRpc,
+  WsTicketsListRpc,
+  WsTicketsCreateRpc,
+  WsTicketsUpdateRpc,
+  WsTicketsDeleteRpc,
+  WsTicketsMoveToIssueRpc,
   WsWorkflowsListRpc,
   WsWorkflowsEnsureStarterRpc,
   WsWorkflowsValidateRpc,

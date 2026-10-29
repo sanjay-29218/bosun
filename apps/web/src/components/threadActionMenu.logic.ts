@@ -107,7 +107,8 @@ export interface ThreadActionMenuState {
    */
   readonly featureLifecycle?: {
     readonly state: FeatureCardState;
-    readonly issueNumber: number | null;
+    /** `#12` or `T-12`; null when the feature links none. */
+    readonly issueRef: string | null;
   } | null;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
@@ -251,20 +252,21 @@ export function buildThreadActionMenuItems(
                 label: FEATURE_LIFECYCLE_LABELS[id],
                 ...(id === "feature-cancel" ? { destructive: true } : {}),
               })),
-              ...(state.featureLifecycle.issueNumber === null
+              ...(state.featureLifecycle.issueRef === null
                 ? []
                 : [
                     {
                       id: "feature-open-issue" as const,
-                      label: `Open issue #${state.featureLifecycle.issueNumber}`,
+                      label: state.featureLifecycle.issueRef.startsWith("#")
+                        ? `Open issue ${state.featureLifecycle.issueRef}`
+                        : `Open ${state.featureLifecycle.issueRef}`,
                       separatorBefore: true,
                     },
                   ]),
               {
                 id: "feature-issue" as const,
-                label:
-                  state.featureLifecycle.issueNumber === null ? "Link issue…" : "Change issue…",
-                ...(state.featureLifecycle.issueNumber === null ? { separatorBefore: true } : {}),
+                label: state.featureLifecycle.issueRef === null ? "Link issue…" : "Change issue…",
+                ...(state.featureLifecycle.issueRef === null ? { separatorBefore: true } : {}),
               },
             ],
           },
