@@ -26,6 +26,7 @@ import { formatRelativeTime } from "../../timestampFormat";
 import { FeatureIssueIcon } from "../crew/FeatureIssue";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Button } from "../ui/button";
+import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { featureOwnerLine, featureStatus } from "./FeatureCard";
 import type { IssueDisplayPreferences } from "./featuresPagePreferences";
@@ -426,7 +427,7 @@ export function IssueBoardView(props: {
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   return (
-    <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2">
+    <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto pb-2">
       {props.groups.map((group) => {
         const issues = group.rows.map((row) => row.issue);
         const paged = group.lane === "done" && !doneExpanded;
@@ -434,7 +435,7 @@ export function IssueBoardView(props: {
         return (
           <section
             key={group.key}
-            className="flex h-full min-h-[calc(100dvh-11rem)] min-w-0 flex-col gap-1.5 rounded-xl bg-muted/25 p-1.5"
+            className="flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl bg-muted/25 p-1.5"
           >
             <header className="flex h-8 items-center gap-2 px-1.5 text-sm font-medium">
               {group.lane ? <PhaseIcon progress={LANE_PROGRESS[group.lane]} /> : null}
@@ -446,15 +447,19 @@ export function IssueBoardView(props: {
                 No issues
               </p>
             ) : (
-              visible.map((issue) => (
-                <IssueCard key={issueKey(issue)} issue={issue} handlers={props.handlers} />
-              ))
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="flex flex-col gap-1.5">
+                  {visible.map((issue) => (
+                    <IssueCard key={issueKey(issue)} issue={issue} handlers={props.handlers} />
+                  ))}
+                  {issues.length > visible.length ? (
+                    <Button variant="ghost" size="sm" onClick={() => setDoneExpanded(true)}>
+                      Show {issues.length - visible.length} more
+                    </Button>
+                  ) : null}
+                </div>
+              </ScrollArea>
             )}
-            {issues.length > visible.length ? (
-              <Button variant="ghost" size="sm" onClick={() => setDoneExpanded(true)}>
-                Show {issues.length - visible.length} more
-              </Button>
-            ) : null}
           </section>
         );
       })}

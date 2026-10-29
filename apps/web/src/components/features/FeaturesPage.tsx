@@ -668,6 +668,8 @@ export function FeaturesPage(props: {
   );
 
   let body;
+  // Boards fill the page and scroll each column; everything else scrolls the page.
+  let lanes = false;
   if (projects.length === 0) {
     body = (
       <p className="py-10 text-center text-sm text-muted-foreground">
@@ -713,6 +715,7 @@ export function FeaturesPage(props: {
         </p>
       );
     } else if (issueBoardLayout) {
+      lanes = true;
       body = <IssueBoardView groups={issueGroups} handlers={issueHandlers} />;
     } else {
       body = <IssueListView groups={issueGroups} handlers={issueHandlers} />;
@@ -760,6 +763,7 @@ export function FeaturesPage(props: {
       />
     );
   } else if (workflowToggle) {
+    lanes = Boolean(stageBoard);
     body = stageBoard ? (
       <FeatureStageBoardView
         board={stageBoard}
@@ -777,6 +781,7 @@ export function FeaturesPage(props: {
   } else if (featureLayout === "list") {
     body = <FeaturePhaseList groups={phaseGroups} handlers={handlers} />;
   } else {
+    lanes = true;
     body = <FeaturePhaseBoard groups={phaseGroups} handlers={handlers} />;
   }
 
@@ -823,6 +828,19 @@ export function FeaturesPage(props: {
     </>
   );
 
+  const content = (
+    <>
+      <BoardFilterChips sections={filterSections} onClear={clearFilters} />
+      {board.errors.length > 0 ? (
+        <p role="alert" className="text-sm text-destructive">
+          {board.errors[0]}
+        </p>
+      ) : null}
+      {notes}
+      {body}
+    </>
+  );
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
@@ -852,18 +870,17 @@ export function FeaturesPage(props: {
           </ToggleGroup>
           {firstRun && isFeatures ? null : headerActions}
         </WorkspacePageHeader>
-        <ScrollArea className="min-h-0 flex-1">
-          <WorkspacePageContainer width="full" className="gap-3">
-            <BoardFilterChips sections={filterSections} onClear={clearFilters} />
-            {board.errors.length > 0 ? (
-              <p role="alert" className="text-sm text-destructive">
-                {board.errors[0]}
-              </p>
-            ) : null}
-            {notes}
-            {body}
+        {lanes ? (
+          <WorkspacePageContainer width="full" className="min-h-0 flex-1 gap-3 pb-3">
+            {content}
           </WorkspacePageContainer>
-        </ScrollArea>
+        ) : (
+          <ScrollArea className="min-h-0 flex-1">
+            <WorkspacePageContainer width="full" className="gap-3">
+              {content}
+            </WorkspacePageContainer>
+          </ScrollArea>
+        )}
       </div>
       <FeatureNoteDialog
         request={noteRequest}

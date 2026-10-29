@@ -1,14 +1,17 @@
 import { ListFilterIcon, XIcon } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "../ui/button";
 import {
   Menu,
   MenuCheckboxItem,
-  MenuGroup,
-  MenuGroupLabel,
   MenuItem,
   MenuPopup,
+  MenuSearchInput,
   MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
 
@@ -28,7 +31,42 @@ const activeCount = (sections: ReadonlyArray<BoardFilterSection>) =>
     0,
   );
 
-/** Every way the board narrows, in one menu. Nothing checked in a section is all of it. */
+const SEARCHABLE_AT = 8;
+
+function BoardFilterChoices(props: { readonly section: BoardFilterSection }) {
+  const { section } = props;
+  const [query, setQuery] = useState("");
+  const searchable = section.options.length >= SEARCHABLE_AT;
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? section.options.filter((option) => option.label.toLowerCase().includes(needle))
+    : section.options;
+  return (
+    <>
+      {searchable ? (
+        <MenuSearchInput
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder={`Search ${section.label.toLowerCase()}`}
+          aria-label={`Search ${section.label.toLowerCase()}`}
+        />
+      ) : null}
+      {visible.map((option) => (
+        <MenuCheckboxItem
+          key={option.value}
+          checked={option.checked}
+          onCheckedChange={(checked) => section.onChange(option.value, checked)}
+        >
+          {option.label}
+        </MenuCheckboxItem>
+      ))}
+      {visible.length === 0 ? <MenuItem disabled>No matches</MenuItem> : null}
+    </>
+  );
+}
+
+/** Every way the board narrows, one submenu per section. Nothing checked in a section is all of it. */
 export function BoardFilterMenu(props: {
   readonly sections: ReadonlyArray<BoardFilterSection>;
   readonly onClear: () => void;
@@ -48,21 +86,24 @@ export function BoardFilterMenu(props: {
         {active > 0 ? <span className="tabular-nums">{active}</span> : null}
       </MenuTrigger>
       <MenuPopup align="end">
-        {sections.map((section, index) => (
-          <MenuGroup key={section.label}>
-            {index > 0 ? <MenuSeparator /> : null}
-            <MenuGroupLabel>{section.label}</MenuGroupLabel>
-            {section.options.map((option) => (
-              <MenuCheckboxItem
-                key={option.value}
-                checked={option.checked}
-                onCheckedChange={(checked) => section.onChange(option.value, checked)}
-              >
-                {option.label}
-              </MenuCheckboxItem>
-            ))}
-          </MenuGroup>
-        ))}
+        {sections.map((section) => {
+          const checked = section.options.filter((option) => option.checked);
+          return (
+            <MenuSub key={section.label}>
+              <MenuSubTrigger>
+                <span className="flex-1">{section.label}</span>
+                {checked.length > 0 ? (
+                  <span className="min-w-0 max-w-32 truncate text-xs text-muted-foreground">
+                    {checked.length === 1 ? checked[0]?.label : `${checked.length} selected`}
+                  </span>
+                ) : null}
+              </MenuSubTrigger>
+              <MenuSubPopup>
+                <BoardFilterChoices section={section} />
+              </MenuSubPopup>
+            </MenuSub>
+          );
+        })}
         {active > 0 ? (
           <>
             <MenuSeparator />

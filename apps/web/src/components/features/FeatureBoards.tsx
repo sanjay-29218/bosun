@@ -14,6 +14,7 @@ import { useRef, useState, type DragEvent, type MouseEvent, type ReactNode } fro
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { ScrollArea } from "../ui/scroll-area";
 import { FeatureCard } from "./FeatureCard";
 import { PhaseIcon } from "./PhaseIcon";
 
@@ -95,7 +96,7 @@ function Column(props: {
     <section
       {...props.dropProps}
       className={cn(
-        "flex h-full min-h-[calc(100dvh-11rem)] min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
+        "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
         props.highlighted && "border-dashed border-border bg-accent/40",
       )}
     >
@@ -114,7 +115,7 @@ function Column(props: {
           No features
         </p>
       ) : (
-        props.children
+        <ScrollArea className="min-h-0 flex-1">{props.children}</ScrollArea>
       )}
     </section>
   );
@@ -162,7 +163,7 @@ export function FeaturePhaseBoard(props: {
   const drag = useCardDrag(props.handlers);
   return (
     // Columns share the width, and scroll sideways only once they can't fit.
-    <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2">
+    <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto pb-2">
       {props.groups.map((group) => {
         const target = group.phase === "done" ? "done" : "open";
         return (
@@ -246,8 +247,11 @@ export function FeatureStageBoardView(props: {
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="min-h-0 flex-1 overflow-x-auto pb-2">
         <div
-          className="grid w-max min-w-full gap-x-6 gap-y-1"
-          style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(17rem, 1fr))` }}
+          className="grid h-full w-max min-w-full gap-x-6 gap-y-1"
+          style={{
+            gridTemplateColumns: `repeat(${columns.length}, minmax(17rem, 1fr))`,
+            gridTemplateRows: `${"auto ".repeat(loops.length)}minmax(0, 1fr)`,
+          }}
         >
           {loops.map((loop, loopIndex) => {
             const from = columnIndex.get(loop.from);
@@ -276,7 +280,11 @@ export function FeatureStageBoardView(props: {
                     (card) => column.stepId === props.gateFilter && card.state === "approval",
                   );
             return (
-              <div key={column.stepId} className="relative" style={{ gridRow: loops.length + 1 }}>
+              <div
+                key={column.stepId}
+                className="relative min-h-0"
+                style={{ gridRow: loops.length + 1 }}
+              >
                 {index > 0 ? (
                   <ChevronRightIcon
                     aria-hidden
