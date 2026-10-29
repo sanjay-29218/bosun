@@ -14,6 +14,12 @@ thread in the scoped project. A new thread's **Workflow** picker starts on the d
 the bot that owns the project; pick **No workflow** for a plain thread. Change workflows in the
 **Library**, in the bot rail or at the bottom of the sidebar.
 
+A feature works where the composer's **Local** / **New worktree** picker says. In a new worktree,
+the feature gets one branch and folder, made from the base branch when its first stage starts, and
+every stage and helper works there, so one feature becomes one pull request. **Local** works in
+the project's own checkout. A feature made from an existing thread works in that thread's
+workspace. Work too big for one builder is best split into separate features.
+
 ## The board
 
 The board has a column per phase: Plan, Design, Build, Verify, Ship and Done. Each card shows

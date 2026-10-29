@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
 import * as BotStore from "../bots/BotStore.ts";
+import { FeatureWorkspaces } from "../features/FeatureWorkspaces.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { CrewService, managedProjectId, type CrewServiceError } from "./CrewService.ts";
 import { CrewStore, type CrewMember, type CrewRun, type CrewRunSummary } from "./CrewStore.ts";
@@ -135,6 +136,7 @@ export const CrewHandoffServiceLive = Layer.effect(
     const runtime = yield* CrewThreadRuntime;
     const bots = yield* BotStore.BotStore;
     const settings = yield* ServerSettingsService;
+    const featureWorkspaces = yield* FeatureWorkspaces;
     const changes = yield* PubSub.unbounded<string>();
 
     const deliver = Effect.fn("CrewHandoffService.deliver")(function* (handoff: CrewHandoff) {
@@ -256,6 +258,18 @@ export const CrewHandoffServiceLive = Layer.effect(
       const carried = isWorkflowHandoffId(handoff.id)
         ? null
         : yield* runtime.settings(sourceRun.threadId);
+      // A stage works in its feature's workspace; a helper where its delegator works.
+      const workspace = isWorkflowHandoffId(handoff.id)
+        ? yield* featureWorkspaces
+            .forStageHandoff(handoff.id)
+            .pipe(Effect.mapError((error) => new CrewHandoffError(error.message)))
+        : yield* runtime
+            .workspace(sourceRun.threadId)
+            .pipe(
+              Effect.map((source) =>
+                source?.projectId === handoff.projectId ? source.workspace : null,
+              ),
+            );
       yield* crew.createRun({
         id: handoff.targetRunId,
         memberId: handoff.targetMemberId,
@@ -263,6 +277,7 @@ export const CrewHandoffServiceLive = Layer.effect(
         taskText: `${handoff.taskText}${handoff.contextText ? `\n\nContext:\n${handoff.contextText}` : ""}`,
         ...(handoff.modelSelection ? { modelSelection: handoff.modelSelection } : {}),
         ...(carried ? { carried } : {}),
+        ...(workspace ? { workspace } : {}),
       });
       const now = DateTime.formatIso(yield* DateTime.now);
       yield* handoffs.transition(handoff.id, ["queued"], "running", now);

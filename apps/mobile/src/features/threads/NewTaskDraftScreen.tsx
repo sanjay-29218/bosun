@@ -618,6 +618,11 @@ export function NewTaskDraftScreen(props: {
           brief,
           workflowId,
           autoTitle: true,
+          // The feature works where this screen would start a thread.
+          workspace: flow.workspaceMode,
+          ...(flow.workspaceMode === "worktree" && selectedBranchName
+            ? { baseBranch: selectedBranchName }
+            : {}),
         },
       });
       if (created._tag !== "Success") return;

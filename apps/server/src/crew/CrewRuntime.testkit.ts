@@ -54,6 +54,7 @@ const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
 const GitWorkflowTestLayer = Layer.mock(GitWorkflow.GitWorkflowService)({
   pruneWorktrees: () => Effect.void,
   createWorktree: () => Effect.succeed({} as never),
+  currentBranch: () => Effect.succeed(null),
 });
 const ProjectServiceTestLayer = Layer.mock(ProjectService.ProjectService)({
   getById: () => Effect.succeedNone,
@@ -118,7 +119,7 @@ export const CrewTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectS
   Layer.provide(ServerConfigLayer),
   Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provide(TestProviderInstanceRegistry),
-  Layer.provide(GitWorkflowTestLayer),
+  Layer.provideMerge(GitWorkflowTestLayer),
   Layer.provide(ProjectServiceTestLayer),
   Layer.provide(PlatformTestLayer),
 );

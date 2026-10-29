@@ -23,6 +23,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
+import type { CrewWorkspace } from "./CrewStore.ts";
 type OrchestrationDispatchError = Orchestrator.OrchestratorV2Error;
 type CrewReadError = PersistenceSqlError;
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
@@ -37,6 +38,8 @@ export interface CrewThreadStart {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly createdAt: string;
+  /** The worktree the thread opens in; the project's checkout when null. */
+  readonly workspace: CrewWorkspace | null;
 }
 
 export interface CrewThreadRuntimeShape {
@@ -59,6 +62,13 @@ export interface CrewThreadRuntimeShape {
     runtimeMode: RuntimeMode,
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** The thread's project and worktree, which helpers it delegates to inherit. */
+  readonly workspace: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
+    { readonly projectId: ProjectId; readonly workspace: CrewWorkspace | null } | null,
+    OrchestrationDispatchError
+  >;
   /** The access and model the thread's next turn uses, or null once it is gone. */
   readonly settings: (threadId: ThreadId) => Effect.Effect<
     {
@@ -165,8 +175,8 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         modelSelection: input.modelSelection,
         runtimeMode: input.runtimeMode,
         interactionMode: "default",
-        branch: null,
-        worktreePath: null,
+        branch: input.workspace?.branch ?? null,
+        worktreePath: input.workspace?.worktreePath ?? null,
         createdBy: "agent",
         creationSource: "mcp",
       });
@@ -268,6 +278,17 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       ),
       restore,
       syncSettings,
+      workspace: Effect.fn("CrewThreadRuntime.workspace")(function* (threadId) {
+        const shell = yield* engine.getThreadShell(threadId);
+        if (shell === null || shell.deletedAt !== null) return null;
+        return {
+          projectId: shell.projectId,
+          workspace:
+            shell.branch && shell.worktreePath
+              ? { branch: shell.branch, worktreePath: shell.worktreePath }
+              : null,
+        };
+      }),
       settings: Effect.fn("CrewThreadRuntime.settings")(function* (threadId) {
         const shell = yield* engine.getThreadShell(threadId);
         return shell === null || shell.deletedAt !== null

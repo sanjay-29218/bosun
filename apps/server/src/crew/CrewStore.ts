@@ -59,6 +59,12 @@ export interface CrewDelegationGrant {
   readonly targetMemberId: string;
 }
 
+/** Where a crew run's thread works when it isn't the project's checkout. */
+export interface CrewWorkspace {
+  readonly branch: string;
+  readonly worktreePath: string;
+}
+
 export interface CrewRun {
   readonly id: string;
   readonly memberId: string;
@@ -76,6 +82,7 @@ export interface CrewRun {
   readonly lastError: string | null;
   readonly createdAt: string;
   readonly dispatchedAt: string | null;
+  readonly workspace: CrewWorkspace | null;
 }
 
 export interface CrewRunSummary {
@@ -137,6 +144,8 @@ interface CrewRunRow {
   readonly lastError: string | null;
   readonly createdAt: string;
   readonly dispatchedAt: string | null;
+  readonly branch: string | null;
+  readonly worktreePath: string | null;
 }
 
 const parseModelSelection = Schema.decodeUnknownSync(ModelSelection);
@@ -196,6 +205,8 @@ const decodeRun = (row: CrewRunRow): CrewRun => ({
   lastError: row.lastError,
   createdAt: row.createdAt,
   dispatchedAt: row.dispatchedAt,
+  workspace:
+    row.branch && row.worktreePath ? { branch: row.branch, worktreePath: row.worktreePath } : null,
 });
 
 export interface CrewStoreShape {
@@ -323,7 +334,8 @@ export const CrewStoreLive = Layer.effect(
           COALESCE(b.runtime_mode, r.runtime_mode) AS runtimeMode,
           r.dispatch_state AS dispatchState, r.recovery_attempt AS recoveryAttempt,
           r.last_error AS lastError,
-          r.created_at AS createdAt, r.dispatched_at AS dispatchedAt
+          r.created_at AS createdAt, r.dispatched_at AS dispatchedAt,
+          r.branch, r.worktree_path AS worktreePath
         FROM crew_runs AS r
         LEFT JOIN bots AS b
           ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
@@ -486,13 +498,13 @@ export const CrewStoreLive = Layer.effect(
             id, member_id, project_id, thread_id, task_text, title, instructions,
             allowed_tools_json, member_revision,
             model_selection_json, runtime_mode, dispatch_state, recovery_attempt, last_error,
-            created_at, dispatched_at
+            created_at, dispatched_at, branch, worktree_path
           ) VALUES (
             ${run.id}, ${run.memberId}, ${run.projectId}, ${run.threadId}, ${run.taskText},
             ${run.title}, ${run.instructions}, ${JSON.stringify(run.allowedTools)},
             ${run.memberRevision}, ${JSON.stringify(run.modelSelection)},
             ${run.runtimeMode}, ${run.dispatchState}, ${run.recoveryAttempt}, ${run.lastError}, ${run.createdAt},
-            ${run.dispatchedAt}
+            ${run.dispatchedAt}, ${run.workspace?.branch ?? null}, ${run.workspace?.worktreePath ?? null}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
       getRun,
@@ -504,7 +516,8 @@ export const CrewStoreLive = Layer.effect(
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
             dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
             last_error AS lastError,
-            created_at AS createdAt, dispatched_at AS dispatchedAt
+            created_at AS createdAt, dispatched_at AS dispatchedAt,
+            branch, worktree_path AS worktreePath
           FROM crew_runs AS r WHERE dispatch_state = ${CREW_DISPATCH_STATE.QUEUED}
             AND NOT EXISTS (
               SELECT 1 FROM crew_handoffs AS h

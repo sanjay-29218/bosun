@@ -2,6 +2,7 @@ import {
   headquartersBotId,
   OrchestratorMcpFailure,
   ProjectId,
+  type FeatureWorkspace,
   type RoleCreateInput,
   type RoleUpdateInput,
   type WorkflowCreateInput,
@@ -132,6 +133,7 @@ const make = Effect.gen(function* () {
         readonly brief: string;
         readonly workflowId?: string | undefined;
         readonly featureId?: string | undefined;
+        readonly workspace?: FeatureWorkspace | undefined;
       }) =>
         callingBot.pipe(
           Effect.flatMap((botId) =>

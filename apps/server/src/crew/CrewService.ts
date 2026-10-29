@@ -28,6 +28,7 @@ import {
   type Role,
   type CrewRun,
   type CrewRunSummary,
+  type CrewWorkspace,
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
 import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
@@ -60,14 +61,19 @@ const HEADQUARTERS_TASK = [
 ].join("\n\n");
 
 const STAGE_TOOLS = ["crew.respond", "crew.ask"];
+const BUILDER_WORKSPACE =
+  "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
+const PLANNER_SPLIT =
+  "If the work is too big for one builder, say so in your plan and propose splitting it into separate features, each with its own branch and pull request.";
 /** Several stages run at once on one machine, so each keeps its checks and servers small. */
 const STAGE_CHECKS =
   "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you respond.";
 const stageInstructions = (name: string) =>
   `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose. ${STAGE_CHECKS}`;
 
-/** The builder may split its stage into subagents that run at the same time. */
-const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} When the work splits into independent parts, run them in parallel with delegate_task, one subagent per part with a self-contained brief, and wait for them with task_status. Check and combine their results yourself before you call crew_respond.`;
+/** A feature has one workspace and one builder; big work splits into features, not builders. */
+const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} ${BUILDER_WORKSPACE}`;
+const PLANNER_INSTRUCTIONS = `${stageInstructions("Planner")} ${PLANNER_SPLIT}`;
 
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
@@ -79,12 +85,12 @@ const DEFAULT_ROLES = [
     instructions:
       "You manage one project. Delegate implementation to the project's builder using crew_delegate and a stable request ID. Then end your turn: the builder's outcome arrives in this thread as a new message, so don't poll crew_wait_handoff for it. Report the outcome to whoever asked through crew_respond. If the builder needs a person's answer, use crew_ask; when the answer arrives, pass it to the child request using crew_answer. In a workflow, decide how to handle requested changes and route the stage with crew_respond. Keep the task and context bounded.",
   },
-  { id: "role:planner", name: "Planner" },
+  { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
   {
     id: BUILDER_ROLE_ID,
     name: "Builder",
-    // Threads (the orchestration grant) lets it run parallel subagents with delegate_task.
+    // Threads (the orchestration grant) lets it run read-only subagents with delegate_task.
     allowedTools: [...STAGE_TOOLS, "orchestration"],
     instructions: BUILDER_INSTRUCTIONS,
   },
@@ -138,6 +144,8 @@ export interface CreateCrewRunInput {
   readonly carried?: { readonly runtimeMode: RuntimeMode; readonly modelSelection: ModelSelection };
   /** The thread's title; defaults to the member's name and the start of the task. */
   readonly title?: string;
+  /** The worktree the thread opens in; the project's checkout when absent. */
+  readonly workspace?: CrewWorkspace;
 }
 
 export interface CrewRunView {
@@ -305,6 +313,7 @@ export const CrewServiceLive = Layer.effect(
       modelSelection: run.modelSelection,
       runtimeMode: run.runtimeMode,
       createdAt: run.createdAt,
+      workspace: run.workspace,
     });
 
     const markDispatched = (
@@ -644,6 +653,7 @@ export const CrewServiceLive = Layer.effect(
           lastError: null,
           createdAt,
           dispatchedAt: null,
+          workspace: input.workspace ?? null,
         };
         yield* store.insertRun(run);
         const persisted = yield* store.getRun(id);
@@ -700,6 +710,7 @@ export const CrewServiceLive = Layer.effect(
           lastError: null,
           createdAt: DateTime.formatIso(yield* DateTime.now),
           dispatchedAt: null,
+          workspace: null,
         });
       }
       const run = (yield* store.getRun(id))!;

@@ -115,8 +115,8 @@ workflow shows that it changed, and new features can't start on it until you pub
 
 The **Library**'s Roles are what workflow stages run as. **+ New** beside Roles adds one, and
 offers **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA Tester and
-Reviewer when an environment doesn't have them yet. The Builder can split its work into subagents that run at the same time; give any role
-**Threads and subagents** to let it do the same. Each role has instructions, crew tools and a default model. **Access** sets how freely its
+Reviewer when an environment doesn't have them yet. The Builder builds on its own and uses subagents only for
+read-only work such as research; give any role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a default model. **Access** sets how freely its
 threads work, from **Supervised** to **Full access**. Pick a role to edit it. Roles aren't deleted: the **On** switch at the top turns one off
 to retire it, and back on. Only roles with **Available in workflows** switched on can be picked
 for a stage. Each project gets its own project manager the first time a request or
@@ -124,8 +124,9 @@ feature needs one; editing a role changes the members made from it later, not ex
 
 **Limits**, at the bottom of **Settings → Bots**, are environment-wide:
 
-- **Agents running at once** (default 4). Further stage threads wait as Queued. Threads you start
-  yourself are never counted or queued.
+- **Agents running at once** (default 4). Further stage threads, and the helpers they hand work
+  to, wait as Queued. An agent waiting on a helper isn't counted, and threads you start yourself
+  are never counted or queued.
 - **Per provider** caps one provider, so its rate limit doesn't stall every feature. Empty means no
   cap.
 - **Retries before a stage fails** (default 1), for workflows that don't set their own.

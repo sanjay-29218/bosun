@@ -47,6 +47,8 @@ import {
   WorkflowExecutionServiceLive,
 } from "./WorkflowExecutionService.ts";
 import { renderStageHandoff } from "./StageHandoff.ts";
+import { FeatureWorkspacesLive } from "../features/FeatureWorkspaces.ts";
+import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorkflowStageHandoffStoreLive } from "./WorkflowStageHandoffStore.ts";
 import { WorkflowWorkspace, type StageThreadDiff } from "./WorkflowWorkspace.ts";
 
@@ -58,6 +60,16 @@ const fixture = (
   crew: { readonly maxRunningStageThreads?: number; readonly stageRetries?: number } = {},
 ) => {
   const starts: Array<CrewThreadStart> = [];
+  const worktrees: Array<string> = [];
+  const git = Layer.mock(GitWorkflowService)({
+    currentBranch: () => Effect.succeed("main"),
+    createWorktree: (input) =>
+      Effect.sync(() => {
+        const branch = input.newRefName!;
+        worktrees.push(branch);
+        return { worktree: { path: `/worktrees/${branch}`, refName: branch } };
+      }),
+  });
   const interruptions: Array<string> = [];
   let failDispatch = false;
   let failInterrupt = false;
@@ -70,6 +82,7 @@ const fixture = (
       restore: () => Effect.void,
       syncSettings: () => Effect.void,
       settings: () => Effect.succeed(null),
+      workspace: () => Effect.succeed(null),
       pin: () => Effect.void,
       start: (input) =>
         Effect.gen(function* () {
@@ -126,6 +139,7 @@ const fixture = (
   );
   const bots = CrewHandoffServiceLive.pipe(
     Layer.provideMerge(CrewHandoffStoreLive),
+    Layer.provideMerge(FeatureWorkspacesLive.pipe(Layer.provide(git))),
     Layer.provideMerge(foundation),
   );
   const workflows = WorkflowServiceLive.pipe(
@@ -149,6 +163,7 @@ const fixture = (
   return {
     layer,
     starts,
+    worktrees,
     interruptions,
     files,
     diffs,
@@ -884,8 +899,8 @@ describe("Workflow execution", () => {
         const sql = yield* SqlClient.SqlClient;
         const handoffs = yield* CrewHandoffService;
         const { featureId, execution, bindings } = yield* seed();
-        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at)
-          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '')`;
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
         // The fake bot runtime starts no threads, so create each stage thread as the real one would.
         const createThread = (threadId: ThreadId) =>
           engine.dispatch({
@@ -934,6 +949,20 @@ describe("Workflow execution", () => {
         const review = yield* activeHandoff(featureId);
         yield* createThread(review.run.threadId);
         yield* execution.reconcileFeature(featureId);
+        // Both stages open in the one worktree the feature made from the checkout's branch.
+        expect(system.worktrees).toEqual([
+          expect.stringMatching(/^bosun\/kanban-board-[0-9a-f]{6}$/),
+        ]);
+        const featureWorkspace = {
+          branch: system.worktrees[0],
+          worktreePath: `/worktrees/${system.worktrees[0]}`,
+        };
+        expect(system.starts.find((start) => start.runId === plan.run.id)?.workspace).toEqual(
+          featureWorkspace,
+        );
+        expect(system.starts.find((start) => start.runId === review.run.id)?.workspace).toEqual(
+          featureWorkspace,
+        );
         expect((yield* engine.getThreadShell(review.run.threadId))?.crew).toMatchObject({
           stepId: "review",
           index: 3,

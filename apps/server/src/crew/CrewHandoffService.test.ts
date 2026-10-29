@@ -432,6 +432,14 @@ describe("Bot handoffs", () => {
           expect(manager.runtimeMode).toBe("full-access");
           expect(manager.modelSelection).toEqual(captainModel);
 
+          // The manager works in a feature's worktree, so its builder works there too.
+          yield* engine.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make("carried:worktree"),
+            threadId: manager.threadId,
+            branch: "bosun/carried",
+            worktreePath: "/worktrees/bosun/carried",
+          });
           const builderRequest = yield* handoffs.delegate({
             id: "carried-builder",
             sourceThreadId: manager.threadId,
@@ -443,6 +451,10 @@ describe("Bot handoffs", () => {
           const builder = (yield* bots.getRun(builderRequest.targetRunId))!.run;
           expect(builder.runtimeMode).toBe("full-access");
           expect(builder.modelSelection).toEqual(modelSelection);
+          expect(yield* engine.getThreadShell(builder.threadId)).toMatchObject({
+            branch: "bosun/carried",
+            worktreePath: "/worktrees/bosun/carried",
+          });
 
           const stage = (yield* bots.getRun(
             (yield* delegateToManager(`${WORKFLOW_HANDOFF_PREFIX}carried-stage`)).targetRunId,

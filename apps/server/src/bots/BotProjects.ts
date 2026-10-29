@@ -9,6 +9,7 @@ import {
   CommandId,
   ProjectId,
   type FeatureCardState,
+  type FeatureWorkspace,
   type Project,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -94,6 +95,7 @@ export class BotProjects extends Context.Service<
       readonly brief: string;
       readonly workflowId?: string | undefined;
       readonly featureId?: string | undefined;
+      readonly workspace?: FeatureWorkspace | undefined;
     }) => Effect.Effect<BotFeatureStart, BotProjectsError>;
   }
 >()("t3/bots/BotProjects") {}
@@ -238,6 +240,7 @@ export const layer = Layer.effect(
             title: input.title.trim(),
             brief: input.brief.trim(),
             workflowId,
+            ...(input.workspace ? { workspace: input.workspace } : {}),
           })
           .pipe(Effect.mapError((error) => new BotProjectsError({ reason: error.message })));
         const snapshot = yield* features.start(id, input.projectId).pipe(

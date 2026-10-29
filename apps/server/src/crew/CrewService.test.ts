@@ -458,6 +458,7 @@ describe("Bot foundation", () => {
         restore: () => Effect.void,
         syncSettings: () => Effect.void,
         settings: () => Effect.succeed(null),
+        workspace: () => Effect.succeed(null),
         pin: () => Effect.void,
         start: () =>
           Effect.sync(() => ++attempts).pipe(
@@ -603,6 +604,7 @@ describe("Bot foundation", () => {
               lastError: null,
               createdAt: "2026-01-01T00:00:00.000Z",
               dispatchedAt: null,
+              workspace: null,
             });
             // Simulate a crash after T3 accepted thread creation but before turn start.
             yield* engine.dispatch({

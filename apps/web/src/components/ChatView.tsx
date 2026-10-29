@@ -1223,6 +1223,11 @@ export default function ChatView(props: ChatViewProps) {
           brief,
           workflowId,
           autoTitle: true,
+          // The feature works where this composer would start a thread.
+          workspace: sendEnvMode,
+          ...(sendEnvMode === "worktree" && activeThreadBranch
+            ? { baseBranch: activeThreadBranch }
+            : {}),
         },
       });
       if (created._tag !== "Success") return reportFailure(created);

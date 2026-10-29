@@ -551,10 +551,15 @@ export const FeatureServiceLive = Layer.effect(
               const crewAssignments = yield* assembleCrew(input.id, input.projectId, copy);
               const createdAt = DateTime.formatIso(yield* DateTime.now);
               yield* sql`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json)
-              VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)})
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch)
+              VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null})
             `;
-              const { autoTitle: _autoTitle, ...fields } = input;
+              const {
+                autoTitle: _autoTitle,
+                workspace: _workspace,
+                baseBranch: _baseBranch,
+                ...fields
+              } = input;
               const feature: FeatureRecord = {
                 ...fields,
                 workflowId: input.workflowId ?? null,
@@ -836,13 +841,25 @@ export const FeatureServiceLive = Layer.effect(
         yield* sql
           .withTransaction(
             Effect.gen(function* () {
+              // Later stages work where the thread does.
+              const worktree =
+                shell.worktreePath && shell.branch
+                  ? { path: shell.worktreePath, branch: shell.branch }
+                  : null;
               yield* create({
                 id: input.featureId,
                 projectId: input.projectId,
                 title: input.title,
                 brief,
                 workflowId: input.workflowId,
+                workspace: worktree ? "worktree" : "local",
               });
+              if (worktree) {
+                yield* sql`
+                  UPDATE features SET branch = ${worktree.branch}, worktree_path = ${worktree.path}
+                  WHERE id = ${input.featureId}
+                `;
+              }
               const copy = (yield* workflows.getFeatureCopy(input.featureId))!;
               const stages = workflowForwardStages(copy.definition);
               const index = stages.indexOf(input.stageId);
