@@ -6,6 +6,7 @@ import {
   type NeedsYouItem,
 } from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { workThreadLabel } from "@t3tools/client-runtime/state/work-groups";
 import { useState } from "react";
 
 import { Button } from "../ui/button";
@@ -97,7 +98,7 @@ export function NeedsYouListView(props: {
           {group.items.map((item) => {
             const source = item.type === "feature" ? item.card : item.shell;
             const project = props.projectFor(source);
-            const title = item.type === "feature" ? item.card.title : item.shell.title;
+            const title = item.type === "feature" ? item.card.title : workThreadLabel(item.shell);
             const waiting = waitingLabel(item.since);
             return (
               <div

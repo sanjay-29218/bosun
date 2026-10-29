@@ -76,7 +76,7 @@ When something waits on you, an amber **Needs you** count shows in the board's h
 approvals, problems and questions, oldest first. Approve, Retry and Answer work from the row;
 anything else opens the stage thread. Threads waiting on a tool approval or a question are included.
 
-The same threads appear in the **Needs you** shelf at the top of the sidebar, and
-`mod+shift+y` opens the one that has waited longest.
+In the sidebar, they come up at the top of the thread list. `mod+shift+y` opens the one that has
+waited longest.
 
 On the board, `w` toggles workflow stages, `n` toggles Needs you, and `/` opens search.

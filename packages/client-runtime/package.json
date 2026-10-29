@@ -51,6 +51,14 @@
       "types": "./src/state/issueBoard.ts",
       "default": "./src/state/issueBoard.ts"
     },
+    "./state/crew-roster": {
+      "types": "./src/state/crewRoster.ts",
+      "default": "./src/state/crewRoster.ts"
+    },
+    "./state/work-groups": {
+      "types": "./src/state/workGroups.ts",
+      "default": "./src/state/workGroups.ts"
+    },
     "./state/bot-rail": {
       "types": "./src/state/botRail.ts",
       "default": "./src/state/botRail.ts"

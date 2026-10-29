@@ -1,4 +1,6 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
+import { workGroupInbox, type WorkGroup } from "@t3tools/client-runtime/state/work-groups";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useMemo, useSyncExternalStore } from "react";
 
@@ -34,6 +36,8 @@ type LayoutInput = Parameters<typeof buildThreadListV2Items>[0];
  */
 export function useThreadListV2(input: {
   readonly threads: LayoutInput["threads"];
+  /** The groups `threads` stand for, keyed by `environmentId:threadId`. */
+  readonly workGroups: ReadonlyMap<string, WorkGroup<EnvironmentThreadShell>>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly environmentId: EnvironmentId | null;
   readonly projectRefs: LayoutInput["projectRefs"];
@@ -55,16 +59,20 @@ export function useThreadListV2(input: {
   readonly settledShelfExpanded: boolean;
   readonly selectedThreadKey: string | null;
 }) {
-  const { threads, workingShelfEnabled } = input;
+  const { threads, workGroups, workingShelfEnabled } = input;
   // A thread can stop working when the threads change, or when its exit grace expires.
   const inboxVersion = useSyncExternalStore(
     threadListInboxReturns.subscribe,
     threadListInboxReturns.getSnapshot,
   );
   const inbox = useMemo(
-    () => threadListInboxReturns.observe(workingShelfEnabled ? threads : null),
+    () =>
+      workGroupInbox(
+        workGroups,
+        threadListInboxReturns.observe(workingShelfEnabled ? threads : null),
+      ),
     // oxlint-disable-next-line react/memo-dependencies -- the version signals an expired grace
-    [threads, workingShelfEnabled, inboxVersion],
+    [threads, workGroups, workingShelfEnabled, inboxVersion],
   );
   // Up/down menu availability for every card, computed once per section per
   // rebuild (see computeThreadMoveAvailability): per-thread planner calls made

@@ -222,6 +222,18 @@ const rootIsVisible = (sql: SqlClient.SqlClient) => sql`
   AND json_extract(root.payload_json, '$.deletedAt') IS NULL
   AND json_extract(root.payload_json, '$.archivedAt') IS NULL`;
 
+// Rows that point at rows left behind, such as a handoff whose run's thread was dropped, go too.
+const deleteOrphanRows = Effect.fn("deleteDevDbOrphanRows")(function* (sql: SqlClient.SqlClient) {
+  for (;;) {
+    const orphans = yield* sql<{ table: string; rowid: number | null }>`PRAGMA foreign_key_check`;
+    const deletable = orphans.filter((orphan) => orphan.rowid !== null);
+    if (deletable.length === 0) return;
+    for (const { table, rowid } of deletable) {
+      yield* sql.unsafe(`DELETE FROM "${table}" WHERE rowid = ${rowid}`).unprepared;
+    }
+  }
+});
+
 // A single read transaction keeps the copy consistent with concurrent server writes.
 const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath: string) {
   const sql = yield* SqlClient.SqlClient;
@@ -263,6 +275,8 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
 
   yield* sql.withTransaction(
     Effect.gen(function* () {
+      // Tables copy in creation order, and a rebuilt table can come after rows that point at it.
+      yield* sql`PRAGMA defer_foreign_keys = ON`;
       for (const table of tables) yield* sql.unsafe(table.sql).unprepared;
       if (filtered) {
         yield* sql`CREATE TEMP TABLE copied_threads (thread_id TEXT PRIMARY KEY)`;
@@ -287,6 +301,7 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
         yield* sql.unsafe(`INSERT INTO main."${name}" SELECT * FROM src."${name}" ${filter}`)
           .unprepared;
       }
+      yield* deleteOrphanRows(sql);
       yield* sql`DELETE FROM main.sqlite_sequence`;
       yield* sql`INSERT INTO main.sqlite_sequence SELECT name, seq FROM src.sqlite_sequence`;
       for (const entry of schema) {
@@ -372,6 +387,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
 
   yield* sql.withTransaction(
     Effect.gen(function* () {
+      yield* sql`PRAGMA defer_foreign_keys = ON`;
       yield* sql`DELETE FROM projection_projects
         WHERE project_id NOT IN (SELECT project_id FROM kept_projects)`;
       yield* sql`DELETE FROM ${sql(PROVIDER_SESSIONS_TABLE)}
@@ -396,6 +412,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       for (const table of CLEARED_TABLES) {
         yield* sql`DELETE FROM ${sql(table)}`;
       }
+      yield* deleteOrphanRows(sql);
     }),
   );
 

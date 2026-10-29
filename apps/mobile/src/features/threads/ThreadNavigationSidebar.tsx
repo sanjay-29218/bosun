@@ -1,6 +1,5 @@
 import { useActiveNewTask } from "../../state/active-new-task";
 import { logicalBotProjectKeys } from "@t3tools/client-runtime/state/bot-rail";
-import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import { headquartersBotId, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
@@ -49,6 +48,8 @@ import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadListV2 } from "./useThreadListV2";
+import { resolveWorkGroupRouteRowKey } from "@t3tools/client-runtime/state/work-groups";
+import { useWorkGroupedThreads } from "./useWorkGroupedThreads";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
@@ -177,11 +178,12 @@ function ThreadNavigationSidebarPane(
       ),
     [allThreads, botProjectKeys],
   );
-  // Crew stage threads show on their feature, not in the list.
-  const listThreads = useMemo(
-    () => threads.filter((thread) => !isHiddenStageThread(thread)),
-    [threads],
-  );
+  const { listThreads, workGroups } = useWorkGroupedThreads(threads);
+  // Inside a feature or request, its row stays selected.
+  const selectedRowKey =
+    resolveWorkGroupRouteRowKey(workGroups, props.selectedThreadKey ?? null) ??
+    props.selectedThreadKey ??
+    null;
   const openHeadquarters = useOpenBotHeadquarters(props.onSelectThread);
   const botProjectCount = useMemo(
     () =>
@@ -376,6 +378,7 @@ function ThreadNavigationSidebarPane(
     olderSettledShelf,
   } = useThreadListV2({
     threads: listThreads,
+    workGroups,
     pendingTasks,
     environmentId: options.selectedEnvironmentId,
     projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
@@ -394,7 +397,7 @@ function ThreadNavigationSidebarPane(
     workingShelfExpanded,
     snoozedShelfExpanded,
     settledShelfExpanded,
-    selectedThreadKey: props.selectedThreadKey ?? null,
+    selectedThreadKey: selectedRowKey,
   });
   const nextSnoozeWakeAt = threadListV2Layout.nextSnoozeWakeAt;
   useEffect(() => {
@@ -634,6 +637,7 @@ function ThreadNavigationSidebarPane(
           <ThreadListV2Row
             onNewThreadOnBranch={props.onNewThreadOnBranch}
             thread={thread}
+            workGroup={workGroups.get(`${thread.environmentId}:${thread.id}`)}
             variant={item.item.variant}
             hasQueuedMessages={item.hasQueuedMessages}
             snoozed={item.item.snoozed}
@@ -667,8 +671,7 @@ function ThreadNavigationSidebarPane(
             searchQuery={threadSearch.query}
             pane="sidebar"
             selected={
-              !activeNewTask &&
-              scopedThreadKey(thread.environmentId, thread.id) === props.selectedThreadKey
+              !activeNewTask && scopedThreadKey(thread.environmentId, thread.id) === selectedRowKey
             }
             fullSwipeWidth={props.width - 20}
             onSelectThread={handleSelectThread}

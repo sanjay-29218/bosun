@@ -82,7 +82,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
-import { CrewStageSummary, ThreadFeatureTag } from "./workflow.ts";
+import { CrewStageSummary, ThreadCrewRequestTag, ThreadFeatureTag } from "./workflow.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -471,6 +471,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
   /** The feature this thread works on, as a stage or as its lead; absent otherwise. */
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
+  /** The bot request a crew handoff thread works on; absent outside a handoff chain. */
+  crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -2007,6 +2009,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
   /** The feature this thread works on; omitted for plain threads and older servers. */
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
+  /** The bot request this handoff thread works on; omitted outside a handoff chain. */
+  crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
@@ -3280,6 +3284,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
     feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
+    crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   Schema.Struct({

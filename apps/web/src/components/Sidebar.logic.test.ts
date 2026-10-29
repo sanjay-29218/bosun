@@ -7,9 +7,9 @@ import { AsyncResult } from "effect/reactivity";
 import {
   archiveSelectedThreadEntries,
   deleteSelectedThreadEntries,
+  filterSidebarStageHistory,
   filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
-  groupFeatureThreads,
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
   isSidebarThreadWorking,
@@ -228,6 +228,9 @@ describe("filterSidebarV2VisibleThreads", () => {
     expect(
       filterSidebarV2VisibleThreads([current, earlier, plain], null).map((thread) => thread.id),
     ).toEqual([current.id, plain.id]);
+    expect(
+      filterSidebarStageHistory([current, earlier, plain], null).map((thread) => thread.id),
+    ).toEqual([earlier.id]);
   });
 });
 
@@ -1403,33 +1406,5 @@ describe("resolveSidebarRouteReveal", () => {
         findThread,
       }),
     ).toEqual({ pendingKey: hiddenKey, widensScope: false });
-  });
-});
-
-describe("groupFeatureThreads", () => {
-  const thread = (id: string, updatedAt: string, feature: string | null, current?: boolean) => ({
-    id,
-    environmentId: "env",
-    updatedAt,
-    feature: feature ? { id: feature } : null,
-    crew: current === undefined ? null : { current },
-  });
-
-  it("keeps a feature's current stage thread and folds its others under it", () => {
-    const stage = thread("stage", "2026-10-14T10:00:00Z", "f1", true);
-    const manager = thread("manager", "2026-10-14T11:00:00Z", "f1");
-    const plain = thread("plain", "2026-10-14T09:00:00Z", null);
-    const alone = thread("alone", "2026-10-14T08:00:00Z", "f2", true);
-    const { primaries, childrenByThreadKey } = groupFeatureThreads([manager, stage, plain, alone]);
-    expect(primaries.map((item) => item.id)).toEqual(["stage", "plain", "alone"]);
-    expect(childrenByThreadKey.get("env:stage")?.map((item) => item.id)).toEqual(["manager"]);
-    expect(childrenByThreadKey.has("env:alone")).toBe(false);
-  });
-
-  it("keeps the most recent thread when no stage thread is current", () => {
-    const older = thread("older", "2026-10-14T10:00:00Z", "f1");
-    const newer = thread("newer", "2026-10-14T12:00:00Z", "f1");
-    const { primaries } = groupFeatureThreads([older, newer]);
-    expect(primaries.map((item) => item.id)).toEqual(["newer"]);
   });
 });

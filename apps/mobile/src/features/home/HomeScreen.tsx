@@ -2,6 +2,8 @@ import { useActiveNewTask } from "../../state/active-new-task";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
+import { resolveWorkGroupRouteRowKey } from "@t3tools/client-runtime/state/work-groups";
+import { useWorkGroupedThreads } from "../threads/useWorkGroupedThreads";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "../threads/threadListAnimations";
@@ -13,7 +15,7 @@ import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-searc
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
-import { use, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { use, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Platform,
   ScrollView,
@@ -56,7 +58,6 @@ import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
-import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import {
   ThreadListV2PendingRow,
   ThreadListV2Row,
@@ -449,11 +450,10 @@ export function HomeScreen(props: HomeScreenProps) {
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder(nowMinute, snoozeWakeTick);
-  // Crew stage threads show on their feature, not in the list.
-  const listThreads = useMemo(
-    () => props.threads.filter((thread) => !isHiddenStageThread(thread)),
-    [props.threads],
-  );
+  const { listThreads, workGroups } = useWorkGroupedThreads(props.threads);
+  // Inside a feature or request, its row stays selected.
+  const selectedRowKey =
+    resolveWorkGroupRouteRowKey(workGroups, selectedThreadKey ?? null) ?? selectedThreadKey ?? null;
   const {
     layout: threadListV2Layout,
     items: threadListV2Items,
@@ -461,6 +461,7 @@ export function HomeScreen(props: HomeScreenProps) {
     olderSettledShelf,
   } = useThreadListV2({
     threads: listThreads,
+    workGroups,
     pendingTasks: props.pendingTasks,
     environmentId: props.selectedEnvironmentId,
     projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
@@ -479,7 +480,7 @@ export function HomeScreen(props: HomeScreenProps) {
     workingShelfExpanded,
     snoozedShelfExpanded,
     settledShelfExpanded,
-    selectedThreadKey,
+    selectedThreadKey: selectedRowKey,
   });
   const nextSnoozeWakeAt = threadListV2Layout.nextSnoozeWakeAt;
   useEffect(() => {
@@ -585,10 +586,11 @@ export function HomeScreen(props: HomeScreenProps) {
     return (
       <ThreadListV2Row
         pane={primaryColumn ? "sidebar" : "screen"}
-        selected={scopedThreadKey(thread.environmentId, thread.id) === selectedThreadKey}
+        selected={scopedThreadKey(thread.environmentId, thread.id) === selectedRowKey}
         fullSwipeWidth={fullSwipeWidth}
         onNewThreadOnBranch={props.onNewThreadOnBranch}
         thread={thread}
+        workGroup={workGroups.get(`${thread.environmentId}:${thread.id}`)}
         variant={item.item.variant}
         hasQueuedMessages={item.hasQueuedMessages}
         snoozed={item.item.snoozed}

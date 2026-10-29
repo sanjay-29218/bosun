@@ -129,10 +129,30 @@ activity** still lets you give the project's bot a task and answer, cancel or re
 
 ## Feature threads
 
-A feature shows in the sidebar as one row: its current stage thread. A count beside its tag shows
-how many of its other threads (such as its project manager's) are folded under it; click it to
-show or hide them. Right-click any of a feature's threads for **Feature** → **Pause**, **Resume**,
-**Cancel** or **Reopen**. A thread's details panel names its feature and stage, and opens it.
+A feature shows in the sidebar as one row, titled by the feature. A strip under the title shows
+its stages: finished, the current one in its state's color, and the ones still to come. Clicking
+the row opens the stage waiting on you if there is one, otherwise the feature's lead (its project
+manager's thread). A thread of the feature that waits on you also shows under the row. Right-click
+the row for **Feature** → **Pause**, **Resume**, **Cancel** or **Reopen**.
+
+Inside any of the feature's threads:
+
+- The last part of the title bar names where you are (**Lead**, or a stage such as **Build**) and
+  switches between the lead and each stage.
+- The thread's details panel shows where the feature stands. Unfold it to see the lead and every
+  stage with its role and state, and jump to any of them.
+- The **Crew** tab in the right panel lists the same crew in full: retries under each stage,
+  helpers a stage asked for, what waits on you with **Approve** and a way to that stage, plus the
+  feature's outputs, branch and controls.
+- While a stage waits on you, the lead's thread shows a banner with **Open** and, for an approval,
+  **Approve**.
+
+Subagents aren't part of the crew list; they stay inside the thread that started them.
+
+Work a bot hands on does the same: a request to a project's manager and the threads it hands to
+its builder, including retries, share one row titled by the request, with the crew members it went
+through in place of a strip. Its first role is its lead. On mobile, the count on the row opens a
+menu of the crew.
 
 ## Features from threads
 
