@@ -25,7 +25,11 @@ import * as Stream from "effect/Stream";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { featureTag } from "../features/featureIssue.ts";
-import { CrewHandoffService, type CrewHandoffError } from "../crew/CrewHandoffService.ts";
+import {
+  CrewHandoffService,
+  WORKFLOW_HANDOFF_PREFIX,
+  type CrewHandoffError,
+} from "../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import type { CrewServiceError } from "../crew/CrewService.ts";
@@ -307,7 +311,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           if (!(yield* acquireSlot(featureId, instanceId, ignoreLimit))) return;
           const executionId =
             step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
-          const handoffId = `workflow:${key(featureId, executionId, step.attempt + 1)}`;
+          const handoffId = `${WORKFLOW_HANDOFF_PREFIX}${key(featureId, executionId, step.attempt + 1)}`;
           // The stage starts from its persisted handoff record and nothing else.
           const { taskText, contextText } = renderStageHandoff(
             yield* workflows.prepareStageHandoff({

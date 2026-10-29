@@ -112,6 +112,10 @@ const bounded = (value: string, name: string, max: number) => {
   return text;
 };
 
+/** Workflow stages delegate under this prefix; their roles set their own access and model. */
+export const WORKFLOW_HANDOFF_PREFIX = "workflow:";
+const isWorkflowHandoffId = (id: string) => id.startsWith(WORKFLOW_HANDOFF_PREFIX);
+
 const sameRequest = (handoff: CrewHandoff, input: DelegateCrewInput, source: CrewRun) =>
   handoff.sourceRunId === source.id &&
   handoff.targetMemberId === input.targetMemberId &&
@@ -213,12 +217,17 @@ export const CrewHandoffServiceLive = Layer.effect(
         yield* deliver(updated).pipe(Effect.result);
         return updated;
       }
+      // Plain handoffs carry the delegator's current access and model; stages use their role's.
+      const carried = isWorkflowHandoffId(handoff.id)
+        ? null
+        : yield* runtime.settings(sourceRun.threadId);
       yield* crew.createRun({
         id: handoff.targetRunId,
         memberId: handoff.targetMemberId,
         projectId: handoff.projectId,
         taskText: `${handoff.taskText}${handoff.contextText ? `\n\nContext:\n${handoff.contextText}` : ""}`,
         ...(handoff.modelSelection ? { modelSelection: handoff.modelSelection } : {}),
+        ...(carried ? { carried } : {}),
       });
       const now = DateTime.formatIso(yield* DateTime.now);
       yield* handoffs.transition(handoff.id, ["queued"], "running", now);

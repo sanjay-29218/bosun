@@ -33,6 +33,7 @@ import BuilderSubagents from "./Migrations/074_BuilderSubagents.ts";
 import FeatureIssues from "./Migrations/075_FeatureIssues.ts";
 import CaptainWorkflowGrant from "./Migrations/076_CaptainWorkflowGrant.ts";
 import ScheduledTaskBots from "./Migrations/077_ScheduledTaskBots.ts";
+import CaptainFullAccess from "./Migrations/078_CaptainFullAccess.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -58,6 +59,7 @@ const migrationEntries = [
   [75, "FeatureIssues", FeatureIssues],
   [76, "CaptainWorkflowGrant", CaptainWorkflowGrant],
   [77, "ScheduledTaskBots", ScheduledTaskBots],
+  [78, "CaptainFullAccess", CaptainFullAccess],
 ] as const;
 
 const legacyNames = new Set([

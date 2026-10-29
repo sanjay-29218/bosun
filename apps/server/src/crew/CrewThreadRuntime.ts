@@ -58,6 +58,14 @@ export interface CrewThreadRuntimeShape {
     runtimeMode: RuntimeMode,
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** The access and model the thread's next turn uses, or null once it is gone. */
+  readonly settings: (threadId: ThreadId) => Effect.Effect<
+    {
+      readonly runtimeMode: RuntimeMode;
+      readonly modelSelection: ModelSelection;
+    } | null,
+    OrchestrationDispatchError
+  >;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
   readonly replayPending: (
     input: CrewThreadStart,
@@ -229,6 +237,12 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       ),
       restore,
       syncSettings,
+      settings: Effect.fn("CrewThreadRuntime.settings")(function* (threadId) {
+        const shell = yield* engine.getThreadShell(threadId);
+        return shell === null || shell.deletedAt !== null
+          ? null
+          : { runtimeMode: shell.runtimeMode, modelSelection: shell.modelSelection };
+      }),
       start,
       // V2 owns accepted-run recovery through the durable effect outbox. Reusing
       // the original receipts only fills a crash between thread creation and start.

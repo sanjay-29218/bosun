@@ -52,6 +52,7 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
+  BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
   KanbanIcon,
@@ -277,6 +278,7 @@ import { openNextNeedsYou } from "./features/featuresNavigation";
 import {
   AUTOMATIONS_PATH,
   BOARD_PATH,
+  BOTS_PATH,
   LIBRARY_PATH,
   useToggleMainView,
 } from "./sidebar/mainAppLocation";
@@ -389,11 +391,18 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
-      if (command === "automations.open" || command === "library.open") {
+      if (command === "automations.open" || command === "library.open" || command === "bots.open") {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
-        void navigate({ to: command === "library.open" ? LIBRARY_PATH : AUTOMATIONS_PATH });
+        void navigate({
+          to:
+            command === "library.open"
+              ? LIBRARY_PATH
+              : command === "bots.open"
+                ? BOTS_PATH
+                : AUTOMATIONS_PATH,
+        });
         return;
       }
       if (command === "board.toggle" || command === "needsYou.next") {
@@ -1898,6 +1907,18 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "automations.open",
     run: async () => {
       await navigate({ to: AUTOMATIONS_PATH });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:bots",
+    searchTerms: ["bots", "bot", "captain", "add bot", "new bot", "edit bot", "avatar"],
+    title: "Open bots",
+    icon: <BotIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "bots.open",
+    run: async () => {
+      await navigate({ to: BOTS_PATH });
     },
   });
 

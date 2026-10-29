@@ -2,29 +2,34 @@
 
 A **bot** (Captain, Social, Finance…) owns projects and runs their work. A **workflow** takes a
 feature through stages, and each stage runs as a **role**. All three belong to an environment and
-are shared by every project on it. Each has its own page in Settings; pick the environment at the
-top of the page.
+are shared by every project on it. Bots and the Library each have a place on the rail.
 
 ## Bots
 
-**Settings → Bots** lists the environment's bots in rail order. Every environment starts with
-**Captain**, which owns projects that were never given to another bot.
+**Bots** on the rail lists each environment's bots in rail order; drag one to reorder them. Every
+environment starts with **Captain**, which owns projects that were never given to another bot.
+A new Captain starts with **Full access** and every tool. The pencil beside the bot's name at the
+top of the sidebar opens its page too.
 
-Use **Add bot** for another bot. A bot has a name, a robot avatar you build from parts (or
+Use **+ New** for another bot. A bot has a name, a robot avatar you build from parts (or
 **Shuffle**), a color, instructions, tools, a default model and the workflow its features start
-with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Use the **⋯** menu to
-edit a bot, move it up or down, or delete it.
+with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
+**Save**. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
-**Projects** on the same page shows which bot owns each project. Pick another bot to move a
-project; work that already started keeps running as the bot that started it. You can also change
-a project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no
-projects, and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
+A bot's **Projects** tab lists the projects it owns. Move one to another bot, or bring one over;
+work that already started keeps running as the bot that started it. You can also change a
+project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects,
+and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
+
+**Settings → Bots** holds what applies to every bot: the **Limits** below.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
 rail again, or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand work to any project's
-manager, and answer their questions. With **Create projects** ticked in its tools, it can also start
+manager, and answer their questions. Work it hands off runs with the model and **Access** its
+own thread has, unless it names another model, and so does whatever that work hands off in turn.
+Workflow stages are the exception: each runs with its role's model and **Access**. With **Create projects** ticked in its tools, it can also start
 projects from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
 start, it can create and edit workflows and roles when you ask, such as "add a QA stage to Feature
 delivery"; they show up in Settings like ones you made. It can also start a feature in one of its
@@ -52,12 +57,13 @@ a run failed, a blue dot on its lower corner while a bot works, or a plain dot w
 that you haven't opened. Bots other than the one you picked are dimmed until you point at them.
 All bots shows the same across every bot.
 
-Below the bots, the rail's places swap what the sidebar lists. **Automations** lists your
+Below the bots, the rail's places swap what the sidebar lists. **Bots** lists your bots to add and
+edit, as above. **Automations** lists your
 scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
 recent runs. A task can also run as a bot: see [Scheduled tasks](project-settings.md#scheduled-tasks). A red dot on Automations means a run failed and you haven't opened that task since.
 **Library** lists your workflows, each with its stages in order, and your roles; pick one to edit
-it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Automations and Library
-from the bottom of the sidebar, or **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
+it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Bots, Automations and Library
+from the bottom of the sidebar, or **Open bots**, **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
 menu.
 
 Bots with the same name on different environments share one avatar, and new projects go to the

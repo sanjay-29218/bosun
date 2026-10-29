@@ -14,6 +14,7 @@ import { BotAvatar } from "../BotAvatar";
 import { Button } from "../ui/button";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { BOTS_PATH } from "./mainAppLocation";
 import { headquartersMember, useOpenBotHeadquarters } from "./openBotHeadquarters";
 
 /**
@@ -90,8 +91,8 @@ export const SidebarBotHeader = memo(function SidebarBotHeader({
                 onClick={() => {
                   if (isMobile) setOpenMobile(false);
                   void navigate({
-                    to: "/settings/bots",
-                    search: { machine: member.environmentId },
+                    to: BOTS_PATH,
+                    search: { environmentId: member.environmentId, botId: member.botId },
                   });
                 }}
               />

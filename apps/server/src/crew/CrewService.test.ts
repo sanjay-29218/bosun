@@ -457,6 +457,7 @@ describe("Bot foundation", () => {
         headquartersProjectId: Effect.succeed(null),
         restore: () => Effect.void,
         syncSettings: () => Effect.void,
+        settings: () => Effect.succeed(null),
         pin: () => Effect.void,
         start: () =>
           Effect.sync(() => ++attempts).pipe(

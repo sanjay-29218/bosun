@@ -136,6 +136,18 @@ export function useBotEnvironmentIds(): ReadonlyArray<EnvironmentId> {
   return useAtomValue(botEnvironmentIdsAtom);
 }
 
+/** Connected environments with bots that the sidebar shows, primary first. */
+export function useShownBotEnvironmentIds(): ReadonlyArray<EnvironmentId> {
+  const environmentIds = useBotEnvironmentIds();
+  const connected = useConnectedEnvironmentIds();
+  const environmentFilter = useEnvironmentFilter();
+  return environmentIds.filter(
+    (environmentId) =>
+      connected.includes(environmentId) &&
+      (environmentFilter === null || environmentFilter.has(environmentId)),
+  );
+}
+
 const visibleLogicalBots = (
   bots: ReadonlyArray<LogicalBot>,
   environmentFilter: ReadonlySet<EnvironmentId> | null,

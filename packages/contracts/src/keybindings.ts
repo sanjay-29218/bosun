@@ -100,6 +100,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "automations.open",
   // No default key.
   "library.open",
+  // No default key.
+  "bots.open",
   "board.toggle",
   "needsYou.next",
   "theme.select",

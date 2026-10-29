@@ -15,30 +15,35 @@ export function isAppModalPage(pathname: string) {
 
 export const AUTOMATIONS_PATH = "/automations";
 export const LIBRARY_PATH = "/library";
+export const BOTS_PATH = "/bots";
 
 export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
     pathname === "/pull-requests" ||
     pathname === AUTOMATIONS_PATH ||
-    pathname === LIBRARY_PATH
+    pathname === LIBRARY_PATH ||
+    pathname === BOTS_PATH
   );
 }
 
 /**
- * What the rail points at: the bots (each bot's or All bots' threads) or one of its places.
- * The sidebar column shows the destination's list.
+ * What the rail points at: the bots (each bot's or All bots' threads) or one of its places,
+ * where `bot-list` is the Bots place that adds and edits them. The sidebar column shows the
+ * destination's list.
  */
-export type RailDestination = "bots" | "automations" | "library" | "pull-requests";
+export type RailDestination = "bots" | "bot-list" | "automations" | "library" | "pull-requests";
 
 const railDestinationForPathname = (pathname: string): RailDestination =>
-  pathname === AUTOMATIONS_PATH
-    ? "automations"
-    : pathname === LIBRARY_PATH
-      ? "library"
-      : pathname === "/pull-requests"
-        ? "pull-requests"
-        : "bots";
+  pathname === BOTS_PATH
+    ? "bot-list"
+    : pathname === AUTOMATIONS_PATH
+      ? "automations"
+      : pathname === LIBRARY_PATH
+        ? "library"
+        : pathname === "/pull-requests"
+          ? "pull-requests"
+          : "bots";
 
 /** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
 export function useRailDestination(): RailDestination {

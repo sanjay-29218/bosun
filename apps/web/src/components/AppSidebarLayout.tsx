@@ -39,6 +39,7 @@ import {
 import { AutomationsSidebar } from "./automations/AutomationsSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import LegacyThreadSidebar from "./LegacySidebar";
+import { BotsSidebar } from "./bots/BotsSidebar";
 import { LibrarySidebar } from "./library/LibrarySidebar";
 import ThreadSidebar from "./Sidebar";
 import { BOT_RAIL_WIDTH, BotRail } from "./sidebar/BotRail";
@@ -469,7 +470,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           style={windowControlsInsetStyle}
         >
           <MobileBotRailFrame show={showBotRail && isMobile}>
-            {railDestination === "automations" ? (
+            {railDestination === "bot-list" ? (
+              <BotsSidebar />
+            ) : railDestination === "automations" ? (
               <AutomationsSidebar />
             ) : railDestination === "library" ? (
               <LibrarySidebar />
