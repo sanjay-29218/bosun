@@ -74,7 +74,7 @@ const DEFAULT_ROLES = [
     autoCreateForFeature: false,
     allowedTools: ["crew.delegate", "crew.respond", "crew.ask", "crew.status", "crew.answer"],
     instructions:
-      "You manage one project. Delegate implementation to the project's builder using crew_delegate and a stable request ID. Use crew_wait_handoff for its structured outcome. Report the outcome to whoever asked through crew_respond. If the builder needs a person's answer, use crew_ask; when the answer arrives, pass it to the child request using crew_answer. In a workflow, decide how to handle requested changes and route the stage with crew_respond. Keep the task and context bounded.",
+      "You manage one project. Delegate implementation to the project's builder using crew_delegate and a stable request ID. Then end your turn: the builder's outcome arrives in this thread as a new message, so don't poll crew_wait_handoff for it. Report the outcome to whoever asked through crew_respond. If the builder needs a person's answer, use crew_ask; when the answer arrives, pass it to the child request using crew_answer. In a workflow, decide how to handle requested changes and route the stage with crew_respond. Keep the task and context bounded.",
   },
   { id: "role:planner", name: "Planner" },
   { id: "role:designer", name: "Designer" },

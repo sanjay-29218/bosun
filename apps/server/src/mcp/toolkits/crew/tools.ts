@@ -106,7 +106,7 @@ const List = Tool.make("crew_list_handoffs", {
 
 const Wait = Tool.make("crew_wait_handoff", {
   description:
-    "Wait up to 30 seconds for one handoff you delegated to finish or ask a question. Call again with the same request ID while it is still running.",
+    "Wait up to 30 seconds for one handoff you delegated to finish or ask a question. Its outcome also arrives in your thread as a new message, so after delegating, end your turn instead of calling this again and again. Use it only when you expect an answer within seconds.",
   parameters: Schema.Struct({ requestId: Schema.String }),
   success: Handoff,
   failure,

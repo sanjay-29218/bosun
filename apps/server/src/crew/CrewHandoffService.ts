@@ -431,6 +431,18 @@ export const CrewHandoffServiceLive = Layer.effect(
       if (handoff.notificationState === "queued") return;
       const view = yield* crew.getRun(handoff.targetRunId);
       if (!view || !["completed", "failed", "interrupted"].includes(view.status)) return;
+      // A recipient that ended its turn while its own handoffs work is waiting: their
+      // notices wake it to respond, so it need not poll crew_wait_handoff to stay alive.
+      if (view.status === "completed") {
+        const delegated = yield* handoffs.listBySourceRun(handoff.targetRunId);
+        const waiting = delegated.some(
+          (child) =>
+            child.status === "queued" ||
+            child.status === "running" ||
+            child.notificationState === "queued",
+        );
+        if (waiting) return;
+      }
       const now = DateTime.formatIso(yield* DateTime.now);
       const detail =
         view.status === "completed"

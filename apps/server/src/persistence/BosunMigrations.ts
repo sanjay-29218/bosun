@@ -36,6 +36,7 @@ import ScheduledTaskBots from "./Migrations/077_ScheduledTaskBots.ts";
 import CaptainFullAccess from "./Migrations/078_CaptainFullAccess.ts";
 import Tickets from "./Migrations/079_Tickets.ts";
 import FeatureWorkflowSwitch from "./Migrations/080_FeatureWorkflowSwitch.ts";
+import CrewWaitWithoutPolling from "./Migrations/081_CrewWaitWithoutPolling.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -64,6 +65,7 @@ const migrationEntries = [
   [78, "CaptainFullAccess", CaptainFullAccess],
   [79, "Tickets", Tickets],
   [80, "FeatureWorkflowSwitch", FeatureWorkflowSwitch],
+  [81, "CrewWaitWithoutPolling", CrewWaitWithoutPolling],
 ] as const;
 
 const legacyNames = new Set([

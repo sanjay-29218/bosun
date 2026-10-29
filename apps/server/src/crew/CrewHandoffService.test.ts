@@ -180,7 +180,7 @@ describe("Bot handoffs", () => {
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-")),
       );
       const databasePath = NodePath.join(directory, "state.sqlite");
-      yield* withSystem(databasePath, ({ bots, handoffs }) =>
+      yield* withSystem(databasePath, ({ bots, handoffs, sql }) =>
         Effect.gen(function* () {
           yield* seedCrewProject({
             projectId,
@@ -250,6 +250,13 @@ describe("Bot handoffs", () => {
           });
           expect(execution.depth).toBe(2);
           const executionRun = (yield* bots.getRun(execution.targetRunId))!.run;
+          // A manager ending its turn while its builder works is waiting, not done.
+          yield* sql`
+            UPDATE orchestration_v2_projection_runs SET status = 'completed'
+            WHERE thread_id = ${managerRun.threadId}
+          `;
+          yield* handoffs.refreshRun(manager.targetRunId);
+          expect((yield* handoffs.get(manager.id))?.status).toBe("running");
           const reported = yield* handoffs.respond(
             executionRun.threadId,
             "completed",
