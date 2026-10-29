@@ -109,7 +109,7 @@ const requireRoot = Effect.gen(function* () {
   return Option.getOrThrow(yield* scratch.scratchRoot);
 });
 
-it.effect("offers nothing when the data dir sits inside a Git checkout", () =>
+it.effect("keeps Scratch outside the Git checkout the data dir sits in", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -119,10 +119,14 @@ it.effect("offers nothing when the data dir sits inside a Git checkout", () =>
     yield* fileSystem.makeDirectory(baseDir);
     yield* Effect.gen(function* () {
       const scratch = yield* ManagedProjectFolders.ManagedProjectFolders;
-      assert.isTrue(Option.isNone(yield* scratch.scratchRoot));
-      assert.isFalse(yield* scratch.isScratchProject(ProjectId.make("project:any")));
-      const failure = yield* Effect.flip(scratch.ensureScratchProject);
-      assert.equal(failure._tag, "ScratchUnavailableError");
+      const root = yield* requireRoot;
+      yield* Effect.addFinalizer(() =>
+        fileSystem.remove(root, { recursive: true }).pipe(Effect.ignore),
+      );
+      assert.isTrue(path.relative(checkout, root).startsWith(".."));
+      const { projectId } = yield* scratch.ensureScratchProject;
+      assert.isTrue(yield* scratch.isScratchProject(projectId));
+      assert.isTrue(yield* fileSystem.exists(root));
     }).pipe(Effect.provide(layer(baseDir)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
