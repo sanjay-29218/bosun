@@ -70,7 +70,7 @@ export function useCrewStage(thread: EnvironmentThreadShell | null): CrewStage |
   const changeKey = crewStageRefreshKey(current?.crew ?? null, current?.latestRun?.status);
   const lastKey = useRef(changeKey);
   const { refresh } = query;
-  // oxlint-disable-next-line t3code/react-effect-budget -- Refetches the feature snapshot from the server when the stage's revision or run status moves.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Refetches the feature snapshot from the server when the stage's revision or run status moves.
   useEffect(() => {
     if (changeKey === lastKey.current) return;
     lastKey.current = changeKey;

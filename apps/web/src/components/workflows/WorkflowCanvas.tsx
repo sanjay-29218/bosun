@@ -342,7 +342,7 @@ export default function WorkflowCanvas({
 
   // Expanded, the canvas fills the Library's main pane (not the app) until Escape.
   const [expanded, setExpanded] = useState(false);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Listens for Escape on the window only while the canvas is expanded.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Listens for Escape on the window only while the canvas is expanded.
   useEffect(() => {
     if (!expanded) return;
     const onKeyDown = (event: KeyboardEvent) => {

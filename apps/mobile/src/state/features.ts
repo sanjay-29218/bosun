@@ -124,7 +124,7 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, acti
   const refresh = useCallback(() => {
     for (const target of stableTargets) registry.refresh(boardAtom(target));
   }, [registry, stableTargets]);
-  // oxlint-disable-next-line t3code/react-effect-budget -- polls boards and listens to AppState while the board is on screen; both are torn down on hide or unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls boards and listens to AppState while the board is on screen; both are torn down on hide or unmount.
   useEffect(() => {
     if (!active || stableTargets.length === 0) return undefined;
     refresh();
@@ -183,7 +183,7 @@ export function useCrewThreadStage(thread: EnvironmentThreadShell): CrewThreadSt
   const changeKey = crewStageRefreshKey(crew, thread.latestRun?.status);
   const lastKey = useRef(changeKey);
   const { refresh } = query;
-  // oxlint-disable-next-line t3code/react-effect-budget -- reloads the feature query when the shell's crew summary or run status moves; a refresh can't run during render.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reloads the feature query when the shell's crew summary or run status moves; a refresh can't run during render.
   useEffect(() => {
     if (changeKey === lastKey.current) return;
     lastKey.current = changeKey;

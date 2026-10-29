@@ -74,7 +74,7 @@ export function AutomationsPage(search: AutomationsSearch) {
     liveTask !== null && isAutomationFailureUnseen(liveTask, seenFailedRunAt)
       ? liveTask.lastRunAt
       : null;
-  // oxlint-disable-next-line t3code/react-effect-budget -- records the shown failure in the persisted UI store, outside React.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records the shown failure in the persisted UI store, outside React.
   useEffect(() => {
     if (selectedKey !== null && unseenFailedRunAt !== null) {
       markFailureSeen(selectedKey, unseenFailedRunAt);

@@ -1520,6 +1520,7 @@ function ComposerPromptEditorTiptapInner(
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes the maxLength prop into the imperative Tiptap editor's storage
   useLayoutEffect(() => {
     if (editor) setComposerMaxLength(editor, maxLength);
   }, [editor, maxLength]);

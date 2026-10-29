@@ -439,7 +439,7 @@ export function FeaturesPage(props: {
     else if (command === "features.newTodo") newTodo();
     else toggleNeedsYou();
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- Subscribes the page's shortcuts to window keydown while it is mounted.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes the page's shortcuts to window keydown while it is mounted.
   useEffect(() => {
     window.addEventListener("keydown", onPageKeyDown, true);
     return () => window.removeEventListener("keydown", onPageKeyDown, true);
@@ -458,7 +458,7 @@ export function FeaturesPage(props: {
       setQuery(urlQuery);
     }
   }
-  // oxlint-disable-next-line t3code/react-effect-budget -- Debounces the field into the URL; the timer is cleared on the next keystroke or unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Debounces the field into the URL; the timer is cleared on the next keystroke or unmount.
   useEffect(() => {
     if (urlQuery === query) return;
     const handle = window.setTimeout(() => {

@@ -71,7 +71,7 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
       appAtomRegistry.refresh(ticketsAtom(target));
     }
   };
-  // oxlint-disable-next-line t3code/react-effect-budget -- Polls GitHub issues while the page is mounted; the interval is cleared on unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Polls GitHub issues while the page is mounted; the interval is cleared on unmount.
   useEffect(() => {
     if (stableTargets.length === 0) return;
     const handle = window.setInterval(() => {

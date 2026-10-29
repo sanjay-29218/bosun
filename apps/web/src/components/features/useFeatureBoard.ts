@@ -88,7 +88,7 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
 
   // Refresh a project's board when its threads change state. The first pass only records.
   const previousActivity = useRef<ReadonlyMap<string, string> | null>(null);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Refetches a project's board from the server when its threads change state.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Refetches a project's board from the server when its threads change state.
   useEffect(() => {
     const byProject = new Map(
       activity
@@ -126,7 +126,7 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
         }),
       );
   };
-  // oxlint-disable-next-line t3code/react-effect-budget -- Polls the server while the board is mounted; the interval is cleared on unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Polls the server while the board is mounted; the interval is cleared on unmount.
   useEffect(() => {
     const handle = window.setInterval(() => {
       if (document.visibilityState === "visible") refresh();

@@ -105,7 +105,7 @@ export const BotRail = memo(function BotRail({
   };
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
-  // oxlint-disable-next-line t3code/react-effect-budget -- a window keydown listener for the bot jump shortcuts, removed on unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
   useEffect(() => {
     if (!multipleBots) return;
     const onKeyDown = (event: KeyboardEvent) => {
