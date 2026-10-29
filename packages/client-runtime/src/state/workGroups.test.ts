@@ -57,6 +57,18 @@ describe("groupWorkThreads", () => {
     ]);
   });
 
+  it("shows a one-stage workflow, such as Quick task, without a strip", () => {
+    const handle = thread("handle", "1", {
+      feature,
+      crew: { stepId: "handle", index: 1, total: 1, state: "working", current: true },
+    });
+
+    const group = groupWorkThreads([handle], []).groupByThreadKey.get("local:handle")!;
+    expect(group.kind).toBe("feature");
+    expect(group.stages).toEqual([]);
+    expect(group.stageLine).toBeNull();
+  });
+
   it("keeps a feature's history out of the list when none of its threads are visible", () => {
     const { primaries, groupByThreadKey } = groupWorkThreads([], [stage("plan", "1", "plan", 1)]);
     expect(primaries).toEqual([]);

@@ -1,4 +1,5 @@
 import {
+  headquartersBotId,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   ticketRef,
@@ -10,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
+import { managedProjectId } from "../../../crew/CrewService.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
@@ -276,12 +278,26 @@ const make = Effect.gen(function* () {
         readonly contextText?: string | undefined;
       }) =>
         asCrewMember((threadId) =>
-          handoffs.delegate({
-            id: input.requestId,
-            sourceThreadId: threadId,
-            targetMemberId: input.targetMemberId,
-            taskText: input.taskText,
-            ...(input.contextText !== undefined ? { contextText: input.contextText } : {}),
+          Effect.gen(function* () {
+            // A bot's work for a project is a feature, so it shows and steers like one. Requests
+            // it made before keep answering a retry.
+            if (
+              headquartersBotId(threadId) !== null &&
+              managedProjectId(input.targetMemberId) !== null &&
+              (yield* handoffStore.get(input.requestId)) === null
+            ) {
+              return yield* new CrewToolFailedError({
+                reason:
+                  "Hand a project work with t3_feature_start instead. Without a workflowId it runs as a Quick task, where the project's manager does it or hands the coding to its builder.",
+              });
+            }
+            return yield* handoffs.delegate({
+              id: input.requestId,
+              sourceThreadId: threadId,
+              targetMemberId: input.targetMemberId,
+              taskText: input.taskText,
+              ...(input.contextText !== undefined ? { contextText: input.contextText } : {}),
+            });
           }),
         ),
     ),
@@ -299,6 +315,26 @@ const make = Effect.gen(function* () {
     ),
     crew_wait_handoff: McpToolAccess.readsAsCaller((input: { readonly requestId: string }) =>
       asCrewMember((threadId) => handoffs.waitFor(threadId, input.requestId)),
+    ),
+    crew_switch_workflow: McpToolAccess.actsAsCaller(
+      (input: { readonly note: string; readonly workflowId?: string | undefined }) =>
+        asCrewMember((threadId) =>
+          Effect.gen(function* () {
+            const moved = yield* features.switchWorkflow({ threadId, ...input });
+            const workflow = moved.definition.name;
+            const stage = moved.activeStepId;
+            // The Quick task ends here, so whoever asked hears the work went on rather than done.
+            yield* handoffs.respond(
+              threadId,
+              "completed",
+              `Not finished: moved to ${workflow}${stage ? `, starting at ${stage}` : ""}. ${input.note}`.slice(
+                0,
+                8_000,
+              ),
+            );
+            return { featureId: moved.featureId, workflow, stage };
+          }),
+        ),
     ),
     crew_stage_handoff: McpToolAccess.readsAsCaller(() =>
       asCrewMember((threadId) =>

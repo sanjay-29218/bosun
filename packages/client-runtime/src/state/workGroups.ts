@@ -35,9 +35,9 @@ export interface WorkGroup<T> {
   readonly primary: T;
   /** The group's other threads: stages in workflow order, then the rest oldest first. */
   readonly children: ReadonlyArray<WorkGroupEntry<T>>;
-  /** One status per workflow stage; empty for a request. */
+  /** One status per workflow stage; empty for a request or a one-stage workflow. */
   readonly stages: ReadonlyArray<WorkStageStatus>;
-  /** The current stage, as "Build · 3/5"; null for a request. */
+  /** The current stage, as "Build · 3/5"; null for a request or a one-stage workflow. */
   readonly stageLine: string | null;
 }
 
@@ -110,7 +110,9 @@ function buildGroup<T extends WorkGroupThread>(
       .sort((left, right) => left.crew!.index - right.crew!.index || byCreated(left, right));
     const labelled = labelEntries(stageThreads);
     const current = members.find((thread) => thread.crew?.current)?.crew ?? null;
+    // A one-stage workflow, such as Quick task, has no progress to show.
     const total = current?.total ?? stageThreads.at(-1)?.crew?.total ?? 0;
+    const staged = total > 1;
     return {
       key,
       kind: "feature",
@@ -120,15 +122,16 @@ function buildGroup<T extends WorkGroupThread>(
         ...labelled.filter((entry) => entry.thread !== primary),
         ...labelEntries(others.filter((thread) => !thread.crew).sort(byCreated)),
       ],
-      stages: Array.from({ length: total }, (_, position) => {
+      stages: Array.from({ length: staged ? total : 0 }, (_, position) => {
         const index = position + 1;
         if (current === null) return "pending";
         if (index < current.index) return "done";
         return index === current.index ? stageStatus(current.state) : "pending";
       }),
-      stageLine: current
-        ? `${formatStageName(current.stepId)} · ${current.index}/${current.total}`
-        : null,
+      stageLine:
+        current && staged
+          ? `${formatStageName(current.stepId)} · ${current.index}/${current.total}`
+          : null,
     };
   }
   return {

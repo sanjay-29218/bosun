@@ -18,12 +18,7 @@ import { crewThreadGrants } from "../../../crew/crewMcpCapabilities.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import {
-  asWorkflowManager,
-  fullAccessCaller,
-  MANAGE_WORKFLOWS,
-  manageWorkflowsDenied,
-} from "./access.ts";
+import { asWorkflowManager, fullAccessCaller } from "./access.ts";
 import { WorkflowsToolkit } from "./tools.ts";
 
 /** Bot and crew threads need the grant to read the library; everyone else may. */
@@ -37,8 +32,8 @@ const checkWrite = asWorkflowManager(
 );
 
 /**
- * The bot whose headquarters is calling, once it holds the grant. Features start for a bot, in
- * the projects it owns, so other callers can't start them.
+ * The bot whose headquarters is calling, once it may reach its projects. Features start for a bot, in the
+ * projects it owns, so other callers can't start them.
  */
 const callingBot = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) => {
@@ -53,9 +48,15 @@ const callingBot = McpInvocationContext.McpInvocationContext.pipe(
     }
     return crewThreadGrants(scope.thread.threadId).pipe(
       Effect.flatMap((grants) =>
-        grants?.includes(MANAGE_WORKFLOWS)
+        grants?.includes("crew.projects")
           ? Effect.succeed(botId)
-          : Effect.fail(manageWorkflowsDenied),
+          : Effect.fail(
+              new OrchestratorMcpFailure({
+                code: "capability_denied",
+                message:
+                  "This bot can't hand work to its projects. A person can allow it with \"See its projects\" in the bot's Tools settings.",
+              }),
+            ),
       ),
     );
   }),

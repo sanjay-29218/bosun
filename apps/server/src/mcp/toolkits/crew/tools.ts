@@ -63,7 +63,7 @@ const Handoff = Schema.Struct({
 
 const Delegate = Tool.make("crew_delegate", {
   description:
-    "Hand a bounded project task to a permitted crew member. A bot can hand work to the manager of any project it owns (projectManagerId from crew_list_projects). Reuse the same request ID when retrying after a lost response.",
+    "Hand a bounded task to a permitted crew member, such as the project's builder. Reuse the same request ID when retrying after a lost response.",
   parameters: Schema.Struct({
     requestId: Schema.String,
     targetMemberId: Schema.String,
@@ -122,6 +122,22 @@ const Answer = Tool.make("crew_answer", {
   dependencies,
 }).annotate(Tool.Idempotent, false);
 
+const SwitchWorkflow = Tool.make("crew_switch_workflow", {
+  description:
+    "From a Quick task's step, move its feature to a bigger workflow when the work needs planning or design first. The feature carries on at that workflow's first stage with your notes added to its brief, and this thread leads it. Omit workflowId for the bot's default workflow. Don't also call crew_respond.",
+  parameters: Schema.Struct({
+    note: Schema.String,
+    workflowId: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    featureId: Schema.String,
+    workflow: Schema.String,
+    stage: Schema.NullOr(Schema.String),
+  }),
+  failure,
+  dependencies: [...dependencies, FeatureService],
+}).annotate(Tool.Idempotent, false);
+
 const StageHandoff = Tool.make("crew_stage_handoff", {
   description:
     "Read the full handoff this workflow stage started from: the brief, the outputs it receives, notes from earlier stages and people, and the branch and commit. Nothing else is passed between stages.",
@@ -147,7 +163,7 @@ const BotProject = Schema.Struct({
 
 const ListProjects = Tool.make("crew_list_projects", {
   description:
-    "List the projects this bot owns, with each project's manager and its features. Hand a project work by delegating to its projectManagerId.",
+    "List the projects this bot owns, with each project's manager and its features. Hand a project work with t3_feature_start.",
   success: Schema.Struct({ projects: Schema.Array(BotProject) }),
   failure,
   dependencies: [...dependencies, BotProjects],
@@ -278,6 +294,7 @@ export const CrewToolkit = Toolkit.make(
   Wait,
   Answer,
   StageHandoff,
+  SwitchWorkflow,
   ListProjects,
   CreateProject,
   LinkIssue,

@@ -305,7 +305,7 @@ it.effect("bots need the Manage workflows grant; other threads need full access 
   }).pipe(Effect.provide(layer)),
 );
 
-it.effect("a bot with Manage workflows starts features as itself; nothing else can", () =>
+it.effect("a bot that sees its projects starts features as itself; nothing else can", () =>
   Effect.gen(function* () {
     featureStarts.length = 0;
     const sql = yield* SqlClient.SqlClient;
@@ -341,7 +341,7 @@ it.effect("a bot with Manage workflows starts features as itself; nothing else c
     const fromPerson = yield* call("t3_feature_start", input, person);
     expect(failure(fromPerson).code).toBe("capability_denied");
 
-    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.delegate"]' WHERE id = ${CAPTAIN_BOT_ID}`;
+    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.workflows"]' WHERE id = ${CAPTAIN_BOT_ID}`;
     const withoutGrant = yield* call("t3_feature_start", input, captain, "approval-required");
     expect(failure(withoutGrant).code).toBe("capability_denied");
     expect(featureStarts).toHaveLength(1);

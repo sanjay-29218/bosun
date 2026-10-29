@@ -6,9 +6,9 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { assertFullAccess, readCaller } from "../../threadAccess.ts";
 
 /** "Manage workflows" unlocks the workflow, role, bot and feature tools for a bot's threads. */
-export const MANAGE_WORKFLOWS = "crew.workflows";
+const MANAGE_WORKFLOWS = "crew.workflows";
 
-export const manageWorkflowsDenied = new OrchestratorMcpFailure({
+const manageWorkflowsDenied = new OrchestratorMcpFailure({
   code: "capability_denied",
   message:
     "This bot can't manage workflows or bots. A person can allow it with \"Manage workflows\" in the bot's Tools settings.",

@@ -1,5 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
   EnvironmentId,
   IssueOperationError,
   ProjectId,
@@ -18,7 +20,7 @@ import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
+import { CrewHandoffStore, type CrewHandoff } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
@@ -112,6 +114,25 @@ const ticket: Ticket = {
   closedAt: null,
 };
 
+const handoff = (id: string, targetMemberId: string): CrewHandoff =>
+  ({
+    id,
+    parentId: null,
+    sourceRunId: "bot-hq:bot-captain",
+    targetMemberId,
+    targetRunId: `bot-handoff:${id}`,
+    projectId,
+    taskText: "Fix it",
+    contextText: "",
+    depth: 1,
+    status: "running",
+    responseText: null,
+    questionText: null,
+    lastError: null,
+    createdAt: "2026-10-09T00:00:00Z",
+    updatedAt: "2026-10-09T00:00:00Z",
+  }) as CrewHandoff;
+
 const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const toolkit = yield* CrewToolkit;
@@ -137,11 +158,15 @@ const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (id) => Effect.succeed({ ...liveThreadShell(id), projectId }),
         }),
-        Layer.mock(CrewHandoffService)({}),
+        Layer.mock(CrewHandoffService)({
+          delegate: (input) => Effect.succeed(handoff(input.id, input.targetMemberId)),
+        }),
         Layer.mock(BotProjects)({}),
         Layer.mock(FeatureService)({}),
         Layer.mock(CrewHandoffStore)({
           getRunByThread: (id) => Effect.succeed(id === stageThread ? "run:stage" : null),
+          get: (id) =>
+            Effect.succeed(id === "earlier" ? handoff(id, `bot-manager:${projectId}`) : null),
         }),
         Layer.mock(CrewStore)({
           getRun: () =>
@@ -179,6 +204,28 @@ it.effect("lets a stage member read the handoff its stage started from", () =>
 
     const plainThread = yield* Effect.flip(handleAs(ThreadId.make("thread:plain"), []));
     expect(plainThread.message).toContain("Caller is not a workflow stage member");
+  }),
+);
+
+it.effect("sends a bot's work for a project through t3_feature_start", () =>
+  Effect.gen(function* () {
+    const delegate = (requestId: string, targetMemberId: string) =>
+      Effect.gen(function* () {
+        const toolkit = yield* CrewToolkit;
+        return yield* toolkit
+          .handle("crew_delegate", { requestId, targetMemberId, taskText: "Fix it" })
+          .pipe(Stream.unwrap, Stream.runCollect);
+      }).pipe(Effect.provide(layerAs(botHeadquartersThreadId(CAPTAIN_BOT_ID), ["crew.delegate"])));
+
+    const refused = yield* Effect.flip(delegate("new", `bot-manager:${projectId}`));
+    expect(refused.message).toContain("t3_feature_start");
+    // A request made before still answers its retry, and the rest of the crew is reached as before.
+    expect((yield* delegate("earlier", `bot-manager:${projectId}`)).at(-1)?.result).toMatchObject({
+      id: "earlier",
+    });
+    expect((yield* delegate("build", `bot-builder:${projectId}`)).at(-1)?.result).toMatchObject({
+      id: "build",
+    });
   }),
 );
 

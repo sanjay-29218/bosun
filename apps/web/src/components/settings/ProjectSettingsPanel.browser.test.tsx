@@ -125,11 +125,6 @@ vi.mock(import("./BotsSettings"), async (original) => ({
   ...(await original()),
   ProjectBotSection: (() => null) as never,
 }));
-vi.mock(import("./CrewProjectSection"), async (original) => ({
-  ...(await original()),
-  CrewProjectSection: (() => null) as never,
-}));
-
 vi.mock(import("../files/projectFilesQueryState"), async (original) => ({
   ...(await original()),
   getProjectFileQueryAtom: () => missingProjectFile,

@@ -21,6 +21,8 @@ export interface FeatureWorkflowCopy {
   readonly projectId: ProjectId;
   readonly definition: WorkflowDefinitionType;
   readonly eventVersion: number;
+  /** Where its current workflow's history starts; above 0 once it moved off Quick task. */
+  readonly eventsFromSequence: number;
   readonly createdAt: string;
 }
 
@@ -32,6 +34,7 @@ interface FeatureCopyRow extends DefinitionRow {
   readonly featureId: string;
   readonly projectId: string;
   readonly eventVersion: number;
+  readonly eventsFromSequence: number;
   readonly createdAt: string;
 }
 
@@ -83,6 +86,15 @@ export interface WorkflowStoreShape {
   readonly getFeatureCopy: (
     featureId: string,
   ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
+  /**
+   * Moves a feature onto another workflow revision. Its earlier events stay for the record,
+   * but the new workflow reads only those that come after.
+   */
+  readonly switchFeatureCopy: (
+    featureId: string,
+    workflowId: string,
+    revision: number,
+  ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
   /** Open features started on the workflow; whether each is still running is the caller's call. */
   readonly listOpenFeaturesUsing: (
     workflowId: string,
@@ -125,6 +137,7 @@ const decodeCopy = (row: FeatureCopyRow): FeatureWorkflowCopy => ({
   projectId: ProjectId.make(row.projectId),
   definition: decodeDefinition(row),
   eventVersion: row.eventVersion,
+  eventsFromSequence: row.eventsFromSequence,
   createdAt: row.createdAt,
 });
 
@@ -170,7 +183,7 @@ export const WorkflowStoreLive = Layer.effect(
       sql<FeatureCopyRow>`
         SELECT feature_id AS featureId, project_id AS projectId,
           definition_json AS definitionJson, event_version AS eventVersion,
-          created_at AS createdAt
+          events_from_sequence AS eventsFromSequence, created_at AS createdAt
         FROM feature_workflows WHERE feature_id = ${featureId}
       `.pipe(
         Effect.mapError(queryError),
@@ -296,10 +309,40 @@ export const WorkflowStoreLive = Layer.effect(
             .pipe(Effect.mapError(queryError)),
       ),
       getFeatureCopy,
+      switchFeatureCopy: Effect.fn("WorkflowStore.switchFeatureCopy")(
+        (featureId, workflowId, revision) =>
+          sql
+            .withTransaction(
+              Effect.gen(function* () {
+                const definition = yield* getDefinition(workflowId, revision);
+                if (definition === null) return null;
+                const updated = yield* sql<{ readonly featureId: string }>`
+                  UPDATE feature_workflows SET workflow_id = ${workflowId},
+                    workflow_revision = ${definition.revision},
+                    definition_json = ${encodeDefinition(definition)},
+                    events_from_sequence =
+                      (SELECT COALESCE(MAX(sequence), 0) + 1 FROM workflow_step_events),
+                    event_version = event_version + 1
+                  WHERE feature_id = ${featureId}
+                  RETURNING feature_id AS featureId
+                `;
+                return updated.length === 0 ? null : yield* getFeatureCopy(featureId);
+              }),
+            )
+            .pipe(
+              Effect.mapError(queryError),
+              Effect.tap((copy) => (copy ? PubSub.publish(changes, featureId) : Effect.void)),
+            ),
+      ),
       listEvents: Effect.fn("WorkflowStore.listEvents")((featureId) =>
         sql<EventRow>`
           SELECT event_json AS eventJson FROM workflow_step_events
-          WHERE feature_id = ${featureId} ORDER BY sequence LIMIT 4097
+          WHERE feature_id = ${featureId}
+            AND sequence >= COALESCE(
+              (SELECT events_from_sequence FROM feature_workflows WHERE feature_id = ${featureId}),
+              0
+            )
+          ORDER BY sequence LIMIT 4097
         `.pipe(
           Effect.mapError(queryError),
           Effect.flatMap((rows) =>

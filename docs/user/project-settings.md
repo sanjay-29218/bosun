@@ -74,7 +74,7 @@ a new thread on each run survive deletion of their previous threads.
 
 **Runs as**, at the top of the editor, can pick a bot instead of a new thread in a
 project. Each run then goes to the bot's headquarters, with the bot's model, tools
-and instructions, so it can hand work to project managers or start features.
+and instructions, so it can hand its projects work.
 Deleting a bot deletes the tasks that run as it; the confirmation says how many.
 
 Open a task to edit, pause, resume, run it now, or delete it. Webhook tasks only

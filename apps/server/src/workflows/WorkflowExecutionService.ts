@@ -309,8 +309,11 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             );
           const instanceId = (step.modelSelection ?? member.modelSelection).instanceId;
           if (!(yield* acquireSlot(featureId, instanceId, ignoreLimit))) return;
+          // After a move off Quick task the count starts again, so its start marks new IDs.
+          const generation = copy.eventsFromSequence > 0 ? [copy.eventsFromSequence] : [];
           const executionId =
-            step.executionId ?? `execution:${key(featureId, state.executionCount + 1, stepId)}`;
+            step.executionId ??
+            `execution:${key(featureId, ...generation, state.executionCount + 1, stepId)}`;
           const handoffId = `${WORKFLOW_HANDOFF_PREFIX}${key(featureId, executionId, step.attempt + 1)}`;
           // The stage starts from its persisted handoff record and nothing else.
           const { taskText, contextText } = renderStageHandoff(

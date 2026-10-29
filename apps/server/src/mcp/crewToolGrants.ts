@@ -69,6 +69,7 @@ export const CrewGatedToolkits = {
     crew_wait_handoff: "crew.status",
     crew_answer: "crew.answer",
     crew_stage_handoff: "crew.respond",
+    crew_switch_workflow: "crew.respond",
     crew_list_projects: "crew.projects",
     crew_create_project: "crew.create-project",
     crew_link_issue: "crew",
@@ -90,6 +91,6 @@ export const CrewGatedToolkits = {
     t3_role_list: "crew.workflows",
     t3_role_create: "crew.workflows",
     t3_role_update: "crew.workflows",
-    t3_feature_start: "crew.workflows",
+    t3_feature_start: "crew.projects",
   }),
 };

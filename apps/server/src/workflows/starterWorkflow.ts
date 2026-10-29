@@ -84,3 +84,40 @@ export const makeStarterWorkflow = (
     },
   };
 };
+
+export const QUICK_TASK_WORKFLOW_ID = "quick-task";
+
+/**
+ * What a bot's request to a project runs on: one stage, where the project manager does the
+ * work or hands the coding to the project's builder.
+ */
+export const makeQuickTaskWorkflow = (
+  roleRevisions: Readonly<Record<string, number>> = {},
+): WorkflowDefinition => ({
+  schemaVersion: 2,
+  id: QUICK_TASK_WORKFLOW_ID,
+  name: "Quick task",
+  revision: 1,
+  start: "handle",
+  roles: {
+    manager: {
+      roleId: PROJECT_MANAGER_ROLE_ID,
+      roleRevision: roleRevisions[PROJECT_MANAGER_ROLE_ID] ?? 1,
+      supervisor: null,
+    },
+  },
+  steps: {
+    handle: {
+      type: "task",
+      role: "manager",
+      task: "Handle the request: do it yourself, or hand the coding to the project's builder with crew_delegate and report what it did. If it needs planning or design first, move it to a bigger workflow with crew_switch_workflow",
+      next: { done: "end" },
+    },
+    end: { type: "end" },
+  },
+  defaults: {
+    questions: "supervisor",
+    failure: "pause",
+    maxStepExecutions: 30,
+  },
+});

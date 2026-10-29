@@ -50,7 +50,7 @@ export const CREW_TOOL_GRANTS = [
   {
     id: "crew.delegate",
     label: "Delegate work",
-    description: "Hand tasks to the project manager or another crew member.",
+    description: "Hand tasks to another crew member, such as the project's builder.",
   },
   {
     id: "crew.status",
@@ -75,7 +75,8 @@ export const CREW_TOOL_GRANTS = [
   {
     id: "crew.projects",
     label: "See its projects",
-    description: "List the projects a bot owns, with their managers and features.",
+    description:
+      "List the projects a bot owns, with their managers and features, and hand them work.",
     botOnly: true,
   },
   {
@@ -87,8 +88,7 @@ export const CREW_TOOL_GRANTS = [
   {
     id: "crew.workflows",
     label: "Manage workflows",
-    description:
-      "Create and edit bots, workflows and roles, and start features on them, when asked.",
+    description: "Create and edit bots, workflows and roles when asked.",
     botOnly: true,
   },
   {

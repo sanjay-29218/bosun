@@ -1389,7 +1389,14 @@ it.effect(
       `;
         // Threads and subagents alone no longer unlocks the bot or feature-link tools.
         expect(yield* crew.listed).toEqual(
-          [...anyCrewGrant, "crew_respond", "crew_stage_handoff", "t3_bot_list", "upstream"].sort(),
+          [
+            ...anyCrewGrant,
+            "crew_respond",
+            "crew_stage_handoff",
+            "crew_switch_workflow",
+            "t3_bot_list",
+            "upstream",
+          ].sort(),
         );
         expect((yield* crew.call("crew_delegate")).error?.message).toContain("crew_delegate");
 
@@ -1408,7 +1415,6 @@ it.effect(
             "t3_bot_update",
             "t3_feature_attach_thread",
             "t3_feature_detach_thread",
-            "t3_feature_start",
             "t3_role_create",
             "t3_role_list",
             "t3_role_update",
@@ -1421,6 +1427,20 @@ it.effect(
           ].sort(),
         );
         expect(yield* plain.listed).toEqual(plainTools);
+
+        // A bot hands its projects work with the projects grant.
+        yield* sql`
+        UPDATE crew_runs SET allowed_tools_json = '["crew.projects"]' WHERE id = 'builder'
+      `;
+        expect(yield* crew.listed).toEqual(
+          [
+            ...anyCrewGrant,
+            "crew_list_projects",
+            "t3_bot_list",
+            "t3_feature_start",
+            "upstream",
+          ].sort(),
+        );
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

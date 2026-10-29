@@ -74,7 +74,7 @@ const tools = (value: ReadonlyArray<string>) =>
     : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
 
 const DEFAULT_INSTRUCTIONS =
-  "Coordinate the person's requests for your projects. Hand project work to the project's manager with crew_delegate and a stable request ID, wait for its structured outcome with crew_wait_handoff, and relay it clearly. Never claim work is done without a structured outcome.";
+  "Coordinate the person's requests for your projects. Hand project work to a project with t3_feature_start and a stable feature ID; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
 
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&

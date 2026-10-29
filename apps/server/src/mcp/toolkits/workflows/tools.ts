@@ -109,7 +109,7 @@ const UpdateRole = Tool.make("t3_role_update", {
 const StartFeature = Tool.make("t3_feature_start", {
   ...shared,
   description:
-    "Start work in a project this bot owns (projectId from crew_list_projects): create a feature from a short title and a brief (the task, up to 16,000 characters) and run it on a workflow, as a person does from the composer. Omit workflowId for the bot's default workflow; t3_workflow_list shows the others. Stage notices come back to this thread, and threadId is the current stage's thread, null while it waits for an agent slot. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
+    "Hand work to a project this bot owns (projectId from crew_list_projects): create a feature from a short title and a brief (the task, up to 16,000 characters) and run it on a workflow. Omit workflowId for a Quick task, where the project's manager does it or hands the coding to its builder; name a workflow (t3_workflow_list) when the person asks for one. Stage notices and the manager's result come back to this thread, and threadId is the current stage's thread, null while it waits for an agent slot. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
   parameters: Schema.Struct({
     projectId: Schema.String,
     title: Schema.String,

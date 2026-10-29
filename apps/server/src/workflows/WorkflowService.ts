@@ -40,13 +40,20 @@ import {
 } from "./StageHandoff.ts";
 import { WorkflowStageHandoffStore } from "./WorkflowStageHandoffStore.ts";
 import { WorkflowWorkspace, type StageThreadDiff } from "./WorkflowWorkspace.ts";
-import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
+import {
+  makeQuickTaskWorkflow,
+  makeStarterWorkflow,
+  QUICK_TASK_WORKFLOW_ID,
+  STARTER_WORKFLOW_ID,
+} from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
   readonly validateDefinition: (
     definition: WorkflowDefinition,
   ) => Effect.Effect<void, WorkflowServiceError>;
   readonly ensureStarterDefinition: () => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
+  /** The workflow a bot's requests run on, made again if someone deleted it. */
+  readonly ensureQuickTaskDefinition: () => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
   readonly createDefinition: (
     definition: WorkflowDefinition,
   ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
@@ -240,29 +247,38 @@ export const WorkflowServiceLive = Layer.effect(
       );
     });
 
+    // Untraced: each caller below is the span.
+    const ensureBuiltIn = Effect.fnUntraced(function* (
+      id: string,
+      make: (roleRevisions: Readonly<Record<string, number>>) => WorkflowDefinition,
+    ) {
+      const existing = yield* store.getLatestDefinition(id);
+      if (existing !== null) return existing;
+      const revisions: Record<string, number> = {};
+      for (const role of yield* crew.listRoles()) revisions[role.id] = role.revision;
+      const definition = make(revisions);
+      yield* checkDefinition(definition);
+      if (yield* store.createDefinition(definition, DateTime.formatIso(yield* DateTime.now))) {
+        yield* library.changed;
+        return definition;
+      }
+      const concurrent = yield* store.getLatestDefinition(id);
+      if (concurrent === null) {
+        return yield* Effect.fail(new WorkflowValidationError(`Workflow ${id} is unavailable`));
+      }
+      return concurrent;
+    });
+
     return WorkflowService.of({
       validateDefinition: checkDefinition,
       ensureStarterDefinition: Effect.fn("WorkflowService.ensureStarterDefinition")(function* () {
-        const existing = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
-        if (existing !== null) return existing;
-        const revisions: Record<string, number> = {};
-        for (const role of yield* crew.listRoles()) revisions[role.id] = role.revision;
-        const starter = makeStarterWorkflow(revisions);
-        yield* checkDefinition(starter);
-        const created = yield* store.createDefinition(
-          starter,
-          DateTime.formatIso(yield* DateTime.now),
-        );
-        if (created) {
-          yield* library.changed;
-          return starter;
-        }
-        const concurrent = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
-        if (concurrent === null) {
-          return yield* Effect.fail(new WorkflowValidationError("Starter workflow is unavailable"));
-        }
-        return concurrent;
+        return yield* ensureBuiltIn(STARTER_WORKFLOW_ID, makeStarterWorkflow);
       }),
+      ensureQuickTaskDefinition: Effect.fn("WorkflowService.ensureQuickTaskDefinition")(
+        function* () {
+          return yield* ensureBuiltIn(QUICK_TASK_WORKFLOW_ID, makeQuickTaskWorkflow);
+        },
+      ),
       createDefinition: Effect.fn("WorkflowService.createDefinition")(function* (definition) {
         if (definition.revision !== 1) {
           return yield* Effect.fail(

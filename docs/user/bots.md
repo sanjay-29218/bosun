@@ -28,15 +28,18 @@ and Captain can't be deleted. Deleting a bot also deletes the automations that r
 Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
 rail again, or with **Open …'s thread** in the command palette. A dot there shows when it's
-working or needs you. From there the bot can list its projects, hand work to any project's
-manager, and answer their questions. Work it hands off runs with the model and **Access** its
-own thread has, unless it names another model, and so does whatever that work hands off in turn.
-Workflow stages are the exception: each runs with its role's model and **Access**. With **Create projects** ticked in its tools, it can also start
+working or needs you. From there the bot can list its projects, hand them work, and answer their
+questions. Work it hands a project runs as a **Quick task**: a feature with one stage, where the
+project's manager does it or hands the coding to its builder, and the result comes back to the
+headquarters. If it turns out to need planning or design first, the manager moves it to a bigger
+workflow (the bot's default one, or Feature delivery), and the same feature carries on there. Ask
+the bot for a named workflow, such as "do this as Feature delivery", to start there instead. Each
+stage runs with its role's model and **Access**; what a stage hands off in turn runs with that
+stage's. With **Create projects** ticked in its tools, it can also start
 projects from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
 start, it can create and edit bots, workflows and roles when you ask, such as "add a QA stage to
-Feature delivery"; they show up in Settings like ones you made. It can also start a feature in one of its
-projects, on the workflow you name or its default one, just as you would from the composer. Features
-report to the headquarters too. A feature's
+Feature delivery"; they show up in Settings like ones you made. Features report to the
+headquarters too. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
 
 The headquarters follows the bot's current tools, model and **Access**. Its
@@ -46,8 +49,7 @@ again. Opening it also brings back a deleted or archived headquarters.
 ### The bot rail
 
 A rail of bot avatars sits at the left edge of the window, with **Usage** and **Settings** at its
-bottom. With two or more bots, pick a bot to see only its projects in the sidebar, Needs you and
-the board; the List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
+bottom. With two or more bots, pick a bot to see only its projects in the sidebar and the board; the List / Board choice is remembered per bot. **All bots**, at the top of the rail, shows every bot's
 threads again. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or
 **Switch to …** and **Show All bots** in the command palette. **Bots: Show All Bots** has no
 shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
@@ -81,7 +83,9 @@ The **Library** lists every connected environment's workflows; pick one to open 
 New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
 **Add Feature delivery**. Both add the starter roles too if they're missing. With more than one
 environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
-changed and it needs a new version.
+changed and it needs a new version. **Quick task**, the one-stage workflow a bot's requests run on, appears
+the first time a bot hands a project work. Edit it like any other, for example to add a review
+stage; if you delete it, the next request brings it back.
 
 - **Stages** run in order from the first stage; **Start here** in a stage's menu changes which one that is. Each stage has a name, runs as a crew role, has a
   task, and reports one of its outcomes. Under **Advanced** it can write files such as `plan.md`
@@ -126,8 +130,7 @@ feature needs one; editing a role changes the members made from it later, not ex
   cap.
 - **Retries before a stage fails** (default 1), for workflows that don't set their own.
 
-Editing bots, workflows and roles is available on web and desktop. **Settings → Project → Crew
-activity** still lets you give the project's bot a task and answer, cancel or retry its requests.
+Editing bots, workflows and roles is available on web and desktop.
 
 ## Feature threads
 
@@ -151,10 +154,10 @@ Inside any of the feature's threads:
 
 Subagents aren't part of the crew list; they stay inside the thread that started them.
 
-Work a bot hands on does the same: a request to a project's manager and the threads it hands to
-its builder, including retries, share one row titled by the request, with the crew members it went
-through in place of a strip. Its first role is its lead. On mobile, the count on the row opens a
-menu of the crew.
+A Quick task shows the same way, without a strip, since it has one stage. Requests a bot handed
+on before Quick tasks share one row titled by the request, with the crew members it went through
+in place of a strip; its first role is its lead. On mobile, the count on the row opens a menu of
+the crew.
 
 ## Features from threads
 

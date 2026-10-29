@@ -22,6 +22,7 @@ import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
 import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { WorkflowWorkspaceEmpty } from "../workflows/WorkflowWorkspace.ts";
+import { QUICK_TASK_WORKFLOW_ID } from "../workflows/starterWorkflow.ts";
 import * as BotProjects from "./BotProjects.ts";
 import * as BotStore from "./BotStore.ts";
 
@@ -118,20 +119,21 @@ it.effect("starts a feature in a bot's project the way the composer does", () =>
   }).pipe(Effect.provide(layer)),
 );
 
-it.effect("falls back to the bot's default workflow and asks for one without it", () =>
+it.effect("runs work without a named workflow as a Quick task, made again if deleted", () =>
   Effect.gen(function* () {
-    const starter = yield* seed;
+    yield* seed;
     const botProjects = yield* BotProjects.BotProjects;
     const input = { botId: CAPTAIN_BOT_ID, projectId, title: "Docs", brief: "Write the docs" };
 
-    const missing = yield* botProjects.startFeature(input).pipe(Effect.flip);
-    expect(missing.message).toBe("Captain has no default workflow, so pass a workflowId");
+    const started = yield* botProjects.startFeature({ ...input, featureId: "feature:docs" });
+    expect(started.workflowId).toBe(QUICK_TASK_WORKFLOW_ID);
+    expect(started.stage).toBe("handle");
 
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`UPDATE bots SET default_workflow_id = ${starter.id} WHERE id = ${CAPTAIN_BOT_ID}`;
-    const started = yield* botProjects.startFeature(input);
-    expect(started.workflowId).toBe(starter.id);
-    expect(started.stage).toBe(starter.start);
+    yield* sql`DELETE FROM workflow_definition_revisions WHERE id = ${QUICK_TASK_WORKFLOW_ID}`;
+    yield* sql`DELETE FROM workflow_definition_heads WHERE id = ${QUICK_TASK_WORKFLOW_ID}`;
+    const again = yield* botProjects.startFeature({ ...input, featureId: "feature:docs-2" });
+    expect(again.workflowId).toBe(QUICK_TASK_WORKFLOW_ID);
   }).pipe(Effect.provide(layer)),
 );
 

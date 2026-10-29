@@ -53,7 +53,7 @@ export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${p
 const BUILDER_ROLE_ID = "role:builder";
 
 const HEADQUARTERS_TASK = [
-  "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand project work to a project's manager with crew_delegate, and start a new project with crew_create_project when you're allowed to.",
+  "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand a project work with t3_feature_start, and start a new project with crew_create_project when you're allowed to.",
   "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
   "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask you to start work in one of your projects on a workflow, start a feature with t3_feature_start.",
   "Tell the person only what they must decide.",

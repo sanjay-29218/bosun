@@ -45,7 +45,6 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
-import { CrewProjectSection } from "./CrewProjectSection";
 import { ProjectBotSection } from "./BotsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
@@ -571,12 +570,6 @@ function ProjectDetail({
                 .bots === true,
           )}
         />
-        {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities.crew ===
-          true ? (
-            <CrewProjectSection key={`${member.environmentId}:${member.id}`} project={member} />
-          ) : null,
-        )}
         {hasMultipleCheckouts ? checkoutChoices : null}
         <SettingsSection title="Danger">
           <SettingsRow

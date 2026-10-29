@@ -50,6 +50,8 @@ export class WorkflowExecutionStore extends Context.Service<
       featureId: string,
       bindings: WorkflowBindings,
     ) => Effect.Effect<void, PersistenceSqlError>;
+    /** Forgets a feature's crew binding, so it can be bound again to another workflow. */
+    readonly remove: (featureId: string) => Effect.Effect<void, PersistenceSqlError>;
     readonly get: (
       featureId: string,
     ) => Effect.Effect<WorkflowExecution | null, PersistenceSqlError>;
@@ -82,6 +84,7 @@ export class WorkflowExecutionStore extends Context.Service<
     readonly listUnsyncedSettledFeatures: (
       projectId?: ProjectId,
     ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
+    readonly clearStageThread: (threadId: string) => Effect.Effect<void, PersistenceSqlError>;
     readonly setStageThread: (
       threadId: string,
       featureId: string,
@@ -128,6 +131,18 @@ export const WorkflowExecutionStoreLive = Layer.effect(
       INSERT OR IGNORE INTO workflow_executions (feature_id, bindings_json)
       VALUES (${featureId}, ${encodeBindings(bindings)})
     `.pipe(Effect.asVoid, Effect.mapError(error)),
+      ),
+      remove: Effect.fn("WorkflowExecutionStore.remove")((featureId) =>
+        sql`DELETE FROM workflow_executions WHERE feature_id = ${featureId}`.pipe(
+          Effect.asVoid,
+          Effect.mapError(error),
+        ),
+      ),
+      clearStageThread: Effect.fn("WorkflowExecutionStore.clearStageThread")((threadId) =>
+        sql`DELETE FROM crew_stage_threads WHERE thread_id = ${threadId}`.pipe(
+          Effect.asVoid,
+          Effect.mapError(error),
+        ),
       ),
       get: Effect.fn("WorkflowExecutionStore.get")((featureId) =>
         sql<{

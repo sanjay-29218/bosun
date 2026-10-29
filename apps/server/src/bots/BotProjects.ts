@@ -28,6 +28,7 @@ import { FeatureService } from "../features/FeatureService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as Repositories from "../sourceControl/SourceControlRepositoryService.ts";
+import { WorkflowService } from "../workflows/WorkflowService.ts";
 import * as BotStore from "./BotStore.ts";
 
 export class BotProjectsError extends Schema.TaggedError<BotProjectsError>()("BotProjectsError", {
@@ -83,8 +84,8 @@ export class BotProjects extends Context.Service<
     }) => Effect.Effect<BotProject & { readonly commitError?: string }, BotProjectsError>;
     /**
      * Creates a feature in a project `botId` owns and starts it, as a person does from the
-     * composer: on `workflowId`, or the bot's default workflow. A retry with the same
-     * `featureId` returns the same feature.
+     * composer: on `workflowId`, or else Quick task, which is how a bot hands a project work.
+     * A retry with the same `featureId` returns the same feature.
      */
     readonly startFeature: (input: {
       readonly botId: string;
@@ -104,6 +105,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const bots = yield* BotStore.BotStore;
     const features = yield* FeatureService;
+    const workflows = yield* WorkflowService;
     const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
     const projects = yield* ProjectService.ProjectService;
     const repositories = yield* Repositories.SourceControlRepositoryService;
@@ -220,12 +222,12 @@ export const layer = Layer.effect(
             reason: `${bot.name} doesn't own project ${input.projectId}`,
           });
         }
-        const workflowId = input.workflowId ?? bot.defaultWorkflowId;
-        if (workflowId === null) {
-          return yield* new BotProjectsError({
-            reason: `${bot.name} has no default workflow, so pass a workflowId`,
-          });
-        }
+        const workflowId =
+          input.workflowId ??
+          (yield* workflows.ensureQuickTaskDefinition().pipe(
+            Effect.map((definition) => definition.id),
+            Effect.mapError(failWith("The Quick task workflow is unavailable")),
+          ));
         const id =
           input.featureId ??
           `feature:${yield* crypto.randomUUIDv4().pipe(Effect.mapError(failWith("No feature id")))}`;
