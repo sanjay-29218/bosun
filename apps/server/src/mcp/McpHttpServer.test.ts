@@ -1234,174 +1234,193 @@ it.effect(
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("lists and runs Bosun's tools only for crew threads whose run holds their grant", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const sqlContext = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
-      const sql = Context.get(sqlContext, SqlClient.SqlClient);
-      yield* sql`
+it.effect(
+  "lists Bosun's tools to crew threads by grant, and only feature links to other threads",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sqlContext = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
+        const sql = Context.get(sqlContext, SqlClient.SqlClient);
+        yield* sql`
         CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
       `;
-      yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
-      yield* sql`INSERT INTO crew_runs VALUES
+        yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+        yield* sql`INSERT INTO crew_runs VALUES
         ('builder', 'role', 'bot-run:builder', '["crew.delegate","crew.status","worktree"]')`;
-      const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
-        environmentId,
-        requestNamespace: thread,
-        thread: {
-          threadId: ThreadId.make(thread),
-          providerSessionId: thread,
-          providerInstanceId: ProviderInstanceId.make("codex"),
-        },
-        client: undefined,
-        capabilities: new Set(["orchestration", "crew"]),
-        issuedAt: 1,
-      });
-      const scopes = new Map([
-        ["plainToken", scopeFor("thread-plain")],
-        ["crewToken", scopeFor("bot-run:builder")],
-      ]);
-      const UpstreamToolkit = Toolkit.make(
-        Tool.make("upstream", {
-          description: "Stands in for T3 Code's own tools.",
-          success: Schema.Struct({ ok: Schema.Boolean }),
-          failure: OrchestratorMcpFailure,
-          failureMode: "return",
-        }),
-      );
-      const serverLayer = Layer.mergeAll(
-        McpHttpServer.layerCrewTools,
-        McpHttpServer.toolkitRegistration(
-          UpstreamToolkit,
-          McpToolAccess.toLayer(UpstreamToolkit, {
-            upstream: McpToolAccess.reads(() => Effect.succeed({ ok: true })),
-          }),
-        ),
-      ).pipe(
-        Layer.provideMerge(
-          McpHttpServer.layerMcpTransport.pipe(Layer.provide(ServerSettings.layerTest())),
-        ),
-        Layer.provide(
-          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
-            resolve: (token) => Effect.succeed(scopes.get(token)),
-          }),
-        ),
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.succeedContext(sqlContext),
-            McpToolAccessTestkit.liveThreadsLayer,
-            Layer.mock(BotService.BotService)({ list: Effect.succeed([]) }),
-            Layer.mock(BotProjects)({}),
-            Layer.mock(CrewHandoffService)({}),
-            Layer.mock(CrewHandoffStore)({}),
-            Layer.mock(CrewService)({}),
-            Layer.mock(CrewStore)({}),
-            Layer.mock(FeatureService)({}),
-            Layer.mock(IssueService.IssueService)({}),
-            Layer.mock(TicketService)({}),
-            Layer.mock(WorkflowService)({}),
-          ),
-        ),
-      );
-      yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
-        Layer.build,
-      );
-      const httpClient = yield* HttpClient.HttpClient;
-      const sessionFor = (token: string) =>
-        Effect.gen(function* () {
-          const headers = {
-            accept: "application/json, text/event-stream",
-            authorization: `Bearer ${token}`,
-          };
-          const initialize = yield* httpClient.post("/mcp", {
-            headers,
-            body: HttpBody.text(
-              `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
-              "application/json",
-            ),
-          });
-          const rpc = (method: string, params: object) =>
-            httpClient
-              .post("/mcp", {
-                headers: {
-                  ...headers,
-                  "mcp-session-id": initialize.headers["mcp-session-id"]!,
-                  "mcp-protocol-version": "2025-06-18",
-                },
-                body: HttpBody.text(
-                  JSON.stringify({ jsonrpc: "2.0", id: 2, method, params }),
-                  "application/json",
-                ),
-              })
-              .pipe(
-                Effect.flatMap((response) => response.json),
-                Effect.map(
-                  (body) =>
-                    body as {
-                      readonly result?: {
-                        readonly tools?: ReadonlyArray<{ readonly name: string }>;
-                        readonly structuredContent?: unknown;
-                      };
-                      readonly error?: { readonly message: string };
-                    },
-                ),
-              );
-          return {
-            listed: rpc("tools/list", {}).pipe(
-              Effect.map((body) => (body.result?.tools ?? []).map((tool) => tool.name).sort()),
-            ),
-            call: (name: string) => rpc("tools/call", { name, arguments: {} }),
-          };
+        const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
+          environmentId,
+          requestNamespace: thread,
+          thread: {
+            threadId: ThreadId.make(thread),
+            providerSessionId: thread,
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+          capabilities: new Set(["orchestration", "crew"]),
+          issuedAt: 1,
         });
-      const plain = yield* sessionFor("plainToken");
-      const crew = yield* sessionFor("crewToken");
-      const anyCrewGrant = [
-        "crew_create_todo",
-        "crew_link_issue",
-        "crew_list_issues",
-        "crew_read_todo",
-        "crew_update_todo",
-      ];
+        const scopes = new Map([
+          ["plainToken", scopeFor("thread-plain")],
+          ["crewToken", scopeFor("bot-run:builder")],
+        ]);
+        const UpstreamToolkit = Toolkit.make(
+          Tool.make("upstream", {
+            description: "Stands in for T3 Code's own tools.",
+            success: Schema.Struct({ ok: Schema.Boolean }),
+            failure: OrchestratorMcpFailure,
+            failureMode: "return",
+          }),
+        );
+        const serverLayer = Layer.mergeAll(
+          McpHttpServer.layerCrewTools,
+          McpHttpServer.toolkitRegistration(
+            UpstreamToolkit,
+            McpToolAccess.toLayer(UpstreamToolkit, {
+              upstream: McpToolAccess.reads(() => Effect.succeed({ ok: true })),
+            }),
+          ),
+        ).pipe(
+          Layer.provideMerge(
+            McpHttpServer.layerMcpTransport.pipe(Layer.provide(ServerSettings.layerTest())),
+          ),
+          Layer.provide(
+            Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+              resolve: (token) => Effect.succeed(scopes.get(token)),
+            }),
+          ),
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeedContext(sqlContext),
+              McpToolAccessTestkit.liveThreadsLayer,
+              Layer.mock(BotService.BotService)({ list: Effect.succeed([]) }),
+              Layer.mock(BotProjects)({}),
+              Layer.mock(CrewHandoffService)({}),
+              Layer.mock(CrewHandoffStore)({}),
+              Layer.mock(CrewService)({}),
+              Layer.mock(CrewStore)({}),
+              Layer.mock(FeatureService)({}),
+              Layer.mock(IssueService.IssueService)({}),
+              Layer.mock(TicketService)({}),
+              Layer.mock(WorkflowService)({}),
+            ),
+          ),
+        );
+        yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
+          Layer.build,
+        );
+        const httpClient = yield* HttpClient.HttpClient;
+        const sessionFor = (token: string) =>
+          Effect.gen(function* () {
+            const headers = {
+              accept: "application/json, text/event-stream",
+              authorization: `Bearer ${token}`,
+            };
+            const initialize = yield* httpClient.post("/mcp", {
+              headers,
+              body: HttpBody.text(
+                `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
+                "application/json",
+              ),
+            });
+            const rpc = (method: string, params: object) =>
+              httpClient
+                .post("/mcp", {
+                  headers: {
+                    ...headers,
+                    "mcp-session-id": initialize.headers["mcp-session-id"]!,
+                    "mcp-protocol-version": "2025-06-18",
+                  },
+                  body: HttpBody.text(
+                    JSON.stringify({ jsonrpc: "2.0", id: 2, method, params }),
+                    "application/json",
+                  ),
+                })
+                .pipe(
+                  Effect.flatMap((response) => response.json),
+                  Effect.map(
+                    (body) =>
+                      body as {
+                        readonly result?: {
+                          readonly tools?: ReadonlyArray<{ readonly name: string }>;
+                          readonly structuredContent?: unknown;
+                        };
+                        readonly error?: { readonly message: string };
+                      },
+                  ),
+                );
+            return {
+              listed: rpc("tools/list", {}).pipe(
+                Effect.map((body) => (body.result?.tools ?? []).map((tool) => tool.name).sort()),
+              ),
+              call: (name: string) => rpc("tools/call", { name, arguments: {} }),
+            };
+          });
+        const plain = yield* sessionFor("plainToken");
+        const crew = yield* sessionFor("crewToken");
+        const anyCrewGrant = [
+          "crew_create_todo",
+          "crew_link_issue",
+          "crew_list_issues",
+          "crew_read_todo",
+          "crew_update_todo",
+        ];
+        const plainTools = ["t3_feature_attach_thread", "t3_feature_detach_thread", "upstream"];
 
-      expect(yield* plain.listed).toEqual(["upstream"]);
-      expect(yield* crew.listed).toEqual(
-        [
-          ...anyCrewGrant,
-          "crew_delegate",
-          "crew_list_handoffs",
-          "crew_wait_handoff",
-          "t3_bot_list",
-          "upstream",
-        ].sort(),
-      );
+        expect(yield* plain.listed).toEqual(plainTools);
+        expect(yield* crew.listed).toEqual(
+          [
+            ...anyCrewGrant,
+            "crew_delegate",
+            "crew_list_handoffs",
+            "crew_wait_handoff",
+            "t3_bot_list",
+            "upstream",
+          ].sort(),
+        );
 
-      // A tool a thread isn't listed is refused before its handler runs.
-      expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
-      expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
+        // A tool a thread isn't listed is refused before its handler runs.
+        expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
+        expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
 
-      // A grant change shows on the session's next tools/list.
-      yield* sql`
+        // A grant change shows on the session's next tools/list.
+        yield* sql`
         UPDATE crew_runs SET allowed_tools_json = '["crew.respond","orchestration"]'
         WHERE id = 'builder'
       `;
-      expect(yield* crew.listed).toEqual(
-        [
-          ...anyCrewGrant,
-          "crew_respond",
-          "crew_stage_handoff",
-          "t3_bot_create",
-          "t3_bot_delete",
-          "t3_bot_list",
-          "t3_bot_move_project",
-          "t3_bot_reorder",
-          "t3_bot_update",
-          "t3_feature_attach_thread",
-          "t3_feature_detach_thread",
-          "upstream",
-        ].sort(),
-      );
-      expect((yield* crew.call("crew_delegate")).error?.message).toContain("crew_delegate");
-      expect(yield* plain.listed).toEqual(["upstream"]);
-    }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        // Threads and subagents alone no longer unlocks the bot or feature-link tools.
+        expect(yield* crew.listed).toEqual(
+          [...anyCrewGrant, "crew_respond", "crew_stage_handoff", "t3_bot_list", "upstream"].sort(),
+        );
+        expect((yield* crew.call("crew_delegate")).error?.message).toContain("crew_delegate");
+
+        // Manage workflows does.
+        yield* sql`
+        UPDATE crew_runs SET allowed_tools_json = '["crew.workflows"]' WHERE id = 'builder'
+      `;
+        expect(yield* crew.listed).toEqual(
+          [
+            ...anyCrewGrant,
+            "t3_bot_create",
+            "t3_bot_delete",
+            "t3_bot_list",
+            "t3_bot_move_project",
+            "t3_bot_reorder",
+            "t3_bot_update",
+            "t3_feature_attach_thread",
+            "t3_feature_detach_thread",
+            "t3_feature_start",
+            "t3_role_create",
+            "t3_role_list",
+            "t3_role_update",
+            "t3_workflow_create",
+            "t3_workflow_delete",
+            "t3_workflow_get",
+            "t3_workflow_list",
+            "t3_workflow_update",
+            "upstream",
+          ].sort(),
+        );
+        expect(yield* plain.listed).toEqual(plainTools);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

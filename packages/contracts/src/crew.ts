@@ -87,7 +87,8 @@ export const CREW_TOOL_GRANTS = [
   {
     id: "crew.workflows",
     label: "Manage workflows",
-    description: "Create and edit workflows and roles, and start features on them, when asked.",
+    description:
+      "Create and edit bots, workflows and roles, and start features on them, when asked.",
     botOnly: true,
   },
   {

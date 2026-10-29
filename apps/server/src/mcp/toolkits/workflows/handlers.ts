@@ -18,49 +18,21 @@ import { crewThreadGrants } from "../../../crew/crewMcpCapabilities.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { assertFullAccess, readCaller } from "../../threadAccess.ts";
+import {
+  asWorkflowManager,
+  fullAccessCaller,
+  MANAGE_WORKFLOWS,
+  manageWorkflowsDenied,
+} from "./access.ts";
 import { WorkflowsToolkit } from "./tools.ts";
 
-const GRANT = "crew.workflows";
-
-const denied = new OrchestratorMcpFailure({
-  code: "capability_denied",
-  message:
-    "This bot can't manage workflows. A person can allow it with \"Manage workflows\" in the bot's Tools settings.",
-});
-
-/** The calling bot or crew thread's grants; undefined for every other caller. */
-const callerGrants = McpInvocationContext.McpInvocationContext.pipe(
-  Effect.flatMap((scope) =>
-    scope.thread === undefined ? Effect.undefined : crewThreadGrants(scope.thread.threadId),
-  ),
-);
-
 /** Bot and crew threads need the grant to read the library; everyone else may. */
-const checkRead = callerGrants.pipe(
-  Effect.flatMap((grants) =>
-    grants === undefined || grants.includes(GRANT) ? Effect.void : Effect.fail(denied),
-  ),
-);
+const checkRead = asWorkflowManager(Effect.void);
 
-/**
- * Bot and crew threads change the library with the grant a person gave the bot. Every other
- * caller needs full access, as for the t3_bot_* tools.
- */
-const checkWrite = callerGrants.pipe(
-  Effect.flatMap((grants) =>
-    grants !== undefined
-      ? grants.includes(GRANT)
-        ? Effect.void
-        : Effect.fail(denied)
-      : readCaller().pipe(
-          Effect.flatMap((caller) =>
-            assertFullAccess(
-              caller,
-              "Changing workflows and roles needs a live full-access/default calling thread or a full-access client.",
-            ),
-          ),
-        ),
+/** Every caller that isn't a bot or crew thread needs full access to change the library. */
+const checkWrite = asWorkflowManager(
+  fullAccessCaller(
+    "Changing workflows and roles needs a live full-access/default calling thread or a full-access client.",
   ),
 );
 
@@ -81,7 +53,9 @@ const callingBot = McpInvocationContext.McpInvocationContext.pipe(
     }
     return crewThreadGrants(scope.thread.threadId).pipe(
       Effect.flatMap((grants) =>
-        grants?.includes(GRANT) ? Effect.succeed(botId) : Effect.fail(denied),
+        grants?.includes(MANAGE_WORKFLOWS)
+          ? Effect.succeed(botId)
+          : Effect.fail(manageWorkflowsDenied),
       ),
     );
   }),

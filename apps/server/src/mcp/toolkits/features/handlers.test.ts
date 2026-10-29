@@ -5,8 +5,10 @@ import {
   ThreadId,
   type WorkflowFeatureSnapshot,
 } from "@t3tools/contracts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 import { FeatureService } from "../../../features/FeatureService.ts";
@@ -39,6 +41,8 @@ const snapshot: WorkflowFeatureSnapshot = {
 const run = (
   tool: "t3_feature_attach_thread" | "t3_feature_detach_thread",
   params: Record<string, unknown>,
+  threadId: ThreadId = caller,
+  capabilities: ReadonlySet<McpInvocationContext.McpCapability> = new Set(["orchestration"]),
 ) => {
   const calls: Array<Record<string, unknown>> = [];
   return Effect.gen(function* () {
@@ -56,12 +60,12 @@ const run = (
               environmentId: EnvironmentId.make("environment:features"),
               requestNamespace: "provider:features",
               thread: {
-                threadId: caller,
+                threadId,
                 providerSessionId: "provider:features",
                 providerInstanceId: ProviderInstanceId.make("codex"),
               },
               client: undefined,
-              capabilities: new Set(["orchestration" as const]),
+              capabilities,
               issuedAt: 0,
             }),
             Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -112,4 +116,34 @@ it.effect("attaches and detaches the calling thread when no thread is named", ()
     const detached = yield* run("t3_feature_detach_thread", { threadId: other });
     expect(detached.calls[0]).toMatchObject({ threadId: other, actorId: caller });
   }),
+);
+
+it.effect("a crew thread needs Manage workflows to attach or detach a thread", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+    `;
+    yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+    yield* sql`INSERT INTO crew_runs VALUES
+      ('builder', 'role', 'bot-run:builder', '["orchestration"]'),
+      ('manager', 'bot', 'bot-run:manager', '["crew.workflows"]')`;
+    const attach = { workflowId: "feature-delivery", stageId: "build" };
+
+    const refused = yield* run(
+      "t3_feature_attach_thread",
+      attach,
+      ThreadId.make("bot-run:builder"),
+    );
+    expect(refused.result).toMatchObject({ code: "capability_denied" });
+    expect(refused.calls).toEqual([]);
+
+    // The grant stands in for thread control, which this run wasn't given.
+    const crewOnly = new Set(["crew" as const]);
+    const manager = ThreadId.make("bot-run:manager");
+    expect((yield* run("t3_feature_attach_thread", attach, manager, crewOnly)).calls).toHaveLength(
+      1,
+    );
+    expect((yield* run("t3_feature_detach_thread", {}, manager, crewOnly)).calls).toHaveLength(1);
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

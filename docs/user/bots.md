@@ -15,7 +15,8 @@ Use **+ New** for another bot. A bot has a name, a robot avatar you build from p
 **Shuffle**), a color, instructions, tools, a default model and the workflow its features start
 with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
 **Save**. A bot's threads, like a role's, are offered only the crew tools its ticked tools
-allow; threads you start yourself get none of them. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+allow. Threads you start yourself get only the ones that make the thread a feature and take it
+back out. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
 A bot's **Projects** tab lists the projects it owns. Move one to another bot, or bring one over;
 work that already started keeps running as the bot that started it. You can also change a
@@ -32,8 +33,8 @@ manager, and answer their questions. Work it hands off runs with the model and *
 own thread has, unless it names another model, and so does whatever that work hands off in turn.
 Workflow stages are the exception: each runs with its role's model and **Access**. With **Create projects** ticked in its tools, it can also start
 projects from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
-start, it can create and edit workflows and roles when you ask, such as "add a QA stage to Feature
-delivery"; they show up in Settings like ones you made. It can also start a feature in one of its
+start, it can create and edit bots, workflows and roles when you ask, such as "add a QA stage to
+Feature delivery"; they show up in Settings like ones you made. It can also start a feature in one of its
 projects, on the workflow you name or its default one, just as you would from the composer. Features
 report to the headquarters too. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
