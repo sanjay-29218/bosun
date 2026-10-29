@@ -346,7 +346,9 @@ export const CrewHandoffServiceLive = Layer.effect(
           return started;
         }
         const parent = yield* handoffs.getForTargetRun(source.id);
-        if (parent && ENDED.has(parent.status)) {
+        // A workflow starts each stage from the manager that started it, long after that
+        // manager's own handoff ended, so only free-hand delegation is held back here.
+        if (!input.boundByWorkflow && parent && ENDED.has(parent.status)) {
           return yield* Effect.fail(
             new CrewHandoffError("This run's own handoff has ended, so it can't start new work"),
           );

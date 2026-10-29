@@ -183,6 +183,17 @@ describe("Bot handoffs", () => {
                 })
                 .pipe(Effect.result))._tag,
             ).toBe("Failure");
+            // A workflow still starts its next stage (e.g. after a gate approval) from the
+            // manager that started it, whose own handoff has long ended.
+            const stage = yield* handoffs.delegate({
+              id: "workflow-stage-after-end",
+              sourceThreadId: manager.threadId,
+              targetMemberId: `bot-builder:${projectId}`,
+              projectId,
+              taskText: "Next workflow stage",
+              boundByWorkflow: true,
+            });
+            expect(stage.status).not.toBe("failed");
             // Captain may delegate because it owns the project, so retry rechecks the target instead.
             const managerId = `bot-manager:${projectId}`;
             yield* sql`UPDATE crew_members SET enabled = 0 WHERE id = ${managerId}`;
