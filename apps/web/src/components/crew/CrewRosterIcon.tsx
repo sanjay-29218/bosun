@@ -35,14 +35,21 @@ export function CrewRosterIcon({ tone }: { readonly tone: CrewRosterTone }) {
   }
 }
 
-/** Where one of the crew stands, in words, with its earlier tries. */
+/** Marks the crew row for the thread you're in, without hiding its status. Needs a `relative` row. */
+export function CrewRosterHereMark() {
+  return (
+    <span aria-hidden className="absolute inset-y-2 start-0.5 w-0.5 rounded-full bg-primary" />
+  );
+}
+
+/** Where one of the crew stands, in words, after its earlier tries. */
 export function CrewRosterStatus({ entry }: { readonly entry: CrewRosterEntry }) {
   return (
-    <span className={cn("shrink-0 text-xs", TONE_TEXT[entry.tone])}>
-      {entry.status}
+    <span className="shrink-0 text-xs">
       {entry.tries.length > 0 ? (
-        <span className="text-muted-foreground"> · {entry.tries.length + 1} tries</span>
+        <span className="text-muted-foreground">{entry.tries.length + 1} tries · </span>
       ) : null}
+      <span className={TONE_TEXT[entry.tone]}>{entry.status}</span>
     </span>
   );
 }

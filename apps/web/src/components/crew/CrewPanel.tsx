@@ -18,7 +18,7 @@ import { WorkStageStrip } from "../sidebar/SidebarWorkGroup";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { CREW_ACTION_COPY } from "./crewActionCopy";
-import { CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
+import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
 import { buildCrewRoster, type CrewRosterEntry } from "@t3tools/client-runtime/state/crew-roster";
 import { FeatureTag } from "./FeatureTag";
 import { useCrewStageContext } from "./useCrewStage";
@@ -179,7 +179,8 @@ function CrewPanelEntry(props: {
   const { entry } = props;
   const expandable = entry.kind === "stage";
   return (
-    <li className={cn("rounded-md", (entry.active || props.open) && "bg-accent/60")}>
+    <li className={cn("relative rounded-md", (entry.active || props.open) && "bg-accent/60")}>
+      {props.here ? <CrewRosterHereMark /> : null}
       <div className="flex items-center gap-1 pe-1">
         {expandable ? (
           <button
@@ -212,11 +213,7 @@ function CrewPanelEntry(props: {
               {entry.kind === "lead" ? " · lead" : entry.role ? ` · ${entry.role}` : ""}
             </span>
           </span>
-          {props.here ? (
-            <span className="shrink-0 text-xs text-muted-foreground">You're here</span>
-          ) : (
-            <CrewRosterStatus entry={entry} />
-          )}
+          <CrewRosterStatus entry={entry} />
         </button>
       </div>
       {props.open ? (

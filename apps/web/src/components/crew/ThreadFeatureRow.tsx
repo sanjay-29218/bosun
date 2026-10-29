@@ -18,7 +18,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS } from "../chat/threadDetailsPanelStyles";
 import { WorkStageStrip } from "../sidebar/SidebarWorkGroup";
-import { CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
+import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
 import { FeatureIssueIcon, openFeatureIssueDialog } from "./FeatureIssue";
 import { FeatureTag } from "./FeatureTag";
@@ -111,6 +111,7 @@ export function ThreadFeatureRow(props: {
               aria-current={entry.threadId === thread.id ? "page" : undefined}
               onClick={entry.threadId ? () => openThread(entry.threadId!) : undefined}
             >
+              {entry.threadId === thread.id ? <CrewRosterHereMark /> : null}
               <CrewRosterIcon tone={entry.tone} />
               <span className="min-w-0 flex-1 truncate text-start">
                 {entry.name}
@@ -118,13 +119,7 @@ export function ThreadFeatureRow(props: {
                   {entry.kind === "lead" ? " · lead" : entry.role ? ` · ${entry.role}` : ""}
                 </span>
               </span>
-              {entry.threadId === thread.id ? (
-                <span className="shrink-0 rounded-sm border px-1 text-2xs text-muted-foreground">
-                  You're here
-                </span>
-              ) : (
-                <CrewRosterStatus entry={entry} />
-              )}
+              <CrewRosterStatus entry={entry} />
             </ThreadDetailsControl>
           ))
         : null}
