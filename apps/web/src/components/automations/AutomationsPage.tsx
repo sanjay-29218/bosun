@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   automationKey,
+  automationRunThreadId,
   createAutomationRunIndex,
   isAutomationFailureUnseen,
 } from "@t3tools/client-runtime/state/automations";
@@ -253,7 +254,7 @@ function RecentRuns({
   return (
     <section aria-labelledby="automation-runs-heading" className="space-y-2">
       <h2 id="automation-runs-heading" className="text-sm font-medium">
-        {task.threadId === null ? "Recent runs" : "Posts to"}
+        {automationRunThreadId(task) === null ? "Recent runs" : "Posts to"}
       </h2>
       {runs.length === 0 ? (
         <p className="text-sm text-muted-foreground">

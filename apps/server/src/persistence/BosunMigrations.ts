@@ -32,6 +32,7 @@ import BotProjectGrants from "./Migrations/073_BotProjectGrants.ts";
 import BuilderSubagents from "./Migrations/074_BuilderSubagents.ts";
 import FeatureIssues from "./Migrations/075_FeatureIssues.ts";
 import CaptainWorkflowGrant from "./Migrations/076_CaptainWorkflowGrant.ts";
+import ScheduledTaskBots from "./Migrations/077_ScheduledTaskBots.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -56,6 +57,7 @@ const migrationEntries = [
   [74, "BuilderSubagents", BuilderSubagents],
   [75, "FeatureIssues", FeatureIssues],
   [76, "CaptainWorkflowGrant", CaptainWorkflowGrant],
+  [77, "ScheduledTaskBots", ScheduledTaskBots],
 ] as const;
 
 const legacyNames = new Set([

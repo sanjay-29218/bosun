@@ -7,7 +7,9 @@ import {
   ProjectId,
 } from "@t3tools/contracts";
 import {
+  createDraft,
   scheduledTaskDefaultModel,
+  scheduledTaskRunTarget,
   DEFAULT_SCHEDULE,
   scheduleDraftForTask,
   scheduleFromDraft,
@@ -195,4 +197,34 @@ it("rejects dedupe keys without valid request placeholders", () => {
   expect(
     scheduleFromDraft({ ...DEFAULT_SCHEDULE, mode: "webhook", coalesceKey: "{{body.bad" }),
   ).toBeNull();
+});
+
+describe("scheduledTaskRunTarget", () => {
+  const draft = createDraft(ProjectId.make("app"), null);
+
+  it("sends a bot task to the bot without a project or checkout", () => {
+    const target = scheduledTaskRunTarget({
+      ...draft,
+      botId: "bot-social",
+      workspace: "existing_worktree",
+      checkoutPath: "",
+    });
+    expect(target).toEqual({ botId: "bot-social", workspaceStrategy: { type: "root" } });
+    expect(target).not.toHaveProperty("projectId");
+  });
+
+  it("sends a thread task to its project and clears any bot", () => {
+    expect(scheduledTaskRunTarget(draft)).toEqual({
+      botId: null,
+      projectId: "app",
+      workspaceStrategy: { type: "worktree", baseRef: "main", startFromOrigin: true },
+    });
+  });
+
+  it("holds a thread task back until it has a project and checkout path", () => {
+    expect(scheduledTaskRunTarget({ ...draft, projectId: null })).toBeNull();
+    expect(
+      scheduledTaskRunTarget({ ...draft, workspace: "existing_worktree", checkoutPath: " " }),
+    ).toBeNull();
+  });
 });

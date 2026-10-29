@@ -20,6 +20,7 @@ import {
   setRouteLimit,
   setStageOutcomes,
   stageIdFromName,
+  workflowMainPath,
 } from "./WorkflowEditor.logic";
 
 function role(name: string, overrides: Partial<RoleConfig> = {}): RoleConfig {
@@ -192,6 +193,24 @@ describe("routeLoopsBack", () => {
   it("keeps a forward route with a limit editable", () => {
     const definition = setRouteLimit(workflow(), "plan", "ready", 2);
     expect(routeLoopsBack(definition, "plan", "ready")).toBe(true);
+  });
+});
+
+describe("workflowMainPath", () => {
+  it("follows each stage's first route and counts the stages off that path", () => {
+    expect(workflowMainPath(workflow())).toEqual({ stages: ["plan", "build", "review"], more: 1 });
+  });
+
+  it("stops at a route back to a stage it already passed", () => {
+    const definition = workflow();
+    const looping: WorkflowDefinition = {
+      ...definition,
+      steps: {
+        ...definition.steps,
+        review: { type: "task", role: "reviewer", task: "Review", next: { changes: "build" } },
+      },
+    };
+    expect(workflowMainPath(looping).stages).toEqual(["plan", "build", "review"]);
   });
 });
 

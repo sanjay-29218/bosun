@@ -52,7 +52,7 @@ const Update = Tool.make("t3_bot_update", {
 const Delete = Tool.make("t3_bot_delete", {
   ...shared,
   description:
-    "Delete a bot. Refused while it owns any project (move them with t3_bot_move_project first) and always for Captain.",
+    "Delete a bot and the automations that run as it. Refused while it owns any project (move them with t3_bot_move_project first) and always for Captain.",
   parameters: Schema.Struct({ id: Schema.String }),
   success: Schema.Struct({ deleted: Schema.Boolean }),
 }).annotate(Tool.Destructive, true);

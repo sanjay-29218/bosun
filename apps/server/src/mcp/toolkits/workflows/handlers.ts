@@ -1,5 +1,7 @@
 import {
+  headquartersBotId,
   OrchestratorMcpFailure,
+  ProjectId,
   type RoleCreateInput,
   type RoleUpdateInput,
   type WorkflowCreateInput,
@@ -10,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
+import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { crewThreadGrants } from "../../../crew/crewMcpCapabilities.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
@@ -61,28 +64,48 @@ const checkWrite = callerGrants.pipe(
   ),
 );
 
+/**
+ * The bot whose headquarters is calling, once it holds the grant. Features start for a bot, in
+ * the projects it owns, so other callers can't start them.
+ */
+const callingBot = McpInvocationContext.McpInvocationContext.pipe(
+  Effect.flatMap((scope) => {
+    const botId = scope.thread === undefined ? null : headquartersBotId(scope.thread.threadId);
+    if (scope.thread === undefined || botId === null) {
+      return Effect.fail(
+        new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message: "Only a bot starts features this way, from its own thread.",
+        }),
+      );
+    }
+    return crewThreadGrants(scope.thread.threadId).pipe(
+      Effect.flatMap((grants) =>
+        grants?.includes(GRANT) ? Effect.succeed(botId) : Effect.fail(denied),
+      ),
+    );
+  }),
+);
+
 const isMcpFailure = Schema.is(OrchestratorMcpFailure);
 const invalid = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
+/** Passes service errors on as messages an agent can act on. */
+const asMcpFailure = (error: unknown) =>
+  isMcpFailure(error) ? error : invalid(error instanceof Error ? error.message : String(error));
 
-/** Runs `effect` after `check`, passing service errors on as messages an agent can act on. */
+/** Runs `effect` after `check`. */
 const guarded =
   <EC, RC>(check: Effect.Effect<void, EC, RC>) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    check.pipe(
-      Effect.andThen(effect),
-      Effect.mapError((error) =>
-        isMcpFailure(error)
-          ? error
-          : invalid(error instanceof Error ? error.message : String(error)),
-      ),
-    );
+    check.pipe(Effect.andThen(effect), Effect.mapError(asMcpFailure));
 const reading = guarded(checkRead);
 const writing = guarded(checkWrite);
 
 const make = Effect.gen(function* () {
   const workflows = yield* WorkflowService;
   const crew = yield* CrewService;
+  const botProjects = yield* BotProjects;
   return {
     t3_workflow_list: McpToolAccess.reads(() =>
       reading(workflows.listLatestDefinitions()).pipe(
@@ -126,6 +149,25 @@ const make = Effect.gen(function* () {
     ),
     t3_role_update: McpToolAccess.writesWithCapability((input: typeof RoleUpdateInput.Type) =>
       writing(crew.updateRole(input)),
+    ),
+    t3_feature_start: McpToolAccess.writesWithCapability(
+      (input: {
+        readonly projectId: string;
+        readonly title: string;
+        readonly brief: string;
+        readonly workflowId?: string | undefined;
+        readonly featureId?: string | undefined;
+      }) =>
+        callingBot.pipe(
+          Effect.flatMap((botId) =>
+            botProjects.startFeature({
+              ...input,
+              botId,
+              projectId: ProjectId.make(input.projectId),
+            }),
+          ),
+          Effect.mapError(asMcpFailure),
+        ),
     ),
   };
 });

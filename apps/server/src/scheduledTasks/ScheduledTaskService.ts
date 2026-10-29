@@ -7,6 +7,7 @@ import {
   ScheduledTaskId,
   ThreadId,
   ScheduledTaskWebhookDeliveryId,
+  type ProjectId,
   type ScheduledTaskDeleteInput,
   type ScheduledTaskDeleteResult,
   type ScheduledTaskGetWebhookDeliveryInput,
@@ -39,9 +40,11 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import type * as Statement from "effect/sql/Statement";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -70,6 +73,7 @@ import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerificatio
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
 const PROMPT_TOO_LONG = "The filled-in prompt is too long.";
+const MISSING_BOT = "The bot this task runs as no longer exists.";
 const WEBHOOK_DELIVERY_RETENTION = 50;
 const WEBHOOK_DEDUPE_DELIVERY_RETENTION = 20;
 const WEBHOOK_FILTERED_DELIVERY_RETENTION = 20;
@@ -204,6 +208,13 @@ interface ScheduledTaskRow {
   readonly run_count: number;
   readonly webhook_token: string | null;
   readonly webhook_secret: string | null;
+  readonly bot_id: string | null;
+}
+
+/** Where a bot task's run goes: the bot's headquarters thread and the project it lives in. */
+export interface BotHeadquarters {
+  readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
 }
 
 interface WebhookDeliveryRow {
@@ -240,6 +251,16 @@ export class ScheduledTaskService extends Context.Service<
     ) => Effect.Effect<ScheduledTaskDeleteResult, ScheduledTaskError>;
     /** Deletes only tasks that still target this thread, including their webhook deliveries. */
     readonly deleteForThread: (threadId: ThreadId) => Effect.Effect<void, ScheduledTaskError>;
+    /** Deletes the tasks that run as this bot, for when the bot is deleted. */
+    readonly deleteForBot: (botId: string) => Effect.Effect<void, ScheduledTaskError>;
+    /**
+     * Lets bot tasks open their bot's headquarters (creating or restoring it) for the scope.
+     * The crew is built on the orchestration runtime that owns this service, so it connects
+     * once both exist; until then a bot task's run fails.
+     */
+    readonly connectBotHeadquarters: (
+      open: (botId: string) => Effect.Effect<BotHeadquarters, ScheduledTaskError>,
+    ) => Effect.Effect<void, never, Scope.Scope>;
     /** The dispatched thread, or null if dispatch failed; leaves the task's binding unchanged. */
     readonly runNow: (
       input: ScheduledTaskRunNowInput,
@@ -297,6 +318,14 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+/** A refusal of ours, such as a missing bot, reads as its sentence rather than a trace. */
+function dispatchErrorMessage(cause: Cause.Cause<unknown>): string {
+  const failure = Cause.findErrorOption(cause);
+  return Option.isSome(failure) && isScheduledTaskError(failure.value)
+    ? failure.value.message
+    : errorMessage(cause);
+}
+
 function webhookPath(taskId: string, token: string): string {
   return `${WEBHOOK_ROUTE_PREFIX}/${encodeURIComponent(taskId)}/${token}`;
 }
@@ -343,6 +372,7 @@ const decodeRow = Effect.fnUntraced(
       lastRunError: row.last_run_error,
       runCount: row.run_count,
       ...(webhook === undefined ? {} : { webhook }),
+      ...(row.bot_id === null ? {} : { botId: row.bot_id }),
     });
   },
   (effect, row, _origin?) =>
@@ -421,6 +451,44 @@ export const layer = Layer.effect(
     // Notifications re-emit the full list; slow subscribers need only the newest dirty signal.
     const changesPubSub = yield* PubSub.sliding<void>(1);
     const notifyChanged = PubSub.publish(changesPubSub, undefined).pipe(Effect.asVoid);
+    const headquartersOpener = yield* Ref.make(
+      Option.none<(botId: string) => Effect.Effect<BotHeadquarters, ScheduledTaskError>>(),
+    );
+
+    const botExists = (botId: string) =>
+      sql`SELECT 1 FROM bots WHERE id = ${botId} AND deleted_at IS NULL`.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.map((rows) => rows.length > 0),
+        Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
+      );
+
+    /** Files a new bot task where its headquarters lives: Scratch, else the bot's oldest project. */
+    const botTaskProjectId = Effect.fn("ScheduledTaskService.botTaskProjectId")(function* (
+      botId: string,
+    ) {
+      const scratch = yield* Effect.option(managedFolders.ensureScratchProject);
+      if (Option.isSome(scratch)) return scratch.value.projectId;
+      const rows = yield* sql<{ readonly project_id: ProjectId }>`
+        SELECT project_id FROM projection_projects
+        WHERE bot_id = ${botId} AND deleted_at IS NULL
+        ORDER BY created_at, project_id LIMIT 1
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not load the bot's projects.", { cause })),
+      );
+      const owned = rows[0];
+      if (owned === undefined) return yield* taskError("Give the bot a project first.");
+      return owned.project_id;
+    });
+
+    const openBotHeadquarters = Effect.fn("ScheduledTaskService.openBotHeadquarters")(function* (
+      botId: string,
+    ) {
+      if (!(yield* botExists(botId))) return yield* taskError(MISSING_BOT);
+      const open = yield* Ref.get(headquartersOpener);
+      if (Option.isNone(open)) return yield* taskError("Bots aren't available on this server.");
+      return yield* open.value(botId);
+    });
 
     const selectAllRows = () =>
       sql<ScheduledTaskRow>`
@@ -446,7 +514,8 @@ export const layer = Layer.effect(
         last_run_error,
         run_count,
         webhook_token,
-        webhook_secret
+        webhook_secret,
+        bot_id
       FROM scheduled_tasks
       -- Not updated_at: toggles, runs and edits rewrite it, and clients render
       -- this order as-is, so rows would move under the pointer.
@@ -483,7 +552,8 @@ export const layer = Layer.effect(
         last_run_error,
         run_count,
         webhook_token,
-        webhook_secret
+        webhook_secret,
+        bot_id
       FROM scheduled_tasks
       WHERE task_id = ${id}
     `.pipe(NodeSqliteClient.readOnly);
@@ -558,7 +628,8 @@ export const layer = Layer.effect(
           last_run_error,
           run_count,
           webhook_token,
-          webhook_secret
+          webhook_secret,
+          bot_id
         )
         SELECT
           ${task.id},
@@ -582,9 +653,13 @@ export const layer = Layer.effect(
           ${task.lastRunError},
           ${task.runCount},
           ${webhook.token},
-          ${webhook.secret}
-        WHERE ${requireExisting ? 0 : 1} = 1
-           OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id})
+          ${webhook.secret},
+          ${task.botId ?? null}
+        WHERE (${requireExisting ? 0 : 1} = 1
+           OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id}))
+          -- In the write, so a bot deleted since the check can't be left with a task.
+          AND (${task.botId ?? null} IS NULL
+           OR EXISTS (SELECT 1 FROM bots WHERE id = ${task.botId ?? null} AND deleted_at IS NULL))
         ON CONFLICT (task_id)
         DO UPDATE SET
           title = excluded.title,
@@ -597,6 +672,7 @@ export const layer = Layer.effect(
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
+          bot_id = excluded.bot_id,
           creation_source = excluded.creation_source,
           updated_at = excluded.updated_at,
           next_run_at = excluded.next_run_at,
@@ -618,7 +694,15 @@ export const layer = Layer.effect(
         Effect.flatMap((rows) =>
           rows.length > 0
             ? Effect.void
-            : taskError("Schedule task not found.", { taskId: task.id }),
+            : task.botId === undefined
+              ? taskError("Schedule task not found.", { taskId: task.id })
+              : botExists(task.botId).pipe(
+                  Effect.flatMap((exists) =>
+                    taskError(exists ? "Schedule task not found." : MISSING_BOT, {
+                      taskId: task.id,
+                    }),
+                  ),
+                ),
         ),
       );
 
@@ -808,54 +892,59 @@ export const layer = Layer.effect(
         // A webhook prompt was rendered from the row when the request arrived.
         const prompt = webhook?.prompt ?? active.prompt;
 
+        // The stored selection only seeds fresh threads. A bound run follows the
+        // thread's current provider, and a bot's headquarters the bot's, so they pass none.
+        const send = (target: BotHeadquarters) =>
+          threadManagement
+            .sendToThread({
+              projectId: target.projectId,
+              commandId,
+              threadId: target.threadId,
+              messageId,
+              scheduledTaskId: active.id,
+              text: prompt,
+              attachments: [],
+              mode: "queue",
+              createdBy: active.createdBy,
+              creationSource: active.creationSource,
+            })
+            .pipe(Effect.as(target.threadId));
+
         // Capture defects and interrupts too so dispatch failures still reach markCompleted.
         const result =
-          active.threadId === null
-            ? yield* Effect.exit(
-                threadLaunch
-                  .launch({
-                    commandId,
-                    projectId: active.projectId,
-                    title: active.title,
-                    modelSelection: active.modelSelection,
-                    runtimeMode: active.runtimeMode,
-                    interactionMode: active.interactionMode,
-                    workspaceStrategy: active.workspaceStrategy,
-                    initialMessage: {
-                      messageId,
-                      scheduledTaskId: active.id,
-                      text: prompt,
-                      attachments: [],
-                    },
-                    createdBy: active.createdBy,
-                    creationSource: active.creationSource,
-                  })
-                  .pipe(Effect.map((launched) => launched.threadId)),
-              )
-            : yield* Effect.exit(
-                // The stored selection only seeds fresh threads. A bound run
-                // follows the thread's current provider, so it passes none.
-                threadManagement
-                  .sendToThread({
-                    projectId: active.projectId,
-                    commandId,
-                    threadId: ThreadId.make(active.threadId),
-                    messageId,
-                    scheduledTaskId: active.id,
-                    text: prompt,
-                    attachments: [],
-                    mode: "queue",
-                    createdBy: active.createdBy,
-                    creationSource: active.creationSource,
-                  })
-                  .pipe(Effect.as(ThreadId.make(active.threadId))),
-              );
+          active.botId !== undefined
+            ? yield* Effect.exit(openBotHeadquarters(active.botId).pipe(Effect.flatMap(send)))
+            : active.threadId === null
+              ? yield* Effect.exit(
+                  threadLaunch
+                    .launch({
+                      commandId,
+                      projectId: active.projectId,
+                      title: active.title,
+                      modelSelection: active.modelSelection,
+                      runtimeMode: active.runtimeMode,
+                      interactionMode: active.interactionMode,
+                      workspaceStrategy: active.workspaceStrategy,
+                      initialMessage: {
+                        messageId,
+                        scheduledTaskId: active.id,
+                        text: prompt,
+                        attachments: [],
+                      },
+                      createdBy: active.createdBy,
+                      creationSource: active.creationSource,
+                    })
+                    .pipe(Effect.map((launched) => launched.threadId)),
+                )
+              : yield* Effect.exit(
+                  send({ projectId: active.projectId, threadId: ThreadId.make(active.threadId) }),
+                );
 
         const runSucceeded = result._tag === "Success";
         if (webhook !== undefined && runSucceeded) yield* Ref.set(webhook.dispatched, true);
         const completedAt = yield* localNow;
         const lastRunStatus = runSucceeded ? ("succeeded" as const) : ("failed" as const);
-        const lastRunError = runSucceeded ? null : errorMessage(result.cause);
+        const lastRunError = runSucceeded ? null : dispatchErrorMessage(result.cause);
         const threadId = runSucceeded ? result.value : null;
         const current = yield* findTask(task.id);
         const scheduleSource = current ?? task;
@@ -1059,6 +1148,18 @@ export const layer = Layer.effect(
       // keep their run history, and so real load failures propagate instead
       // of silently resetting an existing row.
       const existingTask = yield* findTask(id);
+      // Omitted keeps the stored bot, so a client that predates bot tasks can re-save one.
+      const botId = input.botId === undefined ? (existingTask?.botId ?? null) : input.botId;
+      if (botId !== null && !(yield* botExists(botId))) {
+        return yield* taskError("That bot doesn't exist.", { taskId: id });
+      }
+      // A bot task runs wherever its headquarters lives; the project only files it.
+      const projectId =
+        input.projectId ??
+        (botId === null ? null : (existingTask?.projectId ?? (yield* botTaskProjectId(botId))));
+      if (projectId === null) {
+        return yield* taskError("Pick a project for this task.", { taskId: id });
+      }
       // Keep the existing next_run_at when the schedule itself is untouched:
       // editing a title or prompt must not postpone (or resurrect) a due
       // run — only schedule/enabled changes restart the clock.
@@ -1105,7 +1206,7 @@ export const layer = Layer.effect(
                 signature?.secretRef === undefined
                   ? undefined
                   : yield* secretRequests
-                      .consume({ ref: signature.secretRef, projectId: input.projectId })
+                      .consume({ ref: signature.secretRef, projectId })
                       .pipe(
                         Effect.catch((error) =>
                           replay
@@ -1129,7 +1230,7 @@ export const layer = Layer.effect(
           : { token: null, secret: null, secretChanged: true };
       const workspaceStrategy: ScheduledTask["workspaceStrategy"] =
         input.workspaceStrategy.type === "worktree" &&
-        (yield* managedFolders.isScratchProject(input.projectId))
+        (yield* managedFolders.isScratchProject(projectId))
           ? { type: "root" }
           : input.workspaceStrategy;
       const scheduleUnchanged =
@@ -1142,8 +1243,9 @@ export const layer = Layer.effect(
         prompt: input.prompt,
         enabled: input.enabled,
         schedule,
-        projectId: input.projectId,
-        threadId: input.threadId ?? null,
+        projectId,
+        // A bot task has no thread of its own, so deleting one never deletes the task.
+        threadId: botId === null ? (input.threadId ?? null) : null,
         workspaceStrategy,
         modelSelection: input.modelSelection,
         runtimeMode: input.runtimeMode,
@@ -1159,6 +1261,7 @@ export const layer = Layer.effect(
         lastRunStatus: existingTask?.lastRunStatus ?? "never",
         lastRunError: existingTask?.lastRunError ?? null,
         runCount: existingTask?.runCount ?? 0,
+        ...(botId === null ? {} : { botId }),
       };
       yield* saveTask(task, input.requireExisting === true, webhook);
       yield* notifyChanged;
@@ -1234,26 +1337,27 @@ export const layer = Layer.effect(
         Effect.as({ id: input.id }),
       );
 
-    const deleteForThread = Effect.fn("ScheduledTaskService.deleteForThread")(function* (
-      threadId: ThreadId,
+    // Matches in the transaction: an automation may have been unbound or moved since the
+    // thread or bot deletion queued this cleanup. Untraced: its callers own the span.
+    const deleteMatching = Effect.fnUntraced(function* (
+      match: Statement.Fragment,
+      label: "thread's" | "bot's",
     ) {
-      // Check the current binding in the transaction: an automation may have
-      // been unbound or moved since thread deletion queued this cleanup.
       const removed = yield* sql
         .withTransaction(
           Effect.gen(function* () {
             yield* sql`
             DELETE FROM scheduled_task_webhook_deliveries
-            WHERE task_id IN (SELECT task_id FROM scheduled_tasks WHERE thread_id = ${threadId})
+            WHERE task_id IN (SELECT task_id FROM scheduled_tasks WHERE ${match})
           `;
             return yield* sql<{ task_id: ScheduledTaskId }>`
-            DELETE FROM scheduled_tasks WHERE thread_id = ${threadId} RETURNING task_id
+            DELETE FROM scheduled_tasks WHERE ${match} RETURNING task_id
           `;
           }),
         )
         .pipe(
           Effect.mapError((cause) =>
-            taskError("Could not delete thread's schedule tasks.", { cause }),
+            taskError(`Could not delete ${label} schedule tasks.`, { cause }),
           ),
         );
       yield* Effect.forEach(removed, ({ task_id }) => forgetWebhookTask(task_id), {
@@ -1261,6 +1365,21 @@ export const layer = Layer.effect(
       });
       if (removed.length > 0) yield* notifyChanged;
     });
+
+    const deleteForThread = Effect.fn("ScheduledTaskService.deleteForThread")(
+      (threadId: ThreadId) => deleteMatching(sql`thread_id = ${threadId}`, "thread's"),
+    );
+
+    const deleteForBot = Effect.fn("ScheduledTaskService.deleteForBot")((botId: string) =>
+      deleteMatching(sql`bot_id = ${botId}`, "bot's"),
+    );
+
+    const connectBotHeadquarters: ScheduledTaskService["Service"]["connectBotHeadquarters"] = (
+      open,
+    ) =>
+      Effect.acquireRelease(Ref.set(headquartersOpener, Option.some(open)), () =>
+        Ref.set(headquartersOpener, Option.none()),
+      );
 
     const runNow: ScheduledTaskService["Service"]["runNow"] = Effect.fn(
       "ScheduledTaskService.runNow",
@@ -2138,6 +2257,8 @@ export const layer = Layer.effect(
       setEnabled,
       delete: deleteTask,
       deleteForThread,
+      deleteForBot,
+      connectBotHeadquarters,
       runNow,
       rotateWebhookToken,
       listWebhookDeliveries,

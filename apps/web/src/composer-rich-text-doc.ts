@@ -418,7 +418,9 @@ type ListLinePrefix =
   | ({ kind: "task" } & TaskLinePrefix)
   | { kind: "bullet" | "ordered"; indent: string; marker: string; space: string };
 
-function parseListPrefix(line: string): { prefix: ListLinePrefix; markerLength: number } | null {
+export function parseListPrefix(
+  line: string,
+): { prefix: ListLinePrefix; markerLength: number } | null {
   const task = parseTaskPrefix(line);
   if (task) return { prefix: { kind: "task", ...task.prefix }, markerLength: task.markerLength };
   const ordered = /^([ \t]*)(\d+[.)])((?:[ \t]+)|$)/.exec(line);
@@ -552,7 +554,14 @@ function textJsonForSpan(text: string, marks: RichTextMark[]): Record<string, un
 export function buildTiptapContent(
   value: string,
   skillLabelFor: (name: string) => SkillMeta | null,
-  options?: { styling?: boolean; blocks?: boolean; literalText?: boolean; literalLength?: number },
+  options?: {
+    styling?: boolean;
+    blocks?: boolean;
+    literalText?: boolean;
+    literalLength?: number;
+    /** False keeps `@path`, `$skill`, links, and context references as plain text. */
+    chips?: boolean;
+  },
 ): Record<string, unknown>[] {
   if (options?.literalText) {
     return value.split("\n").map((line) => ({
@@ -587,6 +596,7 @@ export function buildTiptapContent(
         atomSources.push(chunk.source);
         return sentinel;
       }
+      if (options?.chips === false) return chunk.text;
       return splitPromptIntoComposerSegments(chunk.text)
         .map((segment) => {
           if (segment.type === "text") return segment.text;
@@ -790,7 +800,7 @@ export function buildTiptapContent(
 export function buildDocJson(
   value: string,
   skillLabelFor: (name: string) => SkillMeta | null,
-  options?: { styling?: boolean; literalText?: boolean },
+  options?: { styling?: boolean; literalText?: boolean; chips?: boolean },
 ) {
   const content = buildTiptapContent(value, skillLabelFor, options);
   if (content.at(-1)?.type === "horizontalRule") content.push({ type: "paragraph" });

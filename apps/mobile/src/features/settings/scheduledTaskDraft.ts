@@ -5,6 +5,7 @@ import type {
   ProjectId,
   RuntimeMode,
   ScheduledTask,
+  ScheduledTaskUpsertInput,
   ScheduledTaskUpsertSchedule,
   ScheduledTaskWebhookSignature,
 } from "@t3tools/contracts";
@@ -187,6 +188,8 @@ export type ScheduledTaskDraft = {
   readonly task: ScheduledTask | null;
   readonly title: string;
   readonly prompt: string;
+  /** The bot the task runs as, in its headquarters; null starts a new thread per run. */
+  readonly botId: string | null;
   readonly projectId: ProjectId | null;
   readonly modelSelection: ModelSelection | null;
   readonly modelSelectionIsExplicit: boolean;
@@ -203,6 +206,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
   return JSON.stringify([
     draft.title,
     draft.prompt,
+    draft.botId,
     draft.projectId,
     draft.modelSelection?.instanceId,
     draft.modelSelection?.model,
@@ -242,6 +246,7 @@ export function createDraft(
     task: null,
     title: "",
     prompt: "",
+    botId: null,
     projectId,
     modelSelection,
     modelSelectionIsExplicit: false,
@@ -260,6 +265,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     task,
     title: task.title,
     prompt: task.prompt,
+    botId: task.botId ?? null,
     projectId: task.projectId,
     modelSelection: task.modelSelection,
     modelSelectionIsExplicit: true,
@@ -276,5 +282,41 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
         ? (task.workspaceStrategy.startFromOrigin ?? false)
         : true,
     runtimeMode: task.runtimeMode,
+  };
+}
+
+/**
+ * Where a save sends the task's runs, or null while a thread task lacks something it needs. A
+ * bot task runs in the bot's headquarters, which picks its own project, model and checkout, so
+ * the server files it and the hidden fields don't apply.
+ */
+export function scheduledTaskRunTarget(
+  draft: Pick<
+    ScheduledTaskDraft,
+    "botId" | "projectId" | "workspace" | "baseRef" | "checkoutPath" | "startFromOrigin"
+  >,
+): Pick<ScheduledTaskUpsertInput, "botId" | "projectId" | "workspaceStrategy"> | null {
+  if (draft.botId !== null) return { botId: draft.botId, workspaceStrategy: { type: "root" } };
+  if (draft.projectId === null) return null;
+  if (draft.workspace === "existing_worktree") {
+    const worktreePath = draft.checkoutPath.trim();
+    if (!worktreePath) return null;
+    return {
+      botId: null,
+      projectId: draft.projectId,
+      workspaceStrategy: { type: "existing_worktree", worktreePath },
+    };
+  }
+  return {
+    botId: null,
+    projectId: draft.projectId,
+    workspaceStrategy:
+      draft.workspace === "root"
+        ? { type: "root" }
+        : {
+            type: "worktree",
+            baseRef: draft.baseRef.trim() || "main",
+            startFromOrigin: draft.startFromOrigin,
+          },
   };
 }

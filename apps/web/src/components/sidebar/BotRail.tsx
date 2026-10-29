@@ -60,14 +60,16 @@ import {
   useSwitchBotMainView,
 } from "./mainAppLocation";
 import { useOpenBotHeadquarters } from "./openBotHeadquarters";
+import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
 /** The rail's width; the sidebar sits right of it. */
 export const BOT_RAIL_WIDTH = "3.5rem";
 
 /**
- * The bot rail: All bots and the bots, then its places, then Usage and Settings. A bot narrows
- * the sidebar, board and Needs you to its projects; a place swaps the sidebar's list. `window`
- * pins it to the window's left edge under the titlebar; `sheet` puts it in the mobile sheet.
+ * The bot rail: All bots and the bots, then its places, then Usage, Settings and app updates.
+ * A bot narrows the sidebar, board and Needs you to its projects; a place swaps the sidebar's
+ * list. `window` pins it to the window's left edge under the titlebar; `sheet` puts it in the
+ * mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
@@ -216,6 +218,7 @@ export const BotRail = memo(function BotRail({
         <div className="mt-auto flex w-full flex-col items-center gap-2">
           <EnvironmentFilterMenu />
           <RailAppPages />
+          <SidebarUpdatePill placement="rail" />
         </div>
       </div>
       {addingOn ? (

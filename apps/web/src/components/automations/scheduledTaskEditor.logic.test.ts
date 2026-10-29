@@ -10,6 +10,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
+  runTargetFromDraft,
   scheduledTaskDefaultModel,
   scheduleFromDraft,
   taskToDraft,
@@ -43,6 +44,28 @@ describe("editing scheduled task branch settings", () => {
     const draft = taskToDraft(legacyTask);
     expect(draft.baseRef).toBe("release");
     expect(draft.startFromOrigin).toBe(false);
+  });
+});
+
+describe("runs as", () => {
+  const thread = {
+    projectId: ProjectId.make("project"),
+    threadId: null,
+    workspaceStrategy: { type: "worktree", baseRef: "main" },
+  } as const;
+
+  it("reopens a bot task on its bot and a thread task on a new thread", () => {
+    expect(taskToDraft({ ...legacyTask, botId: "bot-social" }).botId).toBe("bot-social");
+    expect(taskToDraft(legacyTask).botId).toBe("");
+  });
+
+  it("sends a bot task to the bot without a project, and a thread task back to its project", () => {
+    expect(runTargetFromDraft({ botId: "bot-social" }, thread)).toEqual({
+      botId: "bot-social",
+      threadId: null,
+      workspaceStrategy: { type: "root" },
+    });
+    expect(runTargetFromDraft({ botId: "" }, thread)).toEqual({ ...thread, botId: null });
   });
 });
 

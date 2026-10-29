@@ -96,7 +96,7 @@ const handlers = {
         }),
     ),
     McpToolAccess.writes(
-      ({ scheduledTaskId, prompt, title, schedule, enabled, bindToCurrentThread }) =>
+      ({ scheduledTaskId, prompt, title, schedule, enabled, bindToCurrentThread, botId }) =>
         Effect.gen(function* () {
           if (scheduledTaskId === undefined) return yield* Effect.die("unreachable");
           const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -108,6 +108,7 @@ const handlers = {
             schedule,
             enabled,
             bindToCurrentThread,
+            botId,
           });
         }),
     ),

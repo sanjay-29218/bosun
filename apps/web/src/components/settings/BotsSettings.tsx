@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { botAutomationsDeleteWarning } from "@t3tools/client-runtime/state/automations";
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
@@ -35,6 +36,7 @@ import { useState } from "react";
 import { requestConfirmDialog } from "../../confirmDialog";
 import { cn, randomUUID } from "../../lib/utils";
 import { PROJECT_ICON_COLORS } from "../../projectIconOptions";
+import { useEnvironmentScheduledTasks } from "../../state/automations";
 import { botsEnvironment } from "../../state/bots";
 import { useProjects, useServerConfigs } from "../../state/entities";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
@@ -48,7 +50,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { Textarea } from "../ui/textarea";
+import { InstructionsEditor } from "../InstructionsEditor";
 import { Toggle } from "../ui/toggle";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardTabs } from "../ui/wizard";
 import { toastManager } from "../ui/toast";
@@ -114,6 +116,7 @@ function BotsSections({
   const canEdit = useAtomValue(botsEnvironment.update.permissionAtom(environmentId));
   const reorder = useAtomCommand(botsEnvironment.reorder);
   const remove = useAtomCommand(botsEnvironment.delete);
+  const scheduledTasks = useEnvironmentScheduledTasks(environmentId);
   // The dialog follows the listed bot, so a refresh after a conflict gives it the latest revision.
   const [editor, setEditor] = useState<{ botId: string | null } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -140,8 +143,10 @@ function BotsSections({
   };
 
   const deleteBot = async (bot: Bot) => {
+    // The server deletes the automations that run as the bot along with it.
+    const warning = botAutomationsDeleteWarning(scheduledTasks ?? [], bot.id);
     const confirmed = await requestConfirmDialog(
-      `Delete ${bot.name}?\nRuns it already started keep going; it gets no new work.`,
+      `Delete ${bot.name}?${warning === null ? "" : ` ${warning}`}\nRuns it already started keep going; it gets no new work.`,
       { variant: "destructive" },
     );
     if (confirmed !== true) return;
@@ -707,17 +712,18 @@ function BotDialog({
             {tab === "behavior" ? (
               <>
                 <EditorField label="Instructions" htmlFor="bot-instructions">
-                  <Textarea
+                  <InstructionsEditor
                     id="bot-instructions"
+                    label="Instructions"
                     value={instructions}
                     maxLength={16_000}
-                    rows={6}
+                    disabled={saving}
                     placeholder={
                       bot
                         ? "What this bot does for its projects"
                         : "Leave empty to coordinate its projects' managers"
                     }
-                    onChange={(event) => setInstructions(event.target.value)}
+                    onChange={setInstructions}
                   />
                 </EditorField>
                 <div className="grid gap-5 sm:grid-cols-2">

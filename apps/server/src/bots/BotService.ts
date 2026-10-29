@@ -21,6 +21,7 @@ import * as Schema from "effect/Schema";
 import { CrewService } from "../crew/CrewService.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import * as BotStore from "./BotStore.ts";
 
@@ -45,7 +46,8 @@ export class BotService extends Context.Service<
     readonly update: (input: BotUpdateInput) => Effect.Effect<Bot, BotServiceError>;
     /**
      * Refused for Captain and for a bot that still owns a project; move its projects first.
-     * Runs the bot already started keep working, but it gets no new ones.
+     * Deletes the automations that run as the bot. Runs the bot already started keep
+     * working, but it gets no new ones.
      */
     readonly delete: (id: string) => Effect.Effect<void, BotServiceError>;
     /** Sets the rail order; `botIds` lists every bot exactly once. */
@@ -92,6 +94,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const workflows = yield* WorkflowStore;
   const crypto = yield* Crypto.Crypto;
+  const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   // Optional so bot tests run without the crew; the server always provides it.
   const crew = yield* Effect.serviceOption(CrewService);
 
@@ -212,6 +215,15 @@ const make = Effect.gen(function* () {
       if (result === "missing") {
         return yield* new BotValidationError({ reason: "Bot not found" });
       }
+      // Saving a bot task checks the bot in the same write, so none can land after this.
+      yield* scheduledTasks.deleteForBot(id).pipe(
+        Effect.mapError(
+          () =>
+            new BotValidationError({
+              reason: "Deleted the bot, but not its automations; delete them in Automations",
+            }),
+        ),
+      );
     }),
     reorder: Effect.fn("BotService.reorder")(function* (botIds) {
       const all = yield* store.list;

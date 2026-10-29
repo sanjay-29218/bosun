@@ -18,7 +18,7 @@ edit a bot, move it up or down, or delete it.
 **Projects** on the same page shows which bot owns each project. Pick another bot to move a
 project; work that already started keeps running as the bot that started it. You can also change
 a project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no
-projects, and Captain can't be deleted.
+projects, and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
@@ -27,7 +27,9 @@ working or needs you. From there the bot can list its projects, hand work to any
 manager, and answer their questions. With **Create projects** ticked in its tools, it can also start
 projects from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
 start, it can create and edit workflows and roles when you ask, such as "add a QA stage to Feature
-delivery"; they show up in Settings like ones you made. Features report to the headquarters too. A feature's
+delivery"; they show up in Settings like ones you made. It can also start a feature in one of its
+projects, on the workflow you name or its default one, just as you would from the composer. Features
+report to the headquarters too. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
 
 The headquarters follows the bot's current tools, model and **Access**. Its
@@ -52,7 +54,7 @@ All bots shows the same across every bot.
 
 Below the bots, the rail's places swap what the sidebar lists. **Automations** lists your
 scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
-recent runs. A red dot on Automations means a run failed and you haven't opened that task since.
+recent runs. A task can also run as a bot: see [Scheduled tasks](project-settings.md#scheduled-tasks). A red dot on Automations means a run failed and you haven't opened that task since.
 **Library** lists your workflows, each with its stages in order, and your roles; pick one to edit
 it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Automations and Library
 from the bottom of the sidebar, or **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's

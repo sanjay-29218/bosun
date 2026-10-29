@@ -37,9 +37,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { Textarea } from "../ui/textarea";
+import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** The composer's provider and model choices for one environment. */
 function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
@@ -226,46 +225,6 @@ function useSaveRole(environmentId: EnvironmentId) {
   };
 }
 
-/** Turn on or off, for the role the Library shows. */
-export function RoleActions({
-  environmentId,
-  role,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly role: RoleConfig;
-}) {
-  const save = useSaveRole(environmentId);
-  const canEdit = useAtomValue(rolesEnvironment.update.permissionAtom(environmentId));
-  const [busy, setBusy] = useState(false);
-  const toggle = async () => {
-    setBusy(true);
-    await save(role, { enabled: !role.enabled });
-    setBusy(false);
-  };
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground" />
-        }
-      >
-        {role.enabled ? "On" : "Off"}
-        <Switch
-          aria-label={`${role.name} is on`}
-          checked={role.enabled}
-          disabled={busy || !canEdit}
-          onCheckedChange={() => void toggle()}
-        />
-      </TooltipTrigger>
-      <TooltipPopup side="bottom" className="max-w-64">
-        {role.enabled
-          ? "Turn off to retire this role. Running features keep it."
-          : "Turned off: new stages can't use this role."}
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
-
 /** A role's instructions, tools, model and access; `role` null adds one. */
 export function RoleEditorForm({
   environmentId,
@@ -292,8 +251,10 @@ export function RoleEditorForm({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     role?.runtimeMode ?? "auto-accept-edits",
   );
-  // Stages pick roles directly, so a role a person adds is available to workflows by default.
-  const [workflowStages, setWorkflowStages] = useState(role?.autoCreateForFeature ?? true);
+  // Turning a role off retires it. The project manager leads features rather than running
+  // stages, so it can't be turned off and never runs as a stage.
+  const isProjectManager = role?.id === PROJECT_MANAGER_ROLE_ID;
+  const [enabled, setEnabled] = useState(role?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const fields = {
     name: name.trim(),
@@ -301,7 +262,7 @@ export function RoleEditorForm({
     allowedTools: tools,
     modelSelection,
     runtimeMode,
-    autoCreateForFeature: workflowStages,
+    autoCreateForFeature: isProjectManager ? (role?.autoCreateForFeature ?? false) : true,
   };
   const edited = role
     ? fields.name !== role.name ||
@@ -310,7 +271,8 @@ export function RoleEditorForm({
       fields.modelSelection.instanceId !== role.modelSelection.instanceId ||
       fields.modelSelection.model !== role.modelSelection.model ||
       fields.runtimeMode !== role.runtimeMode ||
-      fields.autoCreateForFeature !== role.autoCreateForFeature
+      fields.autoCreateForFeature !== role.autoCreateForFeature ||
+      enabled !== role.enabled
     : fields.name.length > 0 || fields.instructions.length > 0 || tools.length > 0;
   const canSave =
     edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !saving;
@@ -325,7 +287,7 @@ export function RoleEditorForm({
     if (!canSave) return;
     setSaving(true);
     const savedId = await (async () => {
-      if (role) return (await save(role, fields)) ? role.id : null;
+      if (role) return (await save(role, { ...fields, enabled })) ? role.id : null;
       const id = `role:${randomUUID()}`;
       const result = await create({ environmentId, input: { id, ...fields } });
       if (result._tag === "Success") return id;
@@ -362,13 +324,15 @@ export function RoleEditorForm({
               />
             </EditorField>
             <EditorField label="Instructions" htmlFor="crew-role-instructions">
-              <Textarea
+              <InstructionsEditor
                 id="crew-role-instructions"
+                label="Instructions"
                 value={instructions}
                 maxLength={16_000}
-                rows={8}
+                size="lg"
+                disabled={saving || !canEdit}
                 placeholder="What this role does and how it reports back"
-                onChange={(event) => setInstructions(event.target.value)}
+                onChange={setInstructions}
               />
             </EditorField>
           </div>
@@ -396,17 +360,19 @@ export function RoleEditorForm({
               />
             }
           />
-          <SettingsRow
-            title="Available in workflows"
-            description="Workflow stages can run as this role."
-            control={
-              <Switch
-                aria-label="Workflow stages can use this role"
-                checked={workflowStages}
-                onCheckedChange={setWorkflowStages}
-              />
-            }
-          />
+          {role && !isProjectManager ? (
+            <SettingsRow
+              title="Available in workflows"
+              description="Turn off to retire this role. Running features keep it."
+              control={
+                <Switch
+                  aria-label="Workflow stages can use this role"
+                  checked={enabled}
+                  onCheckedChange={setEnabled}
+                />
+              }
+            />
+          ) : null}
         </SettingsSection>
         <SettingsSection title={`Tools · ${tools.length}`}>
           <div className="px-3 py-4 sm:px-4">
