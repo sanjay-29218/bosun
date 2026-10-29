@@ -116,7 +116,7 @@ export function CrewLimitsSettings() {
         serverScoped
         settingKeys={["crew"]}
         title="Agents running at once"
-        description="Stage threads beyond this wait as Queued. Threads you start yourself don't count."
+        description="Beyond this, stages and the helpers they hand work to wait as Queued. Agents waiting on a helper, and threads you start yourself, don't count."
         status={mixedStatus}
         resetAction={
           crew.maxRunningStageThreads !== DEFAULT_CREW.maxRunningStageThreads ? (

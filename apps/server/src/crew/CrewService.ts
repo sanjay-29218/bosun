@@ -60,8 +60,11 @@ const HEADQUARTERS_TASK = [
 ].join("\n\n");
 
 const STAGE_TOOLS = ["crew.respond", "crew.ask"];
+/** Several stages run at once on one machine, so each keeps its checks and servers small. */
+const STAGE_CHECKS =
+  "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you respond.";
 const stageInstructions = (name: string) =>
-  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`;
+  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose. ${STAGE_CHECKS}`;
 
 /** The builder may split its stage into subagents that run at the same time. */
 const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} When the work splits into independent parts, run them in parallel with delegate_task, one subagent per part with a self-contained brief, and wait for them with task_status. Check and combine their results yourself before you call crew_respond.`;

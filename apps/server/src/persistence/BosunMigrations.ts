@@ -37,6 +37,7 @@ import CaptainFullAccess from "./Migrations/078_CaptainFullAccess.ts";
 import Tickets from "./Migrations/079_Tickets.ts";
 import FeatureWorkflowSwitch from "./Migrations/080_FeatureWorkflowSwitch.ts";
 import CrewWaitWithoutPolling from "./Migrations/081_CrewWaitWithoutPolling.ts";
+import StageChecksInProportion from "./Migrations/082_StageChecksInProportion.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -66,6 +67,7 @@ const migrationEntries = [
   [79, "Tickets", Tickets],
   [80, "FeatureWorkflowSwitch", FeatureWorkflowSwitch],
   [81, "CrewWaitWithoutPolling", CrewWaitWithoutPolling],
+  [82, "StageChecksInProportion", StageChecksInProportion],
 ] as const;
 
 const legacyNames = new Set([

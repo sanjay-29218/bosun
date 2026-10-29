@@ -116,7 +116,7 @@ export const CrewTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectS
   Layer.provide(McpProviderSessions.layer),
   Layer.provide(CheckpointStoreTestLayer),
   Layer.provide(ServerConfigLayer),
-  Layer.provide(ServerSettings.layerTest()),
+  Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provide(TestProviderInstanceRegistry),
   Layer.provide(GitWorkflowTestLayer),
   Layer.provide(ProjectServiceTestLayer),

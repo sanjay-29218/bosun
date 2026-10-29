@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
 import * as BotStore from "../bots/BotStore.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { CrewService, managedProjectId, type CrewServiceError } from "./CrewService.ts";
 import { CrewStore, type CrewMember, type CrewRun, type CrewRunSummary } from "./CrewStore.ts";
 import { CrewHandoffStore, type CrewHandoff } from "./CrewHandoffStore.ts";
@@ -115,6 +116,7 @@ const bounded = (value: string, name: string, max: number) => {
 /** Workflow stages delegate under this prefix; their roles set their own access and model. */
 export const WORKFLOW_HANDOFF_PREFIX = "workflow:";
 const isWorkflowHandoffId = (id: string) => id.startsWith(WORKFLOW_HANDOFF_PREFIX);
+const ENDED: ReadonlySet<CrewHandoff["status"]> = new Set(["completed", "failed", "cancelled"]);
 
 const sameRequest = (handoff: CrewHandoff, input: DelegateCrewInput, source: CrewRun) =>
   handoff.sourceRunId === source.id &&
@@ -132,6 +134,7 @@ export const CrewHandoffServiceLive = Layer.effect(
     const crew = yield* CrewService;
     const runtime = yield* CrewThreadRuntime;
     const bots = yield* BotStore.BotStore;
+    const settings = yield* ServerSettingsService;
     const changes = yield* PubSub.unbounded<string>();
 
     const deliver = Effect.fn("CrewHandoffService.deliver")(function* (handoff: CrewHandoff) {
@@ -140,6 +143,14 @@ export const CrewHandoffServiceLive = Layer.effect(
         handoff.status === "running" ? handoff.targetRunId : handoff.sourceRunId;
       const recipient = yield* runs.getRun(recipientRunId);
       if (!recipient) return;
+      // A run whose own handoff ended was finished or replaced; waking it starts work twice.
+      if (handoff.status !== "running") {
+        const own = yield* handoffs.getForTargetRun(recipient.id);
+        if (own && ENDED.has(own.status)) {
+          yield* handoffs.markDelivered(handoff.id, handoff.noticeVersion);
+          return;
+        }
+      }
       // A headquarters follows its bot's current settings, so its next turn uses them.
       if (headquartersBotId(recipient.threadId) !== null) {
         yield* runtime.syncSettings(
@@ -190,10 +201,34 @@ export const CrewHandoffServiceLive = Layer.effect(
           ),
         );
 
+    /**
+     * A delegated handoff starts while crew runs that are working stay under the crew limit, first
+     * in, first out. A run waiting on its own handoffs isn't working, so delegating always frees
+     * the delegator's place. Workflow stages take feature slots instead.
+     */
+    const hasRoom = Effect.fn("CrewHandoffService.hasRoom")(function* (handoff: CrewHandoff) {
+      if (isWorkflowHandoffId(handoff.id)) return true;
+      const { crew: limits } = yield* settings.getSettings.pipe(
+        Effect.mapError(() => new CrewHandoffError("Crew limits are unavailable")),
+      );
+      const running = yield* handoffs.listRunning();
+      const pending = yield* handoffs.listPending();
+      const waiting = new Set([...running, ...pending].map((other) => other.sourceRunId));
+      const working = running.filter((other) => !waiting.has(other.targetRunId)).length;
+      const earlier = pending.some(
+        (other) =>
+          !isWorkflowHandoffId(other.id) &&
+          (other.createdAt < handoff.createdAt ||
+            (other.createdAt === handoff.createdAt && other.id < handoff.id)),
+      );
+      return working < limits.maxRunningStageThreads && !earlier;
+    });
+
     const startQueued = Effect.fn("CrewHandoffService.startQueued")(function* (
       handoff: CrewHandoff,
     ) {
       if (handoff.status !== "queued") return handoff;
+      if (!(yield* hasRoom(handoff))) return handoff;
       const sourceRun = yield* runs.getRun(handoff.sourceRunId);
       const sourceMember = sourceRun ? yield* runs.getActor(sourceRun.memberId) : null;
       const targetMember = yield* runs.getMember(handoff.targetMemberId);
@@ -257,6 +292,18 @@ export const CrewHandoffServiceLive = Layer.effect(
       Effect.catch((error) => Effect.logWarning("Handoff thread tag failed", { error })),
     );
 
+    /** Starts queued handoffs in order while the crew limit has room. */
+    const startWaiting = Effect.fn("CrewHandoffService.startWaiting")(function* () {
+      for (const handoff of yield* handoffs.listPending()) {
+        if (isWorkflowHandoffId(handoff.id)) continue;
+        const started = yield* startQueued(handoff).pipe(Effect.result);
+        if (started._tag === "Failure") continue;
+        if (started.success.status === "queued") return;
+        const source = yield* runs.getRun(handoff.sourceRunId);
+        if (source) yield* tagThread(started.success, source.threadId);
+      }
+    });
+
     const delegate: CrewHandoffServiceShape["delegate"] = Effect.fn("CrewHandoffService.delegate")(
       function* (input) {
         const id = yield* Effect.try({
@@ -282,6 +329,12 @@ export const CrewHandoffServiceLive = Layer.effect(
           const started = yield* startQueued(existing);
           if (!input.boundByWorkflow) yield* tagThread(started, source.threadId);
           return started;
+        }
+        const parent = yield* handoffs.getForTargetRun(source.id);
+        if (parent && ENDED.has(parent.status)) {
+          return yield* Effect.fail(
+            new CrewHandoffError("This run's own handoff has ended, so it can't start new work"),
+          );
         }
         const sourceMember = yield* runs.getActor(source.memberId);
         // A bot reaches into the other projects it owns; everyone else stays on its run's
@@ -311,7 +364,6 @@ export const CrewHandoffServiceLive = Layer.effect(
         if (!(yield* runs.canDelegate(sourceMember.id, targetMember.id, projectId))) {
           return yield* Effect.fail(new CrewHandoffError("Delegation is not permitted"));
         }
-        const parent = yield* handoffs.getForTargetRun(source.id);
         const depth = (parent?.depth ?? 0) + 1;
         if (depth > 8) {
           return yield* Effect.fail(new CrewHandoffError("Delegation depth exceeded"));
@@ -386,6 +438,7 @@ export const CrewHandoffServiceLive = Layer.effect(
       const updated = (yield* handoffs.get(handoff.id))!;
       yield* PubSub.publish(changes, updated.id);
       yield* deliver(updated).pipe(Effect.result);
+      yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(handoff.id))!;
     });
 
@@ -456,7 +509,9 @@ export const CrewHandoffServiceLive = Layer.effect(
         { lastError: detail, responseText: detail },
         true,
       );
-      if (changed) yield* PubSub.publish(changes, handoff.id);
+      if (!changed) return;
+      yield* PubSub.publish(changes, handoff.id);
+      yield* startWaiting().pipe(Effect.result);
     });
 
     const cancel = Effect.fn("CrewHandoffService.cancel")(function* (id: string) {
@@ -475,6 +530,7 @@ export const CrewHandoffServiceLive = Layer.effect(
       const updated = (yield* handoffs.get(id))!;
       yield* PubSub.publish(changes, id);
       yield* deliver(updated).pipe(Effect.result);
+      yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(id))!;
     });
 

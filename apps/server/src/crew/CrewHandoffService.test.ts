@@ -13,6 +13,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { CrewTestOrchestration, seedCrewProject } from "./CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -33,6 +34,7 @@ const withSystem = <A, E>(
     readonly store: CrewHandoffStore["Service"];
     readonly engine: OrchestrationEngineService["Service"];
     readonly sql: SqlClient.SqlClient;
+    readonly settings: ServerSettingsService["Service"];
   }) => Effect.Effect<A, E, SqlClient.SqlClient | ProjectStore.ProjectStoreV2>,
 ) => {
   const orchestration = CrewTestOrchestration;
@@ -52,6 +54,7 @@ const withSystem = <A, E>(
       store: yield* CrewHandoffStore,
       engine: yield* OrchestrationEngineService,
       sql: yield* SqlClient.SqlClient,
+      settings: yield* ServerSettingsService,
     });
   }).pipe(Effect.provide(layer));
 };
@@ -62,113 +65,141 @@ describe("Bot handoffs", () => {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-question-")),
       );
-      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, handoffs, store }) =>
-        Effect.gen(function* () {
-          yield* seedCrewProject({
-            projectId,
-            title: "Handoff questions",
-            workspaceRoot: directory,
-          });
-          yield* bots.ensureDefaults(modelSelection);
-          yield* bots.ensureProjectManager(projectId);
-          const captain = yield* bots.createRun({
-            id: "captain-question",
-            memberId: "bot-captain",
-            projectId,
-            taskText: "Coordinate a question",
-          });
-          const managerRequest = yield* handoffs.delegate({
-            id: "manager-question",
-            sourceThreadId: captain.threadId,
-            targetMemberId: `bot-manager:${projectId}`,
-            projectId,
-            taskText: "Clarify and execute",
-          });
-          const manager = (yield* bots.getRun(managerRequest.targetRunId))!.run;
-          const executionRequest = yield* handoffs.delegate({
-            id: "builder-question",
-            sourceThreadId: manager.threadId,
-            targetMemberId: `bot-builder:${projectId}`,
-            projectId,
-            taskText: "Implement after clarification",
-          });
-          const execution = (yield* bots.getRun(executionRequest.targetRunId))!.run;
-          expect(
-            (yield* handoffs
-              .delegate({
-                id: "forbidden",
-                sourceThreadId: execution.threadId,
-                targetMemberId: `bot-manager:${projectId}`,
-                projectId,
-                taskText: "Escalate improperly",
-              })
-              .pipe(Effect.result))._tag,
-          ).toBe("Failure");
-          expect(
-            (yield* handoffs
-              .delegate({
-                id: "builder-question",
-                sourceThreadId: manager.threadId,
-                targetMemberId: `bot-builder:${projectId}`,
-                projectId,
-                taskText: "Different task",
-              })
-              .pipe(Effect.result))._tag,
-          ).toBe("Failure");
-          expect(
-            (yield* handoffs
-              .delegate({
-                id: "oversized",
-                sourceThreadId: manager.threadId,
-                targetMemberId: `bot-builder:${projectId}`,
-                projectId,
-                taskText: "x".repeat(8_001),
-              })
-              .pipe(Effect.result))._tag,
-          ).toBe("Failure");
-          const question = yield* handoffs.ask(execution.threadId, "Which file?");
-          expect(question.status).toBe("needs-input");
-          expect((yield* store.listByProject(projectId, 1)).length).toBe(2);
-          expect((yield* handoffs.waitFor(manager.threadId, question.id)).questionText).toBe(
-            "Which file?",
-          );
-          const answered = yield* handoffs.answerFromBot(
-            manager.threadId,
-            question.id,
-            "Use src/main.ts",
-          );
-          expect(answered.status).toBe("running");
-          expect(answered.notificationState).toBe("delivered");
-          expect(
-            (yield* handoffs.answerFromBot(manager.threadId, question.id, "Use src/main.ts")).id,
-          ).toBe(question.id);
-          expect(
-            (yield* handoffs.respond(execution.threadId, "completed", "Updated src/main.ts"))
-              .status,
-          ).toBe("completed");
-          expect((yield* handoffs.waitFor(manager.threadId, question.id)).responseText).toBe(
-            "Updated src/main.ts",
-          );
-          const cancelled = yield* handoffs.cancel(managerRequest.id);
-          expect(cancelled.status).toBe("cancelled");
-          // Captain may delegate because it owns the project, so retry rechecks the target instead.
-          const sql = yield* SqlClient.SqlClient;
-          const managerId = `bot-manager:${projectId}`;
-          yield* sql`UPDATE crew_members SET enabled = 0 WHERE id = ${managerId}`;
-          expect((yield* handoffs.retry(managerRequest.id).pipe(Effect.result))._tag).toBe(
-            "Failure",
-          );
-          yield* sql`UPDATE crew_members SET enabled = 1 WHERE id = ${managerId}`;
-          const retry = yield* handoffs.retry(managerRequest.id);
-          expect(retry.status).toBe("running");
-          expect(retry.targetRunId).not.toBe(managerRequest.targetRunId);
-          expect(retry.attempt).toBe(2);
-          expect(
-            (yield* handoffs
-              .respond(manager.threadId, "completed", "Late result")
-              .pipe(Effect.result))._tag,
-          ).toBe("Failure");
-        }),
+      yield* withSystem(
+        NodePath.join(directory, "state.sqlite"),
+        ({ bots, handoffs, store, sql }) =>
+          Effect.gen(function* () {
+            yield* seedCrewProject({
+              projectId,
+              title: "Handoff questions",
+              workspaceRoot: directory,
+            });
+            yield* bots.ensureDefaults(modelSelection);
+            yield* bots.ensureProjectManager(projectId);
+            const captain = yield* bots.createRun({
+              id: "captain-question",
+              memberId: "bot-captain",
+              projectId,
+              taskText: "Coordinate a question",
+            });
+            const managerRequest = yield* handoffs.delegate({
+              id: "manager-question",
+              sourceThreadId: captain.threadId,
+              targetMemberId: `bot-manager:${projectId}`,
+              projectId,
+              taskText: "Clarify and execute",
+            });
+            const manager = (yield* bots.getRun(managerRequest.targetRunId))!.run;
+            const executionRequest = yield* handoffs.delegate({
+              id: "builder-question",
+              sourceThreadId: manager.threadId,
+              targetMemberId: `bot-builder:${projectId}`,
+              projectId,
+              taskText: "Implement after clarification",
+            });
+            const execution = (yield* bots.getRun(executionRequest.targetRunId))!.run;
+            expect(
+              (yield* handoffs
+                .delegate({
+                  id: "forbidden",
+                  sourceThreadId: execution.threadId,
+                  targetMemberId: `bot-manager:${projectId}`,
+                  projectId,
+                  taskText: "Escalate improperly",
+                })
+                .pipe(Effect.result))._tag,
+            ).toBe("Failure");
+            expect(
+              (yield* handoffs
+                .delegate({
+                  id: "builder-question",
+                  sourceThreadId: manager.threadId,
+                  targetMemberId: `bot-builder:${projectId}`,
+                  projectId,
+                  taskText: "Different task",
+                })
+                .pipe(Effect.result))._tag,
+            ).toBe("Failure");
+            expect(
+              (yield* handoffs
+                .delegate({
+                  id: "oversized",
+                  sourceThreadId: manager.threadId,
+                  targetMemberId: `bot-builder:${projectId}`,
+                  projectId,
+                  taskText: "x".repeat(8_001),
+                })
+                .pipe(Effect.result))._tag,
+            ).toBe("Failure");
+            const question = yield* handoffs.ask(execution.threadId, "Which file?");
+            expect(question.status).toBe("needs-input");
+            expect((yield* store.listByProject(projectId, 1)).length).toBe(2);
+            expect((yield* handoffs.waitFor(manager.threadId, question.id)).questionText).toBe(
+              "Which file?",
+            );
+            const answered = yield* handoffs.answerFromBot(
+              manager.threadId,
+              question.id,
+              "Use src/main.ts",
+            );
+            expect(answered.status).toBe("running");
+            expect(answered.notificationState).toBe("delivered");
+            expect(
+              (yield* handoffs.answerFromBot(manager.threadId, question.id, "Use src/main.ts")).id,
+            ).toBe(question.id);
+            expect(
+              (yield* handoffs.respond(execution.threadId, "completed", "Updated src/main.ts"))
+                .status,
+            ).toBe("completed");
+            expect((yield* handoffs.waitFor(manager.threadId, question.id)).responseText).toBe(
+              "Updated src/main.ts",
+            );
+            const late = yield* handoffs.delegate({
+              id: "builder-late",
+              sourceThreadId: manager.threadId,
+              targetMemberId: `bot-builder:${projectId}`,
+              projectId,
+              taskText: "Finish after the manager is gone",
+            });
+            const cancelled = yield* handoffs.cancel(managerRequest.id);
+            expect(cancelled.status).toBe("cancelled");
+            // A manager whose own handoff ended is superseded: late results don't wake it, and it
+            // can't start more work beside whoever replaces it.
+            const lateRun = (yield* bots.getRun(late.targetRunId))!.run;
+            yield* handoffs.respond(lateRun.threadId, "completed", "Done late");
+            const lateNotices = yield* sql`
+            SELECT 1 FROM orchestration_v2_projection_messages
+            WHERE message_id = 'bot-handoff:builder-late:notice:1'
+          `;
+            expect(lateNotices).toHaveLength(0);
+            expect(
+              (yield* handoffs
+                .delegate({
+                  id: "builder-after-cancel",
+                  sourceThreadId: manager.threadId,
+                  targetMemberId: `bot-builder:${projectId}`,
+                  projectId,
+                  taskText: "Start again",
+                })
+                .pipe(Effect.result))._tag,
+            ).toBe("Failure");
+            // Captain may delegate because it owns the project, so retry rechecks the target instead.
+            const managerId = `bot-manager:${projectId}`;
+            yield* sql`UPDATE crew_members SET enabled = 0 WHERE id = ${managerId}`;
+            expect((yield* handoffs.retry(managerRequest.id).pipe(Effect.result))._tag).toBe(
+              "Failure",
+            );
+            yield* sql`UPDATE crew_members SET enabled = 1 WHERE id = ${managerId}`;
+            const retry = yield* handoffs.retry(managerRequest.id);
+            expect(retry.status).toBe("running");
+            expect(retry.targetRunId).not.toBe(managerRequest.targetRunId);
+            expect(retry.attempt).toBe(2);
+            expect(
+              (yield* handoffs
+                .respond(manager.threadId, "completed", "Late result")
+                .pipe(Effect.result))._tag,
+            ).toBe("Failure");
+          }),
       );
       yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
     }),
@@ -305,6 +336,52 @@ describe("Bot handoffs", () => {
       yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
     }),
   );
+  effectIt.effect("keeps delegated crew work under the crew limit, first in, first out", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-handoff-limit-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, handoffs, settings }) =>
+        Effect.gen(function* () {
+          yield* settings.updateSettings({ crew: { maxRunningStageThreads: 1 } });
+          yield* seedCrewProject({ projectId, title: "Crew limit", workspaceRoot: directory });
+          yield* bots.ensureDefaults(modelSelection);
+          yield* bots.ensureProjectManager(projectId);
+          const captain = yield* bots.createRun({
+            id: "captain-limit",
+            memberId: "bot-captain",
+            projectId,
+            taskText: "Coordinate two builds",
+          });
+          const managerRequest = yield* handoffs.delegate({
+            id: "limit-manager",
+            sourceThreadId: captain.threadId,
+            targetMemberId: `bot-manager:${projectId}`,
+            projectId,
+            taskText: "Split the work",
+          });
+          const manager = (yield* bots.getRun(managerRequest.targetRunId))!.run;
+          const toBuilder = (id: string) =>
+            handoffs.delegate({
+              id,
+              sourceThreadId: manager.threadId,
+              targetMemberId: `bot-builder:${projectId}`,
+              projectId,
+              taskText: `Build ${id}`,
+            });
+          // The manager waits on its builders, so the first one takes the only place.
+          const first = yield* toBuilder("limit-first");
+          expect(first.status).toBe("running");
+          expect((yield* toBuilder("limit-second")).status).toBe("queued");
+          const firstRun = (yield* bots.getRun(first.targetRunId))!.run;
+          yield* handoffs.respond(firstRun.threadId, "completed", "First done");
+          expect((yield* handoffs.get("limit-second"))?.status).toBe("running");
+        }),
+      );
+      yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
+    }),
+  );
+
   effectIt.effect("hands off with the delegator's access and model, except workflow stages", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
