@@ -40,4 +40,38 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
       }
     }),
   );
+
+  it.effect("holds a crew thread's subagents to its tools, without the crew tools", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+        CREATE TABLE IF NOT EXISTS crew_runs
+          (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+      `;
+      yield* sql`CREATE TABLE IF NOT EXISTS bots (id TEXT, allowed_tools_json TEXT)`;
+      yield* sql`
+        CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)
+      `;
+      yield* sql`INSERT INTO crew_runs VALUES
+        ('stage', 'role', 'bot-run:stage', '["crew.respond","orchestration","worktree"]')`;
+      const lineage = (parent: string, relationship: string) =>
+        JSON.stringify({ lineage: { parentThreadId: parent, relationshipToParent: relationship } });
+      yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES
+        ('helper', ${lineage("bot-run:stage", "subagent")}),
+        ('helper-of-helper', ${lineage("helper", "subagent")}),
+        ('fork', ${lineage("bot-run:stage", "fork")}),
+        ('plain-helper', ${lineage("ordinary", "subagent")})`;
+
+      for (const id of ["helper", "helper-of-helper"]) {
+        assert.deepStrictEqual(
+          yield* crewMcpCapabilities(ThreadId.make(id)),
+          new Set(["orchestration", "worktree"]),
+        );
+      }
+      // A fork is a person's own thread, and a plain thread's helper keeps the defaults.
+      for (const id of ["fork", "plain-helper"]) {
+        assert.deepStrictEqual(yield* crewMcpCapabilities(ThreadId.make(id)), undefined);
+      }
+    }),
+  );
 });
