@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
+import { moveWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import {
@@ -30,7 +31,7 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -38,7 +39,6 @@ import {
 } from "../panelAnimations";
 import { AutomationsSidebar } from "./automations/AutomationsSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
-import LegacyThreadSidebar from "./LegacySidebar";
 import { BotsSidebar } from "./bots/BotsSidebar";
 import { LibrarySidebar } from "./library/LibrarySidebar";
 import ThreadSidebar from "./Sidebar";
@@ -48,7 +48,7 @@ import { isAppModalPage, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useShowBotRail } from "../state/botRail";
-import { useIsMobile } from "../hooks/useMediaQuery";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import {
   clampThreadSidebarWidth,
   resolveInitialThreadSidebarWidth,
@@ -176,6 +176,33 @@ export function registerNavigationHistoryCommands(router: AnyRouter): () => void
   );
 }
 
+// Capture phase, so F6 also leaves widgets that swallow keys, such as the terminal.
+function registerWorkspaceFocusCommands(router: AnyRouter): () => void {
+  const move = (direction: 1 | -1) => (event: KeyboardEvent) => {
+    if (event.isComposing) return false;
+    // Inside a dialog the move is refused, but the key is still consumed.
+    event.preventDefault();
+    event.stopPropagation();
+    moveWorkspaceFocus(direction);
+  };
+  const disposers = [
+    registerCommands(
+      { "workspace.focusNext": move(1), "workspace.focusPrevious": move(-1) },
+      {
+        capture: true,
+        when: (event) => !isKeybindingCaptureTarget(event),
+        context: () => readRoutePanelsOpen(router),
+      },
+    ),
+    // A focused desktop browser forwards the keys; its renderer focus is stale.
+    registerMenuAction("workspace.focusNext", () => moveWorkspaceFocus(1, "panel")),
+    registerMenuAction("workspace.focusPrevious", () => moveWorkspaceFocus(-1, "panel")),
+  ];
+  return () => {
+    for (const dispose of disposers) dispose();
+  };
+}
+
 // Escape leaves the pull requests page when no scope (a selection, a dialog,
 // a drag) claimed it, so it observes after every other scope.
 function registerPullRequestsEscapeCommand(router: AnyRouter): () => void {
@@ -278,6 +305,7 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
   const disposers = [
     registerThreadUndoCommands(router, readSidebarVisible),
     registerNavigationHistoryCommands(router),
+    registerWorkspaceFocusCommands(router),
     registerPullRequestsEscapeCommand(router),
     registerMenuAction("open-settings", () => {
       if (!/^\/settings(\/|$)/.test(router.state.location.pathname))
@@ -296,13 +324,12 @@ function SidebarControl() {
   const { toggleSidebar, isMobile, mobileSheetMounted } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const stageBackdropVariant = useSidebarStageBackdropVariant(
-    environmentIdentificationMode === "artwork",
-  );
+  const stageBackdropVariant = useSidebarStageBackdropVariant(environmentIdentificationMode);
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {
     context: { usagePageOpen },
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener that toggles the sidebar on its shortcut
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -393,8 +420,8 @@ function MobileBotRailFrame({ show, children }: { show: boolean; children: React
 }
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
-  const legacySidebarEnabled = useLegacySidebarEnabled();
   const railDestination = useRailDestination();
+  const sidebarArea = workspaceAreaProps("sidebar", 0, "Threads");
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
     pendingKey: null,
@@ -410,7 +437,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const windowWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
   // The bot rail stays pinned left of the sidebar, collapsed or not; on mobile it lives in
   // the sidebar sheet instead.
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery("max-md");
   const showBotRail = useShowBotRail();
   const pinnedBotRail = showBotRail && !isMobile;
   const viewportWidth = windowWidth - (pinnedBotRail ? BOT_RAIL_WIDTH_PX : 0);
@@ -455,6 +482,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           side="left"
           collapsible="offcanvas"
           data-app-sidebar=""
+          {...sidebarArea}
           role="navigation"
           aria-label="Threads"
           resizable={{
@@ -476,8 +504,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <AutomationsSidebar />
             ) : railDestination === "library" ? (
               <LibrarySidebar />
-            ) : legacySidebarEnabled ? (
-              <LegacyThreadSidebar routeReveal={sidebarRouteReveal} />
             ) : (
               <ThreadSidebar routeReveal={sidebarRouteReveal} />
             )}

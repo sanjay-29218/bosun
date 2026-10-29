@@ -16,10 +16,8 @@ import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { randomUUID } from "../../lib/utils";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
+  providerInstanceEntriesFor,
   resolveDefaultProviderModelSelection,
-  sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError } from "../../state/query";
@@ -45,9 +43,7 @@ function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelect
   const settings = useEnvironmentSettings(environmentId);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
-  const entries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
-  );
+  const entries = providerInstanceEntriesFor(providers, settings, null);
   const modelOptions = getCustomModelOptionsByInstance(
     settings,
     providers,

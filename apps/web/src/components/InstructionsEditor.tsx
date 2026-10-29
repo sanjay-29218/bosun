@@ -13,10 +13,10 @@ import { useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import {
-  ComposerPromptEditor,
+  ComposerPromptEditorTiptap as ComposerPromptEditor,
   type ComposerFormat,
   type ComposerPromptEditorHandle,
-} from "./ComposerPromptEditor";
+} from "./ComposerPromptEditorTiptap";
 import { EMPTY_COMPOSER_CONTEXT_RECORDS } from "./composerContextPresentation";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";

@@ -160,27 +160,32 @@ export function useCloseAppModal() {
  * Shows a main view where it was left. Remembered before navigating, so List's
  * fallback to `/` lands on a draft instead of bouncing back to the board.
  */
+function showMainView(router: AnyRouter, view: MainView, options?: { readonly replace?: boolean }) {
+  rememberMainView(readActiveEnvironmentId(), view);
+  return router.navigate({
+    href: mainViewHrefs[view] ?? (view === "board" ? BOARD_PATH : "/"),
+    replace: options?.replace ?? false,
+  });
+}
+
 export function useShowMainView() {
-  const navigate = useNavigate();
-  return (view: MainView, options?: { readonly replace?: boolean }) => {
-    rememberMainView(readActiveEnvironmentId(), view);
-    return navigate({
-      href: mainViewHrefs[view] ?? (view === "board" ? BOARD_PATH : "/"),
-      replace: options?.replace ?? false,
-    });
-  };
+  const router = useRouter();
+  return (view: MainView, options?: { readonly replace?: boolean }) =>
+    showMainView(router, view, options);
 }
 
 /** `board.toggle`: flips between the views from wherever the app is when it runs. */
+export function toggleMainView(router: AnyRouter) {
+  const { pathname } = router.state.location;
+  return showMainView(
+    router,
+    toggledMainView(isOutsideMainView(pathname) ? null : mainViewForPathname(pathname)),
+  );
+}
+
 export function useToggleMainView() {
   const router = useRouter();
-  const showMainView = useShowMainView();
-  return () => {
-    const { pathname } = router.state.location;
-    return showMainView(
-      toggledMainView(isOutsideMainView(pathname) ? null : mainViewForPathname(pathname)),
-    );
-  };
+  return () => toggleMainView(router);
 }
 
 /**

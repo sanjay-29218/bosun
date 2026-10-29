@@ -12,7 +12,6 @@ import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
 import {
   ComposerControl,
-  ComposerControlChevron,
   ComposerControlIcon,
   type ComposerControlSize,
 } from "../chat/ComposerControl";
@@ -120,7 +119,6 @@ export function ComposerWorkflowPicker(props: {
               <span data-composer-control-label className="max-w-40 truncate">
                 {workflow.name}
               </span>
-              <ComposerControlChevron size={props.size} />
             </>
           ) : null}
         </TooltipTrigger>
@@ -194,7 +192,6 @@ export function ComposerCrewControl(props: {
         <span className="text-muted-foreground tabular-nums">
           {Object.keys(workflow.roles).length}
         </span>
-        <ComposerControlChevron size={props.size} />
       </MenuTrigger>
       <MenuPopup {...menuProps} side="top" align="start">
         <MenuGroup>

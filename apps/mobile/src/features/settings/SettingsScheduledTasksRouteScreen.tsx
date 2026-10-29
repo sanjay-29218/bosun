@@ -994,6 +994,7 @@ function TaskForm({
         <SettingsSection title="Schedule">
           <View className="px-4 py-3">
             <SegmentedControl
+              variant="card"
               options={[
                 { value: "fixed_time", label: "At a time" },
                 { value: "interval", label: "Interval" },

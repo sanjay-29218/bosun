@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-26T20:00:36Z",
+  "updatedAt": "2026-10-28T08:10:39Z",
   "compatibility": [
     {
       "driver": "codex",
@@ -95,6 +95,15 @@
         { "range": ">=1.4.2", "status": "supported" },
         { "range": "<1.4.2", "status": "unknown" }
       ]
+    },
+    {
+      "driver": "fx",
+      "t3CodeRange": ">=0.0.46",
+      "recommendedRange": ">=0.0.13",
+      "ranges": [
+        { "range": ">=0.0.13", "status": "supported" },
+        { "range": "<0.0.13", "status": "unsupported" }
+      ]
     }
   ],
   "currentModels": {
@@ -141,7 +150,7 @@
     },
     "claudeAgent": {
       "defaults": {
-        "chat": "claude-fable-5-1"
+        "chat": "claude-opus-5-5"
       },
       "profiles": {
         "fable-5": {
