@@ -397,7 +397,7 @@ function CrewPanelFeatureDetails(props: {
             <Menu key={action}>
               <MenuTrigger
                 disabled={busy}
-                render={<Button size="sm" variant="outline" />}
+                render={<Button size="xs" variant="outline" />}
                 title={CREW_ACTION_COPY.reopen.description}
               >
                 Reopen at…
@@ -416,7 +416,7 @@ function CrewPanelFeatureDetails(props: {
           ) : (
             <Button
               key={action}
-              size="sm"
+              size="xs"
               variant={action === "cancel" ? "destructive-outline" : "outline"}
               disabled={busy}
               title={CREW_ACTION_COPY[action].description}
@@ -426,7 +426,7 @@ function CrewPanelFeatureDetails(props: {
             </Button>
           ),
         )}
-        <Button size="sm" variant="ghost" onClick={props.onEditWorkflow}>
+        <Button size="xs" variant="ghost" onClick={props.onEditWorkflow}>
           Edit workflow
         </Button>
       </footer>
