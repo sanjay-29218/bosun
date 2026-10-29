@@ -8,7 +8,8 @@ import { runMigrations } from "../Migrations.ts";
 
 const setUp = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 54 });
+  // 077 changes scheduled_tasks, which the upstream V2 migrations create.
+  yield* runMigrations({ toMigrationInclusive: 69 });
   yield* BosunMigrations.reconcileLegacyHistory();
   yield* BosunMigrations.runMigrations(76);
   yield* sql`

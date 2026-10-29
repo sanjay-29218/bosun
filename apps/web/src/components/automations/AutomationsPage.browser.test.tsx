@@ -79,6 +79,11 @@ vi.mock(import("../../state/server"), async (original) => {
     },
   };
 });
+// A server without bots: the editor's bots query is never made, so it only offers a new thread.
+vi.mock(import("../../state/bots"), async (original) => {
+  const actual = await original();
+  return { ...actual, botsEnvironment: { ...actual.botsEnvironment, list: (() => null) as never } };
+});
 // Mirrors the real query: a null request (disconnected environment) has no data.
 vi.mock(import("../../state/query"), async (original) => ({
   ...(await original()),
