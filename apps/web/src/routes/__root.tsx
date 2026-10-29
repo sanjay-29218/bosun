@@ -18,6 +18,8 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { FeatureIssueDialogHost } from "../components/crew/FeatureIssue";
+import { NewTodoDialogHost } from "../components/features/NewTodoDialog";
+import { TodoDetailHost } from "../components/features/TodoDetail";
 import { MakeFeatureDialogHost } from "../components/features/MakeFeatureDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
@@ -169,6 +171,8 @@ function RootRouteBranch() {
         <CustomSnoozeDialogHost />
         <MakeFeatureDialogHost />
         <FeatureIssueDialogHost />
+        <NewTodoDialogHost />
+        <TodoDetailHost />
         <GuestShareDialogHost />
         <CommandPalette>
           <AppSidebarLayout>
@@ -210,6 +214,8 @@ function RootRouteBranch() {
         <CustomSnoozeDialogHost />
         <MakeFeatureDialogHost />
         <FeatureIssueDialogHost />
+        <NewTodoDialogHost />
+        <TodoDetailHost />
         <GuestShareDialogHost />
         <ProjectCloneToastCoordinator />
         <AddProjectToMachineDialogHost />

@@ -22,7 +22,13 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, FeatureCardState, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  featureIssueRef,
+  type EnvironmentId,
+  type FeatureCardState,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
@@ -69,7 +75,7 @@ function rowActions(card: EnvironmentFeatureCard): FeatureCardActionId[] {
 }
 
 function featureLine(card: EnvironmentFeatureCard): string | null {
-  const issue = card.issue ? `#${card.issue.number}` : null;
+  const issue = card.issue ? featureIssueRef(card.issue) : null;
   if (!card.stage) return issue;
   const stage =
     card.state === "failed" && card.detail

@@ -28,7 +28,7 @@ export const issueNumberFromUrl = (url: URL): number | null => {
 };
 
 /** The first issue link in a brief, if any. */
-export const firstIssueUrl = (text: string): string | null => {
+const firstIssueUrl = (text: string): string | null => {
   for (const match of text.matchAll(/https:\/\/[^\s<>"')\]`]+/g)) {
     const candidate = match[0].replace(/[.,;!?]+$/, "");
     if (URL.canParse(candidate) && issueNumberFromUrl(new URL(candidate)) !== null) {
@@ -37,3 +37,7 @@ export const firstIssueUrl = (text: string): string | null => {
   }
   return null;
 };
+
+/** The first issue link in a brief, else a `Ticket T-<number>` line, if any. */
+export const firstIssueRef = (text: string): string | null =>
+  firstIssueUrl(text) ?? /^Ticket (T-[1-9]\d*)\s*$/mu.exec(text)?.[1] ?? null;

@@ -2,7 +2,11 @@ import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
 
 import { resolveShortcutCommand, type ShortcutEventLike } from "../../keybindings";
 
-const FEATURES_PAGE_COMMANDS = ["features.workflow", "features.needsYou"] as const;
+const FEATURES_PAGE_COMMANDS = [
+  "features.workflow",
+  "features.needsYou",
+  "features.newTodo",
+] as const;
 /** `features.search` is `/`, fixed like a browser's find-in-page rather than a keybinding. */
 export type FeaturesPageCommand = (typeof FEATURES_PAGE_COMMANDS)[number] | "features.search";
 

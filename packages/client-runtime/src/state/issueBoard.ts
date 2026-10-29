@@ -4,18 +4,44 @@ import type {
   ProjectId,
   RepositoryIssue,
   RepositoryMilestone,
+  Ticket,
 } from "@t3tools/contracts";
 
 import { featurePhase } from "./crewBoard.ts";
 
 /**
- * Pure Issues-view logic shared by web and mobile. Issues come from `issues.list`, one read per
- * project; a feature works on an issue when its linked issue has the same URL.
+ * Pure Issues-view logic shared by web and mobile. Issues come from `issues.list` and tickets
+ * from `tickets.list`, one read each per project. A feature works on an issue when its linked
+ * issue has the same URL, and on a ticket when it links the same ticket.
  */
 export interface EnvironmentIssue extends RepositoryIssue {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
+  /** Set for a Bosun ticket, whose `number` is its `T-` number and whose `url` is empty. */
+  readonly ticketId: string | null;
 }
+
+/** A ticket as an Issues-view row; tickets have no milestone, parent, labels or assignees. */
+export const ticketIssue = (ticket: Ticket, environmentId: EnvironmentId): EnvironmentIssue => ({
+  number: ticket.number,
+  title: ticket.title,
+  url: "",
+  state: ticket.state,
+  updatedAt: ticket.updatedAt,
+  closedAt: ticket.closedAt,
+  milestone: null,
+  parent: null,
+  subIssues: null,
+  labels: [],
+  assignees: [],
+  environmentId,
+  projectId: ticket.projectId,
+  ticketId: ticket.id,
+});
+
+/** `T-12` for a ticket, `#12` for an issue. */
+export const issueRef = (issue: { readonly number: number; readonly ticketId?: string | null }) =>
+  issue.ticketId ? `T-${issue.number}` : `#${issue.number}`;
 
 export interface EnvironmentMilestone extends RepositoryMilestone {
   readonly environmentId: EnvironmentId;
@@ -26,10 +52,18 @@ export const issueKey = (issue: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly number: number;
-}) => `${issue.environmentId}:${issue.projectId}:${issue.number}`;
+  readonly ticketId?: string | null;
+}) => `${issue.environmentId}:${issue.projectId}:${issue.ticketId ? "T-" : ""}${issue.number}`;
 
 const issueUrlKey = (environmentId: EnvironmentId, url: string) =>
   `${environmentId}:${url.split(/[?#]/u)[0]!.replace(/\/+$/u, "").toLowerCase()}`;
+const ticketKey = (environmentId: EnvironmentId, ticketId: string) =>
+  `${environmentId}:ticket:${ticketId}`;
+const linkKey = (
+  environmentId: EnvironmentId,
+  issue: { readonly url: string; readonly ticketId?: string | null | undefined },
+) =>
+  issue.ticketId ? ticketKey(environmentId, issue.ticketId) : issueUrlKey(environmentId, issue.url);
 
 const isOpenFeature = (card: FeatureBoardCard) =>
   card.state !== "done" && card.state !== "cancelled";
@@ -44,7 +78,7 @@ export function featuresByIssue<
   const byIssue = new Map<string, Card>();
   for (const card of cards) {
     if (!card.issue) continue;
-    const key = issueUrlKey(card.environmentId, card.issue.url);
+    const key = linkKey(card.environmentId, card.issue);
     const current = byIssue.get(key);
     if (
       !current ||
@@ -61,7 +95,7 @@ export function featureForIssue<Card>(
   features: ReadonlyMap<string, Card>,
   issue: EnvironmentIssue,
 ): Card | null {
-  return features.get(issueUrlKey(issue.environmentId, issue.url)) ?? null;
+  return features.get(linkKey(issue.environmentId, issue)) ?? null;
 }
 
 // ── Lanes ────────────────────────────────────────────────────────────
@@ -231,12 +265,12 @@ export function groupIssues(input: {
   return groups;
 }
 
-/** Issues whose title or `#number` holds every word of the query. */
-export function matchesIssueSearch(issue: RepositoryIssue, text: string): boolean {
+/** Issues whose title, `#number` or `T-number` holds every word of the query. */
+export function matchesIssueSearch(issue: EnvironmentIssue, text: string): boolean {
   if (!text) return true;
   const haystack = [
     issue.title,
-    `#${issue.number}`,
+    issueRef(issue),
     issue.milestone?.title,
     ...issue.labels.map((label) => label.name),
     ...issue.assignees.map((assignee) => assignee.login),

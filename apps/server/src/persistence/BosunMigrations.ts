@@ -32,6 +32,8 @@ import BotProjectGrants from "./Migrations/073_BotProjectGrants.ts";
 import BuilderSubagents from "./Migrations/074_BuilderSubagents.ts";
 import FeatureIssues from "./Migrations/075_FeatureIssues.ts";
 import CaptainWorkflowGrant from "./Migrations/076_CaptainWorkflowGrant.ts";
+// 077 is ScheduledTaskBots on fix/rail-update-button; it must land before this one.
+import Tickets from "./Migrations/078_Tickets.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -56,6 +58,7 @@ const migrationEntries = [
   [74, "BuilderSubagents", BuilderSubagents],
   [75, "FeatureIssues", FeatureIssues],
   [76, "CaptainWorkflowGrant", CaptainWorkflowGrant],
+  [78, "Tickets", Tickets],
 ] as const;
 
 const legacyNames = new Set([

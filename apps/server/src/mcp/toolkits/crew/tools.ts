@@ -1,7 +1,10 @@
 import {
   FeatureCardState,
+  IssueDetail,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
+  RepositoryIssue,
+  Ticket,
   WorkflowStageHandoff,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -13,6 +16,7 @@ import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
+import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
@@ -166,7 +170,7 @@ const CreateProject = Tool.make("crew_create_project", {
 
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
-    "Link the issue the feature you work on tracks, such as one you just created with gh. A feature has one issue: linking another replaces it, and null unlinks it. Every thread of the feature shows it.",
+    "Link the issue the feature you work on tracks: an issue URL, such as one you just created, or a Bosun ticket as `T-14`. A feature has one issue: linking another replaces it, and null unlinks it. Every thread of the feature shows it.",
   parameters: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
   success: Schema.Struct({
     featureId: Schema.String,
@@ -178,7 +182,7 @@ const LinkIssue = Tool.make("crew_link_issue", {
 
 const ListIssues = Tool.make("crew_list_issues", {
   description:
-    "List the GitHub issues of the project this thread works in: open ones by default, newest activity first, with each one's milestone, parent issue and sub-issue progress. Filter by state or milestone title. `unavailable` says why there are none to read, such as a remote not on GitHub.",
+    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue and sub-issue progress. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
   parameters: Schema.Struct({
     state: Schema.optional(Schema.Literals(["open", "closed", "all"])),
     milestone: Schema.optional(Schema.String),
@@ -202,10 +206,69 @@ const ListIssues = Tool.make("crew_list_issues", {
         assignees: Schema.Array(Schema.String),
       }),
     ),
+    tickets: Schema.Array(
+      Schema.Struct({
+        ref: Schema.String,
+        title: Schema.String,
+        state: Schema.Literals(["open", "closed"]),
+      }),
+    ),
   }),
   failure,
-  dependencies: [...dependencies, IssueService.IssueService],
+  dependencies: [...dependencies, IssueService.IssueService, TicketService],
 }).annotate(Tool.Readonly, true);
+
+/** `T-14` names a ticket; `#482` or `482` names an issue. */
+const TodoRef = Schema.String.annotate({
+  description: "`T-<number>` for a Bosun ticket, `#<number>` for a GitHub issue.",
+});
+
+const CreateTodo = Tool.make("crew_create_todo", {
+  description:
+    "Create a todo in the project this thread works in. `as: ticket` (the default) keeps it in Bosun as `T-<number>`; `as: issue` files a GitHub issue, which needs a GitHub remote. The description is Markdown.",
+  parameters: Schema.Struct({
+    title: Schema.String,
+    description: Schema.optional(Schema.String),
+    as: Schema.optional(Schema.Literals(["ticket", "issue"])),
+  }),
+  success: Schema.Struct({
+    ref: Schema.String,
+    title: Schema.String,
+    url: Schema.NullOr(Schema.String),
+  }),
+  failure,
+  dependencies: [...dependencies, IssueService.IssueService, TicketService],
+}).annotate(Tool.Destructive, false);
+
+const ReadTodo = Tool.make("crew_read_todo", {
+  description:
+    "Read one todo of the project this thread works in, with its Markdown description; a GitHub issue also comes with its first comments.",
+  parameters: Schema.Struct({ ref: TodoRef }),
+  success: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
+    Schema.Struct({ kind: Schema.Literal("issue"), issue: IssueDetail }),
+  ]),
+  failure,
+  dependencies: [...dependencies, IssueService.IssueService, TicketService],
+}).annotate(Tool.Readonly, true);
+
+const UpdateTodo = Tool.make("crew_update_todo", {
+  description:
+    "Close or reopen a todo of the project this thread works in, or change a ticket's title or Markdown description. A GitHub issue's title and description are edited on GitHub.",
+  parameters: Schema.Struct({
+    ref: TodoRef,
+    state: Schema.optional(Schema.Literals(["open", "closed"])),
+    closedReason: Schema.optional(Schema.Literals(["completed", "not_planned"])),
+    title: Schema.optional(Schema.String),
+    description: Schema.optional(Schema.String),
+  }),
+  success: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
+    Schema.Struct({ kind: Schema.Literal("issue"), issue: RepositoryIssue }),
+  ]),
+  failure,
+  dependencies: [...dependencies, IssueService.IssueService, TicketService],
+}).annotate(Tool.Destructive, false);
 
 export const CrewToolkit = Toolkit.make(
   Delegate,
@@ -219,4 +282,7 @@ export const CrewToolkit = Toolkit.make(
   CreateProject,
   LinkIssue,
   ListIssues,
+  CreateTodo,
+  ReadTodo,
+  UpdateTodo,
 );

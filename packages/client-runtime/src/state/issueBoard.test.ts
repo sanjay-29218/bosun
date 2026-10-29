@@ -5,10 +5,12 @@ import {
   featureForIssue,
   featuresByIssue,
   groupIssues,
+  issueKey,
   issueLane,
   matchesIssueSearch,
   milestoneProgress,
   nestIssueRows,
+  ticketIssue,
   type EnvironmentIssue,
   type EnvironmentMilestone,
 } from "./issueBoard.ts";
@@ -31,6 +33,7 @@ const issue = (number: number, overrides: Partial<EnvironmentIssue> = {}): Envir
   subIssues: null,
   labels: [],
   assignees: [],
+  ticketId: null,
   ...overrides,
 });
 
@@ -97,6 +100,35 @@ describe("features by issue", () => {
     const byIssue = featuresByIssue([done, running]);
     expect(featureForIssue(byIssue, issue(7))?.featureId).toBe("running");
     expect(featureForIssue(byIssue, issue(8))).toBeNull();
+  });
+
+  it("matches a ticket by its ticket, never an issue with the same number", () => {
+    const ticket = ticketIssue(
+      {
+        id: "ticket:a",
+        projectId,
+        number: 7,
+        title: "Sketch",
+        description: "",
+        state: "open",
+        closedReason: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        closedAt: null,
+      },
+      environmentId,
+    );
+    const onTicket = feature({
+      featureId: "ticket",
+      issue: { ...linkedTo(7), url: "", ticketId: "ticket:a" },
+    });
+    const onIssue = feature({ featureId: "issue", issue: linkedTo(7) });
+    const byIssue = featuresByIssue([onTicket, onIssue]);
+    expect(featureForIssue(byIssue, ticket)?.featureId).toBe("ticket");
+    expect(featureForIssue(byIssue, issue(7))?.featureId).toBe("issue");
+    expect(issueKey(ticket)).not.toBe(issueKey(issue(7)));
+    expect(matchesIssueSearch(ticket, "t-7")).toBe(true);
+    expect(matchesIssueSearch(ticket, "#7")).toBe(false);
   });
 });
 

@@ -48,6 +48,7 @@ export const FeatureSetStatusInput = Schema.Struct({
 /** Links the issue at `url` to the feature, replacing any other; null unlinks it. */
 export const FeatureSetIssueInput = Schema.Struct({
   ...FeatureGetInput.fields,
+  /** An issue link, or a ticket's `T-<number>`; null unlinks. */
   url: Schema.NullOr(Schema.String),
 });
 

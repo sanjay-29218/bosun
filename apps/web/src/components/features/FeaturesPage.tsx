@@ -38,7 +38,6 @@ import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "re
 
 import { useOpenLink } from "../../browser/useOpenLink";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
-import { useComposerDraftStore } from "../../composerDraftStore";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -91,6 +90,8 @@ import { resolveFeaturesShortcut } from "./featuresShortcuts";
 import { useFeatureActions, type FeatureNoteRequest } from "./useFeatureActions";
 import { useFeatureBoard, useWorkflowEnvironmentIds } from "./useFeatureBoard";
 import { useIssueBoard } from "./useIssueBoard";
+import { useStartFeatureFromTodo } from "./TodoDetail";
+import { openNewTodoDialog, openTodo } from "./todoDialogs";
 
 export interface FeaturesSearch {
   readonly needsYou?: boolean;
@@ -104,6 +105,9 @@ export interface FeaturesSearch {
 }
 
 type BoardView = "features" | "issues" | "milestones";
+
+const TODO_SOURCES = { ticket: "Tickets", github: "GitHub issues" } as const;
+type TodoSource = keyof typeof TODO_SOURCES;
 
 const ISSUE_LANES = Object.keys(ISSUE_LANE_LABELS) as IssueLane[];
 
@@ -156,6 +160,7 @@ export function FeaturesPage(props: {
   const needsYou = isFeatures && props.search.needsYou === true;
   const [laneFilters, setLaneFilters] = useState<ReadonlySet<IssueLane>>(new Set());
   const [labelFilters, setLabelFilters] = useState<ReadonlySet<string>>(new Set());
+  const [sourceFilters, setSourceFilters] = useState<ReadonlySet<TodoSource>>(new Set());
 
   // Projects on servers that run workflows; the scope picker lists only these.
   const workflowEnvironmentIds = useWorkflowEnvironmentIds();
@@ -298,6 +303,7 @@ export function FeaturesPage(props: {
   const issueBoardLayout = issueDisplay.layout === "board";
   const visibleIssues = issueBoard.issues.filter(
     (issue) =>
+      (sourceFilters.size === 0 || sourceFilters.has(issue.ticketId ? "ticket" : "github")) &&
       // The board always has a Done lane, so it always shows what was closed lately.
       (issue.state === "open" || issueDisplay.showClosed || issueBoardLayout) &&
       (milestoneFilter === null ||
@@ -322,25 +328,30 @@ export function FeaturesPage(props: {
     .slice(0, 30);
 
   const openLink = useOpenLink(null);
-  // Start feature: a new thread in the issue's project whose brief links the issue. The
-  // composer's Workflow picker starts it, and creating the feature links the issue.
-  const startFeatureFromIssue = async (issue: EnvironmentIssue) => {
-    const created = await newThread(scopeProjectRef(issue.environmentId, issue.projectId));
-    if (!created) return;
-    const drafts = useComposerDraftStore.getState();
-    const brief = `${issue.title}\n\n${issue.url}`;
-    // A reused draft keeps what was already written.
-    const existing = drafts.getComposerDraft(created.draftId)?.prompt.trim() ?? "";
-    drafts.setPrompt(created.draftId, existing ? `${existing}\n\n${brief}` : brief);
-  };
+  const startFeatureFromTodo = useStartFeatureFromTodo();
   const issueHandlers: IssueViewHandlers = {
     projectFor,
     featureFor,
     laneFor,
     onOpenIssue: (issue) =>
+      openTodo(
+        issue.ticketId
+          ? {
+              environmentId: issue.environmentId,
+              projectId: issue.projectId,
+              ticketId: issue.ticketId,
+            }
+          : {
+              environmentId: issue.environmentId,
+              projectId: issue.projectId,
+              number: issue.number,
+            },
+      ),
+    onOpenExternal: (issue) =>
       void openLink(issue.url).catch((error: unknown) => console.error(error)),
     onOpenFeature: (card) => actions.openCard(card),
-    onStartFeature: (issue) => void startFeatureFromIssue(issue),
+    onStartFeature: (issue) =>
+      void startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
     showProject: scopedProject === null && projects.length > 1,
     display: issueDisplay,
   };
@@ -396,6 +407,18 @@ export function FeaturesPage(props: {
     if (needsYou) props.onSearchChange({ needsYou: undefined });
   };
 
+  const newTodo = () =>
+    openNewTodoDialog(
+      newFeatureProject
+        ? {
+            project: {
+              environmentId: newFeatureProject.environmentId,
+              projectId: newFeatureProject.id,
+            },
+          }
+        : {},
+    );
+
   const onPageKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (
       event.defaultPrevented ||
@@ -413,6 +436,7 @@ export function FeaturesPage(props: {
       setSearchOpen(true);
       searchInputRef.current?.focus();
     } else if (command === "features.workflow") toggleWorkflow();
+    else if (command === "features.newTodo") newTodo();
     else toggleNeedsYou();
   });
   // oxlint-disable-next-line t3code/react-effect-budget -- Subscribes the page's shortcuts to window keydown while it is mounted.
@@ -457,6 +481,7 @@ export function FeaturesPage(props: {
     setStateFilters(new Set());
     setLaneFilters(new Set());
     setLabelFilters(new Set());
+    setSourceFilters(new Set());
     if (scopedProject) props.onSearchChange({ project: undefined });
   };
   const stateOptions = ["not-started", ...STATE_FILTERS] as const;
@@ -507,6 +532,18 @@ export function FeaturesPage(props: {
             onChange: (value: string, checked: boolean) => {
               const lane = ISSUE_LANES.find((candidate) => candidate === value);
               if (lane) setLaneFilters((current) => toggled(current, lane, checked));
+            },
+          },
+          {
+            label: "Source",
+            options: Object.entries(TODO_SOURCES).map(([value, label]) => ({
+              value,
+              label,
+              checked: sourceFilters.has(value as TodoSource),
+            })),
+            onChange: (value: string, checked: boolean) => {
+              if (value === "ticket" || value === "github")
+                setSourceFilters((current) => toggled(current, value, checked));
             },
           },
           {
@@ -616,6 +653,17 @@ export function FeaturesPage(props: {
           <span className="hidden md:inline">New feature</span>
         </Button>
       ) : null}
+      {isFeatures ? null : (
+        <Button
+          size="sm"
+          title={shortcutTitle("New todo", "features.newTodo")}
+          onClick={newTodo}
+          disabled={!newFeatureProject}
+        >
+          <PlusIcon aria-hidden />
+          <span className="hidden md:inline">New todo</span>
+        </Button>
+      )}
     </div>
   );
 
@@ -627,8 +675,11 @@ export function FeaturesPage(props: {
       </p>
     );
   } else if (!isFeatures) {
+    // Without GitHub anywhere, the view still lists tickets, and only Milestones has nothing.
     const allUnavailable =
-      issueBoard.unavailable.length > 0 && issueBoard.unavailable.length === targets.length;
+      issueBoard.unavailable.length > 0 &&
+      issueBoard.unavailable.length === targets.length &&
+      (view === "milestones" || issueBoard.issues.length === 0);
     if (issueBoard.pending && issueBoard.issues.length === 0) {
       body = (
         <div className="flex flex-col gap-1.5">
@@ -641,6 +692,7 @@ export function FeaturesPage(props: {
       body = (
         <p className="py-10 text-center text-sm text-muted-foreground">
           {issueBoard.unavailable[0]!.reason}
+          {view === "issues" ? " Tickets work without one: add one with New todo." : null}
         </p>
       );
     } else if (view === "milestones") {
@@ -657,7 +709,7 @@ export function FeaturesPage(props: {
     } else if (visibleIssues.length === 0 && issueBoard.errors.length === 0) {
       body = (
         <p className="py-10 text-center text-sm text-muted-foreground">
-          {issueBoard.issues.length === 0 ? "No open issues." : "No issues match."}
+          {issueBoard.issues.length === 0 ? "No open todos." : "No todos match."}
         </p>
       );
     } else if (issueBoardLayout) {

@@ -50,6 +50,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
+import { firstIssueRef } from "./featureIssue.ts";
 
 const projectId = ProjectId.make("workflow-feature-project");
 const scratchProjectId = ProjectId.make("workflow-feature-scratch");
@@ -388,6 +389,43 @@ describe("feature creation", () => {
 
         expect((yield* features.setIssue({ ...target, url: null })).issue).toBeNull();
         expect(yield* tagOf()).toEqual({ id: target.id, title: "Dark mode" });
+      }),
+    ),
+  );
+
+  effectIt.effect("links a project's ticket by its T-number, and only that project's", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const sql = yield* SqlClient.SqlClient;
+        yield* (yield* WorkflowService).ensureStarterDefinition();
+        const target = { id: "ticket-feature", projectId };
+        yield* features.create({
+          ...target,
+          title: "Board",
+          brief: "Sketch the board",
+          workflowId: "feature-delivery",
+        });
+        yield* sql`
+          INSERT INTO tickets (id, project_id, number, title, description, state, created_at, updated_at)
+          VALUES ('ticket:a', ${projectId}, 7, 'Sketch the board', '', 'open', '2026-10-28', '2026-10-28')
+        `;
+
+        const linked = yield* features.setIssue({ ...target, url: " t-7 " });
+        expect(linked.issue).toEqual({
+          url: "",
+          ticketId: "ticket:a",
+          number: 7,
+          title: "Sketch the board",
+          state: "open",
+          milestone: null,
+          subIssues: null,
+        });
+
+        const missing = yield* Effect.flip(features.setIssue({ ...target, url: "T-8" }));
+        expect(missing.message).toBe("No ticket T-8 in this project");
+        expect(firstIssueRef("Sketch it\n\nTicket T-7")).toBe("T-7");
+        expect(firstIssueRef("Fix T-7 later")).toBeNull();
       }),
     ),
   );

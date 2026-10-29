@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type {
   RepositoryIdentity,
+  IssueClosedReason,
   RepositoryIssue,
+  RepositoryIssueDetail,
   RepositoryMilestone,
   ChangeRequest,
   ChangeRequestState,
@@ -170,6 +172,27 @@ export class SourceControlProvider extends Context.Service<
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<SourceControlIssueList, SourceControlProviderError>;
+    /** One issue with its description and first comments. Present when `listIssues` is. */
+    readonly getIssue?: (input: {
+      readonly cwd: string;
+      readonly number: number;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<RepositoryIssueDetail, SourceControlProviderError>;
+    /** Files an issue with a Markdown body. Present when `listIssues` is. */
+    readonly createIssue?: (input: {
+      readonly cwd: string;
+      readonly title: string;
+      readonly body: string;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
+    /** Closes or reopens an issue. Present when `listIssues` is. */
+    readonly setIssueState?: (input: {
+      readonly cwd: string;
+      readonly number: number;
+      readonly state: "open" | "closed";
+      readonly reason?: IssueClosedReason;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
     /**
      * Whether `createChangeRequest` from `cwd` targets `repository`, the `owner/name` of the
      * context's remote, for a host whose tools let configuration outside the remotes name another

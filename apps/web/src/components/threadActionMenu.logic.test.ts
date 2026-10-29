@@ -95,15 +95,16 @@ describe("buildThreadActionMenuItems", () => {
   });
 
   it("opens or changes the feature's issue, and links one when it has none", () => {
-    const issueItems = (issueNumber: number | null) =>
+    const issueItems = (issueRef: string | null) =>
       buildThreadActionMenuItems({
         ...baseState,
-        featureLifecycle: { state: "working", issueNumber },
+        featureLifecycle: { state: "working", issueRef },
       })
         .find((item) => item.id === "feature")
         ?.children?.filter((item) => item.id.includes("issue"))
         .map((item) => item.label);
-    expect(issueItems(42)).toEqual(["Open issue #42", "Change issue…"]);
+    expect(issueItems("#42")).toEqual(["Open issue #42", "Change issue…"]);
+    expect(issueItems("T-7")).toEqual(["Open T-7", "Change issue…"]);
     expect(issueItems(null)).toEqual(["Link issue…"]);
   });
 });

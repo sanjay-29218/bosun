@@ -2,6 +2,7 @@ import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-
 import {
   ISSUE_LANE_LABELS,
   issueKey,
+  issueRef,
   milestoneProgress,
   type EnvironmentIssue,
   type EnvironmentMilestone,
@@ -10,7 +11,14 @@ import {
 } from "@t3tools/client-runtime/state/issue-board";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { ChevronRightIcon, ExternalLinkIcon, ListTreeIcon, PlayIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  CircleDotIcon,
+  ExternalLinkIcon,
+  ListTreeIcon,
+  NotebookTextIcon,
+  PlayIcon,
+} from "lucide-react";
 import { memo, useState, type MouseEvent } from "react";
 
 import { cn } from "../../lib/utils";
@@ -37,7 +45,10 @@ export interface IssueViewHandlers {
   }) => EnvironmentProject | null;
   readonly featureFor: (issue: EnvironmentIssue) => EnvironmentFeatureCard | null;
   readonly laneFor: (issue: EnvironmentIssue) => IssueLane;
+  /** Opens the todo's detail view. */
   readonly onOpenIssue: (issue: EnvironmentIssue) => void;
+  /** Opens a GitHub issue on GitHub. */
+  readonly onOpenExternal: (issue: EnvironmentIssue) => void;
   readonly onOpenFeature: (card: EnvironmentFeatureCard) => void;
   readonly onStartFeature: (issue: EnvironmentIssue) => void;
   /** Rows name their project when more than one is shown. */
@@ -185,12 +196,11 @@ const IssueRow = memo(function IssueRow(props: {
     <div
       role="button"
       tabIndex={0}
-      onClick={() => (feature ? handlers.onOpenFeature(feature) : handlers.onOpenIssue(issue))}
+      onClick={() => handlers.onOpenIssue(issue)}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        if (feature) handlers.onOpenFeature(feature);
-        else handlers.onOpenIssue(issue);
+        handlers.onOpenIssue(issue);
       }}
       className={cn(
         // Off-screen rows skip layout and paint, like sidebar rows.
@@ -207,8 +217,9 @@ const IssueRow = memo(function IssueRow(props: {
         </TooltipTrigger>
         <TooltipPopup>{ISSUE_LANE_LABELS[lane]}</TooltipPopup>
       </Tooltip>
-      <span className="w-12 shrink-0 text-xs text-muted-foreground tabular-nums">
-        #{issue.number}
+      <span className="flex w-14 shrink-0 items-center gap-1 text-xs text-muted-foreground tabular-nums">
+        {issue.ticketId ? null : <CircleDotIcon aria-label="GitHub issue" className="size-3" />}
+        {issueRef(issue)}
       </span>
       {project ? (
         <span className="flex max-w-32 shrink-0 items-center gap-1 text-xs text-muted-foreground">
@@ -238,17 +249,21 @@ const IssueRow = memo(function IssueRow(props: {
       <span className="w-10 shrink-0 text-end text-xs text-muted-foreground tabular-nums">
         {updated}
       </span>
-      <button
-        type="button"
-        aria-label={`Open #${issue.number} on GitHub`}
-        onClick={(event) => {
-          event.stopPropagation();
-          handlers.onOpenIssue(issue);
-        }}
-        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover/issue:opacity-100 group-focus-within/issue:opacity-100"
-      >
-        <ExternalLinkIcon aria-hidden className="size-3.5" />
-      </button>
+      {issue.ticketId ? (
+        <span aria-hidden className="size-6 shrink-0" />
+      ) : (
+        <button
+          type="button"
+          aria-label={`Open #${issue.number} on GitHub`}
+          onClick={(event) => {
+            event.stopPropagation();
+            handlers.onOpenExternal(issue);
+          }}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover/issue:opacity-100 group-focus-within/issue:opacity-100"
+        >
+          <ExternalLinkIcon aria-hidden className="size-3.5" />
+        </button>
+      )}
     </div>
   );
 });
@@ -367,17 +382,20 @@ const IssueCard = memo(function IssueCard(props: {
     <div
       role="button"
       tabIndex={0}
-      onClick={() => (feature ? handlers.onOpenFeature(feature) : handlers.onOpenIssue(issue))}
+      onClick={() => handlers.onOpenIssue(issue)}
       onKeyDown={(event) => {
         if (event.key !== "Enter") return;
-        if (feature) handlers.onOpenFeature(feature);
-        else handlers.onOpenIssue(issue);
+        handlers.onOpenIssue(issue);
       }}
       className="group/issue flex w-full min-w-0 cursor-default flex-col gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-left text-xs shadow-xs/5 outline-hidden ring-ring [contain-intrinsic-size:auto_96px] [content-visibility:auto] hover:border-border hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset"
     >
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-        <FeatureIssueIcon issue={issue} className="size-3" />
-        <span className="shrink-0 tabular-nums">#{issue.number}</span>
+        {issue.ticketId ? (
+          <NotebookTextIcon aria-label="Ticket" className="size-3 shrink-0" />
+        ) : (
+          <FeatureIssueIcon issue={issue} className="size-3" />
+        )}
+        <span className="shrink-0 tabular-nums">{issueRef(issue)}</span>
         {project ? <span className="truncate">· {project.title}</span> : null}
         {issue.milestone ? (
           <span className="ms-auto max-w-32 shrink-0 truncate">{issue.milestone.title}</span>
@@ -541,7 +559,7 @@ export function IssueSuggestions(props: {
           >
             <FeatureIssueIcon issue={issue} className="size-3.5" />
             <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              #{issue.number}
+              {issueRef(issue)}
             </span>
             <button
               type="button"

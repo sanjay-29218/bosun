@@ -13,7 +13,11 @@ import {
   type AtomCommand,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ContextMenuItem, WorkflowFeatureSnapshot } from "@t3tools/contracts";
+import {
+  featureIssueRef,
+  type ContextMenuItem,
+  type WorkflowFeatureSnapshot,
+} from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -28,6 +32,7 @@ import { featuresEnvironment } from "../../state/features";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
 import { openFeatureIssueDialog } from "../crew/FeatureIssue";
+import { openFeatureIssue } from "./todoDialogs";
 import { toastManager } from "../ui/toast";
 
 /** Actions that need text from you first: the page opens a note dialog for them. */
@@ -258,7 +263,9 @@ export function useFeatureActions(options: {
     if (card.issue)
       items.push({
         id: "open-issue",
-        label: `Open issue #${card.issue.number}`,
+        label: card.issue.ticketId
+          ? `Open ${featureIssueRef(card.issue)}`
+          : `Open issue ${featureIssueRef(card.issue)}`,
         separatorBefore: true,
       });
     items.push({
@@ -274,7 +281,7 @@ export function useFeatureActions(options: {
     }
     if (clicked === null) return;
     if (clicked === "open") openCard(card);
-    else if (clicked === "open-issue" && card.issue) void api.shell.openExternal(card.issue.url);
+    else if (clicked === "open-issue" && card.issue) openFeatureIssue(card, card.issue);
     else if (clicked === "issue")
       openFeatureIssueDialog({
         environmentId: card.environmentId,

@@ -58,6 +58,44 @@ export function createFeatureAtoms<R, ER>(
     staleTimeMs: 30_000,
     idleTtlMs: 5 * 60_000,
   });
+  /** One project's Bosun tickets. Writes refresh it, so it only needs the board's pace. */
+  const tickets = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:tickets:list",
+    tag: WS_METHODS.ticketsList,
+    staleTimeMs: 30_000,
+    idleTtlMs: 5 * 60_000,
+  });
+  /** One issue with its description and comments, read from the host when a detail view opens. */
+  const issueDetail = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:issues:detail",
+    tag: WS_METHODS.issuesGet,
+    staleTimeMs: 15_000,
+    idleTtlMs: 60_000,
+  });
+  /** Re-reads the project's todos after a write, and the issue's detail when one is named. */
+  const refreshTodos = (
+    target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly projectId: ProjectId; readonly number?: number };
+    },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() => {
+      const { environmentId } = target;
+      const { projectId, number } = target.input;
+      registry.refresh(issues({ environmentId, input: { projectId } }));
+      registry.refresh(tickets({ environmentId, input: { projectId } }));
+      if (number !== undefined) {
+        registry.refresh(issueDetail({ environmentId, input: { projectId, number } }));
+      }
+    });
+  const todoCommand = <TTag extends TodoCommandTag>(tag: TTag) =>
+    createEnvironmentRpcCommand(runtime, {
+      label: `environment-data:todos:${tag}`,
+      tag,
+      onSuccess: refreshTodos,
+    });
+
   const refresh = (
     environmentId: EnvironmentId,
     projectId: ProjectId,
@@ -88,6 +126,15 @@ export function createFeatureAtoms<R, ER>(
     detail,
     board,
     issues,
+    tickets,
+    issueDetail,
+    createIssue: todoCommand(WS_METHODS.issuesCreate),
+    setIssueState: todoCommand(WS_METHODS.issuesSetState),
+    createTicket: todoCommand(WS_METHODS.ticketsCreate),
+    updateTicket: todoCommand(WS_METHODS.ticketsUpdate),
+    deleteTicket: todoCommand(WS_METHODS.ticketsDelete),
+    /** Files the ticket as an issue on the project's host and deletes the ticket. */
+    moveTicketToIssue: todoCommand(WS_METHODS.ticketsMoveToIssue),
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:features:create",
       tag: WS_METHODS.featuresCreate,
@@ -117,6 +164,14 @@ export function createFeatureAtoms<R, ER>(
     cancel: action(WS_METHODS.workflowsCancel),
   };
 }
+
+type TodoCommandTag =
+  | typeof WS_METHODS.issuesCreate
+  | typeof WS_METHODS.issuesSetState
+  | typeof WS_METHODS.ticketsCreate
+  | typeof WS_METHODS.ticketsUpdate
+  | typeof WS_METHODS.ticketsDelete
+  | typeof WS_METHODS.ticketsMoveToIssue;
 
 type FeatureActionTag =
   | typeof WS_METHODS.featuresSetStatus
