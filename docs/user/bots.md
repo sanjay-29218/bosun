@@ -14,7 +14,8 @@ top of the sidebar opens its page too.
 Use **+ New** for another bot. A bot has a name, a robot avatar you build from parts (or
 **Shuffle**), a color, instructions, tools, a default model and the workflow its features start
 with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
-**Save**. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+**Save**. A bot's threads, like a role's, are offered only the crew tools its ticked tools
+allow; threads you start yourself get none of them. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
 A bot's **Projects** tab lists the projects it owns. Move one to another bot, or bring one over;
 work that already started keeps running as the bot that started it. You can also change a

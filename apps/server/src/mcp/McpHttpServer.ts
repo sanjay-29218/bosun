@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import type * as Types from "effect/Types";
 import { AiError, McpProtocol, McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
@@ -26,6 +27,7 @@ import {
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { crewThreadGrants } from "../crew/crewMcpCapabilities.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
@@ -70,13 +72,10 @@ import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import * as BotsHandlers from "./toolkits/bots/handlers.ts";
-import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import * as CrewHandlers from "./toolkits/crew/handlers.ts";
-import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
-import { FeaturesToolkit } from "./toolkits/features/tools.ts";
 import * as WorkflowsHandlers from "./toolkits/workflows/handlers.ts";
-import { WorkflowsToolkit } from "./toolkits/workflows/tools.ts";
+import { CrewGatedToolkits } from "./crewToolGrants.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -208,6 +207,12 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     Effect.map((settings) => settings.linkedEnvironmentsEnabled),
     Effect.orElseSucceed(() => false),
   );
+  const database = yield* Effect.serviceOption(SqlClient.SqlClient);
+  // Live, like the handlers' own checks, so an edited bot's headquarters lists what it may use now.
+  const grantsOf = (threadId: ThreadId) =>
+    Option.isNone(database)
+      ? crewThreadGrants(threadId)
+      : crewThreadGrants(threadId).pipe(Effect.provideService(SqlClient.SqlClient, database.value));
   return Effect.fn("McpHttpServer.authenticateRequest")(function* (httpEffect) {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const authorization = request.headers.authorization;
@@ -234,10 +239,13 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     if (limited === undefined) return invalidModeLimit;
     const linkedEnvironments = yield* linksEnabled;
     if (limited.client?.linked === true && !linkedEnvironments) return linkedEnvironmentsOff;
+    const crewGrants =
+      limited.thread === undefined ? undefined : yield* grantsOf(limited.thread.threadId);
     return yield* httpEffect.pipe(
       Effect.provideService(McpInvocationContext.McpInvocationContext, {
         ...limited,
         linkedEnvironments,
+        ...(crewGrants === undefined ? {} : { crewGrants }),
       }),
       Effect.map(normalizeMcpHttpResponse),
     );
@@ -1144,10 +1152,13 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
-const layerBotsToolkit = toolkitRegistration(BotsToolkit, BotsHandlers.layer);
-const layerCrewToolkit = toolkitRegistration(CrewToolkit, CrewHandlers.layer);
-const layerFeaturesToolkit = toolkitRegistration(FeaturesToolkit, FeaturesHandlers.layer);
-const layerWorkflowsToolkit = toolkitRegistration(WorkflowsToolkit, WorkflowsHandlers.layer);
+/** Bosun's crew, bot, workflow and feature tools, listed only to crew threads by their grants. */
+export const layerCrewTools = Layer.mergeAll(
+  toolkitRegistration(CrewGatedToolkits.bots, BotsHandlers.layer),
+  toolkitRegistration(CrewGatedToolkits.crew, CrewHandlers.layer),
+  toolkitRegistration(CrewGatedToolkits.features, FeaturesHandlers.layer),
+  toolkitRegistration(CrewGatedToolkits.workflows, WorkflowsHandlers.layer),
+);
 
 export const layerMcpTransport = McpServer.layerHttp({
   name: "T3 Code",
@@ -1157,7 +1168,7 @@ export const layerMcpTransport = McpServer.layerHttp({
   allowSessionTermination: true,
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
-/** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
+/** Every tool the T3 MCP server registers. AgentContextBudget.test.ts measures what a plain thread is listed. */
 export const layerTools = Layer.mergeAll(
   layerPreviewToolkit,
   layerOrchestratorToolkit,
@@ -1168,10 +1179,7 @@ export const layerTools = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
-  layerBotsToolkit,
-  layerCrewToolkit,
-  layerFeaturesToolkit,
-  layerWorkflowsToolkit,
+  layerCrewTools,
   layerDeviceToolkit,
   layerHtmlToolkit,
 );

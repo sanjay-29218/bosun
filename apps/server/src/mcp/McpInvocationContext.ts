@@ -107,6 +107,11 @@ export interface McpInvocationScope {
   readonly client: McpClientCaller | undefined;
   /** False while the Linked environments beta is off here; `/mcp` reads it per request. */
   readonly linkedEnvironments?: boolean;
+  /**
+   * The current grants of the crew run behind the calling thread, read per request; absent for
+   * every caller that isn't a crew thread. `crewToolGrants.ts` lists Bosun's tools by them.
+   */
+  readonly crewGrants?: ReadonlyArray<string>;
 }
 
 /**

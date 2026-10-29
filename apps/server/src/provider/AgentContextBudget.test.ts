@@ -1,10 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { CREW_TOOL_GRANTS, EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { McpServer } from "effect/ai";
+import { McpSchema, McpServer } from "effect/ai";
 
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotProjects } from "../bots/BotProjects.ts";
@@ -22,6 +23,7 @@ import { DeviceService } from "../device/DeviceService.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
+import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { PreviewAutomationBroker } from "../mcp/PreviewAutomationBroker.ts";
 import {
   CLAUDE_PROVIDER,
@@ -124,33 +126,74 @@ const codexAdditionalContext = () =>
     .map((entry) => entry.value)
     .join("");
 
+const threadScope = (
+  crewGrants?: ReadonlyArray<string>,
+): McpInvocationContext.McpInvocationScope => ({
+  environmentId: EnvironmentId.make("context-budget"),
+  requestNamespace: "context-budget",
+  thread: {
+    threadId: ThreadId.make("context-budget"),
+    providerSessionId: "context-budget",
+    providerInstanceId: ProviderInstanceId.make(CLAUDE_PROVIDER),
+  },
+  client: undefined,
+  capabilities: new Set(["orchestration", "worktree", "pull-requests", "preview", "device"]),
+  issuedAt: 0,
+  ...(crewGrants === undefined ? {} : { crewGrants }),
+});
+
+const clientProfile = {
+  protocolVersion: "2025-06-18",
+  capabilities: {},
+  clientInfo: { name: "context-budget", version: "1.0.0" },
+};
+
+/** The tools/list a thread with `scope` gets: tool visibility reads the caller from its fiber. */
+const listedTo = (scope: McpInvocationContext.McpInvocationScope) =>
+  Effect.gen(function* () {
+    const mcp = yield* McpServer.McpServer;
+    return mcp.tools.filter(
+      ({ annotations }) =>
+        Context.getOrUndefined(annotations, McpSchema.EnabledWhen)?.(clientProfile) ?? true,
+    );
+  }).pipe(Effect.provideService(McpInvocationContext.McpInvocationContext, scope));
+
+// The model sees these fields. outputSchema and annotations are protocol metadata.
+const toolListJsonBytes = (tools: McpServer.McpServer["Service"]["tools"]) =>
+  utf8Bytes(
+    JSON.stringify(
+      tools.map(({ tool }) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+    ),
+  );
+
+const layerAllTools = McpHttpServer.layerTools.pipe(
+  Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provide(toolHandlerServices),
+);
+
 // CI rejects a PR that raises any value above main's agentContextBudget.json, so growth
 // needs the agent-context-increase label. Lower the values when the text shrinks.
 it.effect("agent context matches the committed budget", () =>
   Effect.gen(function* () {
-    const mcp = yield* McpServer.McpServer;
     const measured = {
       claudeSystemAppendBytes: utf8Bytes(claudeSystemAppend()),
       codexAdditionalContextBytes: utf8Bytes(codexAdditionalContext()),
-      // The model sees these fields. outputSchema and annotations are protocol metadata.
-      mcpToolListJsonBytes: utf8Bytes(
-        JSON.stringify(
-          mcp.tools.map(({ tool }) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          })),
-        ),
-      ),
+      // A plain thread's list: crew threads add the tools their grants allow.
+      mcpToolListJsonBytes: toolListJsonBytes(yield* listedTo(threadScope())),
     };
 
     expect(measured).toEqual(budget);
-  }).pipe(
-    Effect.provide(
-      McpHttpServer.layerTools.pipe(
-        Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(toolHandlerServices),
-      ),
-    ),
-  ),
+  }).pipe(Effect.provide(layerAllTools)),
+);
+
+it.effect("a crew thread holding every grant is listed every tool", () =>
+  Effect.gen(function* () {
+    const mcp = yield* McpServer.McpServer;
+    const listed = yield* listedTo(threadScope(CREW_TOOL_GRANTS.map((grant) => grant.id)));
+    expect(listed.map(({ tool }) => tool.name)).toEqual(mcp.tools.map(({ tool }) => tool.name));
+  }).pipe(Effect.provide(layerAllTools)),
 );
