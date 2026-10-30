@@ -150,9 +150,10 @@ export const CrewHandoffServiceLive = Layer.effect(
       const recipient = yield* runs.getRun(recipientRunId);
       if (!recipient) return;
       // A run whose own handoff ended was finished or replaced; waking it starts work twice.
+      // Work a person asked it for afterwards (see `followsUpOnEnded`) still reports back.
       if (handoff.status !== "running") {
         const own = yield* handoffs.getForTargetRun(recipient.id);
-        if (own && ENDED.has(own.status)) {
+        if (own && ENDED.has(own.status) && handoff.createdAt <= own.updatedAt) {
           yield* handoffs.markDelivered(handoff.id, handoff.noticeVersion);
           return;
         }
@@ -238,6 +239,15 @@ export const CrewHandoffServiceLive = Layer.effect(
       }
       return run;
     });
+
+    /**
+     * A person wrote in the run's thread after its own handoff ended, so what it delegates now
+     * is a follow-up they asked for. An ended handoff's `updatedAt` is when it ended.
+     */
+    const followsUpOnEnded = (threadId: ThreadId, own: CrewHandoff) =>
+      runtime
+        .latestPersonMessageAt(threadId)
+        .pipe(Effect.map((at) => at !== null && at > own.updatedAt));
 
     const requireIncoming = (run: CrewRun) =>
       handoffs
@@ -395,7 +405,12 @@ export const CrewHandoffServiceLive = Layer.effect(
         const parent = yield* handoffs.getForTargetRun(source.id);
         // A workflow starts each stage from the manager that started it, long after that
         // manager's own handoff ended, so only free-hand delegation is held back here.
-        if (!input.boundByWorkflow && parent && ENDED.has(parent.status)) {
+        if (
+          !input.boundByWorkflow &&
+          parent &&
+          ENDED.has(parent.status) &&
+          !(yield* followsUpOnEnded(source.threadId, parent))
+        ) {
           return yield* Effect.fail(
             new CrewHandoffError("This run's own handoff has ended, so it can't start new work"),
           );

@@ -5,9 +5,10 @@ import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import { CommandId, MessageId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
@@ -198,6 +199,34 @@ describe("Bot handoffs", () => {
                 })
                 .pipe(Effect.result))._tag,
             ).toBe("Failure");
+            // Once a person writes to it, the manager may hand out a follow-up, whose result
+            // wakes it again.
+            yield* TestClock.adjust("1 second");
+            yield* engine.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make("person-follow-up"),
+              threadId: manager.threadId,
+              messageId: MessageId.make("person-follow-up"),
+              text: "One more change, please",
+              attachments: [],
+              dispatchMode: { type: "queue_after_active" },
+              createdBy: "user",
+              creationSource: "web",
+            });
+            const followUp = yield* handoffs.delegate({
+              id: "builder-follow-up",
+              sourceThreadId: manager.threadId,
+              targetMemberId: `bot-builder:${projectId}`,
+              projectId,
+              taskText: "The change they asked for",
+            });
+            const followUpRun = (yield* bots.getRun(followUp.targetRunId))!.run;
+            yield* handoffs.respond(followUpRun.threadId, "completed", "Changed");
+            const followUpNotices = yield* sql`
+            SELECT 1 FROM orchestration_v2_projection_messages
+            WHERE message_id = 'bot-handoff:builder-follow-up:notice:1'
+          `;
+            expect(followUpNotices).toHaveLength(1);
             // A workflow still starts its next stage (e.g. after a gate approval) from the
             // manager that started it, whose own handoff has long ended.
             const stage = yield* handoffs.delegate({

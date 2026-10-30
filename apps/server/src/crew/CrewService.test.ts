@@ -491,6 +491,7 @@ describe("Bot foundation", () => {
         listPendingStartedRunIds: () => Effect.succeed([]),
         tagHandoff: () => Effect.void,
         showHandoffs: () => Effect.void,
+        latestPersonMessageAt: () => Effect.succeed(null),
       });
       const layer = CrewServiceLive.pipe(
         Layer.provideMerge(CrewStoreLive),
@@ -563,6 +564,7 @@ describe("Bot foundation", () => {
           listPendingStartedRunIds: () => Effect.succeed([]),
           tagHandoff: () => Effect.void,
           showHandoffs: () => Effect.void,
+          latestPersonMessageAt: () => Effect.succeed(null),
         });
         const layer = CrewServiceLive.pipe(
           Layer.provideMerge(CrewStoreLive),
