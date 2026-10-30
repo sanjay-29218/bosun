@@ -150,6 +150,7 @@ const make = Effect.gen(function* () {
         runtimeMode: input.runtimeMode ?? "approval-required",
         modelSelection: input.modelSelection ?? null,
         defaultWorkflowId: input.defaultWorkflowId ?? null,
+        longConversation: input.longConversation ?? "compact",
         position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
         revision: 1,
         createdAt: now,
@@ -183,6 +184,9 @@ const make = Effect.gen(function* () {
         ...(input.defaultWorkflowId === undefined
           ? {}
           : { defaultWorkflowId: input.defaultWorkflowId }),
+        ...(input.longConversation === undefined
+          ? {}
+          : { longConversation: input.longConversation }),
         revision: previous.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };

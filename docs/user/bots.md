@@ -42,9 +42,14 @@ Feature delivery"; they show up in Settings like ones you made. Features report 
 headquarters too. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
 
-The headquarters follows the bot's current tools, model and **Access**. Its
-instructions are the ones it started with; to give it new ones, delete the thread and open it
-again. Opening it also brings back a deleted or archived headquarters.
+The headquarters follows the bot's current tools, model and **Access**. Its instructions are the
+ones it started with until it starts a new session. **Start new session…** in the thread's menu
+(or the command palette, or a long press on the bot on mobile) does that now: you keep the whole
+conversation, while the bot starts again from its current instructions and the last few messages
+and looks up ongoing work instead of remembering it. A long conversation is otherwise compacted by
+its provider; set **Long conversations** to **Start a new session** on the bot to do this instead,
+once the bot has been quiet for half an hour. Opening the thread also brings back a deleted or
+archived headquarters.
 
 ### The bot rail
 

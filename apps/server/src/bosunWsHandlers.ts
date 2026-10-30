@@ -264,6 +264,10 @@ export const layerBosunWsRpc = (
             Effect.map((run) => ({ threadId: run.threadId })),
             Effect.mapError((error) => new BotOperationError({ reason: String(error) })),
           ),
+        [WS_METHODS.botsStartNewSession]: (input) =>
+          crew
+            .startNewSession(input.botId)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.rolesList]: () =>
           crew
             .listRoles()

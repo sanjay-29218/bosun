@@ -42,6 +42,7 @@ vi.mock("../components/features/featureThreadActions", () => ({
   runFeatureThreadAction: vi.fn(),
 }));
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
+vi.mock("../components/bots/startBotNewSession", () => ({ startBotNewSession: vi.fn() }));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),

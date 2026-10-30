@@ -83,6 +83,9 @@ const fixture = (
       syncSettings: () => Effect.void,
       settings: () => Effect.succeed(null),
       workspace: () => Effect.succeed(null),
+      completedRuns: Stream.empty,
+      freshStartRecords: () => Effect.die("unused"),
+      startFresh: () => Effect.void,
       pin: () => Effect.void,
       start: (input) =>
         Effect.gen(function* () {

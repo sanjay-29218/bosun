@@ -498,6 +498,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
     case "thread.crew-stage.set":
+    case "thread.conversation.restart":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
@@ -936,7 +937,8 @@ function rootProviderThreadsForProvider(
       (providerThread) =>
         providerThread.providerInstanceId === providerInstanceId &&
         providerThread.appThreadId === projection.thread.id &&
-        providerThread.ownerNodeId === null,
+        providerThread.ownerNodeId === null &&
+        providerThread.status !== "archived",
     )
     .toSorted(
       (left, right) =>
@@ -4003,6 +4005,89 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         },
       } satisfies PendingOrchestrationEffectV2;
       yield* Ref.update(effects, (existing) => [...existing, pendingEffect]);
+    },
+  );
+
+  const dispatchConversationRestart = Effect.fn("orchestrationV2.dispatch.conversationRestart")(
+    function* (
+      command: Extract<
+        OrchestrationV2ServerCommand,
+        { readonly type: "thread.conversation.restart" }
+      >,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+      effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    ) {
+      const projection = yield* projectionStore
+        .getThreadRecords(command.threadId, [
+          "runs",
+          "runtimeRequests",
+          "providerThreads",
+          "providerSessions",
+        ])
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      if (
+        projection.runs.some((run) => isBlockingRun(run) || run.status === "queued") ||
+        projection.runtimeRequests.some((request) => request.status === "pending")
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} is busy, so its conversation cannot restart.`,
+        });
+      }
+      const now = yield* DateTime.now;
+      const emitEvent = emit(events, command);
+      for (const session of projection.providerSessions) {
+        if (session.status === "stopped" || session.status === "error") continue;
+        yield* emitEvent({
+          type: "provider-session.detached",
+          threadId: command.threadId,
+          driver: session.driver,
+          providerInstanceId: session.providerInstanceId,
+          occurredAt: now,
+          payload: { providerSessionId: session.id, detachedAt: now, reason: "Fresh start." },
+        });
+        yield* Ref.update(effects, (existing) => [
+          ...existing,
+          {
+            id: `effect:${command.commandId}:provider-session.detach:${session.id}`,
+            commandId: command.commandId,
+            threadId: command.threadId,
+            request: {
+              type: "provider-session.detach",
+              providerSessionId: session.id,
+              detail: "Fresh start.",
+            },
+          } satisfies PendingOrchestrationEffectV2,
+        ]);
+      }
+      for (const providerThread of projection.providerThreads) {
+        if (
+          providerThread.appThreadId !== command.threadId ||
+          providerThread.ownerNodeId !== null ||
+          providerThread.status === "archived"
+        )
+          continue;
+        yield* emitEvent({
+          type: "provider-thread.updated",
+          threadId: command.threadId,
+          driver: providerThread.driver,
+          providerInstanceId: providerThread.providerInstanceId,
+          occurredAt: now,
+          payload: { ...providerThread, status: "archived", updatedAt: now },
+        });
+      }
+      yield* emitEvent({
+        type: "thread.provider-switched",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...projection.thread, activeProviderThreadId: null, updatedAt: now },
+      });
     },
   );
 
@@ -12517,6 +12602,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
+        break;
+      case "thread.conversation.restart":
+        yield* dispatchConversationRestart(command, events, effects);
         break;
       case "message.dispatch": {
         // Providers own native subagent conversations; messages cannot target them, and adapters ask questions on the parent.

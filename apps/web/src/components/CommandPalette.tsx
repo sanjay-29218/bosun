@@ -92,7 +92,8 @@ import {
 import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
 import { botsEnvironment } from "../state/bots";
 import { workflowsEnvironment } from "../state/workflows";
-import { useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
+import { headquartersMember, useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
+import { startBotNewSession } from "./bots/startBotNewSession";
 import { BotAvatar } from "./BotAvatar";
 import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
 import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
@@ -1969,6 +1970,23 @@ function OpenCommandPaletteDialog(props: {
       icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
       run: async () => openBotHeadquarters(bot),
     });
+    const member = headquartersMember(bot, connectedEnvironmentIds, environmentFilter);
+    if (member) {
+      botItems.push({
+        kind: "action",
+        value: `bot-new-session:${bot.key}`,
+        searchTerms: [bot.name, "bot", "new session", "fresh", "context", "compact"],
+        title: (
+          <>
+            Start a new session for <span className="font-semibold">{bot.name}</span>
+          </>
+        ),
+        description: "It keeps the conversation and starts again from its instructions",
+        icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
+        run: async () =>
+          startBotNewSession(member.environmentId, { id: member.botId, name: bot.name }),
+      });
+    }
   }
   if (connectedEnvironmentIds.length > 1) {
     const environmentItems: CommandPaletteActionItem[] = [

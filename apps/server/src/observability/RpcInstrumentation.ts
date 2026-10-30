@@ -264,6 +264,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.botsReorder]: "bots",
   [WS_METHODS.botsMoveProject]: "bots",
   [WS_METHODS.botsOpenHeadquarters]: "bots",
+  [WS_METHODS.botsStartNewSession]: "bots",
   [WS_METHODS.rolesList]: "roles",
   [WS_METHODS.rolesCreate]: "roles",
   [WS_METHODS.rolesUpdate]: "roles",

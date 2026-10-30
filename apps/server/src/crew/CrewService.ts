@@ -1,22 +1,29 @@
 import {
   botHeadquartersRunId,
   botHeadquartersThreadId,
+  type Bot,
   CREW_DISPATCH_STATE,
   CREW_TOOL_GRANTS,
   CREW_TURN_STATE,
+  headquartersBotId,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ThreadId,
   type CrewTurnState,
   type ModelSelection,
+  type RunId,
   type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
+import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 
 import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
@@ -33,6 +40,13 @@ import {
 import * as BotStore from "../bots/BotStore.ts";
 import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
+import {
+  FRESH_START_QUIET_MINUTES,
+  freshStartBriefing,
+  freshStartDue,
+  headquartersIdle,
+  type FreshStartRecords,
+} from "./headquartersFreshStart.ts";
 
 class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
@@ -249,6 +263,13 @@ export interface CrewServiceShape {
     limit?: number,
   ) => Effect.Effect<ReadonlyArray<CrewRunSummary>, PersistenceSqlError>;
   readonly reconcileRuns: () => Effect.Effect<void, PersistenceSqlError>;
+  /**
+   * For bots set to start a new session, starts a headquarters over once its conversation grows
+   * long and it has been quiet a while. Other bots leave it to the provider's compaction.
+   */
+  readonly watchHeadquarters: () => Effect.Effect<void, never, Scope.Scope>;
+  /** Starts the bot's headquarters over in a fresh session now; refused while it works. */
+  readonly startNewSession: (botId: string) => Effect.Effect<void, CrewServiceError>;
 }
 
 export type CrewServiceError =
@@ -730,6 +751,62 @@ export const CrewServiceLive = Layer.effect(
       return (yield* store.getRun(id))!;
     }, headquartersLock.withPermits(1));
 
+    const startFresh = (bot: Bot, run: CrewRun, records: FreshStartRecords, key: string) =>
+      runtime.startFresh({
+        threadId: run.threadId,
+        runId: run.id,
+        key,
+        prompt: freshStartBriefing(
+          `${bot.instructions}\n\nTask:\n${run.taskText}`,
+          records.messages,
+        ),
+      });
+
+    // A newer completed turn replaces the wait, so the quiet period restarts with each turn.
+    const startFreshWhenQuiet = Effect.fn("CrewService.startFreshWhenQuiet")(
+      function* (botId: string, threadId: ThreadId, completedRunId: RunId) {
+        const bot = yield* bots.get(botId);
+        if (bot?.longConversation !== "new-session") return;
+        if (!freshStartDue(yield* runtime.freshStartRecords(threadId), completedRunId)) return;
+        yield* Effect.sleep(Duration.minutes(FRESH_START_QUIET_MINUTES));
+        const records = yield* runtime.freshStartRecords(threadId);
+        const current = yield* bots.get(botId);
+        const run = yield* store.getRun(botHeadquartersRunId(botId));
+        if (
+          current?.longConversation !== "new-session" ||
+          run?.threadId !== threadId ||
+          !freshStartDue(records, completedRunId)
+        )
+          return;
+        yield* startFresh(current, run, records, completedRunId);
+      },
+      (effect, botId) =>
+        effect.pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Headquarters fresh start skipped", { botId, cause }),
+          ),
+        ),
+    );
+
+    const startNewSession: CrewServiceShape["startNewSession"] = Effect.fn(
+      "CrewService.startNewSession",
+    )(function* (botId) {
+      const bot = yield* bots.get(botId);
+      if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
+      const run = yield* store.getRun(botHeadquartersRunId(botId));
+      if (run === null || run.dispatchState !== CREW_DISPATCH_STATE.STARTED) {
+        return yield* Effect.fail(new CrewValidationError(`${bot.name} has no thread yet`));
+      }
+      const records = yield* runtime.freshStartRecords(run.threadId);
+      if (!headquartersIdle(records)) {
+        return yield* Effect.fail(
+          new CrewValidationError(`${bot.name} is working. Try again when it finishes.`),
+        );
+      }
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      yield* startFresh(bot, run, records, `manual:${now}`);
+    });
+
     const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(
       "CrewService.syncHeadquarters",
     )(function* (botId) {
@@ -921,6 +998,20 @@ export const CrewServiceLive = Layer.effect(
           concurrency: 1,
           discard: true,
         });
+      }),
+      startNewSession,
+      watchHeadquarters: Effect.fn("CrewService.watchHeadquarters")(function* () {
+        const waiting = yield* FiberMap.make<ThreadId>();
+        yield* runtime.completedRuns.pipe(
+          Stream.runForEach(({ threadId, runId }) => {
+            const botId = headquartersBotId(threadId);
+            return botId === null
+              ? Effect.void
+              : FiberMap.run(waiting, threadId, startFreshWhenQuiet(botId, threadId, runId));
+          }),
+          Effect.catch((cause) => Effect.logWarning("Headquarters watch stopped", { cause })),
+          Effect.forkScoped,
+        );
       }),
     } satisfies CrewServiceShape;
   }),

@@ -33,6 +33,7 @@ export type ThreadActionMenuId =
   | "feature-reopen"
   | "feature-issue"
   | "feature-open-issue"
+  | "new-session"
   | "archive"
   | "delete";
 
@@ -113,7 +114,10 @@ export interface ThreadActionMenuState {
   } | null;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
-  /** A bot's headquarters is permanent, so it can be archived but never deleted. */
+  /**
+   * A bot's headquarters is permanent, so it can be archived but never deleted, and its long
+   * conversation can start over in a new session.
+   */
   readonly isHeadquarters?: boolean;
 }
 
@@ -294,6 +298,17 @@ export function buildThreadActionMenuItems(
                 icon: "workflow",
                 separatorBefore: true,
               },
+        ]
+      : []),
+    ...(state.isHeadquarters
+      ? [
+          {
+            id: "new-session" as const,
+            label: "Start new session…",
+            icon: "refresh-cw",
+            disabled: state.isRunning,
+            separatorBefore: true,
+          },
         ]
       : []),
     {

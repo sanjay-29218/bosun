@@ -526,6 +526,7 @@ export const WS_METHODS = {
   botsReorder: "bots.reorder",
   botsMoveProject: "bots.moveProject",
   botsOpenHeadquarters: "bots.openHeadquarters",
+  botsStartNewSession: "bots.startNewSession",
   rolesList: "roles.list",
   rolesCreate: "roles.create",
   rolesUpdate: "roles.update",
@@ -1362,6 +1363,12 @@ const WsBotsMoveProjectRpc = Rpc.make(WS_METHODS.botsMoveProject, {
 const WsBotsOpenHeadquartersRpc = Rpc.make(WS_METHODS.botsOpenHeadquarters, {
   payload: Schema.Struct({ botId: Schema.String }),
   success: Schema.Struct({ threadId: ThreadId }),
+  error: BotRpcError,
+});
+// Starts the bot's headquarters over in a fresh provider session; its messages stay.
+const WsBotsStartNewSessionRpc = Rpc.make(WS_METHODS.botsStartNewSession, {
+  payload: Schema.Struct({ botId: Schema.String }),
+  success: Schema.Void,
   error: BotRpcError,
 });
 const WsRolesListRpc = Rpc.make(WS_METHODS.rolesList, {
@@ -2422,6 +2429,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsBotsReorderRpc,
   WsBotsMoveProjectRpc,
   WsBotsOpenHeadquartersRpc,
+  WsBotsStartNewSessionRpc,
   WsRolesListRpc,
   WsRolesCreateRpc,
   WsRolesUpdateRpc,

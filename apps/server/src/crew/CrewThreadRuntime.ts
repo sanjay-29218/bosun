@@ -7,6 +7,7 @@ import {
   ModelSelection,
   ThreadId,
   type ProjectId,
+  type RunId,
   type RuntimeMode,
   type CrewTurnState,
   type ThreadCrewRequestTag,
@@ -16,14 +17,17 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
 import type { CrewWorkspace } from "./CrewStore.ts";
+import type { FreshStartRecords } from "./headquartersFreshStart.ts";
 type OrchestrationDispatchError = Orchestrator.OrchestratorV2Error;
 type CrewReadError = PersistenceSqlError;
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
@@ -78,6 +82,24 @@ export interface CrewThreadRuntimeShape {
     OrchestrationDispatchError
   >;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** Each run that completes, in any thread. */
+  readonly completedRuns: Stream.Stream<
+    { readonly threadId: ThreadId; readonly runId: RunId },
+    OrchestrationDispatchError
+  >;
+  readonly freshStartRecords: (
+    threadId: ThreadId,
+  ) => Effect.Effect<FreshStartRecords, OrchestrationDispatchError>;
+  /**
+   * Retires the thread's provider conversation and opens a fresh one with `prompt`. `key` names
+   * this fresh start, so repeating it changes nothing.
+   */
+  readonly startFresh: (input: {
+    readonly threadId: ThreadId;
+    readonly runId: string;
+    readonly key: string;
+    readonly prompt: string;
+  }) => Effect.Effect<void, OrchestrationDispatchError>;
   readonly replayPending: (
     input: CrewThreadStart,
     recoveryAttempt: number,
@@ -296,6 +318,51 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           : { runtimeMode: shell.runtimeMode, modelSelection: shell.modelSelection };
       }),
       start,
+      completedRuns: engine.streamDomainEvents.pipe(
+        Stream.filterMap((event) =>
+          event.type === "run.updated" && event.payload.status === "completed"
+            ? Result.succeed({ threadId: event.threadId, runId: event.payload.id })
+            : Result.failVoid,
+        ),
+      ),
+      freshStartRecords: Effect.fn("CrewThreadRuntime.freshStartRecords")((threadId) =>
+        engine.getThreadRecords(
+          threadId,
+          ["runs", "runtimeRequests", "providerThreads", "providerTurns", "messages"],
+          { messageRoles: ["user", "assistant"] },
+        ),
+      ),
+      startFresh: Effect.fn("CrewThreadRuntime.startFresh")(function* (input) {
+        const prefix = `${runCommandPrefix(input.threadId)}:${input.runId}:fresh:${input.key}`;
+        yield* engine.dispatch({
+          type: "thread.conversation.restart",
+          commandId: CommandId.make(prefix),
+          threadId: input.threadId,
+        });
+        yield* engine.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`${prefix}:brief`),
+          threadId: input.threadId,
+          messageId: MessageId.make(`${prefix}:brief`),
+          text: input.prompt,
+          attachments: [],
+          context: {
+            version: 1,
+            records: [
+              {
+                version: 1,
+                contextId: ComposerContextId.make("bot-origin"),
+                label: "Fresh start",
+                kind: "bot",
+                payload: { memberId: "crew", runId: input.runId },
+              },
+            ],
+          },
+          createdBy: "agent",
+          creationSource: "mcp",
+          dispatchMode: { type: "queue_after_active" },
+        });
+      }),
       // V2 owns accepted-run recovery through the durable effect outbox. Reusing
       // the original receipts only fills a crash between thread creation and start.
       replayPending: Effect.fn("CrewThreadRuntime.replayPending")((input) => start(input)),

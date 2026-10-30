@@ -6,14 +6,20 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
+  botHeadquartersRunId,
+  botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   CommandId,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type RunId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import { TestClock } from "effect/testing";
+import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
@@ -37,6 +43,7 @@ import {
 import { WorkflowLibraryLive } from "../workflows/WorkflowLibrary.ts";
 import { CrewStore, CrewStoreLive } from "./CrewStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
+import { freshStartRecords, runId } from "./headquartersFreshStart.testkit.ts";
 import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
 const projectId = ProjectId.make("bot-test-project");
@@ -459,6 +466,9 @@ describe("Bot foundation", () => {
         syncSettings: () => Effect.void,
         settings: () => Effect.succeed(null),
         workspace: () => Effect.succeed(null),
+        completedRuns: Stream.empty,
+        freshStartRecords: () => Effect.die("unused"),
+        startFresh: () => Effect.void,
         pin: () => Effect.void,
         start: () =>
           Effect.sync(() => ++attempts).pipe(
@@ -517,6 +527,112 @@ describe("Bot foundation", () => {
         expect(attempts).toBe(2);
       }).pipe(Effect.provide(layer));
     }),
+  );
+
+  effectIt.effect(
+    "starts a long headquarters over only for bots that choose it, after a quiet spell",
+    () =>
+      Effect.gen(function* () {
+        const completions = yield* Queue.unbounded<{
+          readonly threadId: ThreadId;
+          readonly runId: RunId;
+        }>();
+        const checks = yield* Queue.unbounded<ThreadId>();
+        const fresh = yield* Queue.unbounded<{
+          readonly threadId: ThreadId;
+          readonly key: string;
+        }>();
+        const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
+          projectExists: () => Effect.succeed(true),
+          headquartersProjectId: Effect.succeed(null),
+          restore: () => Effect.void,
+          syncSettings: () => Effect.void,
+          settings: () => Effect.succeed(null),
+          workspace: () => Effect.succeed(null),
+          completedRuns: Stream.fromQueue(completions),
+          freshStartRecords: (threadId) =>
+            Queue.offer(checks, threadId).pipe(Effect.as(freshStartRecords())),
+          startFresh: (input) => Queue.offer(fresh, input).pipe(Effect.asVoid),
+          pin: () => Effect.void,
+          start: () => Effect.void,
+          getTurnState: () => Effect.succeed("pending" as const),
+          replayPending: () => Effect.void,
+          notify: () => Effect.void,
+          interrupt: () => Effect.void,
+          listPendingStartedRunIds: () => Effect.succeed([]),
+          tagHandoff: () => Effect.void,
+        });
+        const layer = CrewServiceLive.pipe(
+          Layer.provideMerge(CrewStoreLive),
+          Layer.provideMerge(BotStore.layer),
+          Layer.provideMerge(WorkflowLibraryLive),
+          Layer.provide(fakeRuntime),
+          Layer.provide(SqlitePersistence.layerMemory),
+        );
+        yield* Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const store = yield* CrewStore;
+          const botStore = yield* BotStore.BotStore;
+          for (const longConversation of ["compact", "new-session"] as const) {
+            const id = `bot-${longConversation}`;
+            yield* botStore.insert({
+              id,
+              name: id,
+              avatar: {
+                head: "round",
+                face: "visor",
+                eyes: "round",
+                top: "none",
+                cheeks: false,
+                smile: true,
+              },
+              color: "blue",
+              instructions: "Run my projects.",
+              allowedTools: [],
+              runtimeMode: "full-access",
+              modelSelection,
+              defaultWorkflowId: null,
+              longConversation,
+              position: 1,
+              revision: 1,
+              createdAt: "2026-10-30T00:00:00.000Z",
+              updatedAt: "2026-10-30T00:00:00.000Z",
+            });
+            yield* store.insertRun({
+              id: botHeadquartersRunId(id),
+              memberId: id,
+              projectId,
+              threadId: botHeadquartersThreadId(id),
+              taskText: "Lead the bot's work.",
+              title: id,
+              instructions: "Run my projects.",
+              allowedTools: [],
+              memberRevision: 1,
+              modelSelection,
+              runtimeMode: "full-access",
+              dispatchState: "started",
+              recoveryAttempt: 0,
+              lastError: null,
+              createdAt: "2026-10-30T00:00:00.000Z",
+              dispatchedAt: "2026-10-30T00:00:00.000Z",
+              workspace: null,
+            });
+          }
+          yield* crew.watchHeadquarters();
+          const freshThreadId = botHeadquartersThreadId("bot-new-session");
+          yield* Queue.offer(completions, {
+            threadId: botHeadquartersThreadId("bot-compact"),
+            runId,
+          });
+          yield* Queue.offer(completions, { threadId: freshThreadId, runId });
+          expect(yield* Queue.take(checks)).toBe(freshThreadId);
+          yield* TestClock.adjust("29 minutes");
+          expect(yield* Queue.size(fresh)).toBe(0);
+          yield* TestClock.adjust("1 minute");
+          expect(yield* Queue.take(fresh)).toMatchObject({ threadId: freshThreadId, key: runId });
+          expect(yield* Queue.size(fresh)).toBe(0);
+        }).pipe(Effect.provide(layer), Effect.scoped);
+      }),
   );
 
   effectIt.effect("links a bot run to one T3 thread and replays without a second turn", () =>

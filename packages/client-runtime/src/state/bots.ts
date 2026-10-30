@@ -51,5 +51,9 @@ export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       label: "environment-data:bots:open-headquarters",
       tag: WS_METHODS.botsOpenHeadquarters,
     }),
+    startNewSession: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:bots:start-new-session",
+      tag: WS_METHODS.botsStartNewSession,
+    }),
   };
 }

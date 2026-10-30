@@ -44,7 +44,7 @@ const Create = Tool.make("t3_bot_create", {
 const Update = Tool.make("t3_bot_update", {
   ...shared,
   description:
-    "Change a bot's name, avatar, color, instructions, allowed tools, runtime mode, default model or default workflow. Omitted fields are kept. Pass the bot's current revision as expectedRevision.",
+    "Change a bot's name, avatar, color, instructions, allowed tools, runtime mode, default model, default workflow or what its headquarters does when its conversation grows long. Omitted fields are kept. Pass the bot's current revision as expectedRevision.",
   parameters: BotUpdateInput,
   success: Bot,
 });

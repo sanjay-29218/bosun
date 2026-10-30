@@ -214,7 +214,10 @@ it.effect.each([
         }),
         Layer.mock(GitVcsDriver.GitVcsDriver)({}),
         Layer.mock(AnalyticsService.AnalyticsService)({}),
-        Layer.mock(CrewService)({ reconcileRuns: () => Effect.void }),
+        Layer.mock(CrewService)({
+          reconcileRuns: () => Effect.void,
+          watchHeadquarters: () => Effect.void,
+        }),
         Layer.mock(CrewHandoffService)({ reconcile: () => Effect.void }),
         Layer.mock(WorkflowExecutionService)({ start: () => Effect.void }),
         // No provider logins or Connect link, so startup records no owners.

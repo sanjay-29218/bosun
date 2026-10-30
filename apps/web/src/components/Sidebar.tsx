@@ -61,10 +61,12 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   AuthOrchestrationOperateScope,
+  headquartersBotId,
   ProjectId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
+import { startBotNewSession } from "./bots/startBotNewSession";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
 import {
@@ -2678,6 +2680,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
+              isHeadquarters: headquartersBotId(thread.id) !== null,
               feature,
               featureLifecycle: featureLifecycleFor(thread, threadByKeyRef.current.values()),
             }),
@@ -2850,6 +2853,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "feature":
             return;
+          case "new-session": {
+            const botId = headquartersBotId(thread.id);
+            if (botId !== null) {
+              await startBotNewSession(thread.environmentId, { id: botId, name: thread.title });
+            }
+            return;
+          }
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>

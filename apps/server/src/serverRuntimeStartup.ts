@@ -594,6 +594,10 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
       "workflows.start",
       workflowExecution.start().pipe(Scope.provide(workflowScope)),
     );
+    yield* runStartupPhase(
+      "crew.headquarters.watch",
+      crew.watchHeadquarters().pipe(Scope.provide(workflowScope)),
+    );
 
     const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(
       Effect.tap((summary) =>

@@ -24,6 +24,7 @@ import {
   runFeatureThreadAction,
 } from "../components/features/featureThreadActions";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
+import { startBotNewSession } from "../components/bots/startBotNewSession";
 import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
@@ -281,6 +282,13 @@ export function useThreadActionMenu(input: {
           return;
         case "feature":
           return;
+        case "new-session": {
+          const botId = headquartersBotId(thread.id);
+          if (botId !== null) {
+            await startBotNewSession(threadRef.environmentId, { id: botId, name: thread.title });
+          }
+          return;
+        }
         case "regenerate-title":
           if (isRegeneratingTitle) return;
           await reportFailure("Failed to regenerate thread title", () =>

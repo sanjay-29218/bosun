@@ -15,6 +15,8 @@ Roles, members, runs, and handoffs have separate storage in [the migrations](../
 
 A bot is not a crew member, but it acts in crew runs: a request to a project and every workflow stage without a supervisor run as the project's bot. Its authority comes from ownership, not grant rows. A bot only gets new runs on projects it owns, and a bot's run may delegate to members of that run's project ([CrewStore.canDelegate](../../apps/server/src/crew/CrewStore.ts)). Checking the run's project instead of current ownership means moving a project to another bot never strands a request or feature that is already running; only new work goes to the new owner. Ownership is `project.botId`, recorded by project events, so it replays like the rest of the project.
 
+A headquarters lives as long as its bot, so its provider conversation keeps growing. By default the provider compacts it. A person can instead start it over (`bots.startNewSession`), or set the bot's `longConversation` to `new-session` so the crew does it past [`FRESH_START_TOKENS`](../../apps/server/src/crew/headquartersFreshStart.ts) after a quiet spell. Either way `thread.conversation.restart` retires the provider conversation and a briefing with the bot's current instructions and last few messages opens the next one. The thread keeps its messages for the person, but the model loses them, so anything a bot must still know later belongs in records it reads through tools (projects, features, handoffs), not only in its chat.
+
 ## Hierarchy, permissions, and workflow
 
 These answer different questions and should not be encoded as one `role` column:

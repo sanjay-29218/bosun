@@ -3380,6 +3380,15 @@ const OrchestrationV2InternalCommand = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   /**
+   * Retires the thread's provider conversations, so its next turn starts a fresh one with no
+   * carried history. The thread's messages stay. Refused while a turn runs, waits, or is queued.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.conversation.restart"),
+    commandId: CommandId,
+    threadId: ThreadId,
+  }),
+  /**
    * Records a delegated task that runs in a linked environment: the task, its
    * node and its turn item on the parent, as `delegated_task.request` does,
    * without a child thread here. `remoteChild` is the thread already launched

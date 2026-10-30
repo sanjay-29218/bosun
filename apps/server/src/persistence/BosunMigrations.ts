@@ -40,6 +40,7 @@ import CrewWaitWithoutPolling from "./Migrations/081_CrewWaitWithoutPolling.ts";
 import StageChecksInProportion from "./Migrations/082_StageChecksInProportion.ts";
 import FeatureWorkspaces from "./Migrations/083_FeatureWorkspaces.ts";
 import OneBuilderPerFeature from "./Migrations/084_OneBuilderPerFeature.ts";
+import BotLongConversation from "./Migrations/086_BotLongConversation.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -72,6 +73,8 @@ const migrationEntries = [
   [82, "StageChecksInProportion", StageChecksInProportion],
   [83, "FeatureWorkspaces", FeatureWorkspaces],
   [84, "OneBuilderPerFeature", OneBuilderPerFeature],
+  // 085 is taken by work that lands separately.
+  [86, "BotLongConversation", BotLongConversation],
 ] as const;
 
 const legacyNames = new Set([
