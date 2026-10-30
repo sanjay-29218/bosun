@@ -76,6 +76,10 @@ export interface CrewThreadRuntimeShape {
     { readonly projectId: ProjectId; readonly workspace: CrewWorkspace | null } | null,
     OrchestrationDispatchError
   >;
+  /** When a person last wrote in the thread, as ISO; crew notices and agent messages don't count. */
+  readonly latestPersonMessageAt: (
+    threadId: ThreadId,
+  ) => Effect.Effect<string | null, OrchestrationDispatchError>;
   /** The access and model the thread's next turn uses, or null once it is gone. */
   readonly settings: (threadId: ThreadId) => Effect.Effect<
     {
@@ -326,6 +330,12 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       ),
       restore,
       syncSettings,
+      latestPersonMessageAt: Effect.fn("CrewThreadRuntime.latestPersonMessageAt")(
+        function* (threadId) {
+          const at = (yield* engine.getThreadShell(threadId))?.latestUserAuthoredMessageAt;
+          return at ? DateTime.formatIso(at) : null;
+        },
+      ),
       workspace: Effect.fn("CrewThreadRuntime.workspace")(function* (threadId) {
         const shell = yield* engine.getThreadShell(threadId);
         if (shell === null || shell.deletedAt !== null) return null;

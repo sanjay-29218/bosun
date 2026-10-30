@@ -118,6 +118,7 @@ const fixture = (
       getTurnState: () => Effect.succeed("running"),
       tagHandoff: () => Effect.void,
       showHandoffs: () => Effect.void,
+      latestPersonMessageAt: () => Effect.succeed(null),
     }),
   );
   const files = new Set<string>();
