@@ -28,10 +28,9 @@ Upstream T3 Code is pulled from the `t3code` remote; there is no separate mirror
 
 ## Syncing upstream
 
-```bash
-git fetch t3code
-git checkout main && git merge t3code/main
-```
+Merge `t3code/main` into `main` (never rebase or force-push). Agents follow the
+[sync-t3code skill](.agents/skills/sync-t3code/SKILL.md), which covers the steps, conflict
+policy and checks.
 
 One rule keeps it clean: keep Bosun-only edits localized, so `git merge t3code/main`
 stays a trivial merge.
