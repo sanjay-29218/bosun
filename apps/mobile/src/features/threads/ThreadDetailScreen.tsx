@@ -11,7 +11,11 @@ import * as Dialog from "../../components/ui/Dialog";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
-import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
+import {
+  useChildThreadInputs,
+  useCrewHandoffWait,
+  useThreadReportedModelSelection,
+} from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -25,10 +29,7 @@ import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
-import {
-  presentCrewHandoffWait,
-  type CrewHandoffWait,
-} from "@t3tools/client-runtime/state/crew-handoffs";
+import type { CrewHandoffWait } from "@t3tools/client-runtime/state/crew-handoffs";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -631,12 +632,10 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
   );
-  const crewWait = props.selectedThread.crewHandoffs?.length
-    ? presentCrewHandoffWait(
-        props.selectedThread.crewHandoffs,
-        props.selectedThread.latestRun?.completedAt ?? null,
-      )
-    : null;
+  const crewWait = useCrewHandoffWait({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+  });
   const cancelCrewHandoff = useAtomCommand(rolesEnvironment.cancel);
   const retryCrewHandoff = useAtomCommand(rolesEnvironment.retry);
   const [crewActionPending, setCrewActionPending] = useState(false);
@@ -722,7 +721,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     }
     if (crewWait !== null && contentPresentationKind === "ready") {
       const failed = crewWait.kind === "failed";
-      const openThreadId = crewWait.threadId;
+      const openThreadId = crewWait.blockedBy?.threadId ?? crewWait.threadId;
       return {
         kind: "background",
         label: crewWait.title,

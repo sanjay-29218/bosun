@@ -1,3 +1,4 @@
+import { crewHandoffRowLabel } from "@t3tools/client-runtime/state/crew-handoffs";
 import { featureTagColor } from "@t3tools/client-runtime/crew-stage";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -86,6 +87,8 @@ function StatusIcon({ status }: { readonly status: SidebarThreadStatus }) {
   switch (status) {
     case "working":
       return <CircleDashedIcon aria-hidden className="size-3.5 shrink-0 text-info-foreground" />;
+    case "waiting":
+      return <CircleDashedIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
     case "approval":
       return (
         <ShieldQuestionIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
@@ -109,7 +112,10 @@ export const SidebarWorkGroupEntry = memo(function SidebarWorkGroupEntry(props: 
 }) {
   const { thread, label } = props.entry;
   const status = resolveSidebarThreadStatus(thread);
-  const statusLabel = STATUS_LABELS[status];
+  const statusLabel =
+    status === "waiting"
+      ? (crewHandoffRowLabel(thread.crewHandoffs) ?? undefined)
+      : STATUS_LABELS[status];
   return (
     <li className="list-none ms-4">
       <button

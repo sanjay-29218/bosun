@@ -198,6 +198,11 @@ export function useChildThreadInputs(ref: ScopedThreadRef) {
   return useAtomValue(environmentThreadShells.childThreadInputsAtom(ref));
 }
 
+/** What a crew thread waits on, followed down the chain of crew threads it handed work to. */
+export function useCrewHandoffWait(ref: ScopedThreadRef) {
+  return useAtomValue(environmentThreadShells.crewHandoffWaitAtom(ref));
+}
+
 export function useLiveThreadLinkLabels(markdown: string, environmentId: EnvironmentId): string {
   const titles = useAtomValue(
     hasThreadLinks(markdown)

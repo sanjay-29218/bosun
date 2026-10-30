@@ -562,6 +562,7 @@ describe("Bot foundation", () => {
           interrupt: () => Effect.void,
           listPendingStartedRunIds: () => Effect.succeed([]),
           tagHandoff: () => Effect.void,
+          showHandoffs: () => Effect.void,
         });
         const layer = CrewServiceLive.pipe(
           Layer.provideMerge(CrewStoreLive),

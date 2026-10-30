@@ -296,8 +296,8 @@ export const CrewHandoffServiceLive = Layer.effect(
           true,
         );
         const updated = (yield* handoffs.get(handoff.id))!;
-        yield* changed(updated);
         yield* deliver(updated).pipe(Effect.result);
+        yield* changed(updated);
         return updated;
       }
       // Plain handoffs carry the delegator's current access and model; stages use their role's.
@@ -500,8 +500,8 @@ export const CrewHandoffServiceLive = Layer.effect(
       );
       if (!moved) return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
       const updated = (yield* handoffs.get(handoff.id))!;
-      yield* changed(updated);
       yield* deliver(updated).pipe(Effect.result);
+      yield* changed(updated);
       yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(handoff.id))!;
     });
@@ -533,8 +533,8 @@ export const CrewHandoffServiceLive = Layer.effect(
         );
         if (!moved) return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
         const updated = (yield* handoffs.get(id))!;
-        yield* changed(updated);
         yield* deliver(updated).pipe(Effect.result);
+        yield* changed(updated);
         return (yield* handoffs.get(id))!;
       },
     );
@@ -591,8 +591,8 @@ export const CrewHandoffServiceLive = Layer.effect(
       }
       yield* handoffs.transition(id, [handoff.status], "cancelled", now, undefined, true);
       const updated = (yield* handoffs.get(id))!;
-      yield* changed(updated);
       yield* deliver(updated).pipe(Effect.result);
+      yield* changed(updated);
       yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(id))!;
     });

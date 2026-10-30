@@ -10,6 +10,7 @@ import { isProviderNativeSubagentThread, OrchestrationV2ThreadShell } from "@t3t
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
+import { presentCrewHandoffWait, type CrewHandoffWait } from "./crewHandoffs.ts";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
@@ -23,6 +24,22 @@ import {
 } from "./entities.ts";
 
 const EMPTY_THREADS: ReadonlyArray<OrchestrationV2ThreadShell> = Object.freeze([]);
+
+function sameCrewHandoffWait(left: CrewHandoffWait | null, right: CrewHandoffWait | null) {
+  if (left === null || right === null) return left === right;
+  return (
+    left.kind === right.kind &&
+    left.title === right.title &&
+    left.detail === right.detail &&
+    left.threadId === right.threadId &&
+    left.startedAt === right.startedAt &&
+    arrayElementsEqual(left.handoffIds, right.handoffIds) &&
+    arrayElementsEqual(left.members, right.members) &&
+    left.blockedBy?.kind === right.blockedBy?.kind &&
+    left.blockedBy?.member === right.blockedBy?.member &&
+    left.blockedBy?.threadId === right.blockedBy?.threadId
+  );
+}
 const EMPTY_SCOPED_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
 const EMPTY_THREAD_INDEX: ReadonlyMap<ThreadId, OrchestrationV2ThreadShell> = new Map();
 const EMPTY_SUBAGENT_REQUESTS: ReadonlyMap<ThreadId, PendingSubagentRequest> = new Map();
@@ -441,6 +458,31 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-child-thread-inputs:${key}`));
   });
 
+  // A crew thread's "Waiting on" line follows the chain into the threads it waits on, reading
+  // only their shells, so a hold-up further down updates it without polling.
+  const crewHandoffWaitAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    let previous: CrewHandoffWait | null = null;
+    return Atom.make((get) => {
+      const read = (threadId: ThreadId) => {
+        const shell = get(
+          threadShellAtomFamily(threadKey({ environmentId: ref.environmentId, threadId })),
+        );
+        return shell
+          ? {
+              crewHandoffs: shell.crewHandoffs ?? [],
+              lastCompletedAt: shell.latestRun?.completedAt ?? null,
+            }
+          : null;
+      };
+      const own = read(ref.threadId);
+      const next = own?.crewHandoffs.length ? presentCrewHandoffWait(own, read) : null;
+      if (sameCrewHandoffWait(previous, next)) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-crew-handoff-wait:${key}`));
+  });
+
   const threadShellsForProjectRefsAtomFamily = Atom.family((key: string) => {
     const projectRefs = parseProjectRefCollectionKey(key);
     let previous: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -583,5 +625,6 @@ export function createEnvironmentThreadShellAtoms(input: {
     threadShellAtom: (ref: ScopedThreadRef) => threadShellAtomFamily(threadKey(ref)),
     quietThreadShellAtom: (ref: ScopedThreadRef) => quietThreadShellAtomFamily(threadKey(ref)),
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
+    crewHandoffWaitAtom: (ref: ScopedThreadRef) => crewHandoffWaitAtomFamily(threadKey(ref)),
   };
 }

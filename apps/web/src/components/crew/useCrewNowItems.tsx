@@ -1,5 +1,5 @@
 import { formatStageName } from "@t3tools/client-runtime/crew-stage";
-import { presentCrewHandoffWait } from "@t3tools/client-runtime/state/crew-handoffs";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ThreadId } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
@@ -14,6 +14,7 @@ import {
 import { useState } from "react";
 
 import { tickTextContent } from "~/lib/tickTextContent";
+import { useCrewHandoffWait } from "../../state/entities";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ThreadNowItem } from "../chat/ThreadNow";
@@ -32,6 +33,7 @@ export function useCrewNowItems(input: {
 }): { readonly attention: ThreadNowItem | null; readonly work: ThreadNowItem | null } {
   const { thread, stage, canOperate, onOpenThread } = input;
   const [busy, setBusy] = useState<"stage" | "handoffs" | null>(null);
+  const wait = useCrewHandoffWait(thread ? scopeThreadRef(thread.environmentId, thread.id) : null);
   const cancel = useAtomCommand(rolesEnvironment.cancel);
   const retry = useAtomCommand(rolesEnvironment.retry);
 
@@ -101,21 +103,20 @@ export function useCrewNowItems(input: {
     }
   })();
 
-  const wait = thread?.crewHandoffs?.length
-    ? presentCrewHandoffWait(thread.crewHandoffs, thread.latestRun?.completedAt ?? null)
-    : null;
   const work = ((): ThreadNowItem | null => {
     if (!thread || !wait) return null;
     const target = { environmentId: thread.environmentId };
     const projectId = thread.projectId;
     const startedAtMs = wait.startedAt === null ? null : Date.parse(wait.startedAt);
-    const openThreadId = wait.threadId;
+    // Open goes where the work is held up: the end of the chain, else the member itself.
+    const openThreadId = wait.blockedBy?.threadId ?? wait.threadId;
+    const shown = wait.blockedBy?.kind ?? wait.kind;
     return {
       id: `crew-handoffs:${thread.id}`,
       icon:
-        wait.kind === "failed" ? (
+        shown === "failed" ? (
           <TriangleAlertIcon className="text-destructive-foreground" />
-        ) : wait.kind === "question" ? (
+        ) : shown === "question" ? (
           <MessageCircleIcon />
         ) : (
           <CircleDashedIcon />
@@ -135,7 +136,7 @@ export function useCrewNowItems(input: {
           )}
           {openThreadId === null ? null : (
             <InlineButton tone="muted" onClick={() => onOpenThread(openThreadId)}>
-              Open
+              {wait.blockedBy ? `Open ${wait.blockedBy.member}` : "Open"}
             </InlineButton>
           )}
           {wait.kind === "failed" ? (

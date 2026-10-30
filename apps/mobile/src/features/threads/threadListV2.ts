@@ -9,6 +9,7 @@ import {
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+import { crewHandoffRowLabel } from "@t3tools/client-runtime/state/crew-handoffs";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import {
@@ -207,6 +208,7 @@ export function resolveThreadListV2Status(
     | "pendingGuestMessageCount"
     | "runtime"
     | "blockedOnThreadWait"
+    | "crewHandoffs"
   >,
 ): ThreadListV2Status {
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
@@ -227,6 +229,10 @@ export function resolveThreadListV2Status(
     ["preparing", "queued", "starting", "running", "waiting"].includes(thread.runtime.status)
   ) {
     return "working";
+  }
+  // A crew thread that handed work off waits on it, though its own turn has ended.
+  if (crewHandoffRowLabel(thread.crewHandoffs) !== null) {
+    return "waiting";
   }
   if (thread.runtime?.status === "idle") {
     return "waiting";
