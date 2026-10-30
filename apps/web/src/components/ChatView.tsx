@@ -366,7 +366,7 @@ import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
-import { ThreadNow } from "./chat/ThreadNow";
+import { ThreadNow, ThreadNowLine } from "./chat/ThreadNow";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { useDelayedStatus } from "../hooks/useDelayedStatus";
 import { useTimelineFollow } from "./chat/useTimelineFollow";
@@ -3159,7 +3159,7 @@ export default function ChatView(props: ChatViewProps) {
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
   const nowAttention = [childInputNow, crewNow.attention].filter((item) => item !== null);
-  const nowWork = [backgroundWorkNow, crewNow.work].filter((item) => item !== null);
+  const nowWork = backgroundWorkNow === null ? [] : [backgroundWorkNow];
   const hasThreadNow =
     nowAttention.length > 0 ||
     nowWork.length > 0 ||
@@ -3581,6 +3581,13 @@ export default function ChatView(props: ChatViewProps) {
               }
             >
               <div ref={draftHeroTransitionGroupRef} className="chat-composer-lane w-full">
+                {crewNow.work === null || isDraftHeroState ? null : (
+                  // Pinned above the composer so the crew wait stays visible at every scroll
+                  // position; the overlay's measured height keeps the timeline's end clear.
+                  <div className="pointer-events-auto mx-auto w-full max-w-(--chat-content-max-width) bg-background pt-1">
+                    <ThreadNowLine item={crewNow.work} />
+                  </div>
+                )}
                 <div
                   data-chat-composer-stack="true"
                   className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
