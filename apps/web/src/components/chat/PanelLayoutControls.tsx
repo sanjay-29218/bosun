@@ -55,8 +55,8 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       pressed={threadPanelOpen}
       onPressedChange={threadPanelPresentation === "popover" ? undefined : onToggleThreadPanel}
       aria-label="Toggle thread details panel"
-      variant="ghost"
-      size="sm"
+      variant="segmented"
+      size="segmented"
     >
       <SquareMenuIcon className="size-4" />
     </Toggle>
@@ -79,7 +79,9 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
 
   return (
     <div
-      className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
+      role="group"
+      aria-label="Panel layout"
+      className="flex shrink-0 items-center gap-0.5 rounded-lg bg-input/40 p-0.5 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
       {showThreadPanelControl ? threadPanelControl : null}
@@ -91,8 +93,8 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               pressed={terminalOpen}
               onPressedChange={onToggleTerminal}
               aria-label="Toggle terminal drawer"
-              variant="ghost"
-              size="sm"
+              variant="segmented"
+              size="segmented"
               disabled={!terminalAvailable}
             >
               <PanelBottomIcon className="size-4" />
@@ -114,8 +116,8 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               onPressedChange={onToggleRightPanel}
               aria-label="Toggle right panel"
               data-right-panel-toggle
-              variant="ghost"
-              size="sm"
+              variant="segmented"
+              size="segmented"
               disabled={!rightPanelAvailable}
             >
               <PanelRightIcon className="size-4" />
