@@ -25,7 +25,7 @@ const lineClassName = cn(
 );
 
 /** One line of thread state at the end of the timeline: icon, title, detail, then actions. */
-function ThreadNowLine({
+export function ThreadNowLine({
   item,
   announce = false,
 }: {
