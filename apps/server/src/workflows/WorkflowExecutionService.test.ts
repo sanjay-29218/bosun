@@ -117,6 +117,7 @@ const fixture = (
       listPendingStartedRunIds: () => Effect.succeed([]),
       getTurnState: () => Effect.succeed("running"),
       tagHandoff: () => Effect.void,
+      showHandoffs: () => Effect.void,
     }),
   );
   const files = new Set<string>();

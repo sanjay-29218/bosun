@@ -48,7 +48,6 @@ import {
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
-import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
@@ -274,7 +273,6 @@ import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
-import { CrewRunStatusStrip } from "./chat/CrewRunStatusStrip";
 import { CrewHandoffCard } from "./crew/CrewHandoffCard";
 import {
   ComposerCrewControl,
@@ -286,7 +284,7 @@ import type { ComposerControlSize } from "./chat/ComposerControl";
 import { featuresEnvironment } from "../state/features";
 import { CrewStageBanner } from "./crew/CrewStageBanner";
 import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
-import { CrewWaitingBanner } from "./crew/CrewWaitingBanner";
+import { useCrewNowItems } from "./crew/useCrewNowItems";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
@@ -2560,6 +2558,12 @@ export default function ChatView(props: ChatViewProps) {
     scrollToEnd,
     persistThreadSettingsForNextTurn,
   });
+  const crewNow = useCrewNowItems({
+    thread: isServerThread ? activeThreadShell : null,
+    stage: crewStage,
+    canOperate: canOperateThread,
+    onOpenThread: onOpenRelatedThreadStable,
+  });
   const activeThreadHasCompactableConversation = serverVisibleTurnItems.some(
     ({ item }) =>
       item.type === "user_message" &&
@@ -3154,9 +3158,11 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
+  const nowAttention = [childInputNow, crewNow.attention].filter((item) => item !== null);
+  const nowWork = [backgroundWorkNow, crewNow.work].filter((item) => item !== null);
   const hasThreadNow =
-    childInputNow !== null ||
-    backgroundWorkNow !== null ||
+    nowAttention.length > 0 ||
+    nowWork.length > 0 ||
     goalNow !== null ||
     shownThreadSyncPhase !== null;
   const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
@@ -3172,6 +3178,7 @@ export default function ChatView(props: ChatViewProps) {
   const scrollToEndSummary =
     [
       childInputNow === null ? null : "Subagent waiting",
+      crewNow.attention === null ? null : "Crew waiting",
       queuedRunCount === 0 ? null : `${queuedRunCount} queued`,
     ]
       .filter((part) => part !== null)
@@ -3197,8 +3204,8 @@ export default function ChatView(props: ChatViewProps) {
         )}
         <ThreadNow
           key={routeThreadKey}
-          attention={childInputNow}
-          work={backgroundWorkNow}
+          attention={nowAttention}
+          work={nowWork}
           syncPhase={shownThreadSyncPhase}
           goal={goalNow}
         />
@@ -3411,13 +3418,6 @@ export default function ChatView(props: ChatViewProps) {
               : {})}
           />
         </header>
-        {isServerThread && activeProject && isCrewThreadId(activeThread.id) && !crewStage?.crew ? (
-          <CrewRunStatusStrip
-            environmentId={activeThread.environmentId}
-            projectId={activeProject.id}
-            threadId={activeThread.id}
-          />
-        ) : null}
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <ThreadFindCanvas
@@ -3636,13 +3636,7 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              crewBanner={
-                                crewStage?.prompt ? (
-                                  <CrewStageBanner />
-                                ) : crewStage?.waiting ? (
-                                  <CrewWaitingBanner />
-                                ) : null
-                              }
+                              crewBanner={crewStage?.prompt ? <CrewStageBanner /> : null}
                               renderWorkflowPicker={renderWorkflowPicker}
                               renderCrewControl={renderCrewControl}
                               canOperateThread={canOperateThread}

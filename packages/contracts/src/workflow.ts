@@ -253,6 +253,22 @@ export const ThreadCrewRequestTag = Schema.Struct({
   member: Schema.String,
 });
 export type ThreadCrewRequestTag = typeof ThreadCrewRequestTag.Type;
+
+/** A crew handoff a thread sent that is still out, or that failed: its "Waiting on" line. */
+export const ThreadCrewHandoff = Schema.Struct({
+  id: Schema.String,
+  /** The crew member doing the work, such as "Builder". */
+  member: Schema.String,
+  threadId: Schema.NullOr(ThreadId),
+  status: Schema.Literals(["queued", "running", "needs-input", "failed"]),
+  /** The first line of each, shortened. */
+  task: Schema.String,
+  question: Schema.NullOr(Schema.String),
+  error: Schema.NullOr(Schema.String),
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+});
+export type ThreadCrewHandoff = typeof ThreadCrewHandoff.Type;
 /**
  * A stage result a later stage can receive. `version` counts the producing step's
  * completed executions, so a reworked design is `design.md` version 2.

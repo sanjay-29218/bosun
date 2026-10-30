@@ -2,6 +2,7 @@ import {
   headquartersBotId,
   type ModelSelection,
   type ProjectId,
+  type ThreadCrewHandoff,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -114,6 +115,9 @@ const bounded = (value: string, name: string, max: number) => {
   return text;
 };
 
+const SHOWN_OPEN = new Set<CrewHandoff["status"]>(["queued", "running", "needs-input"]);
+const firstLine = (text: string | null) => text?.split("\n", 1)[0]?.trim().slice(0, 200) || null;
+
 /** Workflow stages delegate under this prefix; their roles set their own access and model. */
 export const WORKFLOW_HANDOFF_PREFIX = "workflow:";
 const isWorkflowHandoffId = (id: string) => id.startsWith(WORKFLOW_HANDOFF_PREFIX);
@@ -180,6 +184,48 @@ export const CrewHandoffServiceLive = Layer.effect(
       );
       yield* handoffs.markDelivered(handoff.id, handoff.noticeVersion);
     });
+
+    /** Refreshes the "Waiting on" list of the thread that sent handoffs from `sourceRunId`. */
+    const showOnSender = Effect.fn("CrewHandoffService.showOnSender")(function* (
+      sourceRunId: string,
+    ) {
+      const source = yield* runs.getRun(sourceRunId);
+      if (!source) return;
+      const sent = yield* handoffs.listBySourceRun(sourceRunId);
+      const open = sent.filter((handoff) => SHOWN_OPEN.has(handoff.status));
+      const latest = sent.reduce<CrewHandoff | null>(
+        (newest, handoff) =>
+          newest === null || handoff.updatedAt > newest.updatedAt ? handoff : newest,
+        null,
+      );
+      const shown = open.length > 0 ? open : latest?.status === "failed" ? [latest] : [];
+      const items = yield* Effect.forEach(shown, (handoff) =>
+        Effect.gen(function* () {
+          const member = yield* runs.getMember(handoff.targetMemberId);
+          const target = yield* runs.getRun(handoff.targetRunId);
+          return {
+            id: handoff.id,
+            member: member?.name ?? "A crew member",
+            threadId: target?.threadId ?? null,
+            status: handoff.status as ThreadCrewHandoff["status"],
+            task: firstLine(handoff.taskText) ?? "",
+            question: handoff.status === "needs-input" ? firstLine(handoff.questionText) : null,
+            error:
+              handoff.status === "failed"
+                ? firstLine(handoff.lastError ?? handoff.responseText)
+                : null,
+            createdAt: handoff.createdAt,
+            updatedAt: handoff.updatedAt,
+          } satisfies ThreadCrewHandoff;
+        }),
+      );
+      yield* runtime.showHandoffs(source.threadId, items);
+    });
+    /** Every status change: wakes `waitFor` and updates the sender's thread. */
+    const changed = (handoff: Pick<CrewHandoff, "id" | "sourceRunId">) =>
+      PubSub.publish(changes, handoff.id).pipe(
+        Effect.andThen(showOnSender(handoff.sourceRunId).pipe(Effect.result)),
+      );
 
     const requireRun = Effect.fn("CrewHandoffService.requireRun")(function* (
       threadId: ThreadId,
@@ -250,7 +296,7 @@ export const CrewHandoffServiceLive = Layer.effect(
           true,
         );
         const updated = (yield* handoffs.get(handoff.id))!;
-        yield* PubSub.publish(changes, updated.id);
+        yield* changed(updated);
         yield* deliver(updated).pipe(Effect.result);
         return updated;
       }
@@ -281,6 +327,7 @@ export const CrewHandoffServiceLive = Layer.effect(
       });
       const now = DateTime.formatIso(yield* DateTime.now);
       yield* handoffs.transition(handoff.id, ["queued"], "running", now);
+      yield* changed(handoff);
       return (yield* handoffs.get(handoff.id))!;
     });
 
@@ -443,7 +490,7 @@ export const CrewHandoffServiceLive = Layer.effect(
         return yield* Effect.fail(new CrewHandoffError("Handoff is not running"));
       }
       const now = DateTime.formatIso(yield* DateTime.now);
-      const changed = yield* handoffs.transition(
+      const moved = yield* handoffs.transition(
         handoff.id,
         ["running"],
         status,
@@ -451,9 +498,9 @@ export const CrewHandoffServiceLive = Layer.effect(
         status === "needs-input" ? { questionText: value } : { responseText: value },
         true,
       );
-      if (!changed) return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
+      if (!moved) return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
       const updated = (yield* handoffs.get(handoff.id))!;
-      yield* PubSub.publish(changes, updated.id);
+      yield* changed(updated);
       yield* deliver(updated).pipe(Effect.result);
       yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(handoff.id))!;
@@ -474,7 +521,7 @@ export const CrewHandoffServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewHandoffError("Handoff is not waiting for an answer"));
         }
         const now = DateTime.formatIso(yield* DateTime.now);
-        const changed = yield* handoffs.transition(
+        const moved = yield* handoffs.transition(
           id,
           ["needs-input"],
           "running",
@@ -484,10 +531,9 @@ export const CrewHandoffServiceLive = Layer.effect(
           },
           true,
         );
-        if (!changed)
-          return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
+        if (!moved) return yield* Effect.fail(new CrewHandoffError("Handoff changed concurrently"));
         const updated = (yield* handoffs.get(id))!;
-        yield* PubSub.publish(changes, id);
+        yield* changed(updated);
         yield* deliver(updated).pipe(Effect.result);
         return (yield* handoffs.get(id))!;
       },
@@ -518,7 +564,7 @@ export const CrewHandoffServiceLive = Layer.effect(
         view.status === "completed"
           ? "Recipient ended without a structured crew_respond outcome"
           : `Recipient run ${view.status}`;
-      const changed = yield* handoffs.transition(
+      const moved = yield* handoffs.transition(
         handoff.id,
         ["running"],
         "failed",
@@ -526,8 +572,8 @@ export const CrewHandoffServiceLive = Layer.effect(
         { lastError: detail, responseText: detail },
         true,
       );
-      if (!changed) return;
-      yield* PubSub.publish(changes, handoff.id);
+      if (!moved) return;
+      yield* changed(handoff);
       yield* startWaiting().pipe(Effect.result);
     });
 
@@ -545,7 +591,7 @@ export const CrewHandoffServiceLive = Layer.effect(
       }
       yield* handoffs.transition(id, [handoff.status], "cancelled", now, undefined, true);
       const updated = (yield* handoffs.get(id))!;
-      yield* PubSub.publish(changes, id);
+      yield* changed(updated);
       yield* deliver(updated).pipe(Effect.result);
       yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(id))!;
@@ -573,8 +619,8 @@ export const CrewHandoffServiceLive = Layer.effect(
       }
       const previous = yield* runs.getRun(handoff.targetRunId);
       const now = DateTime.formatIso(yield* DateTime.now);
-      const changed = yield* handoffs.retry(id, now);
-      if (!changed) return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
+      const moved = yield* handoffs.retry(id, now);
+      if (!moved) return yield* Effect.fail(new CrewHandoffError("Handoff retry is unavailable"));
       const started = yield* startQueued((yield* handoffs.get(id))!);
       // The retry runs in a new thread; it joins the work its first attempt was on.
       if (previous) yield* tagThread(started, previous.threadId);

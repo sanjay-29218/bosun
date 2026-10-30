@@ -21,13 +21,6 @@ export function createRoleAtoms<R, ER>(
     idleTtlMs: 60_000,
     refreshTrigger: ({ environmentId }) => libraryChanges({ environmentId, input: {} }),
   });
-  const snapshot = createEnvironmentRpcQueryAtomFamily(runtime, {
-    label: "environment-data:crew:snapshot",
-    tag: WS_METHODS.crewSnapshot,
-    staleTimeMs: 5_000,
-    idleTtlMs: 60_000,
-    refreshIntervalMs: 10_000,
-  });
   const configuration = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:crew:configuration",
     tag: WS_METHODS.crewConfiguration,
@@ -39,27 +32,15 @@ export function createRoleAtoms<R, ER>(
     registry: AtomRegistry.AtomRegistry,
   ) =>
     Effect.sync(() => registry.refresh(roles({ environmentId: target.environmentId, input: {} })));
-  const refresh = (
-    target: {
-      readonly environmentId: EnvironmentId;
-      readonly input: { readonly projectId: ProjectId };
-    },
-    registry: AtomRegistry.AtomRegistry,
-  ) => Effect.sync(() => registry.refresh(snapshot(target)));
   const refreshConfiguration = (
     target: {
       readonly environmentId: EnvironmentId;
       readonly input: { readonly projectId: ProjectId };
     },
     registry: AtomRegistry.AtomRegistry,
-  ) =>
-    Effect.sync(() => {
-      registry.refresh(configuration(target));
-      registry.refresh(snapshot(target));
-    });
+  ) => Effect.sync(() => registry.refresh(configuration(target)));
   return {
     roles,
-    snapshot,
     configuration,
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:roles:create",
@@ -107,35 +88,18 @@ export function createRoleAtoms<R, ER>(
     start: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:start",
       tag: WS_METHODS.crewStart,
-      onSuccess: ({ environmentId, input }, registry) =>
-        refresh({ environmentId, input: { projectId: input.projectId } }, registry),
     }),
     answer: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:answer",
       tag: WS_METHODS.crewAnswer,
-      onSuccess: (target, registry) =>
-        refresh(
-          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
-          registry,
-        ),
     }),
     cancel: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:cancel",
       tag: WS_METHODS.crewCancel,
-      onSuccess: (target, registry) =>
-        refresh(
-          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
-          registry,
-        ),
     }),
     retry: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:retry",
       tag: WS_METHODS.crewRetry,
-      onSuccess: (target, registry) =>
-        refresh(
-          { environmentId: target.environmentId, input: { projectId: target.input.projectId } },
-          registry,
-        ),
     }),
   };
 }

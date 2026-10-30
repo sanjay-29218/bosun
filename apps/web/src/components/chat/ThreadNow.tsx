@@ -86,16 +86,20 @@ export function ThreadNow({
   syncPhase,
   goal,
 }: {
-  /** Something that needs you elsewhere, such as a subagent's question. */
-  readonly attention: ThreadNowItem | null;
-  readonly work: ThreadNowItem | null;
+  /** What needs you elsewhere, such as a subagent's question or a crew stage's gate. */
+  readonly attention: ReadonlyArray<ThreadNowItem>;
+  readonly work: ReadonlyArray<ThreadNowItem>;
   readonly syncPhase: ThreadSyncPhase | null;
   readonly goal: ThreadNowItem | null;
 }): ReactNode {
   return (
     <>
-      {attention ? <ThreadNowLine item={attention} announce /> : null}
-      {work ? <ThreadNowLine item={work} /> : null}
+      {attention.map((item) => (
+        <ThreadNowLine key={item.id} item={item} announce />
+      ))}
+      {work.map((item) => (
+        <ThreadNowLine key={item.id} item={item} />
+      ))}
       {syncPhase ? <ThreadSyncLine phase={syncPhase} /> : null}
       {goal ? <ThreadNowLine item={goal} /> : null}
     </>

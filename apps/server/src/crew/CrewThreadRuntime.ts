@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeCrypto from "node:crypto";
 import {
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
@@ -10,6 +12,7 @@ import {
   type RunId,
   type RuntimeMode,
   type CrewTurnState,
+  ThreadCrewHandoff,
   type ThreadCrewRequestTag,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -132,7 +135,14 @@ export interface CrewThreadRuntimeShape {
     readonly sourceThreadId: ThreadId;
     readonly request: ThreadCrewRequestTag;
   }) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** Shows a thread the handoffs it sent that are still out; skipped when nothing changed. */
+  readonly showHandoffs: (
+    threadId: ThreadId,
+    handoffs: ReadonlyArray<ThreadCrewHandoff>,
+  ) => Effect.Effect<void, OrchestrationDispatchError>;
 }
+
+const sameHandoffs = Schema.toEquivalence(Schema.Array(ThreadCrewHandoff));
 
 export class CrewThreadRuntime extends Context.Service<CrewThreadRuntime, CrewThreadRuntimeShape>()(
   "t3/crew/CrewThreadRuntime",
@@ -273,8 +283,24 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           : input.request,
       });
     });
+    const showHandoffs = Effect.fn("CrewThreadRuntime.showHandoffs")(function* (
+      threadId: ThreadId,
+      handoffs: ReadonlyArray<ThreadCrewHandoff>,
+    ) {
+      const thread = yield* engine.getThreadShell(threadId);
+      if (thread === null) return;
+      if (sameHandoffs(thread.crewHandoffs ?? [], handoffs)) return;
+      yield* engine.dispatch({
+        type: "thread.crew-stage.set",
+        // A list can return to an earlier value, so each change needs its own receipt.
+        commandId: CommandId.make(`crew-handoffs:${threadId}:${NodeCrypto.randomUUID()}`),
+        threadId,
+        crewHandoffs: handoffs,
+      });
+    });
     return CrewThreadRuntime.of({
       tagHandoff,
+      showHandoffs,
       projectExists: Effect.fn("CrewThreadRuntime.projectExists")((projectId) =>
         projects
           .get(projectId)

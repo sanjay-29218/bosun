@@ -51,6 +51,10 @@
       "types": "./src/state/crew.ts",
       "default": "./src/state/crew.ts"
     },
+    "./state/crew-handoffs": {
+      "types": "./src/state/crewHandoffs.ts",
+      "default": "./src/state/crewHandoffs.ts"
+    },
     "./state/crew-board": {
       "types": "./src/state/crewBoard.ts",
       "default": "./src/state/crewBoard.ts"

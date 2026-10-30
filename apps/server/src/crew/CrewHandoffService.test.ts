@@ -67,7 +67,7 @@ describe("Bot handoffs", () => {
       );
       yield* withSystem(
         NodePath.join(directory, "state.sqlite"),
-        ({ bots, handoffs, store, sql }) =>
+        ({ bots, handoffs, store, sql, engine }) =>
           Effect.gen(function* () {
             yield* seedCrewProject({
               projectId,
@@ -98,6 +98,17 @@ describe("Bot handoffs", () => {
               taskText: "Implement after clarification",
             });
             const execution = (yield* bots.getRun(executionRequest.targetRunId))!.run;
+            const managerWaitsOn = engine
+              .getThreadShell(manager.threadId)
+              .pipe(Effect.map((shell) => shell?.crewHandoffs ?? []));
+            expect(yield* managerWaitsOn).toMatchObject([
+              {
+                id: "builder-question",
+                status: "running",
+                task: "Implement after clarification",
+                threadId: execution.threadId,
+              },
+            ]);
             expect(
               (yield* handoffs
                 .delegate({
@@ -133,6 +144,9 @@ describe("Bot handoffs", () => {
             ).toBe("Failure");
             const question = yield* handoffs.ask(execution.threadId, "Which file?");
             expect(question.status).toBe("needs-input");
+            expect(yield* managerWaitsOn).toMatchObject([
+              { status: "needs-input", question: "Which file?" },
+            ]);
             expect((yield* store.listByProject(projectId, 1)).length).toBe(2);
             expect((yield* handoffs.waitFor(manager.threadId, question.id)).questionText).toBe(
               "Which file?",
@@ -154,6 +168,7 @@ describe("Bot handoffs", () => {
             expect((yield* handoffs.waitFor(manager.threadId, question.id)).responseText).toBe(
               "Updated src/main.ts",
             );
+            expect(yield* managerWaitsOn).toEqual([]);
             const late = yield* handoffs.delegate({
               id: "builder-late",
               sourceThreadId: manager.threadId,
