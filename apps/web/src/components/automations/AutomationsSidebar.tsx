@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import {
   isAutomationFailureUnseen,
   type AutomationEntry,
@@ -12,10 +11,10 @@ import { cn } from "../../lib/utils";
 import {
   useAutomationGroups,
   useRunningAutomationKeys,
+  useScheduledTaskCreationEnvironmentId,
   useScheduledTasksByEnvironment,
 } from "../../state/automations";
 import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
-import { serverEnvironment } from "../../state/server";
 import { useUiStateStore } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
@@ -43,10 +42,7 @@ export function AutomationsSidebar() {
         ? `${search.environmentId}:${search.taskId}`
         : null,
   });
-  const createEnvironmentId = connected[0] ?? null;
-  const canCreate = useAtomValue(
-    serverEnvironment.upsertScheduledTask.permissionAtom(createEnvironmentId),
-  );
+  const canCreate = useScheduledTaskCreationEnvironmentId(null) !== null;
   const labelById = new Map(identities.map((identity) => [identity.environmentId, identity.label]));
   const showEnvironment = states.length > 1;
   const loading = states.some((state) => state.tasks === null && state.error === null);
@@ -67,7 +63,7 @@ export function AutomationsSidebar() {
               </h2>
               <SidebarHeaderIconButton
                 label="New task"
-                disabled={createEnvironmentId === null || !canCreate}
+                disabled={!canCreate}
                 onClick={() => {
                   if (isMobile) setOpenMobile(false);
                   void navigate({ to: "/automations", search: { new: true } });

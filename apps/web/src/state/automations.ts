@@ -83,6 +83,22 @@ export function useAutomationGroups(): ReadonlyArray<AutomationGroup> {
   return groupAutomationsByBot({ environments: loadedTasks(states), projects, bots });
 }
 
+/** A connected environment this client may create tasks on, preferring `preferred`. */
+const scheduledTaskCreationEnvironmentAtom = Atom.family((preferred: string) =>
+  Atom.make((get): EnvironmentId | null => {
+    const permitted = get(environmentSummaries.connectedEnvironmentIdsAtom).filter(
+      (environmentId) => get(serverEnvironment.upsertScheduledTask.permissionAtom(environmentId)),
+    );
+    return permitted.find((environmentId) => environmentId === preferred) ?? permitted[0] ?? null;
+  }).pipe(Atom.withLabel(`web-automations:creation-environment:${preferred}`)),
+);
+
+export function useScheduledTaskCreationEnvironmentId(
+  preferred: EnvironmentId | null,
+): EnvironmentId | null {
+  return useAtomValue(scheduledTaskCreationEnvironmentAtom(preferred ?? ""));
+}
+
 export function useRunningAutomationKeys(): ReadonlySet<string> {
   return useAtomValue(runningAutomationKeysAtom);
 }

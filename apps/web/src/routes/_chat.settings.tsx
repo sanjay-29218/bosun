@@ -149,6 +149,7 @@ function SettingsContentLayout() {
 // Pages that edit one environment's own records, so the scope picks exactly one.
 const SINGLE_ENVIRONMENT_PATHS: ReadonlySet<string> = new Set([
   "/settings/providers",
+  "/settings/secrets",
   "/settings/bots",
 ]);
 

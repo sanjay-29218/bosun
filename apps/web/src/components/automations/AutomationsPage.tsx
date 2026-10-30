@@ -12,9 +12,11 @@ import { CalendarClockIcon, PlusIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
-import { useScheduledTasksByEnvironment } from "../../state/automations";
+import {
+  useScheduledTaskCreationEnvironmentId,
+  useScheduledTasksByEnvironment,
+} from "../../state/automations";
 import { useConnectedEnvironmentIds, usePrimaryEnvironmentId } from "../../state/environments";
-import { serverEnvironment } from "../../state/server";
 import { environmentThreadShells } from "../../state/threads";
 import { useUiStateStore } from "../../uiStateStore";
 import { Badge } from "../ui/badge";
@@ -46,9 +48,7 @@ export function AutomationsPage(search: AutomationsSearch) {
     connectedEnvironmentIds.find((environmentId) => environmentId === primaryEnvironmentId) ??
     connectedEnvironmentIds[0] ??
     null;
-  const canCreate = useAtomValue(
-    serverEnvironment.upsertScheduledTask.permissionAtom(defaultEnvironmentId),
-  );
+  const creationEnvironmentId = useScheduledTaskCreationEnvironmentId(defaultEnvironmentId);
   // An editor's environment can drop out while the user edits; keep showing the last copy
   // of its task so a disconnect doesn't throw away unsaved changes.
   const selectedKey =
@@ -121,8 +121,8 @@ export function AutomationsPage(search: AutomationsSearch) {
                 <NoEnvironments />
               ) : (
                 <ScheduledTaskEditorForm
-                  key={`new:${defaultEnvironmentId}:${formRevision}`}
-                  initialEnvironmentId={defaultEnvironmentId}
+                  key={`new:${creationEnvironmentId ?? defaultEnvironmentId}:${formRevision}`}
+                  initialEnvironmentId={creationEnvironmentId ?? defaultEnvironmentId}
                   task={null}
                   onSaved={openTask}
                   onCancel={closeEditor}
@@ -172,7 +172,7 @@ export function AutomationsPage(search: AutomationsSearch) {
                 </EmptyHeader>
                 <Button
                   size="sm"
-                  disabled={defaultEnvironmentId === null || !canCreate}
+                  disabled={creationEnvironmentId === null}
                   onClick={() => void navigate({ to: "/automations", search: { new: true } })}
                 >
                   <PlusIcon />
