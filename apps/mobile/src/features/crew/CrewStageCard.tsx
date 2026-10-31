@@ -182,10 +182,10 @@ export function CrewStageCard(props: {
   const withNote = note.length > 0 ? { note } : {};
 
   const confirmCancel = () =>
-    Alert.alert("Cancel feature?", "Running stages stop. You can reopen it later.", [
+    Alert.alert("Stop feature?", "Running stages stop. You can reopen it later.", [
       { text: "Keep running", style: "cancel" },
       {
-        text: "Cancel feature",
+        text: "Stop feature",
         style: "destructive",
         onPress: () => void run(() => cancel(target(action("cancel")))),
       },
@@ -232,7 +232,7 @@ export function CrewStageCard(props: {
   const takeOverItem: MenuAction = { id: "take-over", title: "Take over" };
   const cancelItem: MenuAction = {
     id: "cancel",
-    title: "Cancel feature",
+    title: "Stop feature",
     attributes: { destructive: true },
   };
   // A paused feature keeps showing what it waits on, so Resume rides along in More actions.
@@ -436,7 +436,7 @@ export function CrewStageCard(props: {
       );
     case "cancelled":
       return (
-        <ApprovalCardLayout kicker="Cancelled" title={props.stage.title}>
+        <ApprovalCardLayout kicker="Stopped" title={props.stage.title}>
           <RequestActionButton
             label="Reopen"
             disabled={disabled}

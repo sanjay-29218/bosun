@@ -132,6 +132,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "usage.period.week",
   "usage.period.month",
   "usage.period.quarter",
+  // Retired with the board's Workflow and Needs you views; kept so configs naming them decode.
   "features.workflow",
   "features.needsYou",
   "features.newTodo",

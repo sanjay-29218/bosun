@@ -14,9 +14,11 @@ import {
   collectNeedsYou,
   countNeedsYouByBot,
   featureCardActions,
+  featureCardQuickActions,
   featureDropAction,
   featurePhase,
   featureQueuePositions,
+  groupFeaturesByColumn,
   groupFeaturesByPhase,
   matchesFeatureSearch,
   mostUsedWorkflowId,
@@ -134,6 +136,41 @@ describe("phases", () => {
     ]);
     expect(groups[2]!.cards.map((item) => item.featureId)).toEqual(["new", "old"]);
     expect(groups[5]!.cards.map((item) => item.featureId)).toEqual(["done"]);
+  });
+});
+
+describe("status columns", () => {
+  it("files features under Todo, Working, Needs you and Done, with the longest wait first", () => {
+    const groups = groupFeaturesByColumn([
+      card("unstarted", "working", null, { started: false }),
+      card("queued", "queued", "build"),
+      card("paused", "paused", "build"),
+      card("late", "failed", "build", { stateSince: "2026-10-03T00:00:00.000Z" }),
+      card("early", "approval", "plan", { stateSince: "2026-10-02T00:00:00.000Z" }),
+      card("stopped", "cancelled", "build"),
+      card("done", "done", "qa"),
+    ]);
+    expect(
+      groups.map((group) => [group.column, group.cards.map((item) => item.featureId)]),
+    ).toEqual([
+      ["todo", ["unstarted"]],
+      ["working", ["queued", "paused"]],
+      ["needs-you", ["early", "late"]],
+      ["done", ["stopped", "done"]],
+    ]);
+  });
+
+  it("shows only the buttons that settle what a card waits on", () => {
+    expect(featureCardQuickActions(card("a", "working", null, { started: false }))).toEqual([
+      "start",
+    ]);
+    expect(featureCardQuickActions(card("a", "working", "build"))).toEqual([]);
+    expect(featureCardQuickActions(card("a", "approval", "plan"))).toEqual([
+      "approve",
+      "request-changes",
+    ]);
+    expect(featureCardQuickActions(card("a", "failed", "build"))).toEqual(["retry", "cancel"]);
+    expect(featureCardQuickActions(card("a", "done", "qa"))).toEqual([]);
   });
 });
 

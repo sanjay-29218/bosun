@@ -1,6 +1,6 @@
 import type { CrewStageSummary, ThreadCrewRequestTag } from "@t3tools/contracts";
 
-import { formatStageName } from "../crewStage.ts";
+import { formatStageName, isHiddenStageThread } from "../crewStage.ts";
 import { threadNeedsYouKind, type NeedsYouShell } from "./crewBoard.ts";
 import { inboxReturnAt, type InboxThreadInput } from "./threadInbox.ts";
 
@@ -191,6 +191,25 @@ export function groupWorkThreads<T extends WorkGroupThread>(
     primaries: visible.filter((thread) => !folded.has(thread)),
     groupByThreadKey,
   };
+}
+
+/**
+ * Each feature's row in the thread list, by `environmentId:featureId`: the threads the list
+ * shows for it (its lead and current stage), primary first. The feature is settled when its
+ * primary is, as the list files it.
+ */
+export function featureRows<T extends WorkGroupThread & { readonly archivedAt: unknown }>(
+  threads: ReadonlyArray<T>,
+): ReadonlyMap<string, ReadonlyArray<T>> {
+  const featureThreads = threads.filter((thread) => thread.feature && thread.archivedAt === null);
+  const { groupByThreadKey } = groupWorkThreads(
+    featureThreads.filter((thread) => !isHiddenStageThread(thread)),
+  );
+  const rows = new Map<string, ReadonlyArray<T>>();
+  for (const group of groupByThreadKey.values()) {
+    rows.set(`${group.primary.environmentId}:${group.primary.feature!.id}`, groupThreads(group));
+  }
+  return rows;
 }
 
 const groupThreads = <T>(group: WorkGroup<T>) => [

@@ -29,21 +29,15 @@ const key = (value: string, target: EventTarget | null, modifiers = false) => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Board shortcuts", () => {
-  it("toggles board filters with letters, but not while typing", () => {
+  it("takes board letters, but not while typing", () => {
     vi.stubGlobal("HTMLElement", TestElement);
     vi.stubGlobal("navigator", { platform: "Linux" });
     const body = new TestElement("BODY");
-    expect(resolveFeaturesShortcut(key("w", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
-      "features.workflow",
-    );
-    expect(resolveFeaturesShortcut(key("n", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
-      "features.needsYou",
-    );
     expect(resolveFeaturesShortcut(key("c", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
       "features.newTodo",
     );
     expect(
-      resolveFeaturesShortcut(key("w", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
+      resolveFeaturesShortcut(key("c", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
     ).toBeNull();
     // `/` opens the board's search, but types a slash into a field.
     expect(resolveFeaturesShortcut(key("/", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
