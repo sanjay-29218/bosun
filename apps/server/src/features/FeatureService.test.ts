@@ -190,7 +190,7 @@ describe("feature creation", () => {
           const crew = (yield* store.listMembersForProject(projectId)).filter(
             (bot) => bot.featureId === created.id,
           );
-          expect(crew).toHaveLength(6);
+          expect(crew).toHaveLength(5);
           expect(crew.every((bot) => bot.roleRevision === 1)).toBe(true);
           expect(
             yield* store.canDelegate(
@@ -986,12 +986,12 @@ describe("making a thread a feature", () => {
       Effect.gen(function* () {
         const features = yield* FeatureService;
         const threadId = yield* seedThread("thread:attach", { status: "running" });
-        const snapshot = yield* attach(threadId, "review");
-        for (const stepId of ["plan", "design", "build", "qa"]) {
+        const snapshot = yield* attach(threadId, "qa");
+        for (const stepId of ["plan", "design", "build"]) {
           expect(status(snapshot, stepId)).toBe("skipped");
         }
-        expect(snapshot.activeStepId).toBe("review");
-        expect(snapshot.steps.find((step) => step.id === "review")).toMatchObject({
+        expect(snapshot.activeStepId).toBe("qa");
+        expect(snapshot.steps.find((step) => step.id === "qa")).toMatchObject({
           status: "taken-over",
           threadId,
           runId: null,
@@ -1002,9 +1002,9 @@ describe("making a thread a feature", () => {
         expect(yield* features.threadLink(projectId, threadId)).toEqual({
           stage: {
             featureId: "attached",
-            stepId: "review",
-            index: 5,
-            total: 6,
+            stepId: "qa",
+            index: 4,
+            total: 4,
             state: "working",
             current: true,
           },
@@ -1012,8 +1012,8 @@ describe("making a thread a feature", () => {
         });
         // A retry returns the same feature; the same ID for another stage, or a second
         // feature for the same thread, is refused.
-        expect((yield* attach(threadId, "review")).activeStepId).toBe("review");
-        expect((yield* attach(threadId, "qa").pipe(Effect.flip)).message).toContain(
+        expect((yield* attach(threadId, "qa")).activeStepId).toBe("qa");
+        expect((yield* attach(threadId, "build").pipe(Effect.flip)).message).toContain(
           "another request",
         );
         expect(
@@ -1023,13 +1023,13 @@ describe("making a thread a feature", () => {
               projectId,
               threadId,
               workflowId: "feature-delivery",
-              stageId: "review",
+              stageId: "qa",
               title: "Another title",
               actorId: "person",
             })
             .pipe(Effect.flip)).message,
         ).toContain("another request");
-        expect((yield* attach(threadId, "review", "second").pipe(Effect.flip)).message).toContain(
+        expect((yield* attach(threadId, "qa", "second").pipe(Effect.flip)).message).toContain(
           "already a feature's current stage",
         );
 
@@ -1038,7 +1038,7 @@ describe("making a thread a feature", () => {
         yield* setRun("thread:attach", "failed");
         yield* execution.reconcileFeature("attached");
         expect((yield* (yield* WorkflowService).getFeatureState("attached"))?.activeStepId).toBe(
-          "review",
+          "qa",
         );
         yield* setRun("thread:attach", "completed");
         yield* execution.reconcileFeature("attached");
@@ -1046,8 +1046,8 @@ describe("making a thread a feature", () => {
         expect(done.completed).toBe(true);
         expect(done.recentEvents.at(-1)).toMatchObject({
           kind: "completed",
-          stepId: "review",
-          outcome: "approved",
+          stepId: "qa",
+          outcome: "passed",
           sourceKind: "workflow",
           detail: 'Finished in thread "Reconnect loop after sleep"',
         });
@@ -1106,7 +1106,7 @@ describe("making a thread a feature", () => {
       Effect.gen(function* () {
         const features = yield* FeatureService;
         const threadId = yield* seedThread("thread:detach", { status: "running" });
-        yield* attach(threadId, "review");
+        yield* attach(threadId, "qa");
         const detach = (requestId: string) =>
           features.detachThread({ projectId, threadId, requestId, actorId: "person" });
         const detached = yield* detach("detach-1");
@@ -1121,7 +1121,7 @@ describe("making a thread a feature", () => {
         const reopen = (requestId: string) =>
           features.reopen({ id: "attached", projectId, requestId, actorId: "person" });
         const reopened = yield* reopen("reopen-1");
-        expect(reopened.steps.find((step) => step.id === "review")).toMatchObject({
+        expect(reopened.steps.find((step) => step.id === "qa")).toMatchObject({
           status: "taken-over",
           threadId,
         });
@@ -1130,7 +1130,7 @@ describe("making a thread a feature", () => {
         // Once the thread joins another feature, the first one can no longer take it back,
         // and a retried detach still lands on the feature it first detached.
         yield* detach("detach-3");
-        yield* attach(threadId, "review", "second");
+        yield* attach(threadId, "qa", "second");
         expect((yield* reopen("reopen-2").pipe(Effect.flip)).message).toContain(
           "now another feature's stage",
         );
@@ -1150,14 +1150,12 @@ describe("making a thread a feature", () => {
           status: "running",
           archived: true,
         });
-        expect((yield* attach(archived, "review").pipe(Effect.flip)).message).toContain(
-          "Unarchive",
-        );
+        expect((yield* attach(archived, "qa").pipe(Effect.flip)).message).toContain("Unarchive");
         const elsewhere = yield* seedThread("thread:elsewhere", {
           status: "running",
           project: ProjectId.make("another-project"),
         });
-        expect((yield* attach(elsewhere, "review").pipe(Effect.flip)).message).toContain(
+        expect((yield* attach(elsewhere, "qa").pipe(Effect.flip)).message).toContain(
           "not found in project",
         );
         const plain = yield* seedThread("thread:off-path", { status: "running" });
