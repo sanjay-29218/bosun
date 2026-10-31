@@ -44,6 +44,7 @@ import {
 import * as EffectOutbox from "../orchestration-v2/EffectOutbox.ts";
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowLibraryLive } from "./WorkflowLibrary.ts";
@@ -311,36 +312,44 @@ const activeHandoff = (featureId: string) =>
     return { snapshot, step, run, handoff };
   });
 
-/** Ends the thread's latest turn as its provider would, starting one when there is none. */
+/** Ends the thread's open turns as its provider would, starting one when it has none. */
 const endTurn = (threadId: ThreadId, status: OrchestrationV2Run["status"]) =>
   Effect.gen(function* () {
     const { runs } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["runs"]);
     const now = yield* DateTime.now;
-    const run = runs.toSorted((left, right) => right.ordinal - left.ordinal)[0] ?? {
-      id: RunId.make(`${threadId}:run`),
-      threadId,
-      ordinal: 1,
-      providerInstanceId: modelSelection.instanceId,
-      modelSelection,
-      providerThreadId: null,
-      userMessageId: MessageId.make(`${threadId}:start`),
-      rootNodeId: null,
-      activeAttemptId: null,
-      status: "running" as const,
-      requestedAt: now,
-      startedAt: now,
-      completedAt: null,
-      checkpointId: null,
-      contextHandoffId: null,
-    };
-    yield* (yield* ProjectionStore.ProjectionStoreV2).apply({
-      id: EventId.make(`${run.id}:${status}`),
-      type: "run.updated",
-      threadId,
-      runId: run.id,
-      occurredAt: now,
-      payload: { ...run, status, completedAt: now },
-    });
+    const open = runs.filter((run) => !isTerminalRunStatus(run.status));
+    const turns =
+      runs.length > 0
+        ? open
+        : [
+            {
+              id: RunId.make(`${threadId}:run`),
+              threadId,
+              ordinal: 1,
+              providerInstanceId: modelSelection.instanceId,
+              modelSelection,
+              providerThreadId: null,
+              userMessageId: MessageId.make(`${threadId}:start`),
+              rootNodeId: null,
+              activeAttemptId: null,
+              status: "running" as const,
+              requestedAt: now,
+              startedAt: now,
+              completedAt: null,
+              checkpointId: null,
+              contextHandoffId: null,
+            },
+          ];
+    for (const run of turns) {
+      yield* (yield* ProjectionStore.ProjectionStoreV2).apply({
+        id: EventId.make(`${run.id}:${status}`),
+        type: "run.updated",
+        threadId,
+        runId: run.id,
+        occurredAt: now,
+        payload: { ...run, status, completedAt: now },
+      });
+    }
   });
 
 const withDirectory = <A, E, R>(use: (directory: string) => Effect.Effect<A, E, R>) =>
@@ -514,7 +523,7 @@ describe("Workflow execution", () => {
     }),
   );
 
-  it.effect("advances from the live receipt subscription without polling", () =>
+  it.effect("starts the next stage when the last stage's turn ends, without polling", () =>
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.scoped(
@@ -533,7 +542,28 @@ describe("Workflow execution", () => {
             Effect.forkScoped,
           );
           const plan = yield* activeHandoff(featureId);
+          const engine = yield* OrchestratorV2;
+          // The planner is still in a turn when it reports.
+          yield* engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("planner-turn"),
+            threadId: plan.run.threadId,
+            messageId: MessageId.make("planner-turn"),
+            text: "Plan",
+            attachments: [],
+            createdBy: "agent",
+            creationSource: "mcp",
+            dispatchMode: { type: "queue_after_active" },
+          });
           yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+          expect(system.starts.length).toBe(3);
+          const shell = (yield* engine.getThreadShell(plan.run.threadId))!;
+          yield* engine.dispatch({
+            type: "run.interrupt",
+            commandId: CommandId.make("planner-turn-ends"),
+            threadId: plan.run.threadId,
+            runId: shell.activeRunId!,
+          });
           yield* Fiber.join(advanced);
           expect(system.starts.length).toBe(4);
         }),
@@ -590,6 +620,7 @@ describe("Workflow execution", () => {
           yield* execution.reconcileFeature(featureId);
           expect((yield* workflows.getFeatureState(featureId))?.paused).toBe(true);
           expect(system.starts.length).toBe(3);
+          yield* endTurn(plan.run.threadId, "completed");
           yield* execution.control({ ...answer, kind: "resumed", requestId: "resume" });
           expect(system.starts.length).toBe(4);
           const review = yield* activeHandoff(featureId);
@@ -669,14 +700,16 @@ describe("Workflow execution", () => {
           stepId: "plan",
           recorded: "completed",
         });
+        const kinds = () =>
+          workflows
+            .getFeatureSnapshot(featureId, projectId)
+            .pipe(Effect.map((snapshot) => snapshot!.recentEvents.map((event) => event.kind)));
+        // Review shares the worktree, so it starts once the planner's turn has ended.
+        expect(yield* kinds()).toEqual(["started", "question", "answered", "completed"]);
+        yield* endTurn(plan.run.threadId, "completed");
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* kinds()).toEqual(["started", "question", "answered", "completed", "started"]);
         const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
-        expect(snapshot.recentEvents.map((event) => event.kind)).toEqual([
-          "started",
-          "question",
-          "answered",
-          "completed",
-          "started",
-        ]);
         expect(snapshot.recentEvents[1]?.detail).toBe("Which API?");
         expect(snapshot.recentEvents[2]?.detail).toBe("Current API");
       }).pipe(Effect.provide(system.layer));
@@ -816,6 +849,8 @@ describe("Workflow execution", () => {
         ]);
 
         yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+        yield* endTurn(plan.run.threadId, "completed");
+        yield* execution.reconcileFeature(featureId);
         expect((yield* activeHandoff(featureId)).step.id).toBe("review");
       }).pipe(Effect.provide(system.layer));
     }),

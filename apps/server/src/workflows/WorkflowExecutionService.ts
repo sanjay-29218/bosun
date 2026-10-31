@@ -7,6 +7,7 @@ import {
   CrewStageSummary,
   MessageId,
   type ModelSelection,
+  type OrchestrationV2Run,
   type ProjectId,
   type ServerSettingsError,
   type ThreadId,
@@ -35,8 +36,10 @@ import {
 } from "../crew/CrewHandoffService.ts";
 import { CrewHandoffStore, type CrewHandoff } from "../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
+import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import type { CrewServiceError } from "../crew/CrewService.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
+import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
 import { renderStageHandoff } from "./StageHandoff.ts";
@@ -156,6 +159,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     const bots = yield* BotStore.BotStore;
     const handoffs = yield* CrewHandoffStore;
     const delegation = yield* CrewHandoffService;
+    const runtime = yield* CrewThreadRuntime;
     const engine = yield* OrchestrationEngineService;
     const settings = yield* ServerSettingsService;
     const featureWorkspaces = yield* FeatureWorkspaces;
@@ -163,15 +167,21 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     // Stages waiting on the server's restart continuation, keyed by the cut run.
     const continuations = yield* FiberMap.make<string>();
 
-    const stopCancelledRun = Effect.fn("WorkflowExecutionService.stopCancelledRun")(function* (
+    /**
+     * Stops the latest stage's thread after a cancel, take over or send back. Its handoff ends
+     * only once the interrupt went through, so a replay after a failure tries again.
+     */
+    const stopStage = Effect.fn("WorkflowExecutionService.stopStage")(function* (
       featureId: string,
     ) {
       const events = yield* store.listEvents(featureId);
       const lastStart = events.findLast((event) => event.kind === "started");
       const handoff = lastStart?.sourceId ? yield* handoffs.get(lastStart.sourceId) : null;
-      if (handoff && !["completed", "failed", "cancelled"].includes(handoff.status)) {
-        yield* delegation.cancel(handoff.id);
-      }
+      if (!handoff || ["completed", "failed", "cancelled"].includes(handoff.status)) return;
+      const run = yield* crew.getRun(handoff.targetRunId);
+      const now = DateTime.formatIso(yield* DateTime.now);
+      if (run) yield* runtime.interrupt(run.threadId, handoff.id, now);
+      yield* delegation.endStage(handoff.id, "cancelled", "The stage was stopped");
     });
     /**
      * Takes a stage slot, or queues the feature first in, first out. Slots count running stage
@@ -265,18 +275,41 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       Effect.mapError(() => new WorkflowTransitionError("Stage thread is unavailable")),
     );
 
-    /** The stage thread's latest turn and the verdict on it; see `stageTurnVerdict`. */
-    const checkStageTurn = Effect.fn("WorkflowExecutionService.checkStageTurn")(
-      function* (runId: string, reminderId: string) {
+    /** Reconciles the feature once the server's continuation of a turn it cut has settled. */
+    const awaitContinuation = (featureId: string, turn: OrchestrationV2Run) =>
+      FiberMap.run(
+        continuations,
+        turn.id,
+        engine.awaitRestartContinuation(turn).pipe(
+          Effect.andThen(reconcileFeature(featureId)),
+          Effect.catch((error) =>
+            Effect.logWarning("Stage restart reconciliation failed", { featureId, error }),
+          ),
+        ),
+        { onlyIfMissing: true },
+      ).pipe(Effect.asVoid);
+
+    /** Every turn of a crew run's thread, and its latest one; none before the thread exists. */
+    const stageTurns = Effect.fn("WorkflowExecutionService.stageTurns")(
+      function* (runId: string) {
         const run = yield* crew.getRun(runId);
         const shell = run ? yield* engine.getThreadShell(run.threadId) : null;
-        if (!run || !shell) return { verdict: { kind: "wait" }, turn: undefined } as const;
+        if (!run || !shell) return { runs: [], turn: undefined };
         const { runs } = yield* engine.getThreadRecords(run.threadId, ["runs"]);
         const turn = runs.reduce<(typeof runs)[number] | undefined>(
           (latest, candidate) =>
             latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
           undefined,
         );
+        return { runs, turn };
+      },
+      Effect.mapError(() => new WorkflowTransitionError("Stage thread is unavailable")),
+    );
+
+    /** The stage thread's latest turn and the verdict on it; see `stageTurnVerdict`. */
+    const checkStageTurn = Effect.fn("WorkflowExecutionService.checkStageTurn")(
+      function* (runId: string, reminderId: string) {
+        const { runs, turn } = yield* stageTurns(runId);
         const verdict = stageTurnVerdict({
           run: turn,
           reminded: runs.some((candidate) => candidate.userMessageId === reminderId),
@@ -341,7 +374,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         const state = yield* workflows.getFeatureState(featureId);
         if (!state) return;
         if (state.completed || state.cancelled) {
-          if (state.cancelled) yield* stopCancelledRun(featureId);
+          if (state.cancelled) yield* stopStage(featureId);
           yield* executions.update(featureId, null, true);
           return;
         }
@@ -387,6 +420,18 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             return yield* Effect.fail(
               new WorkflowTransitionError("Assigned dispatch run is unavailable"),
             );
+          // Stages share the feature's worktree, so one starts once the last one's turn ended;
+          // that turn's end reconciles the feature again.
+          const previous = events.findLast((event) => event.kind === "started")?.runId;
+          const { runs: previousTurns, turn: previousTurn } = previous
+            ? yield* stageTurns(previous)
+            : { runs: [], turn: undefined };
+          if (previousTurns.some((turn) => !isTerminalRunStatus(turn.status))) return;
+          if (
+            previousTurn?.status === "cancelled" &&
+            (yield* engine.restartContinuationPending(previousTurn))
+          )
+            return yield* awaitContinuation(featureId, previousTurn);
           const instanceId = (step.modelSelection ?? member.modelSelection).instanceId;
           if (!(yield* acquireSlot(featureId, instanceId, ignoreLimit))) return;
           // After a move to another workflow the count starts again, so its start marks new IDs.
@@ -526,20 +571,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           );
           return;
         }
-        if (verdict.kind === "await-continuation" && turn) {
-          yield* FiberMap.run(
-            continuations,
-            turn.id,
-            engine.awaitRestartContinuation(turn).pipe(
-              Effect.andThen(reconcileFeature(featureId)),
-              Effect.catch((error) =>
-                Effect.logWarning("Stage restart reconciliation failed", { featureId, error }),
-              ),
-            ),
-            { onlyIfMissing: true },
-          );
-          return;
-        }
+        if (verdict.kind === "await-continuation" && turn)
+          return yield* awaitContinuation(featureId, turn);
         if (verdict.kind !== "fail") return;
         yield* workflows.recordTrustedEvent(featureId, {
           // A person's stop is theirs to retry, so automatic retries skip it.
@@ -945,7 +978,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           input.kind === "taken-over" ||
           input.kind === "sent-back"
         ) {
-          yield* stopCancelledRun(input.featureId);
+          yield* stopStage(input.featureId);
         }
         if (input.kind === "reopened") yield* executions.update(input.featureId, null, false);
         yield* reconcileFeatureUnlocked(input.featureId);
