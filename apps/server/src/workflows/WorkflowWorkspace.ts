@@ -39,8 +39,10 @@ export interface StageThreadDiff {
 export class WorkflowWorkspace extends Context.Service<
   WorkflowWorkspace,
   {
+    /** Reads `worktreePath`, else the project's checkout. */
     readonly describe: (
       projectId: ProjectId,
+      worktreePath: string | null,
       paths: ReadonlyArray<string>,
     ) => Effect.Effect<StageWorkspace>;
     readonly threadDiff: (threadId: ThreadId) => Effect.Effect<StageThreadDiff | null>;
@@ -63,10 +65,10 @@ export const WorkflowWorkspaceLive = Layer.effect(
     const diffStats = new Map<string, Omit<StageThreadDiff, "turnCount">>();
 
     const describe = Effect.fn("WorkflowWorkspace.describe")(
-      function* (projectId: ProjectId, paths: ReadonlyArray<string>) {
+      function* (projectId: ProjectId, worktreePath: string | null, paths: ReadonlyArray<string>) {
         const project = yield* projects.get(projectId);
         if (Option.isNone(project)) return empty;
-        const cwd = project.value.workspaceRoot;
+        const cwd = worktreePath ?? project.value.workspaceRoot;
         const handle = yield* vcs.detect({ cwd });
         const head =
           handle?.kind === "git"

@@ -88,6 +88,8 @@ export interface WorkflowServiceShape {
     readonly executionId: string;
     readonly attempt: number;
     readonly handoffId: string;
+    /** The feature's worktree; the project's checkout when null. */
+    readonly worktreePath: string | null;
   }) => Effect.Effect<WorkflowStageHandoff, WorkflowServiceError>;
   readonly getStageHandoff: (
     id: string,
@@ -448,7 +450,7 @@ export const WorkflowServiceLive = Layer.effect(
           yield* stageOutputs(copy.definition, events),
         );
         const files = received.flatMap((output) => (output.kind === "file" ? [output.path] : []));
-        const stageWorkspace = yield* workspace.describe(copy.projectId, files);
+        const stageWorkspace = yield* workspace.describe(copy.projectId, input.worktreePath, files);
         const outputs = received.map((output): WorkflowStageOutput =>
           output.kind === "file" && stageWorkspace.cwd !== null
             ? { ...output, exists: stageWorkspace.existing.has(output.path) }

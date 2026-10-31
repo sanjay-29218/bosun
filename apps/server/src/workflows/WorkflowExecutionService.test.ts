@@ -125,9 +125,9 @@ const fixture = (
   const workspace = Layer.succeed(
     WorkflowWorkspace,
     WorkflowWorkspace.of({
-      describe: (_projectId, paths) =>
+      describe: (_projectId, worktreePath, paths) =>
         Effect.succeed({
-          cwd: "/repo",
+          cwd: worktreePath ?? "/repo",
           branch: "crew/feature",
           commit: "0123456789abcdef0123",
           existing: new Set(paths.filter((path) => files.has(path))),
@@ -296,9 +296,12 @@ describe("Workflow execution", () => {
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
         const handoffs = yield* CrewHandoffService;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
         const promptOf = (record: Parameters<typeof renderStageHandoff>[0]) => {
           const { taskText, contextText } = renderStageHandoff(record);
-          return `${taskText}\n\nContext:\n${contextText}`;
+          return `Feature "Kanban board". ${taskText}\n\nContext:\n${contextText}`;
         };
         yield* execution.attach(featureId, projectId, bindings);
 
@@ -307,6 +310,7 @@ describe("Workflow execution", () => {
           projectId,
           plan.run.threadId,
         ))!;
+        // The record names the feature's worktree, made before the first stage's handoff.
         expect(planRecord).toMatchObject({
           id: plan.handoff.id,
           stepId: "plan",
@@ -316,7 +320,11 @@ describe("Workflow execution", () => {
           outputs: [],
           notes: [],
           retry: null,
-          workspace: { cwd: "/repo", branch: "crew/feature", commit: "0123456789abcdef0123" },
+          workspace: {
+            cwd: `/worktrees/${system.worktrees[0]}`,
+            branch: "crew/feature",
+            commit: "0123456789abcdef0123",
+          },
         });
         expect(plan.run.taskText).toBe(promptOf(planRecord));
         expect(

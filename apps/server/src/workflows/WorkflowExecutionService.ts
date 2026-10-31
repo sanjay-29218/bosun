@@ -25,6 +25,7 @@ import * as Stream from "effect/Stream";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { featureTag } from "../features/featureIssue.ts";
+import { FeatureWorkspaces } from "../features/FeatureWorkspaces.ts";
 import {
   CrewHandoffService,
   WORKFLOW_HANDOFF_PREFIX,
@@ -136,6 +137,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     const delegation = yield* CrewHandoffService;
     const engine = yield* OrchestrationEngineService;
     const settings = yield* ServerSettingsService;
+    const featureWorkspaces = yield* FeatureWorkspaces;
     const lock = yield* Semaphore.make(1);
 
     const stopCancelledRun = Effect.fn("WorkflowExecutionService.stopCancelledRun")(function* (
@@ -315,6 +317,10 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             step.executionId ??
             `execution:${key(featureId, ...generation, state.executionCount + 1, stepId)}`;
           const handoffId = `${WORKFLOW_HANDOFF_PREFIX}${key(featureId, executionId, step.attempt + 1)}`;
+          // The record describes the worktree the stage opens in, so it must exist first.
+          const workspace = yield* featureWorkspaces
+            .forFeature(featureId)
+            .pipe(Effect.mapError((error) => new WorkflowTransitionError(error.message)));
           // The stage starts from its persisted handoff record and nothing else.
           const { taskText, contextText } = renderStageHandoff(
             yield* workflows.prepareStageHandoff({
@@ -323,6 +329,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               executionId,
               attempt: step.attempt + 1,
               handoffId,
+              worktreePath: workspace?.worktreePath ?? null,
             }),
           );
           const reserved = yield* handoffs.get(handoffId);
