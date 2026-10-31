@@ -51,6 +51,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Button } from "../ui/button";
+import { MainViewToggle } from "../MainViewToggle";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
@@ -664,6 +665,7 @@ export function FeaturesPage(props: {
           <span className="hidden md:inline">New todo</span>
         </Button>
       )}
+      <MainViewToggle />
     </div>
   );
 
@@ -868,7 +870,13 @@ export function FeaturesPage(props: {
               Milestones
             </Toggle>
           </ToggleGroup>
-          {firstRun && isFeatures ? null : headerActions}
+          {firstRun && isFeatures ? (
+            <div className="ms-auto flex items-center">
+              <MainViewToggle />
+            </div>
+          ) : (
+            headerActions
+          )}
         </WorkspacePageHeader>
         {lanes ? (
           <WorkspacePageContainer width="full" className="min-h-0 flex-1 gap-3 pb-3">
