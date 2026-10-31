@@ -16,6 +16,7 @@ import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
@@ -59,25 +60,31 @@ const Handoff = Schema.Struct({
   updatedAt: Schema.String,
 });
 
+/** What a workflow stage's report recorded. */
+const StageReport = Schema.Struct({
+  stepId: Schema.String,
+  recorded: Schema.Literals(["completed", "question"]),
+});
+
 const Respond = Tool.make("crew_respond", {
   description:
-    "Report a structured completed or failed outcome for the handoff that started this crew run.",
+    "Report the result of the work that started this crew run. A workflow stage passes one of its outcomes, or needs_input with its question as the summary, then ends its turn. A delegated handoff passes completed or failed.",
   parameters: Schema.Struct({
-    outcome: Schema.Literals(["completed", "failed"]),
+    outcome: Schema.String,
     summary: Schema.String,
   }),
-  success: Handoff,
+  success: Schema.Union([Handoff, StageReport]),
   failure,
-  dependencies,
+  dependencies: [...dependencies, WorkflowExecutionService],
 }).annotate(Tool.Idempotent, true);
 
 const Ask = Tool.make("crew_ask", {
   description:
     "Pause this handoff with a question for the requester. The question remains durable until answered or cancelled.",
   parameters: Schema.Struct({ question: Schema.String }),
-  success: Handoff,
+  success: Schema.Union([Handoff, StageReport]),
   failure,
-  dependencies,
+  dependencies: [...dependencies, WorkflowExecutionService],
 }).annotate(Tool.Idempotent, true);
 
 const Answer = Tool.make("crew_answer", {

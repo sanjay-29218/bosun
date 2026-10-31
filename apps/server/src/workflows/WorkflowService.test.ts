@@ -243,86 +243,48 @@ describe("Workflow service", () => {
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
         ).toBe("running");
-        yield* handoffs.transition(
-          "handoff-1",
-          ["running"],
-          "needs-input",
-          "2026-09-29T00:00:00.250Z",
-          { questionText: "Which API?" },
-        );
-        yield* workflow.recordTrustedEvent(
-          "feature-one",
-          stepEvent("question-plan", "question", {
-            executionId: "execution-1",
-            detail: "Which API?",
-            sourceKind: "handoff",
-            sourceId: "handoff-1",
-          }),
-        );
+        // A stage reports from its own thread, so its results cite the step's run.
+        const question = stepEvent("question-plan", "question", {
+          executionId: "execution-1",
+          detail: "Which API?",
+          sourceKind: "handoff",
+          sourceId: "handoff-1",
+        });
+        expect(
+          (yield* workflow.recordTrustedEvent("feature-one", question).pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        yield* workflow.recordTrustedEvent("feature-one", { ...question, runId: plannerRun.id });
         expect((yield* workflow.getFeatureState("feature-one"))?.steps.get("plan")?.status).toBe(
           "needs-input",
         );
-        yield* handoffs.transition(
-          "handoff-1",
-          ["needs-input"],
-          "running",
-          "2026-09-29T00:00:00.500Z",
-          { responseText: "Use the current API" },
-        );
-        yield* workflow.recordTrustedEvent(
-          "feature-one",
-          stepEvent("answer-plan", "answered", {
-            executionId: "execution-1",
-            detail: "Use the current API",
-            sourceKind: "handoff",
-            sourceId: "handoff-1",
-          }),
-        );
+        const answer = stepEvent("answer-plan", "answered", {
+          executionId: "execution-1",
+          detail: "Use the current API",
+          sourceKind: "decision",
+          sourceId: "handoff-1",
+          actorId: "person",
+        });
+        expect(
+          (yield* workflow
+            .recordTrustedEvent("feature-one", { ...answer, sourceId: "unrelated-handoff" })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        yield* workflow.recordTrustedEvent("feature-one", answer);
         const completion = stepEvent("complete-plan", "completed", {
           executionId: "execution-1",
+          runId: plannerRun.id,
           outcome: "ready",
           detail: "Plan ready",
           sourceKind: "handoff",
           sourceId: "handoff-1",
         });
-        expect(
-          (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        expect(
-          (yield* workflow.recordTrustedEvent("feature-one", completion).pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        yield* handoffs.insert({
-          ...(yield* handoffs.get("handoff-1"))!,
-          id: "unrelated-handoff",
-          targetRunId: "different-run",
-          status: "completed",
-          responseText: "Different task finished",
-        });
-        expect(
-          (yield* workflow
-            .recordTrustedEvent("feature-one", {
-              ...completion,
-              id: "unrelated-completion",
-              sourceId: "unrelated-handoff",
-            })
-            .pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        yield* handoffs.transition(
-          "handoff-1",
-          ["running"],
-          "completed",
-          "2026-09-29T00:00:01.000Z",
-          { responseText: '{"outcome":"ready","summary":"Plan ready"}' },
-        );
-        expect(
-          (yield* workflow
-            .recordTrustedEvent("feature-one", {
-              ...completion,
-              id: "mismatched-summary",
-              detail: "Another result",
-            })
-            .pipe(Effect.result))._tag,
-        ).toBe("Failure");
+        for (const runId of [null, "different-run"]) {
+          expect(
+            (yield* workflow
+              .recordTrustedEvent("feature-one", { ...completion, id: `complete-${runId}`, runId })
+              .pipe(Effect.result))._tag,
+          ).toBe("Failure");
+        }
         yield* workflow.recordTrustedEvent("feature-one", completion);
         expect((yield* workflow.getFeatureState("feature-one"))?.completed).toBe(true);
         const snapshot = yield* workflow.getFeatureSnapshot("feature-one", projectId);

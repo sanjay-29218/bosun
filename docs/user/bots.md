@@ -99,7 +99,7 @@ changed and it needs a new version.
   it or routes to it.
 - **Routes**, listed under each stage, say where each outcome goes next, for example back to Build
   when QA requests changes. A route back to an earlier stage can have a limit: after it has
-  been taken that many times, the feature stops at **Your call**. Questions go to the project manager first, then to you. A failed stage retries the
+  been taken that many times, the feature stops at **Your call**. A stage's questions come to you. A failed stage retries the
   number of times set under **Settings** (empty uses **Retries before a stage fails** in
   **Settings → Bots**), then pauses and notifies you.
 - **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the

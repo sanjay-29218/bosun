@@ -20,6 +20,7 @@ import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore, type CrewHandoff } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -168,6 +169,7 @@ const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
           getRun: () =>
             Effect.succeed({ id: "run:stage", projectId, allowedTools } as unknown as CrewRun),
         }),
+        Layer.mock(WorkflowExecutionService)({}),
         Layer.mock(WorkflowService)({
           getStageHandoffForThread: (project, thread) =>
             Effect.succeed(project === projectId && thread === stageThread ? record : null),

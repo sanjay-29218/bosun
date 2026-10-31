@@ -15,6 +15,8 @@ import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import { ticketNumberFromRef } from "../../../tickets/ticketRows.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
+import { NEEDS_INPUT } from "../../../workflows/StageTurn.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -81,6 +83,7 @@ const make = Effect.gen(function* () {
   const handoffStore = yield* CrewHandoffStore;
   const crewStore = yield* CrewStore;
   const workflows = yield* WorkflowService;
+  const workflowExecution = yield* WorkflowExecutionService;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
   const tickets = yield* TicketService;
@@ -238,11 +241,13 @@ const make = Effect.gen(function* () {
         ),
     ),
     crew_respond: McpToolAccess.actsAsCaller(
-      (input: { readonly outcome: "completed" | "failed"; readonly summary: string }) =>
-        asCrewMember((threadId) => handoffs.respond(threadId, input.outcome, input.summary)),
+      (input: { readonly outcome: string; readonly summary: string }) =>
+        asCrewMember((threadId) =>
+          workflowExecution.report(threadId, input.outcome, input.summary),
+        ),
     ),
     crew_ask: McpToolAccess.actsAsCaller((input: { readonly question: string }) =>
-      asCrewMember((threadId) => handoffs.ask(threadId, input.question)),
+      asCrewMember((threadId) => workflowExecution.report(threadId, NEEDS_INPUT, input.question)),
     ),
     crew_stage_handoff: McpToolAccess.readsAsCaller(() =>
       asCrewMember((threadId) =>

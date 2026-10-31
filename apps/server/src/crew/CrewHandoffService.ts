@@ -66,6 +66,12 @@ export interface CrewHandoffServiceShape {
     answer: string,
   ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly cancel: (id: string) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
+  /** Ends a workflow stage's handoff once its workflow recorded the result; nobody is notified. */
+  readonly endStage: (
+    id: string,
+    status: "completed" | "failed" | "cancelled",
+    text: string,
+  ) => Effect.Effect<void, CrewServiceError>;
   readonly retry: (id: string) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   /** A person's answer, cancel or retry on a request, refused unless it is on `projectId`. */
   readonly actInProject: (input: {
@@ -531,6 +537,8 @@ export const CrewHandoffServiceLive = Layer.effect(
     const settleIfExited = Effect.fn("CrewHandoffService.settleIfExited")(function* (
       handoff: CrewHandoff,
     ) {
+      // A stage's result and its thread's turns are the workflow's to judge.
+      if (isWorkflowHandoffId(handoff.id)) return;
       // The answer turn may not have reached its recipient yet. The previous
       // completed turn does not settle the newly resumed handoff.
       if (handoff.notificationState === "queued") return;
@@ -584,6 +592,24 @@ export const CrewHandoffServiceLive = Layer.effect(
       yield* changed(updated);
       yield* startWaiting().pipe(Effect.result);
       return (yield* handoffs.get(id))!;
+    });
+
+    const endStage = Effect.fn("CrewHandoffService.endStage")(function* (
+      id: string,
+      status: "completed" | "failed" | "cancelled",
+      text: string,
+    ) {
+      const handoff = yield* handoffs.get(id);
+      if (!handoff || ENDED.has(handoff.status)) return;
+      const now = DateTime.formatIso(yield* DateTime.now);
+      yield* handoffs.transition(
+        id,
+        [handoff.status],
+        status,
+        now,
+        status === "completed" ? { responseText: text } : { lastError: text, responseText: text },
+      );
+      yield* changed(handoff);
     });
 
     const retry = Effect.fn("CrewHandoffService.retry")(function* (id: string) {
@@ -646,6 +672,7 @@ export const CrewHandoffServiceLive = Layer.effect(
         },
       ),
       cancel,
+      endStage,
       retry,
       actInProject: Effect.fn("CrewHandoffService.actInProject")(function* ({
         projectId,

@@ -215,6 +215,6 @@ describe("stage handoffs", () => {
     const long = renderStageHandoff({ ...record, brief: "x".repeat(16_000) });
     expect(long.contextText.length).toBeLessThanOrEqual(4_000);
     expect(long.contextText).toContain("crew_stage_handoff");
-    expect(long.contextText).toContain('{"outcome":"<one of: built>"');
+    expect(long.contextText).toContain("call crew_respond with outcome set to one of built");
   });
 });

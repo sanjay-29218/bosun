@@ -33,6 +33,7 @@ import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import { TicketService } from "../tickets/TicketService.ts";
+import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
@@ -1300,6 +1301,7 @@ it.effect(
               Layer.mock(IssueService.IssueService)({}),
               Layer.mock(TicketService)({}),
               Layer.mock(WorkflowService)({}),
+              Layer.mock(WorkflowExecutionService)({}),
             ),
           ),
         );

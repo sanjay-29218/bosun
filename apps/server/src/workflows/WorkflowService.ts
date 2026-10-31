@@ -1,6 +1,5 @@
 import {
   PROJECT_MANAGER_ROLE_ID,
-  WorkflowHandoffOutcome,
   WorkflowStepEvent,
   type ProjectId,
   type ThreadId,
@@ -135,7 +134,6 @@ export const memberFillsRole = (
 
 const validId = (value: string) => value.trim().length > 0 && value.length <= 128;
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(WorkflowStepEvent));
-const decodeHandoffOutcome = Schema.decodeSync(Schema.fromJsonString(WorkflowHandoffOutcome));
 
 export const WorkflowServiceLive = Layer.effect(
   WorkflowService,
@@ -215,7 +213,7 @@ export const WorkflowServiceLive = Layer.effect(
 
     const handoffEvidence = Effect.fn("WorkflowService.handoffEvidence")(function* (
       id: string | null,
-      status?: "completed" | "needs-input" | "running" | "failed" | "queued",
+      status: "failed" | "queued",
       runId?: string | null,
       detail?: string | null,
     ) {
@@ -229,15 +227,11 @@ export const WorkflowServiceLive = Layer.effect(
       return (
         candidates.findLast(
           (handoff) =>
-            (status === undefined || handoff.status === status) &&
+            handoff.status === status &&
             (runId === undefined || handoff.targetRunId === runId) &&
             (detail === undefined ||
-              (status === "needs-input"
-                ? handoff.questionText?.trim() === detail?.trim()
-                : status === "failed"
-                  ? handoff.lastError?.trim() === detail?.trim() ||
-                    handoff.responseText?.trim() === detail?.trim()
-                  : handoff.responseText?.trim() === detail?.trim())),
+              handoff.lastError?.trim() === detail?.trim() ||
+              handoff.responseText?.trim() === detail?.trim()),
         ) ?? null
       );
     });
@@ -547,108 +541,39 @@ export const WorkflowServiceLive = Layer.effect(
               );
             }
           }
+          // A stage reports through its own thread, so its result names the step's run.
           if (
-            event.kind === "completed" &&
+            (event.kind === "completed" || event.kind === "question") &&
             event.sourceKind === "handoff" &&
-            step?.type === "task"
+            (event.runId === null || event.runId !== current.steps.get(event.stepId)?.runId)
           ) {
-            const runId = current.steps.get(event.stepId)?.runId;
-            const handoff = yield* handoffEvidence(event.sourceId, "completed", runId);
-            const run = runId ? yield* crew.getRun(runId) : null;
-            if (
-              !handoff ||
-              !run ||
-              handoff.status !== "completed" ||
-              !handoff.responseText?.trim() ||
-              handoff.projectId !== copy.projectId ||
-              handoff.targetRunId !== runId ||
-              handoff.targetMemberId !== run.memberId
-            ) {
-              return yield* Effect.fail(
-                new WorkflowTransitionError("Step completion needs its completed crew handoff"),
-              );
-            }
-            const recorded = yield* Effect.try({
-              try: () => decodeHandoffOutcome(handoff.responseText!),
-              catch: () =>
-                new WorkflowTransitionError("Handoff result must contain an outcome and summary"),
-            });
-            if (
-              recorded.outcome !== event.outcome ||
-              recorded.summary.trim() !== event.detail?.trim()
-            ) {
-              return yield* Effect.fail(
-                new WorkflowTransitionError("Recorded outcome does not match the crew handoff"),
-              );
-            }
-          }
-          if (
-            (event.kind === "question" || event.kind === "answered" || event.kind === "failed") &&
-            event.sourceKind === "handoff"
-          ) {
-            const runId = current.steps.get(event.stepId)?.runId;
-            const handoff = yield* handoffEvidence(
-              event.sourceId,
-              event.kind === "question"
-                ? "needs-input"
-                : event.kind === "answered"
-                  ? "running"
-                  : "failed",
-              runId,
-              event.detail,
+            return yield* Effect.fail(
+              new WorkflowTransitionError("Step result does not come from the step's run"),
             );
+          }
+          if (event.kind === "failed" && event.sourceKind === "handoff") {
+            const runId = current.steps.get(event.stepId)?.runId;
+            const handoff = yield* handoffEvidence(event.sourceId, "failed", runId, event.detail);
             const run = runId ? yield* crew.getRun(runId) : null;
             if (
               !handoff ||
               !run ||
               handoff.projectId !== copy.projectId ||
-              handoff.targetRunId !== runId ||
-              handoff.targetMemberId !== run.memberId ||
-              (event.kind === "question" &&
-                (handoff.status !== "needs-input" ||
-                  handoff.questionText?.trim() !== event.detail?.trim())) ||
-              (event.kind === "answered" &&
-                (handoff.status !== "running" ||
-                  handoff.responseText?.trim() !== event.detail?.trim())) ||
-              (event.kind === "failed" &&
-                (handoff.status !== "failed" ||
-                  (handoff.lastError?.trim() !== event.detail?.trim() &&
-                    handoff.responseText?.trim() !== event.detail?.trim())))
+              handoff.targetMemberId !== run.memberId
             ) {
               return yield* Effect.fail(
                 new WorkflowTransitionError("Step event does not match its crew handoff"),
               );
             }
-            if ((event.kind === "question" || event.kind === "answered") && step?.type === "task") {
-              const supervisorId = copy.definition.roles[step.role]?.supervisor;
-              const supervisor =
-                supervisorId === null || supervisorId === undefined
-                  ? null
-                  : copy.definition.roles[supervisorId];
-              if (supervisor) {
-                const sourceRun = yield* crew.getRun(handoff.sourceRunId);
-                const sourceMember = sourceRun ? yield* crew.getMember(sourceRun.memberId) : null;
-                if (
-                  !sourceRun ||
-                  !sourceMember ||
-                  sourceRun.projectId !== copy.projectId ||
-                  !memberFillsRole(sourceMember, supervisor, featureId, copy.projectId)
-                ) {
-                  return yield* Effect.fail(
-                    new WorkflowTransitionError("Question did not reach the assigned supervisor"),
-                  );
-                }
-              }
-            }
           }
-          if (event.kind === "answered" && event.sourceKind === "decision") {
-            const runId = current.steps.get(event.stepId)?.runId;
-            const handoff = yield* handoffEvidence(event.sourceId, "needs-input", runId);
-            if (!handoff || handoff.projectId !== copy.projectId) {
+          if (event.kind === "answered") {
+            const start = events.findLast(
+              (item) =>
+                item.kind === "started" && item.runId === current.steps.get(event.stepId)?.runId,
+            );
+            if (event.sourceKind !== "decision" || !start || event.sourceId !== start.sourceId) {
               return yield* Effect.fail(
-                new WorkflowTransitionError(
-                  "Answer decision needs the active step's question receipt",
-                ),
+                new WorkflowTransitionError("An answer needs the active step's question"),
               );
             }
           }

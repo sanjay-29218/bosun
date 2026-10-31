@@ -7,6 +7,7 @@ import type {
   WorkflowStepEvent,
 } from "@t3tools/contracts";
 
+import { NEEDS_INPUT } from "./StageTurn.ts";
 import type { StageThreadDiff } from "./WorkflowWorkspace.ts";
 
 /** The newest completed execution of each step, in completion order. */
@@ -221,8 +222,8 @@ export const renderStageHandoff = (
       notes ? `Notes:\n${notes}` : "",
       brief ? `Brief:\n${brief}` : "",
       more ? MORE : "",
-      `Report with crew_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${record.outcomes.join(", ")}>","summary":"<result and evidence>"}.`,
-      "Use crew_ask for questions. A final chat message does not complete this step.",
+      `When the stage is done, call crew_respond with outcome set to one of ${record.outcomes.join(", ")} and a summary of the result and its evidence.`,
+      `If a person must decide something first, call crew_respond with outcome "${NEEDS_INPUT}" and the question as the summary, then end your turn; the answer arrives in this thread. A final chat message does not complete this stage.`,
     ]
       .filter(Boolean)
       .join("\n\n");

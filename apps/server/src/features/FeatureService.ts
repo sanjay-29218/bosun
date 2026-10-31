@@ -85,8 +85,7 @@ export interface FeatureServiceShape {
   ) => Effect.Effect<FeatureRecord, FeatureServiceError>;
   /**
    * Starts the feature's workflow. Each stage is sent from a lead run: its supervisor's, or the
-   * owning bot's headquarters for stages without one. Those threads are where stage questions
-   * and notices land.
+   * owning bot's headquarters for stages without one.
    */
   readonly start: (
     id: string,
@@ -181,7 +180,6 @@ const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition)
   [
     `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
     "The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-    "Stage crew members ask you questions here. Answer with crew_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
   ].join("\n\n");
 
