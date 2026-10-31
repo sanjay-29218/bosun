@@ -26,9 +26,9 @@ export const CREW_ACTION_COPY: Record<
   pause: { label: "Pause feature", description: "Current work may finish; the next stage waits" },
   resume: { label: "Resume feature", description: "Continue from where it paused" },
   cancel: {
-    label: "Cancel feature",
+    label: "Stop feature",
     description: "Keeps the branch and threads. Reopen it later.",
   },
-  reopen: { label: "Reopen feature", description: "Continue a cancelled or finished feature" },
+  reopen: { label: "Reopen feature", description: "Continue a stopped or finished feature" },
   "start-now": { label: "Start now", description: "Run the queued stage past the agent limit" },
 };

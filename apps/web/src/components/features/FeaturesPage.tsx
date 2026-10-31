@@ -1,51 +1,43 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  buildFeatureStageBoard,
-  collectNeedsYou,
+  featureCardKey,
   featureQueuePositions,
-  groupFeaturesByPhase,
+  groupFeaturesByColumn,
   matchesFeatureSearch,
-  mostUsedWorkflowId,
   parseFeatureSearch,
   type EnvironmentFeatureCard,
-  type NeedsYouItem,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
-  ISSUE_LANE_LABELS,
   featureForIssue,
   featuresByIssue,
-  groupIssues,
-  issueLane,
-  matchesIssueSearch,
   issueKey,
+  matchesIssueSearch,
   type EnvironmentIssue,
-  type IssueLane,
 } from "@t3tools/client-runtime/state/issue-board";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import {
+  featureRows,
+  workGroupOpenThread,
+  workGroupThreads,
+} from "@t3tools/client-runtime/state/work-groups";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  CircleDotIcon,
-  LayersIcon,
-  MilestoneIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  SearchIcon,
-  XIcon,
-} from "lucide-react";
+import { PlusIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "react";
 
-import { useOpenLink } from "../../browser/useOpenLink";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useThreadActions } from "../../hooks/useThreadActions";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useBotRailProjectKeys } from "../../state/botRail";
-import { useProjects } from "../../state/entities";
-import { needsYouThreadsAtom } from "../../state/needsYou";
-import { useEnvironmentQuery } from "../../state/query";
+import { useProjects, useQuietThreadShells } from "../../state/entities";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -53,39 +45,21 @@ import { workflowsEnvironment } from "../../state/workflows";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { stackedThreadToast, toastManager } from "../ui/toast";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { FeatureDisplayMenu, IssueDisplayMenu } from "./BoardDisplayMenu";
+import { BoardDisplayMenu } from "./BoardDisplayMenu";
 import { BoardFilterChips, BoardFilterMenu, type BoardFilterSection } from "./BoardFilters";
-import { featureStatus } from "./FeatureCard";
-import {
-  FeaturePhaseBoard,
-  FeaturePhaseList,
-  FeatureStageBoardView,
-  type FeatureBoardHandlers,
-} from "./FeatureBoards";
-import { NeedsYouListView } from "./FeatureLists";
+import { FeatureStatusBoard, type FeatureBoardHandlers } from "./FeatureBoards";
 import { FeatureNoteDialog } from "./FeatureNoteDialog";
 import {
-  IssueBoardView,
-  IssueListView,
-  IssueSuggestions,
-  MilestonesView,
-  type IssueViewHandlers,
-} from "./IssueViews";
-import {
-  ALL_PROJECTS_SCOPE,
-  DEFAULT_ISSUE_DISPLAY,
-  DEFAULT_SCOPE_PREFERENCES,
   readFeaturesPagePreferences,
   saveFeaturesPagePreferences,
   type FeaturesPagePreferences,
-  type FeaturesScopePreferences,
-  type IssueDisplayPreferences,
 } from "./featuresPagePreferences";
 import { resolveFeaturesShortcut } from "./featuresShortcuts";
 import { useFeatureActions, type FeatureNoteRequest } from "./useFeatureActions";
@@ -95,38 +69,15 @@ import { useStartFeatureFromTodo } from "./TodoDetail";
 import { openNewTodoDialog, openTodo } from "./todoDialogs";
 
 export interface FeaturesSearch {
-  readonly needsYou?: boolean;
   readonly q?: string;
   /** `environmentId:projectId`; absent is All projects. */
   readonly project?: string;
-  /** Absent is Features. */
-  readonly view?: "issues" | "milestones";
-  /** The `issueKey` of the milestone the Issues view is narrowed to. */
+  /** The `issueKey` of the milestone the board is narrowed to. */
   readonly milestone?: string;
 }
 
-type BoardView = "features" | "issues" | "milestones";
-
-const TODO_SOURCES = { ticket: "Tickets", github: "GitHub issues" } as const;
-type TodoSource = keyof typeof TODO_SOURCES;
-
-const ISSUE_LANES = Object.keys(ISSUE_LANE_LABELS) as IssueLane[];
-
 const projectKey = (project: { readonly environmentId: EnvironmentId; readonly id: ProjectId }) =>
   `${project.environmentId}:${project.id}`;
-
-const STATE_FILTERS = [
-  "working",
-  "queued",
-  "approval",
-  "input",
-  "your-call",
-  "failed",
-  "paused",
-  "cancelled",
-  "done",
-] as const;
-type StateFilter = (typeof STATE_FILTERS)[number] | "not-started";
 
 function toggled<Value>(current: ReadonlySet<Value>, value: Value, on: boolean): Set<Value> {
   const next = new Set(current);
@@ -135,11 +86,10 @@ function toggled<Value>(current: ReadonlySet<Value>, value: Value, on: boolean):
   return next;
 }
 
-/** The card state a filter matches; unstarted features are their own filter. */
-const cardFilterState = (card: EnvironmentFeatureCard): StateFilter =>
-  !card.started && card.state !== "done" && card.state !== "cancelled" ? "not-started" : card.state;
-
-/** The board: the main area's Board view, flipped from the sidebar's List / Board toggle. */
+/**
+ * The board: the main area's Board view, flipped from the sidebar's List / Board toggle. Todo,
+ * Working, Needs you and Done, with settled features folded under Done as in the sidebar.
+ */
 export function FeaturesPage(props: {
   readonly search: FeaturesSearch;
   /** `undefined` removes a key. */
@@ -153,15 +103,8 @@ export function FeaturesPage(props: {
   const [query, setQuery] = useState(props.search.q ?? "");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [stateFilters, setStateFilters] = useState<ReadonlySet<StateFilter>>(new Set());
-  const [gateFilter, setGateFilter] = useState<string | null>(null);
   const [noteRequest, setNoteRequest] = useState<FeatureNoteRequest | null>(null);
-  const view: BoardView = props.search.view ?? "features";
-  const isFeatures = view === "features";
-  const needsYou = isFeatures && props.search.needsYou === true;
-  const [laneFilters, setLaneFilters] = useState<ReadonlySet<IssueLane>>(new Set());
   const [labelFilters, setLabelFilters] = useState<ReadonlySet<string>>(new Set());
-  const [sourceFilters, setSourceFilters] = useState<ReadonlySet<TodoSource>>(new Set());
 
   // Projects on servers that run workflows; the scope picker lists only these.
   const workflowEnvironmentIds = useWorkflowEnvironmentIds();
@@ -179,14 +122,12 @@ export function FeaturesPage(props: {
   const scopedProject = props.search.project
     ? (projectByKey.get(props.search.project) ?? null)
     : null;
-  const scopeKey = scopedProject ? projectKey(scopedProject) : ALL_PROJECTS_SCOPE;
-  const scopePreferences: FeaturesScopePreferences =
-    preferences.scopes[scopeKey] ?? DEFAULT_SCOPE_PREFERENCES;
   const targets = (scopedProject ? [scopedProject] : projects).map((project) => ({
     environmentId: project.environmentId,
     projectId: project.id,
   }));
   const board = useFeatureBoard(targets);
+  const issueBoard = useIssueBoard(targets, true);
   const projectFor = (item: {
     readonly environmentId: EnvironmentId;
     readonly projectId: ProjectId;
@@ -197,144 +138,114 @@ export function FeaturesPage(props: {
     setPreferences(next);
     saveFeaturesPagePreferences(next);
   };
-  const updateScopePreferences = (patch: Partial<FeaturesScopePreferences>) =>
-    updatePreferences({
-      scopes: { ...preferences.scopes, [scopeKey]: { ...scopePreferences, ...patch } },
-    });
-  const featureLayout = preferences.featureLayout ?? "board";
-  const issueDisplay = preferences.issues ?? DEFAULT_ISSUE_DISPLAY;
-  const updateIssueDisplay = (patch: Partial<IssueDisplayPreferences>) =>
-    updatePreferences({ issues: { ...issueDisplay, ...patch } });
+  const layout = preferences.featureLayout ?? "board";
 
-  // Search and filters narrow every view; Needs you ignores the state filter.
+  // A milestone narrows the board to its issues, and to the features that work on them.
+  const issueFeatures = featuresByIssue(board.cards);
+  const featureFor = (issue: EnvironmentIssue) => featureForIssue(issueFeatures, issue);
+  const milestoneFilter = props.search.milestone ?? null;
+  const inMilestone = (issue: EnvironmentIssue) =>
+    milestoneFilter === null ||
+    (issue.milestone !== null &&
+      issueKey({ ...issue, number: issue.milestone.number }) === milestoneFilter);
+  const milestoneFeatureKeys = new Set(
+    issueBoard.issues.flatMap((issue) => {
+      const feature = inMilestone(issue) ? featureFor(issue) : null;
+      return feature ? [featureCardKey(feature)] : [];
+    }),
+  );
+
   const parsedSearch = parseFeatureSearch(query);
   const visibleCards = board.cards.filter(
     (card) =>
       matchesFeatureSearch(card, parsedSearch, [projectFor(card)?.title]) &&
-      (needsYou || stateFilters.size === 0 || stateFilters.has(cardFilterState(card))),
+      (milestoneFilter === null || milestoneFeatureKeys.has(featureCardKey(card))),
   );
-  const queuePositions = featureQueuePositions(board.cards);
-  const phaseGroups = groupFeaturesByPhase(visibleCards);
+  // Todo holds open issues no feature works on; a stopped feature hands its issue back.
+  const todos = issueBoard.issues
+    .filter((issue) => {
+      const feature = featureFor(issue);
+      return (
+        issue.state === "open" &&
+        (feature === null || feature.state === "cancelled") &&
+        inMilestone(issue) &&
+        (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
+        parsedSearch.workflows.length === 0 &&
+        matchesIssueSearch(issue, parsedSearch.text)
+      );
+    })
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
-  const waitingThreads = useAtomValue(needsYouThreadsAtom);
-  const scopedWaitingThreads = waitingThreads.filter(
-    (shell) =>
-      (scopedProject === null
-        ? railProjectKeys === null ||
-          railProjectKeys.has(`${shell.environmentId}:${shell.projectId}`)
-        : shell.environmentId === scopedProject.environmentId &&
-          shell.projectId === scopedProject.id) &&
-      (!parsedSearch.text || shell.title.toLowerCase().includes(parsedSearch.text)) &&
-      parsedSearch.workflows.length === 0,
+  // A finished feature is settled when its row in the thread list is, so the board and the
+  // sidebar file it the same way. One with no listed threads left (archived, or settled long
+  // ago and no longer sent) counts as settled too.
+  const { settleThread, unsettleThread } = useThreadActions();
+  const rows = featureRows(useQuietThreadShells());
+  const rowFor = (card: EnvironmentFeatureCard) => {
+    const group = rows.get(featureCardKey(card));
+    return group ? workGroupThreads(group) : [];
+  };
+  const isSettled = (card: EnvironmentFeatureCard) => {
+    const primary = rowFor(card)[0];
+    return primary === undefined || primary.settledOverride === "settled";
+  };
+  const closed = (card: EnvironmentFeatureCard) =>
+    card.state === "done" || card.state === "cancelled";
+  const settledCards = visibleCards
+    .filter((card) => closed(card) && isSettled(card))
+    .toSorted((a, b) => b.stateSince.localeCompare(a.stateSince));
+  const groups = groupFeaturesByColumn(
+    visibleCards.filter((card) => !closed(card) || !isSettled(card)),
   );
-  const needsYouGroups = collectNeedsYou({ cards: visibleCards, shells: scopedWaitingThreads });
-  const needsYouCount = needsYouGroups.reduce((total, group) => total + group.items.length, 0);
-
-  // The Workflow toggle draws one workflow's stages; definitions load only while it is on.
-  const workflowToggle = isFeatures && scopePreferences.workflow && !needsYou;
-  const selectedWorkflowId = scopePreferences.workflowId ?? mostUsedWorkflowId(board.cards);
-  // Workflows are an environment-wide library; read them where the chosen workflow runs.
-  const definitionCard = board.cards.find((card) => card.workflow.id === selectedWorkflowId);
-  const definitionSource =
-    scopedProject ?? (definitionCard ? projectFor(definitionCard) : null) ?? projects[0] ?? null;
-  const definitions = useEnvironmentQuery(
-    workflowToggle && definitionSource
-      ? workflowsEnvironment.definitions({
-          environmentId: definitionSource.environmentId,
-          input: {},
-        })
-      : null,
-  );
-  const workflowNames = new Map<string, string>();
-  for (const definition of definitions.data ?? [])
-    workflowNames.set(definition.id, definition.name);
-  for (const card of board.cards) workflowNames.set(card.workflow.id, card.workflow.name);
-  const workflowOptions = [...workflowNames].map(([id, name]) => ({ id, name }));
-  const selectedDefinition =
-    definitions.data?.find((definition) => definition.id === selectedWorkflowId) ?? null;
-  // Definitions are per project, so the stage board draws only the source project's cards;
-  // the same workflow id elsewhere may be a different graph, and is counted as hidden.
-  const stageBoard = buildStageBoard();
-  function buildStageBoard() {
-    if (!selectedDefinition || !definitionSource) return null;
-    const inSource = (card: EnvironmentFeatureCard) =>
-      card.environmentId === definitionSource.environmentId &&
-      card.projectId === definitionSource.id;
-    const stages = buildFeatureStageBoard(selectedDefinition, visibleCards.filter(inSource));
-    const elsewhere = new Map<string, number>();
-    for (const card of visibleCards) {
-      if (inSource(card)) continue;
-      const title = projectFor(card)?.title ?? "Other projects";
-      elsewhere.set(title, (elsewhere.get(title) ?? 0) + 1);
+  const toggleShelf = (card: EnvironmentFeatureCard) => {
+    const settled = isSettled(card);
+    for (const thread of rowFor(card)) {
+      if ((thread.settledOverride === "settled") !== settled) continue;
+      const ref = scopeThreadRef(thread.environmentId, thread.id);
+      void (settled ? unsettleThread(ref) : settleThread(ref)).then((result) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: settled ? "Failed to un-settle feature" : "Failed to settle feature",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      });
     }
-    return elsewhere.size === 0
-      ? stages
-      : {
-          ...stages,
-          hidden: [...stages.hidden, ...[...elsewhere].map(([name, count]) => ({ name, count }))],
-        };
-  }
+  };
 
   const actions = useFeatureActions({ onNoteRequest: setNoteRequest });
-  const newThread = useNewThreadHandler();
+  const startFeatureFromTodo = useStartFeatureFromTodo();
   const handlers: FeatureBoardHandlers = {
     projectFor,
-    queuePositions,
+    queuePositions: featureQueuePositions(board.cards),
+    // A card opens what its sidebar row opens: the thread waiting on you, else the lead.
     onOpen: (card) => {
-      actions.openCard(card);
+      const group = rows.get(featureCardKey(card));
+      const thread = group ? workGroupOpenThread(group) : null;
+      if (!thread) {
+        if (!actions.openCard(card))
+          toastManager.add({ type: "info", title: "This feature has no thread to open yet" });
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: thread.environmentId, threadId: thread.id },
+      });
     },
     onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) =>
       void actions.showMenu(card, { x: event.clientX, y: event.clientY }),
-    onDrop: (card, action, position) =>
-      void (action === "cancel"
-        ? actions.run(card, "cancel")
-        : actions.reopenFromDrop(card, position)),
-  };
-  // Issues load on the Issues and Milestones views, and on an empty Features board to
-  // suggest a first feature.
-  const featuresEmpty = board.loaded && board.errors.length === 0 && board.cards.length === 0;
-  const issueBoard = useIssueBoard(targets, !isFeatures || featuresEmpty);
-  const issueFeatures = featuresByIssue(board.cards);
-  const featureFor = (issue: EnvironmentIssue) => featureForIssue(issueFeatures, issue);
-  const laneFor = (issue: EnvironmentIssue) => issueLane(issue, featureFor(issue));
-  const milestoneFilter = props.search.milestone ?? null;
-  const filteredMilestone = milestoneFilter
-    ? (issueBoard.milestones.find((milestone) => issueKey(milestone) === milestoneFilter) ?? null)
-    : null;
-  const issueBoardLayout = issueDisplay.layout === "board";
-  const visibleIssues = issueBoard.issues.filter(
-    (issue) =>
-      (sourceFilters.size === 0 || sourceFilters.has(issue.ticketId ? "ticket" : "github")) &&
-      // The board always has a Done lane, so it always shows what was closed lately.
-      (issue.state === "open" || issueDisplay.showClosed || issueBoardLayout) &&
-      (milestoneFilter === null ||
-        (issue.milestone !== null &&
-          issueKey({ ...issue, number: issue.milestone.number }) === milestoneFilter)) &&
-      (laneFilters.size === 0 || laneFilters.has(laneFor(issue))) &&
-      (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
-      matchesIssueSearch(issue, parsedSearch.text),
-  );
-  const issueGroups = groupIssues({
-    issues: visibleIssues,
-    milestones: issueBoard.milestones,
-    groupBy: issueBoardLayout ? "status" : issueDisplay.groupBy,
-    nested: issueDisplay.nested && !issueBoardLayout,
-    laneFor,
-    projectTitle: (owner) => projectFor(owner)?.title ?? null,
-  });
-  const issueLabels = [
-    ...new Set(issueBoard.issues.flatMap((issue) => issue.labels.map((label) => label.name))),
-  ]
-    .toSorted((a, b) => a.localeCompare(b))
-    .slice(0, 30);
-
-  const openLink = useOpenLink(null);
-  const startFeatureFromTodo = useStartFeatureFromTodo();
-  const issueHandlers: IssueViewHandlers = {
-    projectFor,
-    featureFor,
-    laneFor,
-    onOpenIssue: (issue) =>
+    onAction: (card, action) => void actions.run(card, action),
+    onShelf: toggleShelf,
+    canShelf: (card) => rowFor(card).length > 0,
+    onDrop: (card, action, position) => {
+      if (action === "settle") toggleShelf(card);
+      else if (action === "cancel") void actions.run(card, "cancel");
+      else void actions.reopenFromDrop(card, position);
+    },
+    onOpenTodo: (issue) =>
       openTodo(
         issue.ticketId
           ? {
@@ -348,38 +259,13 @@ export function FeaturesPage(props: {
               number: issue.number,
             },
       ),
-    onOpenExternal: (issue) =>
-      void openLink(issue.url).catch((error: unknown) => console.error(error)),
-    onOpenFeature: (card) => actions.openCard(card),
-    onStartFeature: (issue) =>
+    onStartTodo: (issue) =>
       void startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
-    showProject: scopedProject === null && projects.length > 1,
-    display: issueDisplay,
-  };
-  const suggestedIssues = issueBoard.issues
-    .filter((issue) => issue.state === "open" && featureFor(issue) === null)
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 5);
-  const setView = (next: BoardView) =>
-    props.onSearchChange({
-      view: next === "features" ? undefined : next,
-      milestone: undefined,
-      needsYou: undefined,
-    });
-
-  const openNeedsYouItem = (item: NeedsYouItem) => {
-    if (item.type === "feature") {
-      actions.openCard(item.card);
-      return;
-    }
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: { environmentId: item.shell.environmentId, threadId: item.shell.id },
-    });
   };
 
   // New feature: a new thread in the scoped project. The composer's Workflow picker turns
   // its first message into the brief.
+  const newThread = useNewThreadHandler();
   const ensureStarter = useAtomCommand(workflowsEnvironment.ensureStarter);
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
   const startNewFeature = async (withStarter: boolean) => {
@@ -394,20 +280,6 @@ export function FeaturesPage(props: {
     await newThread(scopeProjectRef(newFeatureProject.environmentId, newFeatureProject.id));
   };
   const browseWorkflows = () => void navigate({ to: "/library", search: {} });
-
-  const shortcutTitle = (label: string, command: Parameters<typeof shortcutLabelForCommand>[1]) => {
-    const shortcut = shortcutLabelForCommand(keybindings, command, {
-      context: { featuresPageOpen: true },
-    });
-    return shortcut ? `${label} (${shortcut})` : label;
-  };
-  const toggleNeedsYou = () => props.onSearchChange({ needsYou: needsYou ? undefined : true });
-  // From Needs you, Workflow opens the stage board; on it, it closes it.
-  const toggleWorkflow = () => {
-    updateScopePreferences({ workflow: !workflowToggle });
-    if (needsYou) props.onSearchChange({ needsYou: undefined });
-  };
-
   const newTodo = () =>
     openNewTodoDialog(
       newFeatureProject
@@ -419,6 +291,9 @@ export function FeaturesPage(props: {
           }
         : {},
     );
+  const newTodoShortcut = shortcutLabelForCommand(keybindings, "features.newTodo", {
+    context: { featuresPageOpen: true },
+  });
 
   const onPageKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -436,9 +311,7 @@ export function FeaturesPage(props: {
     if (command === "features.search") {
       setSearchOpen(true);
       searchInputRef.current?.focus();
-    } else if (command === "features.workflow") toggleWorkflow();
-    else if (command === "features.newTodo") newTodo();
-    else toggleNeedsYou();
+    } else newTodo();
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes the page's shortcuts to window keydown while it is mounted.
   useEffect(() => {
@@ -469,23 +342,24 @@ export function FeaturesPage(props: {
     return () => window.clearTimeout(handle);
   }, [onSearchChange, query, urlQuery]);
 
-  const filtersActive = stateFilters.size > 0;
   const firstRun =
     board.loaded &&
     board.errors.length === 0 &&
     board.cards.length === 0 &&
-    scopedWaitingThreads.length === 0 &&
-    !query &&
-    !filtersActive;
+    !issueBoard.pending &&
+    issueBoard.issues.every((issue) => issue.state !== "open") &&
+    !query;
 
   const clearFilters = () => {
-    setStateFilters(new Set());
-    setLaneFilters(new Set());
     setLabelFilters(new Set());
-    setSourceFilters(new Set());
-    if (scopedProject) props.onSearchChange({ project: undefined });
+    props.onSearchChange({ project: undefined, milestone: undefined });
   };
-  const stateOptions = ["not-started", ...STATE_FILTERS] as const;
+  const showProjectInTitles = scopedProject === null && projects.length > 1;
+  const issueLabels = [
+    ...new Set(issueBoard.issues.flatMap((issue) => issue.labels.map((label) => label.name))),
+  ]
+    .toSorted((a, b) => a.localeCompare(b))
+    .slice(0, 30);
   const filterSections: ReadonlyArray<BoardFilterSection> = [
     ...(projects.length > 1 || scopedProject
       ? [
@@ -501,52 +375,24 @@ export function FeaturesPage(props: {
           },
         ]
       : []),
-    ...(isFeatures
+    ...(issueBoard.milestones.length > 0 || milestoneFilter
       ? [
           {
-            label: "State",
-            options: stateOptions.map((state) => ({
-              value: state,
-              label:
-                state === "not-started"
-                  ? "Not started"
-                  : featureStatus({ state, started: true } as EnvironmentFeatureCard, undefined)
-                      .label,
-              checked: stateFilters.has(state),
+            label: "Milestone",
+            options: issueBoard.milestones.map((milestone) => ({
+              value: issueKey(milestone),
+              label: showProjectInTitles
+                ? `${projectFor(milestone)?.title ?? "Project"} · ${milestone.title}`
+                : milestone.title,
+              checked: issueKey(milestone) === milestoneFilter,
             })),
-            onChange: (value: string, checked: boolean) => {
-              const state = stateOptions.find((candidate) => candidate === value);
-              if (state) setStateFilters((current) => toggled(current, state, checked));
-            },
+            onChange: (value: string, checked: boolean) =>
+              props.onSearchChange({ milestone: checked ? value : undefined }),
           },
         ]
       : []),
-    ...(view === "issues"
+    ...(issueLabels.length > 0
       ? [
-          {
-            label: "Status",
-            options: ISSUE_LANES.map((lane) => ({
-              value: lane,
-              label: ISSUE_LANE_LABELS[lane],
-              checked: laneFilters.has(lane),
-            })),
-            onChange: (value: string, checked: boolean) => {
-              const lane = ISSUE_LANES.find((candidate) => candidate === value);
-              if (lane) setLaneFilters((current) => toggled(current, lane, checked));
-            },
-          },
-          {
-            label: "Source",
-            options: Object.entries(TODO_SOURCES).map(([value, label]) => ({
-              value,
-              label,
-              checked: sourceFilters.has(value as TodoSource),
-            })),
-            onChange: (value: string, checked: boolean) => {
-              if (value === "ticket" || value === "github")
-                setSourceFilters((current) => toggled(current, value, checked));
-            },
-          },
           {
             label: "Label",
             options: issueLabels.map((label) => ({
@@ -560,23 +406,10 @@ export function FeaturesPage(props: {
         ]
       : []),
   ];
-  const leaveNeedsYou = () => {
-    if (needsYou) props.onSearchChange({ needsYou: undefined });
-  };
 
   const headerActions = (
     <div className="ms-auto flex min-w-0 items-center gap-1">
-      {isFeatures && (needsYouCount > 0 || needsYou) ? (
-        <Button
-          size="sm"
-          variant={needsYou ? "default" : "warning-outline"}
-          aria-pressed={needsYou}
-          title={shortcutTitle("Needs you", "features.needsYou")}
-          onClick={toggleNeedsYou}
-        >
-          {needsYouCount} need{needsYouCount === 1 ? "s" : ""} you
-        </Button>
-      ) : null}
+      <MainViewToggle />
       {searchOpen || query ? (
         <InputGroup className="w-44 md:w-60">
           <InputGroupAddon>
@@ -586,8 +419,8 @@ export function FeaturesPage(props: {
             ref={searchInputRef}
             type="search"
             autoFocus
-            aria-label={isFeatures ? "Search features" : "Search issues"}
-            placeholder={isFeatures ? "Search, or workflow:bug-fix" : "Search, #number, label"}
+            aria-label="Search the board"
+            placeholder="Search, #number, or workflow:bug-fix"
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
             onBlur={() => {
@@ -604,7 +437,7 @@ export function FeaturesPage(props: {
         <Button
           size="icon-sm"
           variant="ghost"
-          aria-label={isFeatures ? "Search features" : "Search issues"}
+          aria-label="Search the board"
           title="Search (/)"
           onClick={() => setSearchOpen(true)}
         >
@@ -612,65 +445,46 @@ export function FeaturesPage(props: {
         </Button>
       )}
       <BoardFilterMenu sections={filterSections} onClear={clearFilters} />
-      {isFeatures ? (
-        <FeatureDisplayMenu
-          layout={featureLayout}
-          onLayout={(layout) => {
-            updatePreferences({ featureLayout: layout });
-            leaveNeedsYou();
-          }}
-          stages={workflowToggle}
-          stagesLabel={shortcutTitle("Workflow stages", "features.workflow")}
-          onStages={(stages) => {
-            updateScopePreferences({ workflow: stages });
-            leaveNeedsYou();
-          }}
-          workflows={workflowOptions}
-          workflowId={selectedWorkflowId ?? null}
-          onWorkflow={(workflowId) => updateScopePreferences({ workflowId })}
-        />
-      ) : view === "issues" ? (
-        <IssueDisplayMenu display={issueDisplay} onChange={updateIssueDisplay} />
-      ) : null}
-      {isFeatures ? null : (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Refresh issues"
-          title={
-            issueBoard.readAt
-              ? `Read from GitHub ${formatRelativeTimeLabel(issueBoard.readAt)}`
-              : "Refresh"
+      <BoardDisplayMenu
+        layout={layout}
+        onLayout={(featureLayout) => updatePreferences({ featureLayout })}
+      />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Refresh issues"
+        title={
+          issueBoard.readAt
+            ? `Issues read from GitHub ${formatRelativeTimeLabel(issueBoard.readAt)}`
+            : "Refresh issues"
+        }
+        disabled={issueBoard.refreshing}
+        onClick={issueBoard.refresh}
+      >
+        <RefreshCwIcon aria-hidden />
+      </Button>
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button size="sm" disabled={!newFeatureProject}>
+              <PlusIcon aria-hidden />
+              <span className="hidden md:inline">New</span>
+            </Button>
           }
-          disabled={issueBoard.refreshing}
-          onClick={issueBoard.refresh}
-        >
-          <RefreshCwIcon aria-hidden />
-        </Button>
-      )}
-      {isFeatures && !firstRun ? (
-        <Button size="sm" onClick={() => void startNewFeature(false)} disabled={!newFeatureProject}>
-          <PlusIcon aria-hidden />
-          <span className="hidden md:inline">New feature</span>
-        </Button>
-      ) : null}
-      {isFeatures ? null : (
-        <Button
-          size="sm"
-          title={shortcutTitle("New todo", "features.newTodo")}
-          onClick={newTodo}
-          disabled={!newFeatureProject}
-        >
-          <PlusIcon aria-hidden />
-          <span className="hidden md:inline">New todo</span>
-        </Button>
-      )}
-      <MainViewToggle />
+        />
+        <MenuPopup align="end">
+          <MenuItem onClick={newTodo}>
+            New todo
+            {newTodoShortcut ? <MenuShortcut>{newTodoShortcut}</MenuShortcut> : null}
+          </MenuItem>
+          <MenuItem onClick={() => void startNewFeature(false)}>New feature</MenuItem>
+        </MenuPopup>
+      </Menu>
     </div>
   );
 
   let body;
-  // Boards fill the page and scroll each column; everything else scrolls the page.
+  // The board fills the page and scrolls each column; everything else scrolls the page.
   let lanes = false;
   if (projects.length === 0) {
     body = (
@@ -678,73 +492,31 @@ export function FeaturesPage(props: {
         Connect an environment that runs workflows to see features.
       </p>
     );
-  } else if (!isFeatures) {
-    // Without GitHub anywhere, the view still lists tickets, and only Milestones has nothing.
-    const allUnavailable =
-      issueBoard.unavailable.length > 0 &&
-      issueBoard.unavailable.length === targets.length &&
-      (view === "milestones" || issueBoard.issues.length === 0);
-    if (issueBoard.pending && issueBoard.issues.length === 0) {
-      body = (
-        <div className="flex flex-col gap-1.5">
-          {Array.from({ length: 8 }, (_, index) => (
-            <Skeleton key={index} className="h-9 w-full" />
-          ))}
-        </div>
-      );
-    } else if (allUnavailable) {
-      body = (
-        <p className="py-10 text-center text-sm text-muted-foreground">
-          {issueBoard.unavailable[0]!.reason}
-          {view === "issues" ? " Tickets work without one: add one with New todo." : null}
-        </p>
-      );
-    } else if (view === "milestones") {
-      body = (
-        <MilestonesView
-          milestones={issueBoard.milestones}
-          issues={issueBoard.issues}
-          handlers={issueHandlers}
-          onOpenMilestone={(milestone) =>
-            props.onSearchChange({ view: "issues", milestone: issueKey(milestone) })
-          }
-        />
-      );
-    } else if (visibleIssues.length === 0 && issueBoard.errors.length === 0) {
-      body = (
-        <p className="py-10 text-center text-sm text-muted-foreground">
-          {issueBoard.issues.length === 0 ? "No open todos." : "No todos match."}
-        </p>
-      );
-    } else if (issueBoardLayout) {
-      lanes = true;
-      body = <IssueBoardView groups={issueGroups} handlers={issueHandlers} />;
-    } else {
-      body = <IssueListView groups={issueGroups} handlers={issueHandlers} />;
-    }
   } else if (firstRun) {
     body = (
       <div className="mx-auto flex max-w-xl flex-col items-center gap-5 py-14 text-center">
         <div className="flex flex-col items-center gap-2">
-          <h2 className="text-lg font-medium">No features yet</h2>
+          <h2 className="text-lg font-medium">Nothing on the board yet</h2>
           <p className="max-w-md text-sm text-muted-foreground">
-            Write a brief and your crew takes it through a workflow, stage by stage. Stages that
-            need your approval wait under Needs you.
+            Add a todo, then start a feature from it. Your crew takes it through a workflow, and
+            anything that needs your approval waits under Needs you.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => void startNewFeature(true)} disabled={!newFeatureProject}>
+          <Button onClick={newTodo} disabled={!newFeatureProject}>
+            New todo
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void startNewFeature(true)}
+            disabled={!newFeatureProject}
+          >
             Start a feature
           </Button>
-          <Button variant="outline" onClick={browseWorkflows}>
+          <Button variant="ghost" onClick={browseWorkflows}>
             Browse workflows
           </Button>
         </div>
-        <IssueSuggestions
-          issues={suggestedIssues}
-          handlers={issueHandlers}
-          onShowAll={() => setView("issues")}
-        />
       </div>
     );
   } else if (board.pending && board.cards.length === 0) {
@@ -755,90 +527,33 @@ export function FeaturesPage(props: {
         ))}
       </div>
     );
-  } else if (needsYou) {
-    body = (
-      <NeedsYouListView
-        groups={needsYouGroups}
-        projectFor={projectFor}
-        actions={actions}
-        onOpenThread={openNeedsYouItem}
-      />
-    );
-  } else if (workflowToggle) {
-    lanes = Boolean(stageBoard);
-    body = stageBoard ? (
-      <FeatureStageBoardView
-        board={stageBoard}
-        handlers={handlers}
-        gateFilter={gateFilter}
-        onGateFilter={setGateFilter}
-        onOpenStage={browseWorkflows}
-        onShowPhases={() => updateScopePreferences({ workflow: false })}
-      />
-    ) : (
-      <p className="py-10 text-center text-sm text-muted-foreground">
-        {definitions.isPending ? "Loading the workflow…" : "Pick a workflow to see its stages."}
-      </p>
-    );
-  } else if (featureLayout === "list") {
-    body = <FeaturePhaseList groups={phaseGroups} handlers={handlers} />;
   } else {
-    lanes = true;
-    body = <FeaturePhaseBoard groups={phaseGroups} handlers={handlers} />;
+    lanes = layout === "board";
+    body = (
+      <FeatureStatusBoard
+        layout={layout}
+        groups={groups}
+        todos={todos}
+        settled={settledCards}
+        handlers={handlers}
+      />
+    );
   }
 
-  const partlyUnavailable =
-    !isFeatures &&
-    issueBoard.unavailable.length > 0 &&
-    issueBoard.unavailable.length < targets.length;
-  const notes = isFeatures ? null : (
+  const errors = [...board.errors, ...issueBoard.errors];
+  const content = (
     <>
-      {filteredMilestone || milestoneFilter ? (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Milestone</span>
-          <span className="inline-flex h-6 items-center gap-1 rounded-md border border-border/70 ps-2 pe-0.5">
-            <MilestoneIcon aria-hidden className="size-3.5 text-muted-foreground" />
-            {filteredMilestone?.title ?? "Closed milestone"}
-            <button
-              type="button"
-              aria-label="Show every milestone"
-              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={() => props.onSearchChange({ milestone: undefined })}
-            >
-              <XIcon aria-hidden className="size-3" />
-            </button>
-          </span>
-        </div>
-      ) : null}
-      {issueBoard.errors.length > 0 ? (
+      <BoardFilterChips sections={filterSections} onClear={clearFilters} />
+      {errors.length > 0 ? (
         <p role="alert" className="text-sm text-destructive">
-          {issueBoard.errors[0]}
-        </p>
-      ) : null}
-      {partlyUnavailable ? (
-        <p className="text-xs text-muted-foreground">
-          {issueBoard.unavailable.length === 1
-            ? `${projectFor(issueBoard.unavailable[0]!)?.title ?? "One project"}: ${issueBoard.unavailable[0]!.reason}`
-            : `${issueBoard.unavailable.length} projects have no GitHub issues to show.`}
+          {errors[0]}
         </p>
       ) : null}
       {issueBoard.truncated ? (
         <p className="text-xs text-muted-foreground">
-          Showing the 100 most recently updated open issues per project. Search narrows them.
+          Todo shows the 100 most recently updated open issues per project. Search narrows them.
         </p>
       ) : null}
-    </>
-  );
-
-  const content = (
-    <>
-      <BoardFilterChips sections={filterSections} onClear={clearFilters} />
-      {board.errors.length > 0 ? (
-        <p role="alert" className="text-sm text-destructive">
-          {board.errors[0]}
-        </p>
-      ) : null}
-      {notes}
       {body}
     </>
   );
@@ -847,30 +562,8 @@ export function FeaturesPage(props: {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
-          <h1 className="sr-only">Board</h1>
-          <ToggleGroup
-            aria-label="Board view"
-            variant="segmented"
-            value={[view]}
-            onValueChange={(value) => {
-              const next = value[0];
-              if (next === "features" || next === "issues" || next === "milestones") setView(next);
-            }}
-          >
-            <Toggle value="features">
-              <LayersIcon aria-hidden />
-              Features
-            </Toggle>
-            <Toggle value="issues">
-              <CircleDotIcon aria-hidden />
-              Issues
-            </Toggle>
-            <Toggle value="milestones">
-              <MilestoneIcon aria-hidden />
-              Milestones
-            </Toggle>
-          </ToggleGroup>
-          {firstRun && isFeatures ? (
+          <h1 className="text-sm font-medium">Board</h1>
+          {firstRun ? (
             <div className="ms-auto flex items-center">
               <MainViewToggle />
             </div>

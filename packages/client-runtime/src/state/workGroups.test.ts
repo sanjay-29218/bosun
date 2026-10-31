@@ -3,11 +3,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { sortInboxThreadsByReturn } from "./threadInbox.ts";
 import {
+  featureRows,
   groupWorkThreads,
   workGroupInbox,
   workGroupLead,
   workGroupOf,
   workGroupOpenThread,
+  workGroupThreads,
   workThreadLabel,
   type WorkGroupThread,
 } from "./workGroups.ts";
@@ -112,6 +114,21 @@ const inboxThread = (
   hasPendingApprovals: fields.hasPendingApprovals ?? false,
   hasPendingUserInput: false,
   runtime: null,
+});
+
+describe("featureRows", () => {
+  it("rows a feature on its list threads, primary first, leaving out old stages and archives", () => {
+    const rows = featureRows([
+      { ...thread("lead", "0", { feature, title: "Lead" }), archivedAt: null },
+      { ...stage("plan", "1", "plan", 1), archivedAt: null },
+      { ...stage("build", "2", "build", 2, "working", true), archivedAt: null },
+      { ...thread("old-lead", "0", { feature }), archivedAt: "2026-10-01" },
+      { ...thread("plain", "3"), archivedAt: null },
+    ]);
+    expect(
+      [...rows].map(([key, group]) => [key, workGroupThreads(group).map((item) => item.id)]),
+    ).toEqual([["local:f1", ["build", "lead"]]]);
+  });
 });
 
 describe("workGroupInbox", () => {

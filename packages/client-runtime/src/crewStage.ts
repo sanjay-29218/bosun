@@ -81,7 +81,7 @@ export const CREW_STATE_LABELS: Record<FeatureCardState, string> = {
   "your-call": "Your call",
   failed: "Failed",
   paused: "Paused",
-  cancelled: "Cancelled",
+  cancelled: "Stopped",
   done: "Done",
 };
 

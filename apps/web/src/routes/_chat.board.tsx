@@ -5,12 +5,8 @@ import { FeaturesPage, type FeaturesSearch } from "../components/features/Featur
 
 export const Route = createFileRoute("/_chat/board")({
   validateSearch: (raw: Record<string, unknown>): FeaturesSearch => ({
-    ...(raw.needsYou === true || raw.needsYou === "1" || raw.needsYou === 1
-      ? { needsYou: true }
-      : {}),
     ...(typeof raw.q === "string" && raw.q ? { q: raw.q } : {}),
     ...(typeof raw.project === "string" && raw.project ? { project: raw.project } : {}),
-    ...(raw.view === "issues" || raw.view === "milestones" ? { view: raw.view } : {}),
     ...(typeof raw.milestone === "string" && raw.milestone ? { milestone: raw.milestone } : {}),
   }),
   component: BoardRouteView,

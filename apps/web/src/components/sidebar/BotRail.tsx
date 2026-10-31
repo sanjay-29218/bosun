@@ -1,19 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   botRailSignal,
-  combineBotActivity,
   type BotRailSignal,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
-  BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
-  InboxIcon,
   LayersIcon,
   ServerIcon,
   SettingsIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, type ReactNode } from "react";
@@ -130,7 +128,6 @@ export const BotRail = memo(function BotRail({
     multipleBots
       ? shortcutLabelForCommand(keybindings, command, { context: { multipleBots } })
       : null;
-  const totalNeedsYou = [...needsYou.values()].reduce((sum, count) => sum + count, 0);
 
   return (
     <nav
@@ -151,22 +148,7 @@ export const BotRail = memo(function BotRail({
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border py-2">
         <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto scrollbar-gutter-both">
-          {multipleBots ? (
-            <>
-              <RailItem
-                label="All bots"
-                hint="Every bot's threads"
-                active={onBots && active === null}
-                signal={botRailSignal(totalNeedsYou, combineBotActivity(activity.values()))}
-                shortcut={shortcutFor("bot.inbox")}
-                variant="icon"
-                onSelect={() => switchTo(null)}
-              >
-                <InboxIcon className="size-5" strokeWidth={1.75} />
-              </RailItem>
-              <RailDivider />
-            </>
-          ) : null}
+          {/* All bots is hidden for now; the palette's Show All bots and bot.inbox still reach it. */}
           {bots.map((bot, index) => (
             <RailItem
               key={bot.key}
@@ -223,9 +205,8 @@ function RailPlaces({
           if (destination !== "bot-list") void navigate({ to: BOTS_PATH });
         }}
       >
-        <BotIcon className="size-5" strokeWidth={1.75} />
+        <UsersRoundIcon className="size-5" strokeWidth={1.75} />
       </RailItem>
-      <RailDivider />
       <RailItem
         label="Automations"
         hint={null}
@@ -312,7 +293,7 @@ function RailAppPages() {
 }
 
 const RailDivider = () => (
-  <div aria-hidden className="h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
+  <div aria-hidden className="my-1.5 h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
 );
 
 const signalLabel = (signal: BotRailSignal | null): string | null => {
@@ -358,14 +339,6 @@ const RailItem = memo(function RailItem({
   const status = signalLabel(signal);
   return (
     <div className="group/bot relative flex w-full justify-center">
-      {/* The selected entry's marker on the rail's leading edge; hovering hints at it. */}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-1/2 left-0 w-[3px] -translate-y-1/2 rounded-r-full bg-sidebar-foreground transition-[height,opacity] duration-150",
-          active ? "h-5 opacity-100" : "h-2 opacity-0 group-hover/bot:opacity-50",
-        )}
-      />
       <Tooltip>
         <TooltipTrigger
           render={
