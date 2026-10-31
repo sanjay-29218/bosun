@@ -8,12 +8,21 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
+import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
@@ -25,6 +34,8 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 const PlatformTestLayer = Layer.merge(
   NodeServices.layer,
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
@@ -56,9 +67,21 @@ const GitWorkflowTestLayer = Layer.mock(GitWorkflow.GitWorkflowService)({
   createWorktree: () => Effect.succeed({} as never),
   currentBranch: () => Effect.succeed(null),
 });
-const ProjectServiceTestLayer = Layer.mock(ProjectService.ProjectService)({
-  getById: () => Effect.succeedNone,
-});
+// Reads the projects tests seed through `seedCrewProject`.
+const ProjectServiceTestLayer = Layer.effect(
+  ProjectService.ProjectService,
+  Effect.map(ProjectStore.ProjectStoreV2, (projects) =>
+    ProjectService.ProjectService.of({
+      getById: (id: ProjectId) =>
+        projects
+          .get(id)
+          .pipe(
+            Effect.map(Option.map((row) => ({ ...row, id: row.projectId }) as never)),
+            Effect.orDie,
+          ),
+    } as unknown as ProjectService.ProjectService["Service"]),
+  ),
+).pipe(Layer.provide(ProjectStore.layer));
 
 const driver = ProviderDriverKind.make("codex");
 const orchestrationAdapter = {
@@ -112,17 +135,51 @@ const TestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-export const CrewTestOrchestration = Layer.mergeAll(RuntimeLayer.layer, ProjectStore.layer).pipe(
-  Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provide(McpProviderSessions.layer),
-  Layer.provide(CheckpointStoreTestLayer),
-  Layer.provide(ServerConfigLayer),
-  Layer.provideMerge(ServerSettings.layerTest()),
-  Layer.provide(TestProviderInstanceRegistry),
-  Layer.provideMerge(GitWorkflowTestLayer),
-  Layer.provide(ProjectServiceTestLayer),
-  Layer.provide(PlatformTestLayer),
-);
+/** Crew threads launch like any thread; `runSetup` sees each setup script they would run. */
+export const makeCrewTestOrchestration = (
+  options: {
+    readonly runSetup?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"];
+  } = {},
+) =>
+  Layer.mergeAll(
+    RuntimeLayer.layer,
+    ProjectStore.layer,
+    ThreadLaunchService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          RuntimeLayer.layer,
+          CommandReceiptStore.layer,
+          IdAllocator.layer,
+          WorktreeSetupTracker.layer,
+          Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
+          Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
+          Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
+            runForThread:
+              options.runSetup ?? (() => Effect.succeed({ status: "no-script" as const })),
+          }),
+          Layer.mock(TextGeneration.TextGeneration)({}),
+          ProviderRegistryMock.layer(),
+          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+            namedProjectsRoot: "/unused",
+            isScratchProject: () => Effect.succeed(false),
+            folderForThread: () => Effect.succeedNone,
+          }),
+        ),
+      ),
+    ),
+  ).pipe(
+    Layer.provide(McpSessionRegistryTestkit.layer),
+    Layer.provide(McpProviderSessions.layer),
+    Layer.provide(CheckpointStoreTestLayer),
+    Layer.provide(ServerConfigLayer),
+    Layer.provideMerge(ServerSettings.layerTest()),
+    Layer.provide(TestProviderInstanceRegistry),
+    Layer.provideMerge(GitWorkflowTestLayer),
+    Layer.provide(ProjectServiceTestLayer),
+    Layer.provide(PlatformTestLayer),
+  );
+
+export const CrewTestOrchestration = makeCrewTestOrchestration();
 
 export const seedCrewProject = (input: {
   readonly projectId: ProjectId;

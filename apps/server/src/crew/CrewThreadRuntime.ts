@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeCrypto from "node:crypto";
 import {
+  headquartersBotId,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
   CommandId,
@@ -27,6 +28,7 @@ import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
 import type { CrewWorkspace } from "./CrewStore.ts";
@@ -160,10 +162,23 @@ export const CrewThreadRuntimeV2 = Layer.effect(
   CrewThreadRuntime,
   Effect.gen(function* () {
     const engine = yield* Orchestrator.OrchestratorV2;
+    const launcher = yield* ThreadLaunchService.ThreadLaunchService;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const sql = yield* SqlClient.SqlClient;
     // Optional so crew tests run without managed folders; the server always provides them.
     const folders = yield* Effect.serviceOption(ManagedProjectFolders.ManagedProjectFolders);
+    const origin = (input: CrewThreadStart) => ({
+      version: 1 as const,
+      records: [
+        {
+          version: 1 as const,
+          contextId: ComposerContextId.make("bot-origin"),
+          label: input.memberId,
+          kind: "bot" as const,
+          payload: { memberId: input.memberId, runId: input.runId },
+        },
+      ],
+    });
     // `suffix` gives a restart after a delete its own receipts.
     const submitTurn = (input: CrewThreadStart, suffix = "") =>
       engine
@@ -178,18 +193,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           ),
           text: input.prompt,
           attachments: [],
-          context: {
-            version: 1,
-            records: [
-              {
-                version: 1,
-                contextId: ComposerContextId.make("bot-origin"),
-                label: input.memberId,
-                kind: "bot",
-                payload: { memberId: input.memberId, runId: input.runId },
-              },
-            ],
-          },
+          context: origin(input),
           createdBy: "agent",
           creationSource: "mcp",
           dispatchMode: { type: "start_immediately" },
@@ -212,10 +216,69 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         createdBy: "agent",
         creationSource: "mcp",
       });
-    const start = Effect.fn("CrewThreadRuntime.start")(function* (input: CrewThreadStart) {
+    /** Whether a thread other than `threadId` already works in `worktreePath`. */
+    const worktreeInUse = (projectId: ProjectId, threadId: ThreadId, worktreePath: string) =>
+      sql<{ readonly threadId: string }>`
+        SELECT thread_id AS threadId FROM orchestration_v2_projection_threads
+        WHERE project_id = ${projectId} AND thread_id <> ${threadId} AND deleted_at IS NULL
+          AND json_extract(payload_json, '$.worktreePath') = ${worktreePath}
+        LIMIT 1
+      `.pipe(
+        Effect.map((rows) => rows.length > 0),
+        Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.worktreeInUse")),
+      );
+    // A headquarters keeps its direct path, which `restore` also takes after a delete.
+    const startHeadquarters = Effect.fn("CrewThreadRuntime.startHeadquarters")(function* (
+      input: CrewThreadStart,
+    ) {
       const existing = yield* engine.getThreadShell(input.threadId);
       if (existing === null) yield* create(input);
       yield* submitTurn(input);
+    });
+    // Untraced: `start` is its span.
+    const launch = Effect.fnUntraced(function* (input: CrewThreadStart, commandId: CommandId) {
+      const prefix = runCommandPrefix(input.threadId);
+      const workspace = input.workspace;
+      // The first thread in a worktree runs the project's setup script; later ones reuse it.
+      const inUse =
+        workspace !== null &&
+        (yield* worktreeInUse(input.projectId, input.threadId, workspace.worktreePath));
+      yield* launcher.launch({
+        commandId,
+        threadId: input.threadId,
+        projectId: input.projectId,
+        title: input.title,
+        modelSelection: input.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: "default",
+        workspaceStrategy: workspace
+          ? { type: "existing_worktree", ...workspace }
+          : { type: "root" },
+        runSetupScript: !inUse,
+        initialMessage: {
+          messageId: MessageId.make(`${prefix}:${input.runId}:message`),
+          text: input.prompt,
+          attachments: [],
+          context: origin(input),
+        },
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+    });
+    const start = Effect.fn("CrewThreadRuntime.start")(function* (input: CrewThreadStart) {
+      if (headquartersBotId(input.threadId) !== null) return yield* startHeadquarters(input);
+      // The direct path created threads under this ID, so a run it began replays here.
+      const commandId = CommandId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:create`);
+      yield* launch(input, commandId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new Orchestrator.OrchestratorDispatchError({
+              commandId,
+              commandType: "thread.create",
+              cause,
+            }),
+        ),
+      );
     });
     // Each restore and settings change is a new decision, so it gets a fresh command ID.
     let sequence = 0;
@@ -429,7 +492,8 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           // Cancel the queue first: interrupting the active run starts the next queued one.
           const { runs } = yield* engine.getThreadRecords(threadId, ["runs"]);
           for (const run of runs) {
-            if (run.status !== "queued" && run.status !== "preparing") continue;
+            // A preparing run is the active one, which the interrupt below stops.
+            if (run.status !== "queued") continue;
             yield* engine.dispatch({
               type: "queued-run.cancel",
               threadId,

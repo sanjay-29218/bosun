@@ -18,13 +18,18 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
+import * as Result from "effect/Result";
 import { TestClock } from "effect/testing";
 import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
-import { CrewTestOrchestration, seedCrewProject } from "./CrewRuntime.testkit.ts";
+import {
+  CrewTestOrchestration,
+  makeCrewTestOrchestration,
+  seedCrewProject,
+} from "./CrewRuntime.testkit.ts";
 import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as Option from "effect/Option";
@@ -66,8 +71,8 @@ const withSystem = <A, E>(
       >;
     };
   }) => Effect.Effect<A, E, ProjectStore.ProjectStoreV2>,
+  orchestration = CrewTestOrchestration,
 ) => {
-  const orchestration = CrewTestOrchestration;
   const layer = Layer.mergeAll(
     orchestration,
     CrewRuntimeLive.pipe(Layer.provide(orchestration)),
@@ -686,6 +691,56 @@ describe("Bot foundation", () => {
           expect((yield* bots.getRun("run-1"))?.run.recoveryAttempt).toBe(0);
           expect(yield* engine.getThreadShell(ThreadId.make("bot-run:legacy"))).toBeNull();
         }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
+  effectIt.effect("opens runs in their worktree, and only the first runs its setup script", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
+      );
+      const setups = yield* Queue.unbounded<ThreadId>();
+      const orchestration = makeCrewTestOrchestration({
+        runSetup: (input) =>
+          Queue.offer(setups, ThreadId.make(input.threadId)).pipe(
+            Effect.as({ status: "no-script" as const }),
+          ),
+      });
+      yield* withSystem(
+        NodePath.join(directory, "state.sqlite"),
+        ({ bots, engine }) =>
+          Effect.gen(function* () {
+            yield* createProject(engine);
+            yield* createBot(bots);
+            const workspace = { branch: "bosun/board-1a2b3c", worktreePath: "/worktrees/board" };
+            const run = (id: string) =>
+              bots.createRun({ id, memberId: "execution-1", projectId, taskText: id, workspace });
+            const plan = yield* run("plan");
+            expect(yield* Queue.take(setups)).toBe(plan.threadId);
+            const build = yield* run("build");
+            // Setup runs before the launch releases the run, so a released run had its chance.
+            const released = yield* engine
+              .streamStoredEventsFrom({ threadId: build.threadId, eventType: "run.updated" })
+              .pipe(
+                Stream.filterMap((stored) =>
+                  stored.event.type === "run.updated" && stored.event.payload.status !== "preparing"
+                    ? Result.succeed(stored.event.payload.status)
+                    : Result.failVoid,
+                ),
+                Stream.runHead,
+              );
+            expect(released).toEqual(Option.some("starting"));
+            expect(yield* Queue.size(setups)).toBe(0);
+            for (const threadId of [plan.threadId, build.threadId]) {
+              expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
+            }
+          }),
+        orchestration,
       ).pipe(
         Effect.ensuring(
           Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
