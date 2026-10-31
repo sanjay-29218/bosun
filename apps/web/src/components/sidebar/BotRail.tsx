@@ -6,12 +6,12 @@ import {
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
-  BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
   LayersIcon,
   ServerIcon,
   SettingsIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, type ReactNode } from "react";
@@ -205,9 +205,8 @@ function RailPlaces({
           if (destination !== "bot-list") void navigate({ to: BOTS_PATH });
         }}
       >
-        <BotIcon className="size-5" strokeWidth={1.75} />
+        <UsersRoundIcon className="size-5" strokeWidth={1.75} />
       </RailItem>
-      <RailDivider />
       <RailItem
         label="Automations"
         hint={null}
@@ -294,7 +293,7 @@ function RailAppPages() {
 }
 
 const RailDivider = () => (
-  <div aria-hidden className="h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
+  <div aria-hidden className="my-1.5 h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
 );
 
 const signalLabel = (signal: BotRailSignal | null): string | null => {
