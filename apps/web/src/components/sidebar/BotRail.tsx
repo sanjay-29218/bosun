@@ -339,14 +339,6 @@ const RailItem = memo(function RailItem({
   const status = signalLabel(signal);
   return (
     <div className="group/bot relative flex w-full justify-center">
-      {/* The selected entry's marker on the rail's leading edge; hovering hints at it. */}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-1/2 left-0 w-[3px] -translate-y-1/2 rounded-r-full bg-sidebar-foreground transition-[height,opacity] duration-150",
-          active ? "h-5 opacity-100" : "h-2 opacity-0 group-hover/bot:opacity-50",
-        )}
-      />
       <Tooltip>
         <TooltipTrigger
           render={
