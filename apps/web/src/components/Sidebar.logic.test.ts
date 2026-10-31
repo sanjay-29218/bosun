@@ -317,27 +317,6 @@ describe("resolveSidebarThreadStatus", () => {
     );
   });
 
-  it("waits on crew handoffs it sent once its own turn ends, but not on a failed one", () => {
-    const handoff = {
-      id: "h1",
-      member: "Builder",
-      threadId: null,
-      status: "running",
-      task: "Fix the redirect",
-      question: null,
-      error: null,
-      createdAt: "2026-03-09T10:00:00.000Z",
-      updatedAt: "2026-03-09T10:00:00.000Z",
-    } as const;
-    expect(resolveSidebarThreadStatus({ ...idle, crewHandoffs: [handoff] })).toBe("waiting");
-    expect(resolveSidebarThreadStatus({ ...idle, runtime, crewHandoffs: [handoff] })).toBe(
-      "working",
-    );
-    expect(
-      resolveSidebarThreadStatus({ ...idle, crewHandoffs: [{ ...handoff, status: "failed" }] }),
-    ).toBe("ready");
-  });
-
   it("prioritizes awaiting input over a running runtime, below approval", () => {
     expect(
       resolveSidebarThreadStatus({

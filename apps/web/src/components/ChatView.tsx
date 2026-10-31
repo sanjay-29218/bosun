@@ -2559,7 +2559,6 @@ export default function ChatView(props: ChatViewProps) {
     persistThreadSettingsForNextTurn,
   });
   const crewNow = useCrewNowItems({
-    thread: isServerThread ? activeThreadShell : null,
     stage: crewStage,
     canOperate: canOperateThread,
     onOpenThread: onOpenRelatedThreadStable,
@@ -3158,8 +3157,8 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
-  const nowAttention = [childInputNow, crewNow.attention].filter((item) => item !== null);
-  const nowWork = [backgroundWorkNow, crewNow.work].filter((item) => item !== null);
+  const nowAttention = [childInputNow, crewNow].filter((item) => item !== null);
+  const nowWork = [backgroundWorkNow].filter((item) => item !== null);
   const hasThreadNow =
     nowAttention.length > 0 ||
     nowWork.length > 0 ||
@@ -3178,7 +3177,7 @@ export default function ChatView(props: ChatViewProps) {
   const scrollToEndSummary =
     [
       childInputNow === null ? null : "Subagent waiting",
-      crewNow.attention === null ? null : "Crew waiting",
+      crewNow === null ? null : "Crew waiting",
       queuedRunCount === 0 ? null : `${queuedRunCount} queued`,
     ]
       .filter((part) => part !== null)

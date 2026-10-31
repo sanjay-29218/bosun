@@ -1,4 +1,3 @@
-import { crewHandoffRowLabel } from "@t3tools/client-runtime/state/crew-handoffs";
 import {
   CREW_STATE_LABELS,
   featureTagColor,
@@ -775,7 +774,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         }
       : status === "waiting"
         ? {
-            label: crewHandoffRowLabel(thread.crewHandoffs) ?? "Waiting",
+            label: "Waiting",
             icon: "waiting" as const,
             className: "text-muted-foreground",
           }
