@@ -24,12 +24,43 @@ const OLD_MANAGER =
 const NEW_MANAGER =
   "You manage one project's features. Stage results and questions arrive in this thread as new messages. Answer a stage's question with crew_answer, or ask whoever asked you with crew_ask and pass the answer on with crew_answer. In a workflow, decide how to handle requested changes and route the stage with crew_respond. Keep the task and context bounded.";
 
+const BOT_DEFAULT =
+  "Coordinate the person's requests for your projects. Hand each request to its project with delegate_task; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
+const CAPTAIN_DELEGATES =
+  "You are Captain. Coordinate the person's project request. The task names its project manager. Delegate using crew_delegate with a stable request ID.";
+// Stock text rewritten wherever it appears, managers' added lines and run snapshots included.
+const REWRITES: ReadonlyArray<readonly [string, string]> = [
+  [OLD_MANAGER, NEW_MANAGER],
+  [
+    `${CAPTAIN_DELEGATES} Then end your turn: the project manager's completed, failed, or needs-input outcome arrives in this thread as a new message, so don't poll crew_wait_handoff for it. Relay that outcome clearly to the person. Use crew_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.`,
+    `You are Captain. ${BOT_DEFAULT}`,
+  ],
+  [
+    `${CAPTAIN_DELEGATES} Use crew_wait_handoff until the project manager reports a completed, failed, or needs-input outcome. Relay that outcome clearly to the person. Use crew_list_handoffs to recover state after a restart. Never claim work is done without a structured outcome.`,
+    `You are Captain. ${BOT_DEFAULT}`,
+  ],
+  [
+    "Coordinate the person's requests for your projects. Hand project work to a project with t3_feature_start and a stable feature ID; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.",
+    BOT_DEFAULT,
+  ],
+];
+
+const HEADQUARTERS_WORKFLOWS =
+  "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.";
 const OLD_HEADQUARTERS = [
-  "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand a project work with t3_feature_start, and start a new project with crew_create_project when you're allowed to.",
-  "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-  "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask you to start work in one of your projects on a workflow, start a feature with t3_feature_start.",
-  "Tell the person only what they must decide.",
-].join("\n\n");
+  [
+    "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand a project work with t3_feature_start, and start a new project with crew_create_project when you're allowed to.",
+    HEADQUARTERS_WORKFLOWS,
+    "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask you to start work in one of your projects on a workflow, start a feature with t3_feature_start.",
+    "Tell the person only what they must decide.",
+  ],
+  [
+    "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand project work to a project's manager with crew_delegate, and start a new project with crew_create_project when you're allowed to.",
+    HEADQUARTERS_WORKFLOWS,
+    "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed.",
+    "Tell the person only what they must decide.",
+  ],
+].map((paragraphs) => paragraphs.join("\n\n"));
 const PROJECT_MANAGER_BRIEF =
   "You are this project's manager for one request. Do small work yourself in this worktree, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several stages, start a feature with t3_feature_start instead (t3_workflow_list shows the workflows), and report that it started. Report what you did, or the question a person must answer.";
 const newHeadquarters = (botId: string) =>
@@ -37,7 +68,7 @@ const newHeadquarters = (botId: string) =>
     `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
     `Hand each request to its project with delegate_task: target.projectId set to that project and isolation "worktree". That child is the request's project manager, fresh for each request. Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. Then end your turn; its result wakes you.`,
     `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
-    "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
+    HEADQUARTERS_WORKFLOWS,
     "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask for a project's work to run on a workflow, name it in the project manager's task.",
     "Tell the person only what they must decide.",
   ].join("\n\n");
@@ -71,18 +102,20 @@ export default Effect.gen(function* () {
   `;
   yield* sql`UPDATE bots SET default_workflow_id = NULL WHERE default_workflow_id = ${QUICK_TASK}`;
 
-  for (const table of ["roles", "crew_members"] as const) {
+  for (const table of ["bots", "roles", "crew_members", "crew_runs"] as const) {
     if (!(yield* hasTable(table))) continue;
-    yield* sql`
-      UPDATE ${sql(table)} SET instructions = ${NEW_MANAGER}
-      WHERE instructions = ${OLD_MANAGER}
-    `;
+    for (const [from, to] of REWRITES) {
+      yield* sql`
+        UPDATE ${sql(table)} SET instructions = replace(instructions, ${from}, ${to})
+        WHERE instr(instructions, ${from}) > 0
+      `;
+    }
   }
 
   if (yield* hasTable("crew_runs")) {
     const headquarters = yield* sql<{ readonly id: string; readonly botId: string }>`
       SELECT id, member_id AS botId FROM crew_runs
-      WHERE id LIKE 'bot-hq:%' AND task_text = ${OLD_HEADQUARTERS}
+      WHERE id LIKE 'bot-hq:%' AND task_text IN ${sql.in(OLD_HEADQUARTERS)}
     `;
     for (const run of headquarters) {
       yield* sql`UPDATE crew_runs SET task_text = ${newHeadquarters(run.botId)} WHERE id = ${run.id}`;
