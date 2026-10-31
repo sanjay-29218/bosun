@@ -63,7 +63,7 @@ const isOutsideMainView = (pathname: string) =>
   isAppModalPage(pathname) || isSidebarUtilityPage(pathname);
 
 /**
- * The main app has two views, flipped by the sidebar's List / Board toggle: List is the
+ * The main app has two views, flipped by the board toggle in the top bar: List is the
  * thread view, Board the feature board. The route decides which one shows, so a board
  * link opens the board and opening a thread from it is List again.
  */
@@ -74,7 +74,7 @@ export const mainViewForPathname = (pathname: string): MainView =>
   pathname === BOARD_PATH ? "board" : "list";
 
 /** What `board.toggle` shows: List from the board, the board from anywhere else. */
-export const toggledMainView = (current: MainView | null): MainView =>
+const toggledMainView = (current: MainView | null): MainView =>
   current === "board" ? "list" : "board";
 
 // Pages the root route always renders without the app shell, so they are never
