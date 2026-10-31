@@ -1,6 +1,7 @@
 import { PROJECT_MANAGER_ROLE_ID, type WorkflowDefinition } from "@t3tools/contracts";
 
 export const STARTER_WORKFLOW_ID = "feature-delivery";
+export const AUTO_WORKFLOW_ID = "feature-delivery-auto";
 
 /**
  * A configurable starting point, with supervision separate from step order. `roleRevisions`
@@ -69,5 +70,18 @@ export const makeStarterWorkflow = (
       failure: "pause",
       maxStepExecutions: 30,
     },
+  };
+};
+
+/** Feature delivery with the lead approving gates and answering stage questions. */
+export const makeAutoWorkflow = (
+  roleRevisions: Readonly<Record<string, number>> = {},
+): WorkflowDefinition => {
+  const starter = makeStarterWorkflow(roleRevisions);
+  return {
+    ...starter,
+    id: AUTO_WORKFLOW_ID,
+    name: "Feature delivery (auto)",
+    defaults: { ...starter.defaults, decisions: "lead" },
   };
 };

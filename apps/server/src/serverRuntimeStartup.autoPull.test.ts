@@ -34,7 +34,6 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
-import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import { CrewService } from "./crew/CrewService.ts";
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 
@@ -113,7 +112,6 @@ it.effect("parks automatic pull until activation without delaying command readin
           reconcileRuns: () => Effect.void,
           watchHeadquarters: () => Effect.void,
         }),
-        Layer.mock(CrewHandoffService)({ reconcile: () => Effect.void }),
         Layer.mock(WorkflowExecutionService)({ start: () => Effect.void }),
         Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
           pendingThreadCount: Effect.succeed(0),

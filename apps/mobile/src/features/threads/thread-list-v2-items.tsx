@@ -34,7 +34,6 @@ import { featureIssueRef } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { featureTagColor, formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
-import { crewHandoffRowLabel } from "@t3tools/client-runtime/state/crew-handoffs";
 import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
 import {
@@ -839,11 +838,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
-  const crewWaitLabel = status === "waiting" ? crewHandoffRowLabel(thread.crewHandoffs) : null;
-  const workingLabel =
-    crewWaitLabel === null
-      ? STATUS_LABEL_BY_STATUS[status]
-      : { ...STATUS_LABEL_BY_STATUS.waiting!, label: crewWaitLabel };
+  const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
   // Line 3 of a stage thread: "Design · 2/6". Only the current stage carries the feature's state.
   const crewStage = thread.crew ?? null;

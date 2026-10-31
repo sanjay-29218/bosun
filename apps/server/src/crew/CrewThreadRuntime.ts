@@ -1,6 +1,5 @@
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeCrypto from "node:crypto";
 import {
+  headquartersBotId,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
   CommandId,
@@ -12,8 +11,6 @@ import {
   type RunId,
   type RuntimeMode,
   type CrewTurnState,
-  ThreadCrewHandoff,
-  type ThreadCrewRequestTag,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -27,6 +24,7 @@ import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
 import type { CrewWorkspace } from "./CrewStore.ts";
@@ -69,21 +67,6 @@ export interface CrewThreadRuntimeShape {
     runtimeMode: RuntimeMode,
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, OrchestrationDispatchError>;
-  /** The thread's project and worktree, which helpers it delegates to inherit. */
-  readonly workspace: (
-    threadId: ThreadId,
-  ) => Effect.Effect<
-    { readonly projectId: ProjectId; readonly workspace: CrewWorkspace | null } | null,
-    OrchestrationDispatchError
-  >;
-  /** The access and model the thread's next turn uses, or null once it is gone. */
-  readonly settings: (threadId: ThreadId) => Effect.Effect<
-    {
-      readonly runtimeMode: RuntimeMode;
-      readonly modelSelection: ModelSelection;
-    } | null,
-    OrchestrationDispatchError
-  >;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
   /** Each run that completes, in any thread. */
   readonly completedRuns: Stream.Stream<
@@ -107,15 +90,6 @@ export interface CrewThreadRuntimeShape {
     input: CrewThreadStart,
     recoveryAttempt: number,
   ) => Effect.Effect<void, OrchestrationDispatchError | PersistenceSqlError>;
-  readonly notify: (
-    threadId: ThreadId,
-    handoffId: string,
-    version: number,
-    recipientRunId: string,
-    runtimeMode: RuntimeMode,
-    prompt: string,
-    createdAt: string,
-  ) => Effect.Effect<void, OrchestrationDispatchError>;
   readonly interrupt: (
     threadId: ThreadId,
     handoffId: string,
@@ -126,23 +100,7 @@ export interface CrewThreadRuntimeShape {
     limit: number,
   ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
   readonly getTurnState: (threadId: ThreadId) => Effect.Effect<CrewTurnState, CrewReadError>;
-  /**
-   * Tags a handoff's thread with the work its source thread is on: the source's feature, else
-   * its bot request, else `request`, which starts a new one. Tags a thread at most once.
-   */
-  readonly tagHandoff: (input: {
-    readonly threadId: ThreadId;
-    readonly sourceThreadId: ThreadId;
-    readonly request: ThreadCrewRequestTag;
-  }) => Effect.Effect<void, OrchestrationDispatchError>;
-  /** Shows a thread the handoffs it sent that are still out; skipped when nothing changed. */
-  readonly showHandoffs: (
-    threadId: ThreadId,
-    handoffs: ReadonlyArray<ThreadCrewHandoff>,
-  ) => Effect.Effect<void, OrchestrationDispatchError>;
 }
-
-const sameHandoffs = Schema.toEquivalence(Schema.Array(ThreadCrewHandoff));
 
 export class CrewThreadRuntime extends Context.Service<CrewThreadRuntime, CrewThreadRuntimeShape>()(
   "t3/crew/CrewThreadRuntime",
@@ -160,10 +118,23 @@ export const CrewThreadRuntimeV2 = Layer.effect(
   CrewThreadRuntime,
   Effect.gen(function* () {
     const engine = yield* Orchestrator.OrchestratorV2;
+    const launcher = yield* ThreadLaunchService.ThreadLaunchService;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const sql = yield* SqlClient.SqlClient;
     // Optional so crew tests run without managed folders; the server always provides them.
     const folders = yield* Effect.serviceOption(ManagedProjectFolders.ManagedProjectFolders);
+    const origin = (input: CrewThreadStart) => ({
+      version: 1 as const,
+      records: [
+        {
+          version: 1 as const,
+          contextId: ComposerContextId.make("bot-origin"),
+          label: input.memberId,
+          kind: "bot" as const,
+          payload: { memberId: input.memberId, runId: input.runId },
+        },
+      ],
+    });
     // `suffix` gives a restart after a delete its own receipts.
     const submitTurn = (input: CrewThreadStart, suffix = "") =>
       engine
@@ -178,18 +149,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           ),
           text: input.prompt,
           attachments: [],
-          context: {
-            version: 1,
-            records: [
-              {
-                version: 1,
-                contextId: ComposerContextId.make("bot-origin"),
-                label: input.memberId,
-                kind: "bot",
-                payload: { memberId: input.memberId, runId: input.runId },
-              },
-            ],
-          },
+          context: origin(input),
           createdBy: "agent",
           creationSource: "mcp",
           dispatchMode: { type: "start_immediately" },
@@ -212,10 +172,69 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         createdBy: "agent",
         creationSource: "mcp",
       });
-    const start = Effect.fn("CrewThreadRuntime.start")(function* (input: CrewThreadStart) {
+    /** Whether a thread other than `threadId` already works in `worktreePath`. */
+    const worktreeInUse = (projectId: ProjectId, threadId: ThreadId, worktreePath: string) =>
+      sql<{ readonly threadId: string }>`
+        SELECT thread_id AS threadId FROM orchestration_v2_projection_threads
+        WHERE project_id = ${projectId} AND thread_id <> ${threadId} AND deleted_at IS NULL
+          AND json_extract(payload_json, '$.worktreePath') = ${worktreePath}
+        LIMIT 1
+      `.pipe(
+        Effect.map((rows) => rows.length > 0),
+        Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.worktreeInUse")),
+      );
+    // A headquarters keeps its direct path, which `restore` also takes after a delete.
+    const startHeadquarters = Effect.fn("CrewThreadRuntime.startHeadquarters")(function* (
+      input: CrewThreadStart,
+    ) {
       const existing = yield* engine.getThreadShell(input.threadId);
       if (existing === null) yield* create(input);
       yield* submitTurn(input);
+    });
+    // Untraced: `start` is its span.
+    const launch = Effect.fnUntraced(function* (input: CrewThreadStart, commandId: CommandId) {
+      const prefix = runCommandPrefix(input.threadId);
+      const workspace = input.workspace;
+      // The first thread in a worktree runs the project's setup script; later ones reuse it.
+      const inUse =
+        workspace !== null &&
+        (yield* worktreeInUse(input.projectId, input.threadId, workspace.worktreePath));
+      yield* launcher.launch({
+        commandId,
+        threadId: input.threadId,
+        projectId: input.projectId,
+        title: input.title,
+        modelSelection: input.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: "default",
+        workspaceStrategy: workspace
+          ? { type: "existing_worktree", ...workspace }
+          : { type: "root" },
+        runSetupScript: !inUse,
+        initialMessage: {
+          messageId: MessageId.make(`${prefix}:${input.runId}:message`),
+          text: input.prompt,
+          attachments: [],
+          context: origin(input),
+        },
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+    });
+    const start = Effect.fn("CrewThreadRuntime.start")(function* (input: CrewThreadStart) {
+      if (headquartersBotId(input.threadId) !== null) return yield* startHeadquarters(input);
+      // The direct path created threads under this ID, so a run it began replays here.
+      const commandId = CommandId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:create`);
+      yield* launch(input, commandId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new Orchestrator.OrchestratorDispatchError({
+              commandId,
+              commandType: "thread.create",
+              cause,
+            }),
+        ),
+      );
     });
     // Each restore and settings change is a new decision, so it gets a fresh command ID.
     let sequence = 0;
@@ -263,44 +282,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           modelSelection,
         });
     });
-    const tagHandoff = Effect.fn("CrewThreadRuntime.tagHandoff")(function* (input: {
-      readonly threadId: ThreadId;
-      readonly sourceThreadId: ThreadId;
-      readonly request: ThreadCrewRequestTag;
-    }) {
-      const thread = yield* engine.getThreadShell(input.threadId);
-      if (thread === null || thread.feature || thread.crewRequest) return;
-      const source = yield* engine.getThreadShell(input.sourceThreadId);
-      yield* engine.dispatch({
-        type: "thread.crew-stage.set",
-        commandId: CommandId.make(`${handoffCommandPrefix(input.threadId)}:${input.threadId}:tag`),
-        threadId: input.threadId,
-        // A helper inside a feature keeps the request too, which names its role and tells it
-        // apart from the feature's lead.
-        ...(source?.feature ? { feature: source.feature } : {}),
-        crewRequest: source?.crewRequest
-          ? { ...source.crewRequest, member: input.request.member }
-          : input.request,
-      });
-    });
-    const showHandoffs = Effect.fn("CrewThreadRuntime.showHandoffs")(function* (
-      threadId: ThreadId,
-      handoffs: ReadonlyArray<ThreadCrewHandoff>,
-    ) {
-      const thread = yield* engine.getThreadShell(threadId);
-      if (thread === null) return;
-      if (sameHandoffs(thread.crewHandoffs ?? [], handoffs)) return;
-      yield* engine.dispatch({
-        type: "thread.crew-stage.set",
-        // A list can return to an earlier value, so each change needs its own receipt.
-        commandId: CommandId.make(`crew-handoffs:${threadId}:${NodeCrypto.randomUUID()}`),
-        threadId,
-        crewHandoffs: handoffs,
-      });
-    });
     return CrewThreadRuntime.of({
-      tagHandoff,
-      showHandoffs,
       projectExists: Effect.fn("CrewThreadRuntime.projectExists")((projectId) =>
         projects
           .get(projectId)
@@ -326,23 +308,6 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       ),
       restore,
       syncSettings,
-      workspace: Effect.fn("CrewThreadRuntime.workspace")(function* (threadId) {
-        const shell = yield* engine.getThreadShell(threadId);
-        if (shell === null || shell.deletedAt !== null) return null;
-        return {
-          projectId: shell.projectId,
-          workspace:
-            shell.branch && shell.worktreePath
-              ? { branch: shell.branch, worktreePath: shell.worktreePath }
-              : null,
-        };
-      }),
-      settings: Effect.fn("CrewThreadRuntime.settings")(function* (threadId) {
-        const shell = yield* engine.getThreadShell(threadId);
-        return shell === null || shell.deletedAt !== null
-          ? null
-          : { runtimeMode: shell.runtimeMode, modelSelection: shell.modelSelection };
-      }),
       start,
       completedRuns: engine.streamDomainEvents.pipe(
         Stream.filterMap((event) =>
@@ -392,44 +357,13 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       // V2 owns accepted-run recovery through the durable effect outbox. Reusing
       // the original receipts only fills a crash between thread creation and start.
       replayPending: Effect.fn("CrewThreadRuntime.replayPending")((input) => start(input)),
-      notify: Effect.fn("CrewThreadRuntime.notify")(
-        (threadId, handoffId, version, recipientRunId, _runtimeMode, prompt, _createdAt) =>
-          engine
-            .dispatch({
-              type: "message.dispatch",
-              commandId: CommandId.make(
-                `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
-              ),
-              threadId,
-              messageId: MessageId.make(
-                `${handoffCommandPrefix(threadId)}:${handoffId}:notice:${version}`,
-              ),
-              text: prompt,
-              attachments: [],
-              context: {
-                version: 1,
-                records: [
-                  {
-                    version: 1,
-                    contextId: ComposerContextId.make("bot-origin"),
-                    label: "Crew",
-                    kind: "bot",
-                    payload: { memberId: "crew", runId: recipientRunId, handoffId },
-                  },
-                ],
-              },
-              createdBy: "agent",
-              creationSource: "mcp",
-              dispatchMode: { type: "queue_after_active" },
-            })
-            .pipe(Effect.asVoid),
-      ),
       interrupt: Effect.fn("CrewThreadRuntime.interrupt")(
         function* (threadId, handoffId, _createdAt) {
           // Cancel the queue first: interrupting the active run starts the next queued one.
           const { runs } = yield* engine.getThreadRecords(threadId, ["runs"]);
           for (const run of runs) {
-            if (run.status !== "queued" && run.status !== "preparing") continue;
+            // A preparing run is the active one, which the interrupt below stops.
+            if (run.status !== "queued") continue;
             yield* engine.dispatch({
               type: "queued-run.cancel",
               threadId,

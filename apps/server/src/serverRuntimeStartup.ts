@@ -1,6 +1,5 @@
 import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -451,7 +450,6 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
   const workflowExecution = yield* WorkflowExecutionService;
   const workflowScope = yield* Effect.scope;
   const crew = yield* CrewService;
-  const crewHandoffs = yield* CrewHandoffService;
   const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -589,7 +587,6 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
     );
 
     yield* runStartupPhase("crew.reconcile", crew.reconcileRuns());
-    yield* runStartupPhase("crew.handoffs.reconcile", crewHandoffs.reconcile());
     yield* runStartupPhase(
       "workflows.start",
       workflowExecution.start().pipe(Scope.provide(workflowScope)),

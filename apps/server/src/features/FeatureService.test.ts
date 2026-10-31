@@ -26,7 +26,6 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
-import { CrewHandoffService } from "../crew/CrewHandoffService.ts";
 import { CrewService, projectManagerMemberId } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
@@ -93,7 +92,6 @@ const withSystem = <E>(
     | WorkflowExecutionService
     | OrchestrationEngineService
     | ProjectionStore.ProjectionStoreV2
-    | CrewHandoffService
     | BotStore.BotStore
     | ProjectStore.ProjectStoreV2
     | ServerSettingsService
@@ -503,53 +501,6 @@ describe("feature creation", () => {
         expect(first.manager.title).toBe("Project manager");
         expect(first.manager.feature).toEqual({ id: "lead-one", title: "Feature lead-one" });
         expect(second.manager.feature).toEqual({ id: "lead-two", title: "Feature lead-two" });
-      }),
-    ),
-  );
-
-  effectIt.effect("lets a bot's headquarters hand work to managers of the projects it owns", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const crew = yield* CrewService;
-        const handoffs = yield* CrewHandoffService;
-        const bots = yield* BotStore.BotStore;
-        const theirs = ProjectId.make("workflow-feature-theirs");
-        const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;
-        const social = { ...captain, id: "bot-social", name: "Social", position: 1 };
-        expect(yield* bots.insert(social)).toBe(true);
-        yield* seedCrewProject({
-          projectId: theirs,
-          title: "Social's project",
-          workspaceRoot: NodePath.join(NodeOS.tmpdir(), "feature-theirs"),
-          botId: social.id,
-        });
-        const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
-        const delegate = (id: string, project: ProjectId) =>
-          handoffs.delegate({
-            id,
-            sourceThreadId: headquarters.threadId,
-            targetMemberId: projectManagerMemberId(project),
-            taskText: "Tidy the README",
-          });
-
-        // The manager doesn't exist yet; the bot's first request makes it.
-        const handoff = yield* delegate("hq-owned", projectId);
-        expect(handoff.projectId).toBe(projectId);
-        expect((yield* crew.getMember(projectManagerMemberId(projectId)))?.projectId).toBe(
-          projectId,
-        );
-        expect((yield* delegate("hq-theirs", theirs).pipe(Effect.result))._tag).toBe("Failure");
-        // A workflow that bound the headquarters before a move keeps sending stages there.
-        yield* crew.ensureProjectManager(theirs);
-        const bound = yield* handoffs.delegate({
-          id: "hq-bound",
-          sourceThreadId: headquarters.threadId,
-          targetMemberId: projectManagerMemberId(theirs),
-          projectId: theirs,
-          taskText: "Run the next stage",
-          boundByWorkflow: true,
-        });
-        expect(bound.projectId).toBe(theirs);
       }),
     ),
   );

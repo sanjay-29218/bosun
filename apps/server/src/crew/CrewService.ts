@@ -34,7 +34,6 @@ import {
   type CrewHierarchyNode,
   type Role,
   type CrewRun,
-  type CrewRunSummary,
   type CrewWorkspace,
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
@@ -58,11 +57,6 @@ class CrewValidationError extends Error {
  */
 /** The member made from the project manager role for one project, created on first use. */
 export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
-/** The project whose manager `memberId` names, so a bot can reach one before it exists. */
-export const managedProjectId = (memberId: string) =>
-  memberId.startsWith("bot-manager:")
-    ? ProjectId.make(memberId.slice("bot-manager:".length))
-    : null;
 /** The builder a project manager hands direct requests to, created with the manager. */
 export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
 const BUILDER_ROLE_ID = "role:builder";
@@ -82,7 +76,7 @@ const headquartersTask = (botId: string) =>
     "Tell the person only what they must decide.",
   ].join("\n\n");
 
-const STAGE_TOOLS = ["crew.respond", "crew.ask"];
+const STAGE_TOOLS = ["crew.respond"];
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
 const PLANNER_SPLIT =
@@ -91,7 +85,7 @@ const PLANNER_SPLIT =
 const STAGE_CHECKS =
   "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you respond.";
 const stageInstructions = (name: string) =>
-  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose. ${STAGE_CHECKS}`;
+  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_respond with outcome "needs_input" and the exact question as the summary, then end your turn; the answer arrives in this thread. Do not report completion solely in prose. ${STAGE_CHECKS}`;
 
 /** A feature has one workspace and one builder; big work splits into features, not builders. */
 const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} ${BUILDER_WORKSPACE}`;
@@ -103,9 +97,9 @@ const DEFAULT_ROLES = [
     id: PROJECT_MANAGER_ROLE_ID,
     name: "Project manager",
     autoCreateForFeature: false,
-    allowedTools: ["crew.respond", "crew.ask", "crew.answer"],
+    allowedTools: ["crew.respond", "crew.decide"],
     instructions:
-      "You manage one project's features. Stage results and questions arrive in this thread as new messages. Answer a stage's question with crew_answer, or ask whoever asked you with crew_ask and pass the answer on with crew_answer. In a workflow, decide how to handle requested changes and route the stage with crew_respond. Keep the task and context bounded.",
+      "You manage one project's features. When a feature lets its lead decide, a stage's gate or question arrives in this thread as a new message: check the stage's work, then approve, request changes or answer with crew_decide. When a workflow gives you a stage of your own, report its outcome with crew_respond. Keep the task and context bounded.",
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
@@ -264,10 +258,6 @@ export interface CrewServiceShape {
   readonly getRun: (
     id: string,
   ) => Effect.Effect<CrewRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
-  readonly listRunSummaries: (
-    projectId: ProjectId,
-    limit?: number,
-  ) => Effect.Effect<ReadonlyArray<CrewRunSummary>, PersistenceSqlError>;
   readonly reconcileRuns: () => Effect.Effect<void, PersistenceSqlError>;
   /**
    * For bots set to start a new session, starts a headquarters over once its conversation grows
@@ -980,8 +970,6 @@ export const CrewServiceLive = Layer.effect(
                 ),
           ),
         ),
-      listRunSummaries: (projectId, limit = 50) =>
-        store.listRunSummaries(projectId, Math.max(1, Math.min(100, Math.floor(limit)))),
       reconcileRuns: Effect.fn("CrewService.reconcileRuns")(function* () {
         // Recover accepted turns from a prior process before dispatching new queued runs.
         // Otherwise a newly dispatched turn could look stale before its reactor worker starts.

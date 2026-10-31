@@ -26,13 +26,12 @@ import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
 import * as BotService from "../bots/BotService.ts";
-import { CrewHandoffService } from "../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import { TicketService } from "../tickets/TicketService.ts";
+import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
@@ -1245,7 +1244,7 @@ it.effect(
       `;
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'role', 'bot-run:builder', '["crew.answer","worktree"]')`;
+        ('builder', 'role', 'bot-run:builder', '["crew.decide","worktree"]')`;
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
           requestNamespace: thread,
@@ -1292,14 +1291,13 @@ it.effect(
               Layer.succeedContext(sqlContext),
               McpToolAccessTestkit.liveThreadsLayer,
               Layer.mock(BotService.BotService)({ list: Effect.succeed([]) }),
-              Layer.mock(CrewHandoffService)({}),
-              Layer.mock(CrewHandoffStore)({}),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
               Layer.mock(FeatureService)({}),
               Layer.mock(IssueService.IssueService)({}),
               Layer.mock(TicketService)({}),
               Layer.mock(WorkflowService)({}),
+              Layer.mock(WorkflowExecutionService)({}),
             ),
           ),
         );
@@ -1369,7 +1367,7 @@ it.effect(
 
         expect(yield* plain.listed).toEqual(plainTools);
         expect(yield* crew.listed).toEqual(
-          [...anyCrewGrant, ...anyCrew, "crew_answer", "t3_bot_list"].sort(),
+          [...anyCrewGrant, ...anyCrew, "crew_decide", "t3_bot_list"].sort(),
         );
 
         // A tool a thread isn't listed is refused before its handler runs.
@@ -1383,9 +1381,9 @@ it.effect(
       `;
         // Threads and subagents alone no longer unlocks the bot or feature-link tools.
         expect(yield* crew.listed).toEqual(
-          [...anyCrewGrant, ...anyCrew, "crew_respond", "crew_stage_handoff", "t3_bot_list"].sort(),
+          [...anyCrewGrant, ...anyCrew, "crew_respond", "t3_bot_list"].sort(),
         );
-        expect((yield* crew.call("crew_answer")).error?.message).toContain("crew_answer");
+        expect((yield* crew.call("crew_decide")).error?.message).toContain("crew_decide");
 
         // Manage workflows does.
         yield* sql`

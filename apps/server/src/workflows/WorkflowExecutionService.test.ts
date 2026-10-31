@@ -7,12 +7,17 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
+  MessageId,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ProviderInstanceId,
+  RunId,
+  type OrchestrationV2Run,
   type ThreadId,
   type WorkflowDefinition,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
@@ -24,8 +29,6 @@ import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, CrewServiceLive } from "../crew/CrewService.ts";
 import { CrewStoreLive } from "../crew/CrewStore.ts";
 import { CrewThreadRuntime, type CrewThreadStart } from "../crew/CrewThreadRuntime.ts";
-import { CrewHandoffService, CrewHandoffServiceLive } from "../crew/CrewHandoffService.ts";
-import { CrewHandoffStore, CrewHandoffStoreLive } from "../crew/CrewHandoffStore.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
@@ -36,6 +39,10 @@ import {
   OrchestratorDispatchError as OrchestrationCommandInvariantError,
   OrchestratorV2,
 } from "../orchestration-v2/Orchestrator.ts";
+import * as EffectOutbox from "../orchestration-v2/EffectOutbox.ts";
+import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowLibraryLive } from "./WorkflowLibrary.ts";
@@ -71,53 +78,73 @@ const fixture = (
       }),
   });
   const interruptions: Array<string> = [];
+  const stops = new Set<string>();
   let failDispatch = false;
   let failInterrupt = false;
   let duringDispatch: ((input: CrewThreadStart) => Effect.Effect<void>) | null = null;
-  const runtime = Layer.succeed(
+  // Opens each stage's thread without a turn, so the stage waits for what a test reports.
+  const runtime = Layer.effect(
     CrewThreadRuntime,
-    CrewThreadRuntime.of({
-      projectExists: () => Effect.succeed(true),
-      headquartersProjectId: Effect.succeed(null),
-      restore: () => Effect.void,
-      syncSettings: () => Effect.void,
-      settings: () => Effect.succeed(null),
-      workspace: () => Effect.succeed(null),
-      completedRuns: Stream.empty,
-      freshStartRecords: () => Effect.die("unused"),
-      startFresh: () => Effect.void,
-      pin: () => Effect.void,
-      start: (input) =>
-        Effect.gen(function* () {
-          if (failDispatch && input.runId.startsWith("bot-handoff:workflow:")) {
-            failDispatch = false;
-            return yield* new OrchestrationCommandInvariantError({
-              commandId: CommandId.make("test"),
-              commandType: "message.dispatch",
-              cause: "Dispatch unavailable",
-            });
-          }
-          if (!starts.some((start) => start.runId === input.runId)) starts.push(input);
-          if (duringDispatch) yield* duringDispatch(input);
-        }),
-      replayPending: () => Effect.void,
-      notify: () => Effect.void,
-      interrupt: (threadId) =>
-        Effect.gen(function* () {
-          if (failInterrupt) {
-            failInterrupt = false;
-            return yield* new OrchestrationCommandInvariantError({
-              commandId: CommandId.make("test"),
-              commandType: "message.dispatch",
-              cause: "Interrupt unavailable",
-            });
-          }
-          interruptions.push(threadId);
-        }),
-      listPendingStartedRunIds: () => Effect.succeed([]),
-      getTurnState: () => Effect.succeed("running"),
-      tagHandoff: () => Effect.void,
-      showHandoffs: () => Effect.void,
+    Effect.gen(function* () {
+      const engine = yield* OrchestratorV2;
+      return CrewThreadRuntime.of({
+        projectExists: () => Effect.succeed(true),
+        headquartersProjectId: Effect.succeed(null),
+        restore: () => Effect.void,
+        syncSettings: () => Effect.void,
+        completedRuns: Stream.empty,
+        freshStartRecords: () => Effect.die("unused"),
+        startFresh: () => Effect.void,
+        pin: () => Effect.void,
+        start: (input) =>
+          Effect.gen(function* () {
+            if (failDispatch && input.runId.startsWith("bot-handoff:workflow:")) {
+              failDispatch = false;
+              return yield* new OrchestrationCommandInvariantError({
+                commandId: CommandId.make("test"),
+                commandType: "message.dispatch",
+                cause: "Dispatch unavailable",
+              });
+            }
+            if (!starts.some((start) => start.runId === input.runId)) starts.push(input);
+            if ((yield* engine.getThreadShell(input.threadId).pipe(Effect.orDie)) === null) {
+              yield* engine
+                .dispatch({
+                  type: "thread.create",
+                  commandId: CommandId.make(`create:${input.threadId}`),
+                  threadId: input.threadId,
+                  projectId: input.projectId,
+                  title: input.title,
+                  modelSelection: input.modelSelection,
+                  runtimeMode: input.runtimeMode,
+                  interactionMode: "default",
+                  branch: input.workspace?.branch ?? null,
+                  worktreePath: input.workspace?.worktreePath ?? null,
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                })
+                .pipe(Effect.orDie);
+            }
+            if (duringDispatch) yield* duringDispatch(input);
+          }),
+        replayPending: () => Effect.void,
+        interrupt: (threadId, key) =>
+          Effect.gen(function* () {
+            if (failInterrupt) {
+              failInterrupt = false;
+              return yield* new OrchestrationCommandInvariantError({
+                commandId: CommandId.make("test"),
+                commandType: "message.dispatch",
+                cause: "Interrupt unavailable",
+              });
+            }
+            // The runtime's command IDs make a repeated stop a no-op.
+            if (!stops.has(`${threadId}:${key}`)) interruptions.push(threadId);
+            stops.add(`${threadId}:${key}`);
+          }),
+        listPendingStartedRunIds: () => Effect.succeed([]),
+        getTurnState: () => Effect.succeed("running"),
+      });
     }),
   );
   const files = new Set<string>();
@@ -125,9 +152,9 @@ const fixture = (
   const workspace = Layer.succeed(
     WorkflowWorkspace,
     WorkflowWorkspace.of({
-      describe: (_projectId, paths) =>
+      describe: (_projectId, worktreePath, paths) =>
         Effect.succeed({
-          cwd: "/repo",
+          cwd: worktreePath ?? "/repo",
           branch: "crew/feature",
           commit: "0123456789abcdef0123",
           existing: new Set(paths.filter((path) => files.has(path))),
@@ -141,11 +168,7 @@ const fixture = (
     Layer.provideMerge(BotStore.layer),
     Layer.provideMerge(WorkflowLibraryLive),
   );
-  const bots = CrewHandoffServiceLive.pipe(
-    Layer.provideMerge(CrewHandoffStoreLive),
-    Layer.provideMerge(FeatureWorkspacesLive.pipe(Layer.provide(git))),
-    Layer.provideMerge(foundation),
-  );
+  const bots = FeatureWorkspacesLive.pipe(Layer.provide(git), Layer.provideMerge(foundation));
   const workflows = WorkflowServiceLive.pipe(
     Layer.provideMerge(WorkflowStoreLive),
     Layer.provideMerge(WorkflowStageHandoffStoreLive),
@@ -158,6 +181,10 @@ const fixture = (
   );
   const layer = execution.pipe(
     Layer.provideMerge(OrchestrationLayerLive),
+    // Stateless over SQLite; `endTurn` writes turn ends through it.
+    Layer.provideMerge(ProjectionStore.layer),
+    // The orchestrator's own outbox, which a restart queues its continuation in.
+    Layer.provideMerge(EffectOutbox.layer),
     Layer.provideMerge(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
     Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "workflow-execution-" })),
     Layer.provideMerge(ServerSettingsService.layerTest({ crew })),
@@ -183,7 +210,10 @@ const fixture = (
   };
 };
 
-const seed = (featureId = "feature-one") =>
+const seed = (
+  featureId = "feature-one",
+  options: { readonly decisions?: "lead"; readonly gate?: boolean } = {},
+) =>
   Effect.gen(function* () {
     const bots = yield* CrewService;
     const workflows = yield* WorkflowService;
@@ -234,6 +264,7 @@ const seed = (featureId = "feature-one") =>
           task: "Plan",
           next: { ready: "review", change: "decision" },
           outputs: ["plan.md"],
+          ...(options.gate ? { gate: true } : {}),
         },
         decision: {
           type: "task",
@@ -254,6 +285,7 @@ const seed = (featureId = "feature-one") =>
         failure: "pause",
         maxStepExecutions: 6,
         retries: 0,
+        ...(options.decisions ? { decisions: options.decisions } : {}),
       },
     };
     yield* workflows.createDefinition(definition);
@@ -262,19 +294,61 @@ const seed = (featureId = "feature-one") =>
       manager: { memberId: managerId, dispatchRunId: captain.id },
       planner: { memberId: planner.id, dispatchRunId: manager.id },
     };
-    return { featureId, definition, bindings, execution, workflows, bots };
+    return { featureId, definition, bindings, execution, workflows, bots, captain, manager };
   });
 
-const activeHandoff = (featureId: string) =>
+/** The active stage, its crew run, and the started event that names its stage record. */
+const activeStage = (featureId: string) =>
   Effect.gen(function* () {
     const workflows = yield* WorkflowService;
     const bots = yield* CrewService;
-    const handoffs = yield* CrewHandoffStore;
     const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
     const step = snapshot.steps.find((item) => item.id === snapshot.activeStepId)!;
     const run = (yield* bots.getRun(step.runId!))!.run;
-    const handoff = (yield* handoffs.getForTargetRun(run.id))!;
-    return { snapshot, step, run, handoff };
+    const start = snapshot.recentEvents.findLast(
+      (event) => event.kind === "started" && event.runId === run.id,
+    )!;
+    return { snapshot, step, run, start, recordId: start.sourceId! };
+  });
+
+/** Ends the thread's open turns as its provider would, starting one when it has none. */
+const endTurn = (threadId: ThreadId, status: OrchestrationV2Run["status"]) =>
+  Effect.gen(function* () {
+    const { runs } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["runs"]);
+    const now = yield* DateTime.now;
+    const open = runs.filter((run) => !isTerminalRunStatus(run.status));
+    const turns =
+      runs.length > 0
+        ? open
+        : [
+            {
+              id: RunId.make(`${threadId}:run`),
+              threadId,
+              ordinal: 1,
+              providerInstanceId: modelSelection.instanceId,
+              modelSelection,
+              providerThreadId: null,
+              userMessageId: MessageId.make(`${threadId}:start`),
+              rootNodeId: null,
+              activeAttemptId: null,
+              status: "running" as const,
+              requestedAt: now,
+              startedAt: now,
+              completedAt: null,
+              checkpointId: null,
+              contextHandoffId: null,
+            },
+          ];
+    for (const run of turns) {
+      yield* (yield* ProjectionStore.ProjectionStoreV2).apply({
+        id: EventId.make(`${run.id}:${status}`),
+        type: "run.updated",
+        threadId,
+        runId: run.id,
+        occurredAt: now,
+        payload: { ...run, status, completedAt: now },
+      });
+    }
   });
 
 const withDirectory = <A, E, R>(use: (directory: string) => Effect.Effect<A, E, R>) =>
@@ -295,20 +369,23 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* CrewHandoffService;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
         const promptOf = (record: Parameters<typeof renderStageHandoff>[0]) => {
           const { taskText, contextText } = renderStageHandoff(record);
-          return `${taskText}\n\nContext:\n${contextText}`;
+          return `Feature "Kanban board". ${taskText}\n\nContext:\n${contextText}`;
         };
         yield* execution.attach(featureId, projectId, bindings);
 
-        const plan = yield* activeHandoff(featureId);
+        const plan = yield* activeStage(featureId);
         const planRecord = (yield* workflows.getStageHandoffForThread(
           projectId,
           plan.run.threadId,
         ))!;
+        // The record names the feature's worktree, made before the first stage's handoff.
         expect(planRecord).toMatchObject({
-          id: plan.handoff.id,
+          id: plan.recordId,
           stepId: "plan",
           attempt: 1,
           from: null,
@@ -316,7 +393,11 @@ describe("Workflow execution", () => {
           outputs: [],
           notes: [],
           retry: null,
-          workspace: { cwd: "/repo", branch: "crew/feature", commit: "0123456789abcdef0123" },
+          workspace: {
+            cwd: `/worktrees/${system.worktrees[0]}`,
+            branch: "crew/feature",
+            commit: "0123456789abcdef0123",
+          },
         });
         expect(plan.run.taskText).toBe(promptOf(planRecord));
         expect(
@@ -333,14 +414,10 @@ describe("Workflow execution", () => {
           fileCount: 2,
         };
         system.diffs.set(plan.run.threadId, planDiff);
-        yield* handoffs.respond(
-          plan.run.threadId,
-          "completed",
-          '{"outcome":"ready","summary":"Plan ready"}',
-        );
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
         yield* execution.reconcileFeature(featureId);
 
-        const review = yield* activeHandoff(featureId);
+        const review = yield* activeStage(featureId);
         const reviewRecord = (yield* workflows.getStageHandoffForThread(
           projectId,
           review.run.threadId,
@@ -370,16 +447,12 @@ describe("Workflow execution", () => {
         yield* execution.reconcileFeature(featureId);
         yield* execution.reconcile();
         expect(system.starts.length).toBe(startsBefore);
-        expect(yield* workflows.getStageHandoff(review.handoff.id)).toEqual(reviewRecord);
+        expect(yield* workflows.getStageHandoff(review.recordId)).toEqual(reviewRecord);
 
         // Rework sees the earlier version of its own output; the next stage sees the new one.
-        yield* handoffs.respond(
-          review.run.threadId,
-          "completed",
-          '{"outcome":"revise","summary":"Split the plan into two phases"}',
-        );
+        yield* execution.report(review.run.threadId, "revise", "Split the plan into two phases");
         yield* execution.reconcileFeature(featureId);
-        const rework = yield* activeHandoff(featureId);
+        const rework = yield* activeStage(featureId);
         const reworkRecord = (yield* workflows.getStageHandoffForThread(
           projectId,
           rework.run.threadId,
@@ -392,13 +465,9 @@ describe("Workflow execution", () => {
         expect(reworkRecord.notes.map((note) => note.text)).toEqual([
           "Split the plan into two phases",
         ]);
-        yield* handoffs.respond(
-          rework.run.threadId,
-          "completed",
-          '{"outcome":"ready","summary":"Two phases"}',
-        );
+        yield* execution.report(rework.run.threadId, "ready", "Two phases");
         yield* execution.reconcileFeature(featureId);
-        const secondReview = yield* activeHandoff(featureId);
+        const secondReview = yield* activeStage(featureId);
         const secondReviewRecord = (yield* workflows.getStageHandoffForThread(
           projectId,
           secondReview.run.threadId,
@@ -424,7 +493,6 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, definition, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* CrewHandoffService;
         yield* execution.attach(featureId, projectId, bindings);
         const review = definition.steps.review;
         if (review?.type !== "task") return yield* Effect.die("review is a task step");
@@ -437,14 +505,10 @@ describe("Workflow execution", () => {
           1,
         );
 
-        const plan = yield* activeHandoff(featureId);
-        yield* handoffs.respond(
-          plan.run.threadId,
-          "completed",
-          '{"outcome":"ready","summary":"Plan ready"}',
-        );
+        const plan = yield* activeStage(featureId);
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
         yield* execution.reconcileFeature(featureId);
-        const next = yield* activeHandoff(featureId);
+        const next = yield* activeStage(featureId);
         expect(next.snapshot.definition.revision).toBe(1);
         expect(
           (yield* workflows.getStageHandoffForThread(projectId, next.run.threadId))?.workflow,
@@ -458,7 +522,7 @@ describe("Workflow execution", () => {
     }),
   );
 
-  it.effect("advances from the live receipt subscription without polling", () =>
+  it.effect("starts the next stage when the last stage's turn ends, without polling", () =>
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.scoped(
@@ -476,12 +540,29 @@ describe("Workflow execution", () => {
             Stream.runHead,
             Effect.forkScoped,
           );
-          const plan = yield* activeHandoff(featureId);
-          yield* (yield* CrewHandoffService).respond(
-            plan.run.threadId,
-            "completed",
-            '{"outcome":"ready","summary":"Plan ready"}',
-          );
+          const plan = yield* activeStage(featureId);
+          const engine = yield* OrchestratorV2;
+          // The planner is still in a turn when it reports.
+          yield* engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("planner-turn"),
+            threadId: plan.run.threadId,
+            messageId: MessageId.make("planner-turn"),
+            text: "Plan",
+            attachments: [],
+            createdBy: "agent",
+            creationSource: "mcp",
+            dispatchMode: { type: "queue_after_active" },
+          });
+          yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+          expect(system.starts.length).toBe(3);
+          const shell = (yield* engine.getThreadShell(plan.run.threadId))!;
+          yield* engine.dispatch({
+            type: "run.interrupt",
+            commandId: CommandId.make("planner-turn-ends"),
+            threadId: plan.run.threadId,
+            runId: shell.activeRunId!,
+          });
           yield* Fiber.join(advanced);
           expect(system.starts.length).toBe(4);
         }),
@@ -496,10 +577,9 @@ describe("Workflow execution", () => {
         const system = fixture(directory);
         return Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
-          const handoffs = yield* CrewHandoffService;
           yield* execution.attach(featureId, projectId, bindings);
-          const plan = yield* activeHandoff(featureId);
-          yield* handoffs.ask(plan.run.threadId, "Which API?");
+          const plan = yield* activeStage(featureId);
+          yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
           yield* execution.reconcileFeature(featureId);
           const answer = {
             featureId,
@@ -518,30 +598,38 @@ describe("Workflow execution", () => {
             (yield* execution.control({ ...answer, text: "Different API" }).pipe(Effect.result))
               ._tag,
           ).toBe("Failure");
-          yield* handoffs.ask(plan.run.threadId, "Which version?");
+          yield* execution.report(plan.run.threadId, "needs_input", "Which version?");
           yield* execution.reconcileFeature(featureId);
-          expect((yield* handoffs.get(plan.handoff.id))?.status).toBe("needs-input");
-          yield* execution.control({ ...answer, requestId: "answer-2", text: "Latest" });
-          yield* execution.control({ ...answer, kind: "paused", requestId: "pause" });
-          yield* handoffs.respond(
-            plan.run.threadId,
-            "completed",
-            '{"outcome":"ready","summary":"Plan ready"}',
+          expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
+            "needs-input",
           );
+          yield* execution.control({ ...answer, requestId: "answer-2", text: "Latest" });
+          // Each answer reaches the stage's own thread once.
+          const { messages } = yield* (yield* OrchestratorV2).getThreadRecords(
+            plan.run.threadId,
+            ["messages"],
+            { messageRoles: ["user"] },
+          );
+          expect(messages.map((message) => message.text)).toEqual([
+            "Answer to your question: Current API",
+            "Answer to your question: Latest",
+          ]);
+          yield* execution.control({ ...answer, kind: "paused", requestId: "pause" });
+          yield* execution.report(plan.run.threadId, "ready", "Plan ready");
           yield* execution.reconcileFeature(featureId);
           expect((yield* workflows.getFeatureState(featureId))?.paused).toBe(true);
           expect(system.starts.length).toBe(3);
+          yield* endTurn(plan.run.threadId, "completed");
           yield* execution.control({ ...answer, kind: "resumed", requestId: "resume" });
           expect(system.starts.length).toBe(4);
-          const review = yield* activeHandoff(featureId);
+          const review = yield* activeStage(featureId);
           yield* execution.control({ ...answer, kind: "cancelled", requestId: "cancel" });
           yield* execution.control({ ...answer, kind: "cancelled", requestId: "cancel" });
           expect(system.interruptions).toEqual([review.run.threadId]);
           expect((yield* workflows.getFeatureState(featureId))?.cancelled).toBe(true);
           expect(
-            (yield* handoffs
-              .respond(review.run.threadId, "completed", '{"outcome":"approved","summary":"Late"}')
-              .pipe(Effect.result))._tag,
+            (yield* execution.report(review.run.threadId, "approved", "Late").pipe(Effect.result))
+              ._tag,
           ).toBe("Failure");
           expect(
             (yield* workflows.getFeatureSnapshot(featureId, projectId))?.recentEvents
@@ -559,45 +647,28 @@ describe("Workflow execution", () => {
         const system = fixture(directory);
         return Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
-          const handoffs = yield* CrewHandoffService;
           yield* execution.attach(featureId, projectId, bindings);
-          const plan = yield* activeHandoff(featureId);
+          const plan = yield* activeStage(featureId);
           expect(plan.run.memberId).toBe(bindings.planner.memberId);
-          expect(plan.handoff.sourceRunId).toBe(bindings.planner.dispatchRunId);
+          expect(plan.start.actorId).toBe(bindings.planner.dispatchRunId);
           expect(plan.run.taskText).toContain("crew_respond");
           yield* execution.attach(featureId, projectId, bindings);
           yield* execution.reconcileFeature(featureId);
           expect(system.starts.length).toBe(3);
-          yield* handoffs.respond(
-            plan.run.threadId,
-            "completed",
-            '{"outcome":"change","summary":"Design needs review"}',
-          );
+          yield* execution.report(plan.run.threadId, "change", "Design needs review");
           yield* execution.reconcileFeature(featureId);
-          const decision = yield* activeHandoff(featureId);
+          const decision = yield* activeStage(featureId);
           expect(decision.step.id).toBe("decision");
           expect(decision.run.memberId).toBe(bindings.manager.memberId);
-          yield* handoffs.respond(
-            decision.run.threadId,
-            "completed",
-            '{"outcome":"revise","summary":"Revise the plan"}',
-          );
+          yield* execution.report(decision.run.threadId, "revise", "Revise the plan");
           yield* execution.reconcileFeature(featureId);
-          const rework = yield* activeHandoff(featureId);
+          const rework = yield* activeStage(featureId);
           expect(rework.step.executionId).not.toBe(plan.step.executionId);
           expect(rework.step.attempt).toBe(1);
-          yield* handoffs.respond(
-            rework.run.threadId,
-            "completed",
-            '{"outcome":"ready","summary":"Revised plan"}',
-          );
+          yield* execution.report(rework.run.threadId, "ready", "Revised plan");
           yield* execution.reconcileFeature(featureId);
-          const review = yield* activeHandoff(featureId);
-          yield* handoffs.respond(
-            review.run.threadId,
-            "completed",
-            '{"outcome":"approved","summary":"Reviewed"}',
-          );
+          const review = yield* activeStage(featureId);
+          yield* execution.report(review.run.threadId, "approved", "Reviewed");
           yield* execution.reconcileFeature(featureId);
           expect((yield* workflows.getFeatureState(featureId))?.completed).toBe(true);
           yield* execution.reconcile();
@@ -606,34 +677,38 @@ describe("Workflow execution", () => {
       }),
   );
 
-  it.effect("retains questions and answers that settle before reconciliation", () =>
+  it.effect("records a repeated report once, as crew_respond is idempotent", () =>
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* CrewHandoffService;
         yield* execution.attach(featureId, projectId, bindings);
-        const plan = yield* activeHandoff(featureId);
-        yield* handoffs.ask(plan.run.threadId, "Which API?");
-        yield* handoffs.answerFromBot(
-          (yield* (yield* CrewService).getRun(bindings.planner.dispatchRunId))!.run.threadId,
-          plan.handoff.id,
-          "Current API",
-        );
-        yield* handoffs.respond(
-          plan.run.threadId,
-          "completed",
-          '{"outcome":"ready","summary":"Plan ready"}',
-        );
+        const plan = yield* activeStage(featureId);
+        yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
+        yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
+        yield* execution.control({
+          featureId,
+          projectId,
+          actorId: "person",
+          requestId: "answer",
+          kind: "answered",
+          text: "Current API",
+        });
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+        expect(yield* execution.report(plan.run.threadId, "ready", "Plan ready")).toEqual({
+          stepId: "plan",
+          recorded: "completed",
+        });
+        const kinds = () =>
+          workflows
+            .getFeatureSnapshot(featureId, projectId)
+            .pipe(Effect.map((snapshot) => snapshot!.recentEvents.map((event) => event.kind)));
+        // Review shares the worktree, so it starts once the planner's turn has ended.
+        expect(yield* kinds()).toEqual(["started", "question", "answered", "completed"]);
+        yield* endTurn(plan.run.threadId, "completed");
         yield* execution.reconcileFeature(featureId);
+        expect(yield* kinds()).toEqual(["started", "question", "answered", "completed", "started"]);
         const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
-        expect(snapshot.recentEvents.map((event) => event.kind)).toEqual([
-          "started",
-          "question",
-          "answered",
-          "completed",
-          "started",
-        ]);
         expect(snapshot.recentEvents[1]?.detail).toBe("Which API?");
         expect(snapshot.recentEvents[2]?.detail).toBe("Current API");
       }).pipe(Effect.provide(system.layer));
@@ -641,24 +716,39 @@ describe("Workflow execution", () => {
   );
 
   it.effect(
-    "pauses on invalid outcomes and retries with a fresh run without losing prior evidence",
+    "refuses unrouted outcomes, reminds a silent stage once, then fails and retries it fresh",
     () =>
       withDirectory((directory) => {
         const system = fixture(directory);
         return Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
-          const handoffs = yield* CrewHandoffService;
           yield* execution.attach(featureId, projectId, bindings);
-          const first = yield* activeHandoff(featureId);
-          yield* handoffs.respond(
-            first.run.threadId,
-            "completed",
-            '{"outcome":"unknown","summary":"Done"}',
+          const first = yield* activeStage(featureId);
+          const planStatus = () =>
+            workflows
+              .getFeatureState(featureId)
+              .pipe(Effect.map((state) => state?.steps.get("plan")?.status));
+          // The agent can correct an outcome its stage doesn't route.
+          const unknown = yield* Effect.flip(
+            execution.report(first.run.threadId, "unknown", "Done"),
           );
+          expect(unknown.message).toContain("Report one of: ready, change, needs_input");
+          expect(yield* planStatus()).toBe("running");
+
+          yield* endTurn(first.run.threadId, "completed");
           yield* execution.reconcileFeature(featureId);
-          expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
-            "failed",
+          expect(yield* planStatus()).toBe("running");
+          const { messages } = yield* (yield* OrchestratorV2).getThreadRecords(
+            first.run.threadId,
+            ["messages"],
+            { messageRoles: ["user"] },
           );
+          expect(messages.map((message) => message.text)).toEqual([
+            expect.stringContaining("This stage has no result yet"),
+          ]);
+          yield* endTurn(first.run.threadId, "completed");
+          yield* execution.reconcileFeature(featureId);
+          expect(yield* planStatus()).toBe("failed");
           yield* workflows.recordTrustedEvent(featureId, {
             id: "retry",
             stepId: "plan",
@@ -673,23 +763,20 @@ describe("Workflow execution", () => {
             occurredAt: "2026-09-30T00:00:00Z",
           });
           yield* execution.reconcileFeature(featureId);
-          const second = yield* activeHandoff(featureId);
+          const second = yield* activeStage(featureId);
           expect(second.run.id).not.toBe(first.run.id);
-          expect(second.handoff.id).not.toBe(first.handoff.id);
+          expect(second.recordId).not.toBe(first.recordId);
           expect(second.step.executionId).toBe(first.step.executionId);
           expect(second.step.attempt).toBe(2);
           expect(
             (yield* workflows.getStageHandoffForThread(projectId, second.run.threadId))?.retry,
           ).toEqual({
-            previousError:
-              "Completed handoff has an invalid or unrouted outcome; retry the step with a structured result",
+            previousError: "The stage ended without reporting a result with crew_respond",
           });
           expect(second.run.taskText).toContain("The previous attempt failed:");
-          expect((yield* (yield* CrewHandoffStore).get(first.handoff.id))?.responseText).toContain(
-            "unknown",
-          );
-          yield* handoffs.respond(second.run.threadId, "failed", "Provider unavailable");
+          yield* endTurn(second.run.threadId, "failed");
           yield* execution.reconcileFeature(featureId);
+          expect(yield* planStatus()).toBe("failed");
           // A person's Retry is never capped; only automatic retries are.
           expect(
             (yield* workflows
@@ -710,6 +797,61 @@ describe("Workflow execution", () => {
           ).toBe("Success");
         }).pipe(Effect.provide(system.layer));
       }),
+  );
+
+  it.effect("keeps a stage a restart cut running until it continues, then completes it", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, execution, workflows, bindings } = yield* seed();
+        const engine = yield* OrchestratorV2;
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeStage(featureId);
+        const planStatus = () =>
+          workflows
+            .getFeatureState(featureId)
+            .pipe(Effect.map((state) => state?.steps.get("plan")?.status));
+        const prompts = () =>
+          engine
+            .getThreadRecords(plan.run.threadId, ["messages"], { messageRoles: ["user"] })
+            .pipe(Effect.map(({ messages }) => messages.map((message) => message.text)));
+        // Startup recovery cancels the running turn and queues the server's own continuation.
+        yield* endTurn(plan.run.threadId, "cancelled");
+        const [cut] = (yield* engine.getThreadRecords(plan.run.threadId, ["runs"])).runs;
+        yield* (yield* EffectOutbox.EffectOutboxV2).enqueue([
+          {
+            id: `effect:restart-continuation:${cut!.id}`,
+            commandId: CommandId.make("restart"),
+            threadId: plan.run.threadId,
+            request: { type: "provider-runtime.continue", sourceRunId: cut!.id },
+          },
+        ]);
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* planStatus()).toBe("running");
+        expect(yield* prompts()).toEqual([]);
+
+        // The server continues the turn itself, so the stage keeps waiting on that turn.
+        yield* (yield* EffectWorker.OrchestrationEffectWorkerV2).drain();
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* planStatus()).toBe("running");
+        expect(yield* prompts()).toEqual(["Continue where you left off."]);
+
+        // A cut with no continuation coming is continued by the workflow, once.
+        yield* endTurn(plan.run.threadId, "cancelled");
+        yield* execution.reconcileFeature(featureId);
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* planStatus()).toBe("running");
+        expect((yield* prompts()).toSorted()).toEqual([
+          "Continue where you left off.",
+          expect.stringContaining("The server restarted while this stage was working"),
+        ]);
+
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+        yield* endTurn(plan.run.threadId, "completed");
+        yield* execution.reconcileFeature(featureId);
+        expect((yield* activeStage(featureId)).step.id).toBe("review");
+      }).pipe(Effect.provide(system.layer));
+    }),
   );
 
   it.effect("turns failed dispatch into a visible retryable attempt", () =>
@@ -758,25 +900,18 @@ describe("Workflow execution", () => {
         yield* Effect.gen(function* () {
           const { featureId, execution, bindings } = yield* seed();
           yield* execution.attach(featureId, projectId, bindings);
-          const plan = yield* activeHandoff(featureId);
-          yield* (yield* CrewHandoffService).respond(
-            plan.run.threadId,
-            "completed",
-            '{"outcome":"ready","summary":"Plan ready"}',
-          );
+          const plan = yield* activeStage(featureId);
+          yield* execution.report(plan.run.threadId, "ready", "Plan ready");
         }).pipe(Effect.provide(first.layer));
         const restarted = fixture(directory);
         yield* Effect.gen(function* () {
           const execution = yield* WorkflowExecutionService;
           yield* execution.reconcile();
-          expect(restarted.starts.length).toBe(1);
-          const review = yield* activeHandoff("feature-one");
+          // The report started the next stage before the restart.
+          expect(restarted.starts.length).toBe(0);
+          const review = yield* activeStage("feature-one");
           expect(review.step.id).toBe("review");
-          yield* (yield* CrewHandoffService).respond(
-            review.run.threadId,
-            "completed",
-            '{"outcome":"approved","summary":"Reviewed"}',
-          );
+          yield* execution.report(review.run.threadId, "approved", "Reviewed");
           yield* execution.reconcile();
           expect((yield* (yield* WorkflowService).getFeatureState("feature-one"))?.completed).toBe(
             true,
@@ -791,31 +926,6 @@ describe("Workflow execution", () => {
     }),
   );
 
-  it.effect("retains a handoff cancelled before its start was recorded", () =>
-    withDirectory((directory) => {
-      const system = fixture(directory);
-      return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings } = yield* seed();
-        const handoffs = yield* CrewHandoffService;
-        const store = yield* CrewHandoffStore;
-        system.onDispatch((input) =>
-          Effect.gen(function* () {
-            const handoff = yield* store.getForTargetRun(input.runId);
-            if (handoff) yield* handoffs.cancel(handoff.id);
-          }).pipe(Effect.orDie),
-        );
-        yield* execution.attach(featureId, projectId, bindings);
-        const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
-        expect(snapshot.cancelled).toBe(true);
-        expect(snapshot.recentEvents.map((event) => event.kind)).toEqual(["started", "cancelled"]);
-        expect(snapshot.steps.find((step) => step.id === "plan")?.runId).not.toBeNull();
-        yield* execution.reconcile();
-        expect(system.starts.length).toBe(3);
-        expect(system.interruptions.length).toBe(1);
-      }).pipe(Effect.provide(system.layer));
-    }),
-  );
-
   it.effect("replays an answer intent saved before delivery after restart", () =>
     withDirectory((directory) => {
       const first = fixture(directory);
@@ -823,8 +933,8 @@ describe("Workflow execution", () => {
         yield* Effect.gen(function* () {
           const { featureId, execution, workflows, bindings } = yield* seed();
           yield* execution.attach(featureId, projectId, bindings);
-          const plan = yield* activeHandoff(featureId);
-          yield* (yield* CrewHandoffService).ask(plan.run.threadId, "Which API?");
+          const plan = yield* activeStage(featureId);
+          yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
           yield* execution.reconcileFeature(featureId);
           yield* workflows.recordTrustedEvent(featureId, {
             id: "saved-answer",
@@ -834,27 +944,32 @@ describe("Workflow execution", () => {
             runId: null,
             outcome: null,
             sourceKind: "decision",
-            sourceId: plan.handoff.id,
+            sourceId: plan.recordId,
             actorId: "person",
             detail: "Current API",
             occurredAt: "2026-09-30T00:00:00Z",
           });
-          expect((yield* (yield* CrewHandoffStore).get(plan.handoff.id))?.status).toBe(
-            "needs-input",
-          );
         }).pipe(Effect.provide(first.layer));
         const restarted = fixture(directory);
         yield* Effect.gen(function* () {
           const execution = yield* WorkflowExecutionService;
           yield* execution.reconcile();
-          const plan = yield* activeHandoff("feature-one");
-          expect(plan.handoff.status).toBe("running");
-          expect(plan.handoff.responseText).toBe("Current API");
-          yield* (yield* CrewHandoffService).ask(plan.run.threadId, "Which version?");
           yield* execution.reconcile();
-          expect((yield* (yield* CrewHandoffStore).get(plan.handoff.id))?.status).toBe(
-            "needs-input",
+          const plan = yield* activeStage("feature-one");
+          const { messages } = yield* (yield* OrchestratorV2).getThreadRecords(
+            plan.run.threadId,
+            ["messages"],
+            { messageRoles: ["user"] },
           );
+          expect(messages.map((message) => message.text)).toEqual([
+            "Answer to your question: Current API",
+          ]);
+          yield* execution.report(plan.run.threadId, "needs_input", "Which version?");
+          yield* execution.reconcile();
+          expect(
+            (yield* (yield* WorkflowService).getFeatureState("feature-one"))?.steps.get("plan")
+              ?.status,
+          ).toBe("needs-input");
           expect(restarted.starts).toEqual([]);
         }).pipe(Effect.provide(restarted.layer));
       });
@@ -887,7 +1002,6 @@ describe("Workflow execution", () => {
           const execution = yield* WorkflowExecutionService;
           yield* execution.reconcile();
           yield* execution.reconcile();
-          expect((yield* (yield* CrewHandoffStore).listRunning()).length).toBe(0);
         }).pipe(Effect.provide(restarted.layer));
         expect(restarted.interruptions.length).toBe(1);
         expect(restarted.starts).toEqual([]);
@@ -901,30 +1015,11 @@ describe("Workflow execution", () => {
       return Effect.gen(function* () {
         const engine = yield* OrchestratorV2;
         const sql = yield* SqlClient.SqlClient;
-        const handoffs = yield* CrewHandoffService;
         const { featureId, execution, bindings } = yield* seed();
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
-        // The fake bot runtime starts no threads, so create each stage thread as the real one would.
-        const createThread = (threadId: ThreadId) =>
-          engine.dispatch({
-            type: "thread.create",
-            commandId: CommandId.make(`create:${threadId}`),
-            threadId,
-            projectId,
-            title: "Planner: Plan",
-            modelSelection,
-            runtimeMode: "approval-required",
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-            createdBy: "agent",
-            creationSource: "mcp",
-          });
         yield* execution.attach(featureId, projectId, bindings);
-        const plan = yield* activeHandoff(featureId);
-        yield* createThread(plan.run.threadId);
-        yield* execution.reconcileFeature(featureId);
+        const plan = yield* activeStage(featureId);
         const planShell = (yield* engine.getThreadShell(plan.run.threadId))!;
         expect(planShell.title).toBe("Kanban board");
         expect(planShell.crew).toEqual({
@@ -944,15 +1039,9 @@ describe("Workflow execution", () => {
           threadId: plan.run.threadId,
           title: "My plan",
         });
-        yield* handoffs.respond(
-          plan.run.threadId,
-          "completed",
-          '{"outcome":"ready","summary":"Plan ready"}',
-        );
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
         yield* execution.reconcileFeature(featureId);
-        const review = yield* activeHandoff(featureId);
-        yield* createThread(review.run.threadId);
-        yield* execution.reconcileFeature(featureId);
+        const review = yield* activeStage(featureId);
         // Both stages open in the one worktree the feature made from the checkout's branch.
         expect(system.worktrees).toEqual([
           expect.stringMatching(/^bosun\/kanban-board-[0-9a-f]{6}$/),
@@ -996,6 +1085,98 @@ describe("Workflow execution", () => {
           SELECT json_extract(summary_json, '$.state') AS state FROM crew_stage_threads
           WHERE thread_id = ${review.run.threadId}`;
         expect(repaired[0]?.state).toBe("cancelled");
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+  it.effect("lets the lead answer and decide gates on a workflow whose lead decides", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, execution, workflows, bindings, manager } = yield* seed("feature-one", {
+          decisions: "lead",
+          gate: true,
+        });
+        const engine = yield* OrchestratorV2;
+        const prompts = (threadId: ThreadId) =>
+          engine
+            .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
+            .pipe(Effect.map(({ messages }) => messages.map((message) => message.text)));
+        const planStatus = () =>
+          workflows
+            .getFeatureState(featureId)
+            .pipe(Effect.map((state) => state?.steps.get("plan")?.status));
+        const decide = (decision: "approve" | "request_changes" | "answer", text?: string) =>
+          execution.decide({ threadId: manager.threadId, decision, ...(text ? { text } : {}) });
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeStage(featureId);
+        const leadPrompts = (yield* prompts(manager.threadId)).length;
+
+        // A question goes to the lead once, and its answer to the stage's thread.
+        yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
+        yield* execution.reconcileFeature(featureId);
+        const asked = (yield* prompts(manager.threadId)).slice(leadPrompts);
+        expect(asked).toEqual([expect.stringContaining("Which API?")]);
+        expect((yield* Effect.flip(decide("answer"))).message).toContain("answer as text");
+        yield* decide("answer", "Use v2");
+        expect(yield* planStatus()).toBe("running");
+        expect(yield* prompts(plan.run.threadId)).toEqual(["Answer to your question: Use v2"]);
+
+        // A gate goes to the lead once too, however often the feature reconciles.
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+        yield* execution.reconcileFeature(featureId);
+        yield* execution.reconcile();
+        const gated = (yield* prompts(manager.threadId)).slice(leadPrompts + 1);
+        expect(gated).toEqual([expect.stringContaining("Plan ready")]);
+        expect((yield* Effect.flip(decide("request_changes"))).message).toContain("what to change");
+        yield* decide("approve");
+        expect(yield* planStatus()).toBe("completed");
+        const approved = (yield* workflows.getFeatureSnapshot(
+          featureId,
+          projectId,
+        ))!.recentEvents.find((event) => event.kind === "approved");
+        expect(approved?.actorId).toBe(manager.id);
+        expect((yield* Effect.flip(decide("approve"))).message).toContain("waiting at its gate");
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+
+  it.effect("leaves the gate to a person who decides first, and to people on other workflows", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const lead = yield* seed("feature-one", { decisions: "lead", gate: true });
+        const person = yield* seed("feature-two", { gate: true });
+        const { execution, workflows, manager } = lead;
+        yield* execution.attach(lead.featureId, projectId, lead.bindings);
+        yield* execution.attach(person.featureId, projectId, person.bindings);
+        const decide = (threadId: ThreadId, featureId: string) =>
+          execution.decide({ threadId, featureId, decision: "approve" }).pipe(
+            Effect.flip,
+            Effect.map((error) => error.message),
+          );
+
+        // Nothing waits while the stage works; a thread that doesn't lead it never decides.
+        expect(yield* decide(manager.threadId, lead.featureId)).toContain("waiting at its gate");
+        const plan = yield* activeStage(lead.featureId);
+        expect(yield* decide(plan.run.threadId, lead.featureId)).toContain("doesn't lead");
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+        const other = yield* activeStage(person.featureId);
+        yield* execution.report(other.run.threadId, "ready", "Plan ready");
+        expect(yield* decide(person.manager.threadId, person.featureId)).toContain(
+          "A person decides",
+        );
+
+        yield* execution.control({
+          featureId: lead.featureId,
+          projectId,
+          requestId: "person-approves",
+          actorId: "person",
+          kind: "approved",
+        });
+        expect((yield* workflows.getFeatureState(lead.featureId))?.steps.get("plan")?.status).toBe(
+          "completed",
+        );
+        expect(yield* decide(manager.threadId, lead.featureId)).toContain("waiting at its gate");
       }).pipe(Effect.provide(system.layer));
     }),
   );

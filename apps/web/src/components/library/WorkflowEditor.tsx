@@ -240,6 +240,24 @@ export function WorkflowEditor({
         }
       />
       <SettingsRow
+        title="Lead decides"
+        description="The feature's lead approves gates and answers stage questions. You can still decide first."
+        control={
+          <Switch
+            size="sm"
+            aria-label="Lead decides"
+            checked={draft.defaults.decisions === "lead"}
+            onCheckedChange={(lead) => {
+              const { decisions: _decisions, ...defaults } = draft.defaults;
+              setDraft({
+                ...draft,
+                defaults: lead ? { ...defaults, decisions: "lead" } : defaults,
+              });
+            }}
+          />
+        }
+      />
+      <SettingsRow
         title="Stage runs per feature"
         description="Then the feature stops at Your call."
         control={

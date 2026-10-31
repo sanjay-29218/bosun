@@ -7,15 +7,12 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
-import { CrewStore } from "../../../crew/CrewStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import { ticketNumberFromRef } from "../../../tickets/ticketRows.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import { WorkflowService } from "../../../workflows/WorkflowService.ts";
+import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { CrewToolFailedError, CrewToolkit } from "./tools.ts";
@@ -77,10 +74,7 @@ function crewIssueRows(
 }
 
 const make = Effect.gen(function* () {
-  const handoffs = yield* CrewHandoffService;
-  const handoffStore = yield* CrewHandoffStore;
-  const crewStore = yield* CrewStore;
-  const workflows = yield* WorkflowService;
+  const workflowExecution = yield* WorkflowExecutionService;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
   const tickets = yield* TicketService;
@@ -238,35 +232,26 @@ const make = Effect.gen(function* () {
         ),
     ),
     crew_respond: McpToolAccess.actsAsCaller(
-      (input: { readonly outcome: "completed" | "failed"; readonly summary: string }) =>
-        asCrewMember((threadId) => handoffs.respond(threadId, input.outcome, input.summary)),
+      (input: { readonly outcome: string; readonly summary: string }) =>
+        asCrewMember((threadId) =>
+          workflowExecution.report(threadId, input.outcome, input.summary),
+        ),
     ),
-    crew_ask: McpToolAccess.actsAsCaller((input: { readonly question: string }) =>
-      asCrewMember((threadId) => handoffs.ask(threadId, input.question)),
-    ),
-    crew_stage_handoff: McpToolAccess.readsAsCaller(() =>
-      asCrewMember((threadId) =>
-        Effect.gen(function* () {
-          const runId = yield* handoffStore.getRunByThread(threadId);
-          const run = runId ? yield* crewStore.getRun(runId) : null;
-          if (!run?.allowedTools.includes("crew.respond")) {
-            return yield* new CrewToolFailedError({
-              reason: "Caller is not a workflow stage member",
-            });
-          }
-          const record = yield* workflows.getStageHandoffForThread(run.projectId, threadId);
-          if (!record) {
-            return yield* new CrewToolFailedError({
-              reason: "This run did not start from a workflow stage",
-            });
-          }
-          return record;
-        }),
-      ),
-    ),
-    crew_answer: McpToolAccess.actsAsCaller(
-      (input: { readonly requestId: string; readonly answer: string }) =>
-        asCrewMember((threadId) => handoffs.answerFromBot(threadId, input.requestId, input.answer)),
+    crew_decide: McpToolAccess.actsAsCaller(
+      (input: {
+        readonly featureId?: string | undefined;
+        readonly decision: "approve" | "request_changes" | "answer";
+        readonly text?: string | undefined;
+      }) =>
+        asCrewMember((threadId) =>
+          workflowExecution.decide({ threadId, ...input }).pipe(
+            Effect.map(({ featureId, activeStepId, state }) => ({
+              featureId,
+              activeStepId,
+              state,
+            })),
+          ),
+        ),
     ),
   };
 });

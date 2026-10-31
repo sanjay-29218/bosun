@@ -105,6 +105,14 @@ export interface WorkflowStoreShape {
   readonly listEvents: (
     featureId: string,
   ) => Effect.Effect<ReadonlyArray<WorkflowStepEventType>, PersistenceSqlError>;
+  /** The stage a crew run was started for: its feature and the stage record it started from. */
+  readonly findStageStart: (runId: string) => Effect.Effect<
+    {
+      readonly featureId: string;
+      readonly handoffId: string;
+    } | null,
+    PersistenceSqlError
+  >;
   readonly appendEvent: (
     featureId: string,
     expectedVersion: number,
@@ -320,6 +328,18 @@ export const WorkflowStoreLive = Layer.effect(
               catch: decodeError,
             }),
           ),
+        ),
+      ),
+      findStageStart: Effect.fn("WorkflowStore.findStageStart")((runId) =>
+        sql<{ readonly featureId: string; readonly handoffId: string }>`
+          SELECT feature_id AS featureId, json_extract(event_json, '$.sourceId') AS handoffId
+          FROM workflow_step_events
+          WHERE json_extract(event_json, '$.kind') = 'started'
+            AND json_extract(event_json, '$.runId') = ${runId}
+          LIMIT 1
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.map((rows) => rows[0] ?? null),
         ),
       ),
       appendEvent: Effect.fn("WorkflowStore.appendEvent")((featureId, expectedVersion, event) =>

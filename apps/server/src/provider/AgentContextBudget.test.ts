@@ -9,13 +9,12 @@ import { McpSchema, McpServer } from "effect/ai";
 
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
-import { CrewHandoffService } from "../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { IssueService } from "../issues/IssueService.ts";
 import { TicketService } from "../tickets/TicketService.ts";
+import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { ServerConfig } from "../config.ts";
 import { DeviceService } from "../device/DeviceService.ts";
@@ -88,14 +87,13 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(VcsStatusBroadcaster)({}),
   // Bosun's crew tools.
   Layer.mock(BotService)({}),
-  Layer.mock(CrewHandoffService)({}),
-  Layer.mock(CrewHandoffStore)({}),
   Layer.mock(CrewService)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(FeatureService)({}),
   Layer.mock(IssueService)({}),
   Layer.mock(TicketService)({}),
   Layer.mock(WorkflowService)({}),
+  Layer.mock(WorkflowExecutionService)({}),
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");

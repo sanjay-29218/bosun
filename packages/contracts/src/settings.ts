@@ -331,7 +331,7 @@ export const CrewSettings = Schema.Struct({
   maxRunningStageThreads: CrewThreadLimit.pipe(Schema.withDecodingDefault(Effect.succeed(4))),
   providerLimits: CrewProviderLimits.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   /** Automatic retries before a stage fails, unless its workflow sets its own. */
-  stageRetries: CrewStageRetries.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
+  stageRetries: CrewStageRetries.pipe(Schema.withDecodingDefault(Effect.succeed(2))),
 });
 export type CrewSettings = typeof CrewSettings.Type;
 

@@ -29,7 +29,6 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -85,8 +84,7 @@ export interface FeatureServiceShape {
   ) => Effect.Effect<FeatureRecord, FeatureServiceError>;
   /**
    * Starts the feature's workflow. Each stage is sent from a lead run: its supervisor's, or the
-   * owning bot's headquarters for stages without one. Those threads are where stage questions
-   * and notices land.
+   * owning bot's headquarters for stages without one.
    */
   readonly start: (
     id: string,
@@ -181,7 +179,6 @@ const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition)
   [
     `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
     "The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-    "Stage crew members ask you questions here. Answer with crew_answer when the brief or earlier results settle it; otherwise say exactly what the person must decide.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
   ].join("\n\n");
 
@@ -298,7 +295,6 @@ export const FeatureServiceLive = Layer.effect(
     const workflowStore = yield* WorkflowStore;
     const executions = yield* WorkflowExecutionStore;
     const execution = yield* WorkflowExecutionService;
-    const handoffStore = yield* CrewHandoffStore;
     const engine = yield* OrchestratorV2;
     const titleServices = yield* Effect.context<
       | ProjectStore.ProjectStoreV2
@@ -754,12 +750,11 @@ export const FeatureServiceLive = Layer.effect(
 
     const threadLink: FeatureServiceShape["threadLink"] = Effect.fn("FeatureService.threadLink")(
       function* (projectId, threadId) {
-        const runId = yield* handoffStore.getRunByThread(threadId);
-        if (runId) {
-          const handoff = yield* handoffStore.getForTargetRun(runId);
-          const featureId = handoff ? yield* executions.findFeatureForHandoff(handoff.id) : null;
-          const stage = featureId
-            ? yield* stageInFeature(featureId, projectId, threadId, runId)
+        const run = yield* crewStore.getRunByThread(threadId);
+        if (run) {
+          const start = yield* workflowStore.findStageStart(run.id);
+          const stage = start
+            ? yield* stageInFeature(start.featureId, projectId, threadId, run.id)
             : null;
           return { stage, attachable: false };
         }
@@ -825,7 +820,7 @@ export const FeatureServiceLive = Layer.effect(
             new FeatureValidationError("Unarchive the thread before making it a feature"),
           );
         }
-        if (yield* handoffStore.getRunByThread(input.threadId)) {
+        if (yield* crewStore.getRunByThread(input.threadId)) {
           return yield* Effect.fail(
             new FeatureValidationError("A crew thread can't become a feature"),
           );

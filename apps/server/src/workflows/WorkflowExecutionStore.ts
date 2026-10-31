@@ -58,9 +58,6 @@ export class WorkflowExecutionStore extends Context.Service<
     readonly listActive: (
       projectId?: ProjectId,
     ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
-    readonly findFeatureForHandoff: (
-      handoffId: string,
-    ) => Effect.Effect<string | null, PersistenceSqlError>;
     /** Features this thread was ever attached to as a stage thread, newest first. */
     readonly findFeaturesForThread: (
       threadId: string,
@@ -103,18 +100,6 @@ export const WorkflowExecutionStoreLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const error = toPersistenceSqlError("WorkflowExecutionStore.query");
     return WorkflowExecutionStore.of({
-      findFeatureForHandoff: Effect.fn("WorkflowExecutionStore.findFeatureForHandoff")(
-        (handoffId) =>
-          sql<{ readonly featureId: string }>`
-        SELECT feature_id AS featureId FROM workflow_step_events
-        WHERE json_extract(event_json, '$.kind') = 'started'
-          AND json_extract(event_json, '$.sourceId') = ${handoffId}
-        LIMIT 1
-      `.pipe(
-            Effect.mapError(error),
-            Effect.map((rows) => rows[0]?.featureId ?? null),
-          ),
-      ),
       findFeaturesForThread: Effect.fn("WorkflowExecutionStore.findFeaturesForThread")((threadId) =>
         sql<{ readonly featureId: string }>`
         SELECT feature_id AS featureId FROM workflow_step_events

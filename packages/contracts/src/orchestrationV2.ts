@@ -84,12 +84,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
-import {
-  CrewStageSummary,
-  ThreadCrewHandoff,
-  ThreadCrewRequestTag,
-  ThreadFeatureTag,
-} from "./workflow.ts";
+import { CrewStageSummary, ThreadCrewRequestTag, ThreadFeatureTag } from "./workflow.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -515,8 +510,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The bot request a crew handoff thread works on; absent outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
-  /** Crew handoffs this thread sent that are still out, or its latest if it failed. */
-  crewHandoffs: Schema.optional(Schema.Array(ThreadCrewHandoff)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -2116,8 +2109,6 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The bot request this handoff thread works on; omitted outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
-  /** Crew handoffs this thread sent that are still out, or its latest if it failed. */
-  crewHandoffs: Schema.optional(Schema.Array(ThreadCrewHandoff)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
@@ -3388,7 +3379,6 @@ const OrchestrationV2InternalCommand = Schema.Union([
     crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
     feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
     crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
-    crewHandoffs: Schema.optional(Schema.Array(ThreadCrewHandoff)),
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   /**

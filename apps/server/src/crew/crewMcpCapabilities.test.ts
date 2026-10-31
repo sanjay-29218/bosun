@@ -29,7 +29,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
         ('malformed', 'role', 'bot-run:malformed', 'invalid'),
         ('bot-hq:bot-captain', 'bot-captain', 'bot-run:bot-hq:bot-captain', '["preview"]'),
         ('captain-request', 'bot-captain', 'bot-run:captain-request', '["worktree"]')`;
-      yield* sql`INSERT INTO bots VALUES ('bot-captain', '["crew.answer"]')`;
+      yield* sql`INSERT INTO bots VALUES ('bot-captain', '["crew.decide"]')`;
       assert.deepStrictEqual(yield* crewMcpCapabilities(ThreadId.make("ordinary")), DEFAULTS);
       assert.deepStrictEqual(
         yield* crewMcpCapabilities(ThreadId.make("bot-run:builder")),

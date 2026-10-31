@@ -3,20 +3,17 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   RepositoryIssue,
+  FeatureCardState,
   Ticket,
-  WorkflowStageHandoff,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
-import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
-import { CrewStore } from "../../../crew/CrewStore.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import { WorkflowService } from "../../../workflows/WorkflowService.ts";
+import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 export class CrewToolFailedError extends Schema.TaggedError<CrewToolFailedError>()(
@@ -28,74 +25,48 @@ export class CrewToolFailedError extends Schema.TaggedError<CrewToolFailedError>
   }
 }
 
-const dependencies = [
-  McpInvocationContext,
-  ThreadManagementService.ThreadManagementService,
-  CrewHandoffService,
-  CrewHandoffStore,
-  CrewStore,
-];
+const dependencies = [McpInvocationContext, ThreadManagementService.ThreadManagementService];
 /** What a crew tool fails with, including the access gate's refusal. */
 const failure = Schema.Union([
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   CrewToolFailedError,
 ]);
-const Handoff = Schema.Struct({
-  id: Schema.String,
-  parentId: Schema.NullOr(Schema.String),
-  sourceRunId: Schema.String,
-  targetMemberId: Schema.String,
-  targetRunId: Schema.String,
-  projectId: Schema.String,
-  taskText: Schema.String,
-  contextText: Schema.String,
-  depth: Schema.Int,
-  status: Schema.Literals(["queued", "running", "completed", "needs-input", "failed", "cancelled"]),
-  responseText: Schema.NullOr(Schema.String),
-  questionText: Schema.NullOr(Schema.String),
-  lastError: Schema.NullOr(Schema.String),
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
+/** What a workflow stage's report recorded. */
+const StageReport = Schema.Struct({
+  stepId: Schema.String,
+  recorded: Schema.Literals(["completed", "question"]),
 });
 
 const Respond = Tool.make("crew_respond", {
   description:
-    "Report a structured completed or failed outcome for the handoff that started this crew run.",
+    "Report the result of the workflow stage this thread runs: one of the stage's outcomes with a summary of the result and its evidence, or needs_input with the question a person must answer as the summary. Then end your turn; an answer arrives in this thread.",
   parameters: Schema.Struct({
-    outcome: Schema.Literals(["completed", "failed"]),
+    outcome: Schema.String,
     summary: Schema.String,
   }),
-  success: Handoff,
+  success: StageReport,
   failure,
-  dependencies,
+  dependencies: [...dependencies, WorkflowExecutionService],
 }).annotate(Tool.Idempotent, true);
 
-const Ask = Tool.make("crew_ask", {
+const Decide = Tool.make("crew_decide", {
   description:
-    "Pause this handoff with a question for the requester. The question remains durable until answered or cancelled.",
-  parameters: Schema.Struct({ question: Schema.String }),
-  success: Handoff,
+    "Decide for a feature stage you lead, when its workflow lets the lead decide and the stage's request arrived in this thread. approve passes the stage's gate; request_changes sends the stage back to rework with text saying what to change; answer replies to the stage's question with text. Pass the featureId the request named. Whoever decides first, you or a person, wins.",
+  parameters: Schema.Struct({
+    featureId: Schema.optional(Schema.String),
+    decision: Schema.Literals(["approve", "request_changes", "answer"]),
+    text: Schema.optional(Schema.String),
+  }),
+  /** Where the feature stands after the decision. */
+  success: Schema.Struct({
+    featureId: Schema.String,
+    activeStepId: Schema.NullOr(Schema.String),
+    state: Schema.optional(FeatureCardState),
+  }),
   failure,
-  dependencies,
-}).annotate(Tool.Idempotent, true);
-
-const Answer = Tool.make("crew_answer", {
-  description:
-    "Answer a question from a handoff this crew member delegated. The recipient resumes in its linked T3 thread.",
-  parameters: Schema.Struct({ requestId: Schema.String, answer: Schema.String }),
-  success: Handoff,
-  failure,
-  dependencies,
-}).annotate(Tool.Idempotent, false);
-
-const StageHandoff = Tool.make("crew_stage_handoff", {
-  description:
-    "Read the full handoff this workflow stage started from: the brief, the outputs it receives, notes from earlier stages and people, and the branch and commit. Nothing else is passed between stages.",
-  success: WorkflowStageHandoff,
-  failure,
-  dependencies: [...dependencies, WorkflowService],
-}).annotate(Tool.Readonly, true);
+  dependencies: [...dependencies, WorkflowExecutionService],
+}).annotate(Tool.Destructive, false);
 
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
@@ -201,9 +172,7 @@ const UpdateTodo = Tool.make("crew_update_todo", {
 
 export const CrewToolkit = Toolkit.make(
   Respond,
-  Ask,
-  Answer,
-  StageHandoff,
+  Decide,
   LinkIssue,
   ListIssues,
   CreateTodo,
