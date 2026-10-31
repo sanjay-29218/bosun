@@ -29,7 +29,8 @@ limit, or a failed stage, oldest first. **Done** holds finished and stopped feat
 
 Each card shows its project, status, linked issue, and branch or pull request. Its buttons, such
 as Start feature, Approve, Answer…, Retry stage and Stop feature, act without opening the thread.
-Click a card to open its current stage thread. Right-click it for the rest of the stage's menu,
+Click a card to open the thread its sidebar row opens: the one waiting on you, else the feature's
+lead. Right-click it for the rest of the stage's menu,
 such as Take over, Send back to…, Skip stage and Pause. After you take over a stage, its card
 reads Taken over until you choose Mark done…, which asks for the route and a summary for the
 next stage, or hand it back with Retry stage.

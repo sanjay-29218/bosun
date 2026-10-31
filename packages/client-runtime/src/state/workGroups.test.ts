@@ -9,6 +9,7 @@ import {
   workGroupLead,
   workGroupOf,
   workGroupOpenThread,
+  workGroupThreads,
   workThreadLabel,
   type WorkGroupThread,
 } from "./workGroups.ts";
@@ -124,9 +125,9 @@ describe("featureRows", () => {
       { ...thread("old-lead", "0", { feature }), archivedAt: "2026-10-01" },
       { ...thread("plain", "3"), archivedAt: null },
     ]);
-    expect([...rows].map(([key, threads]) => [key, threads.map((item) => item.id)])).toEqual([
-      ["local:f1", ["build", "lead"]],
-    ]);
+    expect(
+      [...rows].map(([key, group]) => [key, workGroupThreads(group).map((item) => item.id)]),
+    ).toEqual([["local:f1", ["build", "lead"]]]);
   });
 });
 

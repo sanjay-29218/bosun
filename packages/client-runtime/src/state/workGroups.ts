@@ -194,25 +194,26 @@ export function groupWorkThreads<T extends WorkGroupThread>(
 }
 
 /**
- * Each feature's row in the thread list, by `environmentId:featureId`: the threads the list
- * shows for it (its lead and current stage), primary first. The feature is settled when its
+ * Each feature's row in the thread list, by `environmentId:featureId`, built from the threads
+ * the list shows for it (its lead and current stage). The feature is settled when the row's
  * primary is, as the list files it.
  */
 export function featureRows<T extends WorkGroupThread & { readonly archivedAt: unknown }>(
   threads: ReadonlyArray<T>,
-): ReadonlyMap<string, ReadonlyArray<T>> {
+): ReadonlyMap<string, WorkGroup<T>> {
   const featureThreads = threads.filter((thread) => thread.feature && thread.archivedAt === null);
   const { groupByThreadKey } = groupWorkThreads(
     featureThreads.filter((thread) => !isHiddenStageThread(thread)),
   );
-  const rows = new Map<string, ReadonlyArray<T>>();
+  const rows = new Map<string, WorkGroup<T>>();
   for (const group of groupByThreadKey.values()) {
-    rows.set(`${group.primary.environmentId}:${group.primary.feature!.id}`, groupThreads(group));
+    rows.set(`${group.primary.environmentId}:${group.primary.feature!.id}`, group);
   }
   return rows;
 }
 
-const groupThreads = <T>(group: WorkGroup<T>) => [
+/** A group's threads, its primary first. */
+export const workGroupThreads = <T>(group: WorkGroup<T>) => [
   group.primary,
   ...group.children.map((entry) => entry.thread),
 ];
@@ -225,7 +226,7 @@ const groupThreads = <T>(group: WorkGroup<T>) => [
 export function workGroupLead<T extends WorkGroupThread>(group: WorkGroup<T>): T | null {
   if (group.kind === "request") return group.primary;
   return (
-    groupThreads(group)
+    workGroupThreads(group)
       .filter((thread) => !thread.crew && !thread.crewRequest)
       .sort(byCreated)[0] ?? null
   );
@@ -236,7 +237,7 @@ export function workGroupOpenThread<T extends WorkGroupThread & NeedsYouShell>(
   group: WorkGroup<T>,
 ): T {
   return (
-    groupThreads(group).find((thread) => threadNeedsYouKind(thread) !== null) ??
+    workGroupThreads(group).find((thread) => threadNeedsYouKind(thread) !== null) ??
     workGroupLead(group) ??
     group.primary
   );

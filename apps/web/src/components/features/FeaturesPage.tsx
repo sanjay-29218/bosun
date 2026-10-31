@@ -20,7 +20,11 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { featureRows } from "@t3tools/client-runtime/state/work-groups";
+import {
+  featureRows,
+  workGroupOpenThread,
+  workGroupThreads,
+} from "@t3tools/client-runtime/state/work-groups";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { PlusIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
@@ -177,7 +181,10 @@ export function FeaturesPage(props: {
   // ago and no longer sent) counts as settled too.
   const { settleThread, unsettleThread } = useThreadActions();
   const rows = featureRows(useQuietThreadShells());
-  const rowFor = (card: EnvironmentFeatureCard) => rows.get(featureCardKey(card)) ?? [];
+  const rowFor = (card: EnvironmentFeatureCard) => {
+    const group = rows.get(featureCardKey(card));
+    return group ? workGroupThreads(group) : [];
+  };
   const isSettled = (card: EnvironmentFeatureCard) => {
     const primary = rowFor(card)[0];
     return primary === undefined || primary.settledOverride === "settled";
@@ -214,8 +221,19 @@ export function FeaturesPage(props: {
   const handlers: FeatureBoardHandlers = {
     projectFor,
     queuePositions: featureQueuePositions(board.cards),
+    // A card opens what its sidebar row opens: the thread waiting on you, else the lead.
     onOpen: (card) => {
-      actions.openCard(card);
+      const group = rows.get(featureCardKey(card));
+      const thread = group ? workGroupOpenThread(group) : null;
+      if (!thread) {
+        if (!actions.openCard(card))
+          toastManager.add({ type: "info", title: "This feature has no thread to open yet" });
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: thread.environmentId, threadId: thread.id },
+      });
     },
     onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) =>
       void actions.showMenu(card, { x: event.clientX, y: event.clientY }),
