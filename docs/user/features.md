@@ -81,6 +81,8 @@ workflow are remembered per project.
 When something waits on you, an amber **Needs you** count shows in the board's header. It lists
 approvals, problems and questions, oldest first. Approve, Retry and Answer work from the row;
 anything else opens the stage thread. Threads waiting on a tool approval or a question are included.
+On Feature delivery (auto), a feature's approvals and questions show here too until its lead or you
+decide.
 
 In the sidebar, they come up at the top of the thread list. `mod+shift+y` opens the one that has
 waited longest.

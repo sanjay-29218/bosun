@@ -38,8 +38,7 @@ Feature delivery", to have the manager start there. Each stage runs with its rol
 **Access**; what a stage hands off in turn runs with that stage's. The bot can also start projects
 from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
 start, it can create and edit bots, workflows and roles when you ask, such as "add a QA stage to
-Feature delivery"; they show up in Settings like ones you made. Features report to the
-headquarters too. A feature's
+Feature delivery"; they show up in Settings like ones you made. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
 
 The headquarters follows the bot's current tools, model and **Access**. Its instructions are the
@@ -88,7 +87,11 @@ The **Library** lists every connected environment's workflows; pick one to open 
 New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
 **Add Feature delivery**. Both add the starter roles too if they're missing. Feature delivery
 runs Plan and Design, each waiting for your approval, then Build and QA. QA sends changes back to
-Build up to twice, then the feature stops at **Your call**. With more than one
+Build up to twice, then the feature stops at **Your call**. **Feature delivery (auto)**, added with
+it, is the same except that the feature's lead approves Plan and Design (or asks for changes) and
+answers the stages' questions. You can still approve or answer yourself; whichever of you decides
+first counts. **Your call** and failed stages still wait for you. **Lead decides** under a
+workflow's **Settings** does the same for any workflow. With more than one
 environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
 changed and it needs a new version.
 
@@ -99,7 +102,7 @@ changed and it needs a new version.
   it or routes to it.
 - **Routes**, listed under each stage, say where each outcome goes next, for example back to Build
   when QA requests changes. A route back to an earlier stage can have a limit: after it has
-  been taken that many times, the feature stops at **Your call**. A stage's questions come to you. A failed stage retries the
+  been taken that many times, the feature stops at **Your call**. A stage's questions come to you, and on Feature delivery (auto) to the feature's lead as well. A failed stage retries the
   number of times set under **Settings** (empty uses **Retries before a stage fails** in
   **Settings → Bots**), then pauses and notifies you. A stage whose thread you stop waits for you
   instead, and one the server restarted picks up where it left off.
