@@ -425,18 +425,14 @@ export const layerWithOptions = (
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
-                const crewCapabilities = yield* crewMcpCapabilities(threadId);
-                const capabilities =
-                  crewCapabilities ??
-                  new Set<import("../mcp/McpInvocationContext.ts").McpCapability>([
-                    "orchestration",
-                    "worktree",
-                    "pull-requests",
-                  ]);
-                if (crewCapabilities === undefined && browserToolsAvailable)
-                  capabilities.add("preview");
-                if (crewCapabilities === undefined && deviceToolsAvailable)
-                  capabilities.add("device");
+                const defaults = new Set<import("../mcp/McpInvocationContext.ts").McpCapability>([
+                  "orchestration",
+                  "worktree",
+                  "pull-requests",
+                ]);
+                if (browserToolsAvailable) defaults.add("preview");
+                if (deviceToolsAvailable) defaults.add("device");
+                const capabilities = yield* crewMcpCapabilities(threadId, defaults);
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   Effect.orElseSucceed(() => false),

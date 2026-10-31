@@ -3281,6 +3281,8 @@ export const OrchestrationV2Command = Schema.Union([
     parentThreadId: ThreadId,
     parentRunId: RunId,
     parentNodeId: NodeId,
+    /** Runs the child in another project's checkout; the parent's project when omitted. */
+    projectId: Schema.optional(ProjectId),
     task: TrimmedNonEmptyString,
     title: Schema.optional(TrimmedNonEmptyString),
     modelSelection: ModelSelection,

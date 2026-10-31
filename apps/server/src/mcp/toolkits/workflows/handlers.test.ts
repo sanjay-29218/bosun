@@ -17,9 +17,9 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
-import { BotProjects, BotProjectsError } from "../../../bots/BotProjects.ts";
 import { ServerConfig } from "../../../config.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
 import { CrewTestOrchestration, seedCrewProject } from "../../../crew/CrewRuntime.testkit.ts";
 import { CrewRuntimeLive } from "../../../crew/runtimeLayer.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -47,24 +47,25 @@ interface Called {
 const failure = (called: Called) =>
   called.result as { readonly code: string; readonly message: string };
 
-/** What t3_feature_start asked BotProjects for; its own behavior is tested in BotProjects.test.ts. */
-const featureStarts: Array<{ readonly botId: string; readonly projectId: string }> = [];
-const BotProjectsRecorder = Layer.mock(BotProjects)({
-  startFeature: (input) => {
-    if (input.projectId === "not-mine") {
-      return Effect.fail(new BotProjectsError({ reason: "Captain doesn't own project not-mine" }));
-    }
-    featureStarts.push({ botId: input.botId, projectId: input.projectId });
+/** What t3_feature_start asked FeatureService to launch; launching is FeatureService's own. */
+const launches: Array<{ readonly projectId: string; readonly workflowId?: string | undefined }> =
+  [];
+const FeatureLaunchRecorder = Layer.mock(FeatureService)({
+  launch: (input) => {
+    launches.push({ projectId: input.projectId, workflowId: input.workflowId });
     return Effect.succeed({
-      featureId: input.featureId ?? "feature:new",
-      projectId: input.projectId,
-      title: input.title,
-      workflowId: input.workflowId ?? "feature-delivery",
-      workflowRevision: 1,
-      state: "working" as const,
-      stage: "plan",
-      threadId: null,
-    });
+      feature: {
+        id: input.featureId ?? "feature:new",
+        projectId: input.projectId,
+        title: input.title,
+      },
+      snapshot: {
+        definition: { id: input.workflowId ?? "feature-delivery", revision: 1 },
+        state: "working",
+        activeStepId: "plan",
+        steps: [],
+      },
+    } as never);
   },
 });
 
@@ -104,7 +105,7 @@ const call = (
               getProjectThreadRecords: (input) =>
                 Effect.succeed(idleThreadProjection(liveThreadShell(input.threadId))),
             }),
-            BotProjectsRecorder,
+            FeatureLaunchRecorder,
           ),
         ),
       ),
@@ -276,9 +277,10 @@ it.effect("bots need the Manage workflows grant; other threads need full access 
     );
     expect(created.isFailure).toBe(false);
 
-    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.delegate"]' WHERE id = ${CAPTAIN_BOT_ID}`;
+    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.answer"]' WHERE id = ${CAPTAIN_BOT_ID}`;
+    // Any bot reads the workflow library, to pick one for the features it starts.
+    expect((yield* call("t3_workflow_list", {}, captain)).isFailure).toBe(false);
     for (const result of [
-      yield* call("t3_workflow_list", {}, captain),
       yield* call("t3_role_list", {}, captain),
       yield* call("t3_workflow_delete", { id: "copy" }, captain),
     ]) {
@@ -305,45 +307,29 @@ it.effect("bots need the Manage workflows grant; other threads need full access 
   }).pipe(Effect.provide(layer)),
 );
 
-it.effect("a bot that sees its projects starts features as itself; nothing else can", () =>
+it.effect("any thread starts a feature in its own project, and only there", () =>
   Effect.gen(function* () {
-    featureStarts.length = 0;
-    const sql = yield* SqlClient.SqlClient;
-    yield* seedCrewProject({ projectId, title: "Workflow tools", workspaceRoot: "/tmp/wt" });
-    yield* (yield* CrewService).ensureDefaults(modelSelection);
-    yield* sql`
-      INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
-      VALUES ('bot-hq:bot-captain', ${CAPTAIN_BOT_ID}, ${projectId}, ${captain}, 'Lead', 'Captain',
-        '', '[]', 1, '{}', 'approval-required', '2026-10-15')
-    `;
-    const input = { projectId, title: "Dark mode", brief: "Add a dark mode toggle" };
+    launches.length = 0;
+    const own = ProjectId.make("project:mcp-test");
+    const input = { title: "Dark mode", brief: "Add a dark mode toggle" };
 
-    // Captain holds the grant from its migration and starts the feature as itself.
-    const started = yield* call("t3_feature_start", input, captain, "approval-required");
+    const started = yield* call("t3_feature_start", input, person, "approval-required");
     expect(started.isFailure).toBe(false);
-    expect(started.result).toMatchObject({ featureId: "feature:new", stage: "plan" });
-    expect(featureStarts).toEqual([{ botId: CAPTAIN_BOT_ID, projectId }]);
-
-    // The service's refusal reaches the agent as it was written.
-    const notMine = yield* call(
-      "t3_feature_start",
-      { ...input, projectId: "not-mine" },
-      captain,
-      "approval-required",
-    );
-    expect(failure(notMine)).toMatchObject({
-      code: "invalid_request",
-      message: "Captain doesn't own project not-mine",
+    expect(started.result).toMatchObject({
+      featureId: "feature:new",
+      projectId: own,
+      stage: "plan",
     });
+    const named = yield* call("t3_feature_start", { ...input, projectId: own }, captain);
+    expect(named.isFailure).toBe(false);
+    expect(launches).toEqual([
+      { projectId: own, workflowId: undefined },
+      { projectId: own, workflowId: undefined },
+    ]);
 
-    // An ordinary thread has no bot to start features for, even with full access.
-    const fromPerson = yield* call("t3_feature_start", input, person);
-    expect(failure(fromPerson).code).toBe("capability_denied");
-
-    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.workflows"]' WHERE id = ${CAPTAIN_BOT_ID}`;
-    const withoutGrant = yield* call("t3_feature_start", input, captain, "approval-required");
-    expect(failure(withoutGrant).code).toBe("capability_denied");
-    expect(featureStarts).toHaveLength(1);
+    const elsewhere = yield* call("t3_feature_start", { ...input, projectId: "elsewhere" }, person);
+    expect(failure(elsewhere).code).toBe("invalid_request");
+    expect(failure(elsewhere).message).toContain("delegate_task");
+    expect(launches).toHaveLength(2);
   }).pipe(Effect.provide(layer)),
 );

@@ -309,7 +309,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             );
           const instanceId = (step.modelSelection ?? member.modelSelection).instanceId;
           if (!(yield* acquireSlot(featureId, instanceId, ignoreLimit))) return;
-          // After a move off Quick task the count starts again, so its start marks new IDs.
+          // After a move to another workflow the count starts again, so its start marks new IDs.
           const generation = copy.eventsFromSequence > 0 ? [copy.eventsFromSequence] : [];
           const executionId =
             step.executionId ??
@@ -833,7 +833,6 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               (source.projectId !== projectId &&
                 (yield* bots.projectOwner(projectId)) !== source.memberId) ||
               !memberFillsRole(member, role, featureId, projectId) ||
-              !source.allowedTools.includes("crew.delegate") ||
               !member.allowedTools.includes("crew.respond") ||
               (role.supervisor !== null &&
                 source.memberId !== bindings[role.supervisor]?.memberId) ||

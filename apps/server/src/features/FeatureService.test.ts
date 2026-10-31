@@ -507,64 +507,6 @@ describe("feature creation", () => {
     ),
   );
 
-  effectIt.effect("moves a running Quick task to a bigger workflow as the same feature", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const workflows = yield* WorkflowService;
-        const crew = yield* CrewService;
-        const executions = yield* WorkflowExecutionStore;
-        const engine = yield* OrchestrationEngineService;
-        yield* workflows.ensureQuickTaskDefinition();
-        yield* features.create({
-          id: "quick",
-          projectId,
-          title: "Export",
-          brief: "Rework the export",
-          workflowId: "quick-task",
-        });
-        yield* features.start("quick", projectId);
-        const handle = (yield* workflows.getFeatureState("quick"))!.steps.get("handle")!;
-        const manager = (yield* crew.getRun(handle.runId!))!.run;
-
-        const moved = yield* features.switchWorkflow({
-          threadId: manager.threadId,
-          note: "It needs a plan first",
-        });
-        expect(moved.featureId).toBe("quick");
-        expect(moved.definition.id).toBe("feature-delivery");
-        expect(moved.activeStepId).toBe("plan");
-        expect((yield* features.get("quick"))!.brief).toBe(
-          "Rework the export\n\nProject manager's notes: It needs a plan first",
-        );
-        // Plan runs, sent from the manager's thread, which now leads the feature.
-        const plan = (yield* workflows.getFeatureState("quick"))!.steps.get("plan")!;
-        expect(plan.status).toBe("running");
-        expect((yield* executions.get("quick"))!.bindings.planner!.dispatchRunId).toBe(manager.id);
-        const lead = (yield* engine.getThreadShell(manager.threadId))!;
-        expect(lead.crew ?? null).toBeNull();
-        expect(lead.feature?.id).toBe("quick");
-        // Closing the Quick task's own request tells whoever asked, and leaves Plan running.
-        const closed = yield* (yield* CrewHandoffService).respond(
-          manager.threadId,
-          "completed",
-          "Not finished: moved to Feature delivery",
-        );
-        expect(closed.status).toBe("completed");
-        yield* (yield* WorkflowExecutionService).reconcileFeature("quick");
-        const after = (yield* workflows.getFeatureState("quick"))!;
-        expect(after.activeStepId).toBe("plan");
-        expect(after.steps.get("plan")!.status).toBe("running");
-
-        // It moves once, and only from a Quick task.
-        const again = yield* features
-          .switchWorkflow({ threadId: manager.threadId, note: "" })
-          .pipe(Effect.flip);
-        expect(again.message).toContain("Only a running Quick task's own step");
-      }),
-    ),
-  );
-
   effectIt.effect("lets a bot's headquarters hand work to managers of the projects it owns", () =>
     withSystem(
       Effect.gen(function* () {

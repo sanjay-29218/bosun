@@ -21,7 +21,7 @@ export interface FeatureWorkflowCopy {
   readonly projectId: ProjectId;
   readonly definition: WorkflowDefinitionType;
   readonly eventVersion: number;
-  /** Where its current workflow's history starts; above 0 once it moved off Quick task. */
+  /** Where its current workflow's history starts; above 0 for a feature that moved workflows. */
   readonly eventsFromSequence: number;
   readonly createdAt: string;
 }
@@ -85,15 +85,6 @@ export interface WorkflowStoreShape {
   ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
   readonly getFeatureCopy: (
     featureId: string,
-  ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
-  /**
-   * Moves a feature onto another workflow revision. Its earlier events stay for the record,
-   * but the new workflow reads only those that come after.
-   */
-  readonly switchFeatureCopy: (
-    featureId: string,
-    workflowId: string,
-    revision: number,
   ) => Effect.Effect<FeatureWorkflowCopy | null, PersistenceSqlError>;
   /** Open features started on the workflow; whether each is still running is the caller's call. */
   readonly listOpenFeaturesUsing: (
@@ -309,31 +300,6 @@ export const WorkflowStoreLive = Layer.effect(
             .pipe(Effect.mapError(queryError)),
       ),
       getFeatureCopy,
-      switchFeatureCopy: Effect.fn("WorkflowStore.switchFeatureCopy")(
-        (featureId, workflowId, revision) =>
-          sql
-            .withTransaction(
-              Effect.gen(function* () {
-                const definition = yield* getDefinition(workflowId, revision);
-                if (definition === null) return null;
-                const updated = yield* sql<{ readonly featureId: string }>`
-                  UPDATE feature_workflows SET workflow_id = ${workflowId},
-                    workflow_revision = ${definition.revision},
-                    definition_json = ${encodeDefinition(definition)},
-                    events_from_sequence =
-                      (SELECT COALESCE(MAX(sequence), 0) + 1 FROM workflow_step_events),
-                    event_version = event_version + 1
-                  WHERE feature_id = ${featureId}
-                  RETURNING feature_id AS featureId
-                `;
-                return updated.length === 0 ? null : yield* getFeatureCopy(featureId);
-              }),
-            )
-            .pipe(
-              Effect.mapError(queryError),
-              Effect.tap((copy) => (copy ? PubSub.publish(changes, featureId) : Effect.void)),
-            ),
-      ),
       listEvents: Effect.fn("WorkflowStore.listEvents")((featureId) =>
         sql<EventRow>`
           SELECT event_json AS eventJson FROM workflow_step_events

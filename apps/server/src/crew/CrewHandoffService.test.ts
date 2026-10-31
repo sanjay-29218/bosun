@@ -148,9 +148,7 @@ describe("Bot handoffs", () => {
               { status: "needs-input", question: "Which file?" },
             ]);
             expect((yield* store.listByProject(projectId, 1)).length).toBe(2);
-            expect((yield* handoffs.waitFor(manager.threadId, question.id)).questionText).toBe(
-              "Which file?",
-            );
+            expect((yield* handoffs.get(question.id))!.questionText).toBe("Which file?");
             const answered = yield* handoffs.answerFromBot(
               manager.threadId,
               question.id,
@@ -165,9 +163,7 @@ describe("Bot handoffs", () => {
               (yield* handoffs.respond(execution.threadId, "completed", "Updated src/main.ts"))
                 .status,
             ).toBe("completed");
-            expect((yield* handoffs.waitFor(manager.threadId, question.id)).responseText).toBe(
-              "Updated src/main.ts",
-            );
+            expect((yield* handoffs.get(question.id))!.responseText).toBe("Updated src/main.ts");
             expect(yield* managerWaitsOn).toEqual([]);
             const late = yield* handoffs.delegate({
               id: "builder-late",

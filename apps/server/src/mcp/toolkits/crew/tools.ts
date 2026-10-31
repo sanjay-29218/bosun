@@ -1,5 +1,4 @@
 import {
-  FeatureCardState,
   IssueDetail,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
@@ -10,7 +9,6 @@ import {
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
-import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
 import { CrewHandoffStore } from "../../../crew/CrewHandoffStore.ts";
 import { CrewStore } from "../../../crew/CrewStore.ts";
@@ -61,20 +59,6 @@ const Handoff = Schema.Struct({
   updatedAt: Schema.String,
 });
 
-const Delegate = Tool.make("crew_delegate", {
-  description:
-    "Hand a bounded task to a permitted crew member, such as the project's builder. Reuse the same request ID when retrying after a lost response.",
-  parameters: Schema.Struct({
-    requestId: Schema.String,
-    targetMemberId: Schema.String,
-    taskText: Schema.String,
-    contextText: Schema.optional(Schema.String),
-  }),
-  success: Handoff,
-  failure,
-  dependencies,
-}).annotate(Tool.Idempotent, true);
-
 const Respond = Tool.make("crew_respond", {
   description:
     "Report a structured completed or failed outcome for the handoff that started this crew run.",
@@ -96,23 +80,6 @@ const Ask = Tool.make("crew_ask", {
   dependencies,
 }).annotate(Tool.Idempotent, true);
 
-const List = Tool.make("crew_list_handoffs", {
-  description:
-    "List the requests delegated by this crew run and their current structured outcomes.",
-  success: Schema.Struct({ handoffs: Schema.Array(Handoff) }),
-  failure,
-  dependencies,
-}).annotate(Tool.Readonly, true);
-
-const Wait = Tool.make("crew_wait_handoff", {
-  description:
-    "Wait up to 30 seconds for one handoff you delegated to finish or ask a question. Its outcome also arrives in your thread as a new message, so after delegating, end your turn instead of calling this again and again. Use it only when you expect an answer within seconds.",
-  parameters: Schema.Struct({ requestId: Schema.String }),
-  success: Handoff,
-  failure,
-  dependencies,
-}).annotate(Tool.Readonly, true);
-
 const Answer = Tool.make("crew_answer", {
   description:
     "Answer a question from a handoff this crew member delegated. The recipient resumes in its linked T3 thread.",
@@ -122,22 +89,6 @@ const Answer = Tool.make("crew_answer", {
   dependencies,
 }).annotate(Tool.Idempotent, false);
 
-const SwitchWorkflow = Tool.make("crew_switch_workflow", {
-  description:
-    "From a Quick task's step, move its feature to a bigger workflow when the work needs planning or design first. The feature carries on at that workflow's first stage with your notes added to its brief, and this thread leads it. Omit workflowId for the bot's default workflow. Don't also call crew_respond.",
-  parameters: Schema.Struct({
-    note: Schema.String,
-    workflowId: Schema.optional(Schema.String),
-  }),
-  success: Schema.Struct({
-    featureId: Schema.String,
-    workflow: Schema.String,
-    stage: Schema.NullOr(Schema.String),
-  }),
-  failure,
-  dependencies: [...dependencies, FeatureService],
-}).annotate(Tool.Idempotent, false);
-
 const StageHandoff = Tool.make("crew_stage_handoff", {
   description:
     "Read the full handoff this workflow stage started from: the brief, the outputs it receives, notes from earlier stages and people, and the branch and commit. Nothing else is passed between stages.",
@@ -145,44 +96,6 @@ const StageHandoff = Tool.make("crew_stage_handoff", {
   failure,
   dependencies: [...dependencies, WorkflowService],
 }).annotate(Tool.Readonly, true);
-
-const BotProject = Schema.Struct({
-  projectId: Schema.String,
-  title: Schema.String,
-  workspaceRoot: Schema.String,
-  projectManagerId: Schema.String,
-  features: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      title: Schema.String,
-      state: FeatureCardState,
-      stage: Schema.NullOr(Schema.String),
-    }),
-  ),
-});
-
-const ListProjects = Tool.make("crew_list_projects", {
-  description:
-    "List the projects this bot owns, with each project's manager and its features. Hand a project work with t3_feature_start.",
-  success: Schema.Struct({ projects: Schema.Array(BotProject) }),
-  failure,
-  dependencies: [...dependencies, BotProjects],
-}).annotate(Tool.Readonly, true);
-
-const CreateProject = Tool.make("crew_create_project", {
-  description:
-    "Start a project this bot owns: a fresh Git repository named `name`, or a clone of `repositoryUrl` named `name`. Returns it with its manager.",
-  parameters: Schema.Struct({
-    name: Schema.String,
-    repositoryUrl: Schema.optional(Schema.String),
-  }),
-  success: Schema.Struct({
-    ...BotProject.fields,
-    commitError: Schema.optional(Schema.String),
-  }),
-  failure,
-  dependencies: [...dependencies, BotProjects],
-}).annotate(Tool.Destructive, false);
 
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
@@ -287,16 +200,10 @@ const UpdateTodo = Tool.make("crew_update_todo", {
 }).annotate(Tool.Destructive, false);
 
 export const CrewToolkit = Toolkit.make(
-  Delegate,
   Respond,
   Ask,
-  List,
-  Wait,
   Answer,
   StageHandoff,
-  SwitchWorkflow,
-  ListProjects,
-  CreateProject,
   LinkIssue,
   ListIssues,
   CreateTodo,

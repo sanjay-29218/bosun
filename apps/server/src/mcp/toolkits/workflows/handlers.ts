@@ -1,7 +1,5 @@
 import {
-  headquartersBotId,
   OrchestratorMcpFailure,
-  ProjectId,
   type FeatureWorkspace,
   type RoleCreateInput,
   type RoleUpdateInput,
@@ -13,9 +11,9 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
-import { BotProjects } from "../../../bots/BotProjects.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
-import { crewThreadGrants } from "../../../crew/crewMcpCapabilities.ts";
+import { FeatureService } from "../../../features/FeatureService.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkflowService } from "../../../workflows/WorkflowService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -30,37 +28,6 @@ const checkWrite = asWorkflowManager(
   fullAccessCaller(
     "Changing workflows and roles needs a live full-access/default calling thread or a full-access client.",
   ),
-);
-
-/**
- * The bot whose headquarters is calling, once it may reach its projects. Features start for a bot, in the
- * projects it owns, so other callers can't start them.
- */
-const callingBot = McpInvocationContext.McpInvocationContext.pipe(
-  Effect.flatMap((scope) => {
-    const botId = scope.thread === undefined ? null : headquartersBotId(scope.thread.threadId);
-    if (scope.thread === undefined || botId === null) {
-      return Effect.fail(
-        new OrchestratorMcpFailure({
-          code: "capability_denied",
-          message: "Only a bot starts features this way, from its own thread.",
-        }),
-      );
-    }
-    return crewThreadGrants(scope.thread.threadId).pipe(
-      Effect.flatMap((grants) =>
-        grants?.includes("crew.projects")
-          ? Effect.succeed(botId)
-          : Effect.fail(
-              new OrchestratorMcpFailure({
-                code: "capability_denied",
-                message:
-                  "This bot can't hand work to its projects. A person can allow it with \"See its projects\" in the bot's Tools settings.",
-              }),
-            ),
-      ),
-    );
-  }),
 );
 
 const isMcpFailure = Schema.is(OrchestratorMcpFailure);
@@ -81,10 +48,12 @@ const writing = guarded(checkWrite);
 const make = Effect.gen(function* () {
   const workflows = yield* WorkflowService;
   const crew = yield* CrewService;
-  const botProjects = yield* BotProjects;
+  const features = yield* FeatureService;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
   return {
     t3_workflow_list: McpToolAccess.reads(() =>
-      reading(workflows.listLatestDefinitions()).pipe(
+      workflows.listLatestDefinitions().pipe(
+        Effect.mapError(asMcpFailure),
         Effect.map((definitions) => ({
           workflows: definitions.map((definition) => ({
             id: definition.id,
@@ -96,14 +65,11 @@ const make = Effect.gen(function* () {
       ),
     ),
     t3_workflow_get: McpToolAccess.reads((input: { readonly id: string }) =>
-      reading(
-        workflows
-          .getLatestDefinition(input.id)
-          .pipe(
-            Effect.filterOrFail(Predicate.isNotNull, () =>
-              invalid(`Workflow not found: ${input.id}. t3_workflow_list shows the library.`),
-            ),
-          ),
+      workflows.getLatestDefinition(input.id).pipe(
+        Effect.filterOrFail(Predicate.isNotNull, () =>
+          invalid(`Workflow not found: ${input.id}. t3_workflow_list shows the library.`),
+        ),
+        Effect.mapError(asMcpFailure),
       ),
     ),
     t3_workflow_create: McpToolAccess.writesWithCapability(
@@ -126,25 +92,43 @@ const make = Effect.gen(function* () {
     t3_role_update: McpToolAccess.writesWithCapability((input: typeof RoleUpdateInput.Type) =>
       writing(crew.updateRole(input)),
     ),
-    t3_feature_start: McpToolAccess.writesWithCapability(
+    t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {
-        readonly projectId: string;
+        readonly projectId?: string | undefined;
         readonly title: string;
         readonly brief: string;
         readonly workflowId?: string | undefined;
         readonly featureId?: string | undefined;
         readonly workspace?: FeatureWorkspace | undefined;
       }) =>
-        callingBot.pipe(
-          Effect.flatMap((botId) =>
-            botProjects.startFeature({
-              ...input,
-              botId,
-              projectId: ProjectId.make(input.projectId),
-            }),
-          ),
-          Effect.mapError(asMcpFailure),
-        ),
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.requireThreadScope(
+            yield* McpInvocationContext.McpInvocationContext,
+            "t3_feature_start",
+          );
+          const shell = yield* threads.getThreadShell(scope.thread.threadId);
+          if (shell === null) return yield* invalid("This thread has no project");
+          if (input.projectId !== undefined && input.projectId !== shell.projectId) {
+            return yield* invalid(
+              "A feature starts in this thread's own project. To start work in another project, hand it a task with delegate_task and target.projectId.",
+            );
+          }
+          const { feature, snapshot } = yield* features.launch({
+            ...input,
+            projectId: shell.projectId,
+          });
+          return {
+            featureId: feature.id,
+            projectId: feature.projectId,
+            title: feature.title,
+            workflowId: snapshot.definition.id,
+            workflowRevision: snapshot.definition.revision,
+            state: snapshot.state ?? null,
+            stage: snapshot.activeStepId,
+            threadId:
+              snapshot.steps.find((step) => step.id === snapshot.activeStepId)?.threadId ?? null,
+          };
+        }).pipe(Effect.mapError(asMcpFailure)),
     ),
   };
 });

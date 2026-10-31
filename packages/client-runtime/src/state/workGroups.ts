@@ -110,7 +110,7 @@ function buildGroup<T extends WorkGroupThread>(
       .sort((left, right) => left.crew!.index - right.crew!.index || byCreated(left, right));
     const labelled = labelEntries(stageThreads);
     const current = members.find((thread) => thread.crew?.current)?.crew ?? null;
-    // A one-stage workflow, such as Quick task, has no progress to show.
+    // A one-stage workflow has no progress to show.
     const total = current?.total ?? stageThreads.at(-1)?.crew?.total ?? 0;
     const staged = total > 1;
     return {

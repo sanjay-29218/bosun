@@ -10,6 +10,7 @@ import {
   type FeatureCreateInput,
   type FeatureRecord as FeatureRecordSchema,
   type FeatureThreadLink,
+  type FeatureWorkspace,
   PROJECT_MANAGER_ROLE_ID,
   type ProjectId,
   type ThreadId,
@@ -42,7 +43,6 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 import { WorkflowService, type WorkflowServiceError } from "../workflows/WorkflowService.ts";
 import { projectWorkflowState } from "../workflows/WorkflowState.ts";
 import { WorkflowStore, type FeatureWorkflowCopy } from "../workflows/WorkflowStore.ts";
-import { QUICK_TASK_WORKFLOW_ID, STARTER_WORKFLOW_ID } from "../workflows/starterWorkflow.ts";
 import { featureBoardCard, featureBoardRunId } from "./featureBoard.ts";
 import {
   decodeFeatureIssue,
@@ -92,6 +92,21 @@ export interface FeatureServiceShape {
     id: string,
     projectId: ProjectId,
   ) => Effect.Effect<WorkflowFeatureSnapshot, FeatureServiceError>;
+  /**
+   * Creates a feature and starts it on `workflowId`, else the owning bot's default workflow, else
+   * Feature delivery. A retry with the same `featureId` returns the same feature.
+   */
+  readonly launch: (input: {
+    readonly projectId: ProjectId;
+    readonly title: string;
+    readonly brief: string;
+    readonly workflowId?: string | undefined;
+    readonly featureId?: string | undefined;
+    readonly workspace?: FeatureWorkspace | undefined;
+  }) => Effect.Effect<
+    { readonly feature: FeatureRecord; readonly snapshot: WorkflowFeatureSnapshot },
+    FeatureServiceError
+  >;
   /** Opens a closed feature and resumes it: where it stopped, or at `stepId` after Done. */
   readonly reopen: (input: {
     readonly id: string;
@@ -117,17 +132,6 @@ export interface FeatureServiceShape {
     readonly threadId: ThreadId;
     readonly requestId: string;
     readonly actorId: string;
-  }) => Effect.Effect<WorkflowFeatureSnapshot, FeatureServiceError>;
-  /**
-   * Moves a running Quick task onto a bigger workflow, from the project manager's own step: the
-   * same feature carries on at the new workflow's first stage, with the manager's notes added to
-   * its brief and the manager's thread as its lead. Without `workflowId` it moves to the owning
-   * bot's default workflow, or Feature delivery.
-   */
-  readonly switchWorkflow: (input: {
-    readonly threadId: ThreadId;
-    readonly workflowId?: string | undefined;
-    readonly note: string;
   }) => Effect.Effect<WorkflowFeatureSnapshot, FeatureServiceError>;
   /** The feature stage a thread drives, preferring one it is the current stage of. */
   readonly threadLink: (
@@ -697,6 +701,33 @@ export const FeatureServiceLive = Layer.effect(
     );
 
     /** The stage `threadId` drives in one feature, from the workflow fold alone. */
+    const launch: FeatureServiceShape["launch"] = Effect.fn("FeatureService.launch")(
+      function* (input) {
+        const ownerId = yield* bots.projectOwner(input.projectId);
+        const workflowId =
+          input.workflowId ??
+          (ownerId === null ? null : (yield* bots.get(ownerId))?.defaultWorkflowId) ??
+          (yield* workflows.ensureStarterDefinition()).id;
+        const feature = yield* create({
+          id: input.featureId ?? `feature:${NodeCrypto.randomUUID()}`,
+          projectId: input.projectId,
+          title: input.title.trim(),
+          brief: input.brief.trim(),
+          workflowId,
+          ...(input.workspace ? { workspace: input.workspace } : {}),
+        });
+        const snapshot = yield* start(feature.id, input.projectId).pipe(
+          Effect.mapError(
+            (error) =>
+              new FeatureValidationError(
+                `Feature ${feature.id} was created but didn't start: ${error.message}`,
+              ),
+          ),
+        );
+        return { feature, snapshot };
+      },
+    );
+
     const stageInFeature = Effect.fn("FeatureService.stageInFeature")(function* (
       featureId: string,
       projectId: ProjectId,
@@ -767,6 +798,7 @@ export const FeatureServiceLive = Layer.effect(
     return FeatureService.of({
       start,
       setIssue,
+      launch,
       setIssueForThread: Effect.fn("FeatureService.setIssueForThread")(function* (threadId, url) {
         const [thread] = yield* sql<{
           readonly projectId: ProjectId;
@@ -890,97 +922,6 @@ export const FeatureServiceLive = Layer.effect(
           )
           .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
         return yield* start(input.featureId, input.projectId);
-      }, ownership.withPermits(1)),
-      switchWorkflow: Effect.fn("FeatureService.switchWorkflow")(function* (input) {
-        const refuse = (reason: string) => Effect.fail(new FeatureValidationError(reason));
-        const runId = yield* handoffStore.getRunByThread(input.threadId);
-        const incoming = runId ? yield* handoffStore.getForTargetRun(runId) : null;
-        const featureId = incoming ? yield* executions.findFeatureForHandoff(incoming.id) : null;
-        const feature = featureId ? yield* get(featureId) : null;
-        const copy = featureId ? yield* workflows.getFeatureCopy(featureId) : null;
-        const state = featureId ? yield* workflows.getFeatureState(featureId) : null;
-        const active = state?.activeStepId ? state.steps.get(state.activeStepId) : undefined;
-        if (
-          !feature ||
-          !copy ||
-          !state ||
-          feature.status !== "open" ||
-          copy.definition.id !== QUICK_TASK_WORKFLOW_ID ||
-          copy.eventsFromSequence > 0 ||
-          active?.runId !== runId ||
-          active.status !== "running"
-        ) {
-          return yield* refuse(
-            "Only a running Quick task's own step can move it to another workflow",
-          );
-        }
-        const ownerId = yield* bots.projectOwner(feature.projectId);
-        const fallback = ownerId === null ? null : (yield* bots.get(ownerId))?.defaultWorkflowId;
-        const workflowId =
-          input.workflowId ??
-          (fallback && fallback !== QUICK_TASK_WORKFLOW_ID ? fallback : STARTER_WORKFLOW_ID);
-        if (workflowId === QUICK_TASK_WORKFLOW_ID) {
-          return yield* refuse("Name a bigger workflow to move this Quick task to");
-        }
-        const note = input.note.trim();
-        const brief = note ? `${feature.brief}\n\nProject manager's notes: ${note}` : feature.brief;
-        if (!validText(brief, 16_000)) {
-          return yield* refuse("The notes don't fit in the feature's brief");
-        }
-        const latest =
-          workflowId === STARTER_WORKFLOW_ID
-            ? yield* workflows.ensureStarterDefinition()
-            : yield* workflows.getLatestDefinition(workflowId);
-        if (!latest) return yield* refuse(`Workflow ${workflowId} doesn't exist`);
-        yield* workflows.validateDefinition(latest);
-        const next = yield* sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const moved = yield* workflowStore.switchFeatureCopy(
-                feature.id,
-                latest.id,
-                latest.revision,
-              );
-              if (!moved) return yield* refuse("The feature changed; try again");
-              const crewAssignments = yield* assembleCrew(feature.id, feature.projectId, moved);
-              const updatedAt = DateTime.formatIso(yield* DateTime.now);
-              yield* sql`
-                UPDATE features SET brief = ${brief},
-                  crew_assignments_json = ${encodeAssignments(crewAssignments)},
-                  updated_at = ${updatedAt}
-                WHERE id = ${feature.id}
-              `;
-              yield* executions.remove(feature.id);
-              return {
-                record: {
-                  ...feature,
-                  brief,
-                  crewAssignments,
-                  workflowId: latest.id,
-                  workflowRevision: latest.revision,
-                  updatedAt,
-                },
-                definition: moved.definition,
-              };
-            }),
-          )
-          .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
-        // The manager's thread leads from here: it sends the stages it supervises and hears back.
-        yield* engine
-          .dispatch({
-            type: "thread.crew-stage.set",
-            commandId: CommandId.make(`feature-switch:${feature.id}:lead`),
-            threadId: input.threadId,
-            crew: null,
-            feature: featureTag(next.record),
-          })
-          .pipe(Effect.andThen(executions.clearStageThread(input.threadId)));
-        yield* execution.attach(
-          feature.id,
-          feature.projectId,
-          yield* leadBindings(next.record, next.definition, { [incoming!.targetMemberId]: runId! }),
-        );
-        return (yield* workflows.getFeatureSnapshot(feature.id, feature.projectId))!;
       }, ownership.withPermits(1)),
       detachThread: Effect.fn("FeatureService.detachThread")(function* ({
         projectId,

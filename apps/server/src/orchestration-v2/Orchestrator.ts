@@ -7313,7 +7313,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }),
         runtimeMode: command.runtimeMode,
         interactionMode: command.interactionMode,
-        ...(command.workspaceStrategy === undefined ? {} : { branch: null, worktreePath: null }),
+        // The parent's checkout belongs to its own project, so another project starts at its root.
+        ...(command.workspaceStrategy === undefined &&
+        (command.projectId === undefined || command.projectId === parentProjection.thread.projectId)
+          ? {}
+          : { branch: null, worktreePath: null }),
+        ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
       };
       const task: OrchestrationV2Subagent = {
         id: taskNodeId,

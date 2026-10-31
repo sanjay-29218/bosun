@@ -41,6 +41,7 @@ import StageChecksInProportion from "./Migrations/082_StageChecksInProportion.ts
 import FeatureWorkspaces from "./Migrations/083_FeatureWorkspaces.ts";
 import OneBuilderPerFeature from "./Migrations/084_OneBuilderPerFeature.ts";
 import BotLongConversation from "./Migrations/086_BotLongConversation.ts";
+import CrewFullAccess from "./Migrations/087_CrewFullAccess.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -75,6 +76,7 @@ const migrationEntries = [
   [84, "OneBuilderPerFeature", OneBuilderPerFeature],
   // 085 is taken by work that lands separately.
   [86, "BotLongConversation", BotLongConversation],
+  [87, "CrewFullAccess", CrewFullAccess],
 ] as const;
 
 const legacyNames = new Set([
