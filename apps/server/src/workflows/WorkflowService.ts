@@ -17,7 +17,6 @@ import * as Schema from "effect/Schema";
 
 import { projectManagerMemberId } from "../crew/CrewService.ts";
 import { CrewStore, type CrewMember } from "../crew/CrewStore.ts";
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { validateWorkflowDefinition, WorkflowValidationError } from "./WorkflowGraph.ts";
@@ -39,7 +38,12 @@ import {
 } from "./StageHandoff.ts";
 import { WorkflowStageHandoffStore } from "./WorkflowStageHandoffStore.ts";
 import { WorkflowWorkspace, type StageThreadDiff } from "./WorkflowWorkspace.ts";
-import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
+import {
+  AUTO_WORKFLOW_ID,
+  makeAutoWorkflow,
+  makeStarterWorkflow,
+  STARTER_WORKFLOW_ID,
+} from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
   readonly validateDefinition: (
@@ -140,7 +144,6 @@ export const WorkflowServiceLive = Layer.effect(
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
     const crew = yield* CrewStore;
-    const handoffs = yield* CrewHandoffStore;
     const runtime = yield* CrewThreadRuntime;
     const workspace = yield* WorkflowWorkspace;
     const stageHandoffs = yield* WorkflowStageHandoffStore;
@@ -211,31 +214,6 @@ export const WorkflowServiceLive = Layer.effect(
             : new WorkflowTransitionError("Invalid workflow history"),
       });
 
-    const handoffEvidence = Effect.fn("WorkflowService.handoffEvidence")(function* (
-      id: string | null,
-      status: "failed" | "queued",
-      runId?: string | null,
-      detail?: string | null,
-    ) {
-      if (id === null) return null;
-      const current = yield* handoffs.get(id);
-      const receipts = yield* handoffs.listReceipts(id);
-      const candidates = [
-        ...receipts.map((receipt) => receipt.handoff),
-        ...(current ? [current] : []),
-      ];
-      return (
-        candidates.findLast(
-          (handoff) =>
-            handoff.status === status &&
-            (runId === undefined || handoff.targetRunId === runId) &&
-            (detail === undefined ||
-              handoff.lastError?.trim() === detail?.trim() ||
-              handoff.responseText?.trim() === detail?.trim()),
-        ) ?? null
-      );
-    });
-
     // Untraced: each caller below is the span.
     const ensureBuiltIn = Effect.fnUntraced(function* (
       id: string,
@@ -261,7 +239,12 @@ export const WorkflowServiceLive = Layer.effect(
     return WorkflowService.of({
       validateDefinition: checkDefinition,
       ensureStarterDefinition: Effect.fn("WorkflowService.ensureStarterDefinition")(function* () {
-        return yield* ensureBuiltIn(STARTER_WORKFLOW_ID, makeStarterWorkflow);
+        const existing = yield* store.getLatestDefinition(STARTER_WORKFLOW_ID);
+        if (existing !== null) return existing;
+        // A new library gets the auto variant with it; one deleted later stays deleted.
+        const starter = yield* ensureBuiltIn(STARTER_WORKFLOW_ID, makeStarterWorkflow);
+        yield* ensureBuiltIn(AUTO_WORKFLOW_ID, makeAutoWorkflow);
+        return starter;
       }),
       createDefinition: Effect.fn("WorkflowService.createDefinition")(function* (definition) {
         if (definition.revision !== 1) {
@@ -482,9 +465,9 @@ export const WorkflowServiceLive = Layer.effect(
       getStageHandoff: stageHandoffs.get,
       getStageHandoffForThread: Effect.fn("WorkflowService.getStageHandoffForThread")(
         function* (projectId, threadId) {
-          const runId = yield* handoffs.getRunByThread(threadId);
-          const handoff = runId ? yield* handoffs.getForTargetRun(runId) : null;
-          const record = handoff ? yield* stageHandoffs.get(handoff.id) : null;
+          const run = yield* crew.getRunByThread(threadId);
+          const start = run ? yield* store.findStageStart(run.id) : null;
+          const record = start ? yield* stageHandoffs.get(start.handoffId) : null;
           if (!record) return null;
           const copy = yield* store.getFeatureCopy(record.featureId);
           return copy?.projectId === projectId ? record : null;
@@ -516,24 +499,18 @@ export const WorkflowServiceLive = Layer.effect(
           if (event.kind === "started" && step?.type === "task") {
             const run = event.runId ? yield* crew.getRun(event.runId) : null;
             const member = run ? yield* crew.getMember(run.memberId) : null;
-            const liveHandoff = event.sourceId ? yield* handoffs.get(event.sourceId) : null;
-            // Cancellation can arrive before the dispatcher records its start. Replay
-            // the original dispatch receipt, then its cancellation, in that order.
-            const handoff =
-              liveHandoff?.status === "cancelled"
-                ? yield* handoffEvidence(event.sourceId, "queued", run?.id)
-                : liveHandoff;
+            // The stage record the run started from is the dispatch receipt.
+            const record = event.sourceId ? yield* stageHandoffs.get(event.sourceId) : null;
             const role = copy.definition.roles[step.role];
             if (
               !run ||
               !member ||
-              !handoff ||
+              !record ||
               !role ||
               run.projectId !== copy.projectId ||
-              handoff.projectId !== copy.projectId ||
-              handoff.targetRunId !== run.id ||
-              handoff.targetMemberId !== member.id ||
-              handoff.status === "cancelled" ||
+              record.featureId !== featureId ||
+              record.stepId !== event.stepId ||
+              record.executionId !== event.executionId ||
               !memberFillsRole(member, role, featureId, copy.projectId)
             ) {
               return yield* Effect.fail(
@@ -550,21 +527,6 @@ export const WorkflowServiceLive = Layer.effect(
             return yield* Effect.fail(
               new WorkflowTransitionError("Step result does not come from the step's run"),
             );
-          }
-          if (event.kind === "failed" && event.sourceKind === "handoff") {
-            const runId = current.steps.get(event.stepId)?.runId;
-            const handoff = yield* handoffEvidence(event.sourceId, "failed", runId, event.detail);
-            const run = runId ? yield* crew.getRun(runId) : null;
-            if (
-              !handoff ||
-              !run ||
-              handoff.projectId !== copy.projectId ||
-              handoff.targetMemberId !== run.memberId
-            ) {
-              return yield* Effect.fail(
-                new WorkflowTransitionError("Step event does not match its crew handoff"),
-              );
-            }
           }
           if (event.kind === "answered") {
             const start = events.findLast(

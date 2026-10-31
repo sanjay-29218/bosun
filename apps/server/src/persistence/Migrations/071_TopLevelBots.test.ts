@@ -55,8 +55,8 @@ it.effect("makes the Captain crew member the Captain bot that owns every project
     yield* runMigrations();
 
     // Captain keeps its instructions, tools, model and runtime mode as a bot (073 then adds
-    // the grants a bot oversees its projects with, 076 lets it manage workflows, and 087 drops
-    // the grants thread tools replaced).
+    // the grants a bot oversees its projects with, 076 lets it manage workflows, 087 drops
+    // the grants thread tools replaced, and 089 turns answering into deciding).
     assert.deepStrictEqual(
       yield* sql`
         SELECT id, name, instructions, allowed_tools_json AS tools,
@@ -68,7 +68,7 @@ it.effect("makes the Captain crew member the Captain bot that owns every project
           id: "bot-captain",
           name: "Captain",
           instructions: "bot-captain instructions",
-          tools: '["crew.answer","crew.workflows"]',
+          tools: '["crew.decide","crew.workflows"]',
           model,
           runtimeMode: "auto",
           position: 0,

@@ -29,7 +29,6 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -296,7 +295,6 @@ export const FeatureServiceLive = Layer.effect(
     const workflowStore = yield* WorkflowStore;
     const executions = yield* WorkflowExecutionStore;
     const execution = yield* WorkflowExecutionService;
-    const handoffStore = yield* CrewHandoffStore;
     const engine = yield* OrchestratorV2;
     const titleServices = yield* Effect.context<
       | ProjectStore.ProjectStoreV2
@@ -752,12 +750,11 @@ export const FeatureServiceLive = Layer.effect(
 
     const threadLink: FeatureServiceShape["threadLink"] = Effect.fn("FeatureService.threadLink")(
       function* (projectId, threadId) {
-        const runId = yield* handoffStore.getRunByThread(threadId);
-        if (runId) {
-          const handoff = yield* handoffStore.getForTargetRun(runId);
-          const featureId = handoff ? yield* executions.findFeatureForHandoff(handoff.id) : null;
-          const stage = featureId
-            ? yield* stageInFeature(featureId, projectId, threadId, runId)
+        const run = yield* crewStore.getRunByThread(threadId);
+        if (run) {
+          const start = yield* workflowStore.findStageStart(run.id);
+          const stage = start
+            ? yield* stageInFeature(start.featureId, projectId, threadId, run.id)
             : null;
           return { stage, attachable: false };
         }
@@ -823,7 +820,7 @@ export const FeatureServiceLive = Layer.effect(
             new FeatureValidationError("Unarchive the thread before making it a feature"),
           );
         }
-        if (yield* handoffStore.getRunByThread(input.threadId)) {
+        if (yield* crewStore.getRunByThread(input.threadId)) {
           return yield* Effect.fail(
             new FeatureValidationError("A crew thread can't become a feature"),
           );

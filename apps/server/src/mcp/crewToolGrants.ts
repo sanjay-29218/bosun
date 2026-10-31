@@ -63,9 +63,7 @@ export const CrewGatedToolkits = {
   }),
   crew: gated(CrewToolkit, {
     crew_respond: "crew.respond",
-    crew_ask: "crew.ask",
-    crew_answer: "crew.answer",
-    crew_stage_handoff: "crew.respond",
+    crew_decide: "crew.decide",
     crew_link_issue: "crew",
     crew_list_issues: "crew",
     crew_create_todo: "crew",

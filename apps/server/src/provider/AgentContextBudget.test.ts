@@ -9,8 +9,6 @@ import { McpSchema, McpServer } from "effect/ai";
 
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
-import { CrewHandoffService } from "../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -89,8 +87,6 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(VcsStatusBroadcaster)({}),
   // Bosun's crew tools.
   Layer.mock(BotService)({}),
-  Layer.mock(CrewHandoffService)({}),
-  Layer.mock(CrewHandoffStore)({}),
   Layer.mock(CrewService)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(FeatureService)({}),

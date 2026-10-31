@@ -31,11 +31,12 @@ it.effect("lets the Builder run parallel subagents, keeping edited instructions"
       SELECT id, allowed_tools_json AS tools, instructions AS text FROM roles ORDER BY id
     `;
     const builder = rows.find((row) => row.id === "role:builder")!;
-    // 087 later drops the grant again: crew get every T3 tool an ordinary thread gets.
-    assert.deepStrictEqual(JSON.parse(builder.tools), ["crew.respond", "crew.ask"]);
+    // 087 later drops the grant again: crew get every T3 tool an ordinary thread gets. 089
+    // drops crew.ask: a stage asks with crew_respond.
+    assert.deepStrictEqual(JSON.parse(builder.tools), ["crew.respond"]);
     assert.include(builder.text, "delegate_task");
     const planner = rows.find((row) => row.id === "role:planner")!;
-    assert.deepStrictEqual(JSON.parse(planner.tools), ["crew.respond", "crew.ask"]);
+    assert.deepStrictEqual(JSON.parse(planner.tools), ["crew.respond"]);
     assert.strictEqual(planner.text, "Plan it.");
 
     // Edited builder instructions stay as written; running it again changes nothing.

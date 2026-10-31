@@ -170,10 +170,10 @@ export const previousFailure = (
   return { previousError: failed?.detail ?? "The previous attempt did not finish" };
 };
 
-// CrewHandoffService bounds delegated text. The task carries only the step's task.
+// Keeps every stage prompt small. The task carries only the step's task.
 const CONTEXT_LIMIT = 4_000;
 const MAX_NOTE = 1_500;
-const MORE = "Some of this handoff was shortened. Call crew_stage_handoff for the full record.";
+const MORE = "Some of this handoff was shortened to fit.";
 
 const clip = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
@@ -189,7 +189,7 @@ const describeOutput = (output: WorkflowStageOutput) =>
  * Renders the stage prompt from the handoff record alone. The text is deterministic,
  * so re-delegating after a restart matches the persisted request. When the record
  * does not fit, outputs, then notes, then the brief are shortened, and the crew member is
- * pointed at crew_stage_handoff.
+ * told so.
  */
 export const renderStageHandoff = (
   record: WorkflowStageHandoff,

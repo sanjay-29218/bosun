@@ -112,7 +112,6 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
 import * as BotService from "./bots/BotService.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as IssueService from "./issues/IssueService.ts";
 import * as TicketService from "./tickets/TicketService.ts";
@@ -3266,7 +3265,6 @@ export const layer = Layer.unwrap(
     const crewServices = {
       bots: yield* BotService.BotService,
       crew: yield* CrewService,
-      crewHandoffs: yield* CrewHandoffService,
       features: yield* FeatureService,
       issues: yield* IssueService.IssueService,
       tickets: yield* TicketService.TicketService,

@@ -174,7 +174,7 @@ describe("stage handoffs", () => {
     expect(back.notes.map((note) => note.text)).toContain("The design misses the empty state.");
   });
 
-  it("renders deterministically and fits a long brief by pointing at the full record", () => {
+  it("renders deterministically and fits a long brief and says it was shortened", () => {
     const record: WorkflowStageHandoff = {
       id: "workflow:abc",
       featureId: "feature",
@@ -210,11 +210,11 @@ describe("stage handoffs", () => {
     expect(short.contextText).toContain("Worktree: /repo on crew/kanban @ 3f2a1c0deadb");
     expect(short.contextText).toContain("Scope: apps/web");
     expect(short.contextText).toContain("Brief:\nBuild a kanban board.");
-    expect(short.contextText).not.toContain("crew_stage_handoff");
+    expect(short.contextText).not.toContain("shortened");
 
     const long = renderStageHandoff({ ...record, brief: "x".repeat(16_000) });
     expect(long.contextText.length).toBeLessThanOrEqual(4_000);
-    expect(long.contextText).toContain("crew_stage_handoff");
+    expect(long.contextText).toContain("shortened");
     expect(long.contextText).toContain("call crew_respond with outcome set to one of built");
   });
 });

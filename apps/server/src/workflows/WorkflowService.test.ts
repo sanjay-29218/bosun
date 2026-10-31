@@ -17,7 +17,6 @@ import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
 
 import { CrewService } from "../crew/CrewService.ts";
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
 import {
@@ -109,7 +108,6 @@ describe("Workflow service", () => {
       const exercise = Effect.gen(function* () {
         const engine = yield* OrchestrationEngineService;
         const crewService = yield* CrewService;
-        const handoffs = yield* CrewHandoffStore;
         const workflow = yield* WorkflowService;
         yield* createProject(engine, projectId);
         yield* createProject(engine, otherProjectId);
@@ -118,6 +116,11 @@ describe("Workflow service", () => {
 
         const starter = yield* workflow.ensureStarterDefinition();
         expect(Object.keys(starter.steps)).toEqual(["plan", "design", "build", "qa", "end"]);
+        // A new library gets the variant where the feature's lead decides.
+        expect((yield* workflow.getLatestDefinition("feature-delivery-auto"))?.defaults).toEqual({
+          ...starter.defaults,
+          decisions: "lead",
+        });
         expect(yield* workflow.ensureStarterDefinition()).toEqual(starter);
 
         const researcher = yield* crewService.createRole({
@@ -184,12 +187,6 @@ describe("Workflow service", () => {
           modelSelection: template.modelSelection,
           runtimeMode: template.runtimeMode,
         });
-        const managerRun = yield* crewService.createRun({
-          id: "manager-run",
-          memberId: `bot-manager:${projectId}`,
-          projectId,
-          taskText: "Supervise feature one",
-        });
         const plannerRun = yield* crewService.createRun({
           id: "run-plan-1",
           memberId: planner.id,
@@ -220,25 +217,13 @@ describe("Workflow service", () => {
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start).pipe(Effect.result))._tag,
         ).toBe("Failure");
-        yield* handoffs.insert({
-          id: "handoff-1",
-          parentId: null,
-          sourceRunId: managerRun.id,
-          targetMemberId: planner.id,
-          targetRunId: plannerRun.id,
-          projectId,
-          taskText: "Plan feature one",
-          contextText: "",
-          depth: 1,
-          status: "running",
-          responseText: null,
-          questionText: null,
-          lastError: null,
-          notificationState: "none",
-          noticeVersion: 0,
+        yield* workflow.prepareStageHandoff({
+          featureId: "feature-one",
+          stepId: "plan",
+          executionId: "execution-1",
           attempt: 1,
-          createdAt: "2026-09-29T00:00:00.000Z",
-          updatedAt: "2026-09-29T00:00:00.000Z",
+          handoffId: "handoff-1",
+          worktreePath: null,
         });
         expect(
           (yield* workflow.recordTrustedEvent("feature-one", start)).steps.get("plan")?.status,
@@ -334,33 +319,31 @@ describe("Workflow service", () => {
           projectId,
           taskText: "Plan retry feature",
         });
-        yield* handoffs.insert({
-          ...(yield* handoffs.get("handoff-1"))!,
-          id: "handoff-retry",
-          targetMemberId: retryBot.id,
-          targetRunId: firstAttempt.id,
-          status: "running",
-          responseText: null,
-          questionText: null,
-        });
+        const retryRecord = (attempt: number) =>
+          workflow.prepareStageHandoff({
+            featureId: "feature-retry",
+            stepId: "plan",
+            executionId: "retry-execution",
+            attempt,
+            handoffId: `handoff-retry-${attempt}`,
+            worktreePath: null,
+          });
+        yield* retryRecord(1);
         yield* workflow.recordTrustedEvent(
           "feature-retry",
           stepEvent("retry-start-1", "started", {
             executionId: "retry-execution",
             runId: firstAttempt.id,
             sourceKind: "handoff",
-            sourceId: "handoff-retry",
+            sourceId: "handoff-retry-1",
           }),
         );
-        yield* handoffs.transition("handoff-retry", ["running"], "failed", "2026-09-29T00:00:02Z", {
-          lastError: "Provider unavailable",
-        });
         yield* workflow.recordTrustedEvent(
           "feature-retry",
           stepEvent("retry-failed-1", "failed", {
             executionId: "retry-execution",
-            sourceKind: "handoff",
-            sourceId: "handoff-retry",
+            sourceKind: "workflow",
+            sourceId: firstAttempt.id,
             detail: "Provider unavailable",
           }),
         );
@@ -368,10 +351,9 @@ describe("Workflow service", () => {
           "feature-retry",
           stepEvent("retry-decision", "retry", { executionId: "retry-execution" }),
         );
-        expect(yield* handoffs.retry("handoff-retry", "2026-09-29T00:00:03Z")).toBe(true);
-        const secondHandoff = (yield* handoffs.get("handoff-retry"))!;
+        yield* retryRecord(2);
         const secondAttempt = yield* crewService.createRun({
-          id: secondHandoff.targetRunId,
+          id: "retry-run-2",
           memberId: retryBot.id,
           projectId,
           taskText: "Plan retry feature",
@@ -382,7 +364,7 @@ describe("Workflow service", () => {
             executionId: "retry-execution",
             runId: secondAttempt.id,
             sourceKind: "handoff",
-            sourceId: "handoff-retry",
+            sourceId: "handoff-retry-2",
           }),
         );
         expect((yield* workflow.getFeatureState("feature-retry"))?.steps.get("plan")).toMatchObject(

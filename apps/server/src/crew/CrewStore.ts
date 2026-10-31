@@ -1,13 +1,11 @@
 import {
   BOT_HEADQUARTERS_RUN_PREFIX,
   CREW_DISPATCH_STATE,
-  CREW_TURN_STATE,
   ModelSelection,
   ProjectId,
   RuntimeMode,
   ThreadId,
   type CrewDispatchState,
-  type CrewTurnState,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -83,17 +81,6 @@ export interface CrewRun {
   readonly createdAt: string;
   readonly dispatchedAt: string | null;
   readonly workspace: CrewWorkspace | null;
-}
-
-export interface CrewRunSummary {
-  readonly id: string;
-  readonly memberId: string;
-  readonly projectId: ProjectId;
-  readonly threadId: ThreadId;
-  readonly dispatchState: CrewDispatchState;
-  readonly lastError: string | null;
-  readonly createdAt: string;
-  readonly turnState: CrewTurnState;
 }
 
 interface CrewMemberRow {
@@ -261,11 +248,11 @@ export interface CrewStoreShape {
   ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly insertRun: (run: CrewRun) => Effect.Effect<void, PersistenceSqlError>;
   readonly getRun: (id: string) => Effect.Effect<CrewRun | null, PersistenceSqlError>;
+  /** The run a crew thread works for, or null for any other thread. */
+  readonly getRunByThread: (
+    threadId: ThreadId,
+  ) => Effect.Effect<CrewRun | null, PersistenceSqlError>;
   readonly listQueuedRuns: () => Effect.Effect<ReadonlyArray<CrewRun>, PersistenceSqlError>;
-  readonly listRunSummaries: (
-    projectId: ProjectId,
-    limit: number,
-  ) => Effect.Effect<ReadonlyArray<CrewRunSummary>, PersistenceSqlError>;
   readonly markStarted: (
     id: string,
     dispatchedAt: string,
@@ -508,6 +495,11 @@ export const CrewStoreLive = Layer.effect(
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
       getRun,
+      getRunByThread: (threadId) =>
+        sql<{ readonly id: string }>`SELECT id FROM crew_runs WHERE thread_id = ${threadId}`.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) => (rows[0] ? getRun(rows[0].id) : Effect.succeed(null))),
+        ),
       listQueuedRuns: () =>
         sql<CrewRunRow>`
           SELECT id, member_id AS memberId, project_id AS projectId, thread_id AS threadId,
@@ -519,52 +511,13 @@ export const CrewStoreLive = Layer.effect(
             created_at AS createdAt, dispatched_at AS dispatchedAt,
             branch, worktree_path AS worktreePath
           FROM crew_runs AS r WHERE dispatch_state = ${CREW_DISPATCH_STATE.QUEUED}
-            AND NOT EXISTS (
-              SELECT 1 FROM crew_handoffs AS h
-              WHERE h.target_run_id = r.id AND h.status IN ('cancelled', 'failed')
-            )
+            -- A workflow dispatches its stages' runs itself, and fails a stage whose dispatch failed.
+            AND r.id NOT LIKE 'bot-handoff:%'
           ORDER BY created_at, id
         `.pipe(
           Effect.mapError(queryError),
           Effect.flatMap((rows) =>
             Effect.try({ try: () => rows.map(decodeRun), catch: decodeError }),
-          ),
-        ),
-      listRunSummaries: (projectId, limit) =>
-        sql<{
-          readonly id: string;
-          readonly memberId: string;
-          readonly projectId: string;
-          readonly threadId: string;
-          readonly dispatchState: CrewDispatchState;
-          readonly lastError: string | null;
-          readonly createdAt: string;
-          readonly turnState: CrewRunSummary["turnState"];
-        }>`
-          SELECT id, member_id AS memberId, project_id AS projectId, thread_id AS threadId,
-            dispatch_state AS dispatchState, last_error AS lastError, created_at AS createdAt,
-            COALESCE((
-              SELECT CASE t.status
-                WHEN 'running' THEN 'running' WHEN 'waiting' THEN 'running'
-                WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'error'
-                WHEN 'interrupted' THEN 'interrupted' WHEN 'cancelled' THEN 'interrupted'
-                WHEN 'rolled_back' THEN 'interrupted' ELSE 'pending' END
-              FROM orchestration_v2_projection_runs AS t
-              WHERE t.thread_id = r.thread_id ORDER BY t.ordinal DESC LIMIT 1
-            ), (
-              SELECT ${CREW_TURN_STATE.COMPLETED}
-              FROM orchestration_v2_legacy_imports AS legacy WHERE legacy.thread_id = r.thread_id
-            ), ${CREW_TURN_STATE.MISSING}) AS turnState
-          FROM crew_runs AS r WHERE project_id = ${projectId}
-          ORDER BY created_at DESC, id DESC LIMIT ${limit}
-        `.pipe(
-          Effect.mapError(queryError),
-          Effect.map((rows) =>
-            rows.map((row) => ({
-              ...row,
-              projectId: ProjectId.make(row.projectId),
-              threadId: ThreadId.make(row.threadId),
-            })),
           ),
         ),
       moveRun: (id, projectId) =>

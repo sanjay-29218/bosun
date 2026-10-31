@@ -76,7 +76,7 @@ export const BotAvatar = Schema.Struct({
 export type BotAvatar = typeof BotAvatar.Type;
 
 /** A new bot's tools when its creator doesn't choose any. */
-export const DEFAULT_BOT_TOOLS: ReadonlyArray<string> = ["crew.answer"];
+export const DEFAULT_BOT_TOOLS: ReadonlyArray<string> = ["crew.decide"];
 
 /**
  * What a bot's headquarters does once its conversation grows long: let the provider compact it,

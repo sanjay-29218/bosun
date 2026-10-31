@@ -219,7 +219,7 @@ it.effect("agents create, edit and delete workflows and roles through MCP", () =
       id: "role:docs",
       name: "Docs writer",
       instructions: "Write the docs",
-      allowedTools: ["crew.respond", "crew.ask"],
+      allowedTools: ["crew.respond"],
       modelSelection,
       runtimeMode: "approval-required",
       autoCreateForFeature: true,
@@ -277,7 +277,7 @@ it.effect("bots need the Manage workflows grant; other threads need full access 
     );
     expect(created.isFailure).toBe(false);
 
-    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.answer"]' WHERE id = ${CAPTAIN_BOT_ID}`;
+    yield* sql`UPDATE bots SET allowed_tools_json = '["crew.decide"]' WHERE id = ${CAPTAIN_BOT_ID}`;
     // Any bot reads the workflow library, to pick one for the features it starts.
     expect((yield* call("t3_workflow_list", {}, captain)).isFailure).toBe(false);
     for (const result of [

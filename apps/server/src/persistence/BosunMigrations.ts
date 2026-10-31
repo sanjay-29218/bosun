@@ -43,6 +43,7 @@ import OneBuilderPerFeature from "./Migrations/084_OneBuilderPerFeature.ts";
 import BotLongConversation from "./Migrations/086_BotLongConversation.ts";
 import CrewFullAccess from "./Migrations/087_CrewFullAccess.ts";
 import SlimFeatureDelivery from "./Migrations/088_SlimFeatureDelivery.ts";
+import LeadDecisions from "./Migrations/089_LeadDecisions.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -79,6 +80,7 @@ const migrationEntries = [
   [86, "BotLongConversation", BotLongConversation],
   [87, "CrewFullAccess", CrewFullAccess],
   [88, "SlimFeatureDelivery", SlimFeatureDelivery],
+  [89, "LeadDecisions", LeadDecisions],
 ] as const;
 
 const legacyNames = new Set([
