@@ -790,6 +790,60 @@ it.effect("settles only the stopped run's background work, once", () =>
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("runs a delegated child in the project it names, at that project's checkout", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const parentThreadId = ThreadId.make("thread:cross-project-parent");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-cross-project-parent"),
+      threadId: parentThreadId,
+      projectId: ProjectId.make("project:headquarters"),
+      title: "Headquarters",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "scratch",
+      worktreePath: "/scratch-worktree",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("start-cross-project-parent"),
+      threadId: parentThreadId,
+      messageId: MessageId.make("message:cross-project-parent"),
+      text: "Hand the app project a task",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const parentRun = (yield* projections.getThreadProjection(parentThreadId)).runs[0]!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate-cross-project"),
+      parentThreadId,
+      parentRunId: parentRun.id,
+      parentNodeId: parentRun.rootNodeId!,
+      projectId: ProjectId.make("project:app"),
+      task: "Fix the login bug",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const task = (yield* projections.getThreadProjection(parentThreadId)).subagents[0]!;
+    const child = yield* projections.getThreadProjection(task.childThreadId!);
+    assert.equal(child.thread.projectId, ProjectId.make("project:app"));
+    assert.isNull(child.thread.branch);
+    assert.isNull(child.thread.worktreePath);
+    assert.equal(child.thread.lineage.parentThreadId, parentThreadId);
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("keeps delegated child pull-request links independent of the parent", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

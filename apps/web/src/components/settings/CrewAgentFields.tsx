@@ -32,7 +32,7 @@ export function CrewToolPicker({
       ),
     },
     {
-      title: "T3 Code",
+      title: "T3 Code: every tool a thread gets, unless you pick some to limit it to",
       grants: [...CREW_TOOL_GRANTS.filter((grant) => !grant.id.startsWith("crew.")), ...other],
     },
   ];

@@ -1,7 +1,5 @@
 import { expect, it } from "@effect/vitest";
 import {
-  botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   EnvironmentId,
   IssueOperationError,
   ProjectId,
@@ -15,7 +13,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
-import { BotProjects } from "../../../bots/BotProjects.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -161,7 +158,6 @@ const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
         Layer.mock(CrewHandoffService)({
           delegate: (input) => Effect.succeed(handoff(input.id, input.targetMemberId)),
         }),
-        Layer.mock(BotProjects)({}),
         Layer.mock(FeatureService)({}),
         Layer.mock(CrewHandoffStore)({
           getRunByThread: (id) => Effect.succeed(id === stageThread ? "run:stage" : null),
@@ -198,34 +194,12 @@ it.effect("lets a stage member read the handoff its stage started from", () =>
     const read = yield* handleAs(stageThread, ["crew.respond"]);
     expect(read.at(-1)?.result).toEqual(record);
 
-    const ungranted = yield* Effect.flip(handleAs(stageThread, ["crew.delegate"]));
+    const ungranted = yield* Effect.flip(handleAs(stageThread, ["crew.answer"]));
     expect(ungranted).toMatchObject({ _tag: "CrewToolFailedError" });
     expect(ungranted.message).toContain("Caller is not a workflow stage member");
 
     const plainThread = yield* Effect.flip(handleAs(ThreadId.make("thread:plain"), []));
     expect(plainThread.message).toContain("Caller is not a workflow stage member");
-  }),
-);
-
-it.effect("sends a bot's work for a project through t3_feature_start", () =>
-  Effect.gen(function* () {
-    const delegate = (requestId: string, targetMemberId: string) =>
-      Effect.gen(function* () {
-        const toolkit = yield* CrewToolkit;
-        return yield* toolkit
-          .handle("crew_delegate", { requestId, targetMemberId, taskText: "Fix it" })
-          .pipe(Stream.unwrap, Stream.runCollect);
-      }).pipe(Effect.provide(layerAs(botHeadquartersThreadId(CAPTAIN_BOT_ID), ["crew.delegate"])));
-
-    const refused = yield* Effect.flip(delegate("new", `bot-manager:${projectId}`));
-    expect(refused.message).toContain("t3_feature_start");
-    // A request made before still answers its retry, and the rest of the crew is reached as before.
-    expect((yield* delegate("earlier", `bot-manager:${projectId}`)).at(-1)?.result).toMatchObject({
-      id: "earlier",
-    });
-    expect((yield* delegate("build", `bot-builder:${projectId}`)).at(-1)?.result).toMatchObject({
-      id: "build",
-    });
   }),
 );
 

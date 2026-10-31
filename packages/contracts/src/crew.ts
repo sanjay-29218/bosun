@@ -42,21 +42,11 @@ export const CrewDispatchStateSchema = Schema.Literals([
 export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 
 /**
- * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one;
- * the rest each unlock a whole T3 MCP toolkit for the run. `botOnly` grants act on the
- * projects a bot owns, so role editors leave them out.
+ * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.
+ * The rest name T3 MCP toolkits: a run gets every toolkit an ordinary thread gets, and naming
+ * any limits it to those. `botOnly` grants are for bots, so role editors leave them out.
  */
 export const CREW_TOOL_GRANTS = [
-  {
-    id: "crew.delegate",
-    label: "Delegate work",
-    description: "Hand tasks to another crew member, such as the project's builder.",
-  },
-  {
-    id: "crew.status",
-    label: "Follow handoffs",
-    description: "List and wait on work it handed off.",
-  },
   {
     id: "crew.answer",
     label: "Answer questions",
@@ -71,19 +61,6 @@ export const CREW_TOOL_GRANTS = [
     id: "crew.respond",
     label: "Report results",
     description: "Send its finished outcome back to whoever asked.",
-  },
-  {
-    id: "crew.projects",
-    label: "See its projects",
-    description:
-      "List the projects a bot owns, with their managers and features, and hand them work.",
-    botOnly: true,
-  },
-  {
-    id: "crew.create-project",
-    label: "Create projects",
-    description: "Start a new project it owns, from a name or by cloning a Git URL.",
-    botOnly: true,
   },
   {
     id: "crew.workflows",

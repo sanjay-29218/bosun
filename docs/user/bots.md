@@ -8,15 +8,16 @@ are shared by every project on it. Bots and the Library each have a place on the
 
 **Bots** on the rail lists each environment's bots in rail order; drag one to reorder them. Every
 environment starts with **Captain**, which owns projects that were never given to another bot.
-A new Captain starts with **Full access** and every tool. The pencil beside the bot's name at the
+A new Captain starts with **Full access**. The pencil beside the bot's name at the
 top of the sidebar opens its page too.
 
 Use **+ New** for another bot. A bot has a name, a robot avatar you build from parts (or
 **Shuffle**), a color, instructions, tools, a default model and the workflow its features start
 with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
-**Save**. A bot's threads, like a role's, are offered only the crew tools its ticked tools
-allow. Threads you start yourself get only the ones that make the thread a feature and take it
-back out. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+**Save**. A bot's threads, like a role's, get every T3 Code tool a thread you start gets, such as
+the browser, worktrees and pull requests; tick some under **T3 Code** only to limit it to those.
+They are offered only the crew tools its ticked crew tools allow. Threads you start yourself get
+only the crew tools that make the thread a feature and take it back out. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
 A bot's **Projects** tab lists the projects it owns. Move one to another bot, or bring one over;
 work that already started keeps running as the bot that started it. You can also change a
@@ -29,14 +30,13 @@ Each bot has one **headquarters** thread where it oversees every project it owns
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
 rail again, or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
-questions. Work it hands a project runs as a **Quick task**: a feature with one stage, where the
-project's manager does it or hands the coding to its builder, and the result comes back to the
-headquarters. If it turns out to need planning or design first, the manager moves it to a bigger
-workflow (the bot's default one, or Feature delivery), and the same feature carries on there. Ask
-the bot for a named workflow, such as "do this as Feature delivery", to start there instead. Each
-stage runs with its role's model and **Access**; what a stage hands off in turn runs with that
-stage's. With **Create projects** ticked in its tools, it can also start
-projects from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
+questions. Each request it hands a project gets a fresh **project manager**: a subagent of the
+headquarters that works in its own worktree of that project. Small work it does itself and opens a
+pull request for; work that needs planning or several stages it starts as a feature on a workflow.
+Its result comes back to the headquarters. Ask the bot for a named workflow, such as "do this as
+Feature delivery", to have the manager start there. Each stage runs with its role's model and
+**Access**; what a stage hands off in turn runs with that stage's. The bot can also start projects
+from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
 start, it can create and edit bots, workflows and roles when you ask, such as "add a QA stage to
 Feature delivery"; they show up in Settings like ones you made. Features report to the
 headquarters too. A feature's
@@ -88,9 +88,7 @@ The **Library** lists every connected environment's workflows; pick one to open 
 New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
 **Add Feature delivery**. Both add the starter roles too if they're missing. With more than one
 environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
-changed and it needs a new version. **Quick task**, the one-stage workflow a bot's requests run on, appears
-the first time a bot hands a project work. Edit it like any other, for example to add a review
-stage; if you delete it, the next request brings it back.
+changed and it needs a new version.
 
 - **Stages** run in order from the first stage; **Start here** in a stage's menu changes which one that is. Each stage has a name, runs as a crew role, has a
   task, and reports one of its outcomes. Under **Advanced** it can write files such as `plan.md`
@@ -160,10 +158,10 @@ Inside any of the feature's threads:
 
 Subagents aren't part of the crew list; they stay inside the thread that started them.
 
-A Quick task shows the same way, without a strip, since it has one stage. Requests a bot handed
-on before Quick tasks share one row titled by the request, with the crew members it went through
-in place of a strip; its first role is its lead. On mobile, the count on the row opens a menu of
-the crew.
+A one-stage workflow shows the same way, without a strip. Requests a bot handed on through its
+older crew tools share one row titled by the request, with the crew members it went through in
+place of a strip; its first role is its lead. On mobile, the count on the row opens a menu of the
+crew.
 
 ## Features from threads
 

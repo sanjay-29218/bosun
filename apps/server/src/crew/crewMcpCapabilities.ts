@@ -61,20 +61,22 @@ export const crewThreadGrants = Effect.fn("crewThreadGrants")(function* (threadI
   return (yield* runGrants(database.value, ancestor)).filter((grant) => !grant.startsWith("crew."));
 });
 
-/** Ordinary threads use the harness defaults; crew threads use their grants. */
-export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (threadId: ThreadId) {
+const T3_TOOL_GRANTS = ["preview", "device", "pull-requests", "orchestration", "worktree"] as const;
+
+/**
+ * A crew thread gets the T3 toolkits an ordinary thread gets (`defaults`), plus `crew` for any
+ * `crew.*` grant. Grants that name T3 toolkits are an opt-in limit to those toolkits.
+ */
+export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (
+  threadId: ThreadId,
+  defaults: ReadonlySet<McpCapability>,
+) {
   const grants = yield* crewThreadGrants(threadId);
-  if (grants === undefined) return undefined;
-  const capabilities = new Set<McpCapability>();
+  if (grants === undefined) return defaults;
+  const limit = T3_TOOL_GRANTS.filter((grant) => grants.includes(grant));
+  const capabilities = new Set<McpCapability>(
+    limit.length === 0 ? defaults : limit.filter((grant) => defaults.has(grant)),
+  );
   if (grants.some((grant) => grant.startsWith("crew."))) capabilities.add("crew");
-  for (const capability of [
-    "preview",
-    "device",
-    "pull-requests",
-    "orchestration",
-    "worktree",
-  ] as const) {
-    if (grants.includes(capability)) capabilities.add(capability);
-  }
   return capabilities;
 });

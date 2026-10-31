@@ -10,8 +10,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
-import * as Option from "effect/Option";
-import * as PubSub from "effect/PubSub";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { FeatureWorkspaces } from "../features/FeatureWorkspaces.ts";
@@ -85,18 +83,10 @@ export interface CrewHandoffServiceShape {
     },
     CrewHandoffError | CrewServiceError
   >;
-  /** The requests the calling thread's run delegated, for runs granted crew.status. */
-  readonly listForThread: (
-    threadId: ThreadId,
-  ) => Effect.Effect<ReadonlyArray<CrewHandoff>, CrewHandoffError | CrewServiceError>;
   readonly get: (id: string) => Effect.Effect<CrewHandoff | null, CrewServiceError>;
   readonly listByRun: (
     runId: string,
   ) => Effect.Effect<ReadonlyArray<CrewHandoff>, CrewServiceError>;
-  readonly waitFor: (
-    threadId: ThreadId,
-    id: string,
-  ) => Effect.Effect<CrewHandoff, CrewHandoffError | CrewServiceError>;
   readonly reconcile: () => Effect.Effect<void, CrewServiceError>;
   readonly refreshProject: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
   readonly refreshRun: (runId: string) => Effect.Effect<void, CrewServiceError>;
@@ -141,7 +131,6 @@ export const CrewHandoffServiceLive = Layer.effect(
     const bots = yield* BotStore.BotStore;
     const settings = yield* ServerSettingsService;
     const featureWorkspaces = yield* FeatureWorkspaces;
-    const changes = yield* PubSub.unbounded<string>();
 
     const deliver = Effect.fn("CrewHandoffService.deliver")(function* (handoff: CrewHandoff) {
       if (handoff.notificationState !== "queued") return;
@@ -221,11 +210,9 @@ export const CrewHandoffServiceLive = Layer.effect(
       );
       yield* runtime.showHandoffs(source.threadId, items);
     });
-    /** Every status change: wakes `waitFor` and updates the sender's thread. */
+    /** Every status change updates the sender's thread. */
     const changed = (handoff: Pick<CrewHandoff, "id" | "sourceRunId">) =>
-      PubSub.publish(changes, handoff.id).pipe(
-        Effect.andThen(showOnSender(handoff.sourceRunId).pipe(Effect.result)),
-      );
+      showOnSender(handoff.sourceRunId).pipe(Effect.result);
 
     const requireRun = Effect.fn("CrewHandoffService.requireRun")(function* (
       threadId: ThreadId,
@@ -380,7 +367,9 @@ export const CrewHandoffServiceLive = Layer.effect(
         if (contextText.length > 4_000) {
           return yield* Effect.fail(new CrewHandoffError("Context exceeds 4,000 characters"));
         }
-        const source = yield* requireRun(input.sourceThreadId, "crew.delegate");
+        const sourceRunId = yield* handoffs.getRunByThread(input.sourceThreadId);
+        const source = sourceRunId ? yield* runs.getRun(sourceRunId) : null;
+        if (!source) return yield* Effect.fail(new CrewHandoffError("This thread has no crew run"));
         const existing = yield* handoffs.get(id);
         if (existing) {
           if (!sameRequest(existing, { ...input, taskText, contextText }, source)) {
@@ -548,7 +537,7 @@ export const CrewHandoffServiceLive = Layer.effect(
       const view = yield* crew.getRun(handoff.targetRunId);
       if (!view || !["completed", "failed", "interrupted"].includes(view.status)) return;
       // A recipient that ended its turn while its own handoffs work is waiting: their
-      // notices wake it to respond, so it need not poll crew_wait_handoff to stay alive.
+      // notices wake it to respond, so it need not wait to stay alive.
       if (view.status === "completed") {
         const delegated = yield* handoffs.listBySourceRun(handoff.targetRunId);
         const waiting = delegated.some(
@@ -686,38 +675,8 @@ export const CrewHandoffServiceLive = Layer.effect(
         ]);
         return { members, runs: runSummaries, handoffs: recent };
       }),
-      listForThread: (threadId) =>
-        requireRun(threadId, "crew.status").pipe(
-          Effect.flatMap((run) => handoffs.listBySourceRun(run.id)),
-        ),
       get: handoffs.get,
       listByRun: handoffs.listBySourceRun,
-      waitFor: (threadId, id) =>
-        Effect.scoped(
-          Effect.gen(function* () {
-            const run = yield* requireRun(threadId, "crew.status");
-            const subscription = yield* PubSub.subscribe(changes);
-            const read = () =>
-              handoffs.get(id).pipe(
-                Effect.filterOrFail(
-                  (handoff): handoff is NonNullable<typeof handoff> =>
-                    handoff?.sourceRunId === run.id,
-                  () => new CrewHandoffError("Handoff is unavailable to this run"),
-                ),
-              );
-            let handoff = yield* read();
-            if (handoff.status !== "queued" && handoff.status !== "running") return handoff;
-            while (true) {
-              const changedId = yield* PubSub.take(subscription).pipe(
-                Effect.timeoutOption("30 seconds"),
-              );
-              if (Option.isNone(changedId)) return yield* read();
-              if (changedId.value !== id) continue;
-              handoff = yield* read();
-              if (handoff.status !== "queued" && handoff.status !== "running") return handoff;
-            }
-          }),
-        ),
       reconcile: Effect.fn("CrewHandoffService.reconcile")(function* () {
         const pending = yield* handoffs.listPending();
         yield* Effect.forEach(pending, (handoff) => startQueued(handoff).pipe(Effect.result), {

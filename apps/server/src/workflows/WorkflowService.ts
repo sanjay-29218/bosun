@@ -40,20 +40,13 @@ import {
 } from "./StageHandoff.ts";
 import { WorkflowStageHandoffStore } from "./WorkflowStageHandoffStore.ts";
 import { WorkflowWorkspace, type StageThreadDiff } from "./WorkflowWorkspace.ts";
-import {
-  makeQuickTaskWorkflow,
-  makeStarterWorkflow,
-  QUICK_TASK_WORKFLOW_ID,
-  STARTER_WORKFLOW_ID,
-} from "./starterWorkflow.ts";
+import { makeStarterWorkflow, STARTER_WORKFLOW_ID } from "./starterWorkflow.ts";
 
 export interface WorkflowServiceShape {
   readonly validateDefinition: (
     definition: WorkflowDefinition,
   ) => Effect.Effect<void, WorkflowServiceError>;
   readonly ensureStarterDefinition: () => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
-  /** The workflow a bot's requests run on, made again if someone deleted it. */
-  readonly ensureQuickTaskDefinition: () => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
   readonly createDefinition: (
     definition: WorkflowDefinition,
   ) => Effect.Effect<WorkflowDefinition, WorkflowServiceError>;
@@ -274,11 +267,6 @@ export const WorkflowServiceLive = Layer.effect(
       ensureStarterDefinition: Effect.fn("WorkflowService.ensureStarterDefinition")(function* () {
         return yield* ensureBuiltIn(STARTER_WORKFLOW_ID, makeStarterWorkflow);
       }),
-      ensureQuickTaskDefinition: Effect.fn("WorkflowService.ensureQuickTaskDefinition")(
-        function* () {
-          return yield* ensureBuiltIn(QUICK_TASK_WORKFLOW_ID, makeQuickTaskWorkflow);
-        },
-      ),
       createDefinition: Effect.fn("WorkflowService.createDefinition")(function* (definition) {
         if (definition.revision !== 1) {
           return yield* Effect.fail(
