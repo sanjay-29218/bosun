@@ -30,7 +30,6 @@ export const makeStarterWorkflow = (
       designer: role("role:designer"),
       builder: role("role:builder"),
       qa: role("role:qa-tester"),
-      reviewer: role("role:reviewer"),
     },
     steps: {
       plan: {
@@ -53,27 +52,15 @@ export const makeStarterWorkflow = (
         type: "task",
         role: "builder",
         task: "Build the feature",
-        next: { built: "qa", design_change_requested: "change_review" },
+        next: { built: "qa", design_change_requested: "design" },
       },
       qa: {
         type: "task",
         role: "qa",
         task: "Test the feature",
-        next: { passed: "review", changes_requested: "change_review" },
+        next: { passed: "end", changes_requested: "build" },
+        limits: { changes_requested: 2 },
         outputs: ["qa-report.md"],
-      },
-      review: {
-        type: "task",
-        role: "reviewer",
-        task: "Review the feature",
-        next: { approved: "end", changes_requested: "change_review" },
-        limits: { changes_requested: 3 },
-      },
-      change_review: {
-        type: "task",
-        role: "manager",
-        task: "Decide how to handle the requested change",
-        next: { revise_design: "design", revise_build: "build" },
       },
       end: { type: "end" },
     },

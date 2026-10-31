@@ -86,7 +86,9 @@ bot**.
 
 The **Library** lists every connected environment's workflows; pick one to open its editor. **+
 New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
-**Add Feature delivery**. Both add the starter roles too if they're missing. With more than one
+**Add Feature delivery**. Both add the starter roles too if they're missing. Feature delivery
+runs Plan and Design, each waiting for your approval, then Build and QA. QA sends changes back to
+Build up to twice, then the feature stops at **Your call**. With more than one
 environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
 changed and it needs a new version.
 
@@ -96,7 +98,7 @@ changed and it needs a new version.
   changes you pick. **Needs your approval** makes the feature wait for you after that stage. A stage can be removed once nothing starts at
   it or routes to it.
 - **Routes**, listed under each stage, say where each outcome goes next, for example back to Build
-  when Review requests changes. A route back to an earlier stage can have a limit: after it has
+  when QA requests changes. A route back to an earlier stage can have a limit: after it has
   been taken that many times, the feature stops at **Your call**. Questions go to the project manager first, then to you. A failed stage retries the
   number of times set under **Settings** (empty uses **Retries before a stage fails** in
   **Settings → Bots**), then pauses and notifies you.

@@ -117,15 +117,7 @@ describe("Workflow service", () => {
         yield* crewService.ensureProjectManager(projectId);
 
         const starter = yield* workflow.ensureStarterDefinition();
-        expect(Object.keys(starter.steps)).toEqual([
-          "plan",
-          "design",
-          "build",
-          "qa",
-          "review",
-          "change_review",
-          "end",
-        ]);
+        expect(Object.keys(starter.steps)).toEqual(["plan", "design", "build", "qa", "end"]);
         expect(yield* workflow.ensureStarterDefinition()).toEqual(starter);
 
         const researcher = yield* crewService.createRole({

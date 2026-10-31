@@ -17,21 +17,16 @@ describe("starter workflow", () => {
       roleId: PROJECT_MANAGER_ROLE_ID,
       supervisor: null,
     });
-    expect(definition.steps.qa).toMatchObject({
-      next: { passed: "review", changes_requested: "change_review" },
-      outputs: ["qa-report.md"],
-    });
-    expect(definition.steps.plan).toMatchObject({ outputs: ["plan.md"] });
-    expect(definition.steps.design).toMatchObject({ outputs: ["design.md"] });
-    expect(definition.steps.review).toMatchObject({
-      next: { approved: "end", changes_requested: "change_review" },
-    });
+    expect(Object.keys(definition.steps)).toEqual(["plan", "design", "build", "qa", "end"]);
+    expect(definition.steps.plan).toMatchObject({ gate: true, outputs: ["plan.md"] });
+    expect(definition.steps.design).toMatchObject({ gate: true, outputs: ["design.md"] });
     expect(definition.steps.build).toMatchObject({
-      next: { built: "qa", design_change_requested: "change_review" },
+      next: { built: "qa", design_change_requested: "design" },
     });
-    expect(definition.steps.change_review).toMatchObject({
-      role: "manager",
-      next: { revise_design: "design", revise_build: "build" },
+    expect(definition.steps.qa).toMatchObject({
+      next: { passed: "end", changes_requested: "build" },
+      limits: { changes_requested: 2 },
+      outputs: ["qa-report.md"],
     });
   });
 });
