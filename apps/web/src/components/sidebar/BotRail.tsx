@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   botRailSignal,
-  combineBotActivity,
   type BotRailSignal,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
@@ -10,7 +9,6 @@ import {
   BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
-  InboxIcon,
   LayersIcon,
   ServerIcon,
   SettingsIcon,
@@ -130,7 +128,6 @@ export const BotRail = memo(function BotRail({
     multipleBots
       ? shortcutLabelForCommand(keybindings, command, { context: { multipleBots } })
       : null;
-  const totalNeedsYou = [...needsYou.values()].reduce((sum, count) => sum + count, 0);
 
   return (
     <nav
@@ -151,22 +148,7 @@ export const BotRail = memo(function BotRail({
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border py-2">
         <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto scrollbar-gutter-both">
-          {multipleBots ? (
-            <>
-              <RailItem
-                label="All bots"
-                hint="Every bot's threads"
-                active={onBots && active === null}
-                signal={botRailSignal(totalNeedsYou, combineBotActivity(activity.values()))}
-                shortcut={shortcutFor("bot.inbox")}
-                variant="icon"
-                onSelect={() => switchTo(null)}
-              >
-                <InboxIcon className="size-5" strokeWidth={1.75} />
-              </RailItem>
-              <RailDivider />
-            </>
-          ) : null}
+          {/* All bots is hidden for now; the palette's Show All bots and bot.inbox still reach it. */}
           {bots.map((bot, index) => (
             <RailItem
               key={bot.key}
