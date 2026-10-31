@@ -41,6 +41,8 @@ import {
   OrchestratorDispatchError as OrchestrationCommandInvariantError,
   OrchestratorV2,
 } from "../orchestration-v2/Orchestrator.ts";
+import * as EffectOutbox from "../orchestration-v2/EffectOutbox.ts";
+import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -188,6 +190,8 @@ const fixture = (
     Layer.provideMerge(OrchestrationLayerLive),
     // Stateless over SQLite; `endTurn` writes turn ends through it.
     Layer.provideMerge(ProjectionStore.layer),
+    // The orchestrator's own outbox, which a restart queues its continuation in.
+    Layer.provideMerge(EffectOutbox.layer),
     Layer.provideMerge(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
     Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "workflow-execution-" })),
     Layer.provideMerge(ServerSettingsService.layerTest({ crew })),
@@ -762,6 +766,59 @@ describe("Workflow execution", () => {
           ).toBe("Success");
         }).pipe(Effect.provide(system.layer));
       }),
+  );
+
+  it.effect("keeps a stage a restart cut running until it continues, then completes it", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, execution, workflows, bindings } = yield* seed();
+        const engine = yield* OrchestratorV2;
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeHandoff(featureId);
+        const planStatus = () =>
+          workflows
+            .getFeatureState(featureId)
+            .pipe(Effect.map((state) => state?.steps.get("plan")?.status));
+        const prompts = () =>
+          engine
+            .getThreadRecords(plan.run.threadId, ["messages"], { messageRoles: ["user"] })
+            .pipe(Effect.map(({ messages }) => messages.map((message) => message.text)));
+        // Startup recovery cancels the running turn and queues the server's own continuation.
+        yield* endTurn(plan.run.threadId, "cancelled");
+        const [cut] = (yield* engine.getThreadRecords(plan.run.threadId, ["runs"])).runs;
+        yield* (yield* EffectOutbox.EffectOutboxV2).enqueue([
+          {
+            id: `effect:restart-continuation:${cut!.id}`,
+            commandId: CommandId.make("restart"),
+            threadId: plan.run.threadId,
+            request: { type: "provider-runtime.continue", sourceRunId: cut!.id },
+          },
+        ]);
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* planStatus()).toBe("running");
+        expect(yield* prompts()).toEqual([]);
+
+        // The server continues the turn itself, so the stage keeps waiting on that turn.
+        yield* (yield* EffectWorker.OrchestrationEffectWorkerV2).drain();
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* planStatus()).toBe("running");
+        expect(yield* prompts()).toEqual(["Continue where you left off."]);
+
+        // A cut with no continuation coming is continued by the workflow, once.
+        yield* endTurn(plan.run.threadId, "cancelled");
+        yield* execution.reconcileFeature(featureId);
+        yield* execution.reconcileFeature(featureId);
+        expect(yield* planStatus()).toBe("running");
+        expect((yield* prompts()).toSorted()).toEqual([
+          "Continue where you left off.",
+          expect.stringContaining("The server restarted while this stage was working"),
+        ]);
+
+        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+        expect((yield* activeHandoff(featureId)).step.id).toBe("review");
+      }).pipe(Effect.provide(system.layer));
+    }),
   );
 
   it.effect("turns failed dispatch into a visible retryable attempt", () =>

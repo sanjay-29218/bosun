@@ -101,7 +101,8 @@ changed and it needs a new version.
   when QA requests changes. A route back to an earlier stage can have a limit: after it has
   been taken that many times, the feature stops at **Your call**. A stage's questions come to you. A failed stage retries the
   number of times set under **Settings** (empty uses **Retries before a stage fails** in
-  **Settings → Bots**), then pauses and notifies you.
+  **Settings → Bots**), then pauses and notifies you. A stage whose thread you stop waits for you
+  instead, and one the server restarted picks up where it left off.
 - **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the
   canvas, drag a role from the panel beside it onto the canvas and describe its task. Drag from
   an outcome on a stage's right edge to another stage to route it there, and select a stage or
@@ -134,7 +135,7 @@ feature needs one; editing a role changes the members made from it later, not ex
   are never counted or queued.
 - **Per provider** caps one provider, so its rate limit doesn't stall every feature. Empty means no
   cap.
-- **Retries before a stage fails** (default 1), for workflows that don't set their own.
+- **Retries before a stage fails** (default 2), for workflows that don't set their own.
 
 Editing bots, workflows and roles is available on web and desktop.
 

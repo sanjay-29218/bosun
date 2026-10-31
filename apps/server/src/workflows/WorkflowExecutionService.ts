@@ -17,6 +17,7 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
+import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -136,6 +137,9 @@ const withFeatureName = (title: string, taskText: string) => {
   return title.trim() && named.length <= 8_000 ? named : taskText;
 };
 
+/** Names a stage failure a person caused by stopping its thread. */
+const STAGE_STOPPED = "stage-stopped";
+
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 const stageSummaryJson = Schema.fromJsonString(CrewStageSummary);
@@ -156,6 +160,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     const settings = yield* ServerSettingsService;
     const featureWorkspaces = yield* FeatureWorkspaces;
     const lock = yield* Semaphore.make(1);
+    // Stages waiting on the server's restart continuation, keyed by the cut run.
+    const continuations = yield* FiberMap.make<string>();
 
     const stopCancelledRun = Effect.fn("WorkflowExecutionService.stopCancelledRun")(function* (
       featureId: string,
@@ -259,21 +265,25 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       Effect.mapError(() => new WorkflowTransitionError("Stage thread is unavailable")),
     );
 
-    /** The verdict on a running stage from its thread's latest turn; see `stageTurnVerdict`. */
+    /** The stage thread's latest turn and the verdict on it; see `stageTurnVerdict`. */
     const checkStageTurn = Effect.fn("WorkflowExecutionService.checkStageTurn")(
       function* (runId: string, reminderId: string) {
         const run = yield* crew.getRun(runId);
         const shell = run ? yield* engine.getThreadShell(run.threadId) : null;
-        if (!run || !shell) return { kind: "wait" } as const;
+        if (!run || !shell) return { verdict: { kind: "wait" }, turn: undefined } as const;
         const { runs } = yield* engine.getThreadRecords(run.threadId, ["runs"]);
-        return stageTurnVerdict({
-          run: runs.reduce<(typeof runs)[number] | undefined>(
-            (latest, candidate) =>
-              latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
-            undefined,
-          ),
+        const turn = runs.reduce<(typeof runs)[number] | undefined>(
+          (latest, candidate) =>
+            latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
+          undefined,
+        );
+        const verdict = stageTurnVerdict({
+          run: turn,
           reminded: runs.some((candidate) => candidate.userMessageId === reminderId),
+          continuationPending:
+            turn?.status === "cancelled" && (yield* engine.restartContinuationPending(turn)),
         });
+        return { verdict, turn };
       },
       Effect.mapError(() => new WorkflowTransitionError("Stage thread is unavailable")),
     );
@@ -291,7 +301,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           event.stepId === step.id &&
           event.executionId === step.executionId,
       );
-      if (!failure) return false;
+      if (!failure || failure.id.startsWith(`${STAGE_STOPPED}:`)) return false;
       const used = events.filter(
         (event) =>
           event.kind === "retry" &&
@@ -498,7 +508,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           );
         }
         const reminderId = `workflow:reminder:${key(featureId, step.runId)}`;
-        const verdict = yield* checkStageTurn(step.runId, reminderId);
+        const { verdict, turn } = yield* checkStageTurn(step.runId, reminderId);
+        if (verdict.kind === "wait") return;
         if (verdict.kind === "remind") {
           yield* tellStage(
             step.runId,
@@ -507,9 +518,32 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           );
           return;
         }
-        if (verdict.kind === "wait") return;
+        if (verdict.kind === "continue" && turn) {
+          yield* tellStage(
+            step.runId,
+            `workflow:continue:${key(featureId, turn.id)}`,
+            "The server restarted while this stage was working. Continue where you left off, then report with crew_respond.",
+          );
+          return;
+        }
+        if (verdict.kind === "await-continuation" && turn) {
+          yield* FiberMap.run(
+            continuations,
+            turn.id,
+            engine.awaitRestartContinuation(turn).pipe(
+              Effect.andThen(reconcileFeature(featureId)),
+              Effect.catch((error) =>
+                Effect.logWarning("Stage restart reconciliation failed", { featureId, error }),
+              ),
+            ),
+            { onlyIfMissing: true },
+          );
+          return;
+        }
+        if (verdict.kind !== "fail") return;
         yield* workflows.recordTrustedEvent(featureId, {
-          id: `stage-failed:${key(featureId, step.runId)}`,
+          // A person's stop is theirs to retry, so automatic retries skip it.
+          id: `${verdict.retry ? "stage-failed" : STAGE_STOPPED}:${key(featureId, step.runId)}`,
           stepId,
           executionId: step.executionId,
           kind: "failed",
