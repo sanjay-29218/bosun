@@ -47,9 +47,9 @@ import { useProjects } from "../../state/entities";
 import { needsYouThreadsAtom } from "../../state/needsYou";
 import { useEnvironmentQuery } from "../../state/query";
 import { primaryServerKeybindingsAtom } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { workflowsEnvironment } from "../../state/workflows";
+import { useEnsureStarterWorkflow } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { ScrollArea } from "../ui/scroll-area";
@@ -379,17 +379,9 @@ export function FeaturesPage(props: {
 
   // New feature: a new thread in the scoped project. The composer's Workflow picker turns
   // its first message into the brief.
-  const ensureStarter = useAtomCommand(workflowsEnvironment.ensureStarter);
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
-  const startNewFeature = async (withStarter: boolean) => {
+  const startNewFeature = async () => {
     if (!newFeatureProject) return;
-    if (withStarter) {
-      const result = await ensureStarter({
-        environmentId: newFeatureProject.environmentId,
-        input: {},
-      });
-      if (result._tag !== "Success") return;
-    }
     await newThread(scopeProjectRef(newFeatureProject.environmentId, newFeatureProject.id));
   };
   const browseWorkflows = () => void navigate({ to: "/library", search: {} });
@@ -648,7 +640,7 @@ export function FeaturesPage(props: {
         </Button>
       )}
       {isFeatures && !firstRun ? (
-        <Button size="sm" onClick={() => void startNewFeature(false)} disabled={!newFeatureProject}>
+        <Button size="sm" onClick={() => void startNewFeature()} disabled={!newFeatureProject}>
           <PlusIcon aria-hidden />
           <span className="hidden md:inline">New feature</span>
         </Button>
@@ -731,9 +723,14 @@ export function FeaturesPage(props: {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => void startNewFeature(true)} disabled={!newFeatureProject}>
-            Start a feature
-          </Button>
+          {newFeatureProject ? (
+            <StartFirstFeatureButton
+              environmentId={newFeatureProject.environmentId}
+              onReady={() => void startNewFeature()}
+            />
+          ) : (
+            <Button disabled>Start a feature</Button>
+          )}
           <Button variant="outline" onClick={browseWorkflows}>
             Browse workflows
           </Button>
@@ -893,5 +890,25 @@ export function FeaturesPage(props: {
         }
       />
     </SidebarInset>
+  );
+}
+
+/** The first feature runs on the starter workflow, so this adds it, and its roles, if missing. */
+function StartFirstFeatureButton(props: {
+  readonly environmentId: EnvironmentId;
+  readonly onReady: () => void;
+}) {
+  const ensureStarter = useEnsureStarterWorkflow(props.environmentId);
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    setBusy(true);
+    const ready = await ensureStarter();
+    setBusy(false);
+    if (ready) props.onReady();
+  };
+  return (
+    <Button onClick={() => void start()} disabled={busy}>
+      Start a feature
+    </Button>
   );
 }
