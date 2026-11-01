@@ -43,6 +43,8 @@ export const FeatureRecord = Schema.Struct({
   createdAt: Schema.String,
   updatedAt: Schema.String,
   status: Schema.Literals(["open", "closed"]),
+  /** F-<number> within the project. Older servers omit it. */
+  number: Schema.optionalKey(Schema.Int),
   /** The crew member bound to each of the workflow's roles. */
   crewAssignments: Schema.Record(Schema.String, Schema.String),
   issue: Schema.NullOr(FeatureIssue),
@@ -105,6 +107,8 @@ export const FeatureBoardCard = Schema.Struct({
   featureId: Schema.String,
   projectId: ProjectId,
   title: Schema.String,
+  /** F-<number> within the project. Older servers omit it. */
+  number: Schema.optionalKey(Schema.Int),
   issue: Schema.NullOr(FeatureIssue),
   workflow: Schema.Struct({
     id: Schema.String,

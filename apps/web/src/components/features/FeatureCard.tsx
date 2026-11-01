@@ -1,6 +1,7 @@
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardQuickActions,
+  featureRef,
   ordinal,
   type EnvironmentFeatureCard,
   threadBoardColumn,
@@ -14,7 +15,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { featureIssueRef, type EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import {
   AlarmClockOffIcon,
   CheckIcon,
@@ -419,7 +420,8 @@ export const FeatureCard = memo(function FeatureCard(props: {
         {workingSince ? <WorkingDuration startedAt={workingSince} /> : null}
       </span>
     );
-  const meta = card.issue || pullRequest || shell?.branch;
+  const ref = featureRef(card);
+  const meta = ref || pullRequest || shell?.branch;
   return (
     <div
       draggable={props.draggable}
@@ -446,8 +448,10 @@ export const FeatureCard = memo(function FeatureCard(props: {
           {card.issue ? (
             <span className="flex shrink-0 items-center gap-1 tabular-nums">
               <FeatureIssueIcon issue={card.issue} className="size-3" />
-              {featureIssueRef(card.issue)}
+              {ref}
             </span>
+          ) : ref ? (
+            <span className="shrink-0 tabular-nums">{ref}</span>
           ) : null}
           {shell?.branch ? (
             <span className="flex min-w-0 flex-1 items-center gap-1">

@@ -185,7 +185,8 @@ const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition)
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
 const decodeAssignments = Schema.decodeSync(assignmentsJson);
-interface FeatureRow extends Omit<FeatureRecord, "crewAssignments" | "issue"> {
+interface FeatureRow extends Omit<FeatureRecord, "crewAssignments" | "issue" | "number"> {
+  readonly number: number | null;
   readonly crewAssignmentsJson: string;
   readonly issueJson: string | null;
 }
@@ -308,9 +309,10 @@ export const FeatureServiceLive = Layer.effect(
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
         try: () => {
-          const { crewAssignmentsJson, issueJson, ...feature } = row;
+          const { crewAssignmentsJson, issueJson, number, ...feature } = row;
           return {
             ...feature,
+            ...(number != null ? { number } : {}),
             crewAssignments: decodeAssignments(crewAssignmentsJson),
             issue: decodeFeatureIssue(issueJson),
           };
@@ -321,7 +323,7 @@ export const FeatureServiceLive = Layer.effect(
     const get: FeatureServiceShape["get"] = (id) =>
       sql<FeatureRow>`
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
-          f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
+          f.updated_at AS updatedAt, f.status, f.number, w.workflow_id AS workflowId,
           w.workflow_revision AS workflowRevision,
           f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
@@ -550,9 +552,12 @@ export const FeatureServiceLive = Layer.effect(
                   : yield* workflows.copyForFeature(input.id, input.projectId, input.workflowId);
               const crewAssignments = yield* assembleCrew(input.id, input.projectId, copy);
               const createdAt = DateTime.formatIso(yield* DateTime.now);
-              yield* sql`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch)
-              VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null})
+              // The number is taken in the insert itself, so concurrent creates cannot share one.
+              const [inserted] = yield* sql<{ readonly number: number }>`
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number)
+              VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null},
+                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}))
+              RETURNING number
             `;
               const {
                 autoTitle: _autoTitle,
@@ -569,6 +574,7 @@ export const FeatureServiceLive = Layer.effect(
                 createdAt,
                 updatedAt: createdAt,
                 status: "open",
+                ...(inserted ? { number: inserted.number } : {}),
               };
               return { feature, created: true };
             }),
@@ -779,7 +785,7 @@ export const FeatureServiceLive = Layer.effect(
     const listByProject: FeatureServiceShape["listByProject"] = (projectId) =>
       sql<FeatureRow>`
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
-          f.updated_at AS updatedAt, f.status, w.workflow_id AS workflowId,
+          f.updated_at AS updatedAt, f.status, f.number, w.workflow_id AS workflowId,
         w.workflow_revision AS workflowRevision,
           f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id

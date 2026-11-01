@@ -1,6 +1,7 @@
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardQuickActions,
+  featureRef,
   stageLabel,
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
@@ -11,7 +12,6 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { featureIssueRef } from "@t3tools/contracts";
 import { CircleIcon, GitBranchIcon, MessageSquareIcon, PlayIcon } from "lucide-react";
 import { memo, useState, type KeyboardEvent, type ReactNode } from "react";
 
@@ -151,7 +151,7 @@ export const FeatureRow = memo(function FeatureRow(props: {
       }}
       className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}
     >
-      <RowId>{card.issue ? featureIssueRef(card.issue) : null}</RowId>
+      <RowId>{featureRef(card)}</RowId>
       <StatusIcon aria-label={status.label} className={cn("size-4 shrink-0", status.className)} />
       <RowTitle title={card.title} onOpen={() => handlers.onOpen(card)} />
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -214,7 +214,9 @@ export const ChatRow = memo(function ChatRow(props: {
   const workingSince = status?.label === "Working" ? resolveThreadWorkingStartedAt(shell) : null;
   return (
     <div className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}>
-      <RowId>{null}</RowId>
+      <RowId>
+        <MessageSquareIcon aria-label="Thread" className="size-3.5" />
+      </RowId>
       <StatusIcon
         aria-label={status?.label ?? "Thread"}
         className={cn("size-4 shrink-0", status?.className ?? "text-muted-foreground")}

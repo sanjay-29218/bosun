@@ -180,6 +180,7 @@ describe("feature creation", () => {
             workflowId: selected.id,
           };
           const created = yield* features.create(input);
+          expect(created.number).toBe(1);
           expect(created.workflowId).toBe(selected.id);
           expect(created.workflowRevision).toBe(selected.revision);
           expect((yield* features.get(created.id))?.workflowRevision).toBe(selected.revision);
@@ -223,6 +224,7 @@ describe("feature creation", () => {
           yield* workflows.reviseDefinition(revised, 1);
           expect(yield* features.create(input)).toEqual(created);
           expect(yield* features.get(created.id)).toEqual(created);
+          expect((yield* features.create({ ...input, id: "next-feature" })).number).toBe(2);
           expect(yield* workflows.getFeatureCopy(created.id)).toEqual(copy);
           expect((yield* store.getMember(created.crewAssignments.planner!))?.instructions).toBe(
             role.instructions,

@@ -34,7 +34,8 @@ ones in Working, ones waiting on an approval or answer in Needs you, and the res
 one to open it; hover for Snooze and Settle. Todo stays for work not started yet. Milestone, label
 and workflow filters show only features and todos.
 
-Each card shows its project, status, linked issue, and branch or pull request. Its buttons, such
+Each card shows its project, status, linked issue (or, without one, the feature's own number,
+such as F-3), and branch or pull request. Its buttons, such
 as Start feature, Approve, Answer…, Retry stage and Stop feature, act without opening the thread.
 Click a card to open the thread its sidebar row opens: the one waiting on you, else the feature's
 lead. Right-click it for the rest of the stage's menu,
@@ -51,8 +52,8 @@ Done. Both act on the feature's threads, so the sidebar files it the same way, a
 snoozed or settled in the sidebar moves on the board too. Snoozed features wait in **Snoozed**
 under Done until they wake; **Wake** brings one back early and **Un-settle** undoes a settle.
 
-Search (the magnifier in the board's header, or `/`) matches titles, stages, projects and issue
-numbers, and `workflow:feature-delivery` limits the features to one workflow. **Filter** narrows
+Search (the magnifier in the board's header, or `/`) matches titles, stages, projects, issue
+numbers and feature numbers, and `workflow:feature-delivery` limits the features to one workflow. **Filter** narrows
 the board to a project, a milestone or issue labels; each filter in effect shows below the
 header, where its × removes it. **Display** switches between the columns and a list.
 

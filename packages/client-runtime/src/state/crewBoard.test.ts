@@ -19,6 +19,7 @@ import {
   featureCardQuickActions,
   featureDropAction,
   featurePhase,
+  featureRef,
   featureQueuePositions,
   groupFeaturesByColumn,
   groupFeaturesByPhase,
@@ -336,6 +337,23 @@ describe("search", () => {
     expect(matchesFeatureSearch(linked, parseFeatureSearch("#42"))).toBe(true);
     expect(matchesFeatureSearch(linked, parseFeatureSearch("github issues"))).toBe(true);
     expect(matchesFeatureSearch(linked, parseFeatureSearch("beta"))).toBe(true);
+  });
+
+  it("names a feature by its linked issue, else its own number", () => {
+    const numbered = card("k", "working", "build", { number: 3 });
+    expect(featureRef(numbered)).toBe("F-3");
+    expect(matchesFeatureSearch(numbered, parseFeatureSearch("f-3"))).toBe(true);
+    expect(featureRef(card("k", "working", "build"))).toBeNull();
+    const issue = {
+      url: "https://github.com/o/r/issues/42",
+      number: 42,
+      title: "Board shows GitHub issues",
+      state: "open" as const,
+      milestone: null,
+      subIssues: null,
+    };
+    const linked = card("k", "working", "build", { number: 3, issue });
+    expect(featureRef(linked)).toBe("#42");
   });
 });
 

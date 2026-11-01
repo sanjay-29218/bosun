@@ -486,6 +486,12 @@ export function parseFeatureSearch(query: string): FeatureSearch {
 }
 
 /** `extra` carries text the card shows from elsewhere, such as its project and branch. */
+/** A feature's short name: its linked issue or ticket, else its own F-<number>. */
+export function featureRef(card: Pick<FeatureBoardCard, "issue" | "number">): string | null {
+  if (card.issue) return featureIssueRef(card.issue);
+  return card.number === undefined ? null : `F-${card.number}`;
+}
+
 export function matchesFeatureSearch(
   card: FeatureBoardCard,
   search: FeatureSearch,
@@ -506,7 +512,8 @@ export function matchesFeatureSearch(
     card.stage?.stepId,
     card.stage?.role,
     card.workflow.name,
-    card.issue ? `${featureIssueRef(card.issue)} ${card.issue.title}` : null,
+    featureRef(card),
+    card.issue?.title,
     card.issue?.milestone,
     ...extra,
   ]

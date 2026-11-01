@@ -58,6 +58,7 @@ export const featureBoardCard = (input: {
     featureId: feature.id,
     projectId: feature.projectId,
     title: feature.title,
+    ...(feature.number !== undefined ? { number: feature.number } : {}),
     issue: feature.issue,
     workflow: {
       id: copy.definition.id,

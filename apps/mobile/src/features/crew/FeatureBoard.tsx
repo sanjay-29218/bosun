@@ -17,6 +17,7 @@ import {
   type NeedsYouKind,
   stageLabel,
   type EnvironmentFeatureCard,
+  featureRef,
   type FeatureCardActionId,
 } from "@t3tools/client-runtime/state/crew-board";
 import type {
@@ -24,7 +25,6 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import {
-  featureIssueRef,
   type EnvironmentId,
   type FeatureCardState,
   type ProjectId,
@@ -76,7 +76,7 @@ function rowActions(card: EnvironmentFeatureCard): FeatureCardActionId[] {
 }
 
 function featureLine(card: EnvironmentFeatureCard): string | null {
-  const issue = card.issue ? featureIssueRef(card.issue) : null;
+  const issue = featureRef(card);
   if (!card.stage) return issue;
   const stage =
     card.state === "failed" && card.detail
