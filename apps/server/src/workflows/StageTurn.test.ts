@@ -44,6 +44,7 @@ describe("stageTurnVerdict", () => {
         run: status === undefined ? undefined : { status },
         reminded,
         continuationPending,
+        threadDeleted: false,
       }),
     ).toEqual(verdict);
   });

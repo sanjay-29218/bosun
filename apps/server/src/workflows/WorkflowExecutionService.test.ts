@@ -570,6 +570,32 @@ describe("Workflow execution", () => {
     }),
   );
 
+  it.effect("fails a stage whose thread is deleted, without retrying it", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, execution, workflows, bindings } = yield* seed();
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeStage(featureId);
+        yield* (yield* OrchestratorV2).dispatch({
+          type: "thread.delete",
+          commandId: CommandId.make("delete-planner"),
+          threadId: plan.run.threadId,
+        });
+        yield* execution.reconcileFeature(featureId);
+        expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
+          "failed",
+        );
+        const events = (yield* workflows.getFeatureSnapshot(featureId, projectId))?.recentEvents;
+        expect(events?.findLast((event) => event.kind === "failed")?.detail).toBe(
+          "The stage thread was deleted",
+        );
+        expect(events?.some((event) => event.kind === "retry")).toBe(false);
+        expect(system.starts.length).toBe(3);
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+
   it.effect(
     "records answer, pause, resume, and cancel decisions and prevents duplicate or late work",
     () =>

@@ -335,19 +335,24 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         { onlyIfMissing: true },
       ).pipe(Effect.asVoid);
 
-    /** Every turn of a crew run's thread, and its latest one; none before the thread exists. */
+    /** Every turn of a crew run's thread and its latest one, or whether the thread was deleted. */
     const stageTurns = Effect.fn("WorkflowExecutionService.stageTurns")(
       function* (runId: string) {
         const run = yield* crew.getRun(runId);
         const shell = run ? yield* engine.getThreadShell(run.threadId) : null;
-        if (!run || !shell) return { runs: [], turn: undefined };
+        if (!run) return { runs: [], turn: undefined, deleted: false };
+        // A deleted thread has no shell but keeps its events; a thread not created yet has neither.
+        if (!shell) {
+          const deleted = (yield* engine.getThreadEventSequence(run.threadId)) > 0;
+          return { runs: [], turn: undefined, deleted };
+        }
         const { runs } = yield* engine.getThreadRecords(run.threadId, ["runs"]);
         const turn = runs.reduce<(typeof runs)[number] | undefined>(
           (latest, candidate) =>
             latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
           undefined,
         );
-        return { runs, turn };
+        return { runs, turn, deleted: false };
       },
       Effect.mapError(() => new WorkflowTransitionError("Stage thread is unavailable")),
     );
@@ -355,8 +360,9 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     /** The stage thread's latest turn and the verdict on it; see `stageTurnVerdict`. */
     const checkStageTurn = Effect.fn("WorkflowExecutionService.checkStageTurn")(
       function* (runId: string, reminderId: string) {
-        const { runs, turn } = yield* stageTurns(runId);
+        const { runs, turn, deleted } = yield* stageTurns(runId);
         const verdict = stageTurnVerdict({
+          threadDeleted: deleted,
           run: turn,
           reminded: runs.some((candidate) => candidate.userMessageId === reminderId),
           continuationPending:
@@ -1155,11 +1161,16 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             ),
           ),
         ).pipe(Effect.forkScoped);
-        // A stage thread's turn ends its stage's wait; a person's thread attached as a stage
-        // finishes that stage when its turn ends.
+        // A stage thread's turn, or its deletion, ends its stage's wait; a person's thread
+        // attached as a stage finishes that stage when its turn ends.
         yield* Stream.runForEach(domainEvents, (event) => {
-          if (event.type !== "run.updated") return Effect.void;
-          const threadId = event.payload.threadId;
+          const threadId =
+            event.type === "run.updated"
+              ? event.payload.threadId
+              : event.type === "thread.deleted"
+                ? event.payload.id
+                : null;
+          if (threadId === null) return Effect.void;
           return crew.getRunByThread(threadId).pipe(
             Effect.flatMap((run) =>
               run
