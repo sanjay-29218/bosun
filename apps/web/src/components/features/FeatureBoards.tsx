@@ -298,7 +298,7 @@ export function FeatureStatusBoard(props: {
   return (
     // Columns share the width, and scroll sideways only once they can't fit.
     <div
-      className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto pb-2"
+      className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto overscroll-x-contain pb-2"
       onDragEnd={drag.onDragEnd}
     >
       {BOARD_ORDER.map(itemsFor).map((items) => {
@@ -314,7 +314,7 @@ export function FeatureStatusBoard(props: {
             )}
           >
             <SectionHeader section={items.section} count={total} list={false} />
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea className="min-h-0 flex-1" chainHorizontalScroll>
               <div className="flex flex-col gap-1.5">
                 {total === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground/70">
