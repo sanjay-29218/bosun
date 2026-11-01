@@ -184,8 +184,8 @@ export function FeaturesPage(props: {
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   // A feature is settled or snoozed when its row in the thread list is, so the board and the
-  // sidebar file it the same way. A finished one with no listed threads left (archived, or
-  // settled long ago and no longer sent) counts as settled too.
+  // sidebar file it the same way. A started one with no listed threads left (archived, or
+  // settled long ago and no longer sent) has no row there, so it counts as settled too.
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread } = useThreadActions();
   const shells = useQuietThreadShells();
   const rows = featureRows(shells);
@@ -198,7 +198,9 @@ export function FeaturesPage(props: {
     card.state === "done" || card.state === "cancelled";
   const isSettled = (card: EnvironmentFeatureCard) => {
     const primary = rowFor(card)[0];
-    return primary === undefined ? closed(card) : primary.settledOverride === "settled";
+    return primary === undefined
+      ? card.started || closed(card)
+      : primary.settledOverride === "settled";
   };
   const isSnoozed = (card: EnvironmentFeatureCard) => {
     const primary = rowFor(card)[0];
