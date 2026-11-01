@@ -1,9 +1,9 @@
 # Features
 
 A feature is a brief that a crew of roles takes through a workflow. The board shows every feature
-across your projects and everything waiting on you. Flip the **List / Board** toggle at the top
-of the sidebar, press `mod+alt+shift+b`, or choose **Switch to Board** in the command palette; the
-same toggle returns to your threads. The toggle appears when a connected environment runs
+across your projects and everything waiting on you. Click the board button at the top right of a
+thread, press `mod+alt+shift+b`, or choose **Switch to Board** in the command palette; the same
+button returns to your threads. The toggle appears when a connected environment runs
 workflows, and the app opens on whichever view you used last.
 
 ## Start a feature
