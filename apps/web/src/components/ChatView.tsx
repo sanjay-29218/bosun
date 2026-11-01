@@ -2329,9 +2329,14 @@ export default function ChatView(props: ChatViewProps) {
   const setPendingServerThreadBranch = (branch: string | null) => {
     if (activeThread) setPendingServerThreadBranchEntry({ threadId: activeThread.id, branch });
   };
-  const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
-    : derivedEnvMode;
+  // A bot's default workflow counts as a pick until the person changes the workspace, so its
+  // feature gets its own worktree like a picked one does.
+  const followsDefaultWorkflow = draftWorkflowId !== null && !draftWorkflow.picked;
+  const envMode: DraftThreadEnvMode = followsDefaultWorkflow
+    ? "worktree"
+    : canOverrideServerThreadEnvMode
+      ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+      : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranchEntryForThread !== null
       ? pendingServerThreadBranchEntryForThread.branch
@@ -2898,7 +2903,7 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange,
     handleInteractionModeChangeStable,
     handleRuntimeModeChangeStable,
-    onEnvModeChangeStable,
+    onEnvModeChangeStable: onComposerEnvModeChange,
     onProviderModelSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
@@ -2923,6 +2928,12 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+  });
+  const onEnvModeChangeStable = useStableCallback((mode: DraftThreadEnvMode) => {
+    if (followsDefaultWorkflow && draftId && draftWorkflowId) {
+      useCrewDraftStore.getState().setWorkflow(draftId, draftWorkflowId);
+    }
+    onComposerEnvModeChange(mode);
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,

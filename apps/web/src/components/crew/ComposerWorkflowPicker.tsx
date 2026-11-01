@@ -79,6 +79,8 @@ export function useDraftWorkflow(input: {
     supported: supported && input.projectId !== null && input.draftId !== null,
     definitions: definitions ?? [],
     workflow: definitions?.find((definition) => definition.id === workflowId) ?? null,
+    /** False while the draft follows its bot's default workflow. */
+    picked: picked !== undefined,
   };
 }
 
