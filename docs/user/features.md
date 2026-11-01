@@ -39,10 +39,10 @@ Cards move when the workflow moves them. Dragging a card into Done stops the fea
 it out reopens it. Reopening a finished feature asks which stage the follow-up starts at; a
 stopped one resumes where it stopped.
 
-Hover a Done card and choose **Settle**, or drag it onto the **Settled** column, to set it aside.
+Hover a Done card and choose **Settle**, or drag it onto **Settled** under Done, to fold it away.
 Settling a feature settles its threads, so it moves to the sidebar's Settled shelf too, and a
-feature settled in the sidebar moves to Settled on the board. **Un-settle** brings it back.
-A feature whose thread you snooze in the sidebar waits in **Snoozed** until it wakes; **Wake**
+feature settled in the sidebar folds away on the board. **Un-settle** brings it back. A feature
+whose thread you snooze in the sidebar waits in **Snoozed** under Done until it wakes; **Wake**
 brings it back early.
 
 Search (the magnifier in the board's header, or `/`) matches titles, stages, projects and issue
