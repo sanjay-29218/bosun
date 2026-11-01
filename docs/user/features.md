@@ -8,13 +8,15 @@ workflows, and the app opens on whichever view you used last.
 
 ## Start a feature
 
-The first time the board opens, **Start a feature** adds the starter workflow, "Feature
-delivery", to the environment's workflows and opens a new thread. **New → New feature** opens a
-new thread in the scoped project. A new thread's **Workflow** picker starts on the default workflow of
-the bot that owns the project; pick **No workflow** for a plain thread. Change workflows in the
-**Library**, in the bot rail or at the bottom of the sidebar.
+On the board, **New → New feature** opens a dialog for the brief, the project and the workflow,
+and the feature starts without leaving the board. The first time the board opens, **Start a
+feature** adds the starter workflow, "Feature delivery", first. From a new thread, the composer's
+**Workflow** picker does the same, and its first message becomes the brief. Both start on the
+default workflow of the bot that owns the project. Change workflows in the **Library**, in the bot
+rail or at the bottom of the sidebar.
 
-A feature works where the composer's **Local** / **New worktree** picker says. In a new worktree,
+A feature started from the board gets a new worktree. From a thread, it works where the
+composer's **Local** / **New worktree** picker says. In a new worktree,
 the feature gets one branch and folder, made from the base branch when its first stage starts, and
 every stage and helper works there, so one feature becomes one pull request. **Local** works in
 the project's own checkout. A feature made from an existing thread works in that thread's

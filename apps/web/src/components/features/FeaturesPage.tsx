@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   featureCardKey,
   featureQueuePositions,
@@ -34,7 +34,6 @@ import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "re
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
-import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -46,6 +45,7 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useEnsureStarterWorkflow } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
+import { NewFeatureDialog } from "./NewFeatureDialog";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
@@ -310,13 +310,11 @@ export function FeaturesPage(props: {
       void startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
   };
 
-  // New feature: a new thread in the scoped project. The composer's Workflow picker turns
-  // its first message into the brief.
-  const newThread = useNewThreadHandler();
+  // New feature opens a brief dialog over the board, so starting one never leaves it.
+  const [newFeatureOpen, setNewFeatureOpen] = useState(false);
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
-  const startNewFeature = async () => {
-    if (!newFeatureProject) return;
-    await newThread(scopeProjectRef(newFeatureProject.environmentId, newFeatureProject.id));
+  const startNewFeature = () => {
+    if (newFeatureProject) setNewFeatureOpen(true);
   };
   const browseWorkflows = () => void navigate({ to: "/library", search: {} });
   const newTodo = () =>
@@ -516,7 +514,7 @@ export function FeaturesPage(props: {
             New todo
             {newTodoShortcut ? <MenuShortcut>{newTodoShortcut}</MenuShortcut> : null}
           </MenuItem>
-          <MenuItem onClick={() => void startNewFeature()}>New feature</MenuItem>
+          <MenuItem onClick={startNewFeature}>New feature</MenuItem>
         </MenuPopup>
       </Menu>
     </div>
@@ -548,7 +546,7 @@ export function FeaturesPage(props: {
           {newFeatureProject ? (
             <StartFirstFeatureButton
               environmentId={newFeatureProject.environmentId}
-              onReady={() => void startNewFeature()}
+              onReady={startNewFeature}
             />
           ) : (
             <Button variant="outline" disabled>
@@ -627,6 +625,13 @@ export function FeaturesPage(props: {
           </ScrollArea>
         )}
       </div>
+      {newFeatureOpen ? (
+        <NewFeatureDialog
+          projects={projects}
+          initialProject={newFeatureProject}
+          onClose={() => setNewFeatureOpen(false)}
+        />
+      ) : null}
       <FeatureNoteDialog
         request={noteRequest}
         onClose={() => setNoteRequest(null)}
