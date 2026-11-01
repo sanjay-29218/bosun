@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { selectActiveRightPanel, useRightPanelStore } from "../../rightPanelStore";
 import { useThreadShell } from "../../state/entities";
 import { useWorkGroup } from "../../state/workGroup";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -42,6 +43,10 @@ export function ThreadFeatureRow(props: {
   const group = useWorkGroup(thread?.feature || thread?.crewRequest ? threadRef : null);
   const stage = useCrewStageContext();
   const [stepsOpen, setStepsOpen] = useLocalStorage(STEPS_OPEN_KEY, false, Schema.Boolean);
+  // The Crew tab already lists the crew, so the card keeps only its summary while it shows.
+  const crewTabShown = useRightPanelStore(
+    (state) => selectActiveRightPanel(state.byThreadKey, threadRef) === "feature",
+  );
   if (!thread || !group) return null;
   const feature = thread.feature;
   const snapshot = stage?.thread.id === thread.id ? stage.snapshot : null;
@@ -83,11 +88,17 @@ export function ThreadFeatureRow(props: {
       </ThreadDetailsControl>
       <ThreadDetailsControl
         part="row"
-        aria-expanded={stepsOpen}
-        aria-label={`${stepsOpen ? "Hide" : "Show"} its crew`}
-        onClick={() => setStepsOpen(!stepsOpen)}
+        aria-expanded={crewTabShown ? undefined : stepsOpen}
+        aria-label={
+          crewTabShown
+            ? "Its crew, open in the Crew tab"
+            : `${stepsOpen ? "Hide" : "Show"} its crew`
+        }
+        onClick={crewTabShown ? props.onOpenFeature : () => setStepsOpen(!stepsOpen)}
       >
-        {stepsOpen ? (
+        {crewTabShown ? (
+          <span aria-hidden className="size-4 shrink-0" />
+        ) : stepsOpen ? (
           <ChevronDownIcon className="text-muted-foreground" />
         ) : (
           <ChevronRightIcon className="text-muted-foreground" />
@@ -102,7 +113,7 @@ export function ThreadFeatureRow(props: {
         </span>
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{roster.length}</span>
       </ThreadDetailsControl>
-      {stepsOpen
+      {stepsOpen && !crewTabShown
         ? roster.map((entry) => (
             <ThreadDetailsControl
               key={entry.key}

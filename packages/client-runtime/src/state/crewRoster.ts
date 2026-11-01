@@ -56,7 +56,7 @@ const STEP_STATUS: Record<
   skipped: { label: "Skipped", tone: "idle" },
 };
 
-const CREW_STATE_TONES: Record<CrewStageSummary["state"], CrewRosterTone> = {
+export const CREW_STATE_TONES: Record<CrewStageSummary["state"], CrewRosterTone> = {
   working: "working",
   queued: "working",
   approval: "waiting",

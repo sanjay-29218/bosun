@@ -9,7 +9,7 @@ import {
 import { cn } from "../../lib/utils";
 import type { CrewRosterEntry, CrewRosterTone } from "@t3tools/client-runtime/state/crew-roster";
 
-const TONE_TEXT: Record<CrewRosterTone, string> = {
+export const CREW_TONE_TEXT: Record<CrewRosterTone, string> = {
   done: "text-success-foreground",
   working: "text-info-foreground",
   waiting: "text-warning-foreground",
@@ -20,7 +20,7 @@ const TONE_TEXT: Record<CrewRosterTone, string> = {
 
 /** Where one of the crew stands, as an icon. */
 export function CrewRosterIcon({ tone }: { readonly tone: CrewRosterTone }) {
-  const className = cn("size-3.5 shrink-0", TONE_TEXT[tone]);
+  const className = cn("size-3.5 shrink-0", CREW_TONE_TEXT[tone]);
   switch (tone) {
     case "done":
       return <CircleCheckIcon aria-hidden className={className} />;
@@ -43,13 +43,20 @@ export function CrewRosterHereMark() {
 }
 
 /** Where one of the crew stands, in words, after its earlier tries. */
-export function CrewRosterStatus({ entry }: { readonly entry: CrewRosterEntry }) {
+export function CrewRosterStatus({
+  entry,
+  here = false,
+}: {
+  readonly entry: CrewRosterEntry;
+  readonly here?: boolean;
+}) {
   return (
     <span className="shrink-0 text-xs">
+      {here ? <span className="text-muted-foreground">You're here · </span> : null}
       {entry.tries.length > 0 ? (
         <span className="text-muted-foreground">{entry.tries.length + 1} tries · </span>
       ) : null}
-      <span className={TONE_TEXT[entry.tone]}>{entry.status}</span>
+      <span className={CREW_TONE_TEXT[entry.tone]}>{entry.status}</span>
     </span>
   );
 }

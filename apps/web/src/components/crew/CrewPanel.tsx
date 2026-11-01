@@ -1,12 +1,21 @@
 import {
   CREW_STATE_LABELS,
   featureStageRows,
+  featureTagColor,
   formatStageName,
 } from "@t3tools/client-runtime/crew-stage";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { featureIssueRef, type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  FileDiffIcon,
+  FileTextIcon,
+  GitBranchIcon,
+  type LucideIcon,
+  MessageCircleQuestionIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
@@ -15,16 +24,41 @@ import { useThreadShell } from "../../state/entities";
 import { useWorkGroup } from "../../state/workGroup";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { WorkStageStrip } from "../sidebar/SidebarWorkGroup";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { CREW_ACTION_COPY } from "./crewActionCopy";
-import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
-import { buildCrewRoster, type CrewRosterEntry } from "@t3tools/client-runtime/state/crew-roster";
-import { FeatureTag } from "./FeatureTag";
+import { CREW_TONE_TEXT, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
+import {
+  buildCrewRoster,
+  CREW_STATE_TONES,
+  type CrewRosterEntry,
+} from "@t3tools/client-runtime/state/crew-roster";
 import { useCrewStageContext } from "./useCrewStage";
 
+/** Every row shares one grid, so crew statuses, outputs' Open and workspace values line up. */
+const ROW_CLASS = "flex h-8 min-w-0 items-center gap-2 rounded-md px-2";
+
 function SectionTitle({ children }: { readonly children: string }) {
-  return <h3 className="px-1 text-xs font-medium text-muted-foreground">{children}</h3>;
+  return <h3 className="px-2 text-xs font-medium text-muted-foreground">{children}</h3>;
+}
+
+function WorkspaceRow(props: {
+  readonly icon: LucideIcon;
+  readonly label: string;
+  readonly value: string | null;
+}) {
+  const Icon = props.icon;
+  return (
+    <div className={ROW_CLASS}>
+      <span aria-hidden className="size-4 shrink-0" />
+      <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <dt className="min-w-0 flex-1 truncate text-muted-foreground">{props.label}</dt>
+      <dd className={cn("min-w-0 truncate text-xs", !props.value && "text-muted-foreground")}>
+        {props.value ?? "None yet"}
+      </dd>
+    </div>
+  );
 }
 
 const WAITING_TITLES = {
@@ -58,6 +92,7 @@ export function CrewPanel(props: {
   const snapshot = stage?.thread.id === thread.id ? stage.snapshot : null;
   const roster = buildCrewRoster(group, snapshot);
   const current = group.kind === "feature" ? group.primary.crew : null;
+  const state = snapshot?.state ?? current?.state ?? "working";
   const openThread = (threadId: ThreadId) =>
     void navigate({
       to: "/$environmentId/$threadId",
@@ -82,32 +117,38 @@ export function CrewPanel(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-col gap-4 p-3 text-sm">
-        <header className="flex flex-col gap-1.5 px-1">
-          <span className="flex min-w-0 items-center gap-2">
+      <div className="flex flex-col gap-5 p-3 text-sm">
+        <header className="flex flex-col gap-1.5 px-2">
+          <h2 className="flex min-w-0 items-start gap-2 font-medium">
             {thread.feature ? (
-              <FeatureTag feature={thread.feature} />
-            ) : (
-              <span className="min-w-0 truncate font-medium">{group.title}</span>
-            )}
-            {thread.feature?.issue ? (
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {featureIssueRef(thread.feature.issue)}
-              </span>
+              <span
+                aria-hidden
+                className="mt-1.5 size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: featureTagColor(thread.feature.id) }}
+              />
             ) : null}
-            {snapshot ? (
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {snapshot.definition.name} · v{snapshot.definition.revision}
-              </span>
-            ) : null}
-          </span>
-          {current && group.stageLine ? (
-            <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              <WorkStageStrip stages={group.stages} />
-              <span className="truncate">
-                {group.stageLine} · {CREW_STATE_LABELS[snapshot?.state ?? current.state]}
-              </span>
+            <span className="line-clamp-2 min-w-0 break-words">
+              {thread.feature?.title ?? group.title}
             </span>
+          </h2>
+          {thread.feature?.issue || snapshot ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {[
+                thread.feature?.issue ? featureIssueRef(thread.feature.issue) : null,
+                snapshot ? `${snapshot.definition.name} · v${snapshot.definition.revision}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+          {current && group.stageLine ? (
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs">
+              <WorkStageStrip stages={group.stages} />
+              <span className="min-w-0 truncate text-muted-foreground">{group.stageLine}</span>
+              <span className={cn("ms-auto shrink-0", CREW_TONE_TEXT[CREW_STATE_TONES[state]])}>
+                {CREW_STATE_LABELS[state]}
+              </span>
+            </div>
           ) : null}
         </header>
 
@@ -141,7 +182,7 @@ export function CrewPanel(props: {
 
         <section className="flex flex-col gap-1">
           <SectionTitle>Crew</SectionTitle>
-          <ol className="flex flex-col">
+          <ol className="flex flex-col gap-px">
             {roster.map((entry) => (
               <CrewPanelEntry
                 key={entry.key}
@@ -169,6 +210,11 @@ export function CrewPanel(props: {
   );
 }
 
+const ENTRY_DETAILS = {
+  lead: "Leads the crew and answers its questions",
+  helper: "Helps a stage with one task",
+} as const;
+
 function CrewPanelEntry(props: {
   readonly entry: CrewRosterEntry;
   readonly here: boolean;
@@ -177,58 +223,51 @@ function CrewPanelEntry(props: {
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const { entry } = props;
-  const expandable = entry.kind === "stage";
   return (
-    <li className={cn("relative rounded-md", (entry.active || props.open) && "bg-accent/60")}>
-      {props.here ? <CrewRosterHereMark /> : null}
-      <div className="flex items-center gap-1 pe-1">
-        {expandable ? (
-          <button
-            type="button"
-            aria-expanded={props.open}
-            aria-label={`${props.open ? "Hide" : "Show"} ${entry.name} details`}
-            onClick={props.onToggle}
-            className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:text-foreground"
-          >
-            {props.open ? (
-              <ChevronDownIcon className="size-3.5" />
-            ) : (
-              <ChevronRightIcon className="size-3.5" />
-            )}
-          </button>
-        ) : (
-          <span className="size-6 shrink-0" />
-        )}
+    <li className={cn("rounded-md", entry.active && "bg-info/8 dark:bg-info/12")}>
+      <div className={cn(ROW_CLASS, !entry.active && "hover:bg-accent/50")}>
+        <button
+          type="button"
+          aria-expanded={props.open}
+          aria-label={`${props.open ? "Hide" : "Show"} ${entry.name} details`}
+          onClick={props.onToggle}
+          className="grid size-4 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:text-foreground"
+        >
+          {props.open ? (
+            <ChevronDownIcon className="size-3.5" />
+          ) : (
+            <ChevronRightIcon className="size-3.5" />
+          )}
+        </button>
         <button
           type="button"
           disabled={entry.threadId === null}
           aria-current={props.here ? "page" : undefined}
           onClick={() => entry.threadId && props.onOpenThread(entry.threadId)}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1.5 text-left disabled:cursor-default"
+          className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-left disabled:cursor-default"
         >
           <CrewRosterIcon tone={entry.tone} />
           <span className="min-w-0 flex-1 truncate">
-            {entry.name}
+            <span className={cn(entry.active && "font-medium")}>{entry.name}</span>
             <span className="text-muted-foreground">
-              {entry.kind === "lead" ? " · lead" : entry.role ? ` · ${entry.role}` : ""}
+              {entry.kind === "lead" ? " · Lead" : entry.role ? ` · ${entry.role}` : ""}
             </span>
           </span>
-          <CrewRosterStatus entry={entry} />
+          <CrewRosterStatus entry={entry} here={props.here} />
         </button>
       </div>
       {props.open ? (
-        <div className="flex flex-col gap-1 pb-2 ps-14 text-xs text-muted-foreground">
-          {entry.role ? (
-            <span>
-              Run by {entry.role}
-              {entry.gate ? " · waits for your approval when done" : ""}
-            </span>
-          ) : null}
+        <div className="flex flex-col items-start gap-1 pt-0.5 pb-2 ps-12 pe-2 text-xs text-muted-foreground">
+          <span>
+            {entry.kind === "stage"
+              ? `Run by ${entry.role ?? "its role"}${entry.gate ? " · waits for your approval when done" : ""}`
+              : ENTRY_DETAILS[entry.kind]}
+          </span>
           {entry.tries.map((threadId, index) => (
             <button
               key={threadId}
               type="button"
-              className="cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline"
+              className="cursor-pointer underline-offset-2 hover:text-foreground hover:underline"
               onClick={() => props.onOpenThread(threadId)}
             >
               Open try {index + 1}
@@ -237,7 +276,7 @@ function CrewPanelEntry(props: {
           {entry.threadId ? (
             <button
               type="button"
-              className="cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline"
+              className="cursor-pointer underline-offset-2 hover:text-foreground hover:underline"
               onClick={() => props.onOpenThread(entry.threadId!)}
             >
               Open {entry.tries.length > 0 ? "the latest try" : "its thread"}
@@ -282,27 +321,10 @@ function CrewPanelFeatureDetails(props: {
           <SectionTitle>Outputs</SectionTitle>
           <ul className="flex flex-col">
             {snapshot.outputs.map((output) => (
-              <li
-                key={output.kind === "file" ? `file:${output.path}` : `diff:${output.stepId}`}
-                className="flex items-center justify-between gap-2 px-2 py-1"
-              >
-                <span className="min-w-0 truncate">
-                  {output.kind === "file" ? (
-                    <>
-                      <span className="font-mono">{output.path}</span> v{output.version} ·{" "}
-                      {formatStageName(output.stepId)}
-                    </>
-                  ) : (
-                    <>
-                      {formatStageName(output.stepId)} diff{" "}
-                      <span className="text-diff-addition-foreground">+{output.additions}</span>{" "}
-                      <span className="text-diff-deletion-foreground">−{output.deletions}</span>
-                    </>
-                  )}
-                </span>
-                <Button
-                  size="xs"
-                  variant="ghost"
+              <li key={output.kind === "file" ? `file:${output.path}` : `diff:${output.stepId}`}>
+                <button
+                  type="button"
+                  className={cn(ROW_CLASS, "w-full cursor-pointer text-left hover:bg-accent/50")}
                   onClick={() =>
                     output.kind === "file"
                       ? useRightPanelStore
@@ -311,8 +333,35 @@ function CrewPanelFeatureDetails(props: {
                       : openThread(output.threadId)
                   }
                 >
-                  Open
-                </Button>
+                  <span aria-hidden className="size-4 shrink-0" />
+                  {output.kind === "file" ? (
+                    <FileTextIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <FileDiffIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">
+                    {output.kind === "file" ? (
+                      <>
+                        {output.path}
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · v{output.version} · {formatStageName(output.stepId)}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        {formatStageName(output.stepId)} diff{" "}
+                        <span className="text-xs text-diff-addition-foreground tabular-nums">
+                          +{output.additions}
+                        </span>{" "}
+                        <span className="text-xs text-diff-deletion-foreground tabular-nums">
+                          −{output.deletions}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">Open</span>
+                </button>
               </li>
             ))}
           </ul>
@@ -321,15 +370,18 @@ function CrewPanelFeatureDetails(props: {
 
       <section className="flex flex-col gap-1">
         <SectionTitle>Workspace</SectionTitle>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-2 text-xs">
-          <dt className="text-muted-foreground">Branch</dt>
-          <dd className="truncate font-mono">{thread.branch ?? "None yet"}</dd>
-          <dt className="text-muted-foreground">Pull request</dt>
-          <dd className="truncate">{pullRequest ? `#${pullRequest.number}` : "None yet"}</dd>
-          <dt className="text-muted-foreground">Questions go to</dt>
-          <dd className="truncate">
-            {supervisor ? `${formatStageName(supervisor)}, then you` : "You"}
-          </dd>
+        <dl className="flex flex-col">
+          <WorkspaceRow icon={GitBranchIcon} label="Branch" value={thread.branch} />
+          <WorkspaceRow
+            icon={PullRequestGlyph.pullRequest}
+            label="Pull request"
+            value={pullRequest ? `#${pullRequest.number}` : null}
+          />
+          <WorkspaceRow
+            icon={MessageCircleQuestionIcon}
+            label="Questions go to"
+            value={supervisor ? `${formatStageName(supervisor)}, then you` : "You"}
+          />
         </dl>
         {snapshot.executionError ? (
           <p role="alert" className="px-2 text-xs break-words text-destructive">
@@ -338,14 +390,14 @@ function CrewPanelFeatureDetails(props: {
         ) : null}
       </section>
 
-      <footer className="flex flex-wrap gap-2 px-1">
+      <footer className="flex flex-wrap items-center gap-2 border-t pt-3 px-2">
         {footer.map((action) =>
           // A finished feature reopens as a follow-up, at a stage you pick.
           action === "reopen" && snapshot.completed ? (
             <Menu key={action}>
               <MenuTrigger
                 disabled={busy}
-                render={<Button size="sm" variant="outline" />}
+                render={<Button size="xs" variant="outline" />}
                 title={CREW_ACTION_COPY.reopen.description}
               >
                 Reopen at…
@@ -364,7 +416,7 @@ function CrewPanelFeatureDetails(props: {
           ) : (
             <Button
               key={action}
-              size="sm"
+              size="xs"
               variant={action === "cancel" ? "destructive-outline" : "outline"}
               disabled={busy}
               title={CREW_ACTION_COPY[action].description}
@@ -374,7 +426,7 @@ function CrewPanelFeatureDetails(props: {
             </Button>
           ),
         )}
-        <Button size="sm" variant="ghost" onClick={props.onEditWorkflow}>
+        <Button size="xs" variant="ghost" onClick={props.onEditWorkflow}>
           Edit workflow
         </Button>
       </footer>
