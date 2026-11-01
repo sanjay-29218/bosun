@@ -1,5 +1,3 @@
-import { formatStageName } from "@t3tools/client-runtime/crew-stage";
-import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import {
   isAtomCommandInterrupted,
   runAtomCommand,
@@ -8,30 +6,34 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowUpIcon, FolderIcon } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 
 import { formatShortcutLabel } from "../../keybindings";
 import { randomUUID } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { botsEnvironment } from "../../state/bots";
-import { rolesEnvironment } from "../../state/roles";
 import { featuresEnvironment } from "../../state/features";
 import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
+import { ComposerControl, ComposerControlIcon } from "../chat/ComposerControl";
+import { ComposerSurface } from "../chat/ComposerSurface";
+import { CrewMenu, WorkflowMenu } from "../crew/ComposerWorkflowPicker";
 import { botDefaultWorkflowId } from "../crew/crewDraftStore";
-import { InstructionsEditor } from "../InstructionsEditor";
-import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
+import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Kbd } from "../ui/kbd";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "../ui/menu";
+import { Spinner } from "../ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 
 const SUBMIT_SHORTCUT = {
@@ -58,6 +60,7 @@ export function NewFeatureDialog(props: {
   readonly initialProject: EnvironmentProject | null;
   readonly onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const [selectedKey, setSelectedKey] = useState(
     props.initialProject ? projectKey(props.initialProject) : null,
   );
@@ -69,7 +72,6 @@ export function NewFeatureDialog(props: {
   const definitions =
     useEnvironmentQuery(library ? workflowsEnvironment.definitions(library) : null).data ?? [];
   const bots = useEnvironmentQuery(library ? botsEnvironment.list(library) : null).data;
-  const roles = useEnvironmentQuery(library ? rolesEnvironment.roles(library) : null).data;
   const defaultWorkflowId = project && bots ? botDefaultWorkflowId(bots, project) : null;
   const [pickedWorkflowId, setPickedWorkflowId] = useState<string | null>(null);
   const workflow =
@@ -140,108 +142,120 @@ export function NewFeatureDialog(props: {
     void submit();
   };
 
+  const openLibrary = () => {
+    props.onClose();
+    void navigate({ to: "/library", search: {} });
+  };
+
   return (
     <Dialog open onOpenChange={(open) => (open || busy ? undefined : props.onClose())}>
       <DialogPopup className="sm:max-w-2xl">
         <form
-          className="flex min-h-0 flex-col"
+          className="flex min-h-0 flex-col gap-3 p-4"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
           }}
           onKeyDown={onKeyDown}
         >
-          <DialogHeader>
-            <DialogTitle>New feature</DialogTitle>
-            <DialogDescription>
-              The brief goes to the workflow&apos;s first stage. The feature works in its own
-              worktree, and each role uses the model set for it in the Library.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {props.projects.length > 1 ? (
-                  <Select
-                    value={project ? projectKey(project) : ""}
-                    onValueChange={(value) => {
-                      if (value === null) return;
-                      setSelectedKey(value);
-                      setPickedWorkflowId(null);
-                    }}
-                  >
-                    <SelectTrigger aria-label="Project" size="sm" className="w-48">
-                      <SelectValue>{project?.title}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {props.projects.map((candidate) => (
-                        <SelectItem key={projectKey(candidate)} value={projectKey(candidate)}>
-                          {candidate.title}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                ) : null}
-                <Select
-                  value={workflow?.id ?? ""}
-                  onValueChange={(value) => {
-                    if (value !== null) setPickedWorkflowId(value);
-                  }}
-                >
-                  <SelectTrigger aria-label="Workflow" size="sm" className="w-64">
-                    <SelectValue>{workflow?.name ?? "No workflows"}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {definitions.map((definition) => {
-                      const stages = orderWorkflowStages(definition).length;
-                      return (
-                        <SelectItem key={definition.id} value={definition.id}>
-                          {definition.name} · {stages} {stages === 1 ? "stage" : "stages"}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectPopup>
-                </Select>
-              </div>
-              {workflow ? (
-                // Read-only, like the composer's Crew menu: models are set per role in the Library.
-                <ul aria-label="Crew" className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                  {Object.entries(workflow.roles).map(([slot, entry]) => {
-                    const role = roles?.find((item) => item.id === entry.roleId);
-                    return (
-                      <li key={slot} className="flex gap-1.5">
-                        <span>{role?.name ?? formatStageName(slot)}</span>
-                        <span className="text-muted-foreground">
-                          {role?.modelSelection.model ?? ""}
+          <DialogTitle className="ms-1">New feature</DialogTitle>
+          <ComposerSurface.Shell>
+            <ComposerSurface.Main>
+              <div className="rounded-2xl">
+                <textarea
+                  autoFocus
+                  aria-label="Brief"
+                  value={brief}
+                  onChange={(event) => setBrief(event.target.value)}
+                  placeholder="What should the crew build? The first line becomes the title."
+                  className="block max-h-[50vh] min-h-28 w-full resize-none bg-transparent px-4 pt-4 pb-2 text-base leading-relaxed outline-none [field-sizing:content] placeholder:text-placeholder sm:text-sm"
+                />
+                <div className="flex items-center gap-1 px-2.5 pb-2.5">
+                  {props.projects.length > 1 ? (
+                    <Menu>
+                      <MenuTrigger
+                        render={
+                          <ComposerControl
+                            size="sm"
+                            aria-label={`Project: ${project?.title ?? ""}`}
+                          />
+                        }
+                      >
+                        <ComposerControlIcon icon={FolderIcon} />
+                        <span data-composer-control-label className="max-w-40 truncate">
+                          {project?.title}
                         </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              <InstructionsEditor
-                label="Brief"
-                value={brief}
-                onChange={setBrief}
-                placeholder="What should the crew build? The first line becomes the title."
-                size="lg"
-              />
-              {error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              ) : null}
-            </div>
-          </DialogPanel>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={props.onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy || !project || !workflow || !text}>
-              Start feature
-              <Kbd>{formatShortcutLabel(SUBMIT_SHORTCUT)}</Kbd>
-            </Button>
-          </DialogFooter>
+                      </MenuTrigger>
+                      <MenuPopup side="top" align="start" className="min-w-48">
+                        <MenuGroup>
+                          <MenuGroupLabel>Project</MenuGroupLabel>
+                          <MenuRadioGroup
+                            value={project ? projectKey(project) : ""}
+                            onValueChange={(value: string) => {
+                              setSelectedKey(value);
+                              setPickedWorkflowId(null);
+                            }}
+                          >
+                            {props.projects.map((candidate) => (
+                              <MenuRadioItem
+                                key={projectKey(candidate)}
+                                value={projectKey(candidate)}
+                                closeOnClick
+                              >
+                                {candidate.title}
+                              </MenuRadioItem>
+                            ))}
+                          </MenuRadioGroup>
+                        </MenuGroup>
+                      </MenuPopup>
+                    </Menu>
+                  ) : null}
+                  <WorkflowMenu
+                    definitions={definitions}
+                    workflow={workflow}
+                    size="sm"
+                    onPick={(workflowId) => setPickedWorkflowId(workflowId)}
+                    onManageWorkflows={openLibrary}
+                  />
+                  {workflow && project ? (
+                    <CrewMenu
+                      environmentId={project.environmentId}
+                      workflow={workflow}
+                      size="sm"
+                      onEditCrew={openLibrary}
+                    />
+                  ) : null}
+                  <span className="flex-1" />
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="submit"
+                          aria-label="Start feature"
+                          disabled={busy || !project || !workflow || !text}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs transition-transform duration-150 enabled:cursor-pointer enabled:shadow-message-action/24 hover:scale-105 hover:bg-message-action-hover disabled:pointer-events-none disabled:bg-foreground/12 disabled:text-muted-foreground disabled:shadow-none"
+                        />
+                      }
+                    >
+                      {busy ? (
+                        <Spinner size="sm" aria-hidden="true" />
+                      ) : (
+                        <ArrowUpIcon className="size-4" />
+                      )}
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">
+                      Start feature <Kbd>{formatShortcutLabel(SUBMIT_SHORTCUT)}</Kbd>
+                    </TooltipPopup>
+                  </Tooltip>
+                </div>
+              </div>
+            </ComposerSurface.Main>
+          </ComposerSurface.Shell>
+          {error ? (
+            <p role="alert" className="ps-1 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
         </form>
       </DialogPopup>
     </Dialog>

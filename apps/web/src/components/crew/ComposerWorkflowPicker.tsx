@@ -1,7 +1,7 @@
 import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, WorkflowDefinition } from "@t3tools/contracts";
 import { LayersIcon, MessageSquareIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 
 import type { DraftId } from "../../composerDraftStore";
@@ -95,9 +95,31 @@ export function ComposerWorkflowPicker(props: {
   readonly size: ComposerControlSize;
   readonly onManageWorkflows: () => void;
 }) {
-  const menuProps = useComposerMenuProps();
   const { definitions, workflow } = useDraftWorkflow(props);
   const setWorkflow = useCrewDraftStore((state) => state.setWorkflow);
+  return (
+    <WorkflowMenu
+      definitions={definitions}
+      workflow={workflow}
+      size={props.size}
+      allowNoWorkflow
+      onPick={(workflowId) => setWorkflow(props.draftId, workflowId)}
+      onManageWorkflows={props.onManageWorkflows}
+    />
+  );
+}
+
+/** The Workflow control, shared by the composer and the board's New feature dialog. */
+export function WorkflowMenu(props: {
+  readonly definitions: ReadonlyArray<WorkflowDefinition>;
+  readonly workflow: WorkflowDefinition | null;
+  readonly size: ComposerControlSize;
+  readonly allowNoWorkflow?: boolean;
+  readonly onPick: (workflowId: string | null) => void;
+  readonly onManageWorkflows: () => void;
+}) {
+  const menuProps = useComposerMenuProps();
+  const { workflow } = props;
   return (
     <Menu>
       <Tooltip>
@@ -117,11 +139,9 @@ export function ComposerWorkflowPicker(props: {
         >
           <ComposerControlIcon icon={WorkflowIcon} size={props.size} />
           {workflow ? (
-            <>
-              <span data-composer-control-label className="max-w-40 truncate">
-                {workflow.name}
-              </span>
-            </>
+            <span data-composer-control-label className="max-w-40 truncate">
+              {workflow.name}
+            </span>
           ) : null}
         </TooltipTrigger>
         <TooltipPopup side="top">
@@ -133,17 +153,17 @@ export function ComposerWorkflowPicker(props: {
           <MenuGroupLabel>Workflow</MenuGroupLabel>
           <MenuRadioGroup
             value={workflow?.id ?? NO_WORKFLOW}
-            onValueChange={(value: string) =>
-              setWorkflow(props.draftId, value === NO_WORKFLOW ? null : value)
-            }
+            onValueChange={(value: string) => props.onPick(value === NO_WORKFLOW ? null : value)}
           >
-            <MenuRadioItem value={NO_WORKFLOW} closeOnClick>
-              <span className="flex min-w-0 items-center gap-2">
-                <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">No workflow</span>
-              </span>
-            </MenuRadioItem>
-            {definitions.map((definition) => {
+            {props.allowNoWorkflow ? (
+              <MenuRadioItem value={NO_WORKFLOW} closeOnClick>
+                <span className="flex min-w-0 items-center gap-2">
+                  <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">No workflow</span>
+                </span>
+              </MenuRadioItem>
+            ) : null}
+            {props.definitions.map((definition) => {
               const stages = orderWorkflowStages(definition).length;
               return (
                 <MenuRadioItem key={definition.id} value={definition.id} closeOnClick>
@@ -180,12 +200,30 @@ export function ComposerCrewControl(props: {
   readonly size: ComposerControlSize;
   readonly onEditCrew: () => void;
 }) {
-  const menuProps = useComposerMenuProps();
   const { workflow } = useDraftWorkflow(props);
-  const roles = useEnvironmentQuery(
-    workflow ? rolesEnvironment.roles({ environmentId: props.environmentId, input: {} }) : null,
-  ).data;
   if (!workflow) return null;
+  return (
+    <CrewMenu
+      environmentId={props.environmentId}
+      workflow={workflow}
+      size={props.size}
+      onEditCrew={props.onEditCrew}
+    />
+  );
+}
+
+/** The Crew control: the workflow's roles and their models, read-only. */
+export function CrewMenu(props: {
+  readonly environmentId: EnvironmentId;
+  readonly workflow: WorkflowDefinition;
+  readonly size: ComposerControlSize;
+  readonly onEditCrew: () => void;
+}) {
+  const menuProps = useComposerMenuProps();
+  const { workflow } = props;
+  const roles = useEnvironmentQuery(
+    rolesEnvironment.roles({ environmentId: props.environmentId, input: {} }),
+  ).data;
   return (
     <Menu>
       <MenuTrigger render={<ComposerControl size={props.size} aria-label="Crew" />}>

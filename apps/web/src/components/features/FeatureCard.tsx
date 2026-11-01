@@ -179,7 +179,7 @@ function StatusWithControl(props: { readonly status: ReactNode; readonly control
 }
 
 /** Wakes a snoozed feature, the board's way back out of Snoozed. */
-export function WakeControl(props: { readonly onClick: () => void }) {
+function WakeControl(props: { readonly onClick: () => void }) {
   return (
     <button
       type="button"
@@ -193,7 +193,7 @@ export function WakeControl(props: { readonly onClick: () => void }) {
   );
 }
 
-export function ShelfControl(props: { readonly settled: boolean; readonly onClick: () => void }) {
+function ShelfControl(props: { readonly settled: boolean; readonly onClick: () => void }) {
   const Icon = props.settled ? Undo2Icon : CheckIcon;
   return (
     <button
