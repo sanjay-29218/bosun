@@ -29,9 +29,9 @@ import * as Stream from "effect/Stream";
 import * as BotStore from "../bots/BotStore.ts";
 import { featureTag } from "../features/featureIssue.ts";
 import { FeatureWorkspaces } from "../features/FeatureWorkspaces.ts";
-import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
+import { CrewService, crewRunPrompt, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
-import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
+import { CrewThreadRuntime, startsIdle } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -268,12 +268,15 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       function* (runId: string, id: string, text: string) {
         const run = yield* crew.getRun(runId);
         if (!run) return;
+        // A lead's thread starts without a turn, so its first message carries its brief.
+        const shell = startsIdle(run.id) ? yield* engine.getThreadShell(run.threadId) : null;
+        const brief = shell?.latestRunId === null ? `${crewRunPrompt(run)}\n\n` : "";
         yield* engine.dispatch({
           type: "message.dispatch",
           commandId: CommandId.make(id),
           threadId: run.threadId,
           messageId: MessageId.make(id),
-          text,
+          text: `${brief}${text}`,
           attachments: [],
           context: {
             version: 1,

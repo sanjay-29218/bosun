@@ -305,6 +305,10 @@ const validRoleTools = (tools: ReadonlyArray<string> | undefined) => {
   return list;
 };
 
+/** What a crew run's thread is first told: its role's instructions and its task. */
+export const crewRunPrompt = (run: Pick<CrewRun, "instructions" | "taskText">) =>
+  `${run.instructions}\n\nTask:\n${run.taskText}`;
+
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
   run.projectId === input.projectId &&
@@ -326,7 +330,7 @@ export const CrewServiceLive = Layer.effect(
       threadId: run.threadId,
       projectId: run.projectId,
       title: run.title,
-      prompt: `${run.instructions}\n\nTask:\n${run.taskText}`,
+      prompt: crewRunPrompt(run),
       modelSelection: run.modelSelection,
       runtimeMode: run.runtimeMode,
       createdAt: run.createdAt,

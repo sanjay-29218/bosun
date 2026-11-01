@@ -642,7 +642,7 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("opens runs in their worktree, and only the first runs its setup script", () =>
+  effectIt.effect("opens runs in their worktree, only the first runs setup, and a lead idles", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
@@ -682,6 +682,16 @@ describe("Bot foundation", () => {
             for (const threadId of [plan.threadId, build.threadId]) {
               expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
             }
+            // A feature's lead gets its thread, but no turn until a decision is asked of it.
+            const lead = yield* bots.createRun({
+              id: "feature-lead:board",
+              memberId: "execution-1",
+              projectId,
+              taskText: "Lead",
+            });
+            expect(yield* engine.getThreadShell(lead.threadId)).toMatchObject({
+              latestRunId: null,
+            });
           }),
         orchestration,
       ).pipe(

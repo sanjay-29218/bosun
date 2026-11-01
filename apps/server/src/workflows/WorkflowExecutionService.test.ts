@@ -242,7 +242,7 @@ const seed = (
       taskText: "Coordinate",
     });
     const manager = yield* bots.createRun({
-      id: `${featureId}-manager`,
+      id: `feature-lead:${featureId}`,
       memberId: managerId,
       projectId,
       taskText: "Supervise",
@@ -1111,11 +1111,13 @@ describe("Workflow execution", () => {
         const plan = yield* activeStage(featureId);
         const leadPrompts = (yield* prompts(manager.threadId)).length;
 
-        // A question goes to the lead once, and its answer to the stage's thread.
+        // A question goes to the lead once, and its answer to the stage's thread. The lead's
+        // thread had no turn yet, so its first request carries its brief.
+        expect(leadPrompts).toBe(0);
         yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
         yield* execution.reconcileFeature(featureId);
         const asked = (yield* prompts(manager.threadId)).slice(leadPrompts);
-        expect(asked).toEqual([expect.stringContaining("Which API?")]);
+        expect(asked).toEqual([expect.stringMatching(/Task:\nSupervise[\s\S]*Which API\?/)]);
         expect((yield* Effect.flip(decide("answer"))).message).toContain("answer as text");
         yield* decide("answer", "Use v2");
         expect(yield* planStatus()).toBe("running");
@@ -1127,6 +1129,7 @@ describe("Workflow execution", () => {
         yield* execution.reconcile();
         const gated = (yield* prompts(manager.threadId)).slice(leadPrompts + 1);
         expect(gated).toEqual([expect.stringContaining("Plan ready")]);
+        expect(gated[0]).not.toContain("Supervise");
         expect((yield* Effect.flip(decide("request_changes"))).message).toContain("what to change");
         yield* decide("approve");
         expect(yield* planStatus()).toBe("completed");

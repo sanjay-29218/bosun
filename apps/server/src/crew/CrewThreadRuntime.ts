@@ -33,6 +33,9 @@ type OrchestrationDispatchError = Orchestrator.OrchestratorV2Error;
 type CrewReadError = PersistenceSqlError;
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 
+/** A feature's lead starts without a turn; its first decision request carries its brief. */
+export const startsIdle = (runId: string) => runId.startsWith("feature-lead:");
+
 export interface CrewThreadStart {
   readonly runId: string;
   readonly memberId: string;
@@ -211,12 +214,16 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           ? { type: "existing_worktree", ...workspace }
           : { type: "root" },
         runSetupScript: !inUse,
-        initialMessage: {
-          messageId: MessageId.make(`${prefix}:${input.runId}:message`),
-          text: input.prompt,
-          attachments: [],
-          context: origin(input),
-        },
+        ...(startsIdle(input.runId)
+          ? {}
+          : {
+              initialMessage: {
+                messageId: MessageId.make(`${prefix}:${input.runId}:message`),
+                text: input.prompt,
+                attachments: [],
+                context: origin(input),
+              },
+            }),
         createdBy: "agent",
         creationSource: "mcp",
       });
