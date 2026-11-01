@@ -20,12 +20,12 @@ import { Button } from "../ui/button";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 import {
+  FeatureParkControls,
   RelativeTime,
-  ShelfControl,
   WAITING_STATES,
-  WakeControl,
   WorkingDuration,
   featureStatus,
+  type FeatureShelf,
 } from "./FeatureCard";
 
 /** A long stack shows its first page, then a button for the rest. */
@@ -119,8 +119,7 @@ export const FeatureRow = memo(function FeatureRow(props: {
   readonly card: EnvironmentFeatureCard;
   readonly handlers: FeatureBoardHandlers;
   readonly queuePosition: number | undefined;
-  readonly settled: boolean;
-  readonly snoozed: boolean;
+  readonly shelf: FeatureShelf;
 }) {
   const { card, handlers } = props;
   // Each row follows only its own stage thread, so a streaming stage repaints one row.
@@ -130,7 +129,6 @@ export const FeatureRow = memo(function FeatureRow(props: {
   const pullRequest = shell?.linkedPullRequest ?? shell?.branchPullRequest ?? null;
   const status = featureStatus(card, props.queuePosition);
   const StatusIcon = status.icon;
-  const closed = card.state === "done" || card.state === "cancelled";
   const waiting = WAITING_STATES.has(card.state);
   const workingSince =
     card.state === "working" && !card.stage?.takenOver && shell
@@ -144,10 +142,7 @@ export const FeatureRow = memo(function FeatureRow(props: {
         event.preventDefault();
         handlers.onMenu(card, event);
       }}
-      className={cn(
-        rowClassName,
-        (props.settled || props.snoozed) && "opacity-70 hover:opacity-100",
-      )}
+      className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}
     >
       <RowId>{card.issue ? featureIssueRef(card.issue) : null}</RowId>
       <StatusIcon aria-label={status.label} className={cn("size-4 shrink-0", status.className)} />
@@ -182,15 +177,9 @@ export const FeatureRow = memo(function FeatureRow(props: {
           ))}
         </span>
       ) : null}
-      {props.snoozed ? (
-        <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
-          <WakeControl onClick={() => handlers.onWake(card)} />
-        </span>
-      ) : closed && handlers.canShelf(card) ? (
-        <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
-          <ShelfControl settled={props.settled} onClick={() => handlers.onShelf(card)} />
-        </span>
-      ) : null}
+      <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
+        <FeatureParkControls card={card} shelf={props.shelf} handlers={handlers} />
+      </span>
       <RowProject project={handlers.projectFor(card)} />
       <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
         {workingSince ? (

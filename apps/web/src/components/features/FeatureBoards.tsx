@@ -26,7 +26,7 @@ import { cn } from "../../lib/utils";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
-import { FeatureCard, TodoCard } from "./FeatureCard";
+import { FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
 import { FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 
 const PAGE = 10;
@@ -132,6 +132,8 @@ export interface FeatureBoardHandlers {
   readonly canShelf: (card: EnvironmentFeatureCard) => boolean;
   /** Wakes a snoozed feature's threads. */
   readonly onWake: (card: EnvironmentFeatureCard) => void;
+  /** Snoozes a feature's threads until `snoozedUntil`. */
+  readonly onSnooze: (card: EnvironmentFeatureCard, snoozedUntil: string) => void;
   /** Called only for an allowed move: into Done stops, out of it reopens, onto Settled settles. */
   readonly onDrop: (
     card: EnvironmentFeatureCard,
@@ -148,9 +150,8 @@ const dropAction = (
   handlers: FeatureBoardHandlers,
 ): DropAction | null => {
   if (target !== "settled") return featureDropAction(card, target);
-  return handlers.canShelf(card) && (card.state === "done" || card.state === "cancelled")
-    ? "settle"
-    : null;
+  // Any feature settles, the way any thread does.
+  return handlers.canShelf(card) ? "settle" : null;
 };
 
 /** Drag state shared by the board's columns. Nothing moves until the server answers. */
@@ -260,13 +261,18 @@ function ColumnCards(props: {
             card={card}
             project={handlers.projectFor(card)}
             queuePosition={shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))}
-            settled={items.section === "settled"}
+            settled={shelved}
             draggable={!shelved}
             onOpen={handlers.onOpen}
             onMenu={handlers.onMenu}
             onAction={handlers.onAction}
-            onShelf={handlers.canShelf(card) ? handlers.onShelf : null}
-            onWake={items.section === "snoozed" ? handlers.onWake : null}
+            parkControls={
+              <FeatureParkControls
+                card={card}
+                shelf={isShelf(items.section) ? items.section : null}
+                handlers={handlers}
+              />
+            }
             onDragStart={drag.onDragStart}
           />
         )}
@@ -458,8 +464,7 @@ function FeatureStatusList(props: {
                       queuePosition={
                         shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))
                       }
-                      settled={items.section === "settled"}
-                      snoozed={items.section === "snoozed"}
+                      shelf={isShelf(items.section) ? items.section : null}
                     />
                   )}
                 />

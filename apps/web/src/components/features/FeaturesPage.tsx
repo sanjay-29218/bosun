@@ -18,7 +18,9 @@ import {
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
+  type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   featureRows,
@@ -33,6 +35,7 @@ import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "re
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
@@ -175,33 +178,54 @@ export function FeaturesPage(props: {
     })
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
-  // A finished feature is settled when its row in the thread list is, so the board and the
-  // sidebar file it the same way. One with no listed threads left (archived, or settled long
-  // ago and no longer sent) counts as settled too.
-  const { settleThread, unsettleThread, unsnoozeThread } = useThreadActions();
+  // A feature is settled or snoozed when its row in the thread list is, so the board and the
+  // sidebar file it the same way. A finished one with no listed threads left (archived, or
+  // settled long ago and no longer sent) counts as settled too.
+  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread } = useThreadActions();
   const rows = featureRows(useQuietThreadShells());
+  const nowMinute = useNowMinute();
   const rowFor = (card: EnvironmentFeatureCard) => {
     const group = rows.get(featureCardKey(card));
     return group ? workGroupThreads(group) : [];
   };
-  const isSettled = (card: EnvironmentFeatureCard) => {
-    const primary = rowFor(card)[0];
-    return primary === undefined || primary.settledOverride === "settled";
-  };
   const closed = (card: EnvironmentFeatureCard) =>
     card.state === "done" || card.state === "cancelled";
-  const shelved = (card: EnvironmentFeatureCard) => closed(card) && isSettled(card);
-  // Snoozed like its sidebar row: the feature's own thread is snoozed.
-  const snoozedUntil = (card: EnvironmentFeatureCard) => rowFor(card)[0]?.snoozedUntil ?? null;
+  const isSettled = (card: EnvironmentFeatureCard) => {
+    const primary = rowFor(card)[0];
+    return primary === undefined ? closed(card) : primary.settledOverride === "settled";
+  };
+  const isSnoozed = (card: EnvironmentFeatureCard) => {
+    const primary = rowFor(card)[0];
+    return primary !== undefined && effectiveSnoozed(primary, { now: `${nowMinute}:00.000Z` });
+  };
+  const snoozedUntil = (card: EnvironmentFeatureCard) => rowFor(card)[0]?.snoozedUntil ?? "";
   const settledCards = visibleCards
-    .filter(shelved)
+    .filter(isSettled)
     .toSorted((a, b) => b.stateSince.localeCompare(a.stateSince));
   const snoozedCards = visibleCards
-    .filter((card) => !shelved(card) && snoozedUntil(card) !== null)
-    .toSorted((a, b) => snoozedUntil(a)!.localeCompare(snoozedUntil(b)!));
+    .filter((card) => !isSettled(card) && isSnoozed(card))
+    .toSorted((a, b) => snoozedUntil(a).localeCompare(snoozedUntil(b)));
   const groups = groupFeaturesByColumn(
-    visibleCards.filter((card) => !shelved(card) && snoozedUntil(card) === null),
+    visibleCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
   );
+  const reportParkFailure = (title: string) => (result: AtomCommandResult<unknown, unknown>) => {
+    if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      }),
+    );
+  };
+  const snooze = (card: EnvironmentFeatureCard, until: string) => {
+    for (const thread of rowFor(card)) {
+      void snoozeThread(scopeThreadRef(thread.environmentId, thread.id), until).then(
+        reportParkFailure("Failed to snooze feature"),
+      );
+    }
+  };
   const wake = (card: EnvironmentFeatureCard) => {
     for (const thread of rowFor(card)) {
       if (thread.snoozedUntil === null) continue;
@@ -262,6 +286,7 @@ export function FeaturesPage(props: {
     onShelf: toggleShelf,
     canShelf: (card) => rowFor(card).length > 0,
     onWake: wake,
+    onSnooze: snooze,
     onDrop: (card, action, position) => {
       if (action === "settle") toggleShelf(card);
       else if (action === "cancel") void actions.run(card, "cancel");

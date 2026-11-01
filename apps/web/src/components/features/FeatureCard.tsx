@@ -33,18 +33,21 @@ import {
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
-import { memo, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { memo, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useNowSecond } from "../../hooks/useNowSecond";
+import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import { formatRelativeTime } from "../../timestampFormat";
 import { FeatureIssueIcon } from "../crew/FeatureIssue";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
+import { SnoozeMenuButton } from "../sidebar/SidebarThreadRow";
 import { MiddleTruncate } from "../ui/middle-truncate";
+import type { FeatureBoardHandlers } from "./FeatureBoards";
 
 interface FeatureStatus {
   readonly label: string;
@@ -205,6 +208,40 @@ export function ShelfControl(props: { readonly settled: boolean; readonly onClic
   );
 }
 
+/** Where a feature is parked, like a thread: snoozed, settled, or neither. */
+export type FeatureShelf = "snoozed" | "settled" | null;
+
+/**
+ * The sidebar row's Snooze and Settle, for a feature: they act on the threads of its row. A
+ * snoozed feature offers Wake and a settled one Un-settle instead.
+ */
+export function FeatureParkControls(props: {
+  readonly card: EnvironmentFeatureCard;
+  readonly shelf: FeatureShelf;
+  readonly handlers: Pick<FeatureBoardHandlers, "canShelf" | "onShelf" | "onWake" | "onSnooze">;
+}) {
+  const { card, handlers } = props;
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  if (!handlers.canShelf(card)) return null;
+  if (props.shelf === "snoozed") return <WakeControl onClick={() => handlers.onWake(card)} />;
+  if (props.shelf === "settled")
+    return <ShelfControl settled onClick={() => handlers.onShelf(card)} />;
+  return (
+    <span className="flex h-5 items-center">
+      <SnoozeMenuButton
+        open={snoozeOpen}
+        onOpenChange={setSnoozeOpen}
+        onSnooze={(preset) => handlers.onSnooze(card, preset.snoozedUntil)}
+        timestampFormat={timestampFormat}
+        environmentId={card.environmentId}
+        label="Snooze feature"
+      />
+      <ShelfControl settled={false} onClick={() => handlers.onShelf(card)} />
+    </span>
+  );
+}
+
 export const FeatureCard = memo(function FeatureCard(props: {
   readonly card: EnvironmentFeatureCard;
   readonly project: EnvironmentProject | null;
@@ -219,10 +256,8 @@ export const FeatureCard = memo(function FeatureCard(props: {
     action: FeatureCardActionId,
     event: MouseEvent,
   ) => void;
-  /** Settles or un-settles a finished feature; absent where the server can't. */
-  readonly onShelf: ((card: EnvironmentFeatureCard) => void) | null;
-  /** Wakes a snoozed feature; null when it isn't snoozed. */
-  readonly onWake: ((card: EnvironmentFeatureCard) => void) | null;
+  /** Snooze and Settle, swapped in for the status on hover. */
+  readonly parkControls: ReactNode;
   readonly onDragStart?: (card: EnvironmentFeatureCard, event: DragEvent) => void;
 }) {
   const { card } = props;
@@ -267,16 +302,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
       )}
     >
       <CardHeader project={props.project}>
-        <StatusWithControl
-          status={statusLabel}
-          control={
-            props.onWake ? (
-              <WakeControl onClick={() => props.onWake!(card)} />
-            ) : closed && props.onShelf ? (
-              <ShelfControl settled={props.settled} onClick={() => props.onShelf!(card)} />
-            ) : null
-          }
-        />
+        <StatusWithControl status={statusLabel} control={props.parkControls} />
       </CardHeader>
       <CardTitle title={card.title} onOpen={() => props.onOpen(card)} />
       {card.detail && WAITING_STATES.has(card.state) ? (
