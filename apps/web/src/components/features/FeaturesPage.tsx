@@ -178,7 +178,7 @@ export function FeaturesPage(props: {
   // A finished feature is settled when its row in the thread list is, so the board and the
   // sidebar file it the same way. One with no listed threads left (archived, or settled long
   // ago and no longer sent) counts as settled too.
-  const { settleThread, unsettleThread } = useThreadActions();
+  const { settleThread, unsettleThread, unsnoozeThread } = useThreadActions();
   const rows = featureRows(useQuietThreadShells());
   const rowFor = (card: EnvironmentFeatureCard) => {
     const group = rows.get(featureCardKey(card));
@@ -190,12 +190,34 @@ export function FeaturesPage(props: {
   };
   const closed = (card: EnvironmentFeatureCard) =>
     card.state === "done" || card.state === "cancelled";
+  const shelved = (card: EnvironmentFeatureCard) => closed(card) && isSettled(card);
+  // Snoozed like its sidebar row: the feature's own thread is snoozed.
+  const snoozedUntil = (card: EnvironmentFeatureCard) => rowFor(card)[0]?.snoozedUntil ?? null;
   const settledCards = visibleCards
-    .filter((card) => closed(card) && isSettled(card))
+    .filter(shelved)
     .toSorted((a, b) => b.stateSince.localeCompare(a.stateSince));
+  const snoozedCards = visibleCards
+    .filter((card) => !shelved(card) && snoozedUntil(card) !== null)
+    .toSorted((a, b) => snoozedUntil(a)!.localeCompare(snoozedUntil(b)!));
   const groups = groupFeaturesByColumn(
-    visibleCards.filter((card) => !closed(card) || !isSettled(card)),
+    visibleCards.filter((card) => !shelved(card) && snoozedUntil(card) === null),
   );
+  const wake = (card: EnvironmentFeatureCard) => {
+    for (const thread of rowFor(card)) {
+      if (thread.snoozedUntil === null) continue;
+      void unsnoozeThread(scopeThreadRef(thread.environmentId, thread.id)).then((result) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to wake feature",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      });
+    }
+  };
   const toggleShelf = (card: EnvironmentFeatureCard) => {
     const settled = isSettled(card);
     for (const thread of rowFor(card)) {
@@ -239,6 +261,7 @@ export function FeaturesPage(props: {
     onAction: (card, action) => void actions.run(card, action),
     onShelf: toggleShelf,
     canShelf: (card) => rowFor(card).length > 0,
+    onWake: wake,
     onDrop: (card, action, position) => {
       if (action === "settle") toggleShelf(card);
       else if (action === "cancel") void actions.run(card, "cancel");
@@ -528,6 +551,7 @@ export function FeaturesPage(props: {
         layout={layout}
         groups={groups}
         todos={todos}
+        snoozed={snoozedCards}
         settled={settledCards}
         handlers={handlers}
       />

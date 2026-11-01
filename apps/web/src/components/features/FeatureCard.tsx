@@ -14,6 +14,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { featureIssueRef } from "@t3tools/contracts";
 import {
+  AlarmClockOffIcon,
   CheckIcon,
   CircleAlertIcon,
   CircleCheckIcon,
@@ -174,6 +175,21 @@ function StatusWithControl(props: { readonly status: ReactNode; readonly control
   );
 }
 
+/** Wakes a snoozed feature, the board's way back out of Snoozed. */
+export function WakeControl(props: { readonly onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      data-card-control
+      onClick={props.onClick}
+      className="-mr-1 inline-flex h-5 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      <AlarmClockOffIcon aria-hidden className="size-3.5" />
+      Wake
+    </button>
+  );
+}
+
 export function ShelfControl(props: { readonly settled: boolean; readonly onClick: () => void }) {
   const Icon = props.settled ? Undo2Icon : CheckIcon;
   return (
@@ -205,6 +221,8 @@ export const FeatureCard = memo(function FeatureCard(props: {
   ) => void;
   /** Settles or un-settles a finished feature; absent where the server can't. */
   readonly onShelf: ((card: EnvironmentFeatureCard) => void) | null;
+  /** Wakes a snoozed feature; null when it isn't snoozed. */
+  readonly onWake: ((card: EnvironmentFeatureCard) => void) | null;
   readonly onDragStart?: (card: EnvironmentFeatureCard, event: DragEvent) => void;
 }) {
   const { card } = props;
@@ -252,7 +270,9 @@ export const FeatureCard = memo(function FeatureCard(props: {
         <StatusWithControl
           status={statusLabel}
           control={
-            closed && props.onShelf ? (
+            props.onWake ? (
+              <WakeControl onClick={() => props.onWake!(card)} />
+            ) : closed && props.onShelf ? (
               <ShelfControl settled={props.settled} onClick={() => props.onShelf!(card)} />
             ) : null
           }

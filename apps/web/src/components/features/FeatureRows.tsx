@@ -23,6 +23,7 @@ import {
   RelativeTime,
   ShelfControl,
   WAITING_STATES,
+  WakeControl,
   WorkingDuration,
   featureStatus,
 } from "./FeatureCard";
@@ -119,6 +120,7 @@ export const FeatureRow = memo(function FeatureRow(props: {
   readonly handlers: FeatureBoardHandlers;
   readonly queuePosition: number | undefined;
   readonly settled: boolean;
+  readonly snoozed: boolean;
 }) {
   const { card, handlers } = props;
   // Each row follows only its own stage thread, so a streaming stage repaints one row.
@@ -142,7 +144,10 @@ export const FeatureRow = memo(function FeatureRow(props: {
         event.preventDefault();
         handlers.onMenu(card, event);
       }}
-      className={cn(rowClassName, props.settled && "opacity-70 hover:opacity-100")}
+      className={cn(
+        rowClassName,
+        (props.settled || props.snoozed) && "opacity-70 hover:opacity-100",
+      )}
     >
       <RowId>{card.issue ? featureIssueRef(card.issue) : null}</RowId>
       <StatusIcon aria-label={status.label} className={cn("size-4 shrink-0", status.className)} />
@@ -177,7 +182,11 @@ export const FeatureRow = memo(function FeatureRow(props: {
           ))}
         </span>
       ) : null}
-      {closed && handlers.canShelf(card) ? (
+      {props.snoozed ? (
+        <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
+          <WakeControl onClick={() => handlers.onWake(card)} />
+        </span>
+      ) : closed && handlers.canShelf(card) ? (
         <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
           <ShelfControl settled={props.settled} onClick={() => handlers.onShelf(card)} />
         </span>

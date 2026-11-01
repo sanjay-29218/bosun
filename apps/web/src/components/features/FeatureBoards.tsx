@@ -11,7 +11,8 @@ import { issueKey, type EnvironmentIssue } from "@t3tools/client-runtime/state/i
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import {
-  ChevronRightIcon,
+  AlarmClockIcon,
+  ArchiveIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleIcon,
@@ -21,30 +22,89 @@ import {
 import { useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
 import { FeatureCard, TodoCard } from "./FeatureCard";
 import { FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 
-/** Done and Settled show their newest few until asked for more. */
 const PAGE = 10;
 
-const COLUMN_ICONS: Record<
-  FeatureColumn,
-  { readonly icon: LucideIcon; readonly className: string }
+/** The status columns, then features set aside: snoozed ones and settled ones. */
+type BoardSection = FeatureColumn | "snoozed" | "settled";
+
+const SECTION_META: Record<
+  BoardSection,
+  {
+    readonly label: string;
+    readonly icon: LucideIcon;
+    readonly className: string;
+    readonly empty: string;
+  }
 > = {
-  todo: { icon: CircleIcon, className: "text-muted-foreground" },
-  working: { icon: CircleDashedIcon, className: "text-info-foreground" },
-  "needs-you": { icon: UserRoundIcon, className: "text-warning-foreground" },
-  done: { icon: CircleCheckIcon, className: "text-success-foreground" },
+  todo: {
+    label: FEATURE_COLUMN_LABELS.todo,
+    icon: CircleIcon,
+    className: "text-muted-foreground",
+    empty: "No todos",
+  },
+  working: {
+    label: FEATURE_COLUMN_LABELS.working,
+    icon: CircleDashedIcon,
+    className: "text-info-foreground",
+    empty: "Nothing running",
+  },
+  "needs-you": {
+    label: FEATURE_COLUMN_LABELS["needs-you"],
+    icon: UserRoundIcon,
+    className: "text-warning-foreground",
+    empty: "Nothing needs you",
+  },
+  done: {
+    label: FEATURE_COLUMN_LABELS.done,
+    icon: CircleCheckIcon,
+    className: "text-success-foreground",
+    empty: "Nothing finished yet",
+  },
+  snoozed: {
+    label: "Snoozed",
+    icon: AlarmClockIcon,
+    className: "text-muted-foreground",
+    empty: "Nothing snoozed",
+  },
+  settled: {
+    label: "Settled",
+    icon: ArchiveIcon,
+    className: "text-muted-foreground",
+    empty: "Nothing settled",
+  },
 };
 
-const EMPTY_TEXT: Record<FeatureColumn, string> = {
-  todo: "No todos",
-  working: "Nothing running",
-  "needs-you": "Nothing needs you",
-  done: "Nothing finished yet",
-};
+const BOARD_ORDER: ReadonlyArray<BoardSection> = [
+  "todo",
+  "working",
+  "needs-you",
+  "done",
+  "snoozed",
+  "settled",
+];
+/** The list puts what waits on you first. */
+const LIST_ORDER: ReadonlyArray<BoardSection> = [
+  "needs-you",
+  "working",
+  "todo",
+  "done",
+  "snoozed",
+  "settled",
+];
+/** Sections that grow without bound show their newest few until asked for more. */
+const PAGED = new Set<BoardSection>(["done", "snoozed", "settled"]);
+/** Todo pages in the list so a long backlog doesn't bury what follows. */
+const TODO_PAGE = 25;
+
+interface SectionItems {
+  readonly section: BoardSection;
+  readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly todos: ReadonlyArray<EnvironmentIssue>;
+}
 
 type DropAction = "cancel" | "reopen" | "settle";
 type DropTarget = "open" | "done" | "settled";
@@ -66,6 +126,8 @@ export interface FeatureBoardHandlers {
   readonly onShelf: (card: EnvironmentFeatureCard) => void;
   /** Whether the feature has threads to settle. */
   readonly canShelf: (card: EnvironmentFeatureCard) => boolean;
+  /** Wakes a snoozed feature's threads. */
+  readonly onWake: (card: EnvironmentFeatureCard) => void;
   /** Called only for an allowed move: into Done stops, out of it reopens, onto Settled settles. */
   readonly onDrop: (
     card: EnvironmentFeatureCard,
@@ -132,90 +194,57 @@ function useCardDrag(handlers: FeatureBoardHandlers) {
 
 type Drag = ReturnType<typeof useCardDrag>;
 
-function ColumnHeader(props: { readonly column: FeatureColumn; readonly count: number }) {
-  const { icon: Icon, className } = COLUMN_ICONS[props.column];
+function SectionHeader(props: {
+  readonly section: BoardSection;
+  readonly count: number;
+  readonly list: boolean;
+}) {
+  const { label, icon: Icon, className } = SECTION_META[props.section];
   return (
-    <header className="flex h-7 shrink-0 items-center gap-2 px-1.5 text-sm font-medium">
+    <header
+      className={cn(
+        "flex shrink-0 items-center gap-2 text-sm font-medium",
+        props.list ? "h-9 border-b border-border/70 bg-muted/40 px-3" : "h-7 px-1.5",
+      )}
+    >
       <Icon aria-hidden className={cn("size-4 shrink-0", className)} />
-      {FEATURE_COLUMN_LABELS[props.column]}
+      {label}
       <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
     </header>
   );
 }
 
-/** Settled features below Done, folded like the sidebar's Settled shelf. */
-function SettledShelf(props: {
-  readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
-  readonly handlers: FeatureBoardHandlers;
-  readonly drag: Drag | null;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const { drag, handlers } = props;
-  if (props.cards.length === 0 && !drag) return null;
-  return (
-    <div {...drag?.dropProps("settled", "settled")} className="flex flex-col gap-1.5">
-      <CollapsibleSectionHeader
-        expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-        tone={drag?.over === "settled" ? "accent" : "muted"}
-        accessory={<span className="font-normal tabular-nums">{props.cards.length}</span>}
-      >
-        Settled
-      </CollapsibleSectionHeader>
-      {expanded ? (
-        <Paged
-          items={props.cards}
-          pageSize={PAGE}
-          render={(card) => (
-            <FeatureCard
-              key={featureCardKey(card)}
-              card={card}
-              project={handlers.projectFor(card)}
-              queuePosition={undefined}
-              settled
-              draggable={false}
-              onOpen={handlers.onOpen}
-              onMenu={handlers.onMenu}
-              onAction={handlers.onAction}
-              onShelf={handlers.canShelf(card) ? handlers.onShelf : null}
-            />
-          )}
-        />
-      ) : null}
-    </div>
-  );
-}
-
 function ColumnCards(props: {
-  readonly group: FeatureColumnGroup;
-  readonly todos: ReadonlyArray<EnvironmentIssue>;
+  readonly items: SectionItems;
   readonly handlers: FeatureBoardHandlers;
-  readonly drag: Drag | null;
+  readonly drag: Drag;
 }) {
-  const { group, handlers, drag } = props;
+  const { items, handlers, drag } = props;
+  const shelved = items.section === "settled" || items.section === "snoozed";
   return (
     <>
       <Paged
-        items={group.cards}
-        pageSize={group.column === "done" ? PAGE : null}
+        items={items.cards}
+        pageSize={PAGED.has(items.section) ? PAGE : null}
         render={(card) => (
           <FeatureCard
             key={featureCardKey(card)}
             card={card}
             project={handlers.projectFor(card)}
-            queuePosition={handlers.queuePositions.get(featureCardKey(card))}
-            settled={false}
-            draggable={drag !== null}
+            queuePosition={shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))}
+            settled={items.section === "settled"}
+            draggable={!shelved}
             onOpen={handlers.onOpen}
             onMenu={handlers.onMenu}
             onAction={handlers.onAction}
             onShelf={handlers.canShelf(card) ? handlers.onShelf : null}
-            {...(drag ? { onDragStart: drag.onDragStart } : {})}
+            onWake={items.section === "snoozed" ? handlers.onWake : null}
+            onDragStart={drag.onDragStart}
           />
         )}
       />
       <Paged
-        items={props.todos}
+        items={items.todos}
         pageSize={null}
         render={(issue) => (
           <TodoCard
@@ -231,31 +260,40 @@ function ColumnCards(props: {
   );
 }
 
+const dropTargetFor = (section: BoardSection): DropTarget | null =>
+  section === "done"
+    ? "done"
+    : section === "settled"
+      ? "settled"
+      : section === "snoozed"
+        ? null
+        : "open";
+
 /**
- * Todo, Working, Needs you and Done, as columns or as stacked sections. Todo holds open issues
- * and tickets beside features not started yet; settled features fold under Done.
+ * Todo, Working, Needs you and Done, then Snoozed and Settled, as columns or as stacked
+ * sections. Todo holds open issues and tickets beside features not started yet.
  */
 export function FeatureStatusBoard(props: {
   readonly layout: "board" | "list";
   readonly groups: ReadonlyArray<FeatureColumnGroup>;
   readonly todos: ReadonlyArray<EnvironmentIssue>;
+  readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
   readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const drag = useCardDrag(props.handlers);
-  const board = props.layout === "board";
-  const count = (group: FeatureColumnGroup) =>
-    group.cards.length + (group.column === "todo" ? props.todos.length : 0);
-  if (!board) {
-    return (
-      <FeatureStatusList
-        groups={props.groups}
-        todos={props.todos}
-        settled={props.settled}
-        handlers={props.handlers}
-        count={count}
-      />
-    );
+  const itemsFor = (section: BoardSection): SectionItems => ({
+    section,
+    cards:
+      section === "snoozed"
+        ? props.snoozed
+        : section === "settled"
+          ? props.settled
+          : (props.groups.find((group) => group.column === section)?.cards ?? []),
+    todos: section === "todo" ? props.todos : [],
+  });
+  if (props.layout === "list") {
+    return <FeatureStatusList sections={LIST_ORDER.map(itemsFor)} handlers={props.handlers} />;
   }
   return (
     // Columns share the width, and scroll sideways only once they can't fit.
@@ -263,64 +301,34 @@ export function FeatureStatusBoard(props: {
       className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto pb-2"
       onDragEnd={drag.onDragEnd}
     >
-      {props.groups.map((group) => {
-        const isDone = group.column === "done";
-        const total = count(group);
+      {BOARD_ORDER.map(itemsFor).map((items) => {
+        const total = items.cards.length + items.todos.length;
+        const target = dropTargetFor(items.section);
         return (
           <section
-            key={group.column}
-            {...drag.dropProps(group.column, isDone ? "done" : "open")}
+            key={items.section}
+            {...(target ? drag.dropProps(items.section, target) : {})}
             className={cn(
               "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
-              drag.over === group.column && "border-dashed border-border bg-accent/40",
+              drag.over === items.section && "border-dashed border-border bg-accent/40",
             )}
           >
-            <ColumnHeader column={group.column} count={total} />
+            <SectionHeader section={items.section} count={total} list={false} />
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex flex-col gap-1.5">
                 {total === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground/70">
-                    {EMPTY_TEXT[group.column]}
+                    {SECTION_META[items.section].empty}
                   </p>
                 ) : (
-                  <ColumnCards
-                    group={group}
-                    todos={group.column === "todo" ? props.todos : []}
-                    handlers={props.handlers}
-                    drag={drag}
-                  />
+                  <ColumnCards items={items} handlers={props.handlers} drag={drag} />
                 )}
-                {isDone ? (
-                  <SettledShelf cards={props.settled} handlers={props.handlers} drag={drag} />
-                ) : null}
               </div>
             </ScrollArea>
           </section>
         );
       })}
     </div>
-  );
-}
-
-/** The list puts what waits on you first. */
-const LIST_ORDER: ReadonlyArray<FeatureColumn> = ["needs-you", "working", "todo", "done"];
-
-/** Todo pages in the list so a long backlog doesn't bury Done. */
-const TODO_PAGE = 25;
-
-function ListSectionHeader(props: {
-  readonly column: FeatureColumn;
-  readonly count: number;
-  readonly children?: ReactNode;
-}) {
-  const { icon: Icon, className } = COLUMN_ICONS[props.column];
-  return (
-    <header className="flex h-9 items-center gap-2 border-b border-border/70 bg-muted/40 px-3 text-sm font-medium">
-      <Icon aria-hidden className={cn("size-4 shrink-0", className)} />
-      {FEATURE_COLUMN_LABELS[props.column]}
-      <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
-      {props.children}
-    </header>
   );
 }
 
@@ -332,77 +340,55 @@ function MoreRow(props: { readonly children: ReactNode }) {
 
 /** One row per feature or todo, in full-width sections, like an issue tracker's list. */
 function FeatureStatusList(props: {
-  readonly groups: ReadonlyArray<FeatureColumnGroup>;
-  readonly todos: ReadonlyArray<EnvironmentIssue>;
-  readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly sections: ReadonlyArray<SectionItems>;
   readonly handlers: FeatureBoardHandlers;
-  readonly count: (group: FeatureColumnGroup) => number;
 }) {
   const { handlers } = props;
-  const [settledOpen, setSettledOpen] = useState(false);
-  const groups = LIST_ORDER.flatMap((column) =>
-    props.groups.filter((group) => group.column === column),
-  );
   const more = (button: ReactNode) => <MoreRow>{button}</MoreRow>;
-  const featureRow = (settled: boolean) => (card: EnvironmentFeatureCard) => (
-    <FeatureRow
-      key={featureCardKey(card)}
-      card={card}
-      handlers={handlers}
-      queuePosition={settled ? undefined : handlers.queuePositions.get(featureCardKey(card))}
-      settled={settled}
-    />
-  );
   return (
     <div
       className="flex flex-col overflow-hidden rounded-lg border border-border/70"
       onKeyDown={onRowListKeyDown}
     >
-      {groups.map((group) => {
-        const isDone = group.column === "done";
-        const total = props.count(group);
+      {props.sections.map((items) => {
+        const total = items.cards.length + items.todos.length;
+        // Empty shelves add nothing to the list.
+        if (total === 0 && (items.section === "snoozed" || items.section === "settled"))
+          return null;
+        const shelved = items.section === "settled" || items.section === "snoozed";
         return (
-          <section key={group.column} className="flex flex-col">
-            <ListSectionHeader column={group.column} count={total}>
-              {isDone && props.settled.length > 0 ? (
-                <button
-                  type="button"
-                  className="ms-auto flex items-center gap-1 text-xs font-normal text-muted-foreground hover:text-foreground"
-                  aria-expanded={settledOpen}
-                  onClick={() => setSettledOpen((open) => !open)}
-                >
-                  Settled <span className="tabular-nums">{props.settled.length}</span>
-                  <ChevronRightIcon
-                    aria-hidden
-                    className={cn("size-3.5 transition-transform", settledOpen && "rotate-90")}
-                  />
-                </button>
-              ) : null}
-            </ListSectionHeader>
-            {total === 0 && !isDone ? (
+          <section key={items.section} className="flex flex-col">
+            <SectionHeader section={items.section} count={total} list />
+            {total === 0 && items.section !== "done" ? (
               <p className="border-b border-border/50 px-3 py-2 ps-24 text-xs text-muted-foreground/70">
-                {EMPTY_TEXT[group.column]}
+                {SECTION_META[items.section].empty}
               </p>
             ) : null}
             <Paged
-              items={group.cards}
-              pageSize={isDone ? PAGE : null}
+              items={items.cards}
+              pageSize={PAGED.has(items.section) ? PAGE : null}
               more={more}
-              render={featureRow(false)}
+              render={(card) => (
+                <FeatureRow
+                  key={featureCardKey(card)}
+                  card={card}
+                  handlers={handlers}
+                  queuePosition={
+                    shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))
+                  }
+                  settled={items.section === "settled"}
+                  snoozed={items.section === "snoozed"}
+                />
+              )}
             />
-            {group.column === "todo" ? (
-              <Paged
-                items={props.todos}
-                pageSize={TODO_PAGE}
-                more={more}
-                render={(issue) => (
-                  <TodoRow key={issueKey(issue)} issue={issue} handlers={handlers} />
-                )}
-              />
-            ) : null}
-            {isDone && settledOpen ? (
-              <Paged items={props.settled} pageSize={PAGE} more={more} render={featureRow(true)} />
-            ) : null}
+            <Paged
+              items={items.todos}
+              pageSize={TODO_PAGE}
+              more={more}
+              render={(issue) => (
+                <TodoRow key={issueKey(issue)} issue={issue} handlers={handlers} />
+              )}
+            />
           </section>
         );
       })}
