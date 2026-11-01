@@ -5,11 +5,14 @@ import {
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueRef, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
-import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import {
+  resolveThreadWorkingStartedAt,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { featureIssueRef } from "@t3tools/contracts";
-import { CircleIcon, GitBranchIcon, PlayIcon } from "lucide-react";
+import { CircleIcon, GitBranchIcon, MessageSquareIcon, PlayIcon } from "lucide-react";
 import { memo, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
@@ -20,8 +23,12 @@ import { Button } from "../ui/button";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 import {
+  ChatParkControls,
   FeatureParkControls,
   RelativeTime,
+  chatSince,
+  chatStatus,
+  chatTitle,
   WAITING_STATES,
   WorkingDuration,
   featureStatus,
@@ -188,6 +195,57 @@ export const FeatureRow = memo(function FeatureRow(props: {
           </span>
         ) : (
           <RelativeTime timestamp={card.stateSince} />
+        )}
+      </span>
+    </div>
+  );
+});
+
+/** A chat thread outside any feature; its time shows where a feature's does. */
+export const ChatRow = memo(function ChatRow(props: {
+  readonly shell: EnvironmentThreadShell;
+  readonly handlers: FeatureBoardHandlers;
+  readonly shelf: FeatureShelf;
+}) {
+  const { shell, handlers } = props;
+  const status = chatStatus(shell);
+  const StatusIcon = status?.icon ?? MessageSquareIcon;
+  const pullRequest = shell.linkedPullRequest ?? shell.branchPullRequest ?? null;
+  const workingSince = status?.label === "Working" ? resolveThreadWorkingStartedAt(shell) : null;
+  return (
+    <div className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}>
+      <RowId>{null}</RowId>
+      <StatusIcon
+        aria-label={status?.label ?? "Thread"}
+        className={cn("size-4 shrink-0", status?.className ?? "text-muted-foreground")}
+      />
+      <RowTitle title={chatTitle(shell)} onOpen={() => handlers.onOpenChat(shell)} />
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">
+        {status && !workingSince ? `· ${status.label}` : null}
+      </span>
+      {shell.branch ? (
+        <Chip className="hidden max-w-44 lg:flex">
+          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+          <MiddleTruncate value={shell.branch} showTitle={false} />
+        </Chip>
+      ) : null}
+      {pullRequest ? (
+        <Chip className="tabular-nums">
+          <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
+          {pullRequest.number}
+        </Chip>
+      ) : null}
+      <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
+        <ChatParkControls shell={shell} shelf={props.shelf} handlers={handlers} />
+      </span>
+      <RowProject project={handlers.projectFor(shell)} />
+      <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
+        {workingSince ? (
+          <span className="text-info-foreground">
+            <WorkingDuration startedAt={workingSince} />
+          </span>
+        ) : (
+          <RelativeTime timestamp={chatSince(shell)} />
         )}
       </span>
     </div>

@@ -8,6 +8,7 @@ import {
   type FeatureColumnGroup,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueKey, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import {
@@ -26,14 +27,16 @@ import { cn } from "../../lib/utils";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
-import { FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
-import { FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
+import { ChatCard, FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
+import { ChatRow, FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 
 const PAGE = 10;
 
 /** The status columns, and the two shelves under Done for features set aside. */
 type Shelf = "snoozed" | "settled";
-type BoardSection = FeatureColumn | Shelf;
+export type BoardSection = FeatureColumn | Shelf;
+/** Chat threads by the section they sit in; chats are never in Todo. */
+export type BoardChats = Partial<Record<BoardSection, ReadonlyArray<EnvironmentThreadShell>>>;
 
 const SECTION_META: Record<
   BoardSection,
@@ -102,6 +105,7 @@ const TODO_PAGE = 25;
 interface SectionItems {
   readonly section: BoardSection;
   readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly chats: ReadonlyArray<EnvironmentThreadShell>;
   readonly todos: ReadonlyArray<EnvironmentIssue>;
   /** Some project's issues haven't arrived yet; Todo waits for all of them at once. */
   readonly todosPending: boolean;
@@ -142,6 +146,10 @@ export interface FeatureBoardHandlers {
   ) => void;
   readonly onOpenTodo: (issue: EnvironmentIssue) => void;
   readonly onStartTodo: (issue: EnvironmentIssue) => void;
+  readonly onOpenChat: (shell: EnvironmentThreadShell) => void;
+  readonly onChatShelf: (shell: EnvironmentThreadShell) => void;
+  readonly onChatWake: (shell: EnvironmentThreadShell) => void;
+  readonly onChatSnooze: (shell: EnvironmentThreadShell, snoozedUntil: string) => void;
 }
 
 const dropAction = (
@@ -277,6 +285,19 @@ function ColumnCards(props: {
           />
         )}
       />
+      <Paged
+        items={items.chats}
+        pageSize={PAGED.has(items.section) ? PAGE : null}
+        render={(shell) => (
+          <ChatCard
+            key={`${shell.environmentId}:${shell.id}`}
+            shell={shell}
+            project={handlers.projectFor(shell)}
+            shelf={isShelf(items.section) ? items.section : null}
+            handlers={handlers}
+          />
+        )}
+      />
       {items.todosPending ? (
         PENDING_TODOS.map((index) => <Skeleton key={index} shape="card" className="h-24" />)
       ) : (
@@ -308,7 +329,8 @@ function BoardShelf(props: {
   const { items, drag } = props;
   // Settled stays as a drop target even when empty; an empty Snoozed shows nothing.
   const dropTarget = items.section === "settled";
-  if (items.cards.length === 0 && !dropTarget) return null;
+  const count = items.cards.length + items.chats.length;
+  if (count === 0 && !dropTarget) return null;
   return (
     <div
       {...(dropTarget ? drag.dropProps("settled", "settled") : {})}
@@ -318,7 +340,7 @@ function BoardShelf(props: {
         expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
         tone={drag.over === items.section ? "accent" : "muted"}
-        accessory={<span className="font-normal tabular-nums">{items.cards.length}</span>}
+        accessory={<span className="font-normal tabular-nums">{count}</span>}
       >
         {SECTION_META[items.section].label}
       </CollapsibleSectionHeader>
@@ -329,7 +351,8 @@ function BoardShelf(props: {
 
 /**
  * Todo, Working, Needs you and Done, as columns or as stacked sections, with Snoozed and
- * Settled folded under Done. Todo holds open issues and tickets beside features not started yet.
+ * Settled folded under Done. Todo holds open issues and tickets beside features not started yet;
+ * chat threads sit in the other columns beside features.
  */
 export function FeatureStatusBoard(props: {
   readonly layout: "board" | "list";
@@ -338,6 +361,7 @@ export function FeatureStatusBoard(props: {
   readonly todosPending: boolean;
   readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
   readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly chats: BoardChats;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const drag = useCardDrag(props.handlers);
@@ -349,6 +373,7 @@ export function FeatureStatusBoard(props: {
         : section === "settled"
           ? props.settled
           : (props.groups.find((group) => group.column === section)?.cards ?? []),
+    chats: props.chats[section] ?? [],
     todos: section === "todo" && !props.todosPending ? props.todos : [],
     todosPending: section === "todo" && props.todosPending,
   });
@@ -363,7 +388,7 @@ export function FeatureStatusBoard(props: {
     >
       {BOARD_ORDER.map(itemsFor).map((items) => {
         const isDone = items.section === "done";
-        const total = items.cards.length + items.todos.length;
+        const total = items.cards.length + items.chats.length + items.todos.length;
         return (
           <section
             key={items.section}
@@ -422,7 +447,7 @@ function FeatureStatusList(props: {
       onKeyDown={onRowListKeyDown}
     >
       {props.sections.map((items) => {
-        const total = items.cards.length + items.todos.length;
+        const total = items.cards.length + items.chats.length + items.todos.length;
         const shelved = isShelf(items.section);
         // Empty shelves add nothing to the list; full ones stay folded until opened.
         if (shelved && total === 0) return null;
@@ -464,6 +489,19 @@ function FeatureStatusList(props: {
                       queuePosition={
                         shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))
                       }
+                      shelf={isShelf(items.section) ? items.section : null}
+                    />
+                  )}
+                />
+                <Paged
+                  items={items.chats}
+                  pageSize={PAGED.has(items.section) ? PAGE : null}
+                  more={more}
+                  render={(shell) => (
+                    <ChatRow
+                      key={`${shell.environmentId}:${shell.id}`}
+                      shell={shell}
+                      handlers={handlers}
                       shelf={isShelf(items.section) ? items.section : null}
                     />
                   )}

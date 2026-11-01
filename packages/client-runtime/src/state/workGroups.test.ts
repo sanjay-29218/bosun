@@ -1,8 +1,9 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { botHeadquartersThreadId, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { sortInboxThreadsByReturn } from "./threadInbox.ts";
 import {
+  boardChatThreads,
   featureRows,
   groupWorkThreads,
   workGroupInbox,
@@ -128,6 +129,31 @@ describe("featureRows", () => {
     expect(
       [...rows].map(([key, group]) => [key, workGroupThreads(group).map((item) => item.id)]),
     ).toEqual([["local:f1", ["build", "lead"]]]);
+  });
+});
+
+describe("boardChatThreads", () => {
+  it("keeps the list's own rows outside features, folding a request into one", () => {
+    const row = (id: string, fields: Partial<WorkGroupThread> = {}, extra = {}) => ({
+      ...thread(id, "1", fields),
+      archivedAt: null,
+      delegatedFrom: null,
+      lineage: { relationshipToParent: null },
+      ...extra,
+    });
+    const request = (member: string) => ({ id: "triage", title: "Triage", member });
+    const chats = boardChatThreads([
+      row("chat"),
+      row("fork", {}, { lineage: { relationshipToParent: "fork" } }),
+      row("subagent", {}, { lineage: { relationshipToParent: "subagent" } }),
+      row("delegated", {}, { delegatedFrom: { threadId: "elsewhere" } }),
+      row("archived", {}, { archivedAt: "2026-10-01" }),
+      row("stage", { feature }),
+      row(botHeadquartersThreadId("captain")),
+      row("pm", { createdAt: "0", crewRequest: request("Project manager") }),
+      row("builder", { crewRequest: request("Builder") }),
+    ]);
+    expect(chats.map((item) => item.id)).toEqual(["chat", "fork", "pm"]);
   });
 });
 

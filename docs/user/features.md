@@ -29,6 +29,11 @@ works on yet, and features you haven't started. **Working** holds running, queue
 features. **Needs you** holds features waiting on an approval, an answer, your call after a loop
 limit, or a failed stage, oldest first. **Done** holds finished and stopped features.
 
+Your other threads sit beside the features, in the column their sidebar status puts them: running
+ones in Working, ones waiting on an approval or answer in Needs you, and the rest in Done. Click
+one to open it; hover for Snooze and Settle. Todo stays for work not started yet. Milestone, label
+and workflow filters show only features and todos.
+
 Each card shows its project, status, linked issue, and branch or pull request. Its buttons, such
 as Start feature, Approve, Answer…, Retry stage and Stop feature, act without opening the thread.
 Click a card to open the thread its sidebar row opens: the one waiting on you, else the feature's

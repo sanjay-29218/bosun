@@ -10,7 +10,7 @@ import {
   type WorkflowDefinition,
 } from "@t3tools/contracts";
 
-import type { EnvironmentThreadShell } from "./models.ts";
+import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 
 /**
  * Pure Features-board logic shared by web and mobile. Cards come from `features.board`;
@@ -302,6 +302,18 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
   if (shell.hasPendingApprovals) return "approval";
   if (shell.hasPendingUserInput) return "question";
   return null;
+}
+
+/**
+ * A chat thread's column, read the way its sidebar row is: waiting on an approval or answer,
+ * running, or finished. Chats skip Todo, which holds work not started yet.
+ */
+export function threadBoardColumn(
+  shell: NeedsYouShell & Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime">,
+): Exclude<FeatureColumn, "todo"> {
+  if (threadNeedsYouKind(shell) !== null || shell.pendingSubagentRequest != null)
+    return "needs-you";
+  return threadRuntimeIsActive(shell.runtime) ? "working" : "done";
 }
 
 /** The key `countNeedsYouByBot` counts under: bots belong to one environment. */

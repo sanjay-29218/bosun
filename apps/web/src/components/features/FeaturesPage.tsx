@@ -6,6 +6,7 @@ import {
   groupFeaturesByColumn,
   matchesFeatureSearch,
   parseFeatureSearch,
+  threadBoardColumn,
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
@@ -22,7 +23,9 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
+  boardChatThreads,
   featureRows,
   workGroupOpenThread,
   workGroupThreads,
@@ -56,7 +59,8 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { BoardDisplayMenu } from "./BoardDisplayMenu";
 import { BoardFilterChips, BoardFilterMenu, type BoardFilterSection } from "./BoardFilters";
-import { FeatureStatusBoard, type FeatureBoardHandlers } from "./FeatureBoards";
+import { chatSince, chatTitle } from "./FeatureCard";
+import { FeatureStatusBoard, type BoardSection, type FeatureBoardHandlers } from "./FeatureBoards";
 import { FeatureNoteDialog } from "./FeatureNoteDialog";
 import {
   readFeaturesPagePreferences,
@@ -90,7 +94,8 @@ function toggled<Value>(current: ReadonlySet<Value>, value: Value, on: boolean):
 
 /**
  * The board: the main area's Board view, flipped from the sidebar's List / Board toggle. Todo,
- * Working, Needs you and Done, with settled features folded under Done as in the sidebar.
+ * Working, Needs you and Done, with settled features folded under Done as in the sidebar. Chat
+ * threads sit beside features in every column but Todo.
  */
 export function FeaturesPage(props: {
   readonly search: FeaturesSearch;
@@ -182,7 +187,8 @@ export function FeaturesPage(props: {
   // sidebar file it the same way. A finished one with no listed threads left (archived, or
   // settled long ago and no longer sent) counts as settled too.
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread } = useThreadActions();
-  const rows = featureRows(useQuietThreadShells());
+  const shells = useQuietThreadShells();
+  const rows = featureRows(shells);
   const nowMinute = useNowMinute();
   const rowFor = (card: EnvironmentFeatureCard) => {
     const group = rows.get(featureCardKey(card));
@@ -208,6 +214,42 @@ export function FeaturesPage(props: {
   const groups = groupFeaturesByColumn(
     visibleCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
   );
+
+  // Chats sit beside features where their sidebar rows' status puts them. They have no
+  // milestone, label or workflow, so those filters leave only features and todos.
+  const chatFiltersApply =
+    milestoneFilter === null && labelFilters.size === 0 && parsedSearch.workflows.length === 0;
+  const searchWords = parsedSearch.text.toLowerCase().split(" ").filter(Boolean);
+  const chatSections = new Map<BoardSection, EnvironmentThreadShell[]>();
+  for (const shell of chatFiltersApply ? boardChatThreads(shells) : []) {
+    const project = projectFor(shell);
+    if (!project || (scopedProject !== null && project !== scopedProject)) continue;
+    const haystack = [chatTitle(shell), shell.branch, project.title].join(" ").toLowerCase();
+    if (!searchWords.every((word) => haystack.includes(word))) continue;
+    const section: BoardSection =
+      shell.settledOverride === "settled"
+        ? "settled"
+        : effectiveSnoozed(shell, { now: `${nowMinute}:00.000Z` })
+          ? "snoozed"
+          : threadBoardColumn(shell);
+    chatSections.set(section, [...(chatSections.get(section) ?? []), shell]);
+  }
+  const chatOrder: Record<
+    BoardSection,
+    (a: EnvironmentThreadShell, b: EnvironmentThreadShell) => number
+  > = {
+    todo: () => 0,
+    working: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+    // The longest wait first, as for features.
+    "needs-you": (a, b) =>
+      (a.runtime?.updatedAt ?? a.updatedAt).localeCompare(b.runtime?.updatedAt ?? b.updatedAt),
+    done: (a, b) => chatSince(b).localeCompare(chatSince(a)),
+    snoozed: (a, b) => (a.snoozedUntil ?? "").localeCompare(b.snoozedUntil ?? ""),
+    settled: (a, b) => (b.settledAt ?? "").localeCompare(a.settledAt ?? ""),
+  };
+  const chats = Object.fromEntries(
+    [...chatSections].map(([section, list]) => [section, list.toSorted(chatOrder[section])]),
+  );
   const reportParkFailure = (title: string) => (result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
@@ -219,6 +261,8 @@ export function FeaturesPage(props: {
       }),
     );
   };
+  const parkChat = (title: string, result: Promise<AtomCommandResult<unknown, unknown>>) =>
+    void result.then(reportParkFailure(title));
   const snooze = (card: EnvironmentFeatureCard, until: string) => {
     for (const thread of rowFor(card)) {
       void snoozeThread(scopeThreadRef(thread.environmentId, thread.id), until).then(
@@ -308,6 +352,27 @@ export function FeaturesPage(props: {
       ),
     onStartTodo: (issue) =>
       void startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
+    onOpenChat: (shell) =>
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: shell.environmentId, threadId: shell.id },
+      }),
+    onChatShelf: (shell) => {
+      const ref = scopeThreadRef(shell.environmentId, shell.id);
+      if (shell.settledOverride === "settled")
+        parkChat("Failed to un-settle thread", unsettleThread(ref));
+      else parkChat("Failed to settle thread", settleThread(ref));
+    },
+    onChatWake: (shell) =>
+      parkChat(
+        "Failed to wake thread",
+        unsnoozeThread(scopeThreadRef(shell.environmentId, shell.id)),
+      ),
+    onChatSnooze: (shell, until) =>
+      parkChat(
+        "Failed to snooze thread",
+        snoozeThread(scopeThreadRef(shell.environmentId, shell.id), until),
+      ),
   };
 
   // New feature opens a brief dialog over the board, so starting one never leaves it.
@@ -383,6 +448,7 @@ export function FeaturesPage(props: {
     board.loaded &&
     board.errors.length === 0 &&
     board.cards.length === 0 &&
+    chatSections.size === 0 &&
     !issueBoard.pending &&
     issueBoard.issues.every((issue) => issue.state !== "open") &&
     !query;
@@ -577,6 +643,7 @@ export function FeaturesPage(props: {
         todosPending={issueBoard.pending}
         snoozed={snoozedCards}
         settled={settledCards}
+        chats={chats}
         handlers={handlers}
       />
     );

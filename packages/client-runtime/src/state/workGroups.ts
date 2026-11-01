@@ -1,4 +1,8 @@
-import type { CrewStageSummary, ThreadCrewRequestTag } from "@t3tools/contracts";
+import {
+  headquartersBotId,
+  type CrewStageSummary,
+  type ThreadCrewRequestTag,
+} from "@t3tools/contracts";
 
 import { formatStageName, isHiddenStageThread } from "../crewStage.ts";
 import { threadNeedsYouKind, type NeedsYouShell } from "./crewBoard.ts";
@@ -210,6 +214,29 @@ export function featureRows<T extends WorkGroupThread & { readonly archivedAt: u
     rows.set(`${group.primary.environmentId}:${group.primary.feature!.id}`, group);
   }
   return rows;
+}
+
+/**
+ * The chats the board shows beside its features: the thread list's own rows outside any
+ * feature, with a bot request's handoffs folded into one. Subagents, threads delegated under
+ * another and bot headquarters stay off it, as they do in the list.
+ */
+export function boardChatThreads<
+  T extends WorkGroupThread & {
+    readonly archivedAt: unknown;
+    readonly delegatedFrom: unknown;
+    readonly lineage: { readonly relationshipToParent: string | null };
+  },
+>(threads: ReadonlyArray<T>): T[] {
+  const rows = threads.filter(
+    (thread) =>
+      thread.archivedAt === null &&
+      !thread.feature &&
+      thread.lineage.relationshipToParent !== "subagent" &&
+      thread.delegatedFrom == null &&
+      headquartersBotId(thread.id) === null,
+  );
+  return groupWorkThreads(rows).primaries;
 }
 
 /** A group's threads, its primary first. */

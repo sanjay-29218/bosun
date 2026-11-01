@@ -3,6 +3,7 @@ import {
   featureCardQuickActions,
   ordinal,
   type EnvironmentFeatureCard,
+  threadBoardColumn,
   type FeatureCardActionId,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueRef, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
@@ -10,9 +11,10 @@ import {
   formatWorkingDurationLabel,
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { featureIssueRef } from "@t3tools/contracts";
+import { featureIssueRef, type EnvironmentId } from "@t3tools/contracts";
 import {
   AlarmClockOffIcon,
   CheckIcon,
@@ -24,6 +26,7 @@ import {
   ClockIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
+  MessageSquareIcon,
   MilestoneIcon,
   NotebookTextIcon,
   PauseIcon,
@@ -212,35 +215,165 @@ function ShelfControl(props: { readonly settled: boolean; readonly onClick: () =
 export type FeatureShelf = "snoozed" | "settled" | null;
 
 /**
- * The sidebar row's Snooze and Settle, for a feature: they act on the threads of its row. A
- * snoozed feature offers Wake and a settled one Un-settle instead.
+ * The sidebar row's Snooze and Settle. Something snoozed offers Wake and something settled
+ * Un-settle instead.
  */
+function ParkControls(props: {
+  readonly shelf: FeatureShelf;
+  readonly environmentId: EnvironmentId;
+  readonly label: string;
+  /** False while it waits on you, which the server won't snooze. */
+  readonly snoozable: boolean;
+  readonly onShelf: () => void;
+  readonly onWake: () => void;
+  readonly onSnooze: (snoozedUntil: string) => void;
+}) {
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  if (props.shelf === "snoozed") return <WakeControl onClick={props.onWake} />;
+  if (props.shelf === "settled") return <ShelfControl settled onClick={props.onShelf} />;
+  return (
+    <span className="flex h-5 items-center">
+      {props.snoozable ? (
+        <SnoozeMenuButton
+          open={snoozeOpen}
+          onOpenChange={setSnoozeOpen}
+          onSnooze={(preset) => props.onSnooze(preset.snoozedUntil)}
+          timestampFormat={timestampFormat}
+          environmentId={props.environmentId}
+          label={props.label}
+        />
+      ) : null}
+      <ShelfControl settled={false} onClick={props.onShelf} />
+    </span>
+  );
+}
+
+/** A feature's Snooze and Settle act on the threads of its row. */
 export function FeatureParkControls(props: {
   readonly card: EnvironmentFeatureCard;
   readonly shelf: FeatureShelf;
   readonly handlers: Pick<FeatureBoardHandlers, "canShelf" | "onShelf" | "onWake" | "onSnooze">;
 }) {
   const { card, handlers } = props;
-  const [snoozeOpen, setSnoozeOpen] = useState(false);
-  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   if (!handlers.canShelf(card)) return null;
-  if (props.shelf === "snoozed") return <WakeControl onClick={() => handlers.onWake(card)} />;
-  if (props.shelf === "settled")
-    return <ShelfControl settled onClick={() => handlers.onShelf(card)} />;
   return (
-    <span className="flex h-5 items-center">
-      <SnoozeMenuButton
-        open={snoozeOpen}
-        onOpenChange={setSnoozeOpen}
-        onSnooze={(preset) => handlers.onSnooze(card, preset.snoozedUntil)}
-        timestampFormat={timestampFormat}
-        environmentId={card.environmentId}
-        label="Snooze feature"
-      />
-      <ShelfControl settled={false} onClick={() => handlers.onShelf(card)} />
-    </span>
+    <ParkControls
+      shelf={props.shelf}
+      environmentId={card.environmentId}
+      label="Snooze feature"
+      snoozable
+      onShelf={() => handlers.onShelf(card)}
+      onWake={() => handlers.onWake(card)}
+      onSnooze={(until) => handlers.onSnooze(card, until)}
+    />
   );
 }
+
+/** A chat's Snooze and Settle, the same as its sidebar row's. */
+export function ChatParkControls(props: {
+  readonly shell: EnvironmentThreadShell;
+  readonly shelf: FeatureShelf;
+  readonly handlers: Pick<FeatureBoardHandlers, "onChatShelf" | "onChatWake" | "onChatSnooze">;
+}) {
+  const { shell, handlers } = props;
+  return (
+    <ParkControls
+      shelf={props.shelf}
+      environmentId={shell.environmentId}
+      label="Snooze thread"
+      snoozable={threadBoardColumn(shell) !== "needs-you"}
+      onShelf={() => handlers.onChatShelf(shell)}
+      onWake={() => handlers.onChatWake(shell)}
+      onSnooze={(until) => handlers.onChatSnooze(shell, until)}
+    />
+  );
+}
+
+/** A chat's title: a bot request is named by the request, as its sidebar row is. */
+export const chatTitle = (shell: EnvironmentThreadShell) => shell.crewRequest?.title || shell.title;
+
+/** When a finished chat last moved, for the time it shows in Done. */
+export const chatSince = (shell: EnvironmentThreadShell) =>
+  shell.latestRun?.completedAt ?? shell.updatedAt;
+
+/** The words a chat shows for its column, or null in Done, which shows its time instead. */
+export function chatStatus(shell: EnvironmentThreadShell): FeatureStatus | null {
+  switch (threadBoardColumn(shell)) {
+    case "needs-you":
+      return shell.hasPendingApprovals || shell.pendingSubagentRequest === "approval"
+        ? { label: "Approval", className: "text-warning-foreground", icon: ShieldQuestionIcon }
+        : {
+            label: "Input",
+            className: "text-indigo-600 dark:text-indigo-300",
+            icon: MessageCircleQuestionIcon,
+          };
+    case "working":
+      return { label: "Working", className: "text-info-foreground", icon: CircleDashedIcon };
+    case "done":
+      return null;
+  }
+}
+
+/** A chat thread outside any feature, in the column its sidebar row's status puts it. */
+export const ChatCard = memo(function ChatCard(props: {
+  readonly shell: EnvironmentThreadShell;
+  readonly project: EnvironmentProject | null;
+  readonly shelf: FeatureShelf;
+  readonly handlers: FeatureBoardHandlers;
+}) {
+  const { shell } = props;
+  const status = chatStatus(shell);
+  const pullRequest = shell.linkedPullRequest ?? shell.branchPullRequest ?? null;
+  const workingSince = status?.label === "Working" ? resolveThreadWorkingStartedAt(shell) : null;
+  const StatusIcon = status?.icon;
+  const statusLabel =
+    status && StatusIcon ? (
+      <span className={cn("inline-flex shrink-0 items-center gap-1 font-medium", status.className)}>
+        <StatusIcon aria-hidden className="size-4 shrink-0" />
+        {status.label}
+        {workingSince ? <WorkingDuration startedAt={workingSince} /> : null}
+      </span>
+    ) : (
+      <span className="text-secondary-label">
+        <RelativeTime timestamp={chatSince(shell)} />
+      </span>
+    );
+  return (
+    <div
+      className={cn(
+        cardClassName,
+        "border-border/70 hover:border-border",
+        props.shelf !== null && "opacity-70 hover:opacity-100",
+      )}
+    >
+      <CardHeader project={props.project}>
+        <StatusWithControl
+          status={statusLabel}
+          control={<ChatParkControls shell={shell} shelf={props.shelf} handlers={props.handlers} />}
+        />
+      </CardHeader>
+      <CardTitle title={chatTitle(shell)} onOpen={() => props.handlers.onOpenChat(shell)} />
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
+        <MessageSquareIcon aria-label="Thread" className="size-3 shrink-0" />
+        {shell.branch ? (
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+            <MiddleTruncate value={shell.branch} showTitle={false} />
+          </span>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {pullRequest ? (
+          <span className="flex shrink-0 items-center gap-1 tabular-nums">
+            <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
+            {pullRequest.number}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+});
 
 export const FeatureCard = memo(function FeatureCard(props: {
   readonly card: EnvironmentFeatureCard;

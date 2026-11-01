@@ -2,7 +2,9 @@ import {
   botHeadquartersThreadId,
   EnvironmentId,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
+  type OrchestrationV2RunStatus,
   type FeatureCardState,
   type WorkflowDefinition,
 } from "@t3tools/contracts";
@@ -28,9 +30,11 @@ import {
   sendBackTargets,
   stageOutcomes,
   stagePhase,
+  threadBoardColumn,
   type EnvironmentFeatureCard,
   type NeedsYouShell,
 } from "./crewBoard.ts";
+import type { EnvironmentThreadShell } from "./models.ts";
 
 const environmentId = EnvironmentId.make("env-1");
 const otherEnvironmentId = EnvironmentId.make("env-2");
@@ -158,6 +162,30 @@ describe("status columns", () => {
       ["needs-you", ["early", "late"]],
       ["done", ["stopped", "done"]],
     ]);
+  });
+
+  it("files a chat under Needs you, Working or Done, as its sidebar row reads", () => {
+    const runtime = (status: OrchestrationV2RunStatus | "idle") => ({
+      status,
+      activeRunId: null,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      providerName: null,
+      lastError: null,
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    const chat = (
+      overrides: Partial<NeedsYouShell> = {},
+      fields: Partial<Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime">> = {},
+    ) => ({ ...shell("chat", overrides), pendingSubagentRequest: null, runtime: null, ...fields });
+    expect(
+      threadBoardColumn(chat({ hasPendingUserInput: true }, { runtime: runtime("running") })),
+    ).toBe("needs-you");
+    expect(threadBoardColumn(chat({}, { pendingSubagentRequest: "approval" }))).toBe("needs-you");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("queued") }))).toBe("working");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("waiting") }))).toBe("working");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("failed") }))).toBe("done");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("idle") }))).toBe("done");
+    expect(threadBoardColumn(chat())).toBe("done");
   });
 
   it("shows only the buttons that settle what a card waits on", () => {
