@@ -200,7 +200,8 @@ type Drag = ReturnType<typeof useCardDrag>;
 
 function SectionHeader(props: {
   readonly section: BoardSection;
-  readonly count: number;
+  /** Null while the count isn't known yet. */
+  readonly count: number | null;
   readonly list: boolean;
   /** Given for a list shelf, which folds. */
   readonly expanded?: boolean;
@@ -211,7 +212,9 @@ function SectionHeader(props: {
     <>
       <Icon aria-hidden className={cn("size-4 shrink-0", className)} />
       {label}
-      <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
+      {props.count === null ? null : (
+        <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
+      )}
     </>
   );
   const headerClassName = cn(
@@ -364,7 +367,11 @@ export function FeatureStatusBoard(props: {
               drag.over === items.section && "border-dashed border-border bg-accent/40",
             )}
           >
-            <SectionHeader section={items.section} count={total} list={false} />
+            <SectionHeader
+              section={items.section}
+              count={items.todosPending ? null : total}
+              list={false}
+            />
             <ScrollArea className="min-h-0 flex-1" chainHorizontalScroll>
               <div className="flex flex-col gap-1.5">
                 {total === 0 && !items.todosPending ? (
@@ -418,7 +425,7 @@ function FeatureStatusList(props: {
           <section key={items.section} className="flex flex-col">
             <SectionHeader
               section={items.section}
-              count={total}
+              count={items.todosPending ? null : total}
               list
               {...(shelved
                 ? {
