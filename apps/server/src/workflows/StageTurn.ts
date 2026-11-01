@@ -14,9 +14,8 @@ export type StageTurnVerdict =
 /**
  * A stage reports its result with crew_respond while its turn runs. A turn that ends without one
  * gets one reminder in the same thread. A turn a restart cancelled waits for the server's own
- * continuation, or is told to continue when none comes. A person's stop fails the stage for
- * that person to decide, and so does deleting its thread; a failed turn fails it for the retry
- * policy.
+ * continuation, or is told to continue when none comes. A person's stop or deleted thread
+ * fails the stage for that person; a failed turn fails it for the retry policy.
  */
 export const stageTurnVerdict = (input: {
   readonly run: Pick<OrchestrationV2Run, "status"> | undefined;

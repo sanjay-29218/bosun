@@ -862,7 +862,8 @@ export const CrewServiceLive = Layer.effect(
       ensureDefaults: Effect.fn("CrewService.ensureDefaults")(function* (modelSelection) {
         for (const role of DEFAULT_ROLES) {
           if (yield* store.getRole(role.id)) continue;
-          yield* createRole({ ...role, modelSelection, runtimeMode: "approval-required" }).pipe(
+          // Stages run unattended, so starter roles don't stop for approvals.
+          yield* createRole({ ...role, modelSelection, runtimeMode: "full-access" }).pipe(
             Effect.catch((error) =>
               store.getRole(role.id).pipe(Effect.filterOrFail(Predicate.isNotNull, () => error)),
             ),

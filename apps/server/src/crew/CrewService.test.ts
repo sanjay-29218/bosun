@@ -126,7 +126,11 @@ describe("Bot foundation", () => {
             [bots.ensureDefaults(modelSelection), bots.ensureDefaults(modelSelection)],
             { concurrency: 2 },
           );
-          const defaultRoleIds = (yield* bots.listRoles()).map((role) => role.id);
+          const defaultRoles = yield* bots.listRoles();
+          expect(defaultRoles.map((role) => role.runtimeMode)).toEqual(
+            defaultRoles.map(() => "full-access"),
+          );
+          const defaultRoleIds = defaultRoles.map((role) => role.id);
           expect(new Set(defaultRoleIds).size).toBe(defaultRoleIds.length);
           expect(defaultRoleIds).toContain(PROJECT_MANAGER_ROLE_ID);
           const manager = yield* bots.ensureProjectManager(projectId);

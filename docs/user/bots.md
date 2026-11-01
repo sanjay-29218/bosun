@@ -126,7 +126,7 @@ The **Library**'s Roles are what workflow stages run as. **+ New** beside Roles 
 offers **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA Tester and
 Reviewer when an environment doesn't have them yet. The Builder builds on its own and uses subagents only for
 read-only work such as research; give any role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a default model. **Access** sets how freely its
-threads work, from **Supervised** to **Full access**. Pick a role to edit it. Roles aren't deleted: the **On** switch at the top turns one off
+threads work, from **Supervised** to **Full access**; starter roles start on **Full access**, since stages run unattended. Pick a role to edit it. Roles aren't deleted: the **On** switch at the top turns one off
 to retire it, and back on. Only roles with **Available in workflows** switched on can be picked
 for a stage. Each project gets its own project manager the first time a request or
 feature needs one; editing a role changes the members made from it later, not existing ones.
