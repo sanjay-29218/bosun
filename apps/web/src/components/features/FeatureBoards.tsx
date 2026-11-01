@@ -25,6 +25,7 @@ import { ChevronRightIcon } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
+import { Skeleton } from "../ui/skeleton";
 import { FeatureCard, TodoCard } from "./FeatureCard";
 import { FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 
@@ -102,7 +103,12 @@ interface SectionItems {
   readonly section: BoardSection;
   readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
   readonly todos: ReadonlyArray<EnvironmentIssue>;
+  /** Some project's issues haven't arrived yet; Todo waits for all of them at once. */
+  readonly todosPending: boolean;
 }
+
+/** Stand-ins for todos still loading, so slow projects don't trickle into the sorted list. */
+const PENDING_TODOS = [0, 1, 2];
 
 type DropAction = "cancel" | "reopen" | "settle";
 type DropTarget = "open" | "done" | "settled";
@@ -262,19 +268,23 @@ function ColumnCards(props: {
           />
         )}
       />
-      <Paged
-        items={items.todos}
-        pageSize={null}
-        render={(issue) => (
-          <TodoCard
-            key={issueKey(issue)}
-            issue={issue}
-            project={handlers.projectFor(issue)}
-            onOpen={handlers.onOpenTodo}
-            onStart={handlers.onStartTodo}
-          />
-        )}
-      />
+      {items.todosPending ? (
+        PENDING_TODOS.map((index) => <Skeleton key={index} shape="card" className="h-24" />)
+      ) : (
+        <Paged
+          items={items.todos}
+          pageSize={null}
+          render={(issue) => (
+            <TodoCard
+              key={issueKey(issue)}
+              issue={issue}
+              project={handlers.projectFor(issue)}
+              onOpen={handlers.onOpenTodo}
+              onStart={handlers.onStartTodo}
+            />
+          )}
+        />
+      )}
     </>
   );
 }
@@ -316,6 +326,7 @@ export function FeatureStatusBoard(props: {
   readonly layout: "board" | "list";
   readonly groups: ReadonlyArray<FeatureColumnGroup>;
   readonly todos: ReadonlyArray<EnvironmentIssue>;
+  readonly todosPending: boolean;
   readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
   readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
   readonly handlers: FeatureBoardHandlers;
@@ -329,7 +340,8 @@ export function FeatureStatusBoard(props: {
         : section === "settled"
           ? props.settled
           : (props.groups.find((group) => group.column === section)?.cards ?? []),
-    todos: section === "todo" ? props.todos : [],
+    todos: section === "todo" && !props.todosPending ? props.todos : [],
+    todosPending: section === "todo" && props.todosPending,
   });
   if (props.layout === "list") {
     return <FeatureStatusList sections={LIST_ORDER.map(itemsFor)} handlers={props.handlers} />;
@@ -355,7 +367,7 @@ export function FeatureStatusBoard(props: {
             <SectionHeader section={items.section} count={total} list={false} />
             <ScrollArea className="min-h-0 flex-1" chainHorizontalScroll>
               <div className="flex flex-col gap-1.5">
-                {total === 0 ? (
+                {total === 0 && !items.todosPending ? (
                   <p className="py-6 text-center text-xs text-muted-foreground/70">
                     {SECTION_META[items.section].empty}
                   </p>
@@ -422,7 +434,7 @@ function FeatureStatusList(props: {
             />
             {folded ? null : (
               <>
-                {total === 0 && items.section !== "done" ? (
+                {total === 0 && items.section !== "done" && !items.todosPending ? (
                   <p className="border-b border-border/50 px-3 py-2 ps-24 text-xs text-muted-foreground/70">
                     {SECTION_META[items.section].empty}
                   </p>
@@ -444,6 +456,16 @@ function FeatureStatusList(props: {
                     />
                   )}
                 />
+                {items.todosPending
+                  ? PENDING_TODOS.map((index) => (
+                      <div
+                        key={index}
+                        className="flex h-9 items-center border-b border-border/50 px-3"
+                      >
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    ))
+                  : null}
                 <Paged
                   items={items.todos}
                   pageSize={TODO_PAGE}

@@ -551,6 +551,7 @@ export function FeaturesPage(props: {
         layout={layout}
         groups={groups}
         todos={todos}
+        todosPending={issueBoard.pending}
         snoozed={snoozedCards}
         settled={settledCards}
         handlers={handlers}
