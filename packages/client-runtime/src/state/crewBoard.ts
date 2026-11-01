@@ -97,6 +97,54 @@ export function groupFeaturesByPhase<Card extends FeatureBoardCard>(
   }));
 }
 
+// ── Status board: Todo, Working, Needs you, Done ─────────────────────
+
+const FEATURE_COLUMNS = ["todo", "working", "needs-you", "done"] as const;
+export type FeatureColumn = (typeof FEATURE_COLUMNS)[number];
+
+export const FEATURE_COLUMN_LABELS: Record<FeatureColumn, string> = {
+  todo: "Todo",
+  working: "Working",
+  "needs-you": "Needs you",
+  done: "Done",
+};
+
+/** Not started, running (queued and paused too), waiting on you, or finished or stopped. */
+function featureColumn(card: FeatureBoardCard): FeatureColumn {
+  if (isClosedState(card.state)) return "done";
+  if (!card.started) return "todo";
+  switch (card.state) {
+    case "approval":
+    case "input":
+    case "your-call":
+    case "failed":
+      return "needs-you";
+    default:
+      return "working";
+  }
+}
+
+export interface FeatureColumnGroup<Card extends FeatureBoardCard = EnvironmentFeatureCard> {
+  readonly column: FeatureColumn;
+  readonly cards: ReadonlyArray<Card>;
+}
+
+/** Every column in order. Needs you puts the longest wait first; the others the newest. */
+export function groupFeaturesByColumn<Card extends FeatureBoardCard>(
+  cards: ReadonlyArray<Card>,
+): ReadonlyArray<FeatureColumnGroup<Card>> {
+  const groups = new Map<FeatureColumn, Card[]>(FEATURE_COLUMNS.map((column) => [column, []]));
+  for (const card of cards) groups.get(featureColumn(card))!.push(card);
+  return FEATURE_COLUMNS.map((column) => ({
+    column,
+    cards: [...groups.get(column)!].sort((a, b) =>
+      column === "needs-you"
+        ? a.stateSince.localeCompare(b.stateSince)
+        : b.stateSince.localeCompare(a.stateSince),
+    ),
+  }));
+}
+
 // ── Workflow toggle: one workflow's stages as columns ────────────────
 
 export interface FeatureStageColumn<Card extends FeatureBoardCard = EnvironmentFeatureCard> {
@@ -216,12 +264,6 @@ export function mostUsedWorkflowId(cards: ReadonlyArray<FeatureBoardCard>): stri
 
 const NEEDS_YOU_KINDS = ["approval", "problem", "question"] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
-
-export const NEEDS_YOU_LABELS: Record<NeedsYouKind, string> = {
-  approval: "Approvals",
-  problem: "Problems",
-  question: "Questions",
-};
 
 /** Approval, Input, Your call and Failed wait on you. Working, Queued and Paused never do. */
 function needsYouKindForState(state: FeatureCardState): NeedsYouKind | null {
@@ -536,6 +578,31 @@ export function featureCardActions(card: FeatureBoardCard): ReadonlyArray<Featur
   }
 }
 
+/** The buttons a board card shows, to settle it without opening it; the rest stay in its menu. */
+export function featureCardQuickActions(
+  card: FeatureBoardCard,
+): ReadonlyArray<FeatureCardActionId> {
+  if (isClosedState(card.state)) return [];
+  if (!card.started) return ["start"];
+  if (card.stage?.takenOver) return [];
+  switch (card.state) {
+    case "queued":
+      return ["start-now"];
+    case "paused":
+      return ["resume"];
+    case "approval":
+      return ["approve", "request-changes"];
+    case "input":
+      return ["answer"];
+    case "your-call":
+      return ["accept-as-is", "one-more-round"];
+    case "failed":
+      return ["retry", "cancel"];
+    default:
+      return [];
+  }
+}
+
 export const FEATURE_CARD_ACTION_LABELS: Record<FeatureCardActionId, string> = {
   start: "Start feature",
   approve: "Approve",
@@ -551,7 +618,7 @@ export const FEATURE_CARD_ACTION_LABELS: Record<FeatureCardActionId, string> = {
   "start-now": "Start now",
   pause: "Pause",
   resume: "Resume",
-  cancel: "Cancel feature",
+  cancel: "Stop feature",
   reopen: "Reopen feature",
 };
 

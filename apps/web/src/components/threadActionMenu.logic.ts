@@ -133,7 +133,7 @@ export function featureLifecycleActions(
 const FEATURE_LIFECYCLE_LABELS = {
   "feature-pause": "Pause feature",
   "feature-resume": "Resume feature",
-  "feature-cancel": "Cancel feature…",
+  "feature-cancel": "Stop feature…",
   "feature-reopen": "Reopen feature",
 } as const;
 

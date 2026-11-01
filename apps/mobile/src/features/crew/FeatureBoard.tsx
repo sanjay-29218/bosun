@@ -53,7 +53,7 @@ const STATE_LABEL: Partial<Record<FeatureCardState, { label: string; className: 
   working: { label: "Working", className: "text-adaptive-sky-600-400" },
   queued: { label: "Queued", className: "text-foreground-secondary" },
   paused: { label: "Paused", className: "text-foreground-secondary" },
-  cancelled: { label: "Cancelled", className: "text-foreground-secondary" },
+  cancelled: { label: "Stopped", className: "text-foreground-secondary" },
   done: { label: "Done", className: "text-adaptive-emerald-700-300" },
 };
 
