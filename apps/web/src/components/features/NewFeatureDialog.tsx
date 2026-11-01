@@ -1,3 +1,4 @@
+import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import {
   isAtomCommandInterrupted,
@@ -13,6 +14,7 @@ import { formatShortcutLabel } from "../../keybindings";
 import { randomUUID } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { botsEnvironment } from "../../state/bots";
+import { rolesEnvironment } from "../../state/roles";
 import { featuresEnvironment } from "../../state/features";
 import { useEnvironmentQuery } from "../../state/query";
 import { workflowsEnvironment } from "../../state/workflows";
@@ -67,6 +69,7 @@ export function NewFeatureDialog(props: {
   const definitions =
     useEnvironmentQuery(library ? workflowsEnvironment.definitions(library) : null).data ?? [];
   const bots = useEnvironmentQuery(library ? botsEnvironment.list(library) : null).data;
+  const roles = useEnvironmentQuery(library ? rolesEnvironment.roles(library) : null).data;
   const defaultWorkflowId = project && bots ? botDefaultWorkflowId(bots, project) : null;
   const [pickedWorkflowId, setPickedWorkflowId] = useState<string | null>(null);
   const workflow =
@@ -200,6 +203,22 @@ export function NewFeatureDialog(props: {
                   </SelectPopup>
                 </Select>
               </div>
+              {workflow ? (
+                // Read-only, like the composer's Crew menu: models are set per role in the Library.
+                <ul aria-label="Crew" className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  {Object.entries(workflow.roles).map(([slot, entry]) => {
+                    const role = roles?.find((item) => item.id === entry.roleId);
+                    return (
+                      <li key={slot} className="flex gap-1.5">
+                        <span>{role?.name ?? formatStageName(slot)}</span>
+                        <span className="text-muted-foreground">
+                          {role?.modelSelection.model ?? ""}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
               <InstructionsEditor
                 label="Brief"
                 value={brief}

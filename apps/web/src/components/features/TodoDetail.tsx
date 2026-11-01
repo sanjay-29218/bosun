@@ -126,7 +126,10 @@ function TodoDetail({ target }: { readonly target: TodoTarget }) {
       return tickets.data === null && !tickets.error ? (
         <DetailSkeleton />
       ) : (
-        <Gone text={tickets.error ?? "This ticket was moved or deleted."} />
+        <Gone
+          text={tickets.error ?? "This ticket was moved or deleted."}
+          failed={tickets.error != null}
+        />
       );
     }
     const row = ticketIssue(ticket, environmentId);
@@ -160,10 +163,11 @@ function DetailSkeleton() {
   );
 }
 
-function Gone(props: { readonly text: string }) {
+/** A todo that is gone, or one that couldn't be read, which is a different problem. */
+function Gone(props: { readonly text: string; readonly failed?: boolean }) {
   return (
     <div className="p-6">
-      <SheetTitle>Todo not found</SheetTitle>
+      <SheetTitle>{props.failed ? "Couldn't load this todo" : "Todo not found"}</SheetTitle>
       <p className="mt-2 text-sm text-muted-foreground">{props.text}</p>
     </div>
   );
@@ -500,7 +504,7 @@ function GitHubIssueDetail(props: {
   const startFeature = useStartFeatureFromTodo();
   const issue = detail.data;
   if (!issue) {
-    return detail.error ? <Gone text={detail.error} /> : <DetailSkeleton />;
+    return detail.error ? <Gone text={detail.error} failed /> : <DetailSkeleton />;
   }
   const row: EnvironmentIssue = { ...issue, ...owner, ticketId: null };
   const feature = props.featureFor(row);
