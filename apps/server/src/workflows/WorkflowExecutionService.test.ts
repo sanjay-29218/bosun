@@ -8,6 +8,7 @@ import { it } from "@effect/vitest";
 import {
   CommandId,
   EventId,
+  GitCommandError,
   MessageId,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
@@ -48,7 +49,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import { WorkflowLibraryLive } from "./WorkflowLibrary.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
-import { WorkflowExecutionStoreLive } from "./WorkflowExecutionStore.ts";
+import { WorkflowExecutionStore, WorkflowExecutionStoreLive } from "./WorkflowExecutionStore.ts";
 import {
   WorkflowExecutionService,
   WorkflowExecutionServiceLive,
@@ -65,17 +66,39 @@ const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "g
 const fixture = (
   directory: string,
   crew: { readonly maxRunningStageThreads?: number; readonly stageRetries?: number } = {},
+  options: { readonly branchLeftBehind?: boolean } = {},
 ) => {
   const starts: Array<CrewThreadStart> = [];
   const worktrees: Array<string> = [];
+  const gitControl = { failWorktree: false };
   const git = Layer.mock(GitWorkflowService)({
     currentBranch: () => Effect.succeed("main"),
     createWorktree: (input) =>
-      Effect.sync(() => {
-        const branch = input.newRefName!;
-        worktrees.push(branch);
-        return { worktree: { path: `/worktrees/${branch}`, refName: branch } };
-      }),
+      gitControl.failWorktree
+        ? Effect.fail(
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree",
+              command: "git",
+              cwd: input.cwd,
+              detail: "git worktree add failed",
+            }),
+          )
+        : // An earlier attempt made the branch, so making it again fails.
+          options.branchLeftBehind && input.newRefName
+          ? Effect.fail(
+              new GitCommandError({
+                operation: "GitVcsDriver.createWorktree.createBranch",
+                command: "git",
+                cwd: input.cwd,
+                reason: "branch_already_exists",
+                detail: "git worktree add failed (branch_already_exists)",
+              }),
+            )
+          : Effect.sync(() => {
+              const branch = input.newRefName ?? input.refName;
+              worktrees.push(branch);
+              return { worktree: { path: `/worktrees/${branch}`, refName: branch } };
+            }),
   });
   const interruptions: Array<string> = [];
   const stops = new Set<string>();
@@ -195,6 +218,7 @@ const fixture = (
     layer,
     starts,
     worktrees,
+    gitControl,
     interruptions,
     files,
     diffs,
@@ -1032,6 +1056,58 @@ describe("Workflow execution", () => {
         expect(restarted.interruptions.length).toBe(1);
         expect(restarted.starts).toEqual([]);
       });
+    }),
+  );
+
+  it.effect("makes the worktree on the feature's branch when an earlier attempt left it", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory, {}, { branchLeftBehind: true });
+      return Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const { featureId, execution, bindings } = yield* seed();
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeStage(featureId);
+        expect(system.worktrees).toEqual([
+          expect.stringMatching(/^bosun\/kanban-board-[0-9a-f]{6}$/),
+        ]);
+        expect(system.starts.find((start) => start.runId === plan.run.id)?.workspace).toEqual({
+          branch: system.worktrees[0],
+          worktreePath: `/worktrees/${system.worktrees[0]}`,
+        });
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+
+  it.effect("shows a start whose worktree failed, and Retry starts it again", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const { featureId, execution, workflows, bindings } = yield* seed();
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
+        system.gitControl.failWorktree = true;
+        yield* execution.attach(featureId, projectId, bindings).pipe(Effect.result);
+        const executions = yield* WorkflowExecutionStore;
+        expect((yield* executions.get(featureId))?.lastError).toContain("worktree");
+        expect(system.starts).toHaveLength(2);
+        system.gitControl.failWorktree = false;
+        yield* execution.control({
+          featureId,
+          projectId,
+          actorId: "person",
+          requestId: "retry-start",
+          kind: "retry",
+        });
+        expect((yield* activeStage(featureId)).step.id).toBe("plan");
+        expect(system.starts).toHaveLength(3);
+        expect((yield* executions.get(featureId))?.lastError).toBeNull();
+        expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
+          "running",
+        );
+      }).pipe(Effect.provide(system.layer));
     }),
   );
 

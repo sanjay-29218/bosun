@@ -92,15 +92,22 @@ export const FeatureWorkspacesLive = Layer.effect(
         .update(feature.featureId)
         .digest("hex")
         .slice(0, 6);
+      const branch = `bosun/${branchSlug(feature.title)}-${suffix}`;
       const created = yield* git
         .createWorktree({
           cwd: project.workspaceRoot,
           refName: base,
-          newRefName: `bosun/${branchSlug(feature.title)}-${suffix}`,
+          newRefName: branch,
           baseRefName: base,
           path: null,
         })
         .pipe(
+          // The name comes from the feature ID, so an earlier attempt that made the branch and
+          // then failed left it behind; that branch is this feature's, so work on it.
+          Effect.catchIf(
+            (error) => error.reason === "branch_already_exists",
+            () => git.createWorktree({ cwd: project.workspaceRoot, refName: branch, path: null }),
+          ),
           Effect.mapError(
             (error) =>
               new FeatureWorkspaceError(`Couldn't make the feature's worktree: ${error.message}`),

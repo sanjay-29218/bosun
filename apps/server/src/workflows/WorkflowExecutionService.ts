@@ -742,6 +742,18 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         Effect.tapError((error) =>
           executions.update(featureId, String(error).slice(0, 2_000), false),
         ),
+        // A pass that went through answers the last error, so the board stops showing it.
+        Effect.tap(() =>
+          executions
+            .get(featureId)
+            .pipe(
+              Effect.flatMap((execution) =>
+                execution?.lastError
+                  ? executions.update(featureId, null, execution.settled)
+                  : Effect.void,
+              ),
+            ),
+        ),
         Effect.ensuring(
           syncSlot(featureId).pipe(
             Effect.catch((error) =>
@@ -957,6 +969,18 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       const snapshot = yield* workflows.getFeatureSnapshot(input.featureId, input.projectId);
       if (!snapshot)
         return yield* Effect.fail(new WorkflowTransitionError("Feature workflow was not found"));
+      // A stage that never launched (its worktree failed, say) has only its launch to retry.
+      if (input.kind === "retry") {
+        const execution = yield* executions.get(input.featureId);
+        const state = yield* workflows.getFeatureState(input.featureId);
+        const status = state?.activeStepId
+          ? state.steps.get(state.activeStepId)?.status
+          : undefined;
+        if (execution?.lastError && status !== "failed" && status !== "taken-over") {
+          yield* reconcileFeatureUnlocked(input.featureId);
+          return (yield* workflows.getFeatureSnapshot(input.featureId, input.projectId))!;
+        }
+      }
       const prior = yield* workflows.findRecordedEvent(input.featureId, input.requestId);
       const text = input.text?.trim() || null;
       if (prior) {
