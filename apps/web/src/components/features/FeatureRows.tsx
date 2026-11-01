@@ -20,6 +20,7 @@ import { useThreadShell } from "../../state/entities";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
+import { ThreadProviderStack } from "../sidebar/SidebarThreadRow";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 import {
@@ -187,6 +188,7 @@ export const FeatureRow = memo(function FeatureRow(props: {
       <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
         <FeatureParkControls card={card} shelf={props.shelf} handlers={handlers} />
       </span>
+      {shell ? <ThreadProviderStack thread={shell} /> : null}
       <RowProject project={handlers.projectFor(card)} />
       <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
         {workingSince ? (
@@ -240,6 +242,7 @@ export const ChatRow = memo(function ChatRow(props: {
       <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
         <ChatParkControls shell={shell} shelf={props.shelf} handlers={handlers} />
       </span>
+      <ThreadProviderStack thread={shell} />
       <RowProject project={handlers.projectFor(shell)} />
       <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
         {workingSince ? (

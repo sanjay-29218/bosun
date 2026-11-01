@@ -49,7 +49,7 @@ import { FeatureIssueIcon } from "../crew/FeatureIssue";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
-import { SnoozeMenuButton } from "../sidebar/SidebarThreadRow";
+import { SnoozeMenuButton, ThreadProviderStack } from "../sidebar/SidebarThreadRow";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 
@@ -371,6 +371,7 @@ export const ChatCard = memo(function ChatCard(props: {
             {pullRequest.number}
           </span>
         ) : null}
+        <ThreadProviderStack thread={shell} />
       </div>
     </div>
   );
@@ -421,7 +422,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
       </span>
     );
   const ref = featureRef(card);
-  const meta = ref || pullRequest || shell?.branch;
+  const meta = ref || pullRequest || shell;
   return (
     <div
       draggable={props.draggable}
@@ -467,6 +468,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
               {pullRequest.number}
             </span>
           ) : null}
+          {shell ? <ThreadProviderStack thread={shell} /> : null}
         </div>
       ) : null}
       {actions.length > 0 ? (

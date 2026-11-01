@@ -28,6 +28,7 @@ import {
   resolveThreadProviderStack,
 } from "@t3tools/client-runtime/state/models";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { useAtomValue } from "@effect/atom-react";
 import {
   AuthOrchestrationOperateScope,
   featureIssueRef,
@@ -123,6 +124,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } f
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
+import { sidebarProviderEntriesAtom } from "./sidebarProviderEntries";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -188,8 +190,19 @@ function terminalProcessLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
 }
 
+const NO_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
+
+/** The provider icons a thread's sidebar row shows, for places outside the sidebar. */
+export function ThreadProviderStack(props: {
+  thread: Parameters<typeof resolveThreadProviderStack>[0] & { environmentId: string };
+}) {
+  const entries =
+    useAtomValue(sidebarProviderEntriesAtom).get(props.thread.environmentId) ?? NO_PROVIDER_ENTRIES;
+  return <SidebarProviderStack thread={props.thread} providerEntryByInstanceId={entries} />;
+}
+
 function SidebarProviderStack(props: {
-  thread: SidebarThreadSummary;
+  thread: Parameters<typeof resolveThreadProviderStack>[0];
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
 }) {
   const stack = resolveThreadProviderStack(props.thread);
