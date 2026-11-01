@@ -94,7 +94,7 @@ export function featureStatus(
 }
 
 /** States whose card says what it waits on: the question, the failure, the decision. */
-const WAITING_STATES = new Set<EnvironmentFeatureCard["state"]>([
+export const WAITING_STATES = new Set<EnvironmentFeatureCard["state"]>([
   "approval",
   "input",
   "your-call",
@@ -102,7 +102,7 @@ const WAITING_STATES = new Set<EnvironmentFeatureCard["state"]>([
 ]);
 
 // Self-ticking like the sidebar's, so a working card re-renders only this label each second.
-function WorkingDuration(props: { readonly startedAt: string }) {
+export function WorkingDuration(props: { readonly startedAt: string }) {
   const nowMs = useNowSecond();
   return (
     <span className="tabular-nums">
@@ -111,7 +111,7 @@ function WorkingDuration(props: { readonly startedAt: string }) {
   );
 }
 
-function RelativeTime(props: { readonly timestamp: string }) {
+export function RelativeTime(props: { readonly timestamp: string }) {
   const nowMinute = useNowMinute();
   return (
     <span className="tabular-nums">
@@ -174,7 +174,7 @@ function StatusWithControl(props: { readonly status: ReactNode; readonly control
   );
 }
 
-function ShelfControl(props: { readonly settled: boolean; readonly onClick: () => void }) {
+export function ShelfControl(props: { readonly settled: boolean; readonly onClick: () => void }) {
   const Icon = props.settled ? Undo2Icon : CheckIcon;
   return (
     <button
