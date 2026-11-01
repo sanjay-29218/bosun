@@ -1,6 +1,6 @@
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 
-import type { DraftId } from "../../composerDraftStore";
+import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
 import { create } from "zustand";
 
 /**
@@ -15,8 +15,13 @@ export const useCrewDraftStore = create<{
   readonly clearWorkflow: (draftId: DraftId) => void;
 }>((set) => ({
   workflowByDraftId: {},
-  setWorkflow: (draftId, workflowId) =>
-    set((state) => ({ workflowByDraftId: { ...state.workflowByDraftId, [draftId]: workflowId } })),
+  setWorkflow: (draftId, workflowId) => {
+    set((state) => ({ workflowByDraftId: { ...state.workflowByDraftId, [draftId]: workflowId } }));
+    // A feature's stages share one workspace, so it gets its own worktree unless changed back.
+    if (workflowId !== null) {
+      useComposerDraftStore.getState().setDraftThreadContext(draftId, { envMode: "worktree" });
+    }
+  },
   clearWorkflow: (draftId) =>
     set((state) => {
       const { [draftId]: _previous, ...rest } = state.workflowByDraftId;
