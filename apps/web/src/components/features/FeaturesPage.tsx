@@ -42,6 +42,11 @@ import { useThreadActions } from "../../hooks/useThreadActions";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useBotRailProjectKeys } from "../../state/botRail";
+import {
+  olderSettledScopes,
+  useOlderSettledShelf,
+  useOlderSettledShelfGrowth,
+} from "../../state/olderSettledShelf";
 import { useProjects, useQuietThreadShells } from "../../state/entities";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -183,9 +188,9 @@ export function FeaturesPage(props: {
     })
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
-  // A feature is settled or snoozed when its row in the thread list is, so the board and the
-  // sidebar file it the same way. A started one with no listed threads left (archived, or
-  // settled long ago and no longer sent) has no row there, so it counts as settled too.
+  // The board shows what the thread list shows. A feature sits where its row does: settled,
+  // snoozed or neither. A started one with no row (its threads archived, or settled long ago and
+  // not loaded) has no card either; Settled counts those threads until it loads them.
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread } = useThreadActions();
   const shells = useQuietThreadShells();
   const rows = featureRows(shells);
@@ -196,26 +201,55 @@ export function FeaturesPage(props: {
   };
   const closed = (card: EnvironmentFeatureCard) =>
     card.state === "done" || card.state === "cancelled";
-  const isSettled = (card: EnvironmentFeatureCard) => {
-    const primary = rowFor(card)[0];
-    return primary === undefined
-      ? card.started || closed(card)
-      : primary.settledOverride === "settled";
-  };
+  const listedCards = visibleCards.filter(
+    (card) => (!card.started && !closed(card)) || rowFor(card).length > 0,
+  );
+  const isSettled = (card: EnvironmentFeatureCard) =>
+    rowFor(card)[0]?.settledOverride === "settled";
   const isSnoozed = (card: EnvironmentFeatureCard) => {
     const primary = rowFor(card)[0];
     return primary !== undefined && effectiveSnoozed(primary, { now: `${nowMinute}:00.000Z` });
   };
   const snoozedUntil = (card: EnvironmentFeatureCard) => rowFor(card)[0]?.snoozedUntil ?? "";
-  const settledCards = visibleCards
+  const settledCards = listedCards
     .filter(isSettled)
     .toSorted((a, b) => b.stateSince.localeCompare(a.stateSince));
-  const snoozedCards = visibleCards
+  const snoozedCards = listedCards
     .filter((card) => !isSettled(card) && isSnoozed(card))
     .toSorted((a, b) => snoozedUntil(a).localeCompare(snoozedUntil(b)));
   const groups = groupFeaturesByColumn(
-    visibleCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
+    listedCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
   );
+
+  // Settled counts the board's older settled threads this client hasn't loaded, as the sidebar's
+  // shelf does, and opening it loads them. Only unfiltered: the server counts can't be searched.
+  const [settledExpanded, setSettledExpanded] = useState(false);
+  const scopeKeys = new Set(targets.map((target) => `${target.environmentId}:${target.projectId}`));
+  const olderSettled = useOlderSettledShelf({
+    scopes: olderSettledScopes(
+      [...new Set(targets.map((target) => target.environmentId))],
+      scopeKeys,
+    ),
+    expanded: settledExpanded,
+    // The board pages its own cards, so an open shelf reads every older page.
+    visibleCount: Number.MAX_SAFE_INTEGER,
+  });
+  const scopeShells = shells.filter(
+    (shell) =>
+      shell.archivedAt === null && scopeKeys.has(`${shell.environmentId}:${shell.projectId}`),
+  );
+  useOlderSettledShelfGrowth(
+    olderSettled,
+    scopeShells.filter(
+      (shell) => shell.settledOverride === "settled" && olderSettled.isListed(shell),
+    ),
+  );
+  const unfiltered = milestoneFilter === null && labelFilters.size === 0 && !query.trim();
+  const settledShelf = {
+    expanded: settledExpanded,
+    onExpandedChange: setSettledExpanded,
+    unloaded: unfiltered ? olderSettled.unloadedCount(scopeShells) : 0,
+  };
 
   // Chats sit beside features where their sidebar rows' status puts them. They have no
   // milestone, label or workflow, so those filters leave only features and todos.
@@ -646,6 +680,7 @@ export function FeaturesPage(props: {
         snoozed={snoozedCards}
         settled={settledCards}
         chats={chats}
+        settledShelf={settledShelf}
         handlers={handlers}
       />
     );

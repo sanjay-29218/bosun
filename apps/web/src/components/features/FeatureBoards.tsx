@@ -35,6 +35,16 @@ const PAGE = 10;
 /** The status columns, and the two shelves under Done for features set aside. */
 type Shelf = "snoozed" | "settled";
 export type BoardSection = FeatureColumn | Shelf;
+/**
+ * Settled's open state and its older settled threads not loaded yet, counted as the sidebar
+ * counts them. Opening it loads them.
+ */
+export interface SettledShelf {
+  readonly expanded: boolean;
+  readonly onExpandedChange: (expanded: boolean) => void;
+  readonly unloaded: number;
+}
+
 /** Chat threads by the section they sit in; chats are never in Todo. */
 export type BoardChats = Partial<Record<BoardSection, ReadonlyArray<EnvironmentThreadShell>>>;
 
@@ -324,12 +334,16 @@ function BoardShelf(props: {
   readonly items: SectionItems;
   readonly handlers: FeatureBoardHandlers;
   readonly drag: Drag;
+  /** Given for Settled, whose older threads load only while it is open. */
+  readonly open?: SettledShelf;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const expanded = props.open?.expanded ?? localExpanded;
+  const setExpanded = props.open?.onExpandedChange ?? setLocalExpanded;
   const { items, drag } = props;
   // Settled stays as a drop target even when empty; an empty Snoozed shows nothing.
   const dropTarget = items.section === "settled";
-  const count = items.cards.length + items.chats.length;
+  const count = items.cards.length + items.chats.length + (props.open?.unloaded ?? 0);
   if (count === 0 && !dropTarget) return null;
   return (
     <div
@@ -338,7 +352,7 @@ function BoardShelf(props: {
     >
       <CollapsibleSectionHeader
         expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => setExpanded(!expanded)}
         tone={drag.over === items.section ? "accent" : "muted"}
         accessory={<span className="font-normal tabular-nums">{count}</span>}
       >
@@ -362,6 +376,7 @@ export function FeatureStatusBoard(props: {
   readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
   readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
   readonly chats: BoardChats;
+  readonly settledShelf: SettledShelf;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const drag = useCardDrag(props.handlers);
@@ -378,7 +393,13 @@ export function FeatureStatusBoard(props: {
     todosPending: section === "todo" && props.todosPending,
   });
   if (props.layout === "list") {
-    return <FeatureStatusList sections={LIST_ORDER.map(itemsFor)} handlers={props.handlers} />;
+    return (
+      <FeatureStatusList
+        sections={LIST_ORDER.map(itemsFor)}
+        settledShelf={props.settledShelf}
+        handlers={props.handlers}
+      />
+    );
   }
   return (
     // Columns share the width, and scroll sideways only once they can't fit.
@@ -415,7 +436,12 @@ export function FeatureStatusBoard(props: {
                 {isDone ? (
                   <>
                     <BoardShelf items={itemsFor("snoozed")} handlers={props.handlers} drag={drag} />
-                    <BoardShelf items={itemsFor("settled")} handlers={props.handlers} drag={drag} />
+                    <BoardShelf
+                      items={itemsFor("settled")}
+                      handlers={props.handlers}
+                      drag={drag}
+                      open={props.settledShelf}
+                    />
                   </>
                 ) : null}
               </div>
@@ -436,6 +462,7 @@ function MoreRow(props: { readonly children: ReactNode }) {
 /** One row per feature or todo, in full-width sections, like an issue tracker's list. */
 function FeatureStatusList(props: {
   readonly sections: ReadonlyArray<SectionItems>;
+  readonly settledShelf: SettledShelf;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const { handlers } = props;
@@ -447,11 +474,17 @@ function FeatureStatusList(props: {
       onKeyDown={onRowListKeyDown}
     >
       {props.sections.map((items) => {
-        const total = items.cards.length + items.chats.length + items.todos.length;
+        const settled = items.section === "settled";
+        const total =
+          items.cards.length +
+          items.chats.length +
+          items.todos.length +
+          (settled ? props.settledShelf.unloaded : 0);
         const shelved = isShelf(items.section);
         // Empty shelves add nothing to the list; full ones stay folded until opened.
         if (shelved && total === 0) return null;
-        const folded = shelved && !openShelves.has(items.section);
+        const folded =
+          shelved && !(settled ? props.settledShelf.expanded : openShelves.has(items.section));
         return (
           <section key={items.section} className="flex flex-col">
             <SectionHeader
@@ -462,11 +495,13 @@ function FeatureStatusList(props: {
                 ? {
                     expanded: !folded,
                     onToggle: () =>
-                      setOpenShelves((current) => {
-                        const next = new Set(current);
-                        if (!next.delete(items.section)) next.add(items.section);
-                        return next;
-                      }),
+                      settled
+                        ? props.settledShelf.onExpandedChange(folded)
+                        : setOpenShelves((current) => {
+                            const next = new Set(current);
+                            if (!next.delete(items.section)) next.add(items.section);
+                            return next;
+                          }),
                   }
                 : {})}
             />
