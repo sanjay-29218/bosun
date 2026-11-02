@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
-import { readActiveLogicalBotKey } from "../../state/botRail";
+import { readActiveLogicalBotKey, requestBotFirstThread } from "../../state/botRail";
 import { readActiveEnvironmentId } from "../../state/entities";
 
 /** Settings and Usage open as modals over the last main-app view. */
@@ -191,7 +191,8 @@ export function useToggleMainView() {
 /**
  * Switches bots through `select`, keeping List / Board per bot: the view on screen is saved
  * for the bot being left, then the new bot's saved view shows. A bot without one keeps the
- * current view and saves it. From a utility page it opens the new bot's view.
+ * current view and saves it. The thread list opens the new bot's first thread, which the sidebar
+ * picks once it lists that bot. From a utility page it opens the new bot's view.
  */
 export function useSwitchBotMainView() {
   const router = useRouter();
@@ -202,16 +203,15 @@ export function useSwitchBotMainView() {
     const current = pathname === "/" || utility ? null : mainViewForPathname(pathname);
     if (current) rememberMainView(readActiveEnvironmentId(), current);
     select();
-    // From Settings, Usage and the utility pages, picking a bot opens its list or board.
-    if (utility) {
-      const key = mainViewKey(readActiveEnvironmentId());
-      void showMainView((key === null ? undefined : readMainViews()[key]) ?? "list");
-      return;
-    }
-    if (!current) return;
+    if (!utility && !current) return;
     const key = mainViewKey(readActiveEnvironmentId());
     const remembered = key === null ? undefined : readMainViews()[key];
-    if (!remembered) rememberMainView(readActiveEnvironmentId(), current);
-    else if (remembered !== current) void showMainView(remembered);
+    const view = remembered ?? current ?? "list";
+    if (!remembered) rememberMainView(readActiveEnvironmentId(), view);
+    if (view === "list") {
+      requestBotFirstThread(readActiveLogicalBotKey());
+      return;
+    }
+    if (utility || view !== current) void showMainView(view);
   };
 }

@@ -117,7 +117,13 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
-import { useBotRailProjectKeys, useVisibleLogicalBots } from "../state/botRail";
+import {
+  botFirstThreadRequestAtom,
+  clearBotFirstThreadRequest,
+  useBotRailProjectKeys,
+  useVisibleActiveLogicalBot,
+  useVisibleLogicalBots,
+} from "../state/botRail";
 import { useMoveProjectToBotMenu } from "./sidebar/moveProjectToBot";
 import {
   getThreadKeysToDeselectAfterDelete,
@@ -1423,6 +1429,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       params: buildThreadRouteParams(threadRef),
     });
   };
+
+  // A bot switch in thread view opens that bot's first thread once this list shows the bot.
+  const firstThreadRequest = useAtomValue(botFirstThreadRequestAtom);
+  const activeBotKey = useVisibleActiveLogicalBot()?.key ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- answers a one-shot request from the bot rail, which only this list can answer once it has ordered the new bot's threads.
+  useEffect(() => {
+    if (firstThreadRequest === null || firstThreadRequest.botKey !== activeBotKey) return;
+    clearBotFirstThreadRequest();
+    const first = orderedThreadKeys[0] ? threadByKey.get(orderedThreadKeys[0]) : undefined;
+    if (first) void navigateToThread(scopeThreadRef(first.environmentId, first.id));
+    // A bot with no threads yet opens a new thread in its project.
+    else void router.navigate({ to: "/" });
+  }, [activeBotKey, firstThreadRequest, navigateToThread, orderedThreadKeys, router, threadByKey]);
 
   const handleThreadFileDrop = async (threadRef: ScopedThreadRef, files: File[]) => {
     const dropId = queuePendingFileDrop({ threadRef, files });
