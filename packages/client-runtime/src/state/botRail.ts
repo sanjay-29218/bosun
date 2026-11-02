@@ -8,6 +8,7 @@ import {
   type ProjectIconColor,
 } from "@t3tools/contracts";
 
+import { isHiddenStageThread } from "../crewStage.ts";
 import type { EnvironmentThreadShell } from "./models.ts";
 import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
 import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
@@ -212,7 +213,8 @@ export interface BotActivity {
 }
 
 type BotActivityShell = Parameters<typeof isThreadWorking>[0] &
-  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt"> & {
+  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt"> &
+  Parameters<typeof isHiddenStageThread>[0] & {
     readonly lastVisitedAt?: string | null | undefined;
   };
 
@@ -236,7 +238,8 @@ export function botActivityByBot(
   const ownerKey = createThreadBotKeyResolver(projects);
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
-    if (shell.archivedAt !== null) continue;
+    // The list hides a feature's earlier stage attempts, so they can't flag what nobody can open.
+    if (shell.archivedAt !== null || isHiddenStageThread(shell)) continue;
     const visits = shell.lastVisitedAt !== undefined;
     const next: BotActivity = {
       failed: visits && hasUnseenFailure(shell),
