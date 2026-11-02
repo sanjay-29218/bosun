@@ -63,6 +63,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { BoardDisplayMenu } from "./BoardDisplayMenu";
 import { BoardFilterChips, BoardFilterMenu, type BoardFilterSection } from "./BoardFilters";
+import { BoardTitle } from "./BoardTitle";
 import { chatSince, chatTitle } from "./FeatureCard";
 import { FeatureStatusBoard, type BoardSection, type FeatureBoardHandlers } from "./FeatureBoards";
 import { FeatureNoteDialog } from "./FeatureNoteDialog";
@@ -709,7 +710,7 @@ export function FeaturesPage(props: {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
-          <h1 className="text-sm font-medium">Board</h1>
+          <BoardTitle />
           {firstRun ? (
             <div className="ms-auto flex items-center">
               <MainViewToggle />
