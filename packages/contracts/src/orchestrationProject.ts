@@ -19,6 +19,9 @@ export const OrchestrationProjectShell = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   /** The bot that owns the project. Absent from older servers and cached snapshots: Captain. */
   botId: Schema.optional(Schema.String),
+  // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.
+  pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

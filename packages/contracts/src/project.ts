@@ -163,6 +163,8 @@ export const Project = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   /** The bot that owns the project. Absent from older servers: Captain. */
   botId: Schema.optional(Schema.String),
+  pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -195,6 +197,12 @@ export const ProjectUpdatePayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  pinned: Schema.optional(Schema.Boolean),
+  archived: Schema.optional(
+    Schema.Boolean.annotate({
+      description: "Threads and files are kept.",
+    }),
+  ),
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 

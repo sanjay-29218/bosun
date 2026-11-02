@@ -201,6 +201,8 @@ export const make = Effect.gen(function* () {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    pinnedAt: row.pinnedAt,
+    archivedAt: row.archivedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -434,6 +436,8 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
+        ...(input.archived === undefined ? {} : { archived: input.archived }),
       });
       if (workspaceRoot !== previousRoot) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
@@ -620,14 +624,14 @@ export const make = Effect.gen(function* () {
     return yield* Effect.forEach(shells, enrichShell, { concurrency: 16 });
   });
 
+  const listRows = projects
+    .list()
+    .pipe(
+      Effect.mapError((cause) => new ProjectOperationError({ operation: "list-projects", cause })),
+    );
+
   const snapshot = Effect.gen(function* () {
-    const rows = yield* projects
-      .list()
-      .pipe(
-        Effect.mapError(
-          (cause) => new ProjectOperationError({ operation: "list-projects", cause }),
-        ),
-      );
+    const rows = yield* listRows;
     const hydrated = yield* Effect.forEach(rows, hydrate, { concurrency: 8 });
     return {
       projects: hydrated,
@@ -637,15 +641,19 @@ export const make = Effect.gen(function* () {
 
   const listPage: ProjectService["Service"]["listPage"] = Effect.fn("ProjectService.listPage")(
     function* ({ cursor, limit }) {
-      const rows = (yield* snapshot).projects.filter((project) => project.deletedAt === null);
+      const rows = (yield* listRows).filter((project) => project.deletedAt === null);
       const projects = yield* Effect.forEach(
         rows.slice(cursor, cursor + limit),
-        (project) =>
-          project.repositoryIdentity !== null
-            ? Effect.succeed(project)
-            : projectEnrichment
-                .readRepositoryIdentity(project.workspaceRoot)
-                .pipe(Effect.map((repositoryIdentity) => ({ ...project, repositoryIdentity }))),
+        (row) =>
+          hydrate(row).pipe(
+            Effect.filterOrElse(
+              (project) => project.repositoryIdentity !== null,
+              (project) =>
+                projectEnrichment
+                  .readRepositoryIdentity(project.workspaceRoot)
+                  .pipe(Effect.map((repositoryIdentity) => ({ ...project, repositoryIdentity }))),
+            ),
+          ),
         { concurrency: 8 },
       );
       return { projects, nextCursor: cursor + limit < rows.length ? cursor + limit : null };

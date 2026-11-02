@@ -147,13 +147,15 @@ const AutomationRow = memo(function AutomationRow({
   const { task } = entry;
   const status = running
     ? "Running now"
-    : !task.enabled
-      ? "Paused"
-      : task.schedule.type === "webhook"
-        ? null
-        : task.nextRunAt
-          ? "next"
-          : "Not scheduled";
+    : task.blockedByPolicy !== undefined
+      ? task.blockedByPolicy
+      : !task.enabled
+        ? "Paused"
+        : task.schedule.type === "webhook"
+          ? null
+          : task.nextRunAt
+            ? "next"
+            : "Not scheduled";
   return (
     <li>
       <Link

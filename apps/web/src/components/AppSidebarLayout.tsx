@@ -41,6 +41,7 @@ import { AutomationsSidebar } from "./automations/AutomationsSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { BotsSidebar } from "./bots/BotsSidebar";
 import { LibrarySidebar } from "./library/LibrarySidebar";
+import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
 import { BOT_RAIL_WIDTH, BotRail } from "./sidebar/BotRail";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
@@ -476,7 +477,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         defaultOpen
         style={sidebarProviderStyle}
       >
-        <SidebarBrandWidthProbe onWidthChange={setBrandWidth} />
+        <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
         {pinnedBotRail ? <BotRail placement="window" /> : null}
         <Sidebar
           side="left"
@@ -513,6 +514,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         {children}
         <BackgroundThreadAnnouncer />
         <SidebarControl />
+        {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

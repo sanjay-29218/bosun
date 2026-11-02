@@ -42,6 +42,8 @@ export interface ProjectMetaUpdateCommand {
   readonly scripts?: ReadonlyArray<ProjectScript>;
   /** Moves the project to this bot; the caller has checked it exists. */
   readonly botId?: string;
+  readonly pinned?: boolean;
+  readonly archived?: boolean;
 }
 
 export interface ProjectDeleteCommand {
@@ -215,6 +217,13 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           ...(command.botId === undefined ? {} : { botId: command.botId }),
+          // Repeating a pin or archive keeps the original time.
+          ...(command.pinned === undefined
+            ? {}
+            : { pinnedAt: command.pinned ? (project.pinnedAt ?? occurredAt) : null }),
+          ...(command.archived === undefined
+            ? {}
+            : { archivedAt: command.archived ? (project.archivedAt ?? occurredAt) : null }),
           updatedAt: occurredAt,
         },
       });

@@ -27,6 +27,7 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { WorkflowStoreLive } from "../workflows/WorkflowStore.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as BotService from "./BotService.ts";
 import * as BotStore from "./BotStore.ts";
@@ -36,6 +37,7 @@ const layer = BotService.layer.pipe(
     ScheduledTaskService.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
+          ManagedPolicy.layerTest(),
           Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
           Layer.mock(ThreadManagementService.ThreadManagementService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
