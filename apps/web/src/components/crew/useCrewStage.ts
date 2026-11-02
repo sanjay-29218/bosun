@@ -77,6 +77,7 @@ export function useCrewStage(thread: EnvironmentThreadShell | null): CrewStage |
     if (changeKey !== null) refresh();
   }, [changeKey, refresh]);
 
+  const answer = useAtomCommand(featuresEnvironment.answer);
   const approve = useAtomCommand(featuresEnvironment.approve);
   const requestChanges = useAtomCommand(featuresEnvironment.requestChanges);
   const takeOver = useAtomCommand(featuresEnvironment.takeOver);
@@ -102,6 +103,8 @@ export function useCrewStage(thread: EnvironmentThreadShell | null): CrewStage |
     const target = <I>(payload: I) => ({ environmentId, input: payload });
     const result = await (() => {
       switch (action) {
+        case "answer":
+          return answer(target({ ...base, text: text ?? "" }));
         case "approve":
           return approve(target({ ...base, ...note }));
         case "request-changes":

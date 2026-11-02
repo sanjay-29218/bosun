@@ -28,6 +28,7 @@ function SectionTitle({ children }: { readonly children: string }) {
 }
 
 const WAITING_TITLES = {
+  input: "asks a question",
   gate: "waits for your approval",
   failure: "failed",
   "your-call": "reached its limit; it's your call",

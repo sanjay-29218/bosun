@@ -87,6 +87,7 @@ export const CREW_STATE_LABELS: Record<FeatureCardState, string> = {
 };
 
 export type CrewAction =
+  | "answer"
   | "approve"
   | "request-changes"
   | "retry"
@@ -107,6 +108,7 @@ export const CREW_ACTION_COPY: Record<
   CrewAction,
   { readonly label: string; readonly description: string }
 > = {
+  answer: { label: "Answer", description: "Send your reply to the stage, which carries on" },
   approve: { label: "Approve", description: "Hand this stage's result to the next stage" },
   "request-changes": {
     label: "Request changes",
@@ -162,6 +164,7 @@ export function availableCrewActions(snapshot: WorkflowFeatureSnapshot): Readonl
   if (snapshot.completed || snapshot.cancelled) return ["reopen"];
   const step = activeStep(snapshot);
   const actions: Array<CrewAction> = [];
+  if (statusIn(step, "needs-input")) actions.push("answer");
   if (statusIn(step, "awaiting-approval")) actions.push("approve", "request-changes");
   if (statusIn(step, "limit-reached")) actions.push("accept-as-is", "one-more-round");
   if (statusIn(step, "failed", "taken-over")) actions.push("retry");
@@ -187,6 +190,7 @@ const lastEvent = (
 
 /** What the composer banner of a stage thread asks of the person, if anything. */
 export type CrewStagePrompt =
+  | { readonly kind: "input"; readonly stepId: string; readonly question: string | null }
   | { readonly kind: "gate"; readonly stepId: string; readonly summary: string | null }
   | {
       readonly kind: "failure";
@@ -215,6 +219,12 @@ export function crewStagePrompt(
   const step = activeStep(snapshot);
   if (!step || step.threadId !== threadId) return null;
   switch (step.status) {
+    case "needs-input":
+      return {
+        kind: "input",
+        stepId: step.id,
+        question: lastEvent(snapshot, step.id, "question")?.detail ?? null,
+      };
     case "awaiting-approval":
       return {
         kind: "gate",
@@ -345,13 +355,15 @@ export interface CrewStageChoice {
   readonly text?: string;
 }
 
-/** What a typed reply does: only a gate and a taken-over stage take a note. */
+/** What a typed reply does: answers a question, requests changes, or marks a take-over done. */
 const REPLY: Partial<Record<CrewStagePrompt["kind"], { action: CrewAction; hint: string }>> = {
+  input: { action: "answer", hint: "Reply to answer." },
   gate: { action: "request-changes", hint: "Reply to request changes." },
   "taken-over": { action: "mark-done", hint: "Reply with a summary to mark it done." },
 };
 
 const PRIMARY: Record<CrewStagePrompt["kind"], ReadonlyArray<CrewAction>> = {
+  input: [],
   gate: ["approve"],
   failure: ["retry", "skip"],
   "your-call": ["accept-as-is", "one-more-round"],
@@ -382,16 +394,18 @@ export function crewStageQuestion(input: {
   const has = (action: CrewAction) => actions.includes(action);
   const reply = REPLY[prompt.kind];
   const [header, question] =
-    prompt.kind === "gate"
-      ? [`${stage} approval`, prompt.summary ?? `Approve the ${stage.toLowerCase()} stage?`]
-      : prompt.kind === "failure"
-        ? [`${stage} failed · attempt ${prompt.attempt}`, prompt.error ?? "The stage failed."]
-        : prompt.kind === "your-call"
-          ? [
-              `${stage} reached its ${prompt.reason === "loop-limit" ? "loop" : "stage"} limit`,
-              `Next would be ${formatStageName(prompt.target)}. It's your call.`,
-            ]
-          : [`You're driving ${stage}`, "Mark it done to hand your result to the next stage."];
+    prompt.kind === "input"
+      ? [`${stage} asks`, prompt.question ?? `The ${stage.toLowerCase()} stage has a question.`]
+      : prompt.kind === "gate"
+        ? [`${stage} approval`, prompt.summary ?? `Approve the ${stage.toLowerCase()} stage?`]
+        : prompt.kind === "failure"
+          ? [`${stage} failed · attempt ${prompt.attempt}`, prompt.error ?? "The stage failed."]
+          : prompt.kind === "your-call"
+            ? [
+                `${stage} reached its ${prompt.reason === "loop-limit" ? "loop" : "stage"} limit`,
+                `Next would be ${formatStageName(prompt.target)}. It's your call.`,
+              ]
+            : [`You're driving ${stage}`, "Mark it done to hand your result to the next stage."];
   return {
     id: "crew-stage",
     header,

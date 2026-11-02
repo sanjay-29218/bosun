@@ -204,6 +204,32 @@ describe("crewStagePrompt", () => {
     },
   );
 
+  it("asks a stage's question in its thread, with Answer allowed", () => {
+    const asking = snapshot([step("handle", "needs-input", "t-handle")], {
+      recentEvents: [
+        {
+          id: "q1",
+          stepId: "handle",
+          executionId: "handle-execution",
+          kind: "question",
+          runId: "handle-run",
+          outcome: null,
+          sourceKind: "handoff",
+          sourceId: "x",
+          actorId: "handle-run",
+          detail: "Treat #45 as this feature?",
+          occurredAt: "2026-10-09T10:00:00.000Z",
+        },
+      ],
+    });
+    expect(crewStagePrompt(asking, ThreadId.make("t-handle"))).toEqual({
+      kind: "input",
+      stepId: "handle",
+      question: "Treat #45 as this feature?",
+    });
+    expect(availableCrewActions(asking)).toContain("answer");
+  });
+
   it("shows the failure banner in the failed stage's thread only", () => {
     expect(crewStagePrompt(failed, ThreadId.make("t-design"))).toEqual({
       kind: "failure",
@@ -297,5 +323,22 @@ describe("crewStageQuestion", () => {
       text: "Fixed by hand",
       outcome: "passed",
     });
+  });
+
+  it("asks a stage's question, and a reply answers it", () => {
+    const input = {
+      kind: "input",
+      stepId: "handle",
+      question: "Treat #45 as this feature?",
+    } as const;
+    const question = crewStageQuestion({
+      prompt: input,
+      actions: ["answer", "take-over", "cancel"],
+      sendBackTargets: [],
+    });
+    expect(question.header).toBe("Handle asks");
+    expect(question.question).toContain("Treat #45 as this feature?");
+    expect(question.allowCustomAnswer).toBe(true);
+    expect(crewStageAnswer(input, " Option B ")).toEqual({ action: "answer", text: "Option B" });
   });
 });

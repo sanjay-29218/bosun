@@ -1,6 +1,12 @@
 import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import type { ThreadId } from "@t3tools/contracts";
-import { FlagIcon, HandIcon, ShieldQuestionIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  FlagIcon,
+  HandIcon,
+  MessageCircleQuestionIcon,
+  ShieldQuestionIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 import type { ThreadNowItem } from "../chat/ThreadNow";
@@ -46,6 +52,14 @@ export function useCrewNowItems(input: {
       ) : null;
     const base = { id: `crew-stage:${prompt.stepId}` };
     switch (prompt.kind) {
+      case "input":
+        return {
+          ...base,
+          icon: <MessageCircleQuestionIcon className="text-info-foreground" />,
+          title: `${name} asks a question`,
+          description: prompt.question,
+          actions: open,
+        };
       case "gate":
         return {
           ...base,
