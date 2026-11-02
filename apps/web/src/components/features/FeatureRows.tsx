@@ -31,6 +31,7 @@ import {
   chatStatus,
   chatTitle,
   WAITING_STATES,
+  WithThreadDetails,
   WorkingDuration,
   featureStatus,
   type FeatureShelf,
@@ -145,61 +146,65 @@ export const FeatureRow = memo(function FeatureRow(props: {
   const actions = featureCardQuickActions(card);
   const subtitle = featureSubtitle(card, status.label);
   return (
-    <div
-      onContextMenu={(event) => {
-        event.preventDefault();
-        handlers.onMenu(card, event);
-      }}
-      className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}
-    >
-      <RowId>{featureRef(card)}</RowId>
-      <StatusIcon aria-label={status.label} className={cn("size-4 shrink-0", status.className)} />
-      <RowTitle title={card.title} onOpen={() => handlers.onOpen(card)} />
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">
-        {subtitle ? `· ${subtitle}` : null}
-      </span>
-      {shell?.branch ? (
-        <Chip className="hidden max-w-44 lg:flex">
-          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-          <MiddleTruncate value={shell.branch} showTitle={false} />
-        </Chip>
-      ) : null}
-      {pullRequest ? (
-        <Chip className="tabular-nums">
-          <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
-          {pullRequest.number}
-        </Chip>
-      ) : null}
-      {actions.length > 0 ? (
-        <span className={cn("relative z-10 flex shrink-0 gap-1.5", !waiting && hoverOnlyClassName)}>
-          {actions.map((action, index) => (
-            <Button
-              key={action}
-              size="xs"
-              variant={index === 0 && waiting ? "default" : "outline"}
-              onClick={(event) => handlers.onAction(card, action, event)}
-            >
-              {action === "start" ? <PlayIcon aria-hidden /> : null}
-              {FEATURE_CARD_ACTION_LABELS[action]}
-            </Button>
-          ))}
+    <WithThreadDetails shell={shell} project={handlers.projectFor(card)}>
+      <div
+        onContextMenu={(event) => {
+          event.preventDefault();
+          handlers.onMenu(card, event);
+        }}
+        className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}
+      >
+        <RowId>{featureRef(card)}</RowId>
+        <StatusIcon aria-label={status.label} className={cn("size-4 shrink-0", status.className)} />
+        <RowTitle title={card.title} onOpen={() => handlers.onOpen(card)} />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {subtitle ? `· ${subtitle}` : null}
         </span>
-      ) : null}
-      <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
-        <FeatureParkControls card={card} shelf={props.shelf} handlers={handlers} />
-      </span>
-      {shell ? <ThreadProviderStack thread={shell} /> : null}
-      <RowProject project={handlers.projectFor(card)} />
-      <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-        {workingSince ? (
-          <span className="text-info-foreground">
-            <WorkingDuration startedAt={workingSince} />
+        {shell?.branch ? (
+          <Chip className="hidden max-w-44 lg:flex">
+            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+            <MiddleTruncate value={shell.branch} showTitle={false} />
+          </Chip>
+        ) : null}
+        {pullRequest ? (
+          <Chip className="tabular-nums">
+            <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
+            {pullRequest.number}
+          </Chip>
+        ) : null}
+        {actions.length > 0 ? (
+          <span
+            className={cn("relative z-10 flex shrink-0 gap-1.5", !waiting && hoverOnlyClassName)}
+          >
+            {actions.map((action, index) => (
+              <Button
+                key={action}
+                size="xs"
+                variant={index === 0 && waiting ? "default" : "outline"}
+                onClick={(event) => handlers.onAction(card, action, event)}
+              >
+                {action === "start" ? <PlayIcon aria-hidden /> : null}
+                {FEATURE_CARD_ACTION_LABELS[action]}
+              </Button>
+            ))}
           </span>
-        ) : (
-          <RelativeTime timestamp={card.stateSince} />
-        )}
-      </span>
-    </div>
+        ) : null}
+        <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
+          <FeatureParkControls card={card} shelf={props.shelf} handlers={handlers} />
+        </span>
+        {shell ? <ThreadProviderStack thread={shell} /> : null}
+        <RowProject project={handlers.projectFor(card)} />
+        <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
+          {workingSince ? (
+            <span className="text-info-foreground">
+              <WorkingDuration startedAt={workingSince} />
+            </span>
+          ) : (
+            <RelativeTime timestamp={card.stateSince} />
+          )}
+        </span>
+      </div>
+    </WithThreadDetails>
   );
 });
 
@@ -215,45 +220,47 @@ export const ChatRow = memo(function ChatRow(props: {
   const pullRequest = shell.linkedPullRequest ?? shell.branchPullRequest ?? null;
   const workingSince = status?.label === "Working" ? resolveThreadWorkingStartedAt(shell) : null;
   return (
-    <div className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}>
-      <RowId>
-        <MessageSquareIcon aria-label="Thread" className="size-3.5" />
-      </RowId>
-      <StatusIcon
-        aria-label={status?.label ?? "Thread"}
-        className={cn("size-4 shrink-0", status?.className ?? "text-muted-foreground")}
-      />
-      <RowTitle title={chatTitle(shell)} onOpen={() => handlers.onOpenChat(shell)} />
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">
-        {status && !workingSince ? `· ${status.label}` : null}
-      </span>
-      {shell.branch ? (
-        <Chip className="hidden max-w-44 lg:flex">
-          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-          <MiddleTruncate value={shell.branch} showTitle={false} />
-        </Chip>
-      ) : null}
-      {pullRequest ? (
-        <Chip className="tabular-nums">
-          <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
-          {pullRequest.number}
-        </Chip>
-      ) : null}
-      <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
-        <ChatParkControls shell={shell} shelf={props.shelf} handlers={handlers} />
-      </span>
-      <ThreadProviderStack thread={shell} />
-      <RowProject project={handlers.projectFor(shell)} />
-      <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-        {workingSince ? (
-          <span className="text-info-foreground">
-            <WorkingDuration startedAt={workingSince} />
-          </span>
-        ) : (
-          <RelativeTime timestamp={chatSince(shell)} />
-        )}
-      </span>
-    </div>
+    <WithThreadDetails shell={shell} project={handlers.projectFor(shell)}>
+      <div className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}>
+        <RowId>
+          <MessageSquareIcon aria-label="Thread" className="size-3.5" />
+        </RowId>
+        <StatusIcon
+          aria-label={status?.label ?? "Thread"}
+          className={cn("size-4 shrink-0", status?.className ?? "text-muted-foreground")}
+        />
+        <RowTitle title={chatTitle(shell)} onOpen={() => handlers.onOpenChat(shell)} />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {status && !workingSince ? `· ${status.label}` : null}
+        </span>
+        {shell.branch ? (
+          <Chip className="hidden max-w-44 lg:flex">
+            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+            <MiddleTruncate value={shell.branch} showTitle={false} />
+          </Chip>
+        ) : null}
+        {pullRequest ? (
+          <Chip className="tabular-nums">
+            <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
+            {pullRequest.number}
+          </Chip>
+        ) : null}
+        <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
+          <ChatParkControls shell={shell} shelf={props.shelf} handlers={handlers} />
+        </span>
+        <ThreadProviderStack thread={shell} />
+        <RowProject project={handlers.projectFor(shell)} />
+        <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
+          {workingSince ? (
+            <span className="text-info-foreground">
+              <WorkingDuration startedAt={workingSince} />
+            </span>
+          ) : (
+            <RelativeTime timestamp={chatSince(shell)} />
+          )}
+        </span>
+      </div>
+    </WithThreadDetails>
   );
 });
 

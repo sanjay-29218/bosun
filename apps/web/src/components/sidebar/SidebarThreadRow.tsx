@@ -125,6 +125,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
 import { sidebarProviderEntriesAtom } from "./sidebarProviderEntries";
+import { useEnvironmentIdentities, useEnvironmentMachines } from "../../state/environments";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -246,6 +247,57 @@ function SidebarProviderStack(props: {
       })}
       <span className="relative z-10 inline-flex items-center">{current}</span>
     </span>
+  );
+}
+
+/**
+ * The sidebar row's hover card for a thread shown elsewhere, such as a board card. It reads the
+ * same provider, environment and terminal state the row does; branch checks stay in the sidebar.
+ */
+export function ThreadDetailsHoverCard(props: {
+  thread: SidebarThreadSummary;
+  project: ProjectFaviconProject | null;
+}) {
+  const { thread } = props;
+  const providerEntryByInstanceId =
+    useAtomValue(sidebarProviderEntriesAtom).get(thread.environmentId) ?? NO_PROVIDER_ENTRIES;
+  const environmentLabel =
+    useEnvironmentIdentities().find(
+      (environment) => environment.environmentId === thread.environmentId,
+    )?.label ?? null;
+  const environmentMachine = useEnvironmentMachines().get(thread.environmentId) ?? "server";
+  const runningTerminalIds = useThreadRunningTerminalIds({
+    environmentId: thread.environmentId,
+    threadId: thread.id,
+  });
+  const modelInstanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
+  const providerEntry = providerEntryByInstanceId.get(modelInstanceId) ?? null;
+  const selectedModel = providerEntry?.models.find(
+    (model) => model.slug === thread.modelSelection.model,
+  );
+  return (
+    <SidebarThreadTooltip
+      thread={thread}
+      project={props.project}
+      projectDisplayName={props.project?.title ?? null}
+      environmentLabel={environmentLabel}
+      environmentMachine={environmentMachine}
+      providerEntry={providerEntry}
+      providerEntryByInstanceId={providerEntryByInstanceId}
+      showInstanceBadge={
+        providerEntry !== null &&
+        shouldShowInstanceBadge(providerEntry, providerEntryByInstanceId.values())
+      }
+      modelInstanceId={modelInstanceId}
+      modelLabel={
+        selectedModel
+          ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
+          : thread.modelSelection.model
+      }
+      branchMismatch={null}
+      terminalStatus={terminalStatusFromRunningIds(runningTerminalIds)}
+      terminalProcessCount={runningTerminalIds.length}
+    />
   );
 }
 

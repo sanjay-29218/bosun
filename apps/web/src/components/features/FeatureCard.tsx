@@ -37,7 +37,14 @@ import {
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
-import { memo, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  memo,
+  useState,
+  type DragEvent,
+  type MouseEvent,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import { cn } from "../../lib/utils";
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -49,7 +56,12 @@ import { FeatureIssueIcon } from "../crew/FeatureIssue";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
-import { SnoozeMenuButton, ThreadProviderStack } from "../sidebar/SidebarThreadRow";
+import {
+  SnoozeMenuButton,
+  ThreadDetailsHoverCard,
+  ThreadProviderStack,
+} from "../sidebar/SidebarThreadRow";
+import { Tooltip, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 
@@ -291,6 +303,21 @@ export function ChatParkControls(props: {
   );
 }
 
+/** The sidebar row's hover card over a board card or row that has a thread to describe. */
+export function WithThreadDetails(props: {
+  readonly shell: EnvironmentThreadShell | null;
+  readonly project: EnvironmentProject | null;
+  readonly children: ReactElement<{ readonly children?: ReactNode }>;
+}) {
+  if (!props.shell) return props.children;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={props.children}>{props.children.props.children}</TooltipTrigger>
+      <ThreadDetailsHoverCard thread={props.shell} project={props.project} />
+    </Tooltip>
+  );
+}
+
 /** A chat's title: a bot request is named by the request, as its sidebar row is. */
 export const chatTitle = (shell: EnvironmentThreadShell) => shell.crewRequest?.title || shell.title;
 
@@ -341,39 +368,43 @@ export const ChatCard = memo(function ChatCard(props: {
       </span>
     );
   return (
-    <div
-      className={cn(
-        cardClassName,
-        "border-border/70 hover:border-border",
-        props.shelf !== null && "opacity-70 hover:opacity-100",
-      )}
-    >
-      <CardHeader project={props.project}>
-        <StatusWithControl
-          status={statusLabel}
-          control={<ChatParkControls shell={shell} shelf={props.shelf} handlers={props.handlers} />}
-        />
-      </CardHeader>
-      <CardTitle title={chatTitle(shell)} onOpen={() => props.handlers.onOpenChat(shell)} />
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
-        <MessageSquareIcon aria-label="Thread" className="size-3 shrink-0" />
-        {shell.branch ? (
-          <span className="flex min-w-0 flex-1 items-center gap-1">
-            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-            <MiddleTruncate value={shell.branch} showTitle={false} />
-          </span>
-        ) : (
-          <span className="flex-1" />
+    <WithThreadDetails shell={shell} project={props.project}>
+      <div
+        className={cn(
+          cardClassName,
+          "border-border/70 hover:border-border",
+          props.shelf !== null && "opacity-70 hover:opacity-100",
         )}
-        {pullRequest ? (
-          <span className="flex shrink-0 items-center gap-1 tabular-nums">
-            <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
-            {pullRequest.number}
-          </span>
-        ) : null}
-        <ThreadProviderStack thread={shell} />
+      >
+        <CardHeader project={props.project}>
+          <StatusWithControl
+            status={statusLabel}
+            control={
+              <ChatParkControls shell={shell} shelf={props.shelf} handlers={props.handlers} />
+            }
+          />
+        </CardHeader>
+        <CardTitle title={chatTitle(shell)} onOpen={() => props.handlers.onOpenChat(shell)} />
+        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
+          <MessageSquareIcon aria-label="Thread" className="size-3 shrink-0" />
+          {shell.branch ? (
+            <span className="flex min-w-0 flex-1 items-center gap-1">
+              <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+              <MiddleTruncate value={shell.branch} showTitle={false} />
+            </span>
+          ) : (
+            <span className="flex-1" />
+          )}
+          {pullRequest ? (
+            <span className="flex shrink-0 items-center gap-1 tabular-nums">
+              <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
+              {pullRequest.number}
+            </span>
+          ) : null}
+          <ThreadProviderStack thread={shell} />
+        </div>
       </div>
-    </div>
+    </WithThreadDetails>
   );
 });
 
@@ -424,69 +455,71 @@ export const FeatureCard = memo(function FeatureCard(props: {
   const ref = featureRef(card);
   const meta = ref || pullRequest || shell;
   return (
-    <div
-      draggable={props.draggable}
-      onDragStart={props.onDragStart ? (event) => props.onDragStart!(card, event) : undefined}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        props.onMenu(card, event);
-      }}
-      className={cn(
-        cardClassName,
-        card.started || closed ? "border-border/70 hover:border-border" : "border-dashed",
-        props.settled && "opacity-70 hover:opacity-100",
-      )}
-    >
-      <CardHeader project={props.project}>
-        <StatusWithControl status={statusLabel} control={props.parkControls} />
-      </CardHeader>
-      <CardTitle title={card.title} onOpen={() => props.onOpen(card)} />
-      {card.detail && WAITING_STATES.has(card.state) ? (
-        <p className="mt-0.5 line-clamp-2 min-w-0 text-muted-foreground">{card.detail}</p>
-      ) : null}
-      {meta ? (
-        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
-          {card.issue ? (
-            <span className="flex shrink-0 items-center gap-1 tabular-nums">
-              <FeatureIssueIcon issue={card.issue} className="size-3" />
-              {ref}
-            </span>
-          ) : ref ? (
-            <span className="shrink-0 tabular-nums">{ref}</span>
-          ) : null}
-          {shell?.branch ? (
-            <span className="flex min-w-0 flex-1 items-center gap-1">
-              <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-              <MiddleTruncate value={shell.branch} showTitle={false} />
-            </span>
-          ) : (
-            <span className="flex-1" />
-          )}
-          {pullRequest ? (
-            <span className="flex shrink-0 items-center gap-1 tabular-nums">
-              <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
-              {pullRequest.number}
-            </span>
-          ) : null}
-          {shell ? <ThreadProviderStack thread={shell} /> : null}
-        </div>
-      ) : null}
-      {actions.length > 0 ? (
-        <div className="relative z-10 mt-2 flex flex-wrap gap-1.5">
-          {actions.map((action, index) => (
-            <Button
-              key={action}
-              size="xs"
-              variant={index === 0 && WAITING_STATES.has(card.state) ? "default" : "outline"}
-              onClick={(event) => props.onAction(card, action, event)}
-            >
-              {action === "start" ? <PlayIcon aria-hidden /> : null}
-              {FEATURE_CARD_ACTION_LABELS[action]}
-            </Button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <WithThreadDetails shell={shell} project={props.project}>
+      <div
+        draggable={props.draggable}
+        onDragStart={props.onDragStart ? (event) => props.onDragStart!(card, event) : undefined}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          props.onMenu(card, event);
+        }}
+        className={cn(
+          cardClassName,
+          card.started || closed ? "border-border/70 hover:border-border" : "border-dashed",
+          props.settled && "opacity-70 hover:opacity-100",
+        )}
+      >
+        <CardHeader project={props.project}>
+          <StatusWithControl status={statusLabel} control={props.parkControls} />
+        </CardHeader>
+        <CardTitle title={card.title} onOpen={() => props.onOpen(card)} />
+        {card.detail && WAITING_STATES.has(card.state) ? (
+          <p className="mt-0.5 line-clamp-2 min-w-0 text-muted-foreground">{card.detail}</p>
+        ) : null}
+        {meta ? (
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
+            {card.issue ? (
+              <span className="flex shrink-0 items-center gap-1 tabular-nums">
+                <FeatureIssueIcon issue={card.issue} className="size-3" />
+                {ref}
+              </span>
+            ) : ref ? (
+              <span className="shrink-0 tabular-nums">{ref}</span>
+            ) : null}
+            {shell?.branch ? (
+              <span className="flex min-w-0 flex-1 items-center gap-1">
+                <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+                <MiddleTruncate value={shell.branch} showTitle={false} />
+              </span>
+            ) : (
+              <span className="flex-1" />
+            )}
+            {pullRequest ? (
+              <span className="flex shrink-0 items-center gap-1 tabular-nums">
+                <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
+                {pullRequest.number}
+              </span>
+            ) : null}
+            {shell ? <ThreadProviderStack thread={shell} /> : null}
+          </div>
+        ) : null}
+        {actions.length > 0 ? (
+          <div className="relative z-10 mt-2 flex flex-wrap gap-1.5">
+            {actions.map((action, index) => (
+              <Button
+                key={action}
+                size="xs"
+                variant={index === 0 && WAITING_STATES.has(card.state) ? "default" : "outline"}
+                onClick={(event) => props.onAction(card, action, event)}
+              >
+                {action === "start" ? <PlayIcon aria-hidden /> : null}
+                {FEATURE_CARD_ACTION_LABELS[action]}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </WithThreadDetails>
   );
 });
 
