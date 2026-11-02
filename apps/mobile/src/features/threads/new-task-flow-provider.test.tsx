@@ -101,6 +101,8 @@ vi.mock("../../state/use-composer-drafts", () => ({
 }));
 
 vi.mock("../../state/peerLinks", () => ({ useLinkedEnvironments: () => new Map() }));
+// Bosun's bot rail filters the project picker; no bot picked means every project.
+vi.mock("../../state/bots", () => ({ useActiveBot: () => ({ projectKeys: null }) }));
 vi.mock("../../state/project-has-threads", () => ({ useProjectHasThreads: () => false }));
 vi.mock("../../state/workspace", () => ({
   useConnectionsReady: () => true,
