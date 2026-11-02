@@ -16,8 +16,19 @@ const FeatureFields = {
   brief: Schema.String,
   workflowId: Schema.optionalKey(Schema.String),
 };
+/**
+ * Where a feature's stages and their helpers work: one new worktree and branch for the whole
+ * feature, or the project's own checkout.
+ */
+export const FeatureWorkspace = Schema.Literals(["worktree", "local"]);
+export type FeatureWorkspace = typeof FeatureWorkspace.Type;
+
 export const FeatureCreateInput = Schema.Struct({
   ...FeatureFields,
+  /** Defaults to `worktree`; a project that isn't a Git repository always works locally. */
+  workspace: Schema.optionalKey(FeatureWorkspace),
+  /** The branch a new worktree starts from; defaults to the checkout's current branch. */
+  baseBranch: Schema.optionalKey(Schema.String),
   /**
    * `title` is a stand-in taken from the brief: the server replaces it with a short generated
    * title, as it does for thread titles. A retry may then send the stand-in again.
@@ -32,6 +43,8 @@ export const FeatureRecord = Schema.Struct({
   createdAt: Schema.String,
   updatedAt: Schema.String,
   status: Schema.Literals(["open", "closed"]),
+  /** F-<number> within the project. Older servers omit it. */
+  number: Schema.optionalKey(Schema.Int),
   /** The crew member bound to each of the workflow's roles. */
   crewAssignments: Schema.Record(Schema.String, Schema.String),
   issue: Schema.NullOr(FeatureIssue),
@@ -94,6 +107,8 @@ export const FeatureBoardCard = Schema.Struct({
   featureId: Schema.String,
   projectId: ProjectId,
   title: Schema.String,
+  /** F-<number> within the project. Older servers omit it. */
+  number: Schema.optionalKey(Schema.Int),
   issue: Schema.NullOr(FeatureIssue),
   workflow: Schema.Struct({
     id: Schema.String,

@@ -37,6 +37,15 @@ import CaptainFullAccess from "./Migrations/078_CaptainFullAccess.ts";
 import Tickets from "./Migrations/079_Tickets.ts";
 import FeatureWorkflowSwitch from "./Migrations/080_FeatureWorkflowSwitch.ts";
 import CrewWaitWithoutPolling from "./Migrations/081_CrewWaitWithoutPolling.ts";
+import StageChecksInProportion from "./Migrations/082_StageChecksInProportion.ts";
+import FeatureWorkspaces from "./Migrations/083_FeatureWorkspaces.ts";
+import OneBuilderPerFeature from "./Migrations/084_OneBuilderPerFeature.ts";
+import BotLongConversation from "./Migrations/086_BotLongConversation.ts";
+import CrewFullAccess from "./Migrations/087_CrewFullAccess.ts";
+import SlimFeatureDelivery from "./Migrations/088_SlimFeatureDelivery.ts";
+import LeadDecisions from "./Migrations/089_LeadDecisions.ts";
+import FeatureNumbers from "./Migrations/090_FeatureNumbers.ts";
+import StageQuestions from "./Migrations/091_StageQuestions.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -66,6 +75,16 @@ const migrationEntries = [
   [79, "Tickets", Tickets],
   [80, "FeatureWorkflowSwitch", FeatureWorkflowSwitch],
   [81, "CrewWaitWithoutPolling", CrewWaitWithoutPolling],
+  [82, "StageChecksInProportion", StageChecksInProportion],
+  [83, "FeatureWorkspaces", FeatureWorkspaces],
+  [84, "OneBuilderPerFeature", OneBuilderPerFeature],
+  // 085 is taken by work that lands separately.
+  [86, "BotLongConversation", BotLongConversation],
+  [87, "CrewFullAccess", CrewFullAccess],
+  [88, "SlimFeatureDelivery", SlimFeatureDelivery],
+  [89, "LeadDecisions", LeadDecisions],
+  [90, "FeatureNumbers", FeatureNumbers],
+  [91, "StageQuestions", StageQuestions],
 ] as const;
 
 const legacyNames = new Set([
@@ -92,6 +111,9 @@ const legacyNames = new Set([
 
 // Keep upstream's numbered ledger free for upstream migrations. Move only known
 // Bosun entries; their schemas and timestamps stay intact in the domain ledger.
+/** Bosun's migrations share the folder with T3 Code's, under their own history table. */
+export const bosunMigrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
+
 export const reconcileLegacyHistory = Effect.fn("BosunMigrations.reconcileLegacyHistory")(
   function* () {
     const sql = yield* SqlClient.SqlClient;

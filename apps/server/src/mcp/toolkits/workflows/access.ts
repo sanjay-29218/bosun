@@ -5,13 +5,13 @@ import { crewThreadGrants } from "../../../crew/crewMcpCapabilities.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { assertFullAccess, readCaller } from "../../threadAccess.ts";
 
-/** "Manage workflows" unlocks the workflow, role, bot and feature tools for a bot's threads. */
+/** "Manage bots and workflows" unlocks the workflow, role, bot and feature tools for a bot's threads. */
 const MANAGE_WORKFLOWS = "crew.workflows";
 
 const manageWorkflowsDenied = new OrchestratorMcpFailure({
   code: "capability_denied",
   message:
-    "This bot can't manage workflows or bots. A person can allow it with \"Manage workflows\" in the bot's Tools settings.",
+    "This bot can't manage workflows or bots. A person can allow it with \"Manage bots and workflows\" in the bot's Tools settings.",
 });
 
 /** The calling bot or crew thread's grants; undefined for every other caller. */
@@ -21,7 +21,7 @@ const callerGrants = McpInvocationContext.McpInvocationContext.pipe(
   ),
 );
 
-/** Crew threads need "Manage workflows"; every other caller passes `others` instead. */
+/** Crew threads need "Manage bots and workflows"; every other caller passes `others` instead. */
 export const asWorkflowManager = Effect.fn("WorkflowsToolkit.asWorkflowManager")(function* <E, R>(
   others: Effect.Effect<unknown, E, R>,
 ) {

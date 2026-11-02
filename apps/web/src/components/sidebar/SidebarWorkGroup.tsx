@@ -86,6 +86,8 @@ function StatusIcon({ status }: { readonly status: SidebarThreadStatus }) {
   switch (status) {
     case "working":
       return <CircleDashedIcon aria-hidden className="size-3.5 shrink-0 text-info-foreground" />;
+    case "waiting":
+      return <CircleDashedIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
     case "approval":
       return (
         <ShieldQuestionIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />

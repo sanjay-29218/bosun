@@ -47,7 +47,7 @@ describe("stageThreadSummaries", () => {
           featureId: "feature",
           stepId: "plan",
           index: 1,
-          total: 6,
+          total: 4,
           state: "approval",
           current: false,
         },

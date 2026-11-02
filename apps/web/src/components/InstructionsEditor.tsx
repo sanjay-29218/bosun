@@ -55,6 +55,7 @@ export function InstructionsEditor({
   disabled = false,
   maxLength,
   size = "md",
+  variant = "field",
 }: {
   /** Id for the field's label to reference (`htmlFor`). */
   readonly id?: string;
@@ -66,21 +67,32 @@ export function InstructionsEditor({
   readonly disabled?: boolean;
   readonly maxLength?: number;
   readonly size?: keyof typeof SIZE_CLASS_NAMES;
+  /** "document" drops the box and grows with its text; its toolbar shows on hover and focus. */
+  readonly variant?: "field" | "document";
 }) {
+  const bare = variant === "document";
   const editorRef = useRef<ComposerPromptEditorHandle>(null);
   const [cursor, setCursor] = useState(value.length);
   return (
     <div
       id={id}
       className={cn(
-        "w-full min-w-0 rounded-lg border border-input bg-background text-foreground shadow-xs/5 ring-ring/24 transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-inset dark:bg-input/32",
+        "w-full min-w-0 text-foreground",
+        bare
+          ? "group/editor"
+          : "rounded-lg border border-input bg-background shadow-xs/5 ring-ring/24 transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-inset dark:bg-input/32",
         disabled && "opacity-64",
       )}
     >
       <div
         role="toolbar"
         aria-label={`${label} formatting`}
-        className="flex flex-wrap items-center gap-0.5 border-b border-input px-1.5 py-1"
+        className={cn(
+          "flex flex-wrap items-center gap-0.5",
+          bare
+            ? "-ms-1.5 mb-1 opacity-0 transition-opacity group-focus-within/editor:opacity-100 group-hover/editor:opacity-100 pointer-coarse:opacity-100"
+            : "border-b border-input px-1.5 py-1",
+        )}
       >
         {FORMAT_ACTIONS.map(({ format, label: actionLabel, icon: Icon }) => (
           <Tooltip key={format}>
@@ -104,7 +116,7 @@ export function InstructionsEditor({
           </Tooltip>
         ))}
       </div>
-      <div className="px-3 py-2">
+      <div className={bare ? undefined : "px-3 py-2"}>
         <ComposerPromptEditor
           editorRef={editorRef}
           ariaLabel={label}
@@ -117,7 +129,7 @@ export function InstructionsEditor({
           skills={NO_SKILLS}
           disabled={disabled}
           placeholder={placeholder}
-          className={cn("max-h-80", SIZE_CLASS_NAMES[size])}
+          className={cn(bare ? "max-h-none" : "max-h-80", SIZE_CLASS_NAMES[size])}
           onChange={(nextValue, nextCursor) => {
             setCursor(nextCursor);
             if (nextValue !== value) onChange(nextValue);

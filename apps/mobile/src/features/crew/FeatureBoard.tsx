@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { MenuAction } from "@react-native-menu/menu";
-import { formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
+import { formatCrewStageLine, formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { workThreadLabel } from "@t3tools/client-runtime/state/work-groups";
 import {
   buildFeatureStageBoard,
@@ -15,8 +15,8 @@ import {
   mostUsedWorkflowId,
   parseFeatureSearch,
   type NeedsYouKind,
-  stageLabel,
   type EnvironmentFeatureCard,
+  featureRef,
   type FeatureCardActionId,
 } from "@t3tools/client-runtime/state/crew-board";
 import type {
@@ -24,7 +24,6 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import {
-  featureIssueRef,
   type EnvironmentId,
   type FeatureCardState,
   type ProjectId,
@@ -53,7 +52,7 @@ const STATE_LABEL: Partial<Record<FeatureCardState, { label: string; className: 
   working: { label: "Working", className: "text-adaptive-sky-600-400" },
   queued: { label: "Queued", className: "text-foreground-secondary" },
   paused: { label: "Paused", className: "text-foreground-secondary" },
-  cancelled: { label: "Cancelled", className: "text-foreground-secondary" },
+  cancelled: { label: "Stopped", className: "text-foreground-secondary" },
   done: { label: "Done", className: "text-adaptive-emerald-700-300" },
 };
 
@@ -76,12 +75,12 @@ function rowActions(card: EnvironmentFeatureCard): FeatureCardActionId[] {
 }
 
 function featureLine(card: EnvironmentFeatureCard): string | null {
-  const issue = card.issue ? featureIssueRef(card.issue) : null;
+  const issue = featureRef(card);
   if (!card.stage) return issue;
   const stage =
     card.state === "failed" && card.detail
-      ? `${stageLabel(card.stage.stepId)} · ${card.detail}`
-      : `${formatCrewStageLine(card.stage)} · ${stageLabel(card.stage.role)}`;
+      ? `${formatStageName(card.stage.stepId)} · ${card.detail}`
+      : `${formatCrewStageLine(card.stage)} · ${formatStageName(card.stage.role)}`;
   return issue ? `${issue} · ${stage}` : stage;
 }
 
@@ -396,8 +395,8 @@ export function FeatureBoard(props: {
               <GroupHeader
                 label={
                   column.onlyInRevision === null
-                    ? stageLabel(column.stepId)
-                    : `${stageLabel(column.stepId)} (version ${column.onlyInRevision})`
+                    ? formatStageName(column.stepId)
+                    : `${formatStageName(column.stepId)} (version ${column.onlyInRevision})`
                 }
                 count={column.cards.length}
               />
@@ -411,7 +410,7 @@ export function FeatureBoard(props: {
                       column.waiting > 0 ? "text-warning-foreground" : "text-foreground-secondary",
                     )}
                   >
-                    Approve {stageLabel(column.stepId).toLocaleLowerCase()}
+                    Approve {formatStageName(column.stepId).toLocaleLowerCase()}
                     {column.waiting > 0 ? ` · ${column.waiting} waiting` : ""}
                   </Text>
                   <View className="h-px flex-1 bg-border" />

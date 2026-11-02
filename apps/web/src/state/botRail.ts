@@ -262,3 +262,19 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
   }
   return logicalBotProjectKeys(active, bots, inEnvironment);
 }
+
+/**
+ * A bot switch in thread view asks for that bot's first thread. Only the sidebar knows its order
+ * once it shows the bot, so it opens the thread and clears this. Null bot key is All bots.
+ */
+export const botFirstThreadRequestAtom = Atom.make<{ readonly botKey: string | null } | null>(
+  null,
+).pipe(Atom.keepAlive, Atom.withLabel("bot-rail:first-thread-request"));
+
+export function requestBotFirstThread(botKey: string | null): void {
+  appAtomRegistry.set(botFirstThreadRequestAtom, { botKey });
+}
+
+export function clearBotFirstThreadRequest(): void {
+  appAtomRegistry.set(botFirstThreadRequestAtom, null);
+}

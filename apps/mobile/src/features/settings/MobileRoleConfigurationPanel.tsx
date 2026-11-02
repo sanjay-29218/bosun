@@ -115,7 +115,9 @@ function Editor(props: {
         value={model}
         onChangeText={setModel}
       />
-      <Text className="text-xs text-foreground-muted">Tools</Text>
+      <Text className="text-xs text-foreground-muted">
+        Tools. T3 Code tools are all on unless you pick some to limit it to.
+      </Text>
       <View className="flex-row flex-wrap gap-1.5">
         {/* Grants this list doesn't know stay on the role and stay listed so they can be removed. */}
         {[

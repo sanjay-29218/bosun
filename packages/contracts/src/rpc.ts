@@ -49,14 +49,11 @@ import {
 } from "./bots.ts";
 import {
   CrewConfigurationSnapshot,
-  CrewHandoff,
-  CrewHandoffActionInput,
   CrewInitializeInput,
   CrewInstantiateInput,
   CrewMemberSummary,
   CrewOperationError,
   CrewProjectInput,
-  CrewProjectSnapshot,
   CrewSetDelegationInput,
   CrewSetHierarchyInput,
   CrewStartInput,
@@ -535,19 +532,16 @@ export const WS_METHODS = {
   botsReorder: "bots.reorder",
   botsMoveProject: "bots.moveProject",
   botsOpenHeadquarters: "bots.openHeadquarters",
+  botsStartNewSession: "bots.startNewSession",
   rolesList: "roles.list",
   rolesCreate: "roles.create",
   rolesUpdate: "roles.update",
-  crewSnapshot: "crew.snapshot",
   crewConfiguration: "crew.configuration",
   crewInitialize: "crew.initialize",
   crewInstantiate: "crew.instantiate",
   crewSetHierarchy: "crew.setHierarchy",
   crewSetDelegation: "crew.setDelegation",
   crewStart: "crew.start",
-  crewAnswer: "crew.answer",
-  crewCancel: "crew.cancel",
-  crewRetry: "crew.retry",
   projectsListEntries: "projects.listEntries",
   projectsListIgnoredFiles: "projects.listIgnoredFiles",
   projectsReadFile: "projects.readFile",
@@ -1385,6 +1379,12 @@ const WsBotsOpenHeadquartersRpc = Rpc.make(WS_METHODS.botsOpenHeadquarters, {
   success: Schema.Struct({ threadId: ThreadId }),
   error: BotRpcError,
 });
+// Starts the bot's headquarters over in a fresh provider session; its messages stay.
+const WsBotsStartNewSessionRpc = Rpc.make(WS_METHODS.botsStartNewSession, {
+  payload: Schema.Struct({ botId: Schema.String }),
+  success: Schema.Void,
+  error: BotRpcError,
+});
 const WsRolesListRpc = Rpc.make(WS_METHODS.rolesList, {
   payload: Schema.Struct({}),
   success: Schema.Array(RoleConfig),
@@ -1398,11 +1398,6 @@ const WsRolesCreateRpc = Rpc.make(WS_METHODS.rolesCreate, {
 const WsRolesUpdateRpc = Rpc.make(WS_METHODS.rolesUpdate, {
   payload: RoleUpdateInput,
   success: RoleConfig,
-  error: CrewRpcError,
-});
-const WsCrewSnapshotRpc = Rpc.make(WS_METHODS.crewSnapshot, {
-  payload: CrewProjectInput,
-  success: CrewProjectSnapshot,
   error: CrewRpcError,
 });
 const WsCrewConfigurationRpc = Rpc.make(WS_METHODS.crewConfiguration, {
@@ -1433,21 +1428,6 @@ const WsCrewSetDelegationRpc = Rpc.make(WS_METHODS.crewSetDelegation, {
 const WsCrewStartRpc = Rpc.make(WS_METHODS.crewStart, {
   payload: CrewStartInput,
   success: CrewStartResult,
-  error: CrewRpcError,
-});
-const WsCrewAnswerRpc = Rpc.make(WS_METHODS.crewAnswer, {
-  payload: CrewHandoffActionInput,
-  success: CrewHandoff,
-  error: CrewRpcError,
-});
-const WsCrewCancelRpc = Rpc.make(WS_METHODS.crewCancel, {
-  payload: CrewHandoffActionInput,
-  success: CrewHandoff,
-  error: CrewRpcError,
-});
-const WsCrewRetryRpc = Rpc.make(WS_METHODS.crewRetry, {
-  payload: CrewHandoffActionInput,
-  success: CrewHandoff,
   error: CrewRpcError,
 });
 
@@ -2468,19 +2448,16 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsBotsReorderRpc,
   WsBotsMoveProjectRpc,
   WsBotsOpenHeadquartersRpc,
+  WsBotsStartNewSessionRpc,
   WsRolesListRpc,
   WsRolesCreateRpc,
   WsRolesUpdateRpc,
-  WsCrewSnapshotRpc,
   WsCrewConfigurationRpc,
   WsCrewInitializeRpc,
   WsCrewInstantiateRpc,
   WsCrewSetHierarchyRpc,
   WsCrewSetDelegationRpc,
   WsCrewStartRpc,
-  WsCrewAnswerRpc,
-  WsCrewCancelRpc,
-  WsCrewRetryRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const T3WsRpcGroup = RpcGroup.make(

@@ -1,49 +1,178 @@
 import {
-  DONE_COLUMN_ID,
-  FEATURE_PHASE_LABELS,
+  FEATURE_COLUMN_LABELS,
   featureCardKey,
   featureDropAction,
-  stageLabel,
   type EnvironmentFeatureCard,
-  type FeaturePhaseGroup,
-  type FeatureStageBoard,
+  type FeatureCardActionId,
+  type FeatureColumn,
+  type FeatureColumnGroup,
 } from "@t3tools/client-runtime/state/crew-board";
+import { issueKey, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { ChevronRightIcon } from "lucide-react";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  AlarmClockIcon,
+  ArchiveIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleIcon,
+  UserRoundIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { ChevronRightIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
-import { Button } from "../ui/button";
+import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
-import { FeatureCard } from "./FeatureCard";
-import { PhaseIcon } from "./PhaseIcon";
+import { Skeleton } from "../ui/skeleton";
+import { ChatCard, FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
+import { ChatRow, FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 
-const PHASE_PROGRESS: Record<FeaturePhaseGroup["phase"], number | "done"> = {
-  plan: 0,
-  design: 0.25,
-  build: 0.5,
-  verify: 0.75,
-  ship: 0.9,
-  done: "done",
+const PAGE = 10;
+
+/** The status columns, and the two shelves under Done for features set aside. */
+type Shelf = "snoozed" | "settled";
+export type BoardSection = FeatureColumn | Shelf;
+/**
+ * Settled's open state and its older settled threads not loaded yet, counted as the sidebar
+ * counts them. Opening it loads them.
+ */
+export interface SettledShelf {
+  readonly expanded: boolean;
+  readonly onExpandedChange: (expanded: boolean) => void;
+  readonly unloaded: number;
+}
+
+/** Chat threads by the section they sit in; chats are never in Todo. */
+export type BoardChats = Partial<Record<BoardSection, ReadonlyArray<EnvironmentThreadShell>>>;
+
+const SECTION_META: Record<
+  BoardSection,
+  {
+    readonly label: string;
+    readonly icon: LucideIcon;
+    readonly className: string;
+    readonly empty: string;
+  }
+> = {
+  todo: {
+    label: FEATURE_COLUMN_LABELS.todo,
+    icon: CircleIcon,
+    className: "text-muted-foreground",
+    empty: "No todos",
+  },
+  working: {
+    label: FEATURE_COLUMN_LABELS.working,
+    icon: CircleDashedIcon,
+    className: "text-info-foreground",
+    empty: "Nothing running",
+  },
+  "needs-you": {
+    label: FEATURE_COLUMN_LABELS["needs-you"],
+    icon: UserRoundIcon,
+    className: "text-warning-foreground",
+    empty: "Nothing needs you",
+  },
+  done: {
+    label: FEATURE_COLUMN_LABELS.done,
+    icon: CircleCheckIcon,
+    className: "text-success-foreground",
+    empty: "Nothing finished yet",
+  },
+  snoozed: {
+    label: "Snoozed",
+    icon: AlarmClockIcon,
+    className: "text-muted-foreground",
+    empty: "Nothing snoozed",
+  },
+  settled: {
+    label: "Settled",
+    icon: ArchiveIcon,
+    className: "text-muted-foreground",
+    empty: "Nothing settled",
+  },
 };
 
-/** Done keeps its newest few visible, like the Settled shelf. */
-const DONE_PAGE = 10;
+const BOARD_ORDER: ReadonlyArray<FeatureColumn> = ["todo", "working", "needs-you", "done"];
+/** The list puts what waits on you first. */
+const LIST_ORDER: ReadonlyArray<BoardSection> = [
+  "needs-you",
+  "working",
+  "todo",
+  "done",
+  "snoozed",
+  "settled",
+];
+/** Sections that grow without bound show their newest few until asked for more. */
+const PAGED = new Set<BoardSection>(["done", "snoozed", "settled"]);
+const isShelf = (section: BoardSection): section is Shelf =>
+  section === "snoozed" || section === "settled";
+/** Todo pages in the list so a long backlog doesn't bury what follows. */
+const TODO_PAGE = 25;
+
+interface SectionItems {
+  readonly section: BoardSection;
+  readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly chats: ReadonlyArray<EnvironmentThreadShell>;
+  readonly todos: ReadonlyArray<EnvironmentIssue>;
+  /** Some project's issues haven't arrived yet; Todo waits for all of them at once. */
+  readonly todosPending: boolean;
+}
+
+/** Stand-ins for todos still loading, so slow projects don't trickle into the sorted list. */
+const PENDING_TODOS = [0, 1, 2];
+
+type DropAction = "cancel" | "reopen" | "settle";
+type DropTarget = "open" | "done" | "settled";
 
 export interface FeatureBoardHandlers {
-  readonly projectFor: (card: EnvironmentFeatureCard) => EnvironmentProject | null;
+  readonly projectFor: (owner: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }) => EnvironmentProject | null;
   readonly queuePositions: ReadonlyMap<string, number>;
   readonly onOpen: (card: EnvironmentFeatureCard) => void;
   readonly onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) => void;
-  /** Called only for an allowed move: into Done cancels, out of it reopens. */
+  readonly onAction: (
+    card: EnvironmentFeatureCard,
+    action: FeatureCardActionId,
+    event: MouseEvent,
+  ) => void;
+  /** Settles a finished feature, or un-settles a settled one. */
+  readonly onShelf: (card: EnvironmentFeatureCard) => void;
+  /** Whether the feature has threads to settle. */
+  readonly canShelf: (card: EnvironmentFeatureCard) => boolean;
+  /** Wakes a snoozed feature's threads. */
+  readonly onWake: (card: EnvironmentFeatureCard) => void;
+  /** Snoozes a feature's threads until `snoozedUntil`. */
+  readonly onSnooze: (card: EnvironmentFeatureCard, snoozedUntil: string) => void;
+  /** Called only for an allowed move: into Done stops, out of it reopens, onto Settled settles. */
   readonly onDrop: (
     card: EnvironmentFeatureCard,
-    action: "cancel" | "reopen",
+    action: DropAction,
     position: { readonly x: number; readonly y: number },
   ) => void;
+  readonly onOpenTodo: (issue: EnvironmentIssue) => void;
+  readonly onStartTodo: (issue: EnvironmentIssue) => void;
+  readonly onOpenChat: (shell: EnvironmentThreadShell) => void;
+  readonly onChatShelf: (shell: EnvironmentThreadShell) => void;
+  readonly onChatWake: (shell: EnvironmentThreadShell) => void;
+  readonly onChatSnooze: (shell: EnvironmentThreadShell, snoozedUntil: string) => void;
 }
 
-/** Drag state shared by a board's columns. Nothing moves until the server answers. */
+const dropAction = (
+  card: EnvironmentFeatureCard,
+  target: DropTarget,
+  handlers: FeatureBoardHandlers,
+): DropAction | null => {
+  if (target !== "settled") return featureDropAction(card, target);
+  // Any feature settles, the way any thread does.
+  return handlers.canShelf(card) ? "settle" : null;
+};
+
+/** Drag state shared by the board's columns. Nothing moves until the server answers. */
 function useCardDrag(handlers: FeatureBoardHandlers) {
   const dragged = useRef<EnvironmentFeatureCard | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -52,24 +181,27 @@ function useCardDrag(handlers: FeatureBoardHandlers) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", card.title);
   };
-  const dropProps = (columnId: string, target: "done" | "open") => ({
+  const dropProps = (zone: string, target: DropTarget) => ({
     onDragOver: (event: DragEvent) => {
       const card = dragged.current;
-      if (!card || featureDropAction(card, target) === null) return;
+      if (!card || dropAction(card, target, handlers) === null) return;
       event.preventDefault();
+      event.stopPropagation();
       event.dataTransfer.dropEffect = "move";
-      if (over !== columnId) setOver(columnId);
+      if (over !== zone) setOver(zone);
     },
     onDragLeave: (event: DragEvent) => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(null);
     },
     onDrop: (event: DragEvent) => {
-      event.preventDefault();
-      setOver(null);
       const card = dragged.current;
+      const action = card ? dropAction(card, target, handlers) : null;
+      if (!card || !action) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOver(null);
       dragged.current = null;
-      const action = card ? featureDropAction(card, target) : null;
-      if (card && action) handlers.onDrop(card, action, { x: event.clientX, y: event.clientY });
+      handlers.onDrop(card, action, { x: event.clientX, y: event.clientY });
     },
   });
   return {
@@ -83,292 +215,355 @@ function useCardDrag(handlers: FeatureBoardHandlers) {
   };
 }
 
-function Column(props: {
-  readonly icon: number | "done";
-  readonly title: ReactNode;
-  readonly count: number;
-  readonly subtitle?: ReactNode;
-  readonly highlighted: boolean;
-  readonly children: ReactNode;
-  readonly dropProps: ReturnType<ReturnType<typeof useCardDrag>["dropProps"]>;
+type Drag = ReturnType<typeof useCardDrag>;
+
+function SectionHeader(props: {
+  readonly section: BoardSection;
+  /** Null while the count isn't known yet. */
+  readonly count: number | null;
+  readonly list: boolean;
+  /** Given for a list shelf, which folds. */
+  readonly expanded?: boolean;
+  readonly onToggle?: () => void;
 }) {
-  return (
-    <section
-      {...props.dropProps}
-      className={cn(
-        "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
-        props.highlighted && "border-dashed border-border bg-accent/40",
+  const { label, icon: Icon, className } = SECTION_META[props.section];
+  const content = (
+    <>
+      <Icon aria-hidden className={cn("size-4 shrink-0", className)} />
+      {label}
+      {props.count === null ? null : (
+        <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
       )}
-    >
-      <header className="flex min-w-0 flex-col gap-0.5 px-1.5 py-1">
-        <span className="flex h-6 items-center gap-2 text-sm font-medium">
-          <PhaseIcon progress={props.icon} />
-          {props.title}
-          <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
-        </span>
-        {props.subtitle ? (
-          <span className="truncate ps-5.5 text-xs text-muted-foreground">{props.subtitle}</span>
-        ) : null}
+    </>
+  );
+  const headerClassName = cn(
+    "flex shrink-0 items-center gap-2 text-sm font-medium",
+    props.list ? "h-9 border-b border-border/70 bg-muted/40 px-3" : "h-7 px-1.5",
+  );
+  if (props.onToggle) {
+    return (
+      <header className={headerClassName}>
+        <button
+          type="button"
+          aria-expanded={props.expanded}
+          onClick={props.onToggle}
+          className="flex flex-1 items-center gap-2 text-left outline-none focus-visible:underline"
+        >
+          {content}
+          <ChevronRightIcon
+            aria-hidden
+            className={cn("ms-auto size-4 text-muted-foreground", props.expanded && "rotate-90")}
+          />
+        </button>
       </header>
-      {props.count === 0 ? (
-        <p className="flex flex-1 items-center justify-center px-2 text-xs text-muted-foreground/70">
-          No features
-        </p>
+    );
+  }
+  return <header className={headerClassName}>{content}</header>;
+}
+
+function ColumnCards(props: {
+  readonly items: SectionItems;
+  readonly handlers: FeatureBoardHandlers;
+  readonly drag: Drag;
+}) {
+  const { items, handlers, drag } = props;
+  const shelved = isShelf(items.section);
+  return (
+    <>
+      <Paged
+        items={items.cards}
+        pageSize={PAGED.has(items.section) ? PAGE : null}
+        render={(card) => (
+          <FeatureCard
+            key={featureCardKey(card)}
+            card={card}
+            project={handlers.projectFor(card)}
+            queuePosition={shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))}
+            settled={shelved}
+            draggable={!shelved}
+            onOpen={handlers.onOpen}
+            onMenu={handlers.onMenu}
+            onAction={handlers.onAction}
+            parkControls={
+              <FeatureParkControls
+                card={card}
+                shelf={isShelf(items.section) ? items.section : null}
+                handlers={handlers}
+              />
+            }
+            onDragStart={drag.onDragStart}
+          />
+        )}
+      />
+      <Paged
+        items={items.chats}
+        pageSize={PAGED.has(items.section) ? PAGE : null}
+        render={(shell) => (
+          <ChatCard
+            key={`${shell.environmentId}:${shell.id}`}
+            shell={shell}
+            project={handlers.projectFor(shell)}
+            shelf={isShelf(items.section) ? items.section : null}
+            handlers={handlers}
+          />
+        )}
+      />
+      {items.todosPending ? (
+        PENDING_TODOS.map((index) => <Skeleton key={index} shape="card" className="h-24" />)
       ) : (
-        <ScrollArea className="min-h-0 flex-1">{props.children}</ScrollArea>
+        <Paged
+          items={items.todos}
+          pageSize={null}
+          render={(issue) => (
+            <TodoCard
+              key={issueKey(issue)}
+              issue={issue}
+              project={handlers.projectFor(issue)}
+              onOpen={handlers.onOpenTodo}
+              onStart={handlers.onStartTodo}
+            />
+          )}
+        />
       )}
-    </section>
+    </>
   );
 }
 
-function CardStack(props: {
-  readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
-  readonly pageDone: boolean;
+/** Snoozed or Settled, folded under Done like the sidebar's Settled shelf. */
+function BoardShelf(props: {
+  readonly items: SectionItems;
   readonly handlers: FeatureBoardHandlers;
-  readonly onDragStart: (card: EnvironmentFeatureCard, event: DragEvent) => void;
-  readonly onDragEnd: () => void;
+  readonly drag: Drag;
+  /** Given for Settled, whose older threads load only while it is open. */
+  readonly open?: SettledShelf;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = props.pageDone && !expanded ? props.cards.slice(0, DONE_PAGE) : props.cards;
-  const hiddenCount = props.cards.length - visible.length;
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const expanded = props.open?.expanded ?? localExpanded;
+  const setExpanded = props.open?.onExpandedChange ?? setLocalExpanded;
+  const { items, drag } = props;
+  // Settled stays as a drop target even when empty; an empty Snoozed shows nothing.
+  const dropTarget = items.section === "settled";
+  const count = items.cards.length + items.chats.length + (props.open?.unloaded ?? 0);
+  if (count === 0 && !dropTarget) return null;
   return (
-    <div className="flex flex-col gap-1.5" onDragEnd={props.onDragEnd}>
-      {visible.map((card) => (
-        <FeatureCard
-          key={featureCardKey(card)}
-          card={card}
-          project={props.handlers.projectFor(card)}
-          queuePosition={props.handlers.queuePositions.get(featureCardKey(card))}
-          layout="card"
-          draggable
-          onOpen={props.handlers.onOpen}
-          onMenu={props.handlers.onMenu}
-          onDragStart={props.onDragStart}
-        />
-      ))}
-      {hiddenCount > 0 ? (
-        <Button variant="ghost" size="sm" onClick={() => setExpanded(true)}>
-          Show {hiddenCount} more
-        </Button>
-      ) : null}
+    <div
+      {...(dropTarget ? drag.dropProps("settled", "settled") : {})}
+      className="flex flex-col gap-1.5"
+    >
+      <CollapsibleSectionHeader
+        expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        tone={drag.over === items.section ? "accent" : "muted"}
+        accessory={<span className="font-normal tabular-nums">{count}</span>}
+      >
+        {SECTION_META[items.section].label}
+      </CollapsibleSectionHeader>
+      {expanded ? <ColumnCards items={items} handlers={props.handlers} drag={drag} /> : null}
     </div>
   );
 }
 
-/** Phase columns across every workflow. */
-export function FeaturePhaseBoard(props: {
-  readonly groups: ReadonlyArray<FeaturePhaseGroup>;
+/**
+ * Todo, Working, Needs you and Done, as columns or as stacked sections, with Snoozed and
+ * Settled folded under Done. Todo holds open issues and tickets beside features not started yet;
+ * chat threads sit in the other columns beside features.
+ */
+export function FeatureStatusBoard(props: {
+  readonly layout: "board" | "list";
+  readonly groups: ReadonlyArray<FeatureColumnGroup>;
+  readonly todos: ReadonlyArray<EnvironmentIssue>;
+  readonly todosPending: boolean;
+  readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly chats: BoardChats;
+  readonly settledShelf: SettledShelf;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const drag = useCardDrag(props.handlers);
+  const itemsFor = (section: BoardSection): SectionItems => ({
+    section,
+    cards:
+      section === "snoozed"
+        ? props.snoozed
+        : section === "settled"
+          ? props.settled
+          : (props.groups.find((group) => group.column === section)?.cards ?? []),
+    chats: props.chats[section] ?? [],
+    todos: section === "todo" && !props.todosPending ? props.todos : [],
+    todosPending: section === "todo" && props.todosPending,
+  });
+  if (props.layout === "list") {
+    return (
+      <FeatureStatusList
+        sections={LIST_ORDER.map(itemsFor)}
+        settledShelf={props.settledShelf}
+        handlers={props.handlers}
+      />
+    );
+  }
   return (
     // Columns share the width, and scroll sideways only once they can't fit.
-    <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto pb-2">
-      {props.groups.map((group) => {
-        const target = group.phase === "done" ? "done" : "open";
+    <div
+      className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto overscroll-x-contain pb-2"
+      onDragEnd={drag.onDragEnd}
+    >
+      {BOARD_ORDER.map(itemsFor).map((items) => {
+        const isDone = items.section === "done";
+        const total = items.cards.length + items.chats.length + items.todos.length;
         return (
-          <Column
-            key={group.phase}
-            icon={PHASE_PROGRESS[group.phase]}
-            title={FEATURE_PHASE_LABELS[group.phase]}
-            count={group.cards.length}
-            highlighted={drag.over === group.phase}
-            dropProps={drag.dropProps(group.phase, target)}
+          <section
+            key={items.section}
+            {...drag.dropProps(items.section, isDone ? "done" : "open")}
+            className={cn(
+              "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
+              drag.over === items.section && "border-dashed border-border bg-accent/40",
+            )}
           >
-            <CardStack
-              cards={group.cards}
-              pageDone={group.phase === "done"}
-              handlers={props.handlers}
-              onDragStart={drag.onDragStart}
-              onDragEnd={drag.onDragEnd}
+            <SectionHeader
+              section={items.section}
+              count={items.todosPending ? null : total}
+              list={false}
             />
-          </Column>
+            <ScrollArea className="min-h-0 flex-1" chainHorizontalScroll>
+              <div className="flex flex-col gap-1.5">
+                {total === 0 && !items.todosPending ? (
+                  <p className="py-6 text-center text-xs text-muted-foreground/70">
+                    {SECTION_META[items.section].empty}
+                  </p>
+                ) : (
+                  <ColumnCards items={items} handlers={props.handlers} drag={drag} />
+                )}
+                {isDone ? (
+                  <>
+                    <BoardShelf items={itemsFor("snoozed")} handlers={props.handlers} drag={drag} />
+                    <BoardShelf
+                      items={itemsFor("settled")}
+                      handlers={props.handlers}
+                      drag={drag}
+                      open={props.settledShelf}
+                    />
+                  </>
+                ) : null}
+              </div>
+            </ScrollArea>
+          </section>
         );
       })}
     </div>
   );
 }
 
-/** Phases as row groups, for scanning many features at once. Rows don't drag. */
-export function FeaturePhaseList(props: {
-  readonly groups: ReadonlyArray<FeaturePhaseGroup>;
-  readonly handlers: FeatureBoardHandlers;
-}) {
-  const groups = props.groups.filter((group) => group.cards.length > 0);
-  if (groups.length === 0) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">No features match.</p>;
-  }
+function MoreRow(props: { readonly children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-4">
-      {groups.map((group) => (
-        <section key={group.phase} className="flex flex-col gap-1">
-          <h2 className="flex h-7 items-center gap-2 px-1 text-sm font-medium">
-            <PhaseIcon progress={PHASE_PROGRESS[group.phase]} />
-            {FEATURE_PHASE_LABELS[group.phase]}
-            <span className="font-normal text-muted-foreground tabular-nums">
-              {group.cards.length}
-            </span>
-          </h2>
-          {group.cards.map((card) => (
-            <FeatureCard
-              key={featureCardKey(card)}
-              card={card}
-              project={props.handlers.projectFor(card)}
-              queuePosition={props.handlers.queuePositions.get(featureCardKey(card))}
-              layout="row"
-              draggable={false}
-              onOpen={props.handlers.onOpen}
-              onMenu={props.handlers.onMenu}
-            />
-          ))}
-        </section>
-      ))}
-    </div>
+    <div className="flex h-9 items-center border-b border-border/50 ps-24">{props.children}</div>
   );
 }
 
-/**
- * One workflow's stages as columns: role headers, gates with their waiting counts, and loops
- * drawn as labelled arcs. Read-only; the graph is edited in the Library.
- */
-export function FeatureStageBoardView(props: {
-  readonly board: FeatureStageBoard;
+/** One row per feature or todo, in full-width sections, like an issue tracker's list. */
+function FeatureStatusList(props: {
+  readonly sections: ReadonlyArray<SectionItems>;
+  readonly settledShelf: SettledShelf;
   readonly handlers: FeatureBoardHandlers;
-  readonly gateFilter: string | null;
-  readonly onGateFilter: (stepId: string | null) => void;
-  readonly onOpenStage: (stepId: string) => void;
-  readonly onShowPhases: () => void;
 }) {
-  const drag = useCardDrag(props.handlers);
-  const { columns, loops, hidden } = props.board;
-  const columnIndex = new Map(columns.map((column, index) => [column.stepId, index]));
-  const hiddenCount = hidden.reduce((total, entry) => total + entry.count, 0);
+  const { handlers } = props;
+  const [openShelves, setOpenShelves] = useState<ReadonlySet<BoardSection>>(new Set());
+  const more = (button: ReactNode) => <MoreRow>{button}</MoreRow>;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="min-h-0 flex-1 overflow-x-auto pb-2">
-        <div
-          className="grid h-full w-max min-w-full gap-x-6 gap-y-1"
-          style={{
-            gridTemplateColumns: `repeat(${columns.length}, minmax(17rem, 1fr))`,
-            gridTemplateRows: `${"auto ".repeat(loops.length)}minmax(0, 1fr)`,
-          }}
-        >
-          {loops.map((loop, loopIndex) => {
-            const from = columnIndex.get(loop.from);
-            const to = columnIndex.get(loop.to);
-            if (from === undefined || to === undefined) return null;
-            return (
-              <div
-                key={`${loop.from}:${loop.outcome}`}
-                // A static arc: the box's top and sides, from the target back to the source.
-                className="mx-16 flex h-5 items-start justify-center rounded-t-lg border-x border-t border-border text-2xs text-muted-foreground"
-                style={{ gridColumn: `${to + 1} / ${from + 2}`, gridRow: loopIndex + 1 }}
-              >
-                <span className="-mt-2 bg-background px-1.5">
-                  {loop.outcome.replace(/_/g, " ")} · back to {stageLabel(loop.to)}
-                  {loop.limit !== null ? ` · max ${loop.limit}` : ""}
-                </span>
-              </div>
-            );
-          })}
-          {columns.map((column, index) => {
-            const isDone = column.stepId === DONE_COLUMN_ID;
-            const cards =
-              props.gateFilter === null
-                ? column.cards
-                : column.cards.filter(
-                    (card) => column.stepId === props.gateFilter && card.state === "approval",
-                  );
-            return (
-              <div
-                key={column.stepId}
-                className="relative min-h-0"
-                style={{ gridRow: loops.length + 1 }}
-              >
-                {index > 0 ? (
-                  <ChevronRightIcon
-                    aria-hidden
-                    className="absolute top-2 -left-5 size-4 text-muted-foreground"
-                  />
+    <div
+      className="flex flex-col overflow-hidden rounded-lg border border-border/70"
+      onKeyDown={onRowListKeyDown}
+    >
+      {props.sections.map((items) => {
+        const settled = items.section === "settled";
+        const total =
+          items.cards.length +
+          items.chats.length +
+          items.todos.length +
+          (settled ? props.settledShelf.unloaded : 0);
+        const shelved = isShelf(items.section);
+        // Empty shelves add nothing to the list; full ones stay folded until opened.
+        if (shelved && total === 0) return null;
+        const folded =
+          shelved && !(settled ? props.settledShelf.expanded : openShelves.has(items.section));
+        return (
+          <section key={items.section} className="flex flex-col">
+            <SectionHeader
+              section={items.section}
+              count={items.todosPending ? null : total}
+              list
+              {...(shelved
+                ? {
+                    expanded: !folded,
+                    onToggle: () =>
+                      settled
+                        ? props.settledShelf.onExpandedChange(folded)
+                        : setOpenShelves((current) => {
+                            const next = new Set(current);
+                            if (!next.delete(items.section)) next.add(items.section);
+                            return next;
+                          }),
+                  }
+                : {})}
+            />
+            {folded ? null : (
+              <>
+                {total === 0 && items.section !== "done" && !items.todosPending ? (
+                  <p className="border-b border-border/50 px-3 py-2 ps-24 text-xs text-muted-foreground/70">
+                    {SECTION_META[items.section].empty}
+                  </p>
                 ) : null}
-                <Column
-                  icon={isDone ? "done" : index / Math.max(1, columns.length - 1)}
-                  title={
-                    isDone ? (
-                      "Done"
-                    ) : (
-                      <button
-                        type="button"
-                        className="truncate hover:underline"
-                        onClick={() => props.onOpenStage(column.stepId)}
+                <Paged
+                  items={items.cards}
+                  pageSize={PAGED.has(items.section) ? PAGE : null}
+                  more={more}
+                  render={(card) => (
+                    <FeatureRow
+                      key={featureCardKey(card)}
+                      card={card}
+                      handlers={handlers}
+                      queuePosition={
+                        shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))
+                      }
+                      shelf={isShelf(items.section) ? items.section : null}
+                    />
+                  )}
+                />
+                <Paged
+                  items={items.chats}
+                  pageSize={PAGED.has(items.section) ? PAGE : null}
+                  more={more}
+                  render={(shell) => (
+                    <ChatRow
+                      key={`${shell.environmentId}:${shell.id}`}
+                      shell={shell}
+                      handlers={handlers}
+                      shelf={isShelf(items.section) ? items.section : null}
+                    />
+                  )}
+                />
+                {items.todosPending
+                  ? PENDING_TODOS.map((index) => (
+                      <div
+                        key={index}
+                        className="flex h-9 items-center border-b border-border/50 px-3"
                       >
-                        {stageLabel(column.stepId)}
-                      </button>
-                    )
-                  }
-                  count={column.cards.length}
-                  subtitle={
-                    isDone ? (
-                      "Merged or closed"
-                    ) : (
-                      <span className="flex items-center gap-1.5">
-                        {column.role ? stageLabel(column.role) : null}
-                        {column.onlyInRevision !== null ? (
-                          <span className="rounded border border-border px-1 text-3xs">
-                            v{column.onlyInRevision} only
-                          </span>
-                        ) : null}
-                        {column.gate ? (
-                          <button
-                            type="button"
-                            aria-pressed={props.gateFilter === column.stepId}
-                            onClick={() =>
-                              props.onGateFilter(
-                                props.gateFilter === column.stepId ? null : column.stepId,
-                              )
-                            }
-                            className={cn(
-                              "ms-auto rounded-full border border-border px-1.5 text-2xs",
-                              props.gateFilter === column.stepId && "bg-accent",
-                            )}
-                          >
-                            Gate
-                            {column.waiting > 0 ? (
-                              <span className="ms-1 text-warning-foreground tabular-nums">
-                                {column.waiting} waiting
-                              </span>
-                            ) : null}
-                          </button>
-                        ) : null}
-                      </span>
-                    )
-                  }
-                  highlighted={drag.over === column.stepId}
-                  dropProps={drag.dropProps(column.stepId, isDone ? "done" : "open")}
-                >
-                  <CardStack
-                    cards={cards}
-                    pageDone={isDone}
-                    handlers={props.handlers}
-                    onDragStart={drag.onDragStart}
-                    onDragEnd={drag.onDragEnd}
-                  />
-                </Column>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      {hiddenCount > 0 ? (
-        <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          {hiddenCount} {hiddenCount === 1 ? "feature" : "features"} on other workflows or projects{" "}
-          {hiddenCount === 1 ? "is" : "are"} hidden (
-          {hidden.map((entry) => `${entry.name} ${entry.count}`).join(", ")}).
-          <Button variant="link" size="xs" onClick={props.onShowPhases}>
-            Show phases
-          </Button>
-        </p>
-      ) : null}
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    ))
+                  : null}
+                <Paged
+                  items={items.todos}
+                  pageSize={TODO_PAGE}
+                  more={more}
+                  render={(issue) => (
+                    <TodoRow key={issueKey(issue)} issue={issue} handlers={handlers} />
+                  )}
+                />
+              </>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }

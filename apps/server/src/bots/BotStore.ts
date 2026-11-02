@@ -73,7 +73,8 @@ const make = Effect.gen(function* () {
     sql`
       SELECT id, name, avatar_json AS "avatar", color, instructions, allowed_tools_json AS "allowedTools",
         runtime_mode AS "runtimeMode", model_selection_json AS "modelSelection",
-        default_workflow_id AS "defaultWorkflowId", position, revision,
+        default_workflow_id AS "defaultWorkflowId", long_conversation AS "longConversation",
+        position, revision,
         created_at AS "createdAt", updated_at AS "updatedAt"
       FROM bots WHERE deleted_at IS NULL AND ${id === undefined ? sql`1 = 1` : sql`id = ${id}`}
       ORDER BY position, created_at, id
@@ -90,12 +91,13 @@ const make = Effect.gen(function* () {
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
           id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
-          model_selection_json, default_workflow_id, position, revision, created_at, updated_at
+          model_selection_json, default_workflow_id, long_conversation, position, revision,
+          created_at, updated_at
         )
         SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
           ${row.allowedTools}, ${row.runtimeMode}, ${row.modelSelection},
-          ${row.defaultWorkflowId}, ${row.position}, ${row.revision}, ${row.createdAt},
-          ${row.updatedAt}
+          ${row.defaultWorkflowId}, ${row.longConversation}, ${row.position}, ${row.revision},
+          ${row.createdAt}, ${row.updatedAt}
         WHERE NOT EXISTS (SELECT 1 FROM crew_members WHERE id = ${row.id})
         RETURNING id
       `.pipe(
@@ -110,7 +112,8 @@ const make = Effect.gen(function* () {
           name = ${row.name}, avatar_json = ${row.avatar}, color = ${row.color},
           instructions = ${row.instructions}, allowed_tools_json = ${row.allowedTools},
           runtime_mode = ${row.runtimeMode}, model_selection_json = ${row.modelSelection},
-          default_workflow_id = ${row.defaultWorkflowId}, revision = ${row.revision},
+          default_workflow_id = ${row.defaultWorkflowId},
+          long_conversation = ${row.longConversation}, revision = ${row.revision},
           updated_at = ${row.updatedAt}
         WHERE id = ${row.id} AND revision = ${expectedRevision}
         RETURNING id

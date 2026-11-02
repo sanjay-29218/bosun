@@ -27,7 +27,7 @@ import {
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
   MessageId,
-  type NodeId,
+  NodeId,
   type ModelSelection,
   OrchestrationV2Command,
   type OrchestrationV2InternalCommand,
@@ -569,6 +569,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.title.regeneration.complete":
     case "thread.crew-stage.set":
     case "thread.project.adopt-folder":
+    case "thread.conversation.restart":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
@@ -608,6 +609,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
       return command.parentThreadId;
     case "secret_request.record":
     case "link_request.record":
+    case "user-input.open":
       return command.threadId;
     case "thread.fork":
     case "thread.merge_back":
@@ -993,7 +995,8 @@ function rootProviderThreadsForProvider(
       (providerThread) =>
         providerThread.providerInstanceId === providerInstanceId &&
         providerThread.appThreadId === projection.thread.id &&
-        providerThread.ownerNodeId === null,
+        providerThread.ownerNodeId === null &&
+        providerThread.status !== "archived",
     )
     .toSorted(
       (left, right) =>
@@ -4292,6 +4295,89 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: { ...thread, projectId: command.projectId, worktreePath: null, updatedAt: now },
     });
   });
+
+  const dispatchConversationRestart = Effect.fn("orchestrationV2.dispatch.conversationRestart")(
+    function* (
+      command: Extract<
+        OrchestrationV2ServerCommand,
+        { readonly type: "thread.conversation.restart" }
+      >,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+      effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    ) {
+      const projection = yield* projectionStore
+        .getThreadRecords(command.threadId, [
+          "runs",
+          "runtimeRequests",
+          "providerThreads",
+          "providerSessions",
+        ])
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      if (
+        projection.runs.some((run) => isActiveRun(run) || run.status === "queued") ||
+        projection.runtimeRequests.some((request) => request.status === "pending")
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} is busy, so its conversation cannot restart.`,
+        });
+      }
+      const now = yield* DateTime.now;
+      const emitEvent = emit(events, command);
+      for (const session of projection.providerSessions) {
+        if (session.status === "stopped" || session.status === "error") continue;
+        yield* emitEvent({
+          type: "provider-session.detached",
+          threadId: command.threadId,
+          driver: session.driver,
+          providerInstanceId: session.providerInstanceId,
+          occurredAt: now,
+          payload: { providerSessionId: session.id, detachedAt: now, reason: "Fresh start." },
+        });
+        yield* Ref.update(effects, (existing) => [
+          ...existing,
+          {
+            id: `effect:${command.commandId}:provider-session.detach:${session.id}`,
+            commandId: command.commandId,
+            threadId: command.threadId,
+            request: {
+              type: "provider-session.detach",
+              providerSessionId: session.id,
+              detail: "Fresh start.",
+            },
+          } satisfies PendingOrchestrationEffectV2,
+        ]);
+      }
+      for (const providerThread of projection.providerThreads) {
+        if (
+          providerThread.appThreadId !== command.threadId ||
+          providerThread.ownerNodeId !== null ||
+          providerThread.status === "archived"
+        )
+          continue;
+        yield* emitEvent({
+          type: "provider-thread.updated",
+          threadId: command.threadId,
+          driver: providerThread.driver,
+          providerInstanceId: providerThread.providerInstanceId,
+          occurredAt: now,
+          payload: { ...providerThread, status: "archived", updatedAt: now },
+        });
+      }
+      yield* emitEvent({
+        type: "thread.provider-switched",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...projection.thread, activeProviderThreadId: null, updatedAt: now },
+      });
+    },
+  );
 
   const refuseAboveDispatchModeLimit = Effect.fn("orchestrationV2.dispatch.refuseAboveModeLimit")(
     function* (
@@ -7677,7 +7763,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }),
         runtimeMode: command.runtimeMode,
         interactionMode: command.interactionMode,
-        ...(command.workspaceStrategy === undefined ? {} : { branch: null, worktreePath: null }),
+        // The parent's checkout belongs to its own project, so another project starts at its root.
+        ...(command.workspaceStrategy === undefined &&
+        (command.projectId === undefined || command.projectId === parentProjection.thread.projectId)
+          ? {}
+          : { branch: null, worktreePath: null }),
+        ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
       };
       const task: OrchestrationV2Subagent = {
         id: taskNodeId,
@@ -8701,6 +8792,97 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   );
 
   /**
+   * Opens a question server code asks, outside any run: no turn or interrupt can close it, and
+   * answering it records the answer for its owner without starting a turn. Opening an ID that
+   * exists does nothing, so an owner can re-open after a restart safely.
+   */
+  const dispatchUserInputOpen = Effect.fn("orchestrationV2.dispatch.userInputOpen")(function* (
+    command: Extract<OrchestrationV2InternalCommand, { readonly type: "user-input.open" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(mapDispatchError(command));
+    if (thread.deletedAt !== null) return;
+    const existing = yield* projectionStore
+      .getRuntimeResponseContext(command.threadId, command.requestId)
+      .pipe(mapDispatchError(command));
+    if (existing.request !== undefined) return;
+    const now = yield* DateTime.now;
+    const nodeId = NodeId.make(`node:${command.requestId}`);
+    const emitEvent = emit(events, command);
+    yield* emitEvent({
+      type: "node.updated",
+      threadId: command.threadId,
+      nodeId,
+      occurredAt: now,
+      payload: {
+        id: nodeId,
+        threadId: command.threadId,
+        runId: null,
+        parentNodeId: null,
+        rootNodeId: nodeId,
+        kind: "user_input_request",
+        status: "waiting",
+        countsForRun: false,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        runtimeRequestId: command.requestId,
+        checkpointScopeId: null,
+        startedAt: now,
+        completedAt: null,
+      },
+    });
+    yield* emitEvent({
+      type: "turn-item.updated",
+      threadId: command.threadId,
+      nodeId,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make(`turn-item:${command.requestId}`),
+        threadId: command.threadId,
+        runId: null,
+        nodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: yield* projectionStore
+          .getNextTurnItemOrdinal(command.threadId)
+          .pipe(mapDispatchError(command)),
+        status: "waiting",
+        title: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        type: "user_input_request",
+        requestId: command.requestId,
+        questions: command.questions,
+        responseMode: "message",
+      },
+    });
+    yield* emitEvent({
+      type: "runtime-request.updated",
+      threadId: command.threadId,
+      nodeId,
+      occurredAt: now,
+      payload: {
+        id: command.requestId,
+        nodeId,
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: "user_input",
+        status: "pending",
+        responseCapability: { type: "message" },
+        createdAt: now,
+        resolvedAt: null,
+        owner: command.owner,
+      },
+    });
+  });
+
+  /**
    * Records or updates the card for a link an agent asked the user to make.
    * The pairing code goes straight to the link and never through orchestration.
    */
@@ -8988,7 +9170,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .getThread(command.threadId)
           .pipe(mapDispatchError(command));
         const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+        // Its owner acts on the answer, so the thread's provider never sees it.
         if (
+          runtimeRequest.owner === undefined &&
           !resolveProjectProviderInstanceEnabled(
             settings,
             thread.projectId,
@@ -9183,7 +9367,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       if (runtimeRequest.responseCapability.type === "message") {
-        if (resolvedNodeStatus === "cancelled") return;
+        if (resolvedNodeStatus === "cancelled" || runtimeRequest.owner !== undefined) return;
         let dispatchMode: Extract<
           OrchestrationV2Command,
           { type: "message.dispatch" }
@@ -13111,6 +13295,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.project.adopt-folder":
         yield* dispatchThreadProjectAdoptFolder(command, events);
         break;
+      case "thread.conversation.restart":
+        yield* dispatchConversationRestart(command, events, effects);
+        break;
       case "message.dispatch": {
         // Providers own native subagent conversations; messages cannot target them, and adapters ask questions on the parent.
         const thread = yield* projectionStore
@@ -13343,6 +13530,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "link_request.record":
         yield* dispatchLinkRequestRecord(command, events, effects);
         break;
+      case "user-input.open":
+        yield* dispatchUserInputOpen(command, events);
+        break;
       default:
         return yield* dispatchUnsupported(command);
     }
@@ -13446,7 +13636,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "subagent.stop" ||
           // Closing a share again, or after it ended, is not an error.
           command.type === "thread.guest-share.close" ||
-          (command.type === "thread.delete" && command.onlyIfUnused === true),
+          (command.type === "thread.delete" && command.onlyIfUnused === true) ||
+          // Re-opening a question that exists is how its owner recovers after a restart.
+          command.type === "user-input.open",
         (_planned) =>
           new OrchestratorDispatchError({
             commandId: command.commandId,

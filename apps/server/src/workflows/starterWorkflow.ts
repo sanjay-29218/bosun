@@ -1,6 +1,7 @@
 import { PROJECT_MANAGER_ROLE_ID, type WorkflowDefinition } from "@t3tools/contracts";
 
 export const STARTER_WORKFLOW_ID = "feature-delivery";
+export const AUTO_WORKFLOW_ID = "feature-delivery-auto";
 
 /**
  * A configurable starting point, with supervision separate from step order. `roleRevisions`
@@ -30,7 +31,6 @@ export const makeStarterWorkflow = (
       designer: role("role:designer"),
       builder: role("role:builder"),
       qa: role("role:qa-tester"),
-      reviewer: role("role:reviewer"),
     },
     steps: {
       plan: {
@@ -53,27 +53,15 @@ export const makeStarterWorkflow = (
         type: "task",
         role: "builder",
         task: "Build the feature",
-        next: { built: "qa", design_change_requested: "change_review" },
+        next: { built: "qa", design_change_requested: "design" },
       },
       qa: {
         type: "task",
         role: "qa",
         task: "Test the feature",
-        next: { passed: "review", changes_requested: "change_review" },
+        next: { passed: "end", changes_requested: "build" },
+        limits: { changes_requested: 2 },
         outputs: ["qa-report.md"],
-      },
-      review: {
-        type: "task",
-        role: "reviewer",
-        task: "Review the feature",
-        next: { approved: "end", changes_requested: "change_review" },
-        limits: { changes_requested: 3 },
-      },
-      change_review: {
-        type: "task",
-        role: "manager",
-        task: "Decide how to handle the requested change",
-        next: { revise_design: "design", revise_build: "build" },
       },
       end: { type: "end" },
     },
@@ -85,39 +73,15 @@ export const makeStarterWorkflow = (
   };
 };
 
-export const QUICK_TASK_WORKFLOW_ID = "quick-task";
-
-/**
- * What a bot's request to a project runs on: one stage, where the project manager does the
- * work or hands the coding to the project's builder.
- */
-export const makeQuickTaskWorkflow = (
+/** Feature delivery with the lead approving gates and answering stage questions. */
+export const makeAutoWorkflow = (
   roleRevisions: Readonly<Record<string, number>> = {},
-): WorkflowDefinition => ({
-  schemaVersion: 2,
-  id: QUICK_TASK_WORKFLOW_ID,
-  name: "Quick task",
-  revision: 1,
-  start: "handle",
-  roles: {
-    manager: {
-      roleId: PROJECT_MANAGER_ROLE_ID,
-      roleRevision: roleRevisions[PROJECT_MANAGER_ROLE_ID] ?? 1,
-      supervisor: null,
-    },
-  },
-  steps: {
-    handle: {
-      type: "task",
-      role: "manager",
-      task: "Handle the request: do it yourself, or hand the coding to the project's builder with crew_delegate and report what it did. If it needs planning or design first, move it to a bigger workflow with crew_switch_workflow",
-      next: { done: "end" },
-    },
-    end: { type: "end" },
-  },
-  defaults: {
-    questions: "supervisor",
-    failure: "pause",
-    maxStepExecutions: 30,
-  },
-});
+): WorkflowDefinition => {
+  const starter = makeStarterWorkflow(roleRevisions);
+  return {
+    ...starter,
+    id: AUTO_WORKFLOW_ID,
+    name: "Feature delivery (auto)",
+    defaults: { ...starter.defaults, decisions: "lead" },
+  };
+};

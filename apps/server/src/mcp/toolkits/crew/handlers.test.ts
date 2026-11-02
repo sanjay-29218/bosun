@@ -1,7 +1,5 @@
 import { expect, it } from "@effect/vitest";
 import {
-  botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   EnvironmentId,
   IssueOperationError,
   ProjectId,
@@ -9,21 +7,16 @@ import {
   ThreadId,
   type IssueList,
   type Ticket,
-  type WorkflowStageHandoff,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
-import { BotProjects } from "../../../bots/BotProjects.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
-import { CrewHandoffService } from "../../../crew/CrewHandoffService.ts";
-import { CrewHandoffStore, type CrewHandoff } from "../../../crew/CrewHandoffStore.ts";
-import { CrewStore, type CrewRun } from "../../../crew/CrewStore.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
-import { WorkflowService } from "../../../workflows/WorkflowService.ts";
+import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
@@ -32,26 +25,6 @@ import { CrewToolkit } from "./tools.ts";
 
 const projectId = ProjectId.make("project:bots");
 const stageThread = ThreadId.make("bot-run:stage");
-const record: WorkflowStageHandoff = {
-  id: "workflow:stage",
-  featureId: "feature",
-  stepId: "build",
-  executionId: "execution",
-  attempt: 1,
-  workflow: { id: "delivery", name: "Delivery", revision: 2 },
-  from: { stepId: "design", outcome: "ready" },
-  brief: "Build the board",
-  task: "Build",
-  scope: null,
-  outcomes: ["built"],
-  produces: [],
-  outputs: [],
-  notes: [],
-  retry: null,
-  workspace: { cwd: "/repo", branch: null, commit: null },
-  createdAt: "2026-10-09T00:00:00Z",
-};
-
 const issueList: IssueList = {
   repository: "acme/web",
   unavailable: null,
@@ -114,32 +87,7 @@ const ticket: Ticket = {
   closedAt: null,
 };
 
-const handoff = (id: string, targetMemberId: string): CrewHandoff =>
-  ({
-    id,
-    parentId: null,
-    sourceRunId: "bot-hq:bot-captain",
-    targetMemberId,
-    targetRunId: `bot-handoff:${id}`,
-    projectId,
-    taskText: "Fix it",
-    contextText: "",
-    depth: 1,
-    status: "running",
-    responseText: null,
-    questionText: null,
-    lastError: null,
-    createdAt: "2026-10-09T00:00:00Z",
-    updatedAt: "2026-10-09T00:00:00Z",
-  }) as CrewHandoff;
-
-const handleAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
-  Effect.gen(function* () {
-    const toolkit = yield* CrewToolkit;
-    return yield* toolkit.handle("crew_stage_handoff", {}).pipe(Stream.unwrap, Stream.runCollect);
-  }).pipe(Effect.provide(layerAs(threadId, allowedTools)));
-
-const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
+const layerAs = (threadId: ThreadId) =>
   McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -158,24 +106,8 @@ const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (id) => Effect.succeed({ ...liveThreadShell(id), projectId }),
         }),
-        Layer.mock(CrewHandoffService)({
-          delegate: (input) => Effect.succeed(handoff(input.id, input.targetMemberId)),
-        }),
-        Layer.mock(BotProjects)({}),
         Layer.mock(FeatureService)({}),
-        Layer.mock(CrewHandoffStore)({
-          getRunByThread: (id) => Effect.succeed(id === stageThread ? "run:stage" : null),
-          get: (id) =>
-            Effect.succeed(id === "earlier" ? handoff(id, `bot-manager:${projectId}`) : null),
-        }),
-        Layer.mock(CrewStore)({
-          getRun: () =>
-            Effect.succeed({ id: "run:stage", projectId, allowedTools } as unknown as CrewRun),
-        }),
-        Layer.mock(WorkflowService)({
-          getStageHandoffForThread: (project, thread) =>
-            Effect.succeed(project === projectId && thread === stageThread ? record : null),
-        }),
+        Layer.mock(WorkflowExecutionService)({}),
         Layer.mock(IssueService.IssueService)({
           list: (project) =>
             project === projectId
@@ -192,42 +124,6 @@ const layerAs = (threadId: ThreadId, allowedTools: ReadonlyArray<string>) =>
       ),
     ),
   );
-
-it.effect("lets a stage member read the handoff its stage started from", () =>
-  Effect.gen(function* () {
-    const read = yield* handleAs(stageThread, ["crew.respond"]);
-    expect(read.at(-1)?.result).toEqual(record);
-
-    const ungranted = yield* Effect.flip(handleAs(stageThread, ["crew.delegate"]));
-    expect(ungranted).toMatchObject({ _tag: "CrewToolFailedError" });
-    expect(ungranted.message).toContain("Caller is not a workflow stage member");
-
-    const plainThread = yield* Effect.flip(handleAs(ThreadId.make("thread:plain"), []));
-    expect(plainThread.message).toContain("Caller is not a workflow stage member");
-  }),
-);
-
-it.effect("sends a bot's work for a project through t3_feature_start", () =>
-  Effect.gen(function* () {
-    const delegate = (requestId: string, targetMemberId: string) =>
-      Effect.gen(function* () {
-        const toolkit = yield* CrewToolkit;
-        return yield* toolkit
-          .handle("crew_delegate", { requestId, targetMemberId, taskText: "Fix it" })
-          .pipe(Stream.unwrap, Stream.runCollect);
-      }).pipe(Effect.provide(layerAs(botHeadquartersThreadId(CAPTAIN_BOT_ID), ["crew.delegate"])));
-
-    const refused = yield* Effect.flip(delegate("new", `bot-manager:${projectId}`));
-    expect(refused.message).toContain("t3_feature_start");
-    // A request made before still answers its retry, and the rest of the crew is reached as before.
-    expect((yield* delegate("earlier", `bot-manager:${projectId}`)).at(-1)?.result).toMatchObject({
-      id: "earlier",
-    });
-    expect((yield* delegate("build", `bot-builder:${projectId}`)).at(-1)?.result).toMatchObject({
-      id: "build",
-    });
-  }),
-);
 
 it.effect("lists the issues of the calling thread's project as compact rows", () =>
   Effect.gen(function* () {
@@ -274,7 +170,7 @@ it.effect("lists the issues of the calling thread's project as compact rows", ()
 
     const first = yield* call({ state: "all", limit: 1 });
     expect(first.issues.map((issue) => issue.number)).toEqual([1]);
-  }).pipe(Effect.provide(layerAs(stageThread, []))),
+  }).pipe(Effect.provide(layerAs(stageThread))),
 );
 
 it.effect("reads a todo as a ticket for T-<number> and refuses an unnamed one", () =>
@@ -288,5 +184,5 @@ it.effect("reads a todo as a ticket for T-<number> and refuses an unnamed one", 
 
     const unnamed = yield* Effect.flip(read("the board one"));
     expect(unnamed.message).toContain("T-<number>");
-  }).pipe(Effect.provide(layerAs(stageThread, []))),
+  }).pipe(Effect.provide(layerAs(stageThread))),
 );

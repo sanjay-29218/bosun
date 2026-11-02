@@ -1,8 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
-  DEFAULT_BOT_TOOLS,
+  CREW_TOOL_GRANTS,
   type Bot,
+  type BotLongConversation,
   type BotAvatar as BotAvatarParts,
   type EnvironmentId,
   type ModelSelection,
@@ -41,6 +42,7 @@ type BotChange = Partial<
     | "modelSelection"
     | "runtimeMode"
     | "defaultWorkflowId"
+    | "longConversation"
   >
 >;
 
@@ -64,8 +66,19 @@ function useSaveBot(environmentId: EnvironmentId, onFailure: () => void) {
 }
 
 const NO_WORKFLOW = "none";
+const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
+  compact: "Compact",
+  "new-session": "Start a new session",
+};
 
 type Tab = "behavior" | "projects" | "tools" | "look";
+
+/** Grants for workflow stages, which a bot never runs; a bot's tools leave them out. */
+const ROLE_ONLY_GRANTS: ReadonlySet<string> = new Set(
+  CREW_TOOL_GRANTS.filter((grant) => "roleOnly" in grant).map((grant) => grant.id),
+);
+const botTools = (tools: ReadonlyArray<string>) =>
+  tools.filter((tool) => !ROLE_ONLY_GRANTS.has(tool));
 
 /**
  * A bot's name, behavior, tools and look; `bot` null adds one. `projects` is the Projects tab,
@@ -113,12 +126,17 @@ export function BotEditor({
   );
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.allowedTools ?? DEFAULT_BOT_TOOLS);
+  const [tools, setTools] = useState<ReadonlyArray<string>>(() =>
+    botTools(bot?.allowedTools ?? []),
+  );
   const [modelSelection, setModelSelection] = useState(bot?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     bot?.runtimeMode ?? "approval-required",
   );
   const [defaultWorkflowId, setDefaultWorkflowId] = useState(bot?.defaultWorkflowId ?? null);
+  const [longConversation, setLongConversation] = useState<BotLongConversation>(
+    bot?.longConversation ?? "compact",
+  );
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<Tab>("behavior");
   const fields = {
@@ -129,16 +147,18 @@ export function BotEditor({
     runtimeMode,
     modelSelection,
     defaultWorkflowId,
+    longConversation,
   };
   const edited = bot
     ? fields.name !== bot.name ||
       JSON.stringify(avatar) !== JSON.stringify(bot.avatar) ||
       color !== bot.color ||
       instructions.trim() !== bot.instructions ||
-      tools.join("\n") !== bot.allowedTools.join("\n") ||
+      tools.join("\n") !== botTools(bot.allowedTools).join("\n") ||
       JSON.stringify(modelSelection) !== JSON.stringify(bot.modelSelection) ||
       runtimeMode !== bot.runtimeMode ||
-      defaultWorkflowId !== bot.defaultWorkflowId
+      defaultWorkflowId !== bot.defaultWorkflowId ||
+      longConversation !== bot.longConversation
     : fields.name.length > 0 || instructions.trim().length > 0;
   // A new bot may leave instructions empty to start from the server's defaults.
   const canSave =
@@ -276,34 +296,59 @@ export function BotEditor({
                 />
               </EditorField>
             </div>
-            <EditorField label="Default workflow">
-              <Select
-                value={defaultWorkflowId ?? NO_WORKFLOW}
-                onValueChange={(next) =>
-                  setDefaultWorkflowId(
-                    typeof next === "string" && next !== NO_WORKFLOW ? next : null,
-                  )
-                }
-              >
-                <SelectTrigger aria-label="Default workflow">
-                  <SelectValue>
-                    {(value: string) =>
-                      value === NO_WORKFLOW
-                        ? "None"
-                        : (workflowOptions.find((workflow) => workflow.id === value)?.name ?? value)
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value={NO_WORKFLOW}>None</SelectItem>
-                  {workflowOptions.map((workflow) => (
-                    <SelectItem key={workflow.id} value={workflow.id}>
-                      {workflow.name}
+            <div className="grid gap-5 sm:grid-cols-2">
+              <EditorField label="Default workflow">
+                <Select
+                  value={defaultWorkflowId ?? NO_WORKFLOW}
+                  onValueChange={(next) =>
+                    setDefaultWorkflowId(
+                      typeof next === "string" && next !== NO_WORKFLOW ? next : null,
+                    )
+                  }
+                >
+                  <SelectTrigger aria-label="Default workflow">
+                    <SelectValue>
+                      {(value: string) =>
+                        value === NO_WORKFLOW
+                          ? "None"
+                          : (workflowOptions.find((workflow) => workflow.id === value)?.name ??
+                            value)
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value={NO_WORKFLOW}>None</SelectItem>
+                    {workflowOptions.map((workflow) => (
+                      <SelectItem key={workflow.id} value={workflow.id}>
+                        {workflow.name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </EditorField>
+              <EditorField label="Long conversations">
+                <Select
+                  value={longConversation}
+                  onValueChange={(next) => {
+                    if (next === "compact" || next === "new-session") setLongConversation(next);
+                  }}
+                >
+                  <SelectTrigger aria-label="Long conversations">
+                    <SelectValue>
+                      {(value: string) =>
+                        LONG_CONVERSATION_LABELS[value === "new-session" ? value : "compact"]
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value="compact">{LONG_CONVERSATION_LABELS.compact}</SelectItem>
+                    <SelectItem value="new-session">
+                      {LONG_CONVERSATION_LABELS["new-session"]}
                     </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </EditorField>
+                  </SelectPopup>
+                </Select>
+              </EditorField>
+            </div>
           </>
         ) : tab === "projects" ? (
           projects
