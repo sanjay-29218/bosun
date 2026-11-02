@@ -1724,6 +1724,68 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
     }),
   );
 
+  it.effect("opens a workflow question once, outside any run, and answers it without a turn", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-workflow-question-thread");
+      const requestId = RuntimeRequestId.make("runtime-workflow-question-request");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("runtime-workflow-question-create"),
+        createdBy: "user",
+        creationSource: "web",
+        threadId,
+        projectId: ProjectId.make("runtime-workflow-question-project"),
+        title: "Stage thread",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+      const open = (commandId: string) =>
+        orchestrator.dispatch({
+          type: "user-input.open",
+          commandId: CommandId.make(commandId),
+          threadId,
+          requestId,
+          owner: "workflow",
+          questions: [
+            {
+              id: "crew-stage",
+              header: "Plan approval",
+              question: "Plan complete.",
+              options: [{ label: "Approve", description: "Next stage", value: "crew:approve" }],
+              allowCustomAnswer: true,
+            },
+          ],
+        });
+      yield* open("runtime-workflow-question-open");
+      // Re-opening after a restart is a no-op.
+      yield* open("runtime-workflow-question-reopen");
+      const opened = yield* orchestrator.getThreadProjection(threadId);
+      assert.lengthOf(opened.runtimeRequests, 1);
+      assert.equal(opened.runtimeRequests[0]?.status, "pending");
+      assert.equal(opened.runtimeRequests[0]?.owner, "workflow");
+      // No run owns it, so interrupting or finishing a turn cannot close it.
+      assert.equal(opened.nodes.find((node) => node.runtimeRequestId === requestId)?.runId, null);
+
+      yield* orchestrator.dispatch({
+        type: "runtime-request.respond",
+        commandId: CommandId.make("runtime-workflow-question-answer"),
+        threadId,
+        requestId,
+        answers: { "crew-stage": "crew:approve" },
+      });
+      const answered = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(answered.runtimeRequests[0]?.status, "resolved");
+      assert.deepEqual(answered.runtimeRequests[0]?.answers, { "crew-stage": "crew:approve" });
+      // The workflow acts on the answer; the stage's agent gets no message and no turn starts.
+      assert.lengthOf(answered.messages, 0);
+      assert.lengthOf(answered.runs, 0);
+    }),
+  );
+
   it.effect("merges an explicit provider-finished run while checkpoint capture is pending", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

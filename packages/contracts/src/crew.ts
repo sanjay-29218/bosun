@@ -36,11 +36,6 @@ export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
  */
 export const CREW_TOOL_GRANTS = [
   {
-    id: "crew.decide",
-    label: "Decide for features",
-    description: "Approve gates and answer questions of the feature stages it leads.",
-  },
-  {
     id: "crew.respond",
     label: "Report results",
     description: "Report a workflow stage's outcome, or a question for a person.",

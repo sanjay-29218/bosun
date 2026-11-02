@@ -68,7 +68,8 @@ it.effect("makes the Captain crew member the Captain bot that owns every project
           id: "bot-captain",
           name: "Captain",
           instructions: "bot-captain instructions",
-          tools: '["crew.decide","crew.workflows"]',
+          // 091 retires crew.decide.
+          tools: '["crew.workflows"]',
           model,
           runtimeMode: "auto",
           position: 0,

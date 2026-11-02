@@ -1,4 +1,4 @@
-import { type FeatureIssue, ProjectId } from "@t3tools/contracts";
+import { type FeatureIssue, ProjectId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -34,6 +34,14 @@ export interface WorkflowExecution {
   readonly queuedAt: string | null;
   /** The provider instance whose slot it holds, or, while queued, the one it waits for. */
   readonly slotInstanceId: string | null;
+  /** The question it last opened on a stage thread, which a later decision closes. */
+  readonly question: WorkflowQuestion | null;
+}
+
+/** A stage's question: the runtime request open on its thread. */
+export interface WorkflowQuestion {
+  readonly threadId: ThreadId;
+  readonly requestId: RuntimeRequestId;
 }
 
 /** One unsettled feature's place in the stage-thread limits. */
@@ -67,6 +75,14 @@ export class WorkflowExecutionStore extends Context.Service<
       lastError: string | null,
       settled: boolean,
     ) => Effect.Effect<void, PersistenceSqlError>;
+    readonly setQuestion: (
+      featureId: string,
+      question: WorkflowQuestion | null,
+    ) => Effect.Effect<void, PersistenceSqlError>;
+    /** The feature whose stage asked this question, if a workflow opened it. */
+    readonly findByQuestion: (
+      requestId: RuntimeRequestId,
+    ) => Effect.Effect<string | null, PersistenceSqlError>;
     readonly listSlots: () => Effect.Effect<ReadonlyArray<WorkflowSlot>, PersistenceSqlError>;
     readonly setSlot: (
       featureId: string,
@@ -141,10 +157,13 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           readonly issueJson: string | null;
           readonly queuedAt: string | null;
           readonly slotInstanceId: string | null;
+          readonly questionThreadId: string | null;
+          readonly questionRequestId: string | null;
         }>`
       SELECT e.feature_id AS featureId, w.project_id AS projectId,
         e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled,
-        f.title, f.brief, f.issue_json AS issueJson, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId
+        f.title, f.brief, f.issue_json AS issueJson, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId,
+        e.question_thread_id AS questionThreadId, e.question_request_id AS questionRequestId
       FROM workflow_executions AS e JOIN feature_workflows AS w ON w.feature_id = e.feature_id
       LEFT JOIN features AS f ON f.id = e.feature_id
       WHERE e.feature_id = ${featureId}
@@ -170,6 +189,13 @@ export const WorkflowExecutionStoreLive = Layer.effect(
                             },
                       queuedAt: rows[0].queuedAt,
                       slotInstanceId: rows[0].slotInstanceId,
+                      question:
+                        rows[0].questionThreadId && rows[0].questionRequestId
+                          ? {
+                              threadId: ThreadId.make(rows[0].questionThreadId),
+                              requestId: RuntimeRequestId.make(rows[0].questionRequestId),
+                            }
+                          : null,
                     }
                   : null,
               catch: error,
@@ -193,6 +219,22 @@ export const WorkflowExecutionStoreLive = Layer.effect(
       UPDATE workflow_executions SET last_error = ${lastError}, settled = ${settled ? 1 : 0}
       WHERE feature_id = ${featureId}
     `.pipe(Effect.asVoid, Effect.mapError(error)),
+      ),
+      setQuestion: Effect.fn("WorkflowExecutionStore.setQuestion")((featureId, question) =>
+        sql`
+      UPDATE workflow_executions SET question_thread_id = ${question?.threadId ?? null},
+        question_request_id = ${question?.requestId ?? null}
+      WHERE feature_id = ${featureId}
+    `.pipe(Effect.asVoid, Effect.mapError(error)),
+      ),
+      findByQuestion: Effect.fn("WorkflowExecutionStore.findByQuestion")((requestId) =>
+        sql<{ readonly featureId: string }>`
+      SELECT feature_id AS featureId FROM workflow_executions
+      WHERE question_request_id = ${requestId} LIMIT 1
+    `.pipe(
+          Effect.mapError(error),
+          Effect.map((rows) => rows[0]?.featureId ?? null),
+        ),
       ),
       listSlots: Effect.fn("WorkflowExecutionStore.listSlots")(() =>
         sql<WorkflowSlot>`

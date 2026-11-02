@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
-  DEFAULT_BOT_TOOLS,
   type Bot,
   type BotLongConversation,
   type BotAvatar as BotAvatarParts,
@@ -119,7 +118,7 @@ export function BotEditor({
   );
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.allowedTools ?? DEFAULT_BOT_TOOLS);
+  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.allowedTools ?? []);
   const [modelSelection, setModelSelection] = useState(bot?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     bot?.runtimeMode ?? "approval-required",

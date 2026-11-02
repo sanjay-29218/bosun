@@ -8,7 +8,10 @@ import {
   MessageId,
   type ModelSelection,
   type OrchestrationV2Run,
+  type OrchestrationV2RuntimeRequest,
+  type OrchestrationV2UserInputQuestion,
   type ProjectId,
+  RuntimeRequestId,
   type ServerSettingsError,
   type ThreadId,
   type WorkflowDefinition,
@@ -25,6 +28,16 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+
+import {
+  availableCrewActions,
+  crewStageAnswer,
+  crewStagePrompt,
+  crewStageQuestion,
+  formatStageName,
+  sendBackTargets,
+  type CrewAction,
+} from "@t3tools/shared/crewStage";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { featureTag } from "../features/featureIssue.ts";
@@ -89,15 +102,6 @@ export interface StageReport {
   readonly recorded: "completed" | "question";
 }
 
-/** A lead's decision on the stage it leads, from crew_decide. */
-export interface LeadDecision {
-  readonly threadId: ThreadId;
-  /** Needed only while several features wait on the same lead. */
-  readonly featureId?: string | undefined;
-  readonly decision: "approve" | "request_changes" | "answer";
-  readonly text?: string | undefined;
-}
-
 export class WorkflowExecutionService extends Context.Service<
   WorkflowExecutionService,
   {
@@ -119,12 +123,12 @@ export class WorkflowExecutionService extends Context.Service<
       summary: string,
     ) => Effect.Effect<StageReport, ExecutionError>;
     /**
-     * Records crew_decide from the thread that leads the active stage, on a workflow whose lead
-     * decides. Whichever of the lead and a person decides first wins.
+     * Records what an answer to a stage's question decides. The domain stream calls it for
+     * each resolved workflow question; a question a decision already replaced decides nothing.
      */
-    readonly decide: (
-      input: LeadDecision,
-    ) => Effect.Effect<WorkflowFeatureSnapshot, ExecutionError>;
+    readonly answerQuestion: (
+      request: OrchestrationV2RuntimeRequest,
+    ) => Effect.Effect<void, ExecutionError>;
     /** Starts a queued feature's stage now, ignoring the running-thread limits once. */
     readonly startNow: (
       featureId: string,
@@ -156,6 +160,25 @@ const STOPS: ReadonlySet<WorkflowStepEvent["kind"]> = new Set([
 
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
+
+/** One question per wait: a new wait asks again, and reopening the same wait changes nothing. */
+const stageQuestionId = (featureId: string, waitingEventId: string) =>
+  RuntimeRequestId.make(`workflow-question:${key(featureId, waitingEventId)}`);
+
+/** The workflow decision each answer to a stage's question records. */
+const CONTROL_FOR_ACTION: Partial<Record<CrewAction, WorkflowControl["kind"]>> = {
+  answer: "answered",
+  approve: "approved",
+  "request-changes": "changes-requested",
+  retry: "retry",
+  "take-over": "taken-over",
+  "mark-done": "marked-done",
+  "send-back": "sent-back",
+  skip: "skipped",
+  "accept-as-is": "accepted",
+  "one-more-round": "extended",
+  cancel: "cancelled",
+};
 const stageSummaryJson = Schema.fromJsonString(CrewStageSummary);
 const encodeStageSummary = Schema.encodeSync(stageSummaryJson);
 const decodeStageSummary = Schema.decodeUnknownOption(stageSummaryJson);
@@ -299,21 +322,33 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     );
 
     /**
-     * On a workflow whose lead decides, tells the stage's lead once what waits for it: the gate
-     * with the stage's summary, or the stage's question. A person can still decide instead.
+     * On a workflow whose lead decides, tells the stage's lead once where the stage's question
+     * is. The lead reads and answers it with t3_pending_request, like a parent answering its
+     * subagent; a person can answer it first.
      */
     const askLead = Effect.fn("WorkflowExecutionService.askLead")(function* (
       featureId: string,
       title: string,
       leadRunId: string,
+      definition: WorkflowDefinition,
       stepId: string,
+      threadId: ThreadId,
       waiting: WorkflowStepEvent,
     ) {
-      const feature = `Feature "${title}" (featureId "${featureId}")`;
-      const text =
-        waiting.kind === "question"
-          ? `${feature}: its ${stepId} stage asks:\n\n${waiting.detail}\n\nAnswer with crew_decide: featureId "${featureId}", decision "answer" and your answer as text.`
-          : `${feature}: its ${stepId} stage finished and waits at its gate. Its summary:\n\n${waiting.detail}\n\nCheck the stage's work, then call crew_decide with featureId "${featureId}" and decision "approve", or decision "request_changes" with what to change as text.`;
+      const requestId = stageQuestionId(featureId, waiting.id);
+      const step = definition.steps[stepId];
+      const outputs = step?.type === "task" ? (step.outputs ?? []) : [];
+      const workspace =
+        outputs.length > 0
+          ? yield* featureWorkspaces.forFeature(featureId).pipe(Effect.orElseSucceed(() => null))
+          : null;
+      const files = workspace
+        ? ` Its files: ${outputs.map((path) => `${workspace.worktreePath}/${path}`).join(", ")}.`
+        : "";
+      const stage = formatStageName(stepId);
+      const text = `Feature "${title}" (featureId "${featureId}"): its ${stage} stage ${
+        waiting.kind === "question" ? "asks you a question" : "finished and waits at its gate"
+      }. Read the question with t3_pending_request action read, threadId "${threadId}" and requestId "${requestId}", check the stage's work, then answer it with action respond.${files} Read the stage's thread with t3_thread_read if you need more.`;
       yield* tell(leadRunId, `workflow:lead:${key(featureId, waiting.id)}`, text).pipe(
         Effect.catch((error) =>
           Effect.logWarning("Lead decision request failed", { featureId, error }),
@@ -442,8 +477,18 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         if (step.status === "awaiting-approval" || step.status === "needs-input") {
           const waiting = events.findLast((event) => event.executionId === step.executionId);
           const lead = execution.bindings[task.role]?.dispatchRunId;
-          if (copy.definition.defaults.decisions === "lead" && waiting && lead)
-            yield* askLead(featureId, execution.brief?.title ?? featureId, lead, stepId, waiting);
+          const stageThreadId =
+            step.threadId ?? (step.runId ? (yield* crew.getRun(step.runId))?.threadId : null);
+          if (copy.definition.defaults.decisions === "lead" && waiting && lead && stageThreadId)
+            yield* askLead(
+              featureId,
+              execution.brief?.title ?? featureId,
+              lead,
+              copy.definition,
+              stepId,
+              stageThreadId,
+              waiting,
+            );
           return;
         }
         // An attached stage completes when its thread's turn finishes, through its gate.
@@ -639,6 +684,114 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       if (holding) yield* drainQueue(featureId);
     });
 
+    /** The question the feature's waiting stage asks on its thread, if one waits for a decision. */
+    const stageQuestion = Effect.fn("WorkflowExecutionService.stageQuestion")(function* (
+      featureId: string,
+      projectId: ProjectId,
+    ) {
+      // The snapshot names each stage's thread through its run.
+      const snapshot = yield* workflows.getFeatureSnapshot(featureId, projectId);
+      const step = snapshot?.steps.find((item) => item.id === snapshot.activeStepId);
+      if (!snapshot || !step?.threadId) return null;
+      const prompt = crewStagePrompt(snapshot, step.threadId);
+      if (!prompt) return null;
+      const waiting = (yield* store.listEvents(featureId)).findLast(
+        (event) => event.executionId === step.executionId,
+      );
+      if (!waiting) return null;
+      const question: OrchestrationV2UserInputQuestion = crewStageQuestion({
+        prompt,
+        actions: availableCrewActions(snapshot),
+        sendBackTargets: sendBackTargets(snapshot),
+      });
+      return {
+        threadId: step.threadId,
+        requestId: stageQuestionId(featureId, waiting.id),
+        prompt,
+        question,
+      };
+    });
+
+    /**
+     * Keeps one question open on the thread of the stage that waits: opens the current wait's,
+     * and closes the one an earlier wait left open once anyone decides it. Both are idempotent,
+     * so a restart part-way through only repeats them.
+     */
+    const syncQuestion: (featureId: string) => Effect.Effect<void, ExecutionError> = Effect.fn(
+      "WorkflowExecutionService.syncQuestion",
+    )(function* (featureId: string) {
+      const execution = yield* executions.get(featureId);
+      if (!execution) return;
+      const wanted = execution.settled
+        ? null
+        : yield* stageQuestion(featureId, execution.projectId);
+      const open = execution.question;
+      if (open?.requestId === wanted?.requestId) return;
+      if (open) {
+        // An answered or dismissed question has nothing left to close.
+        yield* engine
+          .dispatch({
+            type: "runtime-request.respond",
+            commandId: CommandId.make(`workflow:question-close:${open.requestId}`),
+            threadId: open.threadId,
+            requestId: open.requestId,
+            decision: "cancel",
+          })
+          .pipe(Effect.catch(() => Effect.void));
+      }
+      if (wanted) {
+        yield* engine.dispatch({
+          type: "user-input.open",
+          commandId: CommandId.make(`workflow:question-open:${wanted.requestId}`),
+          threadId: wanted.threadId,
+          requestId: wanted.requestId,
+          owner: "workflow",
+          questions: [wanted.question],
+        });
+      }
+      yield* executions.setQuestion(
+        featureId,
+        wanted ? { threadId: wanted.threadId, requestId: wanted.requestId } : null,
+      );
+    });
+
+    /**
+     * Records what an answer to a stage's question decides, as the matching board button would.
+     * An answer to a question a decision already replaced decides nothing.
+     */
+    const answerQuestion = Effect.fn("WorkflowExecutionService.answerQuestion")(function* (
+      request: OrchestrationV2RuntimeRequest,
+    ) {
+      if (
+        request.owner !== "workflow" ||
+        request.status !== "resolved" ||
+        request.decision === "cancel" ||
+        request.answers === undefined
+      )
+        return;
+      const featureId = yield* executions.findByQuestion(request.id);
+      const execution = featureId ? yield* executions.get(featureId) : null;
+      if (!featureId || !execution) return;
+      const asked = yield* stageQuestion(featureId, execution.projectId);
+      if (asked?.requestId !== request.id) return;
+      const answer = request.answers[asked.question.id];
+      const text =
+        typeof answer === "string" ? answer : Array.isArray(answer) ? answer.join(", ") : "";
+      const choice = crewStageAnswer(asked.prompt, text);
+      const kind = choice ? CONTROL_FOR_ACTION[choice.action] : undefined;
+      if (!choice || !kind) return;
+      yield* control({
+        featureId,
+        projectId: execution.projectId,
+        requestId: `question:${request.id}`,
+        actorId: "person",
+        kind,
+        ...(choice.text === undefined ? {} : { text: choice.text }),
+        ...(choice.outcome === undefined ? {} : { outcome: choice.outcome }),
+        ...(choice.stepId === undefined ? {} : { stepId: choice.stepId }),
+      });
+    });
+
     /**
      * Writes each stage thread's board summary onto its thread shell. A thread that fails to
      * update keeps its old row, so the next reconcile retries it. The first write also gives the
@@ -763,6 +916,13 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               syncStageThreads(featureId).pipe(
                 Effect.catch((error) =>
                   Effect.logWarning("Stage thread sync failed", { featureId, error }),
+                ),
+              ),
+            ),
+            Effect.andThen(
+              syncQuestion(featureId).pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Stage question sync failed", { featureId, error }),
                 ),
               ),
             ),
@@ -1012,87 +1172,6 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       return (yield* workflows.getFeatureSnapshot(input.featureId, input.projectId))!;
     }, lock.withPermits(1));
 
-    const decide = Effect.fn("WorkflowExecutionService.decide")(function* (input: LeadDecision) {
-      const reject = (reason: string) => Effect.fail(new WorkflowTransitionError(reason));
-      const text = input.text?.trim() ?? "";
-      if (input.decision !== "approve" && !text)
-        return yield* reject(
-          input.decision === "answer" ? "Pass your answer as text" : "Pass what to change as text",
-        );
-      const run = yield* crew.getRunByThread(input.threadId);
-      if (!run) return yield* reject("Only the lead of a feature's active stage can decide");
-      // Features this thread leads any stage of; the active stage must be one of them.
-      const bound: Array<{
-        readonly featureId: string;
-        readonly projectId: ProjectId;
-        readonly definition: WorkflowDefinition;
-        readonly step: WorkflowStepState | undefined;
-        readonly leadsStep: boolean;
-      }> = [];
-      for (const featureId of input.featureId
-        ? [input.featureId]
-        : yield* executions.listActive()) {
-        const execution = yield* executions.get(featureId);
-        const copy = yield* workflows.getFeatureCopy(featureId);
-        if (
-          !execution ||
-          execution.settled ||
-          !copy ||
-          !Object.values(execution.bindings).some((binding) => binding.dispatchRunId === run.id)
-        )
-          continue;
-        const state = yield* workflows.getFeatureState(featureId);
-        const step = state?.activeStepId ? state.steps.get(state.activeStepId) : undefined;
-        const task = step ? copy.definition.steps[step.id] : undefined;
-        bound.push({
-          featureId,
-          projectId: execution.projectId,
-          definition: copy.definition,
-          step,
-          leadsStep:
-            task?.type === "task" && execution.bindings[task.role]?.dispatchRunId === run.id,
-        });
-      }
-      if (bound.length === 0)
-        return yield* reject(
-          `This thread doesn't lead ${input.featureId ? "that feature's" : "any feature's"} stages`,
-        );
-      const leadDecides = bound.filter((item) => item.definition.defaults.decisions === "lead");
-      if (leadDecides.length === 0)
-        return yield* reject("A person decides for this feature, so wait for their decision");
-      const wanted = input.decision === "answer" ? "needs-input" : "awaiting-approval";
-      const waiting = leadDecides.flatMap(({ step, leadsStep, ...item }) =>
-        leadsStep && step?.status === wanted ? [{ ...item, step }] : [],
-      );
-      const [target] = waiting;
-      if (!target)
-        return yield* reject(
-          input.decision === "answer"
-            ? "No stage you lead is waiting for an answer"
-            : "No stage you lead is waiting at its gate",
-        );
-      if (waiting.length > 1)
-        return yield* reject(
-          `Several features wait for you; pass featureId, one of: ${waiting.map((item) => item.featureId).join(", ")}`,
-        );
-      const asked = (yield* store.listEvents(target.featureId)).findLast(
-        (event) => event.executionId === target.step.executionId,
-      );
-      return yield* control({
-        featureId: target.featureId,
-        projectId: target.projectId,
-        requestId: `lead:${key(target.featureId, asked?.id ?? target.step.id)}`,
-        actorId: run.id,
-        kind:
-          input.decision === "approve"
-            ? "approved"
-            : input.decision === "answer"
-              ? "answered"
-              : "changes-requested",
-        ...(text ? { text } : {}),
-      });
-    });
-
     return WorkflowExecutionService.of({
       report: Effect.fn("WorkflowExecutionService.report")(function* (threadId, outcome, summary) {
         const run = yield* crew.getRunByThread(threadId);
@@ -1110,7 +1189,6 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         );
       }),
       control,
-      decide,
       startNow: Effect.fn("WorkflowExecutionService.startNow")(function* (featureId, projectId) {
         if (!(yield* workflows.getFeatureSnapshot(featureId, projectId)))
           return yield* Effect.fail(new WorkflowTransitionError("Feature workflow was not found"));
@@ -1174,6 +1252,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         },
       ),
       reconcileFeature,
+      answerQuestion,
       reconcile: Effect.fn("WorkflowExecutionService.reconcile")(() => reconcile()),
       start: Effect.fn("WorkflowExecutionService.start")(function* () {
         const workflowChanges = yield* store.subscribeChanges;
@@ -1188,6 +1267,10 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         // A stage thread's turn, or its deletion, ends its stage's wait; a person's thread
         // attached as a stage finishes that stage when its turn ends.
         yield* Stream.runForEach(domainEvents, (event) => {
+          if (event.type === "runtime-request.updated")
+            return answerQuestion(event.payload).pipe(
+              Effect.catch((error) => Effect.logWarning("Stage question answer failed", { error })),
+            );
           const threadId =
             event.type === "run.updated"
               ? event.payload.threadId

@@ -145,6 +145,20 @@ it.effect("retires crew handoff grants and the stock text that names them", () =
       revision: 1,
       defaults: { ...STARTER.defaults, decisions: "lead" },
     });
+
+    // 091: a lead answers stage questions with t3_pending_request, so crew.decide retires too.
+    yield* BosunMigrations.runMigrations(91);
+    const lead = yield* read("roles", "role:project-manager");
+    assert.deepStrictEqual(lead.tools, ["crew.respond"]);
+    assert.include(lead.text, "t3_pending_request");
+    assert.notInclude(lead.text, "crew_decide");
+    assert.deepStrictEqual((yield* read("bots", "social")).tools, ["crew.workflows"]);
+    assert.deepStrictEqual((yield* read("roles", "role:custom")).text, EDITED);
+    const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(workflow_executions)`;
+    assert.includeMembers(
+      columns.map((column) => column.name),
+      ["question_thread_id", "question_request_id"],
+    );
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 

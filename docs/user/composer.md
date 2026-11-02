@@ -278,9 +278,10 @@ in the right panel, which also lists outputs and lets you pause, resume, cancel 
 feature. A stage thread opens with a handoff card listing exactly what it was given. See
 [Feature threads](./bots.md#feature-threads).
 
-When a stage needs you, it asks in the composer the way an agent's question does. Pick an
-answer, or type a reply:
+When a stage needs you, it asks in its thread the way an agent's question does, on web and mobile.
+Pick an answer, or type a reply:
 
+- **Question**: type your answer.
 - **Approval**: **Approve**, or type the changes you want to request them.
 - **Failed**: **Retry**, **Skip stage**, or send the work back to an earlier stage.
 - **Loop limit**: **Accept as is** or **One more round**.

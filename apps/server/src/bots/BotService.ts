@@ -1,7 +1,6 @@
 import {
   CAPTAIN_BOT_ID,
   CommandId,
-  DEFAULT_BOT_TOOLS,
   type Bot,
   type BotAvatar,
   type BotCreateInput,
@@ -146,7 +145,7 @@ const make = Effect.gen(function* () {
           "Bot instructions",
           16_000,
         ),
-        allowedTools: yield* tools(input.allowedTools ?? DEFAULT_BOT_TOOLS),
+        allowedTools: yield* tools(input.allowedTools ?? []),
         runtimeMode: input.runtimeMode ?? "approval-required",
         modelSelection: input.modelSelection ?? null,
         defaultWorkflowId: input.defaultWorkflowId ?? null,

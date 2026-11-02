@@ -14,6 +14,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   RunId,
+  RuntimeRequestId,
   type OrchestrationV2Run,
   type ThreadId,
   type WorkflowDefinition,
@@ -1190,7 +1191,7 @@ describe("Workflow execution", () => {
       }).pipe(Effect.provide(system.layer));
     }),
   );
-  it.effect("lets the lead answer and decide gates on a workflow whose lead decides", () =>
+  it.effect("asks a waiting stage's question on its thread, and its lead answers it there", () =>
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
@@ -1203,85 +1204,101 @@ describe("Workflow execution", () => {
           engine
             .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
             .pipe(Effect.map(({ messages }) => messages.map((message) => message.text)));
+        const requests = (threadId: ThreadId) =>
+          engine.getThreadProjection(threadId).pipe(Effect.map((view) => view.runtimeRequests));
         const planStatus = () =>
           workflows
             .getFeatureState(featureId)
             .pipe(Effect.map((state) => state?.steps.get("plan")?.status));
-        const decide = (decision: "approve" | "request_changes" | "answer", text?: string) =>
-          execution.decide({ threadId: manager.threadId, decision, ...(text ? { text } : {}) });
+        // Answers as the composer or t3_pending_request would, then applies it as the stream does.
+        const answer = (threadId: ThreadId, requestId: RuntimeRequestId, text: string) =>
+          Effect.gen(function* () {
+            yield* engine.dispatch({
+              type: "runtime-request.respond",
+              commandId: CommandId.make(`answer:${requestId}`),
+              threadId,
+              requestId,
+              answers: { "crew-stage": text },
+            });
+            const resolved = (yield* requests(threadId)).find((item) => item.id === requestId)!;
+            yield* execution.answerQuestion(resolved);
+          });
         yield* execution.attach(featureId, projectId, bindings);
         const plan = yield* activeStage(featureId);
-        const leadPrompts = (yield* prompts(manager.threadId)).length;
+        expect(yield* requests(plan.run.threadId)).toEqual([]);
 
-        // A question goes to the lead once, and its answer to the stage's thread. The lead's
-        // thread had no turn yet, so its first request carries its brief.
-        expect(leadPrompts).toBe(0);
+        // The question opens once on the stage's thread, outside any turn.
         yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
         yield* execution.reconcileFeature(featureId);
-        const asked = (yield* prompts(manager.threadId)).slice(leadPrompts);
-        expect(asked).toEqual([expect.stringMatching(/Task:\nSupervise[\s\S]*Which API\?/)]);
-        expect((yield* Effect.flip(decide("answer"))).message).toContain("answer as text");
-        yield* decide("answer", "Use v2");
+        yield* execution.reconcile();
+        const [question] = yield* requests(plan.run.threadId);
+        expect(yield* requests(plan.run.threadId)).toHaveLength(1);
+        expect(question).toMatchObject({ status: "pending", owner: "workflow" });
+        const item = (yield* engine.getThreadProjection(plan.run.threadId)).turnItems.find(
+          (turnItem) => turnItem.type === "user_input_request",
+        );
+        expect(item?.type === "user_input_request" && item.questions[0]?.question).toContain(
+          "Which API?",
+        );
+        // The lead is told where it is, once; its idle thread's first message carries its brief.
+        const told = yield* prompts(manager.threadId);
+        expect(told).toEqual([expect.stringMatching(/Task:\nSupervise[\s\S]*t3_pending_request/)]);
+        expect(told[0]).toContain(question!.id);
+
+        yield* answer(plan.run.threadId, question!.id, "Use v2");
         expect(yield* planStatus()).toBe("running");
         expect(yield* prompts(plan.run.threadId)).toEqual(["Answer to your question: Use v2"]);
 
-        // A gate goes to the lead once too, however often the feature reconciles.
+        // A gate asks again, with a new question; the answered one stays as it was.
         yield* execution.report(plan.run.threadId, "ready", "Plan ready");
         yield* execution.reconcileFeature(featureId);
-        yield* execution.reconcile();
-        const gated = (yield* prompts(manager.threadId)).slice(leadPrompts + 1);
-        expect(gated).toEqual([expect.stringContaining("Plan ready")]);
-        expect(gated[0]).not.toContain("Supervise");
-        expect((yield* Effect.flip(decide("request_changes"))).message).toContain("what to change");
-        yield* decide("approve");
+        const gate = (yield* requests(plan.run.threadId)).find(
+          (item) => item.status === "pending",
+        )!;
+        expect(gate.id).not.toBe(question!.id);
+        expect(yield* prompts(manager.threadId)).toHaveLength(2);
+        yield* answer(plan.run.threadId, gate.id, "crew:approve");
         expect(yield* planStatus()).toBe("completed");
-        const approved = (yield* workflows.getFeatureSnapshot(
-          featureId,
-          projectId,
-        ))!.recentEvents.find((event) => event.kind === "approved");
-        expect(approved?.actorId).toBe(manager.id);
-        expect((yield* Effect.flip(decide("approve"))).message).toContain("waiting at its gate");
+        // A late answer to a question a decision replaced decides nothing.
+        yield* execution.answerQuestion({ ...gate, answers: { "crew-stage": "crew:approve" } });
+        expect(yield* planStatus()).toBe("completed");
       }).pipe(Effect.provide(system.layer));
     }),
   );
 
-  it.effect("leaves the gate to a person who decides first, and to people on other workflows", () =>
+  it.effect("closes the question when a person decides first, and tells no lead they decide", () =>
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const lead = yield* seed("feature-one", { decisions: "lead", gate: true });
-        const person = yield* seed("feature-two", { gate: true });
-        const { execution, workflows, manager } = lead;
-        yield* execution.attach(lead.featureId, projectId, lead.bindings);
-        yield* execution.attach(person.featureId, projectId, person.bindings);
-        const decide = (threadId: ThreadId, featureId: string) =>
-          execution.decide({ threadId, featureId, decision: "approve" }).pipe(
-            Effect.flip,
-            Effect.map((error) => error.message),
-          );
-
-        // Nothing waits while the stage works; a thread that doesn't lead it never decides.
-        expect(yield* decide(manager.threadId, lead.featureId)).toContain("waiting at its gate");
-        const plan = yield* activeStage(lead.featureId);
-        expect(yield* decide(plan.run.threadId, lead.featureId)).toContain("doesn't lead");
+        const { featureId, execution, workflows, bindings, manager } = yield* seed("feature-two", {
+          gate: true,
+        });
+        const engine = yield* OrchestratorV2;
+        yield* execution.attach(featureId, projectId, bindings);
+        const plan = yield* activeStage(featureId);
         yield* execution.report(plan.run.threadId, "ready", "Plan ready");
-        const other = yield* activeStage(person.featureId);
-        yield* execution.report(other.run.threadId, "ready", "Plan ready");
-        expect(yield* decide(person.manager.threadId, person.featureId)).toContain(
-          "A person decides",
-        );
+        yield* execution.reconcileFeature(featureId);
+        const [gate] = (yield* engine.getThreadProjection(plan.run.threadId)).runtimeRequests;
+        expect(gate?.status).toBe("pending");
+        // A person decides on this workflow, so the lead hears nothing.
+        const { messages } = yield* engine.getThreadRecords(manager.threadId, ["messages"], {
+          messageRoles: ["user"],
+        });
+        expect(messages).toEqual([]);
 
+        // Approving from the board closes the question it answered.
         yield* execution.control({
-          featureId: lead.featureId,
+          featureId,
           projectId,
           requestId: "person-approves",
           actorId: "person",
           kind: "approved",
         });
-        expect((yield* workflows.getFeatureState(lead.featureId))?.steps.get("plan")?.status).toBe(
+        expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
           "completed",
         );
-        expect(yield* decide(manager.threadId, lead.featureId)).toContain("waiting at its gate");
+        const [closed] = (yield* engine.getThreadProjection(plan.run.threadId)).runtimeRequests;
+        expect(closed).toMatchObject({ status: "resolved", decision: "cancel" });
       }).pipe(Effect.provide(system.layer));
     }),
   );

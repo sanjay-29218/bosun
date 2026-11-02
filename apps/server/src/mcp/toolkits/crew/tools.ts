@@ -3,7 +3,6 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   RepositoryIssue,
-  FeatureCardState,
   Ticket,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -49,24 +48,6 @@ const Respond = Tool.make("crew_respond", {
   failure,
   dependencies: [...dependencies, WorkflowExecutionService],
 }).annotate(Tool.Idempotent, true);
-
-const Decide = Tool.make("crew_decide", {
-  description:
-    "Decide for a feature stage you lead, when its workflow lets the lead decide and the stage's request arrived in this thread. approve passes the stage's gate; request_changes sends the stage back to rework with text saying what to change; answer replies to the stage's question with text. Pass the featureId the request named. Whoever decides first, you or a person, wins.",
-  parameters: Schema.Struct({
-    featureId: Schema.optional(Schema.String),
-    decision: Schema.Literals(["approve", "request_changes", "answer"]),
-    text: Schema.optional(Schema.String),
-  }),
-  /** Where the feature stands after the decision. */
-  success: Schema.Struct({
-    featureId: Schema.String,
-    activeStepId: Schema.NullOr(Schema.String),
-    state: Schema.optional(FeatureCardState),
-  }),
-  failure,
-  dependencies: [...dependencies, WorkflowExecutionService],
-}).annotate(Tool.Destructive, false);
 
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
@@ -172,7 +153,6 @@ const UpdateTodo = Tool.make("crew_update_todo", {
 
 export const CrewToolkit = Toolkit.make(
   Respond,
-  Decide,
   LinkIssue,
   ListIssues,
   CreateTodo,

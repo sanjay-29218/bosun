@@ -1205,6 +1205,11 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   decision: Schema.optional(ProviderApprovalDecision),
   feedback: Schema.optional(Schema.String),
   answers: Schema.optional(ProviderUserInputAnswers),
+  /**
+   * Server code that asked instead of a provider. Its answer resolves the request and goes to
+   * that owner; no message reaches the thread's agent.
+   */
+  owner: Schema.optional(Schema.Literal("workflow")),
 });
 export type OrchestrationV2RuntimeRequest = typeof OrchestrationV2RuntimeRequest.Type;
 
@@ -3491,6 +3496,18 @@ const OrchestrationV2InternalCommand = Schema.Union([
     placeholder: Schema.optional(Schema.String),
     delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /**
+   * Opens a question that server code, not a provider, asks on a thread. Internal so no client
+   * can ask on the server's behalf. Answer and dismiss it like any question.
+   */
+  Schema.Struct({
+    type: Schema.Literal("user-input.open"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: RuntimeRequestId,
+    owner: Schema.Literal("workflow"),
+    questions: Schema.Array(OrchestrationV2UserInputQuestion),
   }),
   /**
    * Records or updates a link an agent asked the user to make. Internal so no

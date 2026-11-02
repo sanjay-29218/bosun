@@ -237,22 +237,6 @@ const make = Effect.gen(function* () {
           workflowExecution.report(threadId, input.outcome, input.summary),
         ),
     ),
-    crew_decide: McpToolAccess.actsAsCaller(
-      (input: {
-        readonly featureId?: string | undefined;
-        readonly decision: "approve" | "request_changes" | "answer";
-        readonly text?: string | undefined;
-      }) =>
-        asCrewMember((threadId) =>
-          workflowExecution.decide({ threadId, ...input }).pipe(
-            Effect.map(({ featureId, activeStepId, state }) => ({
-              featureId,
-              activeStepId,
-              state,
-            })),
-          ),
-        ),
-    ),
   };
 });
 

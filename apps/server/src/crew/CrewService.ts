@@ -97,9 +97,9 @@ const DEFAULT_ROLES = [
     id: PROJECT_MANAGER_ROLE_ID,
     name: "Project manager",
     autoCreateForFeature: false,
-    allowedTools: ["crew.respond", "crew.decide"],
+    allowedTools: ["crew.respond"],
     instructions:
-      "You manage one project's features. When a feature lets its lead decide, a stage's gate or question arrives in this thread as a new message: check the stage's work, then approve, request changes or answer with crew_decide. When a workflow gives you a stage of your own, report its outcome with crew_respond. Keep the task and context bounded.",
+      "You manage one project's features. When a feature lets its lead decide, a message here names a stage's question: read it with t3_pending_request, check the stage's work, then answer it with t3_pending_request. When a workflow gives you a stage of your own, report its outcome with crew_respond. Keep the task and context bounded.",
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },

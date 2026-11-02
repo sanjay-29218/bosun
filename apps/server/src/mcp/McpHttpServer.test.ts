@@ -1244,7 +1244,7 @@ it.effect(
       `;
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'role', 'bot-run:builder', '["crew.decide","worktree"]')`;
+        ('builder', 'role', 'bot-run:builder', '["worktree"]')`;
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
           requestNamespace: thread,
@@ -1366,9 +1366,9 @@ it.effect(
         const plainTools = ["t3_feature_attach_thread", "t3_feature_detach_thread", "upstream"];
 
         expect(yield* plain.listed).toEqual(plainTools);
-        expect(yield* crew.listed).toEqual(
-          [...anyCrewGrant, ...anyCrew, "crew_decide", "t3_bot_list"].sort(),
-        );
+        // Without a crew grant, a crew thread gets no crew tool.
+        expect(yield* crew.listed).toEqual([...anyCrew, "t3_bot_list"].sort());
+        expect((yield* crew.call("crew_respond")).error?.message).toContain("crew_respond");
 
         // A tool a thread isn't listed is refused before its handler runs.
         expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
@@ -1383,7 +1383,6 @@ it.effect(
         expect(yield* crew.listed).toEqual(
           [...anyCrewGrant, ...anyCrew, "crew_respond", "t3_bot_list"].sort(),
         );
-        expect((yield* crew.call("crew_decide")).error?.message).toContain("crew_decide");
 
         // Manage workflows does.
         yield* sql`
