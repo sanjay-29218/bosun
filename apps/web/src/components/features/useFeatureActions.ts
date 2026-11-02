@@ -1,9 +1,9 @@
+import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { RegistryContext } from "@effect/atom-react";
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardActions,
   sendBackTargets,
-  stageLabel,
   stageOutcomes,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
@@ -197,7 +197,7 @@ export function useFeatureActions(options: {
     if (!definition) return null;
     return Object.keys(definition.steps)
       .filter((id) => definition.steps[id]?.type === "task")
-      .map((id) => ({ id: `reopen-at:${id}` as const, label: stageLabel(id) }));
+      .map((id) => ({ id: `reopen-at:${id}` as const, label: formatStageName(id) }));
   };
 
   const showMenu = async (
@@ -215,7 +215,7 @@ export function useFeatureActions(options: {
     if (card.threadId)
       items.push({
         id: "open",
-        label: card.stage ? `Open ${stageLabel(card.stage.stepId)}` : "Open stage thread",
+        label: card.stage ? `Open ${formatStageName(card.stage.stepId)}` : "Open stage thread",
       });
     for (const action of actions) {
       const separatorBefore = action === "cancel" || (items.length > 0 && action === actions[0]);
@@ -234,7 +234,7 @@ export function useFeatureActions(options: {
           ...(separatorBefore ? { separatorBefore } : {}),
           children: targets.map((target) => ({
             id: `${prefix}:${target}` as const,
-            label: action === "send-back" ? stageLabel(target) : target.replace(/_/g, " "),
+            label: action === "send-back" ? formatStageName(target) : target.replace(/_/g, " "),
           })),
         });
         continue;

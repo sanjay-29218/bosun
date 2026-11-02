@@ -1,8 +1,8 @@
+import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardQuickActions,
   featureRef,
-  stageLabel,
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueRef, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
@@ -119,7 +119,7 @@ function Chip(props: { readonly children: ReactNode; readonly className?: string
 /** What the row says after its title: the question or failure, else its stage or state. */
 function featureSubtitle(card: EnvironmentFeatureCard, statusLabel: string): string | null {
   if (card.detail && WAITING_STATES.has(card.state)) return card.detail;
-  if (card.state === "working" && card.stage) return stageLabel(card.stage.stepId);
+  if (card.state === "working" && card.stage) return formatStageName(card.stage.stepId);
   if (card.state === "done") return null;
   return statusLabel;
 }

@@ -664,12 +664,6 @@ export function stageOutcomes(definition: WorkflowDefinition, stepId: string) {
   return step?.type === "task" ? Object.keys(step.next) : [];
 }
 
-/** "Design" from "design", "Change review" from "change_review". */
-export function stageLabel(id: string): string {
-  const words = id.replace(/[_-]+/g, " ").trim();
-  return words ? words[0]!.toUpperCase() + words.slice(1) : id;
-}
-
 /** "1st", "2nd", "3rd", "4th"… for queue positions. */
 export function ordinal(value: number): string {
   const tens = value % 100;
