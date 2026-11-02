@@ -8,13 +8,30 @@ import {
   wantedOlderSettledPages,
   type OlderSettledScope,
 } from "@t3tools/client-runtime/state/threads";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { ProjectId, type EnvironmentId } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { olderSettledThreads, threadFamilies } from "./threads";
 
 const NO_PAGES: ReadonlyMap<EnvironmentId, number> = new Map();
+
+/** The shelf's scopes: every project of each environment, or only `scopedProjectKeys`. */
+export function olderSettledScopes(
+  environmentIds: ReadonlyArray<EnvironmentId>,
+  scopedProjectKeys: ReadonlySet<string> | null,
+): ReadonlyArray<OlderSettledScope> {
+  if (scopedProjectKeys === null) {
+    return environmentIds.map((environmentId) => ({ environmentId, projectIds: null }));
+  }
+  return environmentIds.flatMap((environmentId) => {
+    const prefix = `${environmentId}:`;
+    const projectIds = [...scopedProjectKeys].flatMap((key) =>
+      key.startsWith(prefix) ? [ProjectId.make(key.slice(prefix.length))] : [],
+    );
+    return projectIds.length === 0 ? [] : [{ environmentId, projectIds }];
+  });
+}
 
 /**
  * The Settled shelf for one scope when shells leave older settled threads out: which rows it may

@@ -248,7 +248,10 @@ export function derivePendingThreadRequests(
           multiSelect: question.multiSelect ?? false,
         })),
         responseCapability,
-        dismissible: item.responseMode === "message" || responseCapability === "message",
+        // A workflow's question is how its stage waits, so it is decided rather than dismissed.
+        dismissible:
+          request.owner === undefined &&
+          (item.responseMode === "message" || responseCapability === "message"),
         ...(item.responseMode === "message" || responseCapability === "message"
           ? { responseMode: "message" as const }
           : {}),

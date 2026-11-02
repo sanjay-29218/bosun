@@ -88,6 +88,8 @@ export interface ThreadLaunchInput {
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
+  /** False when the worktree was already set up for another thread. */
+  readonly runSetupScript?: boolean;
   readonly initialMessage?: ThreadLaunchInitialMessage;
   readonly importedNativeThread?: {
     readonly ref: {
@@ -107,7 +109,7 @@ export interface ThreadLaunchInput {
 
 type PreparationInput = Pick<
   ThreadLaunchInput,
-  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage"
+  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage" | "runSetupScript"
 > & {
   readonly reusedWorktree?: { readonly baseRef: string };
 };
@@ -570,7 +572,7 @@ const make = Effect.gen(function* () {
       }
       yield* setupTracker.stageStatus(threadId, "setup-script", "running");
       const setup =
-        worktreePath === null
+        worktreePath === null || input.runSetupScript === false
           ? ({ status: "no-script" } as const)
           : yield* setupScripts
               .runForThread({

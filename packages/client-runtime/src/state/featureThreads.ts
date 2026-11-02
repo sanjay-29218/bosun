@@ -1,3 +1,4 @@
+import { formatStageName } from "@t3tools/shared/crewStage";
 import {
   WS_METHODS,
   workflowForwardOutcome,
@@ -80,12 +81,6 @@ export interface FeatureDraft {
   } | null;
 }
 
-/** "qa_review" → "Qa review": step IDs are the only stage names a workflow has. */
-const stageLabel = (stepId: string) => {
-  const words = stepId.replace(/[-_]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-};
-
 /** What the Make it a feature dialog shows for `stageId`, from the workflow alone. */
 export function makeFeatureDraft(
   definition: WorkflowDefinition,
@@ -95,7 +90,7 @@ export function makeFeatureDraft(
   const ids = workflowForwardStages(definition);
   const stages = ids.map((stepId, position) => ({
     stepId,
-    label: stageLabel(stepId),
+    label: formatStageName(stepId),
     index: position + 1,
     total: ids.length,
   }));
@@ -110,7 +105,7 @@ export function makeFeatureDraft(
     stages,
     stage,
     next: {
-      label: stageLabel(nextId!),
+      label: formatStageName(nextId!),
       role: role ? (roles.get(role.roleId) ?? null) : null,
       gated: step.gate === true,
     },

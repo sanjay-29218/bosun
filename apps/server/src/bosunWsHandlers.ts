@@ -10,7 +10,6 @@ import {
 import * as Effect from "effect/Effect";
 
 import type { BotService } from "./bots/BotService.ts";
-import type { CrewHandoffService } from "./crew/CrewHandoffService.ts";
 import type { CrewService } from "./crew/CrewService.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
@@ -26,7 +25,6 @@ import type { WorkflowService } from "./workflows/WorkflowService.ts";
 export interface BosunWsServices {
   readonly bots: BotService["Service"];
   readonly crew: CrewService["Service"];
-  readonly crewHandoffs: CrewHandoffService["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
   readonly tickets: TicketService["Service"];
@@ -44,7 +42,6 @@ export const layerBosunWsRpc = (
   {
     bots,
     crew,
-    crewHandoffs,
     features,
     issues,
     tickets,
@@ -264,6 +261,10 @@ export const layerBosunWsRpc = (
             Effect.map((run) => ({ threadId: run.threadId })),
             Effect.mapError((error) => new BotOperationError({ reason: String(error) })),
           ),
+        [WS_METHODS.botsStartNewSession]: (input) =>
+          crew
+            .startNewSession(input.botId)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.rolesList]: () =>
           crew
             .listRoles()
@@ -275,10 +276,6 @@ export const layerBosunWsRpc = (
         [WS_METHODS.rolesUpdate]: (input) =>
           crew
             .updateRole(input)
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
-        [WS_METHODS.crewSnapshot]: (input) =>
-          crewHandoffs
-            .projectSnapshot(input.projectId)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
         [WS_METHODS.crewConfiguration]: (input) =>
           crew
@@ -305,33 +302,6 @@ export const layerBosunWsRpc = (
             Effect.map((run) => ({ runId: run.id, threadId: run.threadId })),
             Effect.mapError((error) => new CrewOperationError({ reason: String(error) })),
           ),
-        [WS_METHODS.crewAnswer]: (input) =>
-          crewHandoffs
-            .actInProject({
-              projectId: input.projectId,
-              requestId: input.requestId,
-              action: "answer",
-              text: input.text,
-            })
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
-        [WS_METHODS.crewCancel]: (input) =>
-          crewHandoffs
-            .actInProject({
-              projectId: input.projectId,
-              requestId: input.requestId,
-              action: "cancel",
-              text: input.text,
-            })
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
-        [WS_METHODS.crewRetry]: (input) =>
-          crewHandoffs
-            .actInProject({
-              projectId: input.projectId,
-              requestId: input.requestId,
-              action: "retry",
-              text: input.text,
-            })
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
       };
     }),
   );

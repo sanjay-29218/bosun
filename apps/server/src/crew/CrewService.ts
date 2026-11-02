@@ -1,22 +1,29 @@
 import {
   botHeadquartersRunId,
   botHeadquartersThreadId,
+  type Bot,
   CREW_DISPATCH_STATE,
   CREW_TOOL_GRANTS,
   CREW_TURN_STATE,
+  headquartersBotId,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ThreadId,
   type CrewTurnState,
   type ModelSelection,
+  type RunId,
   type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
+import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 
 import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
@@ -27,11 +34,18 @@ import {
   type CrewHierarchyNode,
   type Role,
   type CrewRun,
-  type CrewRunSummary,
+  type CrewWorkspace,
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
 import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
+import {
+  FRESH_START_QUIET_MINUTES,
+  freshStartBriefing,
+  freshStartDue,
+  headquartersIdle,
+  type FreshStartRecords,
+} from "./headquartersFreshStart.ts";
 
 class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
@@ -43,28 +57,39 @@ class CrewValidationError extends Error {
  */
 /** The member made from the project manager role for one project, created on first use. */
 export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
-/** The project whose manager `memberId` names, so a bot can reach one before it exists. */
-export const managedProjectId = (memberId: string) =>
-  memberId.startsWith("bot-manager:")
-    ? ProjectId.make(memberId.slice("bot-manager:".length))
-    : null;
 /** The builder a project manager hands direct requests to, created with the manager. */
 export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
 const BUILDER_ROLE_ID = "role:builder";
 
-const HEADQUARTERS_TASK = [
-  "You run this bot's work across every project it owns. crew_list_projects shows them with each project's manager and features. Hand a project work with t3_feature_start, and start a new project with crew_create_project when you're allowed to.",
-  "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-  "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask you to start work in one of your projects on a workflow, start a feature with t3_feature_start.",
-  "Tell the person only what they must decide.",
-].join("\n\n");
+/** How a bot's headquarters briefs the project manager it starts for one request. */
+const PROJECT_MANAGER_BRIEF =
+  "You are this project's manager for one request. Do small work yourself in this worktree, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several stages, start a feature with t3_feature_start instead (t3_workflow_list shows the workflows), and report that it started. Report what you did, or the question a person must answer.";
 
-const STAGE_TOOLS = ["crew.respond", "crew.ask"];
+/** What a bot's headquarters does; its runs keep the text they started with. */
+const headquartersTask = (botId: string) =>
+  [
+    `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
+    `Hand each request to its project with delegate_task: target.projectId set to that project and isolation "worktree". That child is the request's project manager, fresh for each request. Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. Then end your turn; its result wakes you.`,
+    `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
+    "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
+    "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask for a project's work to run on a workflow, name it in the project manager's task.",
+    "Tell the person only what they must decide.",
+  ].join("\n\n");
+
+const STAGE_TOOLS = ["crew.respond"];
+const BUILDER_WORKSPACE =
+  "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
+const PLANNER_SPLIT =
+  "If the work is too big for one builder, say so in your plan and propose splitting it into separate features, each with its own branch and pull request.";
+/** Several stages run at once on one machine, so each keeps its checks and servers small. */
+const STAGE_CHECKS =
+  "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you respond.";
 const stageInstructions = (name: string) =>
-  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_ask with the exact question, then continue after an answer. Do not report completion solely in prose.`;
+  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_respond with outcome "needs_input" and the exact question as the summary, then end your turn; the answer arrives in this thread. Do not report completion solely in prose. ${STAGE_CHECKS}`;
 
-/** The builder may split its stage into subagents that run at the same time. */
-const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} When the work splits into independent parts, run them in parallel with delegate_task, one subagent per part with a self-contained brief, and wait for them with task_status. Check and combine their results yourself before you call crew_respond.`;
+/** A feature has one workspace and one builder; big work splits into features, not builders. */
+const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} ${BUILDER_WORKSPACE}`;
+const PLANNER_INSTRUCTIONS = `${stageInstructions("Planner")} ${PLANNER_SPLIT}`;
 
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
@@ -72,17 +97,15 @@ const DEFAULT_ROLES = [
     id: PROJECT_MANAGER_ROLE_ID,
     name: "Project manager",
     autoCreateForFeature: false,
-    allowedTools: ["crew.delegate", "crew.respond", "crew.ask", "crew.status", "crew.answer"],
+    allowedTools: ["crew.respond"],
     instructions:
-      "You manage one project. Delegate implementation to the project's builder using crew_delegate and a stable request ID. Then end your turn: the builder's outcome arrives in this thread as a new message, so don't poll crew_wait_handoff for it. Report the outcome to whoever asked through crew_respond. If the builder needs a person's answer, use crew_ask; when the answer arrives, pass it to the child request using crew_answer. In a workflow, decide how to handle requested changes and route the stage with crew_respond. Keep the task and context bounded.",
+      "You manage one project's features. When a feature lets its lead decide, a message here names a stage's question: read it with t3_pending_request, check the stage's work, then answer it with t3_pending_request. When a workflow gives you a stage of your own, report its outcome with crew_respond. Keep the task and context bounded.",
   },
-  { id: "role:planner", name: "Planner" },
+  { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
   {
     id: BUILDER_ROLE_ID,
     name: "Builder",
-    // Threads (the orchestration grant) lets it run parallel subagents with delegate_task.
-    allowedTools: [...STAGE_TOOLS, "orchestration"],
     instructions: BUILDER_INSTRUCTIONS,
   },
   { id: "role:qa-tester", name: "QA Tester" },
@@ -135,6 +158,8 @@ export interface CreateCrewRunInput {
   readonly carried?: { readonly runtimeMode: RuntimeMode; readonly modelSelection: ModelSelection };
   /** The thread's title; defaults to the member's name and the start of the task. */
   readonly title?: string;
+  /** The worktree the thread opens in; the project's checkout when absent. */
+  readonly workspace?: CrewWorkspace;
 }
 
 export interface CrewRunView {
@@ -233,11 +258,14 @@ export interface CrewServiceShape {
   readonly getRun: (
     id: string,
   ) => Effect.Effect<CrewRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
-  readonly listRunSummaries: (
-    projectId: ProjectId,
-    limit?: number,
-  ) => Effect.Effect<ReadonlyArray<CrewRunSummary>, PersistenceSqlError>;
   readonly reconcileRuns: () => Effect.Effect<void, PersistenceSqlError>;
+  /**
+   * For bots set to start a new session, starts a headquarters over once its conversation grows
+   * long and it has been quiet a while. Other bots leave it to the provider's compaction.
+   */
+  readonly watchHeadquarters: () => Effect.Effect<void, never, Scope.Scope>;
+  /** Starts the bot's headquarters over in a fresh session now; refused while it works. */
+  readonly startNewSession: (botId: string) => Effect.Effect<void, CrewServiceError>;
 }
 
 export type CrewServiceError =
@@ -277,6 +305,10 @@ const validRoleTools = (tools: ReadonlyArray<string> | undefined) => {
   return list;
 };
 
+/** What a crew run's thread is first told: its role's instructions and its task. */
+export const crewRunPrompt = (run: Pick<CrewRun, "instructions" | "taskText">) =>
+  `${run.instructions}\n\nTask:\n${run.taskText}`;
+
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
   run.projectId === input.projectId &&
@@ -298,10 +330,11 @@ export const CrewServiceLive = Layer.effect(
       threadId: run.threadId,
       projectId: run.projectId,
       title: run.title,
-      prompt: `${run.instructions}\n\nTask:\n${run.taskText}`,
+      prompt: crewRunPrompt(run),
       modelSelection: run.modelSelection,
       runtimeMode: run.runtimeMode,
       createdAt: run.createdAt,
+      workspace: run.workspace,
     });
 
     const markDispatched = (
@@ -641,6 +674,7 @@ export const CrewServiceLive = Layer.effect(
           lastError: null,
           createdAt,
           dispatchedAt: null,
+          workspace: input.workspace ?? null,
         };
         yield* store.insertRun(run);
         const persisted = yield* store.getRun(id);
@@ -685,7 +719,7 @@ export const CrewServiceLive = Layer.effect(
           memberId: bot.id,
           projectId,
           threadId: botHeadquartersThreadId(bot.id),
-          taskText: HEADQUARTERS_TASK,
+          taskText: headquartersTask(bot.id),
           title: bot.name,
           instructions: bot.instructions,
           allowedTools: bot.allowedTools,
@@ -697,6 +731,7 @@ export const CrewServiceLive = Layer.effect(
           lastError: null,
           createdAt: DateTime.formatIso(yield* DateTime.now),
           dispatchedAt: null,
+          workspace: null,
         });
       }
       const run = (yield* store.getRun(id))!;
@@ -715,6 +750,62 @@ export const CrewServiceLive = Layer.effect(
         .pipe(Effect.catch((error) => Effect.logWarning("Headquarters pin failed", { id, error })));
       return (yield* store.getRun(id))!;
     }, headquartersLock.withPermits(1));
+
+    const startFresh = (bot: Bot, run: CrewRun, records: FreshStartRecords, key: string) =>
+      runtime.startFresh({
+        threadId: run.threadId,
+        runId: run.id,
+        key,
+        prompt: freshStartBriefing(
+          `${bot.instructions}\n\nTask:\n${run.taskText}`,
+          records.messages,
+        ),
+      });
+
+    // A newer completed turn replaces the wait, so the quiet period restarts with each turn.
+    const startFreshWhenQuiet = Effect.fn("CrewService.startFreshWhenQuiet")(
+      function* (botId: string, threadId: ThreadId, completedRunId: RunId) {
+        const bot = yield* bots.get(botId);
+        if (bot?.longConversation !== "new-session") return;
+        if (!freshStartDue(yield* runtime.freshStartRecords(threadId), completedRunId)) return;
+        yield* Effect.sleep(Duration.minutes(FRESH_START_QUIET_MINUTES));
+        const records = yield* runtime.freshStartRecords(threadId);
+        const current = yield* bots.get(botId);
+        const run = yield* store.getRun(botHeadquartersRunId(botId));
+        if (
+          current?.longConversation !== "new-session" ||
+          run?.threadId !== threadId ||
+          !freshStartDue(records, completedRunId)
+        )
+          return;
+        yield* startFresh(current, run, records, completedRunId);
+      },
+      (effect, botId) =>
+        effect.pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Headquarters fresh start skipped", { botId, cause }),
+          ),
+        ),
+    );
+
+    const startNewSession: CrewServiceShape["startNewSession"] = Effect.fn(
+      "CrewService.startNewSession",
+    )(function* (botId) {
+      const bot = yield* bots.get(botId);
+      if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
+      const run = yield* store.getRun(botHeadquartersRunId(botId));
+      if (run === null || run.dispatchState !== CREW_DISPATCH_STATE.STARTED) {
+        return yield* Effect.fail(new CrewValidationError(`${bot.name} has no thread yet`));
+      }
+      const records = yield* runtime.freshStartRecords(run.threadId);
+      if (!headquartersIdle(records)) {
+        return yield* Effect.fail(
+          new CrewValidationError(`${bot.name} is working. Try again when it finishes.`),
+        );
+      }
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      yield* startFresh(bot, run, records, `manual:${now}`);
+    });
 
     const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(
       "CrewService.syncHeadquarters",
@@ -771,7 +862,8 @@ export const CrewServiceLive = Layer.effect(
       ensureDefaults: Effect.fn("CrewService.ensureDefaults")(function* (modelSelection) {
         for (const role of DEFAULT_ROLES) {
           if (yield* store.getRole(role.id)) continue;
-          yield* createRole({ ...role, modelSelection, runtimeMode: "approval-required" }).pipe(
+          // Stages run unattended, so starter roles don't stop for approvals.
+          yield* createRole({ ...role, modelSelection, runtimeMode: "full-access" }).pipe(
             Effect.catch((error) =>
               store.getRole(role.id).pipe(Effect.filterOrFail(Predicate.isNotNull, () => error)),
             ),
@@ -883,8 +975,6 @@ export const CrewServiceLive = Layer.effect(
                 ),
           ),
         ),
-      listRunSummaries: (projectId, limit = 50) =>
-        store.listRunSummaries(projectId, Math.max(1, Math.min(100, Math.floor(limit)))),
       reconcileRuns: Effect.fn("CrewService.reconcileRuns")(function* () {
         // Recover accepted turns from a prior process before dispatching new queued runs.
         // Otherwise a newly dispatched turn could look stale before its reactor worker starts.
@@ -907,6 +997,20 @@ export const CrewServiceLive = Layer.effect(
           concurrency: 1,
           discard: true,
         });
+      }),
+      startNewSession,
+      watchHeadquarters: Effect.fn("CrewService.watchHeadquarters")(function* () {
+        const waiting = yield* FiberMap.make<ThreadId>();
+        yield* runtime.completedRuns.pipe(
+          Stream.runForEach(({ threadId, runId }) => {
+            const botId = headquartersBotId(threadId);
+            return botId === null
+              ? Effect.void
+              : FiberMap.run(waiting, threadId, startFreshWhenQuiet(botId, threadId, runId));
+          }),
+          Effect.catch((cause) => Effect.logWarning("Headquarters watch stopped", { cause })),
+          Effect.forkScoped,
+        );
       }),
     } satisfies CrewServiceShape;
   }),

@@ -56,13 +56,11 @@ import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUp
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 
-/** The sidebar's title row: the picked bot (or the brand), then `trailing` at the far end. */
+/** The sidebar's title row: the picked bot, or the brand. */
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
-  trailing,
 }: {
   isElectron: boolean;
-  trailing?: ReactNode;
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
@@ -111,7 +109,6 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           </div>
         ) : null}
       </div>
-      {trailing ? <div className="relative z-10 flex shrink-0 items-center">{trailing}</div> : null}
     </div>
   );
 });

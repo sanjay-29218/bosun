@@ -7,10 +7,8 @@ import type {
   Ticket,
 } from "@t3tools/contracts";
 
-import { featurePhase } from "./crewBoard.ts";
-
 /**
- * Pure Issues-view logic shared by web and mobile. Issues come from `issues.list` and tickets
+ * Pure todo logic for the board, shared by web and mobile. Issues come from `issues.list` and tickets
  * from `tickets.list`, one read each per project. A feature works on an issue when its linked
  * issue has the same URL, and on a ticket when it links the same ticket.
  */
@@ -98,173 +96,6 @@ export function featureForIssue<Card>(
   return features.get(linkKey(issue.environmentId, issue)) ?? null;
 }
 
-// ── Lanes ────────────────────────────────────────────────────────────
-
-const ISSUE_LANES = ["todo", "in-crew", "in-review", "done"] as const;
-export type IssueLane = (typeof ISSUE_LANES)[number];
-
-export const ISSUE_LANE_LABELS: Record<IssueLane, string> = {
-  todo: "Todo",
-  "in-crew": "In crew",
-  "in-review": "In review",
-  done: "Done",
-};
-
-/**
- * Where an issue stands with the crew. Closed is Done whatever its feature says; an open issue
- * whose feature reached verify, ship or done waits on review; a running feature is In crew.
- */
-export function issueLane(issue: RepositoryIssue, feature: FeatureBoardCard | null): IssueLane {
-  if (issue.state === "closed") return "done";
-  if (!feature || feature.state === "cancelled") return "todo";
-  const phase = featurePhase(feature);
-  if (phase === "verify" || phase === "ship" || phase === "done") return "in-review";
-  return feature.started ? "in-crew" : "todo";
-}
-
-// ── Grouping ─────────────────────────────────────────────────────────
-
-export type IssueGroupBy = "milestone" | "status" | "none";
-
-export interface IssueRow {
-  readonly issue: EnvironmentIssue;
-  /** 1 for a sub-issue drawn under its parent. */
-  readonly depth: 0 | 1;
-}
-
-export interface IssueGroup {
-  readonly key: string;
-  readonly title: string;
-  readonly lane: IssueLane | null;
-  /** The group's milestone, when grouped by one that is still open. */
-  readonly milestone: EnvironmentMilestone | null;
-  readonly rows: ReadonlyArray<IssueRow>;
-  /** Issues in the group, sub-issues included. */
-  readonly count: number;
-}
-
-/** Open first, then the most recently updated. */
-const compareIssues = (left: RepositoryIssue, right: RepositoryIssue) =>
-  left.state === right.state
-    ? right.updatedAt.localeCompare(left.updatedAt)
-    : left.state === "open"
-      ? -1
-      : 1;
-
-/**
- * Orders a group's issues, drawing each sub-issue under its parent when `nested` and the parent
- * is in the same group. A sub-issue whose parent is elsewhere stays at the top level.
- */
-export function nestIssueRows(
-  issues: ReadonlyArray<EnvironmentIssue>,
-  nested: boolean,
-): ReadonlyArray<IssueRow> {
-  const sorted = [...issues].sort(compareIssues);
-  if (!nested) return sorted.map((issue) => ({ issue, depth: 0 }));
-  const present = new Set(sorted.map(issueKey));
-  const children = new Map<string, EnvironmentIssue[]>();
-  const roots: EnvironmentIssue[] = [];
-  for (const issue of sorted) {
-    const parentKey = issue.parent === null ? null : issueKey({ ...issue, number: issue.parent });
-    if (parentKey !== null && present.has(parentKey)) {
-      const siblings = children.get(parentKey) ?? [];
-      siblings.push(issue);
-      children.set(parentKey, siblings);
-    } else {
-      roots.push(issue);
-    }
-  }
-  return roots.flatMap((issue) => [
-    { issue, depth: 0 as const },
-    ...(children.get(issueKey(issue)) ?? []).map((child) => ({ issue: child, depth: 1 as const })),
-  ]);
-}
-
-/**
- * Issues in display groups. By milestone, open milestones come in due order (undated last),
- * then milestones read only from their issues, then "No milestone". Empty status lanes stay,
- * so the order reads the same every time; empty milestones are dropped.
- */
-export function groupIssues(input: {
-  readonly issues: ReadonlyArray<EnvironmentIssue>;
-  readonly milestones: ReadonlyArray<EnvironmentMilestone>;
-  readonly groupBy: IssueGroupBy;
-  readonly nested: boolean;
-  readonly laneFor: (issue: EnvironmentIssue) => IssueLane;
-  /** Prefixes milestone titles when issues come from more than one project. */
-  readonly projectTitle?: (issue: {
-    readonly environmentId: EnvironmentId;
-    readonly projectId: ProjectId;
-  }) => string | null;
-}): ReadonlyArray<IssueGroup> {
-  const group = (
-    key: string,
-    title: string,
-    issues: ReadonlyArray<EnvironmentIssue>,
-    extra: Pick<IssueGroup, "lane" | "milestone">,
-  ): IssueGroup => ({
-    key,
-    title,
-    ...extra,
-    rows: nestIssueRows(issues, input.nested),
-    count: issues.length,
-  });
-
-  if (input.groupBy === "none") {
-    return [group("all", "All issues", input.issues, { lane: null, milestone: null })];
-  }
-
-  if (input.groupBy === "status") {
-    const byLane = new Map<IssueLane, EnvironmentIssue[]>(ISSUE_LANES.map((lane) => [lane, []]));
-    for (const issue of input.issues) byLane.get(input.laneFor(issue))!.push(issue);
-    return ISSUE_LANES.map((lane) =>
-      group(lane, ISSUE_LANE_LABELS[lane], byLane.get(lane)!, { lane, milestone: null }),
-    );
-  }
-
-  const known = new Map(input.milestones.map((milestone) => [issueKey(milestone), milestone]));
-  const byMilestone = new Map<string, { title: string; issues: EnvironmentIssue[] }>();
-  const unscheduled: EnvironmentIssue[] = [];
-  for (const issue of input.issues) {
-    if (!issue.milestone) {
-      unscheduled.push(issue);
-      continue;
-    }
-    const key = issueKey({ ...issue, number: issue.milestone.number });
-    const entry = byMilestone.get(key) ?? { title: issue.milestone.title, issues: [] };
-    entry.issues.push(issue);
-    byMilestone.set(key, entry);
-  }
-  const projectCount = new Set(
-    input.issues.map((issue) => `${issue.environmentId}:${issue.projectId}`),
-  ).size;
-  const titled = (title: string, owner: EnvironmentIssue | EnvironmentMilestone) => {
-    const project = projectCount > 1 ? input.projectTitle?.(owner) : null;
-    return project ? `${project} · ${title}` : title;
-  };
-  const dueOrder = (milestone: EnvironmentMilestone | undefined) => milestone?.dueOn ?? "￿";
-  const groups = [...byMilestone]
-    .sort(([leftKey, left], [rightKey, right]) => {
-      const leftMilestone = known.get(leftKey);
-      const rightMilestone = known.get(rightKey);
-      if (!leftMilestone !== !rightMilestone) return leftMilestone ? -1 : 1;
-      return (
-        dueOrder(leftMilestone).localeCompare(dueOrder(rightMilestone)) ||
-        left.title.localeCompare(right.title)
-      );
-    })
-    .map(([key, entry]) =>
-      group(key, titled(entry.title, entry.issues[0]!), entry.issues, {
-        lane: null,
-        milestone: known.get(key) ?? null,
-      }),
-    );
-  if (unscheduled.length > 0) {
-    groups.push(group("none", "No milestone", unscheduled, { lane: null, milestone: null }));
-  }
-  return groups;
-}
-
 /** Issues whose title, `#number` or `T-number` holds every word of the query. */
 export function matchesIssueSearch(issue: EnvironmentIssue, text: string): boolean {
   if (!text) return true;
@@ -279,10 +110,4 @@ export function matchesIssueSearch(issue: EnvironmentIssue, text: string): boole
     .join(" ")
     .toLowerCase();
   return text.split(" ").every((word) => haystack.includes(word));
-}
-
-/** A milestone's closed share, 0 to 1; an empty milestone has none. */
-export function milestoneProgress(milestone: RepositoryMilestone): number {
-  const total = milestone.openIssues + milestone.closedIssues;
-  return total === 0 ? 0 : milestone.closedIssues / total;
 }

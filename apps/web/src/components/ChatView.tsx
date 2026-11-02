@@ -45,7 +45,6 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
-import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
@@ -275,20 +274,14 @@ import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
-import { CrewRunStatusStrip } from "./chat/CrewRunStatusStrip";
 import { CrewHandoffCard } from "./crew/CrewHandoffCard";
-import {
-  ComposerCrewControl,
-  ComposerWorkflowPicker,
-  useDraftWorkflow,
-} from "./crew/ComposerWorkflowPicker";
+import { ComposerWorkflowPicker, useDraftWorkflow } from "./crew/ComposerWorkflowPicker";
 import { useCrewDraftStore } from "./crew/crewDraftStore";
 import type { ComposerControlSize } from "./chat/ComposerControl";
 import { featuresEnvironment } from "../state/features";
-import { CrewStageBanner } from "./crew/CrewStageBanner";
 import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
-import { CrewWaitingBanner } from "./crew/CrewWaitingBanner";
 import { useSideChat } from "./chat/useSideChat";
+import { useCrewNowItems } from "./crew/useCrewNowItems";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
@@ -299,6 +292,7 @@ import {
   ThreadPanelHeaderControl,
   WorkspaceTitlebarControls,
 } from "./chat/PanelLayoutControls";
+import { MainViewToggle } from "./MainViewToggle";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -1147,9 +1141,6 @@ export default function ChatView(props: ChatViewProps) {
   const handleManageWorkflows = () => {
     void navigate({ to: "/library", search: {} });
   };
-  const handleEditCrew = () => {
-    void navigate({ to: "/library", search: {} });
-  };
   // A new thread with a workflow picked starts a feature; its first message is the brief.
   const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
   const draftWorkflow = useDraftWorkflow({ environmentId, projectId: draftProjectId, draftId });
@@ -1168,18 +1159,6 @@ export default function ChatView(props: ChatViewProps) {
         )
       : undefined;
   const draftWorkflowId = draftWorkflow.workflow?.id ?? null;
-  const renderCrewControl =
-    draftWorkflowId && draftId && draftProjectId
-      ? (size: ComposerControlSize) => (
-          <ComposerCrewControl
-            environmentId={environmentId}
-            projectId={draftProjectId}
-            draftId={draftId}
-            size={size}
-            onEditCrew={handleEditCrew}
-          />
-        )
-      : null;
   // The feature a draft created, kept until it starts, so retrying a failed start (or a
   // second Enter) reuses it instead of creating another. Create is idempotent per id.
   const pendingCrewFeatureRef = useRef<{
@@ -1244,6 +1223,11 @@ export default function ChatView(props: ChatViewProps) {
           brief,
           workflowId,
           autoTitle: true,
+          // The feature works where this composer would start a thread.
+          workspace: sendEnvMode,
+          ...(sendEnvMode === "worktree" && activeThreadBranch
+            ? { baseBranch: activeThreadBranch }
+            : {}),
         },
       });
       if (created._tag !== "Success") return reportFailure(created);
@@ -2363,9 +2347,14 @@ export default function ChatView(props: ChatViewProps) {
   const setPendingServerThreadBranch = (branch: string | null) => {
     if (activeThread) setPendingServerThreadBranchEntry({ threadId: activeThread.id, branch });
   };
-  const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
-    : derivedEnvMode;
+  // A bot's default workflow counts as a pick until the person changes the workspace, so its
+  // feature gets its own worktree like a picked one does.
+  const followsDefaultWorkflow = draftWorkflowId !== null && !draftWorkflow.picked;
+  const envMode: DraftThreadEnvMode = followsDefaultWorkflow
+    ? "worktree"
+    : canOverrideServerThreadEnvMode
+      ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+      : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranchEntryForThread !== null
       ? pendingServerThreadBranchEntryForThread.branch
@@ -2594,6 +2583,12 @@ export default function ChatView(props: ChatViewProps) {
     resetLocalDispatch,
     scrollToEnd,
     persistThreadSettingsForNextTurn,
+  });
+  const crewNow = useCrewNowItems({
+    // A question open here already asks what the stage waits for.
+    stage: pendingUserInputs.length > 0 ? null : crewStage,
+    canOperate: canOperateThread,
+    onOpenThread: onOpenRelatedThreadStable,
   });
   const activeThreadHasCompactableConversation = serverVisibleTurnItems.some(
     ({ item }) =>
@@ -2981,7 +2976,7 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange,
     handleInteractionModeChangeStable,
     handleRuntimeModeChangeStable,
-    onEnvModeChangeStable,
+    onEnvModeChangeStable: onComposerEnvModeChange,
     onProviderModelSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
@@ -3006,6 +3001,12 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+  });
+  const onEnvModeChangeStable = useStableCallback((mode: DraftThreadEnvMode) => {
+    if (followsDefaultWorkflow && draftId && draftWorkflowId) {
+      useCrewDraftStore.getState().setWorkflow(draftId, draftWorkflowId);
+    }
+    onComposerEnvModeChange(mode);
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,
@@ -3243,8 +3244,13 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
+  const nowAttention = [attentionNow, crewNow].filter((item) => item !== null);
+  const nowWork = [workNow].filter((item) => item !== null);
   const hasThreadNow =
-    attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
+    nowAttention.length > 0 ||
+    nowWork.length > 0 ||
+    goalNow !== null ||
+    shownThreadSyncPhase !== null;
   const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
   // The queue control is mounted for every server thread but joins the footer only while it shows
   // something, by its own rule: an optimistic message stops counting once the server has it.
@@ -3256,7 +3262,11 @@ export default function ChatView(props: ChatViewProps) {
         !serverProjection?.messages.some((committed) => committed.id === message.id),
     );
   const scrollToEndSummary =
-    [childInputNow?.waitingLabel ?? null, queuedRunCount === 0 ? null : `${queuedRunCount} queued`]
+    [
+      childInputNow?.waitingLabel ?? null,
+      crewNow === null ? null : "Crew waiting",
+      queuedRunCount === 0 ? null : `${queuedRunCount} queued`,
+    ]
       .filter((part) => part !== null)
       .join(" · ") || null;
   // The end of the timeline holds the thread's present and next turns: what it is doing now,
@@ -3280,8 +3290,8 @@ export default function ChatView(props: ChatViewProps) {
         )}
         <ThreadNow
           key={routeThreadKey}
-          attention={attentionNow}
-          work={workNow}
+          attention={nowAttention}
+          work={nowWork}
           syncPhase={shownThreadSyncPhase}
           goal={goalNow}
         />
@@ -3402,6 +3412,7 @@ export default function ChatView(props: ChatViewProps) {
     />
   ) : null;
   const panelToggleControlProps = {
+    mainViewControl: <MainViewToggle />,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3505,13 +3516,6 @@ export default function ChatView(props: ChatViewProps) {
             />
           </header>
         )}
-        {isServerThread && activeProject && isCrewThreadId(activeThread.id) && !crewStage?.crew ? (
-          <CrewRunStatusStrip
-            environmentId={activeThread.environmentId}
-            projectId={activeProject.id}
-            threadId={activeThread.id}
-          />
-        ) : null}
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <ThreadFindCanvas
@@ -3735,15 +3739,8 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              crewBanner={
-                                crewStage?.prompt ? (
-                                  <CrewStageBanner />
-                                ) : crewStage?.waiting ? (
-                                  <CrewWaitingBanner />
-                                ) : null
-                              }
                               renderWorkflowPicker={renderWorkflowPicker}
-                              renderCrewControl={renderCrewControl}
+                              workflowPicked={draftWorkflowId !== null}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}

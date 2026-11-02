@@ -2,10 +2,8 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-board";
 import {
-  ISSUE_LANE_LABELS,
   featureForIssue,
   featuresByIssue,
-  issueLane,
   ticketIssue,
   type EnvironmentIssue,
 } from "@t3tools/client-runtime/state/issue-board";
@@ -18,17 +16,19 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { ticketRef, type EnvironmentId, type IssueDetail, type Ticket } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  ChevronDownIcon,
   CircleDotIcon,
+  EllipsisIcon,
   ExternalLinkIcon,
   ListTreeIcon,
   MilestoneIcon,
   NotebookTextIcon,
   PlayIcon,
   RefreshCwIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
-import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
@@ -39,11 +39,12 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import ChatMarkdown from "../ChatMarkdown";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { Button } from "../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { featureOwnerLine, featureStatus } from "./FeatureCard";
+import { FeatureIssueIcon } from "../crew/FeatureIssue";
+import { featureStatus } from "./FeatureCard";
 import { cn } from "../../lib/utils";
 import {
   closeTodo,
@@ -54,25 +55,36 @@ import {
 } from "./todoDialogs";
 
 /**
- * Starts a feature on a todo: a new thread in its project whose brief names it. The composer's
- * Workflow picker starts it, and creating the feature links the issue's URL or the ticket's
- * `Ticket T-<number>` line.
+ * Starts a feature in a new thread's composer, in a new worktree: its Workflow picker starts it
+ * on the bot's default workflow, and the first message is the brief. A todo's brief names it, by
+ * the issue's URL or a `Ticket T-<number>` line, so creating the feature links it.
  */
-export function useStartFeatureFromTodo() {
+export function useStartFeatureDraft() {
   const newThread = useNewThreadHandler();
-  return async (todo: EnvironmentIssue, description?: string) => {
-    const created = await newThread(scopeProjectRef(todo.environmentId, todo.projectId));
-    if (!created) return;
-    const drafts = useComposerDraftStore.getState();
-    const brief = todo.ticketId
-      ? [todo.title, description?.trim(), `Ticket ${ticketRef(todo)}`].filter(Boolean).join("\n\n")
-      : `${todo.title}\n\n${todo.url}`;
-    // A reused draft keeps what was already written.
-    const existing = drafts.getComposerDraft(created.draftId)?.prompt.trim() ?? "";
-    drafts.setPrompt(created.draftId, existing ? `${existing}\n\n${brief}` : brief);
+  return (
+    project: TodoOwner,
+    todo?: { readonly issue: EnvironmentIssue; readonly description?: string | undefined },
+  ) => {
     closeTodo();
+    const brief = !todo
+      ? ""
+      : todo.issue.ticketId
+        ? [todo.issue.title, todo.description?.trim(), `Ticket ${ticketRef(todo.issue)}`]
+            .filter(Boolean)
+            .join("\n\n")
+        : `${todo.issue.title}\n\n${todo.issue.url}`;
+    void newThread(scopeProjectRef(project.environmentId, project.projectId), {
+      envMode: "worktree",
+      feature: true,
+      ...(brief ? { prompt: brief } : {}),
+    });
   };
 }
+
+const todoProject = (issue: EnvironmentIssue): TodoOwner => ({
+  environmentId: issue.environmentId,
+  projectId: issue.projectId,
+});
 
 const failureText = (result: Parameters<typeof squashAtomCommandFailure>[0], fallback: string) => {
   const failure = squashAtomCommandFailure(result);
@@ -97,7 +109,7 @@ export function TodoDetailHost() {
     : "";
   return (
     <Sheet open={target !== null} onOpenChange={(open) => (open ? undefined : closeTodo())}>
-      <SheetPopup side="right" className="w-[min(94vw,56rem)] max-w-[56rem]">
+      <SheetPopup side="right" className="w-[min(94vw,40rem)] max-w-[40rem]">
         {shown ? <TodoDetail key={key} target={shown} /> : null}
       </SheetPopup>
     </Sheet>
@@ -124,7 +136,10 @@ function TodoDetail({ target }: { readonly target: TodoTarget }) {
       return tickets.data === null && !tickets.error ? (
         <DetailSkeleton />
       ) : (
-        <Gone text={tickets.error ?? "This ticket was moved or deleted."} />
+        <Gone
+          text={tickets.error ?? "This ticket was moved or deleted."}
+          failed={tickets.error != null}
+        />
       );
     }
     const row = ticketIssue(ticket, environmentId);
@@ -158,68 +173,65 @@ function DetailSkeleton() {
   );
 }
 
-function Gone(props: { readonly text: string }) {
+/** A todo that is gone, or one that couldn't be read, which is a different problem. */
+function Gone(props: { readonly text: string; readonly failed?: boolean }) {
   return (
     <div className="p-6">
-      <SheetTitle>Todo not found</SheetTitle>
+      <SheetTitle>{props.failed ? "Couldn't load this todo" : "Todo not found"}</SheetTitle>
       <p className="mt-2 text-sm text-muted-foreground">{props.text}</p>
     </div>
   );
 }
 
-/** The sheet's two columns: the todo itself, and its properties and actions. */
+/** One column: a header with the todo's place and actions, then the todo as a document. */
 function DetailLayout(props: {
-  readonly banner?: ReactNode;
   readonly crumb: ReactNode;
-  readonly main: ReactNode;
-  readonly side: ReactNode;
+  readonly actions: ReactNode;
+  readonly children: ReactNode;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {props.banner}
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_15rem]">
-        <div className="flex min-w-0 flex-col gap-3 p-6 md:border-e md:border-border">
-          <div className="flex items-center gap-1.5 pe-8 text-xs text-muted-foreground">
-            {props.crumb}
-          </div>
-          {props.main}
-        </div>
-        {/* Without a banner, the side column's top sits under the sheet's close button. */}
-        <div className={cn("flex min-w-0 flex-col gap-1 p-4 text-sm", !props.banner && "md:pt-12")}>
-          {props.side}
-        </div>
+      {/* The end padding leaves room for the sheet's close button. */}
+      <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border ps-5 pe-12 text-xs text-muted-foreground">
+        {props.crumb}
+        <div className="ms-auto flex shrink-0 items-center gap-1">{props.actions}</div>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 pt-5 pb-8 *:shrink-0">
+        {props.children}
       </div>
     </div>
   );
 }
 
-function Property(props: { readonly label: string; readonly children: ReactNode }) {
+const chipClassName =
+  "inline-flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/70 px-2 text-xs text-muted-foreground";
+
+function Chip(props: { readonly children: ReactNode }) {
+  return <span className={chipClassName}>{props.children}</span>;
+}
+
+function MoreActions(props: { readonly children: ReactNode }) {
   return (
-    <div className="grid min-h-8 grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-2">
-      <span className="text-muted-foreground">{props.label}</span>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">{props.children}</div>
-    </div>
+    <Menu>
+      <MenuTrigger
+        render={
+          <Button size="icon-xs" variant="ghost-muted" aria-label="More actions">
+            <EllipsisIcon aria-hidden />
+          </Button>
+        }
+      />
+      <MenuPopup align="end">{props.children}</MenuPopup>
+    </Menu>
   );
 }
 
-/** The feature working on a todo, which opens it; or a Start button for an open todo. */
-function FeatureProperty(props: {
-  readonly feature: EnvironmentFeatureCard | null;
-  readonly onStart: (() => void) | null;
-}) {
+/** The feature working on a todo, as its live status; opening it shows the feature's thread. */
+function FeatureChip(props: { readonly feature: EnvironmentFeatureCard | null }) {
   const navigate = useNavigate();
   const { feature } = props;
-  if (!feature) {
-    return props.onStart ? (
-      <Button size="xs" variant="outline" onClick={props.onStart}>
-        <PlayIcon aria-hidden />
-        Start feature
-      </Button>
-    ) : (
-      <span className="text-muted-foreground">None</span>
-    );
-  }
+  if (!feature) return <Chip>No feature yet</Chip>;
   const status = featureStatus(feature, undefined);
+  const StatusIcon = status.icon;
   const threadId = feature.threadId;
   return (
     <Tooltip>
@@ -236,20 +248,28 @@ function FeatureProperty(props: {
                 params: { environmentId: feature.environmentId, threadId },
               });
             }}
-            className="inline-flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border/70 px-1.5 text-xs text-muted-foreground hover:border-border hover:text-foreground"
+            className={cn(
+              chipClassName,
+              "cursor-pointer hover:border-border hover:text-foreground",
+            )}
           />
         }
       >
-        <span
-          aria-hidden
-          className={cn("size-1.5 shrink-0 rounded-full bg-current", status.className)}
-        />
-        <span className="truncate">{featureOwnerLine(feature)}</span>
+        <StatusIcon aria-hidden className={cn("size-3.5 shrink-0", status.className)} />
+        <span className="font-medium text-foreground">{status.label}</span>
+        <span className="truncate">{feature.title}</span>
       </TooltipTrigger>
-      <TooltipPopup>
-        {feature.title} · {status.label}
-      </TooltipPopup>
+      <TooltipPopup>Open the feature</TooltipPopup>
     </Tooltip>
+  );
+}
+
+function StartFeatureButton(props: { readonly onStart: () => void }) {
+  return (
+    <Button size="xs" onClick={props.onStart}>
+      <PlayIcon aria-hidden />
+      Start feature
+    </Button>
   );
 }
 
@@ -277,10 +297,9 @@ function TicketDetail(props: {
   const [description, setDescription] = useState(ticket.description);
   const [busy, setBusy] = useState<"save" | "move" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const startFeature = useStartFeatureFromTodo();
   const row = ticketIssue(ticket, props.environmentId);
   const target = { environmentId: props.environmentId };
-  const lane = issueLane(row, feature);
+  const startFeature = useStartFeatureDraft();
 
   const update = async (patch: {
     readonly title?: string;
@@ -358,61 +377,75 @@ function TicketDetail(props: {
     }
   };
 
+  const status = ticketStatus(ticket);
   return (
     <DetailLayout
       crumb={
         <>
           <span className="truncate">{props.project?.title}</span>
           <span aria-hidden>›</span>
-          <NotebookTextIcon aria-hidden className="size-3.5" />
-          <span className="font-mono">{ticketRef(ticket)}</span>
+          <NotebookTextIcon aria-hidden className="size-3.5 shrink-0" />
+          <span className="shrink-0 font-mono">{ticketRef(ticket)}</span>
         </>
       }
-      main={
+      actions={
         <>
-          <SheetTitle className="sr-only">{ticket.title}</SheetTitle>
-          <input
-            aria-label="Title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            onBlur={saveTitle}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-            className="w-full bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground"
-          />
-          <div
-            onBlur={(event) => {
-              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-              saveDescription(description);
-            }}
-          >
-            <InstructionsEditor
-              label="Description"
-              value={description}
-              onChange={changeDescription}
-              placeholder="Add a description…"
-              size="lg"
+          {ticket.state === "open" && !feature ? (
+            <StartFeatureButton
+              onStart={() => startFeature(todoProject(row), { issue: row, description })}
             />
-          </div>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {busy === "save" ? "Saving…" : `Updated ${formatRelativeTimeLabel(ticket.updatedAt)}`}
-            </p>
-          )}
+          ) : null}
+          <MoreActions>
+            {props.canFileIssues ? (
+              <MenuItem disabled={busy !== null} onClick={() => void move()}>
+                <CircleDotIcon aria-hidden />
+                Move to GitHub issue
+              </MenuItem>
+            ) : null}
+            <MenuItem variant="destructive" disabled={busy !== null} onClick={() => void remove()}>
+              <Trash2Icon aria-hidden />
+              Delete ticket
+            </MenuItem>
+          </MoreActions>
         </>
       }
-      side={
-        <>
-          <Property label="Status">
-            <Select
-              value={ticketStatus(ticket)}
+    >
+      <SheetTitle className="sr-only">{ticket.title}</SheetTitle>
+      <textarea
+        aria-label="Title"
+        rows={1}
+        value={title}
+        onChange={(event) => setTitle(event.target.value.replace(/\n/g, " "))}
+        onBlur={saveTitle}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          event.currentTarget.blur();
+        }}
+        className="field-sizing-content w-full resize-none bg-transparent text-xl font-semibold leading-snug outline-none placeholder:text-muted-foreground"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Menu>
+          <MenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Status"
+                className={cn(
+                  chipClassName,
+                  "cursor-pointer hover:border-border hover:text-foreground",
+                )}
+              />
+            }
+          >
+            <span className="font-medium text-foreground">{TICKET_STATUSES[status]}</span>
+            <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
+          </MenuTrigger>
+          <MenuPopup align="start">
+            <MenuRadioGroup
+              value={status}
               onValueChange={(value) => {
-                if (value === null || value === ticketStatus(ticket)) return;
+                if (value === status) return;
                 void update(
                   value === "open"
                     ? { state: "open" }
@@ -420,49 +453,42 @@ function TicketDetail(props: {
                 );
               }}
             >
-              <SelectTrigger aria-label="Status" size="xs" className="min-w-0">
-                <SelectValue>{TICKET_STATUSES[ticketStatus(ticket)]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {Object.entries(TICKET_STATUSES).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          </Property>
-          <Property label="Lane">{ISSUE_LANE_LABELS[lane]}</Property>
-          <Property label="Feature">
-            <FeatureProperty
-              feature={feature}
-              onStart={ticket.state === "open" ? () => void startFeature(row, description) : null}
-            />
-          </Property>
-          <Property label="Created">{formatRelativeTimeLabel(ticket.createdAt)}</Property>
-          <div className="my-2 h-px bg-border" />
-          {props.canFileIssues ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy !== null}
-              onClick={() => void move()}
-            >
-              <CircleDotIcon aria-hidden />
-              Move to GitHub issue
-            </Button>
-          ) : null}
-          <Button
-            variant="destructive-outline"
-            size="sm"
-            disabled={busy !== null}
-            onClick={() => void remove()}
-          >
-            Delete
-          </Button>
-        </>
-      }
-    />
+              {Object.entries(TICKET_STATUSES).map(([value, label]) => (
+                <MenuRadioItem key={value} value={value}>
+                  {label}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
+        <FeatureChip feature={feature} />
+        <Chip>Created {formatRelativeTimeLabel(ticket.createdAt)}</Chip>
+      </div>
+      <div
+        onBlur={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          saveDescription(description);
+        }}
+      >
+        <InstructionsEditor
+          label="Description"
+          value={description}
+          onChange={changeDescription}
+          placeholder="Add a description…"
+          size="lg"
+          variant="document"
+        />
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : (
+        <p className="mt-auto border-t border-border pt-3 text-xs text-muted-foreground">
+          {busy === "save" ? "Saving…" : `Updated ${formatRelativeTimeLabel(ticket.updatedAt)}`}
+        </p>
+      )}
+    </DetailLayout>
   );
 }
 
@@ -487,10 +513,10 @@ function GitHubIssueDetail(props: {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const startFeature = useStartFeatureFromTodo();
+  const startFeature = useStartFeatureDraft();
   const issue = detail.data;
   if (!issue) {
-    return detail.error ? <Gone text={detail.error} /> : <DetailSkeleton />;
+    return detail.error ? <Gone text={detail.error} failed /> : <DetailSkeleton />;
   }
   const row: EnvironmentIssue = { ...issue, ...owner, ticketId: null };
   const feature = props.featureFor(row);
@@ -522,21 +548,26 @@ function GitHubIssueDetail(props: {
     />
   );
 
+  const open = issue.state === "open";
   return (
     <DetailLayout
-      banner={
-        <div className="flex items-center gap-2 border-b border-border bg-muted/40 py-1.5 ps-6 pe-12 text-xs text-muted-foreground">
-          <CircleDotIcon aria-hidden className="size-3.5" />
-          <span className="truncate">
-            {repository} · read from GitHub {formatRelativeTimeLabel(issue.readAt)}
-          </span>
+      crumb={
+        <>
+          <span className="truncate">{props.project?.title}</span>
+          <span aria-hidden>›</span>
+          <FeatureIssueIcon issue={row} className="size-3.5" />
+          <span className="shrink-0 font-mono">#{issue.number}</span>
+        </>
+      }
+      actions={
+        <>
           <Button
             size="icon-xs"
             variant="ghost-muted"
-            aria-label="Refresh"
+            aria-label="Refresh from GitHub"
+            title={`${repository} · read from GitHub ${formatRelativeTimeLabel(issue.readAt)}`}
             disabled={detail.isPending}
             onClick={detail.refresh}
-            className="ms-auto"
           >
             <RefreshCwIcon aria-hidden />
           </Button>
@@ -546,139 +577,114 @@ function GitHubIssueDetail(props: {
             onClick={() => void readLocalApi()?.shell.openExternal(issue.url)}
           >
             <ExternalLinkIcon aria-hidden />
-            Open on GitHub
+            GitHub
           </Button>
-        </div>
-      }
-      crumb={
-        <>
-          <span className="truncate">{props.project?.title}</span>
-          <span aria-hidden>›</span>
-          <span className="font-mono">#{issue.number}</span>
+          {open && !feature ? (
+            <StartFeatureButton onStart={() => startFeature(todoProject(row), { issue: row })} />
+          ) : null}
+          <MoreActions>
+            <MenuItem disabled={busy} onClick={() => void setState(open ? "closed" : "open")}>
+              {open ? "Close issue" : "Reopen issue"}
+            </MenuItem>
+          </MoreActions>
         </>
       }
-      main={
-        <>
-          <SheetTitle className="sr-only">{issue.title}</SheetTitle>
-          <h2 className="text-xl font-semibold leading-snug">{issue.title}</h2>
-          <p className="text-xs text-muted-foreground">
-            {issue.author?.login ?? "Someone"} opened this{" "}
-            {formatRelativeTimeLabel(issue.createdAt)}
-          </p>
-          {issue.body.trim() ? (
-            markdown(issue.body)
-          ) : (
-            <p className="text-sm text-muted-foreground">No description.</p>
-          )}
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-          <div className="mt-2 flex flex-col gap-3 border-t border-border pt-4">
-            <h3 className="text-sm font-medium">
-              {issue.commentCount === 1 ? "1 comment" : `${issue.commentCount} comments`}
-            </h3>
-            {issue.comments.map((comment) => (
-              <div key={comment.url} className="rounded-lg border border-border/70 p-3">
-                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  {comment.author ? (
-                    <img
-                      src={comment.author.avatarUrl}
-                      alt=""
-                      loading="lazy"
-                      className="size-5 rounded-full bg-muted"
-                    />
-                  ) : null}
-                  <span className="font-medium text-foreground">
-                    {comment.author?.login ?? "ghost"}
-                  </span>
-                  <span>{formatRelativeTimeLabel(comment.createdAt)}</span>
-                </div>
-                {markdown(comment.body)}
-              </div>
-            ))}
-            {issue.commentCount > issue.comments.length ? (
-              <Button
-                variant="ghost-muted"
-                size="sm"
-                onClick={() => void readLocalApi()?.shell.openExternal(issue.url)}
-              >
-                {issue.commentCount - issue.comments.length} more on GitHub
-              </Button>
-            ) : null}
-          </div>
-        </>
-      }
-      side={
-        <>
-          <Property label="Status">
-            {issue.state === "open"
-              ? "Open"
-              : ISSUE_CLOSED_LABELS[issue.closedReason ?? "completed"]}
-          </Property>
-          <Property label="Lane">{ISSUE_LANE_LABELS[issueLane(row, feature)]}</Property>
-          {issue.labels.length > 0 ? (
-            <Property label="Labels">
-              {issue.labels.map((label) => (
-                <span
-                  key={label.name}
-                  className="inline-flex h-5 max-w-full items-center gap-1 rounded-full border border-border/70 px-1.5 text-2xs text-muted-foreground"
-                >
-                  <span
-                    aria-hidden
-                    className="size-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: `#${label.color}` }}
-                  />
-                  <span className="truncate">{label.name}</span>
-                </span>
-              ))}
-            </Property>
-          ) : null}
-          {issue.assignees.length > 0 ? (
-            <Property label="Assignees">
-              {issue.assignees.map((assignee) => (
-                <span key={assignee.login} className="inline-flex items-center gap-1.5">
+    >
+      <SheetTitle className="sr-only">{issue.title}</SheetTitle>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-xl font-semibold leading-snug">{issue.title}</h2>
+        <p className="text-xs text-muted-foreground">
+          {issue.author?.login ?? "Someone"} opened this {formatRelativeTimeLabel(issue.createdAt)}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Chip>
+          <span className="font-medium text-foreground">
+            {open ? "Open" : ISSUE_CLOSED_LABELS[issue.closedReason ?? "completed"]}
+          </span>
+        </Chip>
+        <FeatureChip feature={feature} />
+        {issue.milestone ? (
+          <Chip>
+            <MilestoneIcon aria-hidden className="size-3.5 shrink-0" />
+            <span className="truncate">{issue.milestone.title}</span>
+          </Chip>
+        ) : null}
+        {issue.subIssues ? (
+          <Chip>
+            <ListTreeIcon aria-hidden className="size-3.5 shrink-0" />
+            {issue.subIssues.completed}/{issue.subIssues.total}
+          </Chip>
+        ) : null}
+        {issue.labels.map((label) => (
+          <Chip key={label.name}>
+            <span
+              aria-hidden
+              className="size-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: `#${label.color}` }}
+            />
+            <span className="truncate">{label.name}</span>
+          </Chip>
+        ))}
+        {issue.assignees.map((assignee) => (
+          <Chip key={assignee.login}>
+            <img
+              src={assignee.avatarUrl}
+              alt=""
+              loading="lazy"
+              className="size-4 shrink-0 rounded-full bg-muted"
+            />
+            {assignee.login}
+          </Chip>
+        ))}
+      </div>
+      <div className="mt-2">
+        {issue.body.trim() ? (
+          markdown(issue.body)
+        ) : (
+          <p className="text-sm text-muted-foreground">No description.</p>
+        )}
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {issue.commentCount > 0 ? (
+        <section className="mt-4 flex flex-col">
+          <h3 className="pb-2 text-xs text-muted-foreground">
+            {issue.commentCount === 1 ? "1 comment" : `${issue.commentCount} comments`}
+          </h3>
+          {issue.comments.map((comment) => (
+            <div key={comment.url} className="border-t border-border py-3">
+              <div className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                {comment.author ? (
                   <img
-                    src={assignee.avatarUrl}
+                    src={comment.author.avatarUrl}
                     alt=""
                     loading="lazy"
-                    className="size-4 rounded-full bg-muted"
+                    className="size-5 rounded-full bg-muted"
                   />
-                  {assignee.login}
+                ) : null}
+                <span className="font-medium text-foreground">
+                  {comment.author?.login ?? "ghost"}
                 </span>
-              ))}
-            </Property>
+                <span>{formatRelativeTimeLabel(comment.createdAt)}</span>
+              </div>
+              <div className="ps-7">{markdown(comment.body)}</div>
+            </div>
+          ))}
+          {issue.commentCount > issue.comments.length ? (
+            <Button
+              variant="ghost-muted"
+              size="sm"
+              onClick={() => void readLocalApi()?.shell.openExternal(issue.url)}
+            >
+              {issue.commentCount - issue.comments.length} more on GitHub
+            </Button>
           ) : null}
-          {issue.milestone ? (
-            <Property label="Milestone">
-              <MilestoneIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">{issue.milestone.title}</span>
-            </Property>
-          ) : null}
-          {issue.subIssues ? (
-            <Property label="Sub-issues">
-              <ListTreeIcon aria-hidden className="size-3.5 text-muted-foreground" />
-              {issue.subIssues.completed} / {issue.subIssues.total}
-            </Property>
-          ) : null}
-          <Property label="Feature">
-            <FeatureProperty
-              feature={feature}
-              onStart={issue.state === "open" ? () => void startFeature(row) : null}
-            />
-          </Property>
-          <div className="my-2 h-px bg-border" />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => void setState(issue.state === "open" ? "closed" : "open")}
-          >
-            {issue.state === "open" ? "Close issue" : "Reopen issue"}
-          </Button>
-        </>
-      }
-    />
+        </section>
+      ) : null}
+    </DetailLayout>
   );
 }

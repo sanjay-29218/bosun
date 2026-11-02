@@ -69,8 +69,7 @@ import { projectEnvironment } from "../../state/projects";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectCloneBanner } from "./ProjectCloneBanner";
-import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
-import { botsEnvironment, useActiveBot } from "../../state/bots";
+import { useActiveBot } from "../../state/bots";
 import { featuresEnvironment } from "../../state/features";
 import { useSetThreadListView } from "../home/use-thread-list-view";
 import { useEnvironmentQuery } from "../../state/query";
@@ -210,28 +209,16 @@ export function NewTaskDraftScreen(props: {
         })
       : null,
   ).data;
-  // Until you pick one, the workflow is the default of the bot that owns the project.
-  const projectBots = useEnvironmentQuery(
-    crewEnabled &&
-      selectedProject &&
-      selectedEnvironmentServerConfig?.environment.capabilities.bots === true
-      ? botsEnvironment.list({ environmentId: selectedProject.environmentId, input: {} })
-      : null,
-  ).data;
-  const botDefaultWorkflowId =
-    selectedProject === null
-      ? null
-      : (projectBots?.find((bot) => bot.id === projectBotId(selectedProject))?.defaultWorkflowId ??
-        null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<{
     readonly projectKey: string;
     /** Null when you chose No workflow. */
     readonly workflowId: string | null;
   } | null>(null);
+  // A new task is a plain thread until you pick a workflow.
   const workflowId =
     selectedWorkflow !== null && selectedWorkflow.projectKey === selectedProjectKey
       ? selectedWorkflow.workflowId
-      : botDefaultWorkflowId;
+      : null;
   const workflow =
     workflowId === null
       ? null
@@ -624,6 +611,11 @@ export function NewTaskDraftScreen(props: {
           brief,
           workflowId,
           autoTitle: true,
+          // The feature works where this screen would start a thread.
+          workspace: flow.workspaceMode,
+          ...(flow.workspaceMode === "worktree" && selectedBranchName
+            ? { baseBranch: selectedBranchName }
+            : {}),
         },
       });
       if (created._tag !== "Success") return;

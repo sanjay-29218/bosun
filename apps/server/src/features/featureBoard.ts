@@ -38,7 +38,10 @@ export const featureBoardCard = (input: {
 }): FeatureBoardCard => {
   const { feature, copy, state, events, execution } = input;
   const queuedAt = execution?.queuedAt ?? null;
-  const cardState = featureCardState(state, queuedAt !== null);
+  // A start that failed before its stage launched (its worktree, say) leaves only the error.
+  const startFailed =
+    execution?.lastError != null && featureCardState(state, queuedAt !== null) === "working";
+  const cardState = startFailed ? "failed" : featureCardState(state, queuedAt !== null);
   const position = featureStage(copy.definition, state);
   const step = position ? copy.definition.steps[position.stepId] : undefined;
   const stepState = position ? state.steps.get(position.stepId) : undefined;
@@ -55,6 +58,7 @@ export const featureBoardCard = (input: {
     featureId: feature.id,
     projectId: feature.projectId,
     title: feature.title,
+    ...(feature.number !== undefined ? { number: feature.number } : {}),
     issue: feature.issue,
     workflow: {
       id: copy.definition.id,

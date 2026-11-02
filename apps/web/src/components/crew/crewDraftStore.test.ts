@@ -1,13 +1,33 @@
-import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
+import { CAPTAIN_BOT_ID, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { DraftId } from "../../composerDraftStore";
-import { botDefaultWorkflowId, resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
+import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
+import {
+  botDefaultWorkflowId,
+  resolveDraftWorkflowId,
+  unpickedDraftWorkflowId,
+  useCrewDraftStore,
+} from "./crewDraftStore";
 
 const pickFor = (draftId: string) =>
   useCrewDraftStore.getState().workflowByDraftId[draftId as DraftId];
 
 describe("draft workflow", () => {
+  it("puts a draft that picks a workflow in a new worktree", () => {
+    const draftId = "draft-worktree" as DraftId;
+    const composer = useComposerDraftStore.getState();
+    composer.setProjectDraftThreadId(
+      scopeProjectRef(EnvironmentId.make("environment-1"), ProjectId.make("project-1")),
+      draftId,
+      { threadId: ThreadId.make("thread-worktree"), envMode: "local" },
+    );
+    useCrewDraftStore.getState().setWorkflow(draftId, null);
+    expect(composer.getDraftThread(draftId)?.envMode).toBe("local");
+    useCrewDraftStore.getState().setWorkflow(draftId, "bug-fix");
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.envMode).toBe("worktree");
+  });
+
   it("follows the default until a pick, and a pick of None sticks", () => {
     const draftId = "draft-1" as DraftId;
     expect(resolveDraftWorkflowId(pickFor(draftId), "ship-a-feature")).toBe("ship-a-feature");
@@ -36,5 +56,20 @@ describe("bot default workflow", () => {
     expect(botDefaultWorkflowId(bots, { botId: "bot-social" })).toBeNull();
     // A bot this client hasn't loaded yet gives no default rather than Captain's.
     expect(botDefaultWorkflowId(bots, { botId: "bot-finance" })).toBeNull();
+  });
+
+  it("starts New feature's drafts on it, else the first workflow, and plain threads on none", () => {
+    const feature = { featureDraft: true, firstWorkflow: "bug-fix" };
+    expect(unpickedDraftWorkflowId({ ...feature, botDefault: "ship-a-feature" })).toBe(
+      "ship-a-feature",
+    );
+    expect(unpickedDraftWorkflowId({ ...feature, botDefault: null })).toBe("bug-fix");
+    expect(
+      unpickedDraftWorkflowId({
+        featureDraft: false,
+        botDefault: "ship-a-feature",
+        firstWorkflow: "bug-fix",
+      }),
+    ).toBeNull();
   });
 });

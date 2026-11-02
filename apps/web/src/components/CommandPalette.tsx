@@ -59,8 +59,8 @@ import {
   ChartNoAxesColumnIcon,
   ClockIcon,
   KanbanIcon,
+  LayoutGridIcon,
   LayersIcon,
-  ListIcon,
   ListTodoIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -85,9 +85,11 @@ import {
   UnlinkIcon,
   UserPlusIcon,
   WorkflowIcon,
+  TextAlignJustifyIcon,
 } from "lucide-react";
 import { openNewTodoDialog } from "./features/todoDialogs";
 import {
+  CREW_ACTION_COPY,
   featureStageRows,
   formatStageName,
   sendBackTargets,
@@ -96,10 +98,10 @@ import {
 import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
 import { botsEnvironment } from "../state/bots";
 import { workflowsEnvironment } from "../state/workflows";
-import { useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
+import { headquartersMember, useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
+import { startBotNewSession } from "./bots/startBotNewSession";
 import { BotAvatar } from "./BotAvatar";
 import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
-import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
 import { botDefaultWorkflowId, useCrewDraftStore } from "./crew/crewDraftStore";
 import { useCrewStage } from "./crew/useCrewStage";
 import { openThreadFind } from "./chat/threadFindStore";
@@ -1570,8 +1572,8 @@ function OpenCommandPaletteDialog(props: {
       await stage.run(action, input);
     };
     for (const action of stage.actions) {
-      // Mark stage done needs an outcome, which only the banner asks for.
-      if (action === "mark-done") continue;
+      // An answer and Mark stage done's outcome come from the stage's question.
+      if (action === "answer" || action === "mark-done") continue;
       const copy = CREW_ACTION_COPY[action];
       if (action === "reopen" && snapshot.completed) {
         // A finished feature reopens as a follow-up at a stage you pick.
@@ -1817,9 +1819,9 @@ function OpenCommandPaletteDialog(props: {
         searchTerms: ["board", "list", "features", "kanban", "threads", "crew", "workflow", "view"],
         title: onBoard ? "Switch to List" : "Switch to Board",
         icon: onBoard ? (
-          <ListIcon className={ITEM_ICON_CLASS} />
+          <TextAlignJustifyIcon className={ITEM_ICON_CLASS} />
         ) : (
-          <KanbanIcon className={ITEM_ICON_CLASS} />
+          <LayoutGridIcon className={ITEM_ICON_CLASS} />
         ),
         shortcutCommand: "board.toggle",
         run: async () => {
@@ -2045,6 +2047,23 @@ function OpenCommandPaletteDialog(props: {
       icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
       run: async () => openBotHeadquarters(bot),
     });
+    const member = headquartersMember(bot, connectedEnvironmentIds, environmentFilter);
+    if (member) {
+      botItems.push({
+        kind: "action",
+        value: `bot-new-session:${bot.key}`,
+        searchTerms: [bot.name, "bot", "new session", "fresh", "context", "compact"],
+        title: (
+          <>
+            Start a new session for <span className="font-semibold">{bot.name}</span>
+          </>
+        ),
+        description: "It keeps the conversation and starts again from its instructions",
+        icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
+        run: async () =>
+          startBotNewSession(member.environmentId, { id: member.botId, name: bot.name }),
+      });
+    }
   }
   if (connectedEnvironmentIds.length > 1) {
     const environmentItems: CommandPaletteActionItem[] = [

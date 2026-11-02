@@ -66,6 +66,8 @@ export const WorkflowDefinition = Schema.Struct({
     maxStepExecutions: Schema.Int,
     /** Automatic retries before a stage fails. Absent uses the environment's Crew setting. */
     retries: Schema.optionalKey(Schema.Int),
+    /** Who approves gates and answers stage questions; absent means a person. */
+    decisions: Schema.optionalKey(Schema.Literals(["person", "lead"])),
   }),
   layout: Schema.optionalKey(WorkflowLayout),
 });
@@ -253,6 +255,7 @@ export const ThreadCrewRequestTag = Schema.Struct({
   member: Schema.String,
 });
 export type ThreadCrewRequestTag = typeof ThreadCrewRequestTag.Type;
+
 /**
  * A stage result a later stage can receive. `version` counts the producing step's
  * completed executions, so a reworked design is `design.md` version 2.

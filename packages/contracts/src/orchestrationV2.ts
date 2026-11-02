@@ -1228,6 +1228,11 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   decision: Schema.optional(ProviderApprovalDecision),
   feedback: Schema.optional(Schema.String),
   answers: Schema.optional(ProviderUserInputAnswers),
+  /**
+   * Server code that asked instead of a provider. Its answer resolves the request and goes to
+   * that owner; no message reaches the thread's agent.
+   */
+  owner: Schema.optional(Schema.Literal("workflow")),
 });
 export type OrchestrationV2RuntimeRequest = typeof OrchestrationV2RuntimeRequest.Type;
 
@@ -3311,6 +3316,8 @@ export const OrchestrationV2Command = Schema.Union([
     parentThreadId: ThreadId,
     parentRunId: RunId,
     parentNodeId: NodeId,
+    /** Runs the child in another project's checkout; the parent's project when omitted. */
+    projectId: Schema.optional(ProjectId),
     task: TrimmedNonEmptyString,
     title: Schema.optional(TrimmedNonEmptyString),
     modelSelection: ModelSelection,
@@ -3426,6 +3433,15 @@ const OrchestrationV2InternalCommand = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   /**
+   * Retires the thread's provider conversations, so its next turn starts a fresh one with no
+   * carried history. The thread's messages stay. Refused while a turn runs, waits, or is queued.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.conversation.restart"),
+    commandId: CommandId,
+    threadId: ThreadId,
+  }),
+  /**
    * Records a delegated task that runs in a linked environment: the task, its
    * node and its turn item on the parent, as `delegated_task.request` does,
    * without a child thread here. `remoteChild` is the thread already launched
@@ -3536,6 +3552,18 @@ const OrchestrationV2InternalCommand = Schema.Union([
     placeholder: Schema.optional(Schema.String),
     delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /**
+   * Opens a question that server code, not a provider, asks on a thread. Internal so no client
+   * can ask on the server's behalf. Answer and dismiss it like any question.
+   */
+  Schema.Struct({
+    type: Schema.Literal("user-input.open"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: RuntimeRequestId,
+    owner: Schema.Literal("workflow"),
+    questions: Schema.Array(OrchestrationV2UserInputQuestion),
   }),
   /**
    * Records or updates a link an agent asked the user to make. Internal so no

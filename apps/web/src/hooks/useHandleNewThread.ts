@@ -13,6 +13,7 @@ import {
   type DraftThreadState,
   useComposerDraftStore,
 } from "../composerDraftStore";
+import { useCrewDraftStore } from "../components/crew/crewDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
 import {
@@ -85,6 +86,8 @@ export function createNewThreadHandler(router: AnyRouter) {
       replace?: boolean;
       /** Composer text for the draft, set before it shows. A draft with user text keeps it. */
       prompt?: string;
+      /** Opened to start a feature, so the composer starts on a workflow; see crewDraftStore. */
+      feature?: boolean;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
     const projects = readProjects();
@@ -106,6 +109,8 @@ export function createNewThreadHandler(router: AnyRouter) {
     } = useComposerDraftStore.getState();
     // Never over text the user wrote: a draft can gain some while this awaits.
     const seedPrompt = (draftId: DraftId) => {
+      // One draft serves a project's new threads, so a plain one drops a feature's mark.
+      useCrewDraftStore.getState().setFeatureDraft(draftId, options?.feature === true);
       if (options?.prompt === undefined) return;
       if (composerDraftHasUserContent(getComposerDraft(draftId))) return;
       setPrompt(draftId, options.prompt);

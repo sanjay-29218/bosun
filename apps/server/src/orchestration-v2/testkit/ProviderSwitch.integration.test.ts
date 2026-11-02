@@ -3249,4 +3249,113 @@ describe("orchestration v2 provider switching", () => {
     "reissues imported v1 context when a queued provider starts after the first provider fails",
     () => importedFailureScenario(true),
   );
+  it.live(
+    "restarts a thread's conversation into a fresh provider thread with no carried context",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const cwd = yield* checkpointWorkspace("conversation-restart");
+          const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const restartThreadId = ThreadId.make("thread:conversation-restart");
+          const layerRegistry = ProviderAdapterRegistry.layerFromAdapters([
+            makeTestAdapter({
+              instanceId: CODEX_MODEL_SELECTION.instanceId,
+              driver: CODEX_DRIVER,
+              capabilities: CodexProviderCapabilitiesV2,
+              modelSelection: CODEX_MODEL_SELECTION,
+              responseByRunOrdinal: { 1: "First reply", 2: "Second reply" },
+              capturedTurns,
+              holdFirstTurn: started,
+              releaseFirstTurn: release,
+            }),
+          ]);
+          const projection = yield* Effect.gen(function* () {
+            const orchestrator = yield* Orchestrator.OrchestratorV2;
+            const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+            const restart = (suffix: string) =>
+              orchestrator.dispatch({
+                type: "thread.conversation.restart",
+                commandId: CommandId.make(`command:conversation-restart:${suffix}`),
+                threadId: restartThreadId,
+              });
+            const send = (suffix: string, text: string) =>
+              orchestrator.dispatch({
+                type: "message.dispatch",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make(`command:conversation-restart:${suffix}`),
+                threadId: restartThreadId,
+                messageId: MessageId.make(`message:conversation-restart:${suffix}`),
+                text,
+                attachments: [],
+                modelSelection: CODEX_MODEL_SELECTION,
+                dispatchMode: { type: "start_immediately" },
+              });
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              createdBy: "user",
+              creationSource: "web",
+              commandId: CommandId.make("command:conversation-restart:create"),
+              threadId: restartThreadId,
+              projectId: ProjectId.make("project:conversation-restart"),
+              title: "Conversation restart",
+              modelSelection: CODEX_MODEL_SELECTION,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: cwd,
+            });
+            yield* send("first", "First turn");
+            yield* Deferred.await(started);
+            yield* restart("busy").pipe(Effect.flip);
+            yield* Deferred.succeed(release, undefined);
+            yield* waitForIdle(restartThreadId);
+            yield* restart("idle");
+            yield* worker.drain();
+            const restarted = yield* orchestrator.getThreadProjection(restartThreadId);
+            assert.isNull(restarted.thread.activeProviderThreadId);
+            assert.deepEqual(
+              restarted.providerThreads.map((providerThread) => providerThread.status),
+              ["archived"],
+            );
+            yield* send("second", "Second turn");
+            yield* waitForIdle(restartThreadId);
+            yield* worker.drain();
+            return yield* orchestrator.getThreadProjection(restartThreadId);
+          }).pipe(
+            Effect.provide(
+              ProviderReplayHarness.layerWithRegistry(
+                {
+                  name: "conversation-restart",
+                  runtimePolicyOverride: {
+                    cwd,
+                    approvalPolicy: "never",
+                    sandboxPolicy: {
+                      type: "readOnly",
+                      access: { type: "fullAccess" },
+                      networkAccess: false,
+                    },
+                  },
+                },
+                layerRegistry,
+              ),
+            ),
+          );
+          const [first, second] = projection.runs;
+          assert.deepEqual(
+            projection.runs.map((run) => run.status),
+            ["completed", "completed"],
+          );
+          assert.notEqual(second?.providerThreadId, first?.providerThreadId);
+          assert.equal(projection.thread.activeProviderThreadId, second?.providerThreadId);
+          assert.lengthOf(projection.contextHandoffs, 0);
+          assert.deepEqual(
+            (yield* Ref.get(capturedTurns)).map((turn) => turn.text),
+            ["First turn", "Second turn"],
+          );
+        }),
+      ),
+  );
 });

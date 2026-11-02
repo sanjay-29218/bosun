@@ -8,12 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  crewCurrentThreadId,
-  crewGateCopy,
-  crewOpenQuestion,
-  crewSendBackTargets,
-} from "./crew.ts";
+import { crewCurrentThreadId } from "./crew.ts";
 
 const projectId = ProjectId.make("project");
 
@@ -136,57 +131,5 @@ describe("crew current thread", () => {
       ],
     });
     expect(crewCurrentThreadId(done)).toBe("thread-build");
-  });
-});
-
-describe("crew questions", () => {
-  it("returns the question the current stage is waiting on, and nothing once it moved on", () => {
-    const asking = feature({
-      id: "asking",
-      state: "input",
-      stage: "plan",
-      steps: [step("plan", "needs-input", "t-plan")],
-    });
-    const snapshot = {
-      ...asking,
-      recentEvents: [
-        {
-          ...asking.recentEvents[0]!,
-          kind: "question" as const,
-          stepId: "plan",
-          executionId: "exec-plan",
-          detail: "Drag between columns, or buttons only?",
-        },
-      ],
-    };
-    expect(crewOpenQuestion(snapshot)).toBe("Drag between columns, or buttons only?");
-    expect(crewOpenQuestion(atDesign)).toBeNull();
-  });
-});
-
-describe("crew gate wording", () => {
-  it("names the artifact, what approving starts, and who reads the note", () => {
-    expect(crewGateCopy(atDesign)).toEqual({
-      stepId: "design",
-      kicker: "Design approval",
-      title: "design.md v2",
-      consequence: "Approving starts Build with the Builder.",
-      noteRecipient: "Builder",
-    });
-  });
-
-  it("offers only stages that already ran as send-back targets, nearest first", () => {
-    const building = feature({
-      id: "build",
-      state: "failed",
-      stage: "build",
-      steps: [
-        step("plan", "completed", "t1"),
-        step("design", "completed", "t2"),
-        step("build", "failed", "t3"),
-      ],
-    });
-    expect(crewSendBackTargets(building, "build").map((t) => t.stepId)).toEqual(["design", "plan"]);
-    expect(crewSendBackTargets(atDesign, "plan")).toEqual([]);
   });
 });

@@ -299,7 +299,7 @@ describe("bot activity", () => {
     });
   });
 
-  it("counts a headquarters under its own bot, and nothing from servers without visits", () => {
+  it("counts a headquarters under its own bot, and nothing hidden or from servers without visits", () => {
     const activity = botActivityByBot(
       [
         shell(
@@ -309,6 +309,11 @@ describe("bot activity", () => {
           before,
         ),
         shell("old-server", "p-captain", { status: "failed", completedAt: after }, undefined),
+        // An earlier stage attempt the thread list hides can't be opened to clear it.
+        {
+          ...shell("old-attempt", "p-captain", { status: "failed", completedAt: after }, before),
+          crew: { current: false },
+        },
       ],
       projects,
     );

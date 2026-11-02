@@ -7,6 +7,7 @@ import type {
   WorkflowStepEvent,
 } from "@t3tools/contracts";
 
+import { NEEDS_INPUT } from "./StageTurn.ts";
 import type { StageThreadDiff } from "./WorkflowWorkspace.ts";
 
 /** The newest completed execution of each step, in completion order. */
@@ -169,10 +170,10 @@ export const previousFailure = (
   return { previousError: failed?.detail ?? "The previous attempt did not finish" };
 };
 
-// CrewHandoffService bounds delegated text. The task carries only the step's task.
+// Keeps every stage prompt small. The task carries only the step's task.
 const CONTEXT_LIMIT = 4_000;
 const MAX_NOTE = 1_500;
-const MORE = "Some of this handoff was shortened. Call crew_stage_handoff for the full record.";
+const MORE = "Some of this handoff was shortened to fit.";
 
 const clip = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
@@ -188,7 +189,7 @@ const describeOutput = (output: WorkflowStageOutput) =>
  * Renders the stage prompt from the handoff record alone. The text is deterministic,
  * so re-delegating after a restart matches the persisted request. When the record
  * does not fit, outputs, then notes, then the brief are shortened, and the crew member is
- * pointed at crew_stage_handoff.
+ * told so.
  */
 export const renderStageHandoff = (
   record: WorkflowStageHandoff,
@@ -221,8 +222,8 @@ export const renderStageHandoff = (
       notes ? `Notes:\n${notes}` : "",
       brief ? `Brief:\n${brief}` : "",
       more ? MORE : "",
-      `Report with crew_respond: completed, summary containing ONLY JSON {"outcome":"<one of: ${record.outcomes.join(", ")}>","summary":"<result and evidence>"}.`,
-      "Use crew_ask for questions. A final chat message does not complete this step.",
+      `When the stage is done, call crew_respond with outcome set to one of ${record.outcomes.join(", ")} and a summary of the result and its evidence.`,
+      `If a person must decide something first, call crew_respond with outcome "${NEEDS_INPUT}" and the question as the summary, then end your turn; the answer arrives in this thread. A final chat message does not complete this stage.`,
     ]
       .filter(Boolean)
       .join("\n\n");

@@ -75,13 +75,12 @@ export const BotAvatar = Schema.Struct({
 });
 export type BotAvatar = typeof BotAvatar.Type;
 
-/** A new bot's tools when its creator doesn't choose any. */
-export const DEFAULT_BOT_TOOLS: ReadonlyArray<string> = [
-  "crew.delegate",
-  "crew.status",
-  "crew.answer",
-  "crew.projects",
-];
+/**
+ * What a bot's headquarters does once its conversation grows long: let the provider compact it,
+ * or start a fresh session in the same thread at the next quiet moment.
+ */
+export const BotLongConversation = Schema.Literals(["compact", "new-session"]);
+export type BotLongConversation = typeof BotLongConversation.Type;
 
 export const Bot = Schema.Struct({
   id: Schema.String,
@@ -95,6 +94,7 @@ export const Bot = Schema.Struct({
   modelSelection: Schema.NullOr(ModelSelection),
   /** The workflow clients preselect when a feature starts in one of this bot's projects. */
   defaultWorkflowId: Schema.NullOr(Schema.String),
+  longConversation: BotLongConversation,
   /** Rail order, counted from 0. */
   position: Schema.Int,
   revision: Schema.Int,
@@ -114,6 +114,7 @@ export const BotCreateInput = Schema.Struct({
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultWorkflowId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotCreateInput = typeof BotCreateInput.Type;
 
@@ -129,6 +130,7 @@ export const BotUpdateInput = Schema.Struct({
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultWorkflowId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotUpdateInput = typeof BotUpdateInput.Type;
 
