@@ -17,8 +17,10 @@ import {
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import {
   AuthOrchestrationOperateScope,
+  type ChatAttachment,
   DEFAULT_MODEL,
   type EnvironmentId,
+  type OrchestrationMessageContext,
   type ModelSelection,
   type PreviewAnnotationPayload,
   type ThreadId,
@@ -100,14 +102,7 @@ import {
 import { usePlanFollowUpSend } from "./useProposedPlanSend";
 import { useMultipleModelSend } from "./useMultipleModelSend";
 import { type ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
-import {
-  awaitAttachmentUploads,
-  getUploadedAttachments,
-  readAttachmentUpload,
-  releaseDraftAttachments,
-  retryAttachmentUpload,
-  startAttachmentUpload,
-} from "../../lib/attachmentUploadQueue";
+import { getUploadedAttachments, releaseDraftAttachments } from "../../lib/attachmentUploadQueue";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { fileAttachmentCapabilityBlockReason } from "./composerAttachmentFiles";
 import { useLinkedEnvironments } from "../../state/peerLinks";
@@ -123,6 +118,7 @@ import {
   resolveMultipleModelTargets,
   prepareTurnAttachments,
   restoreComposerDraft,
+  uploadComposerAttachments,
 } from "./chatViewSend";
 import type {
   EnvironmentProject,
@@ -163,6 +159,13 @@ type LocalDispatchState = ReturnType<typeof useLocalDispatchState>;
 type DraftEnvironmentRouting = ReturnType<typeof useDraftEnvironmentRouting>;
 type UsageLimitsPanel = ReturnType<typeof useUsageLimitsPanel>;
 type TimelineFollow = ReturnType<typeof useTimelineFollow>;
+
+/** What a new thread with a workflow picked starts its feature with. */
+export interface CrewFeatureBrief {
+  readonly brief: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
+  readonly context: OrchestrationMessageContext | undefined;
+}
 
 interface ComposerSendInput {
   readonly environmentId: EnvironmentId;
@@ -221,7 +224,7 @@ interface ComposerSendInput {
   readonly activePendingProgress: PendingThreadRequests["activePendingProgress"];
   readonly onAdvanceActivePendingUserInput: PendingThreadRequests["onAdvanceActivePendingUserInput"];
   /** Set while a new thread has a workflow picked: sending starts a feature with the prompt as its brief. */
-  readonly startCrewFeature: ((brief: string) => Promise<void>) | null;
+  readonly startCrewFeature: ((brief: CrewFeatureBrief) => Promise<boolean>) | null;
   readonly onRespondToApproval: PendingThreadRequests["onRespondToApproval"];
   readonly beginLocalDispatch: LocalDispatchState["beginLocalDispatch"];
   readonly resetLocalDispatch: LocalDispatchState["resetLocalDispatch"];
@@ -543,9 +546,76 @@ export function useComposerSend(input: ComposerSendInput) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    if (input.startCrewFeature && !directAnnotation) {
-      const brief = promptRef.current.trim();
-      if (brief.length > 0) await input.startCrewFeature(brief);
+    const readAttachmentCapabilities = (files: ReadonlyArray<ComposerFileAttachment>) => {
+      const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId) ?? null;
+      const liveSupportsAttachmentUploads = config !== null;
+      return {
+        supportsAttachmentUploads: liveSupportsAttachmentUploads,
+        fileBlockReason: fileAttachmentCapabilityBlockReason({
+          files,
+          attachmentUploadsCapabilityKnown: config !== null,
+          supportsAttachmentUploads: liveSupportsAttachmentUploads,
+          maxFileAttachmentBytes:
+            config?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null,
+        }),
+      };
+    };
+    // A feature starts without a provider turn, so it skips the model and worktree checks.
+    if (input.startCrewFeature && !directAnnotation && sendCtx) {
+      const snapshot = snapshotComposerSend({
+        prompt: promptRef.current,
+        images: sendCtx.images,
+        files: sendCtx.files,
+        terminalContexts: sendCtx.terminalContexts,
+        sendableTerminalContexts: deriveComposerSendState({
+          prompt: promptRef.current,
+          imageCount: sendCtx.images.length + sendCtx.files.length,
+          terminalContexts: sendCtx.terminalContexts,
+        }).sendableTerminalContexts,
+        previewAnnotations: sendCtx.previewAnnotations,
+        reviewComments: sendCtx.reviewComments,
+        threadContexts: sendCtx.threadContexts,
+        environmentContexts: sendCtx.environmentContexts,
+      });
+      // The brief titles the feature and goes to every stage, so it needs text.
+      if (snapshot.messageText.length === 0) return;
+      const fail = (message: string) => {
+        sendInFlightRef.current = false;
+        setThreadError(activeThread.id, message);
+      };
+      sendInFlightRef.current = true;
+      let attachments: ChatAttachment[] = [];
+      if (snapshot.attachments.length > 0) {
+        const before = readAttachmentCapabilities(snapshot.files).fileBlockReason;
+        if (before !== null) return fail(before);
+        await uploadComposerAttachments({
+          environmentId,
+          attachments: snapshot.attachments,
+          draftTarget: composerDraftTarget,
+        });
+        const after = readAttachmentCapabilities(snapshot.files).fileBlockReason;
+        if (after !== null) return fail(after);
+        const uploaded = getUploadedAttachments({ environmentId, images: snapshot.attachments });
+        if (uploaded === null) return fail("Retry or remove failed uploads before sending.");
+        attachments = uploaded;
+      }
+      sendInFlightRef.current = false;
+      const started = await input.startCrewFeature({
+        brief: snapshot.messageText,
+        attachments,
+        context: buildMessageContext({
+          terminalContexts: snapshot.terminalContexts,
+          reviewComments: snapshot.reviewComments,
+          previewAnnotations: snapshot.previewAnnotations,
+          threadContexts: snapshot.threadContexts,
+          environmentContexts: snapshot.environmentContexts,
+          attachments: snapshot.attachments.map((attachment, index) => ({
+            attachment,
+            attachmentId: attachments[index]!.id,
+          })),
+        }),
+      });
+      if (started) releaseDraftAttachments(snapshot.attachments);
       return;
     }
     if (!sendCtx?.providerAvailable) {
@@ -924,20 +994,7 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
 
-    const readLiveAttachmentCapabilities = () => {
-      const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId) ?? null;
-      const liveSupportsAttachmentUploads = config !== null;
-      return {
-        supportsAttachmentUploads: liveSupportsAttachmentUploads,
-        fileBlockReason: fileAttachmentCapabilityBlockReason({
-          files: composerFilesSnapshot,
-          attachmentUploadsCapabilityKnown: config !== null,
-          supportsAttachmentUploads: liveSupportsAttachmentUploads,
-          maxFileAttachmentBytes:
-            config?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null,
-        }),
-      };
-    };
+    const readLiveAttachmentCapabilities = () => readAttachmentCapabilities(composerFilesSnapshot);
 
     const multipleTargets: MultipleModelTarget[] = [];
     for (const resolved of resolveMultipleModelTargets({
@@ -968,18 +1025,11 @@ export function useComposerSend(input: ComposerSendInput) {
         ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
         : (readEnvironmentPresentation(environmentId)?.serverConfig ?? null) !== null;
     if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
-      for (const attachment of composerAttachmentsSnapshot) {
-        const upload =
-          readAttachmentUpload(attachment.id)?.status === "failed"
-            ? retryAttachmentUpload
-            : startAttachmentUpload;
-        upload({
-          environmentId,
-          image: attachment,
-          draftTarget: composerDraftTarget,
-        });
-      }
-      await awaitAttachmentUploads(composerAttachmentsSnapshot.map((attachment) => attachment.id));
+      await uploadComposerAttachments({
+        environmentId,
+        attachments: composerAttachmentsSnapshot,
+        draftTarget: composerDraftTarget,
+      });
       const attachmentCapabilitiesAfterUpload = readLiveAttachmentCapabilities();
       if (attachmentCapabilitiesAfterUpload.fileBlockReason !== null) {
         sendInFlightRef.current = false;

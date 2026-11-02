@@ -150,7 +150,7 @@ export const BotRail = memo(function BotRail({
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border pt-0.5 pb-2">
         {/* The padding sits inside the scroller so it doesn't clip the badges over the top avatar. */}
-        <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto pt-1.5 pb-1 scrollbar-gutter-both">
+        <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]">
           {/* All bots is hidden for now; the palette's Show All bots and bot.inbox still reach it. */}
           {bots.map((bot, index) => (
             <RailItem

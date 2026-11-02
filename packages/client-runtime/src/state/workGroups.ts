@@ -317,7 +317,7 @@ const WAITING_ON_YOU_LIFT = 1e15;
 /**
  * Inbox placement for a list of rows, where a row stands for its group. A row waits on you when
  * any of its threads does: it never counts as working and stays at the top of the inbox until
- * you answer. Otherwise it comes back whenever any of its threads does.
+ * you answer. Otherwise it works while any of its threads does, and comes back whenever any does.
  */
 export function workGroupInbox<T extends WorkGroupThread & NeedsYouShell & InboxThreadInput>(
   groupByThreadKey: ReadonlyMap<string, WorkGroup<T>>,
@@ -333,7 +333,7 @@ export function workGroupInbox<T extends WorkGroupThread & NeedsYouShell & Inbox
   const waitsOnYou = (thread: T) =>
     threadsOf(thread).some((member) => threadNeedsYouKind(member) !== null);
   return {
-    isWorking: (thread: T) => inbox.isWorking(thread) && !waitsOnYou(thread),
+    isWorking: (thread: T) => threadsOf(thread).some(inbox.isWorking) && !waitsOnYou(thread),
     returnedAt: (thread: T) => {
       const latest = Math.max(
         ...threadsOf(thread).map((member) => inboxReturnAt(member, inbox.returnedAt)),

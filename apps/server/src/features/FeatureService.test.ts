@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -9,7 +10,9 @@ import { it as effectIt } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
+  ChatAttachmentId,
   CommandId,
+  ComposerContextId,
   EventId,
   MessageId,
   ProjectId,
@@ -33,6 +36,7 @@ import { WorkflowWorkspaceEmpty } from "../workflows/WorkflowWorkspace.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
+import { createPendingAttachmentId } from "../attachmentStore.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
@@ -48,6 +52,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 import { firstIssueRef } from "./featureIssue.ts";
 
@@ -98,6 +103,7 @@ const withSystem = <E>(
     | SqlClient.SqlClient
     | TextGeneration.TextGeneration
     | SourceControlProviderRegistry.SourceControlProviderRegistry
+    | ServerConfig
   >,
 ) =>
   Effect.gen(function* () {
@@ -121,7 +127,7 @@ const withSystem = <E>(
       Layer.provideMerge(TextGenerationPending),
       Layer.provideMerge(SourceControlIssues),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
-      Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer))),
       // Bots keep their headquarters in the Scratch project.
       Layer.provideMerge(
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -290,6 +296,100 @@ describe("feature creation", () => {
           const created = yield* features.create(input);
           expect(created.status).toBe("open");
           expect(yield* features.create(input)).toEqual(created);
+
+          // The brief's files are claimed under the feature once; a retry claims nothing.
+          const config = yield* ServerConfig;
+          const pendingId = createPendingAttachmentId("png")!;
+          NodeFS.mkdirSync(config.attachmentsDir, { recursive: true });
+          NodeFS.writeFileSync(
+            NodePath.join(config.attachmentsDir, `${pendingId}.png`),
+            new Uint8Array([1, 2, 3]),
+          );
+          const withFiles = {
+            ...input,
+            id: "feature-with-files",
+            briefContext: {
+              version: 1 as const,
+              records: [
+                {
+                  version: 1 as const,
+                  contextId: ComposerContextId.make("sketch"),
+                  kind: "image" as const,
+                  label: "sketch.png",
+                  attachmentId: pendingId,
+                  name: "sketch.png",
+                  mimeType: "image/png",
+                  sizeBytes: 3,
+                },
+              ],
+            },
+            briefAttachments: [
+              {
+                type: "image" as const,
+                id: ChatAttachmentId.make(pendingId),
+                name: "sketch.png",
+                mimeType: "image/png",
+                sizeBytes: 3,
+              },
+            ],
+          };
+          expect(
+            (yield* features
+              .create({ ...withFiles, id: "failed-with-files", workflowId: "missing" })
+              .pipe(Effect.result))._tag,
+          ).toBe("Failure");
+          expect(
+            NodeFS.readdirSync(config.attachmentsDir).some((name) =>
+              name.startsWith("failed-with-files-"),
+            ),
+          ).toBe(false);
+          const filed = yield* features.create(withFiles);
+          expect(filed.briefAttachments).toMatchObject([{ name: "sketch.png", sizeBytes: 3 }]);
+          expect(filed.briefAttachments![0]!.id).toMatch(/^feature-with-files-/);
+          expect((yield* features.get(filed.id))?.briefAttachments).toEqual(filed.briefAttachments);
+          const sql = yield* SqlClient.SqlClient;
+          expect(
+            yield* sql`SELECT json_extract(brief_message_json, '$.context.records[0].attachmentId') AS attachmentId FROM features WHERE id = ${filed.id}`,
+          ).toEqual([{ attachmentId: filed.briefAttachments![0]!.id }]);
+          expect(yield* features.create(withFiles)).toEqual(filed);
+          expect(
+            (yield* features
+              .create({
+                ...withFiles,
+                briefAttachments: [
+                  { ...withFiles.briefAttachments[0]!, id: createPendingAttachmentId("png") },
+                ],
+              })
+              .pipe(Effect.flip)).message,
+          ).toContain("another request");
+          expect(
+            (yield* features
+              .create({
+                ...withFiles,
+                briefContext: {
+                  version: 1,
+                  records: [
+                    {
+                      version: 1,
+                      contextId: ComposerContextId.make("new-context"),
+                      kind: "note",
+                      label: "Changed context",
+                      payload: { note: "Changed" },
+                    },
+                  ],
+                },
+              })
+              .pipe(Effect.flip)).message,
+          ).toContain("another request");
+          expect(
+            NodeFS.readdirSync(config.attachmentsDir).filter((name) =>
+              name.startsWith("feature-with-files-"),
+            ),
+          ).toHaveLength(1);
+          expect(
+            (yield* features.create({ ...withFiles, briefAttachments: [] }).pipe(Effect.flip))
+              .message,
+          ).toContain("another request");
         }),
       ),
   );
@@ -702,7 +802,7 @@ describe("feature creation", () => {
         Layer.provideMerge(TextGenerationPending),
         Layer.provideMerge(SourceControlIssues),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer))),
       );
       const exercise = Effect.gen(function* () {
         const bots = yield* CrewService;

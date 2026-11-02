@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { decodeOpeningMessage, type OpeningMessage } from "../crew/CrewThreadRuntime.ts";
 import { decodeFeatureIssue } from "../features/featureIssue.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 
@@ -29,6 +30,7 @@ export interface WorkflowExecution {
     readonly title: string;
     readonly text: string;
     readonly issue: FeatureIssue | null;
+    readonly openingMessage: OpeningMessage | null;
   } | null;
   /** Set while the feature waits for a stage slot. */
   readonly queuedAt: string | null;
@@ -155,6 +157,7 @@ export const WorkflowExecutionStoreLive = Layer.effect(
           readonly title: string | null;
           readonly brief: string | null;
           readonly issueJson: string | null;
+          readonly briefMessageJson: string | null;
           readonly queuedAt: string | null;
           readonly slotInstanceId: string | null;
           readonly questionThreadId: string | null;
@@ -162,7 +165,7 @@ export const WorkflowExecutionStoreLive = Layer.effect(
         }>`
       SELECT e.feature_id AS featureId, w.project_id AS projectId,
         e.bindings_json AS bindingsJson, e.last_error AS lastError, e.settled,
-        f.title, f.brief, f.issue_json AS issueJson, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId,
+        f.title, f.brief, f.issue_json AS issueJson, f.brief_message_json AS briefMessageJson, e.queued_at AS queuedAt, e.slot_instance_id AS slotInstanceId,
         e.question_thread_id AS questionThreadId, e.question_request_id AS questionRequestId
       FROM workflow_executions AS e JOIN feature_workflows AS w ON w.feature_id = e.feature_id
       LEFT JOIN features AS f ON f.id = e.feature_id
@@ -186,6 +189,7 @@ export const WorkflowExecutionStoreLive = Layer.effect(
                               title: rows[0].title,
                               text: rows[0].brief ?? "",
                               issue: decodeFeatureIssue(rows[0].issueJson),
+                              openingMessage: decodeOpeningMessage(rows[0].briefMessageJson),
                             },
                       queuedAt: rows[0].queuedAt,
                       slotInstanceId: rows[0].slotInstanceId,

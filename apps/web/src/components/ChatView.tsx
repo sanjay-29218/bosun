@@ -26,7 +26,7 @@ import { useTimelineRewind } from "./chat/useTimelineRewind";
 import { useThreadLifecycle } from "./chat/useThreadLifecycle";
 import { useRightPanelActions } from "./chat/useRightPanelActions";
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
-import { useComposerSend } from "./chat/useComposerSend";
+import { type CrewFeatureBrief, useComposerSend } from "./chat/useComposerSend";
 import { useComposerResume } from "./chat/useComposerResume";
 import { useImplementPlanInNewThread } from "./chat/useProposedPlanSend";
 import { ThreadFind, ThreadFindCanvas } from "./chat/ThreadFindProvider";
@@ -620,6 +620,7 @@ export default function ChatView(props: ChatViewProps) {
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
@@ -1165,26 +1166,28 @@ export default function ChatView(props: ChatViewProps) {
     readonly key: string;
     readonly featureId: string;
   } | null>(null);
-  const startCrewFeature = async (workflowId: string, brief: string) => {
-    if (!draftProjectId || !draftId) return;
-    if (composerHasNonPromptContent) {
-      toastManager.add({
-        type: "warning",
-        title: "A brief is text only",
-        description: "Remove attachments and context before starting a feature.",
-      });
-      return;
-    }
+  const startCrewFeature = async (
+    workflowId: string,
+    { brief, attachments, context }: CrewFeatureBrief,
+  ): Promise<boolean> => {
+    if (!draftProjectId || !draftId) return false;
     if (brief.length > 16_000) {
       toastManager.add({
         type: "warning",
         title: "The brief is too long",
         description: "Keep it under 16,000 characters.",
       });
-      return;
+      return false;
     }
     const title = brief.split("\n")[0]!.trim().slice(0, 120) || "New feature";
-    const key = JSON.stringify([draftId, draftProjectId, workflowId, brief]);
+    const key = JSON.stringify([
+      draftId,
+      draftProjectId,
+      workflowId,
+      brief,
+      attachments.map((attachment) => attachment.id),
+      context ?? null,
+    ]);
     const featureId =
       pendingCrewFeatureRef.current?.key === key
         ? pendingCrewFeatureRef.current.featureId
@@ -1193,7 +1196,7 @@ export default function ChatView(props: ChatViewProps) {
     // A refused start usually means the workflow is out of date (an edited role, say), and
     // the workflow editor is where that gets fixed.
     const reportFailure = (result: AtomCommandResult<unknown, unknown>) => {
-      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return false;
       const error = squashAtomCommandFailure(result);
       toastManager.add(
         stackedThreadToast({
@@ -1211,9 +1214,10 @@ export default function ChatView(props: ChatViewProps) {
           },
         }),
       );
+      return false;
     };
     sendInFlightRef.current = true;
-    await (async () => {
+    return await (async () => {
       const created = await createFeature({
         environmentId,
         input: {
@@ -1228,6 +1232,8 @@ export default function ChatView(props: ChatViewProps) {
           ...(sendEnvMode === "worktree" && activeThreadBranch
             ? { baseBranch: activeThreadBranch }
             : {}),
+          ...(attachments.length > 0 ? { briefAttachments: attachments } : {}),
+          ...(context ? { briefContext: context } : {}),
         },
       });
       if (created._tag !== "Success") return reportFailure(created);
@@ -1238,7 +1244,8 @@ export default function ChatView(props: ChatViewProps) {
       if (started._tag !== "Success") return reportFailure(started);
       pendingCrewFeatureRef.current = null;
       promptRef.current = "";
-      setComposerDraftPrompt(composerDraftTarget, "");
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
       useCrewDraftStore.getState().clearWorkflow(draftId);
       const snapshot = started.value;
       const firstThreadId = snapshot.steps.find(
@@ -1256,8 +1263,10 @@ export default function ChatView(props: ChatViewProps) {
           description: "Its first stage starts when an agent slot frees up.",
         });
       }
-    })();
-    sendInFlightRef.current = false;
+      return true;
+    })().finally(() => {
+      sendInFlightRef.current = false;
+    });
   };
   const handleOpenDraftProjectSettings = () => {
     if (!activeDraftLogicalProjectKey) return;
@@ -3097,7 +3106,7 @@ export default function ChatView(props: ChatViewProps) {
     activePendingProgress,
     onAdvanceActivePendingUserInput,
     startCrewFeature: draftWorkflowId
-      ? (brief: string) => startCrewFeature(draftWorkflowId, brief)
+      ? (brief: CrewFeatureBrief) => startCrewFeature(draftWorkflowId, brief)
       : null,
     onRespondToApproval: onRespondToApprovalStable,
     beginLocalDispatch,

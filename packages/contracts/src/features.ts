@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { ChatAttachment } from "./chatAttachment.ts";
+import { OrchestrationMessageContext } from "./composerContext.ts";
 import {
   CrewStageSummary,
   FeatureCardState,
@@ -34,6 +36,9 @@ export const FeatureCreateInput = Schema.Struct({
    * title, as it does for thread titles. A retry may then send the stand-in again.
    */
   autoTitle: Schema.optionalKey(Schema.Boolean),
+  /** Sent with the brief as the opening message of the feature's first stage. */
+  briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
+  briefContext: Schema.optionalKey(OrchestrationMessageContext),
 });
 export const FeatureRecord = Schema.Struct({
   ...FeatureFields,
@@ -48,6 +53,7 @@ export const FeatureRecord = Schema.Struct({
   /** The crew member bound to each of the workflow's roles. */
   crewAssignments: Schema.Record(Schema.String, Schema.String),
   issue: Schema.NullOr(FeatureIssue),
+  briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
 });
 export const FeatureProjectInput = Schema.Struct({ projectId: ProjectId });
 export const FeatureGetInput = Schema.Struct({

@@ -1,4 +1,6 @@
 import {
+  ChatAttachment,
+  OrchestrationMessageContext,
   headquartersBotId,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
@@ -33,6 +35,17 @@ type OrchestrationDispatchError = Orchestrator.OrchestratorV2Error;
 type CrewReadError = PersistenceSqlError;
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 
+export const OpeningMessage = Schema.Struct({
+  attachments: Schema.Array(ChatAttachment),
+  context: Schema.optionalKey(OrchestrationMessageContext),
+});
+export type OpeningMessage = typeof OpeningMessage.Type;
+const openingMessageJson = Schema.fromJsonString(OpeningMessage);
+export const encodeOpeningMessage = (message: OpeningMessage | null | undefined) =>
+  message ? Schema.encodeSync(openingMessageJson)(message) : null;
+export const decodeOpeningMessage = (json: string | null): OpeningMessage | null =>
+  json === null ? null : Schema.decodeSync(openingMessageJson)(json);
+
 /** A feature's lead starts without a turn; its first decision request carries its brief. */
 export const startsIdle = (runId: string) => runId.startsWith("feature-lead:");
 
@@ -48,6 +61,7 @@ export interface CrewThreadStart {
   readonly createdAt: string;
   /** The worktree the thread opens in; the project's checkout when null. */
   readonly workspace: CrewWorkspace | null;
+  readonly openingMessage?: OpeningMessage | null;
 }
 
 export interface CrewThreadRuntimeShape {
@@ -136,6 +150,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           kind: "bot" as const,
           payload: { memberId: input.memberId, runId: input.runId },
         },
+        ...(input.openingMessage?.context?.records ?? []),
       ],
     });
     // `suffix` gives a restart after a delete its own receipts.
@@ -151,7 +166,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
             `${runCommandPrefix(input.threadId)}:${input.runId}:message${suffix}`,
           ),
           text: input.prompt,
-          attachments: [],
+          attachments: input.openingMessage?.attachments ?? [],
           context: origin(input),
           createdBy: "agent",
           creationSource: "mcp",
@@ -220,7 +235,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
               initialMessage: {
                 messageId: MessageId.make(`${prefix}:${input.runId}:message`),
                 text: input.prompt,
-                attachments: [],
+                attachments: input.openingMessage?.attachments ?? [],
                 context: origin(input),
               },
             }),
@@ -253,7 +268,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       if (shell === null || shell.deletedAt !== null) {
         const suffix = `:restore:${yield* freshId}`;
         yield* create(input, suffix);
-        yield* submitTurn(input, suffix);
+        yield* submitTurn({ ...input, openingMessage: null }, suffix);
         yield* engine.dispatch({
           type: "thread.pin",
           commandId: CommandId.make(`${input.runId}:pin${suffix}`),
