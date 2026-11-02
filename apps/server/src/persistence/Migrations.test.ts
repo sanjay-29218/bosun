@@ -8,6 +8,7 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { migrationManifest, runMigrations } from "./Migrations.ts";
+import { bosunMigrationManifest } from "./BosunMigrations.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
@@ -137,9 +138,13 @@ it.effect("registers every migration file", () =>
       const match = /^(\d+)_(\w+)\.ts$/.exec(name);
       return match ? [[Number(match[1]), match[2]] as const] : [];
     });
+    const byIdThenName = (
+      [a, aName]: readonly [number, string],
+      [b, bName]: readonly [number, string],
+    ) => a - b || aName.localeCompare(bName);
     assert.deepStrictEqual(
-      files.toSorted(([a], [b]) => a - b),
-      migrationManifest,
+      files.toSorted(byIdThenName),
+      [...migrationManifest, ...bosunMigrationManifest].toSorted(byIdThenName),
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );

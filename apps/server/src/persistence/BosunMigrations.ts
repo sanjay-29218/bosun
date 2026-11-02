@@ -111,6 +111,9 @@ const legacyNames = new Set([
 
 // Keep upstream's numbered ledger free for upstream migrations. Move only known
 // Bosun entries; their schemas and timestamps stay intact in the domain ledger.
+/** Bosun's migrations share the folder with T3 Code's, under their own history table. */
+export const bosunMigrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
+
 export const reconcileLegacyHistory = Effect.fn("BosunMigrations.reconcileLegacyHistory")(
   function* () {
     const sql = yield* SqlClient.SqlClient;
