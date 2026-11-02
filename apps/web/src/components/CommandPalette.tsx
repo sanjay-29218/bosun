@@ -84,6 +84,7 @@ import {
 } from "lucide-react";
 import { openNewTodoDialog } from "./features/todoDialogs";
 import {
+  CREW_ACTION_COPY,
   featureStageRows,
   formatStageName,
   sendBackTargets,
@@ -96,7 +97,6 @@ import { headquartersMember, useOpenBotHeadquarters } from "./sidebar/openBotHea
 import { startBotNewSession } from "./bots/startBotNewSession";
 import { BotAvatar } from "./BotAvatar";
 import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
-import { CREW_ACTION_COPY } from "./crew/crewActionCopy";
 import { botDefaultWorkflowId, useCrewDraftStore } from "./crew/crewDraftStore";
 import { useCrewStage } from "./crew/useCrewStage";
 import { openThreadFind } from "./chat/threadFindStore";

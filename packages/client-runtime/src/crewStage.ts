@@ -1,6 +1,7 @@
 import type {
   CrewStageSummary,
   FeatureCardState,
+  OrchestrationV2UserInputQuestion,
   ThreadId,
   WorkflowFeatureSnapshot,
   WorkflowStepSnapshot,
@@ -100,6 +101,39 @@ export type CrewAction =
   | "cancel"
   | "reopen"
   | "start-now";
+
+/** Labels and one-line consequences, shared by the banner menus, Crew tab and palette. */
+export const CREW_ACTION_COPY: Record<
+  CrewAction,
+  { readonly label: string; readonly description: string }
+> = {
+  approve: { label: "Approve", description: "Hand this stage's result to the next stage" },
+  "request-changes": {
+    label: "Request changes",
+    description: "Run the stage again with your note from the composer",
+  },
+  retry: { label: "Retry stage", description: "Runs the stage again with the error attached" },
+  "take-over": {
+    label: "Take over",
+    description: "You drive this thread, then choose Mark stage done",
+  },
+  "mark-done": { label: "Mark stage done", description: "Hand your result to the next stage" },
+  "send-back": {
+    label: "Send back to…",
+    description: "An earlier stage reruns with the error attached",
+  },
+  skip: { label: "Skip stage", description: "Continue without this stage's changes" },
+  "accept-as-is": { label: "Accept as is", description: "Move on with the current result" },
+  "one-more-round": { label: "One more round", description: "Allow the loop to run once more" },
+  pause: { label: "Pause feature", description: "Current work may finish; the next stage waits" },
+  resume: { label: "Resume feature", description: "Continue from where it paused" },
+  cancel: {
+    label: "Stop feature",
+    description: "Keeps the branch and threads. Reopen it later.",
+  },
+  reopen: { label: "Reopen feature", description: "Continue a stopped or finished feature" },
+  "start-now": { label: "Start now", description: "Run the queued stage past the agent limit" },
+};
 
 function activeStep(snapshot: WorkflowFeatureSnapshot): WorkflowStepSnapshot | null {
   return snapshot.steps.find((step) => step.id === snapshot.activeStepId) ?? null;
@@ -301,4 +335,105 @@ export function workflowStageOverview(
       },
     ];
   });
+}
+
+/** An action a stage's question answers with, and what goes with it. */
+export interface CrewStageChoice {
+  readonly action: CrewAction;
+  readonly stepId?: string;
+  readonly outcome?: string;
+  readonly text?: string;
+}
+
+/** What a typed reply does: only a gate and a taken-over stage take a note. */
+const REPLY: Partial<Record<CrewStagePrompt["kind"], { action: CrewAction; hint: string }>> = {
+  gate: { action: "request-changes", hint: "Reply to request changes." },
+  "taken-over": { action: "mark-done", hint: "Reply with a summary to mark it done." },
+};
+
+const PRIMARY: Record<CrewStagePrompt["kind"], ReadonlyArray<CrewAction>> = {
+  gate: ["approve"],
+  failure: ["retry", "skip"],
+  "your-call": ["accept-as-is", "one-more-round"],
+  "taken-over": ["retry"],
+};
+
+// Option values carry this prefix, so a typed reply can never read as an option.
+const VALUE_PREFIX = "crew:";
+
+const option = (action: CrewAction, target?: string, label?: string) => ({
+  label: label ?? CREW_ACTION_COPY[action].label,
+  description: CREW_ACTION_COPY[action].description,
+  value: `${VALUE_PREFIX}${action}${target === undefined ? "" : `:${target}`}`,
+});
+
+/**
+ * A stage's decision as a question for the composer's question panel. Each option runs an
+ * action the server allows now; a typed reply requests changes at a gate, or marks a stage you
+ * took over done with it as the summary.
+ */
+export function crewStageQuestion(input: {
+  readonly prompt: CrewStagePrompt;
+  readonly actions: ReadonlyArray<CrewAction>;
+  readonly sendBackTargets: ReadonlyArray<string>;
+}): OrchestrationV2UserInputQuestion & { readonly multiSelect: boolean } {
+  const { prompt, actions } = input;
+  const stage = formatStageName(prompt.stepId);
+  const has = (action: CrewAction) => actions.includes(action);
+  const reply = REPLY[prompt.kind];
+  const [header, question] =
+    prompt.kind === "gate"
+      ? [`${stage} approval`, prompt.summary ?? `Approve the ${stage.toLowerCase()} stage?`]
+      : prompt.kind === "failure"
+        ? [`${stage} failed · attempt ${prompt.attempt}`, prompt.error ?? "The stage failed."]
+        : prompt.kind === "your-call"
+          ? [
+              `${stage} reached its ${prompt.reason === "loop-limit" ? "loop" : "stage"} limit`,
+              `Next would be ${formatStageName(prompt.target)}. It's your call.`,
+            ]
+          : [`You're driving ${stage}`, "Mark it done to hand your result to the next stage."];
+  return {
+    id: "crew-stage",
+    header,
+    question: reply ? `${question} ${reply.hint}` : question,
+    options: [
+      ...(prompt.kind === "taken-over" && has("mark-done")
+        ? prompt.outcomes.map((outcome) =>
+            option(
+              "mark-done",
+              outcome,
+              prompt.outcomes.length > 1 ? `Mark done: ${formatStageName(outcome)}` : undefined,
+            ),
+          )
+        : []),
+      ...PRIMARY[prompt.kind].filter(has).map((action) => option(action)),
+      ...(has("send-back")
+        ? input.sendBackTargets.map((stepId) =>
+            option("send-back", stepId, `Send back to ${formatStageName(stepId)}`),
+          )
+        : []),
+      ...(["take-over", "cancel"] as const).filter(has).map((action) => option(action)),
+    ],
+    multiSelect: false,
+    allowCustomAnswer: reply !== undefined && has(reply.action),
+  };
+}
+
+/** What an answer to `crewStageQuestion` runs: a picked option, or a typed reply. */
+export function crewStageAnswer(prompt: CrewStagePrompt, answer: string): CrewStageChoice | null {
+  if (answer.startsWith(VALUE_PREFIX)) {
+    const [action, target] = answer.slice(VALUE_PREFIX.length).split(":", 2) as [
+      CrewAction,
+      string | undefined,
+    ];
+    if (action === "send-back") return { action, stepId: target ?? "" };
+    if (action === "mark-done") return { action, outcome: target ?? "" };
+    return { action };
+  }
+  const reply = REPLY[prompt.kind];
+  const text = answer.trim();
+  if (!reply || !text) return null;
+  return prompt.kind === "taken-over"
+    ? { action: reply.action, text, outcome: prompt.outcomes[0] ?? "" }
+    : { action: reply.action, text };
 }

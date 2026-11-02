@@ -108,6 +108,11 @@ function makePendingCustomAnswerSetter(input: {
   };
 }
 
+export interface LocalUserInputQuestion {
+  readonly input: PendingUserInput;
+  readonly answer: (answers: Record<string, unknown>) => Promise<unknown>;
+}
+
 export function usePendingThreadRequests(input: {
   readonly environmentId: EnvironmentId;
   readonly activeThreadId: ThreadId | null;
@@ -118,6 +123,11 @@ export function usePendingThreadRequests(input: {
   readonly promptRef: { current: string };
   readonly composerRef: RefObject<ChatComposerHandle | null>;
   readonly setThreadError: (threadId: ThreadId, error: string | null) => void;
+  /**
+   * A question the client asks rather than the provider, such as a crew stage's gate. It shows
+   * after the provider's questions, and its answer goes to `answer` instead of the server.
+   */
+  readonly localQuestion?: LocalUserInputQuestion | null;
 }) {
   const {
     environmentId,
@@ -129,6 +139,7 @@ export function usePendingThreadRequests(input: {
     promptRef,
     composerRef,
     setThreadError,
+    localQuestion = null,
   } = input;
   const respondToThreadApproval = useOrchestrationCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
@@ -156,10 +167,13 @@ export function usePendingThreadRequests(input: {
     pendingRequests.approvals.length === 0
       ? NO_PENDING_APPROVALS
       : derivePendingApprovals(pendingRequests.approvals);
-  const pendingUserInputs =
+  const providerUserInputs =
     pendingRequests.userInputs.length === 0
       ? NO_PENDING_USER_INPUTS
       : derivePendingUserInputs(pendingRequests.userInputs);
+  const pendingUserInputs = localQuestion
+    ? [...providerUserInputs, localQuestion.input]
+    : providerUserInputs;
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingRequestKey = userInputDraftKey(
     environmentId,
@@ -298,6 +312,12 @@ export function usePendingThreadRequests(input: {
   ) => {
     if (!activeThreadId || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
       return;
+    if (localQuestion?.input.requestId === requestId) {
+      setRespondingUserInputRequestIds((existing) => [...existing, requestId]);
+      await localQuestion.answer(answers);
+      setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+      return;
+    }
     const pendingInput = pendingUserInputs.find((input) => input.requestId === requestId);
     if (!pendingInput || pendingInput.responseCapability === "not_resumable") return;
     const responseKey = JSON.stringify([environmentId, activeThreadId, requestId]);

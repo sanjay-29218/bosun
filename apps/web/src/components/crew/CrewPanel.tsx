@@ -1,4 +1,5 @@
 import {
+  CREW_ACTION_COPY,
   CREW_STATE_LABELS,
   featureStageRows,
   formatStageName,
@@ -17,7 +18,6 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { WorkStageStrip } from "../sidebar/SidebarWorkGroup";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
-import { CREW_ACTION_COPY } from "./crewActionCopy";
 import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
 import { buildCrewRoster, type CrewRosterEntry } from "@t3tools/client-runtime/state/crew-roster";
 import { FeatureTag } from "./FeatureTag";

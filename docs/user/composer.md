@@ -278,14 +278,14 @@ in the right panel, which also lists outputs and lets you pause, resume, cancel 
 feature. A stage thread opens with a handoff card listing exactly what it was given. See
 [Feature threads](./bots.md#feature-threads).
 
-When a stage needs you, its composer shows a banner:
+When a stage needs you, it asks in the composer the way an agent's question does. Pick an
+answer, or type a reply:
 
-- **Approval**: **Approve**, or **Request changes**. Write the change or an approval note in the
-  composer first; the note travels to the next stage.
-- **Failed**: **Retry**, **Send back…** to an earlier stage, or from **⋯** retry with another
-  model, skip the stage, or take over.
-- **Take over** hands the thread to you. When you're done, **Mark stage done** passes your result
-  on; the composer text is the summary.
+- **Approval**: **Approve**, or type the changes you want to request them.
+- **Failed**: **Retry**, **Skip stage**, or send the work back to an earlier stage.
+- **Loop limit**: **Accept as is** or **One more round**.
+- **Take over** hands the thread to you. When you're done, pick **Mark stage done**, or type a
+  summary to pass on with it.
 
 The same actions are in the command palette while a stage thread is open.
 

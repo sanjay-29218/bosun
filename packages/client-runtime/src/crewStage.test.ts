@@ -8,7 +8,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   availableCrewActions,
+  crewStageAnswer,
   crewStagePrompt,
+  crewStageQuestion,
   featureStageRows,
   formatCrewStageLine,
   formatStageName,
@@ -231,5 +233,69 @@ describe("crewStagePrompt", () => {
       ["Design", "failed", true],
       ["QA check", "pending", false],
     ]);
+  });
+});
+
+describe("crewStageQuestion", () => {
+  const gate = { kind: "gate", stepId: "plan", summary: "Plan complete." } as const;
+
+  it("offers the allowed actions as options, and a reply requests changes", () => {
+    const question = crewStageQuestion({
+      prompt: gate,
+      actions: ["approve", "request-changes", "send-back", "cancel"],
+      sendBackTargets: ["brief"],
+    });
+    expect(question.header).toBe("Plan approval");
+    expect(question.options.map((option) => option.label)).toEqual([
+      "Approve",
+      "Send back to Brief",
+      "Stop feature",
+    ]);
+    expect(question.allowCustomAnswer).toBe(true);
+    expect(crewStageAnswer(gate, question.options[0]!.value!)).toEqual({ action: "approve" });
+    expect(crewStageAnswer(gate, question.options[1]!.value!)).toEqual({
+      action: "send-back",
+      stepId: "brief",
+    });
+    // A reply that reads like an option is still a reply.
+    expect(crewStageAnswer(gate, " approve ")).toEqual({
+      action: "request-changes",
+      text: "approve",
+    });
+  });
+
+  it("takes no reply where the action has no note, and a summary when you took over", () => {
+    const failure = {
+      kind: "failure",
+      stepId: "build",
+      attempt: 2,
+      error: "Tests failed",
+    } as const;
+    expect(
+      crewStageQuestion({ prompt: failure, actions: ["retry", "skip"], sendBackTargets: [] })
+        .allowCustomAnswer,
+    ).toBe(false);
+    expect(crewStageAnswer(failure, "try harder")).toBeNull();
+
+    const takenOver = { kind: "taken-over", stepId: "qa", outcomes: ["passed", "failed"] } as const;
+    const question = crewStageQuestion({
+      prompt: takenOver,
+      actions: ["mark-done", "retry"],
+      sendBackTargets: [],
+    });
+    expect(question.options.map((option) => option.label)).toEqual([
+      "Mark done: Passed",
+      "Mark done: Failed",
+      "Retry stage",
+    ]);
+    expect(crewStageAnswer(takenOver, question.options[1]!.value!)).toEqual({
+      action: "mark-done",
+      outcome: "failed",
+    });
+    expect(crewStageAnswer(takenOver, "Fixed by hand")).toEqual({
+      action: "mark-done",
+      text: "Fixed by hand",
+      outcome: "passed",
+    });
   });
 });

@@ -39,7 +39,10 @@ import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnviron
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
-import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
+import {
+  usePendingThreadRequests,
+  type LocalUserInputQuestion,
+} from "./chat/usePendingThreadRequests";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
@@ -66,6 +69,7 @@ import {
   type ModelSelection,
   type PreviewAnnotationPayload,
   ProviderInstanceId,
+  RuntimeRequestId,
   type ServerProvider,
   type ScopedThreadRef,
   type ThreadId,
@@ -282,8 +286,12 @@ import {
 import { useCrewDraftStore } from "./crew/crewDraftStore";
 import type { ComposerControlSize } from "./chat/ComposerControl";
 import { featuresEnvironment } from "../state/features";
-import { CrewStageBanner } from "./crew/CrewStageBanner";
-import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
+import { CrewStageContext, useCrewStage, type CrewStage } from "./crew/useCrewStage";
+import {
+  crewStageAnswer,
+  crewStageQuestion,
+  sendBackTargets,
+} from "@t3tools/client-runtime/crew-stage";
 import { useCrewNowItems } from "./crew/useCrewNowItems";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -417,6 +425,38 @@ type ChatViewProps =
     };
 
 const DismissedFallbackWindowSchema = Schema.NullOr(Schema.String);
+
+/**
+ * A stage thread's gate, failure, loop limit or take-over, asked in the composer's question
+ * panel. Its id moves with the stage's revision, so a new decision never reuses an old draft.
+ */
+function crewStageLocalQuestion(stage: CrewStage | null): LocalUserInputQuestion | null {
+  const prompt = stage?.prompt;
+  if (!stage || !prompt || !stage.snapshot) return null;
+  const question = crewStageQuestion({
+    prompt,
+    actions: stage.actions,
+    sendBackTargets: sendBackTargets(stage.snapshot),
+  });
+  return {
+    input: {
+      requestId: RuntimeRequestId.make(
+        `crew-stage:${stage.thread.id}:${prompt.stepId}:${stage.crew?.revision ?? 0}`,
+      ),
+      createdAt: stage.thread.updatedAt,
+      questions: [question],
+      responseCapability: "message",
+      dismissible: false,
+    },
+    answer: async (answers) => {
+      const answer = answers[question.id];
+      const choice = typeof answer === "string" ? crewStageAnswer(prompt, answer) : null;
+      if (!choice) return;
+      const { action, ...rest } = choice;
+      await stage.run(action, rest);
+    },
+  };
+}
 
 export default function ChatView(props: ChatViewProps) {
   const {
@@ -1497,6 +1537,7 @@ export default function ChatView(props: ChatViewProps) {
     promptRef,
     composerRef,
     setThreadError,
+    localQuestion: crewStageLocalQuestion(crewStage),
   });
   const [heldApprovalRequestIds, setHeldApprovalRequestIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -3648,7 +3689,6 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              crewBanner={crewStage?.prompt ? <CrewStageBanner /> : null}
                               renderWorkflowPicker={renderWorkflowPicker}
                               renderCrewControl={renderCrewControl}
                               canOperateThread={canOperateThread}
