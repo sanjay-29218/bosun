@@ -393,7 +393,7 @@ const RailItem = memo(function RailItem({
           ) : signal?.kind === "working" ? (
             <span
               aria-hidden
-              className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
+              className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
             />
           ) : null}
         </TooltipTrigger>
