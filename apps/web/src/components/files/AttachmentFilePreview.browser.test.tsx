@@ -2444,7 +2444,7 @@ function planningPdf(
   return new Blob([source], { type: "application/pdf" });
 }
 
-async function workspacePdfPreview() {
+async function workspacePdfPreview(viewportHeight = 600) {
   assetUrlState.mockReset();
   const { WorkspaceBrowserPreview } = await import("./FilePreviewPanel");
   const native = vi.spyOn(navigator, "pdfViewerEnabled", "get").mockReturnValue(false);
@@ -2476,7 +2476,7 @@ async function workspacePdfPreview() {
       expiresAt: Date.now() + 3_600_000,
     });
     return (
-      <div className="flex h-[600px] w-[320px]">
+      <div className="flex w-[320px]" style={{ height: viewportHeight }}>
         <WorkspaceBrowserPreview
           environmentId={EnvironmentId.make("test")}
           threadRef={{ environmentId: EnvironmentId.make("test"), threadId }}
@@ -2518,7 +2518,8 @@ function pdfScroll(screen: Screen) {
 }
 
 it("keeps workspace PDF scroll and zoom after reloads", async () => {
-  using fixture = await workspacePdfPreview();
+  // A compact viewport makes both axes scrollable after one zoom.
+  using fixture = await workspacePdfPreview(320);
   const { preview, urls } = fixture;
   await using screen = await render(preview(urls.original, "one"));
   await expect.element(screen.getByText("1 / 3 pages", { exact: true })).toBeVisible();
@@ -2526,9 +2527,7 @@ it("keeps workspace PDF scroll and zoom after reloads", async () => {
   await vi.waitFor(() => expect(screen.container.textContent).toContain("2 / 3 pages"));
   await screen.getByRole("button", { name: "Next page", exact: true }).click();
   await vi.waitFor(() => expect(screen.container.textContent).toContain("3 / 3 pages"));
-  for (let index = 0; index < 4; index++) {
-    await screen.getByRole("button", { name: "Zoom in", exact: true }).click();
-  }
+  await screen.getByRole("button", { name: "Zoom in", exact: true }).click();
   const { region, offset, scrollTo } = pdfScroll(screen);
   const zoom = screen.container.textContent!.match(/\d+%/)![0];
   const top = region().scrollTop;
