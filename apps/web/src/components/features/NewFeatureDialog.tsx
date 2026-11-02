@@ -8,11 +8,14 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpIcon, FolderIcon } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useState, type KeyboardEvent } from "react";
 
 import { formatShortcutLabel } from "../../keybindings";
 import { randomUUID } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { useBotRailProjectKeys } from "../../state/botRail";
+import { useProjects } from "../../state/entities";
 import { botsEnvironment } from "../../state/bots";
 import { featuresEnvironment } from "../../state/features";
 import { useEnvironmentQuery } from "../../state/query";
@@ -35,6 +38,8 @@ import {
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { closeNewFeatureDialog, newFeatureDialogAtom, type NewFeatureTarget } from "./todoDialogs";
+import { useWorkflowEnvironmentIds } from "./useFeatureBoard";
 
 const SUBMIT_SHORTCUT = {
   key: "enter",
@@ -50,19 +55,36 @@ const BRIEF_MAX = 16_000;
 const projectKey = (project: { readonly environmentId: EnvironmentId; readonly id: ProjectId }) =>
   `${project.environmentId}:${project.id}`;
 
+/** Renders once at the root, so the board, a todo and the palette all open the same dialog. */
+export function NewFeatureDialogHost() {
+  const target = useAtomValue(newFeatureDialogAtom);
+  const workflowEnvironmentIds = useWorkflowEnvironmentIds();
+  const railProjectKeys = useBotRailProjectKeys();
+  const projects = useProjects()
+    .filter(
+      (project) =>
+        workflowEnvironmentIds.has(project.environmentId) &&
+        (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
+    )
+    .toSorted((a, b) => a.title.localeCompare(b.title));
+  if (target === null) return null;
+  return <NewFeatureDialog target={target} projects={projects} onClose={closeNewFeatureDialog} />;
+}
+
 /**
  * Starts a feature from the board without leaving it: the brief, the project and the workflow,
  * which is what the composer's Workflow picker sends. Roles bring their own models, and the
  * feature gets its own worktree.
  */
-export function NewFeatureDialog(props: {
+function NewFeatureDialog(props: {
+  readonly target: NewFeatureTarget;
   readonly projects: ReadonlyArray<EnvironmentProject>;
-  readonly initialProject: EnvironmentProject | null;
   readonly onClose: () => void;
 }) {
   const navigate = useNavigate();
+  const initial = props.target.project;
   const [selectedKey, setSelectedKey] = useState(
-    props.initialProject ? projectKey(props.initialProject) : null,
+    initial ? `${initial.environmentId}:${initial.projectId}` : null,
   );
   const project =
     props.projects.find((candidate) => projectKey(candidate) === selectedKey) ??
@@ -79,7 +101,7 @@ export function NewFeatureDialog(props: {
     definitions.find((definition) => definition.id === defaultWorkflowId) ??
     definitions[0] ??
     null;
-  const [brief, setBrief] = useState("");
+  const [brief, setBrief] = useState(props.target.brief ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One ID per dialog, so a retried submit reuses the feature it already created.
@@ -124,6 +146,16 @@ export function NewFeatureDialog(props: {
       { reportFailure: false },
     );
     if (created._tag !== "Success") return fail(created);
+    // A feature started from a todo works on it, so its board card and threads name it.
+    if (props.target.issueRef) {
+      const linked = await runAtomCommand(
+        appAtomRegistry,
+        featuresEnvironment.setIssue,
+        { ...target, input: { projectId: project.id, featureId, url: props.target.issueRef } },
+        { reportFailure: false },
+      );
+      if (linked._tag !== "Success") return fail(linked);
+    }
     const started = await runAtomCommand(
       appAtomRegistry,
       featuresEnvironment.start,

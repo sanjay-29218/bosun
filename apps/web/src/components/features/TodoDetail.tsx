@@ -1,5 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-board";
 import {
   featureForIssue,
@@ -29,8 +28,6 @@ import {
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
-import { useComposerDraftStore } from "../../composerDraftStore";
-import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { useProjects } from "../../state/entities";
@@ -49,6 +46,7 @@ import { featureStatus } from "./FeatureCard";
 import { cn } from "../../lib/utils";
 import {
   closeTodo,
+  openNewFeatureDialog,
   openTodo,
   todoDetailAtom,
   type TodoOwner,
@@ -60,20 +58,17 @@ import {
  * Workflow picker starts it, and creating the feature links the issue's URL or the ticket's
  * `Ticket T-<number>` line.
  */
-export function useStartFeatureFromTodo() {
-  const newThread = useNewThreadHandler();
-  return async (todo: EnvironmentIssue, description?: string) => {
-    const created = await newThread(scopeProjectRef(todo.environmentId, todo.projectId));
-    if (!created) return;
-    const drafts = useComposerDraftStore.getState();
-    const brief = todo.ticketId
-      ? [todo.title, description?.trim(), `Ticket ${ticketRef(todo)}`].filter(Boolean).join("\n\n")
-      : `${todo.title}\n\n${todo.url}`;
-    // A reused draft keeps what was already written.
-    const existing = drafts.getComposerDraft(created.draftId)?.prompt.trim() ?? "";
-    drafts.setPrompt(created.draftId, existing ? `${existing}\n\n${brief}` : brief);
-    closeTodo();
-  };
+/**
+ * Starts a feature on a todo: the New feature dialog, filled in with the todo and linked to it,
+ * so it runs as a feature in its own worktree and the board stays open.
+ */
+export function startFeatureFromTodo(todo: EnvironmentIssue, description?: string) {
+  openNewFeatureDialog({
+    project: { environmentId: todo.environmentId, projectId: todo.projectId },
+    brief: [todo.title, description?.trim()].filter(Boolean).join("\n\n"),
+    issueRef: todo.ticketId ? ticketRef(todo) : todo.url,
+  });
+  closeTodo();
 }
 
 const failureText = (result: Parameters<typeof squashAtomCommandFailure>[0], fallback: string) => {
@@ -287,7 +282,6 @@ function TicketDetail(props: {
   const [description, setDescription] = useState(ticket.description);
   const [busy, setBusy] = useState<"save" | "move" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const startFeature = useStartFeatureFromTodo();
   const row = ticketIssue(ticket, props.environmentId);
   const target = { environmentId: props.environmentId };
 
@@ -381,7 +375,7 @@ function TicketDetail(props: {
       actions={
         <>
           {ticket.state === "open" && !feature ? (
-            <StartFeatureButton onStart={() => void startFeature(row, description)} />
+            <StartFeatureButton onStart={() => startFeatureFromTodo(row, description)} />
           ) : null}
           <MoreActions>
             {props.canFileIssues ? (
@@ -501,7 +495,6 @@ function GitHubIssueDetail(props: {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const startFeature = useStartFeatureFromTodo();
   const issue = detail.data;
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed /> : <DetailSkeleton />;
@@ -567,7 +560,9 @@ function GitHubIssueDetail(props: {
             <ExternalLinkIcon aria-hidden />
             GitHub
           </Button>
-          {open && !feature ? <StartFeatureButton onStart={() => void startFeature(row)} /> : null}
+          {open && !feature ? (
+            <StartFeatureButton onStart={() => startFeatureFromTodo(row)} />
+          ) : null}
           <MoreActions>
             <MenuItem disabled={busy} onClick={() => void setState(open ? "closed" : "open")}>
               {open ? "Close issue" : "Reopen issue"}

@@ -53,7 +53,6 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useEnsureStarterWorkflow } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
-import { NewFeatureDialog } from "./NewFeatureDialog";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
@@ -76,8 +75,8 @@ import { resolveFeaturesShortcut } from "./featuresShortcuts";
 import { useFeatureActions, type FeatureNoteRequest } from "./useFeatureActions";
 import { useFeatureBoard, useWorkflowEnvironmentIds } from "./useFeatureBoard";
 import { useIssueBoard } from "./useIssueBoard";
-import { useStartFeatureFromTodo } from "./TodoDetail";
-import { openNewTodoDialog, openTodo } from "./todoDialogs";
+import { startFeatureFromTodo } from "./TodoDetail";
+import { openNewFeatureDialog, openNewTodoDialog, openTodo } from "./todoDialogs";
 
 export interface FeaturesSearch {
   readonly q?: string;
@@ -342,7 +341,6 @@ export function FeaturesPage(props: {
   };
 
   const actions = useFeatureActions({ onNoteRequest: setNoteRequest });
-  const startFeatureFromTodo = useStartFeatureFromTodo();
   const handlers: FeatureBoardHandlers = {
     projectFor,
     queuePositions: featureQueuePositions(board.cards),
@@ -387,7 +385,7 @@ export function FeaturesPage(props: {
             },
       ),
     onStartTodo: (issue) =>
-      void startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
+      startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
     onOpenChat: (shell) =>
       void navigate({
         to: "/$environmentId/$threadId",
@@ -412,10 +410,13 @@ export function FeaturesPage(props: {
   };
 
   // New feature opens a brief dialog over the board, so starting one never leaves it.
-  const [newFeatureOpen, setNewFeatureOpen] = useState(false);
+
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
   const startNewFeature = () => {
-    if (newFeatureProject) setNewFeatureOpen(true);
+    if (!newFeatureProject) return;
+    openNewFeatureDialog({
+      project: { environmentId: newFeatureProject.environmentId, projectId: newFeatureProject.id },
+    });
   };
   const browseWorkflows = () => void navigate({ to: "/library", search: {} });
   const newTodo = () =>
@@ -729,13 +730,6 @@ export function FeaturesPage(props: {
           </ScrollArea>
         )}
       </div>
-      {newFeatureOpen ? (
-        <NewFeatureDialog
-          projects={projects}
-          initialProject={newFeatureProject}
-          onClose={() => setNewFeatureOpen(false)}
-        />
-      ) : null}
       <FeatureNoteDialog
         request={noteRequest}
         onClose={() => setNoteRequest(null)}
