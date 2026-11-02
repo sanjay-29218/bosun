@@ -315,6 +315,15 @@ describe("pending v2 questions", () => {
       ),
     };
     expect(derivePendingThreadRequests(live).userInputs[0]?.dismissible).toBe(false);
+    // A workflow's question is how its stage waits, so it can't be dismissed either.
+    const workflow = {
+      ...projection,
+      runtimeRequests: projection.runtimeRequests.map((request) => ({
+        ...request,
+        owner: "workflow" as const,
+      })),
+    };
+    expect(derivePendingThreadRequests(workflow).userInputs[0]?.dismissible).toBe(false);
   });
 });
 
