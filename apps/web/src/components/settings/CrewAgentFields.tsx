@@ -28,7 +28,8 @@ export function CrewToolPicker({
     {
       title: "Crew",
       grants: CREW_TOOL_GRANTS.filter(
-        (grant) => grant.id.startsWith("crew.") && (forBot || !("botOnly" in grant)),
+        (grant) =>
+          grant.id.startsWith("crew.") && (forBot ? !("roleOnly" in grant) : !("botOnly" in grant)),
       ),
     },
     {

@@ -37,7 +37,7 @@ pull request for; work that needs planning or several stages it starts as a feat
 Its result comes back to the headquarters. Ask the bot for a named workflow, such as "do this as
 Feature delivery", to have the manager start there. Each stage runs with its role's model and
 **Access**; what a stage hands off in turn runs with that stage's. The bot can also start projects
-from a name or by cloning a Git URL. With **Manage workflows**, which Captain has from the
+from a name or by cloning a Git URL. With **Manage bots and workflows**, which Captain has from the
 start, it can create and edit bots, workflows and roles when you ask, such as "add a QA stage to
 Feature delivery"; they show up in Settings like ones you made. A feature's
 own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.

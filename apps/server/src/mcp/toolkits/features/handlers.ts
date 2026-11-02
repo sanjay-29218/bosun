@@ -35,7 +35,7 @@ const targetThread = Effect.fn("FeaturesToolkit.targetThread")(function* (
 });
 
 /**
- * A bot's threads attach and detach with "Manage workflows". Any other thread attaches with full
+ * A bot's threads attach and detach with "Manage bots and workflows". Any other thread attaches with full
  * access, since attaching starts the feature's crew runs, and detaches with thread control.
  */
 export const layer = McpToolAccess.toLayer(FeaturesToolkit, {
