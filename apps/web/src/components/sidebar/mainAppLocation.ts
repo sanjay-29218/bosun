@@ -210,6 +210,8 @@ export function useSwitchBotMainView() {
     if (!remembered) rememberMainView(readActiveEnvironmentId(), view);
     if (view === "list") {
       requestBotFirstThread(readActiveLogicalBotKey());
+      // A utility page has no thread list to answer the request, so go to the list first.
+      if (utility) void showMainView("list");
       return;
     }
     if (utility || view !== current) void showMainView(view);
