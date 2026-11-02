@@ -139,9 +139,9 @@ it.effect("registers every migration file", () =>
       return match ? [[Number(match[1]), match[2]] as const] : [];
     });
     const byIdThenName = (
-      [a, aName]: readonly [number, string],
-      [b, bName]: readonly [number, string],
-    ) => a - b || aName.localeCompare(bName);
+      [a, aName]: readonly [number, string | undefined],
+      [b, bName]: readonly [number, string | undefined],
+    ) => a - b || (aName ?? "").localeCompare(bName ?? "");
     assert.deepStrictEqual(
       files.toSorted(byIdThenName),
       [...migrationManifest, ...bosunMigrationManifest].toSorted(byIdThenName),
