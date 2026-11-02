@@ -66,6 +66,10 @@ export class WorkflowExecutionStore extends Context.Service<
     readonly listActive: (
       projectId?: ProjectId,
     ) => Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
+    /** The unsettled feature whose stages this crew run dispatches, if any. */
+    readonly findFeatureForLeadRun: (
+      runId: string,
+    ) => Effect.Effect<string | null, PersistenceSqlError>;
     /** Features this thread was ever attached to as a stage thread, newest first. */
     readonly findFeaturesForThread: (
       threadId: string,
@@ -125,6 +129,16 @@ export const WorkflowExecutionStoreLive = Layer.effect(
       `.pipe(
           Effect.mapError(error),
           Effect.map((rows) => rows.map((row) => row.featureId)),
+        ),
+      ),
+      findFeatureForLeadRun: Effect.fn("WorkflowExecutionStore.findFeatureForLeadRun")((runId) =>
+        sql<{ readonly featureId: string }>`
+        SELECT e.feature_id AS featureId FROM workflow_executions AS e, json_each(e.bindings_json) AS b
+        WHERE e.settled = 0 AND json_extract(b.value, '$.dispatchRunId') = ${runId}
+        LIMIT 1
+      `.pipe(
+          Effect.mapError(error),
+          Effect.map((rows) => rows[0]?.featureId ?? null),
         ),
       ),
       attach: Effect.fn("WorkflowExecutionStore.attach")((featureId, bindings) =>

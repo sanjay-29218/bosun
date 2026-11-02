@@ -47,6 +47,7 @@ import { buildCodexAdditionalContext } from "../../apps/server/src/provider/Code
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
+import { CrewToolkit } from "../../apps/server/src/mcp/toolkits/crew/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
 import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
@@ -376,6 +377,7 @@ export const normalizeToolInput = (name: string, input: unknown) => {
 // description, and schema through unchanged.
 const t3SourceTools: ReadonlyArray<Tool.Any> = [
   OrchestratorToolkit,
+  CrewToolkit,
   ThreadToolkit,
   AttachmentToolkit,
   ProjectToolkit,

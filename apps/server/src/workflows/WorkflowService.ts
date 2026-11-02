@@ -7,6 +7,7 @@ import {
   type WorkflowFeatureSnapshot,
   type WorkflowRole,
   type WorkflowStageHandoff,
+  type WorkflowStageNote,
   type WorkflowStageOutput,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -33,6 +34,7 @@ import {
   collectNotes,
   collectStageOutputs,
   latestStageResults,
+  LEAD_NOTE_ACTOR,
   previousFailure,
   selectReceived,
 } from "./StageHandoff.ts";
@@ -93,6 +95,8 @@ export interface WorkflowServiceShape {
     readonly handoffId: string;
     /** The feature's worktree; the project's checkout when null. */
     readonly worktreePath: string | null;
+    /** What the feature's lead adds when it hands the stage over. */
+    readonly leadNote?: string;
   }) => Effect.Effect<WorkflowStageHandoff, WorkflowServiceError>;
   readonly getStageHandoff: (
     id: string,
@@ -434,6 +438,19 @@ export const WorkflowServiceLive = Layer.effect(
             : output,
         );
         const { from, notes } = collectNotes(events, input.executionId);
+        const createdAt = DateTime.formatIso(yield* DateTime.now);
+        const leadNote: ReadonlyArray<WorkflowStageNote> = input.leadNote
+          ? [
+              {
+                stepId: input.stepId,
+                kind: "decision",
+                outcome: null,
+                text: input.leadNote,
+                actorId: LEAD_NOTE_ACTOR,
+                occurredAt: createdAt,
+              },
+            ]
+          : [];
         return yield* stageHandoffs.insertIfAbsent({
           id: input.handoffId,
           featureId: input.featureId,
@@ -452,14 +469,14 @@ export const WorkflowServiceLive = Layer.effect(
           outcomes: Object.keys(step.next),
           produces: [...(step.outputs ?? [])],
           outputs,
-          notes: [...notes],
+          notes: [...notes, ...leadNote],
           retry: previousFailure(events, input.executionId, input.attempt),
           workspace: {
             cwd: stageWorkspace.cwd,
             branch: stageWorkspace.branch,
             commit: stageWorkspace.commit,
           },
-          createdAt: DateTime.formatIso(yield* DateTime.now),
+          createdAt,
         });
       }),
       getStageHandoff: stageHandoffs.get,

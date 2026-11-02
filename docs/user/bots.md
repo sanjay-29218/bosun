@@ -87,7 +87,9 @@ bot**.
 The **Library** lists every connected environment's workflows; pick one to open its editor. **+
 New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
 **Add Feature delivery**. Both add the starter roles too if they're missing. Feature delivery
-runs Plan and Design, each waiting for your approval, then Build and QA. QA sends changes back to
+runs Plan and Design, each waiting for your approval, then Build and QA. The lead reads the brief
+and hands each stage over with context; if it finishes its turn without a handoff or takes more
+than 10 minutes, the stage starts anyway. QA sends changes back to
 Build up to twice, then the feature stops at **Your call**. **Feature delivery (auto)**, added with
 it, is the same except that the feature's lead approves Plan and Design (or asks for changes) and
 answers the stages' questions. You can still approve or answer yourself; whichever of you decides

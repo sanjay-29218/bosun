@@ -10,6 +10,9 @@ import type {
 import { NEEDS_INPUT } from "./StageTurn.ts";
 import type { StageThreadDiff } from "./WorkflowWorkspace.ts";
 
+/** Names the feature lead's handoff note in a stage record. */
+export const LEAD_NOTE_ACTOR = "lead";
+
 /** The newest completed execution of each step, in completion order. */
 export interface StageResult {
   readonly stepId: string;
@@ -232,7 +235,7 @@ export const renderStageHandoff = (
     .map((note) =>
       note.kind === "routed"
         ? `- ${note.stepId} (${note.outcome ?? "completed"}): ${note.text}`
-        : `- Note from ${note.actorId} on ${note.stepId}: ${note.text}`,
+        : `- Note from ${note.actorId === LEAD_NOTE_ACTOR ? "the lead" : note.actorId} on ${note.stepId}: ${note.text}`,
     )
     .join("\n");
   const brief = record.brief.trim();

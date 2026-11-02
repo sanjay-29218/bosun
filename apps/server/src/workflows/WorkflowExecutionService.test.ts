@@ -23,6 +23,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
@@ -50,7 +51,11 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import { WorkflowLibraryLive } from "./WorkflowLibrary.ts";
 import { WorkflowService, WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowStore, WorkflowStoreLive } from "./WorkflowStore.ts";
-import { WorkflowExecutionStore, WorkflowExecutionStoreLive } from "./WorkflowExecutionStore.ts";
+import {
+  WorkflowExecutionStore,
+  WorkflowExecutionStoreLive,
+  type WorkflowBindings,
+} from "./WorkflowExecutionStore.ts";
 import {
   WorkflowExecutionService,
   WorkflowExecutionServiceLive,
@@ -149,6 +154,21 @@ const fixture = (
                 })
                 .pipe(Effect.orDie);
             }
+            // A feature's lead launches with its brief, as the real runtime does.
+            if (input.runId.startsWith("feature-lead:"))
+              yield* engine
+                .dispatch({
+                  type: "message.dispatch",
+                  commandId: CommandId.make(`launch:${input.runId}`),
+                  threadId: input.threadId,
+                  messageId: MessageId.make(`bot-run:${input.runId}:message`),
+                  text: input.prompt,
+                  attachments: [],
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                  dispatchMode: { type: "start_immediately" },
+                })
+                .pipe(Effect.orDie);
             if (duringDispatch) yield* duringDispatch(input);
           }),
         replayPending: () => Effect.void,
@@ -237,7 +257,12 @@ const fixture = (
 
 const seed = (
   featureId = "feature-one",
-  options: { readonly decisions?: "lead"; readonly gate?: boolean } = {},
+  options: {
+    readonly decisions?: "lead";
+    readonly gate?: boolean;
+    /** Plan's `ready` leads to a Design stage the planner also runs, from the lead. */
+    readonly design?: boolean;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const bots = yield* CrewService;
@@ -287,10 +312,13 @@ const seed = (
           type: "task",
           role: "planner",
           task: "Plan",
-          next: { ready: "review", change: "decision" },
+          next: { ready: options.design ? "design" : "review", change: "decision" },
           outputs: ["plan.md"],
           ...(options.gate ? { gate: true } : {}),
         },
+        ...(options.design
+          ? { design: { type: "task", role: "planner", task: "Design", next: { ready: "review" } } }
+          : {}),
         decision: {
           type: "task",
           role: "manager",
@@ -321,6 +349,25 @@ const seed = (
     };
     return { featureId, definition, bindings, execution, workflows, bots, captain, manager };
   });
+
+/** Attaches the crew and hands Plan over as its lead would, for tests not about the lead. */
+const attachAndHandOff = (seeded: {
+  readonly featureId: string;
+  readonly bindings: WorkflowBindings;
+  readonly execution: WorkflowExecutionService["Service"];
+  readonly manager: { readonly threadId: ThreadId };
+}) =>
+  seeded.execution
+    .attach(seeded.featureId, projectId, seeded.bindings)
+    .pipe(Effect.andThen(seeded.execution.report(seeded.manager.threadId, "plan", "Context")));
+
+/** The text of each message sent to a thread. */
+const prompts = (threadId: ThreadId) =>
+  Effect.flatMap(OrchestratorV2, (engine) =>
+    engine
+      .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
+      .pipe(Effect.map(({ messages }) => messages.map((message) => message.text))),
+  );
 
 /** The active stage, its crew run, and the started event that names its stage record. */
 const activeStage = (featureId: string) =>
@@ -393,7 +440,7 @@ describe("Workflow execution", () => {
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings } = yield* seed();
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
         const sql = yield* SqlClient.SqlClient;
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
@@ -401,7 +448,7 @@ describe("Workflow execution", () => {
           const { taskText, contextText } = renderStageHandoff(record);
           return `Feature "Kanban board". ${taskText}\n\nContext:\n${contextText}`;
         };
-        yield* execution.attach(featureId, projectId, bindings);
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
 
         const plan = yield* activeStage(featureId);
         const planRecord = (yield* workflows.getStageHandoffForThread(
@@ -416,7 +463,7 @@ describe("Workflow execution", () => {
           from: null,
           produces: ["plan.md"],
           outputs: [],
-          notes: [],
+          notes: [{ stepId: "plan", kind: "decision", actorId: "lead", text: "Context" }],
           retry: null,
           workspace: {
             cwd: `/worktrees/${system.worktrees[0]}`,
@@ -476,7 +523,7 @@ describe("Workflow execution", () => {
 
         // Rework sees the earlier version of its own output; the next stage sees the new one.
         yield* execution.report(review.run.threadId, "revise", "Split the plan into two phases");
-        yield* execution.reconcileFeature(featureId);
+        yield* execution.report(manager.threadId, "plan", "Keep the phases independent");
         const rework = yield* activeStage(featureId);
         const reworkRecord = (yield* workflows.getStageHandoffForThread(
           projectId,
@@ -489,6 +536,7 @@ describe("Workflow execution", () => {
         ]);
         expect(reworkRecord.notes.map((note) => note.text)).toEqual([
           "Split the plan into two phases",
+          "Keep the phases independent",
         ]);
         yield* execution.report(rework.run.threadId, "ready", "Two phases");
         yield* execution.reconcileFeature(featureId);
@@ -517,8 +565,8 @@ describe("Workflow execution", () => {
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const { featureId, definition, execution, workflows, bindings } = yield* seed();
-        yield* execution.attach(featureId, projectId, bindings);
+        const { featureId, definition, execution, workflows, bindings, manager } = yield* seed();
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const review = definition.steps.review;
         if (review?.type !== "task") return yield* Effect.die("review is a task step");
         yield* workflows.reviseDefinition(
@@ -552,8 +600,8 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.scoped(
         Effect.gen(function* () {
-          const { featureId, execution, workflows, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           yield* execution.start();
           const changes = yield* (yield* WorkflowStore).subscribeChanges;
           const advanced = yield* changes.pipe(
@@ -599,8 +647,8 @@ describe("Workflow execution", () => {
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings } = yield* seed();
-        yield* execution.attach(featureId, projectId, bindings);
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const plan = yield* activeStage(featureId);
         yield* (yield* OrchestratorV2).dispatch({
           type: "thread.delete",
@@ -627,8 +675,8 @@ describe("Workflow execution", () => {
       withDirectory((directory) => {
         const system = fixture(directory);
         return Effect.gen(function* () {
-          const { featureId, execution, workflows, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           const plan = yield* activeStage(featureId);
           yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
           yield* execution.reconcileFeature(featureId);
@@ -697,8 +745,8 @@ describe("Workflow execution", () => {
       withDirectory((directory) => {
         const system = fixture(directory);
         return Effect.gen(function* () {
-          const { featureId, execution, workflows, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           const plan = yield* activeStage(featureId);
           expect(plan.run.memberId).toBe(bindings.planner.memberId);
           expect(plan.start.actorId).toBe(bindings.planner.dispatchRunId);
@@ -712,7 +760,7 @@ describe("Workflow execution", () => {
           expect(decision.step.id).toBe("decision");
           expect(decision.run.memberId).toBe(bindings.manager.memberId);
           yield* execution.report(decision.run.threadId, "revise", "Revise the plan");
-          yield* execution.reconcileFeature(featureId);
+          yield* execution.report(manager.threadId, "plan", "Context");
           const rework = yield* activeStage(featureId);
           expect(rework.step.executionId).not.toBe(plan.step.executionId);
           expect(rework.step.attempt).toBe(1);
@@ -732,8 +780,8 @@ describe("Workflow execution", () => {
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings } = yield* seed();
-        yield* execution.attach(featureId, projectId, bindings);
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const plan = yield* activeStage(featureId);
         yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
         yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
@@ -772,8 +820,8 @@ describe("Workflow execution", () => {
       withDirectory((directory) => {
         const system = fixture(directory);
         return Effect.gen(function* () {
-          const { featureId, execution, workflows, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           const first = yield* activeStage(featureId);
           const planStatus = () =>
             workflows
@@ -819,11 +867,15 @@ describe("Workflow execution", () => {
           expect(second.recordId).not.toBe(first.recordId);
           expect(second.step.executionId).toBe(first.step.executionId);
           expect(second.step.attempt).toBe(2);
-          expect(
-            (yield* workflows.getStageHandoffForThread(projectId, second.run.threadId))?.retry,
-          ).toEqual({
+          const retried = (yield* workflows.getStageHandoffForThread(
+            projectId,
+            second.run.threadId,
+          ))!;
+          expect(retried.retry).toEqual({
             previousError: "The stage ended without reporting a result with crew_respond",
           });
+          // The retry keeps the note the lead handed the first attempt.
+          expect(retried.notes).toMatchObject([{ actorId: "lead", text: "Context" }]);
           expect(second.run.taskText).toContain("The previous attempt failed:");
           yield* endTurn(second.run.threadId, "failed");
           yield* execution.reconcileFeature(featureId);
@@ -854,9 +906,9 @@ describe("Workflow execution", () => {
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings } = yield* seed();
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
         const engine = yield* OrchestratorV2;
-        yield* execution.attach(featureId, projectId, bindings);
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const plan = yield* activeStage(featureId);
         const planStatus = () =>
           workflows
@@ -909,9 +961,9 @@ describe("Workflow execution", () => {
     withDirectory((directory) => {
       const system = fixture(directory);
       return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings } = yield* seed();
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
         system.failNextDispatch();
-        yield* execution.attach(featureId, projectId, bindings);
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const snapshot = (yield* workflows.getFeatureSnapshot(featureId, projectId))!;
         expect(snapshot.steps.find((step) => step.id === "plan")?.status).toBe("failed");
         expect(snapshot.recentEvents.at(-1)?.detail).toContain("dispatch failed");
@@ -949,8 +1001,8 @@ describe("Workflow execution", () => {
       const first = fixture(directory);
       return Effect.gen(function* () {
         yield* Effect.gen(function* () {
-          const { featureId, execution, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           const plan = yield* activeStage(featureId);
           yield* execution.report(plan.run.threadId, "ready", "Plan ready");
         }).pipe(Effect.provide(first.layer));
@@ -982,8 +1034,8 @@ describe("Workflow execution", () => {
       const first = fixture(directory);
       return Effect.gen(function* () {
         yield* Effect.gen(function* () {
-          const { featureId, execution, workflows, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           const plan = yield* activeStage(featureId);
           yield* execution.report(plan.run.threadId, "needs_input", "Which API?");
           yield* execution.reconcileFeature(featureId);
@@ -1032,8 +1084,8 @@ describe("Workflow execution", () => {
       const first = fixture(directory);
       return Effect.gen(function* () {
         yield* Effect.gen(function* () {
-          const { featureId, execution, workflows, bindings } = yield* seed();
-          yield* execution.attach(featureId, projectId, bindings);
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           first.failNextInterrupt();
           expect(
             (yield* execution
@@ -1065,10 +1117,10 @@ describe("Workflow execution", () => {
       const system = fixture(directory, {}, { branchLeftBehind: true });
       return Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        const { featureId, execution, bindings } = yield* seed();
+        const { featureId, execution, bindings, manager } = yield* seed();
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
-        yield* execution.attach(featureId, projectId, bindings);
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const plan = yield* activeStage(featureId);
         expect(system.worktrees).toEqual([
           expect.stringMatching(/^bosun\/kanban-board-[0-9a-f]{6}$/),
@@ -1086,11 +1138,14 @@ describe("Workflow execution", () => {
       const system = fixture(directory);
       return Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        const { featureId, execution, workflows, bindings } = yield* seed();
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
         system.gitControl.failWorktree = true;
-        yield* execution.attach(featureId, projectId, bindings).pipe(Effect.result);
+        yield* execution.attach(featureId, projectId, bindings);
+        // The lead's turn ends without a handoff, so the stage starts and its worktree fails.
+        yield* endTurn(manager.threadId, "completed");
+        yield* execution.reconcileFeature(featureId).pipe(Effect.result);
         const executions = yield* WorkflowExecutionStore;
         expect((yield* executions.get(featureId))?.lastError).toContain("worktree");
         expect(system.starts).toHaveLength(2);
@@ -1118,10 +1173,10 @@ describe("Workflow execution", () => {
       return Effect.gen(function* () {
         const engine = yield* OrchestratorV2;
         const sql = yield* SqlClient.SqlClient;
-        const { featureId, execution, bindings } = yield* seed();
+        const { featureId, execution, bindings, manager } = yield* seed();
         yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
           VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
-        yield* execution.attach(featureId, projectId, bindings);
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const plan = yield* activeStage(featureId);
         const planShell = (yield* engine.getThreadShell(plan.run.threadId))!;
         expect(planShell.title).toBe("Kanban board");
@@ -1200,10 +1255,6 @@ describe("Workflow execution", () => {
           gate: true,
         });
         const engine = yield* OrchestratorV2;
-        const prompts = (threadId: ThreadId) =>
-          engine
-            .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
-            .pipe(Effect.map(({ messages }) => messages.map((message) => message.text)));
         const requests = (threadId: ThreadId) =>
           engine.getThreadProjection(threadId).pipe(Effect.map((view) => view.runtimeRequests));
         const planStatus = () =>
@@ -1223,7 +1274,7 @@ describe("Workflow execution", () => {
             const resolved = (yield* requests(threadId)).find((item) => item.id === requestId)!;
             yield* execution.answerQuestion(resolved);
           });
-        yield* execution.attach(featureId, projectId, bindings);
+        yield* attachAndHandOff({ featureId, bindings, execution, manager });
         const plan = yield* activeStage(featureId);
         expect(yield* requests(plan.run.threadId)).toEqual([]);
 
@@ -1240,10 +1291,13 @@ describe("Workflow execution", () => {
         expect(item?.type === "user_input_request" && item.questions[0]?.question).toContain(
           "Which API?",
         );
-        // The lead is told where it is, once; its idle thread's first message carries its brief.
+        // The lead launched with its brief, and is told where the question is, once.
         const told = yield* prompts(manager.threadId);
-        expect(told).toEqual([expect.stringMatching(/Task:\nSupervise[\s\S]*t3_pending_request/)]);
-        expect(told[0]).toContain(question!.id);
+        expect(told).toEqual([
+          expect.stringContaining("Task:\nSupervise"),
+          expect.stringContaining("t3_pending_request"),
+        ]);
+        expect(told[1]).toContain(question!.id);
 
         yield* answer(plan.run.threadId, question!.id, "Use v2");
         expect(yield* planStatus()).toBe("running");
@@ -1256,7 +1310,7 @@ describe("Workflow execution", () => {
           (item) => item.status === "pending",
         )!;
         expect(gate.id).not.toBe(question!.id);
-        expect(yield* prompts(manager.threadId)).toHaveLength(2);
+        expect(yield* prompts(manager.threadId)).toHaveLength(3);
         yield* answer(plan.run.threadId, gate.id, "crew:approve");
         expect(yield* planStatus()).toBe("completed");
         // A late answer to a question a decision replaced decides nothing.
@@ -1279,17 +1333,14 @@ describe("Workflow execution", () => {
             },
           );
           const engine = yield* OrchestratorV2;
-          yield* execution.attach(featureId, projectId, bindings);
+          yield* attachAndHandOff({ featureId, bindings, execution, manager });
           const plan = yield* activeStage(featureId);
           yield* execution.report(plan.run.threadId, "ready", "Plan ready");
           yield* execution.reconcileFeature(featureId);
           const [gate] = (yield* engine.getThreadProjection(plan.run.threadId)).runtimeRequests;
           expect(gate?.status).toBe("pending");
-          // A person decides on this workflow, so the lead hears nothing.
-          const { messages } = yield* engine.getThreadRecords(manager.threadId, ["messages"], {
-            messageRoles: ["user"],
-          });
-          expect(messages).toEqual([]);
+          // A person decides on this workflow, so the lead hears nothing past its brief.
+          expect(yield* prompts(manager.threadId)).toEqual([expect.stringContaining("Supervise")]);
 
           // Deleting the stage's thread moves its question to the thread that dispatched it.
           yield* engine.dispatch({
@@ -1314,6 +1365,168 @@ describe("Workflow execution", () => {
           );
           const [closed] = (yield* engine.getThreadProjection(manager.threadId)).runtimeRequests;
           expect(closed).toMatchObject({ status: "resolved", decision: "cancel" });
+        }).pipe(Effect.provide(system.layer));
+      }),
+  );
+
+  it.effect("starts the first stage when its lead hands it over, with the lead's note", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.gen(function* () {
+        const { featureId, execution, workflows, bindings, manager } = yield* seed();
+        const planStatus = () =>
+          workflows
+            .getFeatureState(featureId)
+            .pipe(Effect.map((state) => state?.steps.get("plan")?.status));
+        yield* execution.attach(featureId, projectId, bindings);
+        // The lead launched with its brief, and Plan waits for it.
+        expect(yield* planStatus()).toBe("pending");
+        expect(system.starts.length).toBe(2);
+        expect(yield* prompts(manager.threadId)).toEqual([expect.stringContaining("Supervise")]);
+
+        expect(yield* execution.report(manager.threadId, "plan", "Use the v2 API")).toEqual({
+          stepId: "plan",
+          recorded: "handed-off",
+        });
+        const plan = yield* activeStage(featureId);
+        const record = (yield* workflows.getStageHandoff(plan.recordId))!;
+        expect(record.notes).toMatchObject([
+          { stepId: "plan", kind: "decision", actorId: "lead", text: "Use the v2 API" },
+        ]);
+        expect(plan.run.taskText).toContain("Note from the lead on plan: Use the v2 API");
+
+        // A replayed handoff changes nothing; a different note can't rewrite the record.
+        expect(yield* execution.report(manager.threadId, "plan", "Use the v2 API")).toEqual({
+          stepId: "plan",
+          recorded: "handed-off",
+        });
+        yield* execution.reconcile();
+        expect(system.starts.length).toBe(3);
+        expect(
+          (yield* Effect.flip(execution.report(manager.threadId, "plan", "Another note"))).message,
+        ).toContain("t3_thread_send");
+        expect(
+          (yield* Effect.flip(execution.report(manager.threadId, "review", "Early"))).message,
+        ).toContain("No stage is waiting");
+      }).pipe(Effect.provide(system.layer));
+    }),
+  );
+
+  it.effect(
+    "starts the stage without a note when its lead hasn't handed it over in 10 minutes",
+    () =>
+      withDirectory((directory) => {
+        const system = fixture(directory);
+        return Effect.scoped(
+          Effect.gen(function* () {
+            const { featureId, execution, workflows, bindings, manager } = yield* seed();
+            yield* execution.attach(featureId, projectId, bindings);
+            const changes = yield* (yield* WorkflowStore).subscribeChanges;
+            const started = yield* changes.pipe(
+              Stream.mapEffect(() => workflows.getFeatureState(featureId)),
+              Stream.filter((state) => state?.steps.get("plan")?.status === "running"),
+              Stream.runHead,
+              Effect.forkScoped,
+            );
+            yield* TestClock.adjust("9 minutes");
+            expect(system.starts.length).toBe(2);
+            yield* TestClock.adjust("1 minute");
+            yield* Fiber.join(started);
+            const plan = yield* activeStage(featureId);
+            expect((yield* workflows.getStageHandoff(plan.recordId))?.notes).toEqual([]);
+            expect(yield* prompts(manager.threadId)).toEqual([
+              expect.stringContaining("Supervise"),
+              expect.stringContaining("started without your handoff"),
+            ]);
+            // The handoff came too late to change the record.
+            expect(
+              (yield* Effect.flip(execution.report(manager.threadId, "plan", "Late"))).message,
+            ).toContain("already started without your note");
+          }),
+        ).pipe(Effect.provide(system.layer));
+      }),
+  );
+
+  it.effect("starts the stage once the lead's turn ends without a handoff", () =>
+    withDirectory((directory) => {
+      const system = fixture(directory);
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const { featureId, execution, workflows, bindings, manager } = yield* seed();
+          const engine = yield* OrchestratorV2;
+          yield* execution.attach(featureId, projectId, bindings);
+          yield* execution.start();
+          const changes = yield* (yield* WorkflowStore).subscribeChanges;
+          const started = yield* changes.pipe(
+            Stream.mapEffect(() => workflows.getFeatureState(featureId)),
+            Stream.filter((state) => state?.steps.get("plan")?.status === "running"),
+            Stream.runHead,
+            Effect.forkScoped,
+          );
+          expect(system.starts.length).toBe(2);
+          // The lead's turn ends without crew_respond; no clock moves.
+          const shell = (yield* engine.getThreadShell(manager.threadId))!;
+          yield* engine.dispatch({
+            type: "run.interrupt",
+            commandId: CommandId.make("lead-turn-ends"),
+            threadId: manager.threadId,
+            runId: shell.activeRunId!,
+          });
+          yield* Fiber.join(started);
+          const plan = yield* activeStage(featureId);
+          expect((yield* workflows.getStageHandoff(plan.recordId))?.notes).toEqual([]);
+        }),
+      ).pipe(Effect.provide(system.layer));
+    }),
+  );
+
+  it.effect(
+    "tells the lead each result before it hands on the next stage, but not a person's rework",
+    () =>
+      withDirectory((directory) => {
+        const system = fixture(directory);
+        return Effect.gen(function* () {
+          const seeded = yield* seed("feature-three", { gate: true, design: true });
+          const { featureId, execution, workflows, manager } = seeded;
+          const decide = (kind: "approved" | "changes-requested", text?: string) =>
+            execution.control({
+              featureId,
+              projectId,
+              actorId: "person",
+              requestId: `${kind}:${text ?? ""}`,
+              kind,
+              ...(text ? { text } : {}),
+            });
+          yield* attachAndHandOff(seeded);
+          const first = yield* activeStage(featureId);
+          yield* execution.report(first.run.threadId, "ready", "Plan ready");
+
+          // Request changes reruns Plan with the person's note, without the lead.
+          yield* decide("changes-requested", "Add a rollback step");
+          const rework = yield* activeStage(featureId);
+          expect(rework.step.id).toBe("plan");
+          expect(rework.run.id).not.toBe(first.run.id);
+          expect(yield* prompts(manager.threadId)).toHaveLength(1);
+
+          yield* execution.report(rework.run.threadId, "ready", "Plan with rollback");
+          yield* decide("approved");
+          const state = (yield* workflows.getFeatureState(featureId))!;
+          expect(state.activeStepId).toBe("design");
+          expect(state.steps.get("design")?.status).toBe("pending");
+          const told = yield* prompts(manager.threadId);
+          expect(told).toHaveLength(2);
+          expect(told[1]).toContain("Plan with rollback");
+          expect(told[1]).toContain('outcome "design"');
+          yield* execution.reconcile();
+          expect(yield* prompts(manager.threadId)).toHaveLength(2);
+
+          yield* execution.report(manager.threadId, "design", "Keep it small");
+          const design = yield* activeStage(featureId);
+          expect(design.step.id).toBe("design");
+          expect((yield* workflows.getStageHandoff(design.recordId))?.notes).toMatchObject([
+            { kind: "routed", stepId: "plan", text: "Plan with rollback" },
+            { kind: "decision", actorId: "lead", text: "Keep it small" },
+          ]);
         }).pipe(Effect.provide(system.layer));
       }),
   );

@@ -646,64 +646,65 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("opens runs in their worktree, only the first runs setup, and a lead idles", () =>
-    Effect.gen(function* () {
-      const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
-      );
-      const setups = yield* Queue.unbounded<ThreadId>();
-      const orchestration = makeCrewTestOrchestration({
-        runSetup: (input) =>
-          Queue.offer(setups, ThreadId.make(input.threadId)).pipe(
-            Effect.as({ status: "no-script" as const }),
+  effectIt.effect(
+    "opens runs in their worktree, only the first runs setup, and a lead launches with its brief",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
+        );
+        const setups = yield* Queue.unbounded<ThreadId>();
+        const orchestration = makeCrewTestOrchestration({
+          runSetup: (input) =>
+            Queue.offer(setups, ThreadId.make(input.threadId)).pipe(
+              Effect.as({ status: "no-script" as const }),
+            ),
+        });
+        yield* withSystem(
+          NodePath.join(directory, "state.sqlite"),
+          ({ bots, engine }) =>
+            Effect.gen(function* () {
+              yield* createProject(engine);
+              yield* createBot(bots);
+              const workspace = { branch: "bosun/board-1a2b3c", worktreePath: "/worktrees/board" };
+              const run = (id: string) =>
+                bots.createRun({ id, memberId: "execution-1", projectId, taskText: id, workspace });
+              const plan = yield* run("plan");
+              expect(yield* Queue.take(setups)).toBe(plan.threadId);
+              const build = yield* run("build");
+              // Setup runs before the launch releases the run, so a released run had its chance.
+              const released = yield* engine
+                .streamStoredEventsFrom({ threadId: build.threadId, eventType: "run.updated" })
+                .pipe(
+                  Stream.filterMap((stored) =>
+                    stored.event.type === "run.updated" &&
+                    stored.event.payload.status !== "preparing"
+                      ? Result.succeed(stored.event.payload.status)
+                      : Result.failVoid,
+                  ),
+                  Stream.runHead,
+                );
+              expect(released).toEqual(Option.some("starting"));
+              expect(yield* Queue.size(setups)).toBe(0);
+              for (const threadId of [plan.threadId, build.threadId]) {
+                expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
+              }
+              // A feature's lead launches with its brief, like every crew thread.
+              const lead = yield* bots.createRun({
+                id: "feature-lead:board",
+                memberId: "execution-1",
+                projectId,
+                taskText: "Lead",
+              });
+              expect((yield* engine.getThreadShell(lead.threadId))?.latestRunId).not.toBeNull();
+            }),
+          orchestration,
+        ).pipe(
+          Effect.ensuring(
+            Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
           ),
-      });
-      yield* withSystem(
-        NodePath.join(directory, "state.sqlite"),
-        ({ bots, engine }) =>
-          Effect.gen(function* () {
-            yield* createProject(engine);
-            yield* createBot(bots);
-            const workspace = { branch: "bosun/board-1a2b3c", worktreePath: "/worktrees/board" };
-            const run = (id: string) =>
-              bots.createRun({ id, memberId: "execution-1", projectId, taskText: id, workspace });
-            const plan = yield* run("plan");
-            expect(yield* Queue.take(setups)).toBe(plan.threadId);
-            const build = yield* run("build");
-            // Setup runs before the launch releases the run, so a released run had its chance.
-            const released = yield* engine
-              .streamStoredEventsFrom({ threadId: build.threadId, eventType: "run.updated" })
-              .pipe(
-                Stream.filterMap((stored) =>
-                  stored.event.type === "run.updated" && stored.event.payload.status !== "preparing"
-                    ? Result.succeed(stored.event.payload.status)
-                    : Result.failVoid,
-                ),
-                Stream.runHead,
-              );
-            expect(released).toEqual(Option.some("starting"));
-            expect(yield* Queue.size(setups)).toBe(0);
-            for (const threadId of [plan.threadId, build.threadId]) {
-              expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
-            }
-            // A feature's lead gets its thread, but no turn until a decision is asked of it.
-            const lead = yield* bots.createRun({
-              id: "feature-lead:board",
-              memberId: "execution-1",
-              projectId,
-              taskText: "Lead",
-            });
-            expect(yield* engine.getThreadShell(lead.threadId)).toMatchObject({
-              latestRunId: null,
-            });
-          }),
-        orchestration,
-      ).pipe(
-        Effect.ensuring(
-          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
-        ),
-      );
-    }),
+        );
+      }),
   );
 
   effectIt.effect("recovers a persisted queued run after restart", () =>

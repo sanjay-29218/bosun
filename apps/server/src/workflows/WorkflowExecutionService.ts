@@ -15,12 +15,15 @@ import {
   type ServerSettingsError,
   type ThreadId,
   type WorkflowDefinition,
+  type WorkflowStageHandoff,
+  type WorkflowStageNote,
   type WorkflowStepEvent,
   type WorkflowFeatureSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -43,17 +46,17 @@ import * as BotStore from "../bots/BotStore.ts";
 import { featureTag } from "../features/featureIssue.ts";
 import { FeatureWorkspaces } from "../features/FeatureWorkspaces.ts";
 import { CrewService, crewRunPrompt, type CrewServiceError } from "../crew/CrewService.ts";
-import { CrewStore } from "../crew/CrewStore.ts";
-import { CrewThreadRuntime, startsIdle } from "../crew/CrewThreadRuntime.ts";
+import { CrewStore, type CrewMember, type CrewRun } from "../crew/CrewStore.ts";
+import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { WorkflowExecutionStore, type WorkflowBindings } from "./WorkflowExecutionStore.ts";
-import { renderStageHandoff } from "./StageHandoff.ts";
+import { collectNotes, LEAD_NOTE_ACTOR, renderStageHandoff } from "./StageHandoff.ts";
 import { NEEDS_INPUT, stageTurnVerdict } from "./StageTurn.ts";
 import { stageThreadSummaries } from "./CrewStageThreads.ts";
 import { memberFillsRole, WorkflowService, type WorkflowServiceError } from "./WorkflowService.ts";
-import { WorkflowStore } from "./WorkflowStore.ts";
+import { WorkflowStore, type FeatureWorkflowCopy } from "./WorkflowStore.ts";
 import {
   defaultForwardOutcome,
   featureCardState,
@@ -99,7 +102,7 @@ export interface WorkflowControl {
 /** What a workflow stage's crew_respond recorded. */
 export interface StageReport {
   readonly stepId: string;
-  readonly recorded: "completed" | "question";
+  readonly recorded: "completed" | "question" | "handed-off";
 }
 
 export class WorkflowExecutionService extends Context.Service<
@@ -161,6 +164,62 @@ const STOPS: ReadonlySet<WorkflowStepEvent["kind"]> = new Set([
 const key = (...parts: ReadonlyArray<string | number>) =>
   NodeCrypto.createHash("sha256").update(parts.join("\0")).digest("hex");
 
+const stageRecordId = (featureId: string, executionId: string, attempt: number) =>
+  `${STAGE_RECORD_PREFIX}${key(featureId, executionId, attempt)}`;
+
+/** The execution and record a pending step's next attempt starts with. */
+const nextAttempt = (
+  featureId: string,
+  copy: FeatureWorkflowCopy,
+  executionCount: number,
+  step: WorkflowStepState,
+) => {
+  // After a move to another workflow the count starts again, so its start marks new IDs.
+  const generation = copy.eventsFromSequence > 0 ? [copy.eventsFromSequence] : [];
+  const executionId =
+    step.executionId ?? `execution:${key(featureId, ...generation, executionCount + 1, step.id)}`;
+  const attempt = step.attempt + 1;
+  return { executionId, attempt, recordId: stageRecordId(featureId, executionId, attempt) };
+};
+
+/** A feature's lead run, which hands each stage it dispatches to that stage's member. */
+const isFeatureLeadRun = (runId: string) => runId.startsWith("feature-lead:");
+const LEAD_HANDOFF_TIMEOUT_MS = 10 * 60 * 1_000;
+/** A person's rework carries their note already, so it starts without the lead. */
+const PERSON_REWORKS: ReadonlySet<WorkflowStepEvent["kind"]> = new Set([
+  "changes-requested",
+  "sent-back",
+  "reopened",
+]);
+const leadNoteOf = (record: WorkflowStageHandoff | null) =>
+  record?.notes.find((note) => note.actorId === LEAD_NOTE_ACTOR)?.text;
+const NO_HANDOFF_WAITING =
+  "No stage is waiting for your handoff right now; each stage's result arrives in this thread when it does.";
+
+const clip = (text: string, max: number) =>
+  text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+
+/** Tells the lead what led to `stepId` and how to hand it over. */
+const handoffRequest = (
+  title: string,
+  featureId: string,
+  stepId: string,
+  member: CrewMember,
+  notes: ReadonlyArray<WorkflowStageNote>,
+) => {
+  const stage = formatStageName(stepId);
+  const story = notes.map((note) =>
+    note.kind === "routed"
+      ? `${formatStageName(note.stepId)} finished (${note.outcome ?? "completed"}):\n${clip(note.text, 2_000)}`
+      : `Note from ${note.actorId} on ${formatStageName(note.stepId)}: ${clip(note.text, 2_000)}`,
+  );
+  return [
+    `Feature "${title}" (featureId "${featureId}"): ${stage} is next, for ${member.name}.`,
+    ...story,
+    `Check the result, then hand ${stage} over: call crew_respond with outcome "${stepId}" and, as the summary, what ${member.name} needs beyond the brief and the earlier stages' outputs. ${stage} starts without your note after 10 minutes, or as soon as this turn ends without a handoff.`,
+  ].join("\n\n");
+};
+
 /** One question per wait: a new wait asks again, and reopening the same wait changes nothing. */
 const stageQuestionId = (featureId: string, waitingEventId: string) =>
   RuntimeRequestId.make(`workflow-question:${key(featureId, waitingEventId)}`);
@@ -199,6 +258,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     const lock = yield* Semaphore.make(1);
     // Stages waiting on the server's restart continuation, keyed by the cut run.
     const continuations = yield* FiberMap.make<string>();
+    // Stages waiting for their lead's handoff, keyed by feature and the event they wait after.
+    const leadWaits = yield* FiberMap.make<string>();
 
     /**
      * Stops the latest stage's thread after a cancel, take over or send back. Only the first
@@ -291,8 +352,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       function* (runId: string, id: string, text: string) {
         const run = yield* crew.getRun(runId);
         if (!run) return;
-        // A lead's thread starts without a turn, so its first message carries its brief.
-        const shell = startsIdle(run.id) ? yield* engine.getThreadShell(run.threadId) : null;
+        // A lead thread made idle before leads launched with their brief gets it now.
+        const shell = isFeatureLeadRun(run.id) ? yield* engine.getThreadShell(run.threadId) : null;
         const brief = shell?.latestRunId === null ? `${crewRunPrompt(run)}\n\n` : "";
         yield* engine.dispatch({
           type: "message.dispatch",
@@ -448,6 +509,84 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       return true;
     });
 
+    /**
+     * Whether a stage's new execution still waits for its feature lead to hand it over. The
+     * record the handoff writes opens the wait; past the deadline, or once the lead's turn that
+     * carried the request ended without one, the stage starts without a note.
+     */
+    const waitsForLead = Effect.fn("WorkflowExecutionService.waitsForLead")(function* (
+      featureId: string,
+      title: string,
+      lead: CrewRun,
+      member: CrewMember,
+      step: WorkflowStepState,
+      executionId: string,
+      recordId: string,
+      events: ReadonlyArray<WorkflowStepEvent>,
+    ) {
+      const cause = events.findLast((event) => event.kind !== "paused" && event.kind !== "resumed");
+      if (
+        step.executionId !== null ||
+        !isFeatureLeadRun(lead.id) ||
+        (cause !== undefined && PERSON_REWORKS.has(cause.kind)) ||
+        (yield* workflows.getStageHandoff(recordId)) !== null
+      )
+        return false;
+      const waitId = cause?.id ?? "start";
+      const logFailure = Effect.catch((error: unknown) =>
+        Effect.logWarning("Lead handoff message failed", { featureId, error }),
+      );
+      // The first stage's request is the lead's brief, sent at launch.
+      const requestId = `workflow:handoff:${key(featureId, waitId)}`;
+      if (cause)
+        yield* tell(
+          lead.id,
+          requestId,
+          handoffRequest(
+            title,
+            featureId,
+            step.id,
+            member,
+            collectNotes(events, executionId).notes,
+          ),
+        ).pipe(logFailure);
+      const { runs, deleted } = yield* stageTurns(lead.id);
+      const request = cause
+        ? runs.find((turn) => turn.userMessageId === requestId)
+        : runs.reduce<(typeof runs)[number] | undefined>(
+            (first, turn) => (first === undefined || turn.ordinal < first.ordinal ? turn : first),
+            undefined,
+          );
+      const deadline =
+        DateTime.toEpochMillis(DateTime.makeUnsafe(cause?.occurredAt ?? lead.createdAt)) +
+        LEAD_HANDOFF_TIMEOUT_MS;
+      const remaining = deadline - DateTime.toEpochMillis(yield* DateTime.now);
+      if (
+        remaining > 0 &&
+        !deleted &&
+        (request === undefined || !isTerminalRunStatus(request.status))
+      ) {
+        yield* FiberMap.run(
+          leadWaits,
+          `${featureId}:${waitId}`,
+          Effect.sleep(Duration.millis(remaining)).pipe(
+            Effect.andThen(reconcileFeature(featureId)),
+            Effect.catch((error) =>
+              Effect.logWarning("Lead handoff timeout failed", { featureId, error }),
+            ),
+          ),
+          { onlyIfMissing: true },
+        );
+        return true;
+      }
+      yield* tell(
+        lead.id,
+        `workflow:handoff-missed:${key(featureId, waitId)}`,
+        `${formatStageName(step.id)} started without your handoff. Send ${member.name} anything it needs on its thread with t3_thread_send.`,
+      ).pipe(logFailure);
+      return false;
+    });
+
     const advance = Effect.fn("WorkflowExecutionService.advance")(function* (
       featureId: string,
       ignoreLimit: boolean,
@@ -535,14 +674,34 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             (yield* engine.restartContinuationPending(previousTurn))
           )
             return yield* awaitContinuation(featureId, previousTurn);
+          const { executionId, attempt, recordId } = nextAttempt(
+            featureId,
+            copy,
+            state.executionCount,
+            step,
+          );
+          if (
+            yield* waitsForLead(
+              featureId,
+              execution.brief?.title ?? featureId,
+              source,
+              member,
+              step,
+              executionId,
+              recordId,
+              events,
+            )
+          )
+            return;
           const instanceId = (step.modelSelection ?? member.modelSelection).instanceId;
           if (!(yield* acquireSlot(featureId, instanceId, ignoreLimit))) return;
-          // After a move to another workflow the count starts again, so its start marks new IDs.
-          const generation = copy.eventsFromSequence > 0 ? [copy.eventsFromSequence] : [];
-          const executionId =
-            step.executionId ??
-            `execution:${key(featureId, ...generation, state.executionCount + 1, stepId)}`;
-          const recordId = `${STAGE_RECORD_PREFIX}${key(featureId, executionId, step.attempt + 1)}`;
+          // A retry keeps the note the lead handed its first attempt.
+          const leadNote =
+            attempt > 1
+              ? leadNoteOf(
+                  yield* workflows.getStageHandoff(stageRecordId(featureId, executionId, 1)),
+                )
+              : undefined;
           // The record describes the worktree the stage opens in, so it must exist first.
           const workspace = yield* featureWorkspaces
             .forFeature(featureId)
@@ -553,9 +712,10 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               featureId,
               stepId,
               executionId,
-              attempt: step.attempt + 1,
+              attempt,
               handoffId: recordId,
               worktreePath: workspace?.worktreePath ?? null,
+              ...(leadNote === undefined ? {} : { leadNote }),
             }),
           );
           const runId = stageRunId(recordId);
@@ -577,7 +737,7 @@ export const WorkflowExecutionServiceLive = Layer.effect(
             );
           }
           yield* workflows.recordTrustedEvent(featureId, {
-            id: `start:${key(featureId, executionId, step.attempt + 1)}`,
+            id: `start:${key(featureId, executionId, attempt)}`,
             stepId,
             executionId,
             kind: "started",
@@ -1138,6 +1298,83 @@ export const WorkflowExecutionServiceLive = Layer.effect(
       return { stepId, recorded: kind } satisfies StageReport;
     });
 
+    /**
+     * Records a lead's handoff: the stage's record, with the lead's note, written before the
+     * stage starts. The record is write-once, so a replay finds its first call's note.
+     */
+    const handOff = Effect.fn("WorkflowExecutionService.handOff")(function* (
+      featureId: string,
+      leadRunId: string,
+      stepId: string,
+      summary: string,
+    ) {
+      const text = summary.trim();
+      if (!text || text.length > 8_000)
+        return yield* Effect.fail(
+          new WorkflowTransitionError("The summary needs 1-8000 characters"),
+        );
+      const execution = yield* executions.get(featureId);
+      const copy = yield* workflows.getFeatureCopy(featureId);
+      const state = yield* workflows.getFeatureState(featureId);
+      const task = copy?.definition.steps[stepId];
+      const step = state?.activeStepId === stepId ? state.steps.get(stepId) : undefined;
+      const handedOff = { stepId, recorded: "handed-off" } satisfies StageReport;
+      const stage = formatStageName(stepId);
+      if (
+        execution &&
+        copy &&
+        state &&
+        step?.status === "pending" &&
+        step.executionId === null &&
+        task?.type === "task" &&
+        execution.bindings[task.role]?.dispatchRunId === leadRunId
+      ) {
+        const { executionId, attempt, recordId } = nextAttempt(
+          featureId,
+          copy,
+          state.executionCount,
+          step,
+        );
+        const workspace = yield* featureWorkspaces
+          .forFeature(featureId)
+          .pipe(Effect.mapError((error) => new WorkflowTransitionError(error.message)));
+        const record = yield* workflows.prepareStageHandoff({
+          featureId,
+          stepId,
+          executionId,
+          attempt,
+          handoffId: recordId,
+          worktreePath: workspace?.worktreePath ?? null,
+          leadNote: text,
+        });
+        if (leadNoteOf(record) !== text)
+          return yield* Effect.fail(
+            new WorkflowTransitionError(
+              `${stage} was already handed over; once it starts, send more on its thread with t3_thread_send.`,
+            ),
+          );
+        yield* reconcileFeatureUnlocked(featureId);
+        return handedOff;
+      }
+      const start = (yield* store.listEvents(featureId)).findLast(
+        (event) => event.kind === "started" && event.stepId === stepId,
+      );
+      const first = start?.executionId
+        ? yield* workflows.getStageHandoff(stageRecordId(featureId, start.executionId, 1))
+        : null;
+      const note = leadNoteOf(first);
+      if (note === text) return handedOff;
+      if (first && step && start?.executionId === step.executionId)
+        return yield* Effect.fail(
+          new WorkflowTransitionError(
+            note === undefined
+              ? `${stage} already started without your note; send it on its thread with t3_thread_send.`
+              : `${stage} already started with your earlier note; send more on its thread with t3_thread_send.`,
+          ),
+        );
+      return yield* Effect.fail(new WorkflowTransitionError(NO_HANDOFF_WAITING));
+    });
+
     const control = Effect.fn("WorkflowExecutionService.control")(function* (
       input: WorkflowControl,
     ) {
@@ -1190,6 +1427,13 @@ export const WorkflowExecutionServiceLive = Layer.effect(
     return WorkflowExecutionService.of({
       report: Effect.fn("WorkflowExecutionService.report")(function* (threadId, outcome, summary) {
         const run = yield* crew.getRunByThread(threadId);
+        // A feature's lead reports the stage it hands over.
+        if (run && isFeatureLeadRun(run.id)) {
+          const featureId = yield* executions.findFeatureForLeadRun(run.id);
+          if (!featureId)
+            return yield* Effect.fail(new WorkflowTransitionError(NO_HANDOFF_WAITING));
+          return yield* handOff(featureId, run.id, outcome, summary).pipe(lock.withPermits(1));
+        }
         const start = run ? yield* store.findStageStart(run.id) : null;
         if (!run || !start)
           return yield* Effect.fail(
@@ -1280,7 +1524,8 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           ),
         ).pipe(Effect.forkScoped);
         // A stage thread's turn, or its deletion, ends its stage's wait; a person's thread
-        // attached as a stage finishes that stage when its turn ends.
+        // attached as a stage finishes that stage when its turn ends, and a lead's turn ending
+        // without a handoff starts the stage it held.
         yield* Stream.runForEach(domainEvents, (event) => {
           if (event.type === "runtime-request.updated")
             return answerQuestion(event.payload).pipe(
@@ -1295,11 +1540,15 @@ export const WorkflowExecutionServiceLive = Layer.effect(
           if (threadId === null) return Effect.void;
           return crew.getRunByThread(threadId).pipe(
             Effect.flatMap((run) =>
-              run
-                ? store
-                    .findStageStart(run.id)
-                    .pipe(Effect.map((start) => (start ? [start.featureId] : [])))
-                : executions.findFeaturesForThread(threadId),
+              !run
+                ? executions.findFeaturesForThread(threadId)
+                : isFeatureLeadRun(run.id)
+                  ? executions
+                      .findFeatureForLeadRun(run.id)
+                      .pipe(Effect.map((featureId) => (featureId ? [featureId] : [])))
+                  : store
+                      .findStageStart(run.id)
+                      .pipe(Effect.map((start) => (start ? [start.featureId] : []))),
             ),
             Effect.flatMap((ids) => Effect.forEach(ids, reconcileFeature, { discard: true })),
             Effect.catch((error) =>

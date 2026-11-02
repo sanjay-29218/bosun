@@ -34,12 +34,12 @@ const failure = Schema.Union([
 /** What a workflow stage's report recorded. */
 const StageReport = Schema.Struct({
   stepId: Schema.String,
-  recorded: Schema.Literals(["completed", "question"]),
+  recorded: Schema.Literals(["completed", "question", "handed-off"]),
 });
 
 const Respond = Tool.make("crew_respond", {
   description:
-    "Report the result of the workflow stage this thread runs: one of the stage's outcomes with a summary of the result and its evidence, or needs_input with the question a person must answer as the summary. Then end your turn; an answer arrives in this thread.",
+    "Report the result of the workflow stage this thread runs: one of the stage's outcomes with a summary of the result and its evidence, or needs_input with the question a person must answer as the summary. Then end your turn; an answer arrives in this thread. A feature's lead hands a stage over instead: the stage's id as the outcome, and the context its crew member needs as the summary.",
   parameters: Schema.Struct({
     outcome: Schema.String,
     summary: Schema.String,

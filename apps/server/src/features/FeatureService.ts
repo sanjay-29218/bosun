@@ -175,12 +175,25 @@ const hashed = (prefix: string, featureId: string, id: string) =>
 /** The "feature-bot" prefix predates the Roles rename; existing member IDs keep it. */
 const featureMemberId = (featureId: string, slot: string) => hashed("feature-bot", featureId, slot);
 
-const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition) =>
-  [
+const featureLeadTask = (
+  feature: FeatureRecord,
+  definition: WorkflowDefinition,
+  leadMemberId: string,
+) => {
+  const start = definition.steps[definition.start];
+  const supervisor = start?.type === "task" ? definition.roles[start.role]?.supervisor : null;
+  const leadsStart = supervisor ? feature.crewAssignments[supervisor] === leadMemberId : false;
+  return [
     `You lead feature "${feature.title}" (${feature.id}) on workflow ${definition.name}.`,
-    "The workflow sends each stage to its crew member, so never delegate stage work yourself.",
+    "Each stage you lead starts when you hand it to its crew member: call crew_respond with the stage's id as the outcome and, as the summary, the context that member needs beyond the brief and the earlier stages' outputs. Each stage's result arrives in this thread before the next stage starts. A stage you don't hand over starts without your note after 10 minutes, or as soon as your turn ends. Never do stage work yourself.",
+    leadsStart
+      ? `Review the brief, then hand over the first stage, outcome "${definition.start}".`
+      : "",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+};
 
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
@@ -393,7 +406,7 @@ export const FeatureServiceLive = Layer.effect(
           id: hashed("feature-lead", feature.id, leadMemberId),
           memberId: leadMemberId,
           projectId: feature.projectId,
-          taskText: featureLeadTask(feature, definition),
+          taskText: featureLeadTask(feature, definition, leadMemberId),
           ...(lead ? { title: lead.name } : {}),
         });
         // A fixed command ID tags the thread once.
