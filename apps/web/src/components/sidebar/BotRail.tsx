@@ -14,13 +14,13 @@ import {
   UsersRoundIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { memo, useEffect, type ReactNode } from "react";
+import { memo, useEffect, type MouseEvent, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { botJumpCommandForIndex, botJumpIndexFromCommand } from "../../keybindings";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
-import { cn } from "../../lib/utils";
+import { cn, isMacPlatform } from "../../lib/utils";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useHasUnseenAutomationFailure } from "../../state/automations";
@@ -95,12 +95,14 @@ export const BotRail = memo(function BotRail({
     }
     return false;
   };
-  // Picking a bot shows its threads; picking it again there opens its headquarters.
-  const select = (bot: LogicalBot) => {
-    if (switchTo(bot)) return;
+  // Picking a bot shows its threads; picking it again, or Mod+click, opens its headquarters.
+  const select = (bot: LogicalBot, event: MouseEvent) => {
+    const direct = event.metaKey || event.ctrlKey;
+    if (switchTo(bot) && !direct) return;
     if (isMobile) setOpenMobile(false);
     openHeadquarters(bot);
   };
+  const openHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its thread`;
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
@@ -154,11 +156,11 @@ export const BotRail = memo(function BotRail({
             <RailItem
               key={bot.key}
               label={bot.name}
-              hint={bot.key === active?.key ? "Click to open its thread" : null}
+              hint={bot.key === active?.key ? "Click to open its thread" : openHint}
               active={onBots && bot.key === active?.key}
               signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
               shortcut={shortcutFor(botJumpCommandForIndex(index))}
-              onSelect={() => select(bot)}
+              onSelect={(event) => select(bot, event)}
             >
               <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
             </RailItem>
@@ -334,7 +336,7 @@ const RailItem = memo(function RailItem({
   readonly signal: BotRailSignal | null;
   readonly shortcut: string | null;
   readonly variant?: "bot" | "icon";
-  readonly onSelect: () => void;
+  readonly onSelect: (event: MouseEvent) => void;
   readonly children: ReactNode;
 }) {
   const status = signalLabel(signal);

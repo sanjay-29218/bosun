@@ -28,7 +28,8 @@ and Captain can't be deleted. Deleting a bot also deletes the automations that r
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
-rail again, or with **Open …'s thread** in the command palette. A dot there shows when it's
+rail again, by ⌘-clicking (Ctrl-clicking) any bot in the rail, or with **Open …'s thread** in the
+command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
 questions. Each request it hands a project gets a fresh **project manager**: a subagent of the
 headquarters that works in its own worktree of that project. Small work it does itself and opens a
