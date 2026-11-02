@@ -184,7 +184,7 @@ The mobile app runs features but does not edit workflows. The bot button in the 
 header opens the bot's headquarters. With more than one bot it also switches bots, and its menu
 shows how many threads wait on you under each one. The List / Board button beside it flips to the bot's features, with the ones
 waiting on you first. Choose a workflow in the new task sheet to start a feature with your prompt
-as its brief; it starts on the bot's default workflow. In a stage thread, the card above the
+as its brief. In a stage thread, the card above the
 composer approves, retries or recovers the stage, and the composer text goes with the action as
 your note. **Library** in the bot button's menu opens **Settings → Workflows**, which shows each
 workflow's stages and links to **Settings → Roles** to edit roles. **Settings → Project** shows and

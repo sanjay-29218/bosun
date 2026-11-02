@@ -1,10 +1,18 @@
 import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
 import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ProjectId, WorkflowDefinition } from "@t3tools/contracts";
-import { LayersIcon, MessageSquareIcon, UsersIcon, WorkflowIcon } from "lucide-react";
+import {
+  CAPTAIN_BOT_ID,
+  type EnvironmentId,
+  type ProjectId,
+  type WorkflowDefinition,
+} from "@t3tools/contracts";
+import { LayersIcon, MessageSquareIcon, StarIcon, UsersIcon, WorkflowIcon } from "lucide-react";
+
+import { useAtomValue } from "@effect/atom-react";
 
 import type { DraftId } from "../../composerDraftStore";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { botsEnvironment } from "../../state/bots";
 import { rolesEnvironment } from "../../state/roles";
 import { useProject, useServerConfigs } from "../../state/entities";
@@ -28,7 +36,12 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { botDefaultWorkflowId, resolveDraftWorkflowId, useCrewDraftStore } from "./crewDraftStore";
+import {
+  botDefaultWorkflowId,
+  resolveDraftWorkflowId,
+  unpickedDraftWorkflowId,
+  useCrewDraftStore,
+} from "./crewDraftStore";
 
 const NO_WORKFLOW = "";
 
@@ -38,17 +51,22 @@ export function useEnvironmentSupportsWorkflows(environmentId: EnvironmentId | n
   return config?.environment.capabilities.workflows === true;
 }
 
-/** The workflow a new thread starts on until one is picked: its project's bot's default. */
-function useDefaultWorkflowId(
+/** The bot that owns a new thread's project; its default workflow is the draft's default. */
+function useProjectBot(
   environmentId: EnvironmentId,
   projectId: ProjectId | null,
   enabled: boolean,
-): string | null {
+) {
   const project = useProject(projectId ? scopeProjectRef(environmentId, projectId) : null);
   const bots = useEnvironmentQuery(
     enabled && project ? botsEnvironment.list({ environmentId, input: {} }) : null,
   ).data;
-  return project && bots ? botDefaultWorkflowId(bots, project) : null;
+  if (!project || !bots) return { bot: null, defaultWorkflowId: null };
+  const botId = project.botId ?? CAPTAIN_BOT_ID;
+  return {
+    bot: bots.find((bot) => bot.id === botId) ?? null,
+    defaultWorkflowId: botDefaultWorkflowId(bots, project),
+  };
 }
 
 /** The workflow a draft will start, picked or default, if it still exists. */
@@ -61,12 +79,14 @@ export function useDraftWorkflow(input: {
   const picked = useCrewDraftStore((state) =>
     input.draftId ? state.workflowByDraftId[input.draftId] : null,
   );
-  const defaultWorkflowId = useDefaultWorkflowId(
+  const featureDraft = useCrewDraftStore((state) =>
+    input.draftId ? state.featureDraftIds[input.draftId] === true : false,
+  );
+  const { bot, defaultWorkflowId } = useProjectBot(
     input.environmentId,
     input.projectId,
     supported && input.draftId !== null,
   );
-  const workflowId = resolveDraftWorkflowId(picked, defaultWorkflowId);
   const definitions = useEnvironmentQuery(
     supported && input.projectId
       ? workflowsEnvironment.definitions({
@@ -75,8 +95,18 @@ export function useDraftWorkflow(input: {
         })
       : null,
   ).data;
+  const workflowId = resolveDraftWorkflowId(
+    picked,
+    unpickedDraftWorkflowId({
+      featureDraft,
+      botDefault: defaultWorkflowId,
+      firstWorkflow: definitions?.[0]?.id ?? null,
+    }),
+  );
   return {
     supported: supported && input.projectId !== null && input.draftId !== null,
+    bot,
+    defaultWorkflowId,
     definitions: definitions ?? [],
     workflow: definitions?.find((definition) => definition.id === workflowId) ?? null,
     /** False while the draft follows its bot's default workflow. */
@@ -95,26 +125,41 @@ export function ComposerWorkflowPicker(props: {
   readonly size: ComposerControlSize;
   readonly onManageWorkflows: () => void;
 }) {
-  const { definitions, workflow } = useDraftWorkflow(props);
+  const { definitions, workflow, bot, defaultWorkflowId } = useDraftWorkflow(props);
   const setWorkflow = useCrewDraftStore((state) => state.setWorkflow);
+  const canEditBot = useAtomValue(botsEnvironment.update.permissionAtom(props.environmentId));
+  const updateBot = useAtomCommand(botsEnvironment.update);
+  // The bot's default is what New feature and every new thread of its projects start on.
+  const makeDefault =
+    bot && workflow && workflow.id !== defaultWorkflowId && canEditBot
+      ? {
+          label: `Make default for ${bot.name}`,
+          run: () =>
+            void updateBot({
+              environmentId: props.environmentId,
+              input: { id: bot.id, expectedRevision: bot.revision, defaultWorkflowId: workflow.id },
+            }),
+        }
+      : null;
   return (
     <WorkflowMenu
       definitions={definitions}
       workflow={workflow}
       size={props.size}
       allowNoWorkflow
+      makeDefault={makeDefault}
       onPick={(workflowId) => setWorkflow(props.draftId, workflowId)}
       onManageWorkflows={props.onManageWorkflows}
     />
   );
 }
 
-/** The Workflow control, shared by the composer and the board's New feature dialog. */
-export function WorkflowMenu(props: {
+function WorkflowMenu(props: {
   readonly definitions: ReadonlyArray<WorkflowDefinition>;
   readonly workflow: WorkflowDefinition | null;
   readonly size: ComposerControlSize;
   readonly allowNoWorkflow?: boolean;
+  readonly makeDefault: { readonly label: string; readonly run: () => void } | null;
   readonly onPick: (workflowId: string | null) => void;
   readonly onManageWorkflows: () => void;
 }) {
@@ -180,6 +225,12 @@ export function WorkflowMenu(props: {
           </MenuRadioGroup>
         </MenuGroup>
         <MenuSeparator />
+        {props.makeDefault ? (
+          <MenuItem onClick={props.makeDefault.run}>
+            <StarIcon />
+            {props.makeDefault.label}
+          </MenuItem>
+        ) : null}
         <MenuItem onClick={props.onManageWorkflows}>
           <LayersIcon />
           Manage workflows…
@@ -213,7 +264,7 @@ export function ComposerCrewControl(props: {
 }
 
 /** The Crew control: the workflow's roles and their models, read-only. */
-export function CrewMenu(props: {
+function CrewMenu(props: {
   readonly environmentId: EnvironmentId;
   readonly workflow: WorkflowDefinition;
   readonly size: ComposerControlSize;

@@ -76,8 +76,8 @@ import { resolveFeaturesShortcut } from "./featuresShortcuts";
 import { useFeatureActions, type FeatureNoteRequest } from "./useFeatureActions";
 import { useFeatureBoard, useWorkflowEnvironmentIds } from "./useFeatureBoard";
 import { useIssueBoard } from "./useIssueBoard";
-import { startFeatureFromTodo } from "./TodoDetail";
-import { openNewFeatureDialog, openNewTodoDialog, openTodo } from "./todoDialogs";
+import { useStartFeatureDraft } from "./TodoDetail";
+import { openNewTodoDialog, openTodo } from "./todoDialogs";
 
 export interface FeaturesSearch {
   readonly q?: string;
@@ -342,6 +342,7 @@ export function FeaturesPage(props: {
   };
 
   const actions = useFeatureActions({ onNoteRequest: setNoteRequest });
+  const startFeatureDraft = useStartFeatureDraft();
   const handlers: FeatureBoardHandlers = {
     projectFor,
     queuePositions: featureQueuePositions(board.cards),
@@ -386,7 +387,10 @@ export function FeaturesPage(props: {
             },
       ),
     onStartTodo: (issue) =>
-      startFeatureFromTodo(issue, issueBoard.tickets.get(issueKey(issue))?.description),
+      startFeatureDraft(
+        { environmentId: issue.environmentId, projectId: issue.projectId },
+        { issue, description: issueBoard.tickets.get(issueKey(issue))?.description },
+      ),
     onOpenChat: (shell) =>
       void navigate({
         to: "/$environmentId/$threadId",
@@ -410,13 +414,13 @@ export function FeaturesPage(props: {
       ),
   };
 
-  // New feature opens a brief dialog over the board, so starting one never leaves it.
-
+  // New feature opens a new thread's composer, whose Workflow picker starts the feature.
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
   const startNewFeature = () => {
     if (!newFeatureProject) return;
-    openNewFeatureDialog({
-      project: { environmentId: newFeatureProject.environmentId, projectId: newFeatureProject.id },
+    startFeatureDraft({
+      environmentId: newFeatureProject.environmentId,
+      projectId: newFeatureProject.id,
     });
   };
   const browseWorkflows = () => void navigate({ to: "/library", search: {} });

@@ -8,12 +8,14 @@ workflows, and the app opens on whichever view you used last.
 
 ## Start a feature
 
-On the board, **New → New feature** opens a dialog for the brief, the project and the workflow,
-and the feature starts without leaving the board. The first time the board opens, **Start a
-feature** adds the starter workflow, "Feature delivery", first. From a new thread, the composer's
-**Workflow** picker does the same, and its first message becomes the brief. Both start on the
-default workflow of the bot that owns the project. Change workflows in the **Library**, in the bot
-rail or at the bottom of the sidebar.
+On the board, **New → New feature** opens a new thread in a new worktree with a workflow already
+picked in the composer's **Workflow** picker; your first message becomes the brief. **Start
+feature** on a todo does the same with the todo already written in, and the feature links to it.
+The first time the board opens, **Start a feature** adds the starter workflow, "Feature delivery",
+first. These pick the default workflow of the bot that owns the project, or the first workflow
+when it has none. A plain new thread picks no workflow until you choose one. To change the default,
+pick a workflow and choose **Make default for** the bot in the same menu, or edit the bot. Change
+workflows in the **Library**, in the bot rail or at the bottom of the sidebar.
 
 A feature started from the board gets a new worktree. From a thread, it works where the
 composer's **Local** / **New worktree** picker says. In a new worktree,

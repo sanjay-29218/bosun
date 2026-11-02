@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-board";
 import {
   featureForIssue,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
+import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { useProjects } from "../../state/entities";
@@ -46,7 +48,6 @@ import { featureStatus } from "./FeatureCard";
 import { cn } from "../../lib/utils";
 import {
   closeTodo,
-  openNewFeatureDialog,
   openTodo,
   todoDetailAtom,
   type TodoOwner,
@@ -54,22 +55,36 @@ import {
 } from "./todoDialogs";
 
 /**
- * Starts a feature on a todo: a new thread in its project whose brief names it. The composer's
- * Workflow picker starts it, and creating the feature links the issue's URL or the ticket's
- * `Ticket T-<number>` line.
+ * Starts a feature in a new thread's composer, in a new worktree: its Workflow picker starts it
+ * on the bot's default workflow, and the first message is the brief. A todo's brief names it, by
+ * the issue's URL or a `Ticket T-<number>` line, so creating the feature links it.
  */
-/**
- * Starts a feature on a todo: the New feature dialog, filled in with the todo and linked to it,
- * so it runs as a feature in its own worktree and the board stays open.
- */
-export function startFeatureFromTodo(todo: EnvironmentIssue, description?: string) {
-  openNewFeatureDialog({
-    project: { environmentId: todo.environmentId, projectId: todo.projectId },
-    brief: [todo.title, description?.trim()].filter(Boolean).join("\n\n"),
-    issueRef: todo.ticketId ? ticketRef(todo) : todo.url,
-  });
-  closeTodo();
+export function useStartFeatureDraft() {
+  const newThread = useNewThreadHandler();
+  return (
+    project: TodoOwner,
+    todo?: { readonly issue: EnvironmentIssue; readonly description?: string | undefined },
+  ) => {
+    closeTodo();
+    const brief = !todo
+      ? ""
+      : todo.issue.ticketId
+        ? [todo.issue.title, todo.description?.trim(), `Ticket ${ticketRef(todo.issue)}`]
+            .filter(Boolean)
+            .join("\n\n")
+        : `${todo.issue.title}\n\n${todo.issue.url}`;
+    void newThread(scopeProjectRef(project.environmentId, project.projectId), {
+      envMode: "worktree",
+      feature: true,
+      ...(brief ? { prompt: brief } : {}),
+    });
+  };
 }
+
+const todoProject = (issue: EnvironmentIssue): TodoOwner => ({
+  environmentId: issue.environmentId,
+  projectId: issue.projectId,
+});
 
 const failureText = (result: Parameters<typeof squashAtomCommandFailure>[0], fallback: string) => {
   const failure = squashAtomCommandFailure(result);
@@ -284,6 +299,7 @@ function TicketDetail(props: {
   const [error, setError] = useState<string | null>(null);
   const row = ticketIssue(ticket, props.environmentId);
   const target = { environmentId: props.environmentId };
+  const startFeature = useStartFeatureDraft();
 
   const update = async (patch: {
     readonly title?: string;
@@ -375,7 +391,9 @@ function TicketDetail(props: {
       actions={
         <>
           {ticket.state === "open" && !feature ? (
-            <StartFeatureButton onStart={() => startFeatureFromTodo(row, description)} />
+            <StartFeatureButton
+              onStart={() => startFeature(todoProject(row), { issue: row, description })}
+            />
           ) : null}
           <MoreActions>
             {props.canFileIssues ? (
@@ -495,6 +513,7 @@ function GitHubIssueDetail(props: {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const startFeature = useStartFeatureDraft();
   const issue = detail.data;
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed /> : <DetailSkeleton />;
@@ -561,7 +580,7 @@ function GitHubIssueDetail(props: {
             GitHub
           </Button>
           {open && !feature ? (
-            <StartFeatureButton onStart={() => startFeatureFromTodo(row)} />
+            <StartFeatureButton onStart={() => startFeature(todoProject(row), { issue: row })} />
           ) : null}
           <MoreActions>
             <MenuItem disabled={busy} onClick={() => void setState(open ? "closed" : "open")}>

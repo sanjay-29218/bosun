@@ -23,25 +23,6 @@ export interface NewTodoTarget {
   readonly project?: TodoOwner;
 }
 
-/** What the New feature dialog starts from: a project, and a todo's brief and link. */
-export interface NewFeatureTarget {
-  readonly project?: TodoOwner;
-  readonly brief?: string;
-  /** The todo the feature works on: a ticket's `T-<number>` or an issue's URL. */
-  readonly issueRef?: string;
-}
-
-export const newFeatureDialogAtom = Atom.make<NewFeatureTarget | null>(null).pipe(
-  Atom.keepAlive,
-  Atom.withLabel("features:new-feature-dialog"),
-);
-
-export function openNewFeatureDialog(target: NewFeatureTarget = {}): void {
-  appAtomRegistry.set(newFeatureDialogAtom, target);
-}
-
-export const closeNewFeatureDialog = () => appAtomRegistry.set(newFeatureDialogAtom, null);
-
 export const todoDetailAtom = Atom.make<TodoTarget | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("features:todo-detail"),
