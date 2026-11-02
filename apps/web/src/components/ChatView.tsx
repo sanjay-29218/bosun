@@ -274,15 +274,10 @@ import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { CrewHandoffCard } from "./crew/CrewHandoffCard";
-import {
-  ComposerCrewControl,
-  ComposerWorkflowPicker,
-  useDraftWorkflow,
-} from "./crew/ComposerWorkflowPicker";
+import { ComposerWorkflowPicker, useDraftWorkflow } from "./crew/ComposerWorkflowPicker";
 import { useCrewDraftStore } from "./crew/crewDraftStore";
 import type { ComposerControlSize } from "./chat/ComposerControl";
 import { featuresEnvironment } from "../state/features";
-import { CrewStageBanner } from "./crew/CrewStageBanner";
 import { CrewStageContext, useCrewStage } from "./crew/useCrewStage";
 import { useCrewNowItems } from "./crew/useCrewNowItems";
 import { useRemoteOpenState } from "~/remoteOpen";
@@ -1125,9 +1120,6 @@ export default function ChatView(props: ChatViewProps) {
   const handleManageWorkflows = () => {
     void navigate({ to: "/library", search: {} });
   };
-  const handleEditCrew = () => {
-    void navigate({ to: "/library", search: {} });
-  };
   // A new thread with a workflow picked starts a feature; its first message is the brief.
   const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
   const draftWorkflow = useDraftWorkflow({ environmentId, projectId: draftProjectId, draftId });
@@ -1146,18 +1138,6 @@ export default function ChatView(props: ChatViewProps) {
         )
       : undefined;
   const draftWorkflowId = draftWorkflow.workflow?.id ?? null;
-  const renderCrewControl =
-    draftWorkflowId && draftId && draftProjectId
-      ? (size: ComposerControlSize) => (
-          <ComposerCrewControl
-            environmentId={environmentId}
-            projectId={draftProjectId}
-            draftId={draftId}
-            size={size}
-            onEditCrew={handleEditCrew}
-          />
-        )
-      : null;
   // The feature a draft created, kept until it starts, so retrying a failed start (or a
   // second Enter) reuses it instead of creating another. Create is idempotent per id.
   const pendingCrewFeatureRef = useRef<{
@@ -2329,9 +2309,14 @@ export default function ChatView(props: ChatViewProps) {
   const setPendingServerThreadBranch = (branch: string | null) => {
     if (activeThread) setPendingServerThreadBranchEntry({ threadId: activeThread.id, branch });
   };
-  const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
-    : derivedEnvMode;
+  // A bot's default workflow counts as a pick until the person changes the workspace, so its
+  // feature gets its own worktree like a picked one does.
+  const followsDefaultWorkflow = draftWorkflowId !== null && !draftWorkflow.picked;
+  const envMode: DraftThreadEnvMode = followsDefaultWorkflow
+    ? "worktree"
+    : canOverrideServerThreadEnvMode
+      ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+      : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranchEntryForThread !== null
       ? pendingServerThreadBranchEntryForThread.branch
@@ -2560,8 +2545,8 @@ export default function ChatView(props: ChatViewProps) {
     persistThreadSettingsForNextTurn,
   });
   const crewNow = useCrewNowItems({
-    thread: isServerThread ? activeThreadShell : null,
-    stage: crewStage,
+    // A question open here already asks what the stage waits for.
+    stage: pendingUserInputs.length > 0 ? null : crewStage,
     canOperate: canOperateThread,
     onOpenThread: onOpenRelatedThreadStable,
   });
@@ -2899,7 +2884,7 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange,
     handleInteractionModeChangeStable,
     handleRuntimeModeChangeStable,
-    onEnvModeChangeStable,
+    onEnvModeChangeStable: onComposerEnvModeChange,
     onProviderModelSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
@@ -2924,6 +2909,12 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+  });
+  const onEnvModeChangeStable = useStableCallback((mode: DraftThreadEnvMode) => {
+    if (followsDefaultWorkflow && draftId && draftWorkflowId) {
+      useCrewDraftStore.getState().setWorkflow(draftId, draftWorkflowId);
+    }
+    onComposerEnvModeChange(mode);
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,
@@ -3159,8 +3150,8 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
-  const nowAttention = [childInputNow, crewNow.attention].filter((item) => item !== null);
-  const nowWork = [backgroundWorkNow, crewNow.work].filter((item) => item !== null);
+  const nowAttention = [childInputNow, crewNow].filter((item) => item !== null);
+  const nowWork = [backgroundWorkNow].filter((item) => item !== null);
   const hasThreadNow =
     nowAttention.length > 0 ||
     nowWork.length > 0 ||
@@ -3179,7 +3170,7 @@ export default function ChatView(props: ChatViewProps) {
   const scrollToEndSummary =
     [
       childInputNow === null ? null : "Subagent waiting",
-      crewNow.attention === null ? null : "Crew waiting",
+      crewNow === null ? null : "Crew waiting",
       queuedRunCount === 0 ? null : `${queuedRunCount} queued`,
     ]
       .filter((part) => part !== null)
@@ -3638,9 +3629,8 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              crewBanner={crewStage?.prompt ? <CrewStageBanner /> : null}
                               renderWorkflowPicker={renderWorkflowPicker}
-                              renderCrewControl={renderCrewControl}
+                              workflowPicked={draftWorkflowId !== null}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}

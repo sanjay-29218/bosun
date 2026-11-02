@@ -1,28 +1,26 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   botRailSignal,
-  combineBotActivity,
   type BotRailSignal,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
-  BotIcon,
   ChartNoAxesColumnIcon,
   ClockIcon,
-  InboxIcon,
   LayersIcon,
   ServerIcon,
   SettingsIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { memo, useEffect, type ReactNode } from "react";
+import { memo, useEffect, type MouseEvent, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { botJumpCommandForIndex, botJumpIndexFromCommand } from "../../keybindings";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
-import { cn } from "../../lib/utils";
+import { cn, isMacPlatform } from "../../lib/utils";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useHasUnseenAutomationFailure } from "../../state/automations";
@@ -97,12 +95,14 @@ export const BotRail = memo(function BotRail({
     }
     return false;
   };
-  // Picking a bot shows its threads; picking it again there opens its headquarters.
-  const select = (bot: LogicalBot) => {
-    if (switchTo(bot)) return;
+  // Picking a bot shows its threads; picking it again, or Mod+click, opens its headquarters.
+  const select = (bot: LogicalBot, event: MouseEvent) => {
+    const direct = event.metaKey || event.ctrlKey;
+    if (switchTo(bot) && !direct) return;
     if (isMobile) setOpenMobile(false);
     openHeadquarters(bot);
   };
+  const openHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its thread`;
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
@@ -130,7 +130,6 @@ export const BotRail = memo(function BotRail({
     multipleBots
       ? shortcutLabelForCommand(keybindings, command, { context: { multipleBots } })
       : null;
-  const totalNeedsYou = [...needsYou.values()].reduce((sum, count) => sum + count, 0);
 
   return (
     <nav
@@ -149,33 +148,19 @@ export const BotRail = memo(function BotRail({
           className={cn("h-(--workspace-topbar-height) shrink-0", isElectron && "drag-region")}
         />
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border py-2">
-        <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto scrollbar-gutter-both">
-          {multipleBots ? (
-            <>
-              <RailItem
-                label="All bots"
-                hint="Every bot's threads"
-                active={onBots && active === null}
-                signal={botRailSignal(totalNeedsYou, combineBotActivity(activity.values()))}
-                shortcut={shortcutFor("bot.inbox")}
-                variant="icon"
-                onSelect={() => switchTo(null)}
-              >
-                <InboxIcon className="size-5" strokeWidth={1.75} />
-              </RailItem>
-              <RailDivider />
-            </>
-          ) : null}
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border pt-0.5 pb-2">
+        {/* The padding sits inside the scroller so it doesn't clip the badges over the top avatar. */}
+        <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto pt-1.5 pb-1 scrollbar-gutter-both">
+          {/* All bots is hidden for now; the palette's Show All bots and bot.inbox still reach it. */}
           {bots.map((bot, index) => (
             <RailItem
               key={bot.key}
               label={bot.name}
-              hint={bot.key === active?.key ? "Click to open its thread" : null}
+              hint={bot.key === active?.key ? "Click to open its thread" : openHint}
               active={onBots && bot.key === active?.key}
               signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
               shortcut={shortcutFor(botJumpCommandForIndex(index))}
-              onSelect={() => select(bot)}
+              onSelect={(event) => select(bot, event)}
             >
               <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
             </RailItem>
@@ -223,9 +208,8 @@ function RailPlaces({
           if (destination !== "bot-list") void navigate({ to: BOTS_PATH });
         }}
       >
-        <BotIcon className="size-5" strokeWidth={1.75} />
+        <UsersRoundIcon className="size-5" strokeWidth={1.75} />
       </RailItem>
-      <RailDivider />
       <RailItem
         label="Automations"
         hint={null}
@@ -312,7 +296,7 @@ function RailAppPages() {
 }
 
 const RailDivider = () => (
-  <div aria-hidden className="h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
+  <div aria-hidden className="my-1.5 h-px w-6 shrink-0 rounded-full bg-sidebar-border" />
 );
 
 const signalLabel = (signal: BotRailSignal | null): string | null => {
@@ -352,20 +336,12 @@ const RailItem = memo(function RailItem({
   readonly signal: BotRailSignal | null;
   readonly shortcut: string | null;
   readonly variant?: "bot" | "icon";
-  readonly onSelect: () => void;
+  readonly onSelect: (event: MouseEvent) => void;
   readonly children: ReactNode;
 }) {
   const status = signalLabel(signal);
   return (
     <div className="group/bot relative flex w-full justify-center">
-      {/* The selected entry's marker on the rail's leading edge; hovering hints at it. */}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-1/2 left-0 w-[3px] -translate-y-1/2 rounded-r-full bg-sidebar-foreground transition-[height,opacity] duration-150",
-          active ? "h-5 opacity-100" : "h-2 opacity-0 group-hover/bot:opacity-50",
-        )}
-      />
       <Tooltip>
         <TooltipTrigger
           render={
@@ -417,7 +393,7 @@ const RailItem = memo(function RailItem({
           ) : signal?.kind === "working" ? (
             <span
               aria-hidden
-              className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
+              className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
             />
           ) : null}
         </TooltipTrigger>

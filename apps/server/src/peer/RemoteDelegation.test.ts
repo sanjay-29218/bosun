@@ -1731,23 +1731,3 @@ it.effect("a task whose thread there has no run ends with its last reply", () =>
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
-
-it.effect("a local task runs in this thread's project", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const offers = yield* SubscriptionRef.make<
-        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
-      >([]);
-      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
-      const a = yield* makeLaptop(database, offers);
-      yield* seedParent(a);
-
-      const result = yield* a.call("delegate_task", {
-        task: "Run it here.",
-        target: { projectId: "project:elsewhere" },
-      });
-      expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toContain("invalid_request");
-    }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
-);

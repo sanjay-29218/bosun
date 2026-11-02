@@ -20,9 +20,10 @@ import {
   resolveDefaultProviderModelSelection,
 } from "../../providerInstances";
 import { rolesEnvironment } from "../../state/roles";
-import { formatEnvironmentQueryError } from "../../state/query";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { workflowsEnvironment } from "../../state/workflows";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
@@ -169,6 +170,37 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
 
 export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
   roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
+
+/**
+ * Adds the starter workflows, and first the starter roles they run as when those are missing.
+ * Resolves false after reporting why it couldn't.
+ */
+export function useEnsureStarterWorkflow(environmentId: EnvironmentId) {
+  const roles = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
+  const starterRoles = useAddStarterRoles(environmentId);
+  const ensureStarter = useAtomCommand(workflowsEnvironment.ensureStarter);
+  return async () => {
+    if (!hasStarterRoles(roles.data ?? [])) {
+      if (!starterRoles.ready) {
+        toastManager.add({
+          type: "error",
+          title: "Choose a default model first",
+          description: "The starter roles run on it. Set one in Settings, then try again.",
+        });
+        return false;
+      }
+      if (!(await starterRoles.add())) return false;
+    }
+    const result = await ensureStarter({ environmentId, input: {} });
+    if (result._tag === "Success") return true;
+    toastManager.add({
+      type: "error",
+      title: "Could not add the starter workflow",
+      description: formatEnvironmentQueryError(result.cause),
+    });
+    return false;
+  };
+}
 
 type RoleChange = Partial<
   Pick<

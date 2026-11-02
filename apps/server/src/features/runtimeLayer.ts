@@ -2,7 +2,6 @@ import { ScheduledTaskError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as BotProjects from "../bots/BotProjects.ts";
 import * as BotService from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import * as IssueService from "../issues/IssueService.ts";
@@ -35,12 +34,9 @@ const BotAutomationsLive = Layer.effectDiscard(
   }),
 );
 
-/**
- * Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with,
- * and the managed folders and clone service `BotProjects` starts projects with.
- */
+/** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
-  Layer.mergeAll(BotProjects.layer, TicketService.layer).pipe(
+  TicketService.layer.pipe(
     Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
   ),
   BotService.layer,

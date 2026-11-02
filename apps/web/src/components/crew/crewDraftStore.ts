@@ -1,6 +1,6 @@
 import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 
-import type { DraftId } from "../../composerDraftStore";
+import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
 import { create } from "zustand";
 
 /**
@@ -10,26 +10,53 @@ import { create } from "zustand";
  */
 export const useCrewDraftStore = create<{
   readonly workflowByDraftId: Readonly<Record<string, string | null>>;
+  /** Drafts New feature or Start feature opened, which start on a workflow; see below. */
+  readonly featureDraftIds: Readonly<Record<string, true>>;
   readonly setWorkflow: (draftId: DraftId, workflowId: string | null) => void;
+  readonly setFeatureDraft: (draftId: DraftId, feature: boolean) => void;
   /** Drops the pick, so a reused draft follows the default again. */
   readonly clearWorkflow: (draftId: DraftId) => void;
 }>((set) => ({
   workflowByDraftId: {},
-  setWorkflow: (draftId, workflowId) =>
-    set((state) => ({ workflowByDraftId: { ...state.workflowByDraftId, [draftId]: workflowId } })),
+  featureDraftIds: {},
+  setFeatureDraft: (draftId, feature) =>
+    set((state) => {
+      const { [draftId]: _previous, ...rest } = state.featureDraftIds;
+      return { featureDraftIds: feature ? { ...rest, [draftId]: true } : rest };
+    }),
+  setWorkflow: (draftId, workflowId) => {
+    set((state) => ({ workflowByDraftId: { ...state.workflowByDraftId, [draftId]: workflowId } }));
+    // A feature's stages share one workspace, so it gets its own worktree unless changed back.
+    if (workflowId !== null) {
+      useComposerDraftStore.getState().setDraftThreadContext(draftId, { envMode: "worktree" });
+    }
+  },
   clearWorkflow: (draftId) =>
     set((state) => {
       const { [draftId]: _previous, ...rest } = state.workflowByDraftId;
-      return { workflowByDraftId: rest };
+      const { [draftId]: _feature, ...features } = state.featureDraftIds;
+      return { workflowByDraftId: rest, featureDraftIds: features };
     }),
 }));
 
-/** A draft's workflow: what was picked, or the default until something is. */
+/** A draft's workflow: what was picked, else what it starts on until something is. */
 export function resolveDraftWorkflowId(
   picked: string | null | undefined,
-  defaultWorkflowId: string | null,
+  unpicked: string | null,
 ): string | null {
-  return picked === undefined ? defaultWorkflowId : picked;
+  return picked === undefined ? unpicked : picked;
+}
+
+/**
+ * What a draft starts on before any pick: a draft New feature or Start feature opened takes the
+ * bot's default workflow, else the first one; a plain new thread takes none.
+ */
+export function unpickedDraftWorkflowId(input: {
+  readonly featureDraft: boolean;
+  readonly botDefault: string | null;
+  readonly firstWorkflow: string | null;
+}): string | null {
+  return input.featureDraft ? (input.botDefault ?? input.firstWorkflow) : null;
 }
 
 /** The default workflow of the bot that owns a project; a project without a bot is Captain's. */

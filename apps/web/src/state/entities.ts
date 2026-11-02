@@ -25,7 +25,6 @@ import type {
   OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
-import type { CrewHandoffWait } from "@t3tools/client-runtime/state/crew-handoffs";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -54,9 +53,6 @@ const EMPTY_THREAD_SHELLS_ATOM = Atom.make<ReadonlyArray<EnvironmentThreadShell>
 ).pipe(Atom.withLabel("web-thread-shells:empty"));
 const EMPTY_THREAD_SHELL_ATOM = Atom.make<EnvironmentThreadShell | null>(null).pipe(
   Atom.withLabel("web-thread-shell:empty"),
-);
-const EMPTY_CREW_HANDOFF_WAIT_ATOM = Atom.make<CrewHandoffWait | null>(null).pipe(
-  Atom.withLabel("web-crew-handoff-wait:empty"),
 );
 const EMPTY_THREAD_PROJECTION_ATOM = Atom.make<EnvironmentThread | null>(null).pipe(
   Atom.withLabel("web-thread-projection:empty"),
@@ -165,13 +161,6 @@ export function useQuietThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
 export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),
-  );
-}
-
-/** What a crew thread waits on, followed down the chain of crew threads it handed work to. */
-export function useCrewHandoffWait(ref: ScopedThreadRef | null): CrewHandoffWait | null {
-  return useAtomValue(
-    ref === null ? EMPTY_CREW_HANDOFF_WAIT_ATOM : environmentThreadShells.crewHandoffWaitAtom(ref),
   );
 }
 

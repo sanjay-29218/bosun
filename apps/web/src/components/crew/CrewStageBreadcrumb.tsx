@@ -21,7 +21,7 @@ const STEP_STATUS_LABELS: Record<string, string> = {
   "needs-input": "Input",
   completed: "Done",
   failed: "Failed",
-  cancelled: "Cancelled",
+  cancelled: "Stopped",
   "awaiting-approval": "Approval",
   "limit-reached": "Your call",
   "taken-over": "Yours",

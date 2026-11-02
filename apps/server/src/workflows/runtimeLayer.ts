@@ -1,6 +1,7 @@
 import * as Layer from "effect/Layer";
 
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
+import { FeatureWorkspacesLive } from "../features/FeatureWorkspaces.ts";
 import { WorkflowServiceLive } from "./WorkflowService.ts";
 import { WorkflowExecutionServiceLive } from "./WorkflowExecutionService.ts";
 import { WorkflowExecutionStoreLive } from "./WorkflowExecutionStore.ts";
@@ -16,5 +17,6 @@ const WorkflowFoundationLive = WorkflowServiceLive.pipe(
 /** Needs `WorkflowWorkspace`, which reads the app's VCS and checkpoint services. */
 export const WorkflowRuntimeLive = WorkflowExecutionServiceLive.pipe(
   Layer.provideMerge(WorkflowExecutionStoreLive),
+  Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(WorkflowFoundationLive),
 );

@@ -1,4 +1,3 @@
-import { crewHandoffRowLabel } from "@t3tools/client-runtime/state/crew-handoffs";
 import {
   CREW_STATE_LABELS,
   featureTagColor,
@@ -29,6 +28,7 @@ import {
   resolveThreadProviderStack,
 } from "@t3tools/client-runtime/state/models";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { useAtomValue } from "@effect/atom-react";
 import {
   AuthOrchestrationOperateScope,
   featureIssueRef,
@@ -124,6 +124,8 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } f
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
+import { sidebarProviderEntriesAtom } from "./sidebarProviderEntries";
+import { useEnvironmentIdentities, useEnvironmentMachines } from "../../state/environments";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -189,8 +191,19 @@ function terminalProcessLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
 }
 
+const NO_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
+
+/** The provider icons a thread's sidebar row shows, for places outside the sidebar. */
+export function ThreadProviderStack(props: {
+  thread: Parameters<typeof resolveThreadProviderStack>[0] & { environmentId: string };
+}) {
+  const entries =
+    useAtomValue(sidebarProviderEntriesAtom).get(props.thread.environmentId) ?? NO_PROVIDER_ENTRIES;
+  return <SidebarProviderStack thread={props.thread} providerEntryByInstanceId={entries} />;
+}
+
 function SidebarProviderStack(props: {
-  thread: SidebarThreadSummary;
+  thread: Parameters<typeof resolveThreadProviderStack>[0];
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
 }) {
   const stack = resolveThreadProviderStack(props.thread);
@@ -234,6 +247,57 @@ function SidebarProviderStack(props: {
       })}
       <span className="relative z-10 inline-flex items-center">{current}</span>
     </span>
+  );
+}
+
+/**
+ * The sidebar row's hover card for a thread shown elsewhere, such as a board card. It reads the
+ * same provider, environment and terminal state the row does; branch checks stay in the sidebar.
+ */
+export function ThreadDetailsHoverCard(props: {
+  thread: SidebarThreadSummary;
+  project: ProjectFaviconProject | null;
+}) {
+  const { thread } = props;
+  const providerEntryByInstanceId =
+    useAtomValue(sidebarProviderEntriesAtom).get(thread.environmentId) ?? NO_PROVIDER_ENTRIES;
+  const environmentLabel =
+    useEnvironmentIdentities().find(
+      (environment) => environment.environmentId === thread.environmentId,
+    )?.label ?? null;
+  const environmentMachine = useEnvironmentMachines().get(thread.environmentId) ?? "server";
+  const runningTerminalIds = useThreadRunningTerminalIds({
+    environmentId: thread.environmentId,
+    threadId: thread.id,
+  });
+  const modelInstanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
+  const providerEntry = providerEntryByInstanceId.get(modelInstanceId) ?? null;
+  const selectedModel = providerEntry?.models.find(
+    (model) => model.slug === thread.modelSelection.model,
+  );
+  return (
+    <SidebarThreadTooltip
+      thread={thread}
+      project={props.project}
+      projectDisplayName={props.project?.title ?? null}
+      environmentLabel={environmentLabel}
+      environmentMachine={environmentMachine}
+      providerEntry={providerEntry}
+      providerEntryByInstanceId={providerEntryByInstanceId}
+      showInstanceBadge={
+        providerEntry !== null &&
+        shouldShowInstanceBadge(providerEntry, providerEntryByInstanceId.values())
+      }
+      modelInstanceId={modelInstanceId}
+      modelLabel={
+        selectedModel
+          ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
+          : thread.modelSelection.model
+      }
+      branchMismatch={null}
+      terminalStatus={terminalStatusFromRunningIds(runningTerminalIds)}
+      terminalProcessCount={runningTerminalIds.length}
+    />
   );
 }
 
@@ -409,14 +473,16 @@ function SidebarThreadTooltip({
   );
 }
 
-function SnoozeMenuButton(props: {
+export function SnoozeMenuButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSnooze: (preset: Pick<SnoozePreset, "snoozedUntil">) => void;
   timestampFormat: TimestampFormat;
   environmentId: EnvironmentId;
+  label?: string;
 }) {
   const { open, onOpenChange, onSnooze, timestampFormat, environmentId } = props;
+  const label = props.label ?? "Snooze thread";
   const presets = open
     ? // oxlint-disable-next-line react/purity -- Presets are resolved only while the menu is open, so each opening reads a fresh time.
       resolveSnoozePresets(new Date(), timestampFormat, environmentId)
@@ -430,7 +496,7 @@ function SnoozeMenuButton(props: {
               render={
                 <button
                   type="button"
-                  aria-label="Snooze thread"
+                  aria-label={label}
                   onClick={(event) => event.stopPropagation()}
                   onDoubleClick={(event) => event.stopPropagation()}
                   className="inline-flex h-full cursor-pointer items-center gap-0.5 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -441,7 +507,7 @@ function SnoozeMenuButton(props: {
         >
           <ClockIcon className="size-3" />
         </TooltipTrigger>
-        <TooltipPopup>Snooze thread</TooltipPopup>
+        <TooltipPopup>{label}</TooltipPopup>
       </Tooltip>
       <MenuPopup side="bottom" align="end">
         {presets.map((preset) => (
@@ -775,7 +841,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         }
       : status === "waiting"
         ? {
-            label: crewHandoffRowLabel(thread.crewHandoffs) ?? "Waiting",
+            label: "Waiting",
             icon: "waiting" as const,
             className: "text-muted-foreground",
           }

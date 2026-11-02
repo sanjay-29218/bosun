@@ -10,7 +10,7 @@ import {
   type WorkflowDefinition,
 } from "@t3tools/contracts";
 
-import type { EnvironmentThreadShell } from "./models.ts";
+import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 
 /**
  * Pure Features-board logic shared by web and mobile. Cards come from `features.board`;
@@ -94,6 +94,54 @@ export function groupFeaturesByPhase<Card extends FeatureBoardCard>(
   return FEATURE_PHASES.map((phase) => ({
     phase,
     cards: [...groups.get(phase)!].sort((a, b) => b.stateSince.localeCompare(a.stateSince)),
+  }));
+}
+
+// ── Status board: Todo, Working, Needs you, Done ─────────────────────
+
+const FEATURE_COLUMNS = ["todo", "working", "needs-you", "done"] as const;
+export type FeatureColumn = (typeof FEATURE_COLUMNS)[number];
+
+export const FEATURE_COLUMN_LABELS: Record<FeatureColumn, string> = {
+  todo: "Todo",
+  working: "Working",
+  "needs-you": "Needs you",
+  done: "Done",
+};
+
+/** Not started, running (queued and paused too), waiting on you, or finished or stopped. */
+function featureColumn(card: FeatureBoardCard): FeatureColumn {
+  if (isClosedState(card.state)) return "done";
+  if (!card.started) return "todo";
+  switch (card.state) {
+    case "approval":
+    case "input":
+    case "your-call":
+    case "failed":
+      return "needs-you";
+    default:
+      return "working";
+  }
+}
+
+export interface FeatureColumnGroup<Card extends FeatureBoardCard = EnvironmentFeatureCard> {
+  readonly column: FeatureColumn;
+  readonly cards: ReadonlyArray<Card>;
+}
+
+/** Every column in order. Needs you puts the longest wait first; the others the newest. */
+export function groupFeaturesByColumn<Card extends FeatureBoardCard>(
+  cards: ReadonlyArray<Card>,
+): ReadonlyArray<FeatureColumnGroup<Card>> {
+  const groups = new Map<FeatureColumn, Card[]>(FEATURE_COLUMNS.map((column) => [column, []]));
+  for (const card of cards) groups.get(featureColumn(card))!.push(card);
+  return FEATURE_COLUMNS.map((column) => ({
+    column,
+    cards: [...groups.get(column)!].sort((a, b) =>
+      column === "needs-you"
+        ? a.stateSince.localeCompare(b.stateSince)
+        : b.stateSince.localeCompare(a.stateSince),
+    ),
   }));
 }
 
@@ -217,12 +265,6 @@ export function mostUsedWorkflowId(cards: ReadonlyArray<FeatureBoardCard>): stri
 const NEEDS_YOU_KINDS = ["approval", "problem", "question"] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
-export const NEEDS_YOU_LABELS: Record<NeedsYouKind, string> = {
-  approval: "Approvals",
-  problem: "Problems",
-  question: "Questions",
-};
-
 /** Approval, Input, Your call and Failed wait on you. Working, Queued and Paused never do. */
 function needsYouKindForState(state: FeatureCardState): NeedsYouKind | null {
   switch (state) {
@@ -260,6 +302,18 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
   if (shell.hasPendingApprovals) return "approval";
   if (shell.hasPendingUserInput) return "question";
   return null;
+}
+
+/**
+ * A chat thread's column, read the way its sidebar row is: waiting on an approval or answer,
+ * running, or finished. Chats skip Todo, which holds work not started yet.
+ */
+export function threadBoardColumn(
+  shell: NeedsYouShell & Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime">,
+): Exclude<FeatureColumn, "todo"> {
+  if (threadNeedsYouKind(shell) !== null || shell.pendingSubagentRequest != null)
+    return "needs-you";
+  return threadRuntimeIsActive(shell.runtime) ? "working" : "done";
 }
 
 /** The key `countNeedsYouByBot` counts under: bots belong to one environment. */
@@ -432,6 +486,12 @@ export function parseFeatureSearch(query: string): FeatureSearch {
 }
 
 /** `extra` carries text the card shows from elsewhere, such as its project and branch. */
+/** A feature's short name: its linked issue or ticket, else its own F-<number>. */
+export function featureRef(card: Pick<FeatureBoardCard, "issue" | "number">): string | null {
+  if (card.issue) return featureIssueRef(card.issue);
+  return card.number === undefined ? null : `F-${card.number}`;
+}
+
 export function matchesFeatureSearch(
   card: FeatureBoardCard,
   search: FeatureSearch,
@@ -452,7 +512,8 @@ export function matchesFeatureSearch(
     card.stage?.stepId,
     card.stage?.role,
     card.workflow.name,
-    card.issue ? `${featureIssueRef(card.issue)} ${card.issue.title}` : null,
+    featureRef(card),
+    card.issue?.title,
     card.issue?.milestone,
     ...extra,
   ]
@@ -536,6 +597,31 @@ export function featureCardActions(card: FeatureBoardCard): ReadonlyArray<Featur
   }
 }
 
+/** The buttons a board card shows, to settle it without opening it; the rest stay in its menu. */
+export function featureCardQuickActions(
+  card: FeatureBoardCard,
+): ReadonlyArray<FeatureCardActionId> {
+  if (isClosedState(card.state)) return [];
+  if (!card.started) return ["start"];
+  if (card.stage?.takenOver) return [];
+  switch (card.state) {
+    case "queued":
+      return ["start-now"];
+    case "paused":
+      return ["resume"];
+    case "approval":
+      return ["approve", "request-changes"];
+    case "input":
+      return ["answer"];
+    case "your-call":
+      return ["accept-as-is", "one-more-round"];
+    case "failed":
+      return ["retry", "cancel"];
+    default:
+      return [];
+  }
+}
+
 export const FEATURE_CARD_ACTION_LABELS: Record<FeatureCardActionId, string> = {
   start: "Start feature",
   approve: "Approve",
@@ -551,7 +637,7 @@ export const FEATURE_CARD_ACTION_LABELS: Record<FeatureCardActionId, string> = {
   "start-now": "Start now",
   pause: "Pause",
   resume: "Resume",
-  cancel: "Cancel feature",
+  cancel: "Stop feature",
   reopen: "Reopen feature",
 };
 
@@ -576,12 +662,6 @@ export function sendBackTargets(
 export function stageOutcomes(definition: WorkflowDefinition, stepId: string) {
   const step = definition.steps[stepId];
   return step?.type === "task" ? Object.keys(step.next) : [];
-}
-
-/** "Design" from "design", "Change review" from "change_review". */
-export function stageLabel(id: string): string {
-  const words = id.replace(/[_-]+/g, " ").trim();
-  return words ? words[0]!.toUpperCase() + words.slice(1) : id;
 }
 
 /** "1st", "2nd", "3rd", "4th"… for queue positions. */

@@ -367,12 +367,10 @@ export interface ChatComposerProps {
   activeThreadId: ThreadId | null;
   activeThread: Thread | undefined;
   activeThreadShell: ThreadShell | null;
-  /** A stage thread's gate, failure or take-over banner; shown when no request blocks it. */
-  crewBanner?: ReactNode;
   /** A new thread's Workflow picker, before the model picker. */
   renderWorkflowPicker?: ((size: ComposerControlSize) => ReactNode) | undefined;
-  /** While a workflow is picked, the crew stands in for the model and mode controls. */
-  renderCrewControl?: ((size: ComposerControlSize) => ReactNode) | null | undefined;
+  /** While a workflow is picked, its roles bring their own models, so those controls hide. */
+  workflowPicked?: boolean | undefined;
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -2347,7 +2345,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       modelPickerIconClassName={composerProviderState.modelPickerIconClassName}
       getModelDisabledReason={getModelDisabledReason}
       renderWorkflowPicker={props.renderWorkflowPicker}
-      renderCrewControl={props.renderCrewControl}
+      workflowPicked={props.workflowPicked}
     />
   );
   // An open question owns the space above the composer. Only a machine problem,
@@ -3151,7 +3149,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack items={shelfItems} />
-          {hasBlockingComposerTopDrawer ? null : props.crewBanner}
           {showComposerTopDrawer ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root data-chat-composer-top-drawer="true" variant="info">

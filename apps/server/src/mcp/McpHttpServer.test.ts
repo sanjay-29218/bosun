@@ -25,15 +25,13 @@ import * as Stream from "effect/Stream";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
-import { BotProjects } from "../bots/BotProjects.ts";
 import * as BotService from "../bots/BotService.ts";
-import { CrewHandoffService } from "../crew/CrewHandoffService.ts";
-import { CrewHandoffStore } from "../crew/CrewHandoffStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import { TicketService } from "../tickets/TicketService.ts";
+import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import { WorkflowService } from "../workflows/WorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
@@ -1246,7 +1244,7 @@ it.effect(
       `;
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'role', 'bot-run:builder', '["crew.delegate","crew.status","worktree"]')`;
+        ('builder', 'role', 'bot-run:builder', '["worktree"]')`;
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
           requestNamespace: thread,
@@ -1293,15 +1291,13 @@ it.effect(
               Layer.succeedContext(sqlContext),
               McpToolAccessTestkit.liveThreadsLayer,
               Layer.mock(BotService.BotService)({ list: Effect.succeed([]) }),
-              Layer.mock(BotProjects)({}),
-              Layer.mock(CrewHandoffService)({}),
-              Layer.mock(CrewHandoffStore)({}),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
               Layer.mock(FeatureService)({}),
               Layer.mock(IssueService.IssueService)({}),
               Layer.mock(TicketService)({}),
               Layer.mock(WorkflowService)({}),
+              Layer.mock(WorkflowExecutionService)({}),
             ),
           ),
         );
@@ -1364,19 +1360,15 @@ it.effect(
           "crew_read_todo",
           "crew_update_todo",
         ];
+        // Crew threads and their subagents start features in their own project, on a workflow
+        // they can read.
+        const anyCrew = ["t3_feature_start", "t3_workflow_get", "t3_workflow_list", "upstream"];
         const plainTools = ["t3_feature_attach_thread", "t3_feature_detach_thread", "upstream"];
 
         expect(yield* plain.listed).toEqual(plainTools);
-        expect(yield* crew.listed).toEqual(
-          [
-            ...anyCrewGrant,
-            "crew_delegate",
-            "crew_list_handoffs",
-            "crew_wait_handoff",
-            "t3_bot_list",
-            "upstream",
-          ].sort(),
-        );
+        // Without a crew grant, a crew thread gets no crew tool.
+        expect(yield* crew.listed).toEqual([...anyCrew, "t3_bot_list"].sort());
+        expect((yield* crew.call("crew_respond")).error?.message).toContain("crew_respond");
 
         // A tool a thread isn't listed is refused before its handler runs.
         expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
@@ -1389,16 +1381,8 @@ it.effect(
       `;
         // Threads and subagents alone no longer unlocks the bot or feature-link tools.
         expect(yield* crew.listed).toEqual(
-          [
-            ...anyCrewGrant,
-            "crew_respond",
-            "crew_stage_handoff",
-            "crew_switch_workflow",
-            "t3_bot_list",
-            "upstream",
-          ].sort(),
+          [...anyCrewGrant, ...anyCrew, "crew_respond", "t3_bot_list"].sort(),
         );
-        expect((yield* crew.call("crew_delegate")).error?.message).toContain("crew_delegate");
 
         // Manage workflows does.
         yield* sql`
@@ -1415,6 +1399,7 @@ it.effect(
             "t3_bot_update",
             "t3_feature_attach_thread",
             "t3_feature_detach_thread",
+            "t3_feature_start",
             "t3_role_create",
             "t3_role_list",
             "t3_role_update",
@@ -1427,20 +1412,6 @@ it.effect(
           ].sort(),
         );
         expect(yield* plain.listed).toEqual(plainTools);
-
-        // A bot hands its projects work with the projects grant.
-        yield* sql`
-        UPDATE crew_runs SET allowed_tools_json = '["crew.projects"]' WHERE id = 'builder'
-      `;
-        expect(yield* crew.listed).toEqual(
-          [
-            ...anyCrewGrant,
-            "crew_list_projects",
-            "t3_bot_list",
-            "t3_feature_start",
-            "upstream",
-          ].sort(),
-        );
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
-  DEFAULT_BOT_TOOLS,
+  CREW_TOOL_GRANTS,
   type Bot,
   type BotLongConversation,
   type BotAvatar as BotAvatarParts,
@@ -73,6 +73,13 @@ const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
 
 type Tab = "behavior" | "projects" | "tools" | "look";
 
+/** Grants for workflow stages, which a bot never runs; a bot's tools leave them out. */
+const ROLE_ONLY_GRANTS: ReadonlySet<string> = new Set(
+  CREW_TOOL_GRANTS.filter((grant) => "roleOnly" in grant).map((grant) => grant.id),
+);
+const botTools = (tools: ReadonlyArray<string>) =>
+  tools.filter((tool) => !ROLE_ONLY_GRANTS.has(tool));
+
 /**
  * A bot's name, behavior, tools and look; `bot` null adds one. `projects` is the Projects tab,
  * which moves projects right away rather than on Save.
@@ -119,7 +126,9 @@ export function BotEditor({
   );
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.allowedTools ?? DEFAULT_BOT_TOOLS);
+  const [tools, setTools] = useState<ReadonlyArray<string>>(() =>
+    botTools(bot?.allowedTools ?? []),
+  );
   const [modelSelection, setModelSelection] = useState(bot?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     bot?.runtimeMode ?? "approval-required",
@@ -145,7 +154,7 @@ export function BotEditor({
       JSON.stringify(avatar) !== JSON.stringify(bot.avatar) ||
       color !== bot.color ||
       instructions.trim() !== bot.instructions ||
-      tools.join("\n") !== bot.allowedTools.join("\n") ||
+      tools.join("\n") !== botTools(bot.allowedTools).join("\n") ||
       JSON.stringify(modelSelection) !== JSON.stringify(bot.modelSelection) ||
       runtimeMode !== bot.runtimeMode ||
       defaultWorkflowId !== bot.defaultWorkflowId ||

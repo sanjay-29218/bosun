@@ -268,16 +268,12 @@ const RPC_AGGREGATES = {
   [WS_METHODS.rolesList]: "roles",
   [WS_METHODS.rolesCreate]: "roles",
   [WS_METHODS.rolesUpdate]: "roles",
-  [WS_METHODS.crewSnapshot]: "crew",
   [WS_METHODS.crewConfiguration]: "crew",
   [WS_METHODS.crewInitialize]: "crew",
   [WS_METHODS.crewInstantiate]: "crew",
   [WS_METHODS.crewSetHierarchy]: "crew",
   [WS_METHODS.crewSetDelegation]: "crew",
   [WS_METHODS.crewStart]: "crew",
-  [WS_METHODS.crewAnswer]: "crew",
-  [WS_METHODS.crewCancel]: "crew",
-  [WS_METHODS.crewRetry]: "crew",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

@@ -173,6 +173,15 @@ describe("feature board cards", () => {
     expect(failed.detail).toBe("typecheck failed");
   });
 
+  it("shows a start that failed before its stage launched as failed, with the error", () => {
+    const stuck = card([], {
+      queuedAt: null,
+      lastError: "Couldn't make the feature's worktree: branch_already_exists",
+    });
+    expect(stuck.state).toBe("failed");
+    expect(stuck.detail).toBe("Couldn't make the feature's worktree: branch_already_exists");
+  });
+
   it("dates a queued feature from when it was queued and trims long details", () => {
     const queued = card([], { queuedAt: "2026-10-02T00:00:00.000Z", lastError: null });
     expect(queued.state).toBe("queued");

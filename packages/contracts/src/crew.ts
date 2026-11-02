@@ -6,8 +6,8 @@ import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
  * Crew mode: global Roles (planner, designer, builder, reviewer, project manager...) and the
- * crew members a project or feature instantiates from them. Runs and handoffs are the durable
- * work those members do. "Bot" is reserved for the top-level bots that own projects.
+ * crew members a project or feature instantiates from them. Runs are the durable work those
+ * members do. "Bot" is reserved for the top-level bots that own projects.
  */
 
 export const CREW_TURN_STATE = {
@@ -19,75 +19,32 @@ export const CREW_TURN_STATE = {
   ERROR: "error",
 } as const;
 export type CrewTurnState = (typeof CREW_TURN_STATE)[keyof typeof CREW_TURN_STATE];
-export const CrewTurnStateSchema = Schema.Literals([
-  CREW_TURN_STATE.MISSING,
-  CREW_TURN_STATE.PENDING,
-  CREW_TURN_STATE.RUNNING,
-  CREW_TURN_STATE.COMPLETED,
-  CREW_TURN_STATE.INTERRUPTED,
-  CREW_TURN_STATE.ERROR,
-]);
 
 export const CREW_DISPATCH_STATE = {
   QUEUED: "queued",
   STARTED: "started",
 } as const;
 export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_DISPATCH_STATE];
-export const CrewDispatchStateSchema = Schema.Literals([
-  CREW_DISPATCH_STATE.QUEUED,
-  CREW_DISPATCH_STATE.STARTED,
-]);
 
 /** The global role every project's manager is made from, which Captain delegates to. */
 export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 
 /**
- * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one;
- * the rest each unlock a whole T3 MCP toolkit for the run. `botOnly` grants act on the
- * projects a bot owns, so role editors leave them out.
+ * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.
+ * The rest name T3 MCP toolkits: a run gets every toolkit an ordinary thread gets, and naming
+ * any limits it to those. `botOnly` grants are for bots, so role editors leave them out;
+ * `roleOnly` ones are for workflow stages, which bots never run.
  */
 export const CREW_TOOL_GRANTS = [
   {
-    id: "crew.delegate",
-    label: "Delegate work",
-    description: "Hand tasks to another crew member, such as the project's builder.",
-  },
-  {
-    id: "crew.status",
-    label: "Follow handoffs",
-    description: "List and wait on work it handed off.",
-  },
-  {
-    id: "crew.answer",
-    label: "Answer questions",
-    description: "Reply when work it handed off asks a question.",
-  },
-  {
-    id: "crew.ask",
-    label: "Ask questions",
-    description: "Ask whoever handed it work for a decision.",
-  },
-  {
     id: "crew.respond",
     label: "Report results",
-    description: "Send its finished outcome back to whoever asked.",
-  },
-  {
-    id: "crew.projects",
-    label: "See its projects",
-    description:
-      "List the projects a bot owns, with their managers and features, and hand them work.",
-    botOnly: true,
-  },
-  {
-    id: "crew.create-project",
-    label: "Create projects",
-    description: "Start a new project it owns, from a name or by cloning a Git URL.",
-    botOnly: true,
+    description: "Report a workflow stage's outcome, or a question for a person.",
+    roleOnly: true,
   },
   {
     id: "crew.workflows",
-    label: "Manage workflows",
+    label: "Manage bots and workflows",
     description: "Create and edit bots, workflows and roles when asked.",
     botOnly: true,
   },
@@ -129,44 +86,7 @@ export const CrewMemberSummary = Schema.Struct({
 });
 export type CrewMemberSummary = typeof CrewMemberSummary.Type;
 
-export const CrewRunSummary = Schema.Struct({
-  id: Schema.String,
-  memberId: Schema.String,
-  projectId: ProjectId,
-  threadId: ThreadId,
-  dispatchState: CrewDispatchStateSchema,
-  turnState: CrewTurnStateSchema,
-  lastError: Schema.NullOr(Schema.String),
-  createdAt: Schema.String,
-});
-export type CrewRunSummary = typeof CrewRunSummary.Type;
-
-export const CrewHandoff = Schema.Struct({
-  id: Schema.String,
-  parentId: Schema.NullOr(Schema.String),
-  sourceRunId: Schema.String,
-  targetMemberId: Schema.String,
-  targetRunId: Schema.String,
-  projectId: ProjectId,
-  taskText: Schema.String,
-  contextText: Schema.String,
-  depth: Schema.Int,
-  status: Schema.Literals(["queued", "running", "completed", "needs-input", "failed", "cancelled"]),
-  responseText: Schema.NullOr(Schema.String),
-  questionText: Schema.NullOr(Schema.String),
-  lastError: Schema.NullOr(Schema.String),
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
-});
-export type CrewHandoff = typeof CrewHandoff.Type;
-
 export const CrewProjectInput = Schema.Struct({ projectId: ProjectId });
-export const CrewProjectSnapshot = Schema.Struct({
-  members: Schema.Array(CrewMemberSummary),
-  runs: Schema.Array(CrewRunSummary),
-  handoffs: Schema.Array(CrewHandoff),
-});
-export type CrewProjectSnapshot = typeof CrewProjectSnapshot.Type;
 
 /** A global role. Workflows pin a role's revision; editing it never rewrites existing members. */
 export const RoleConfig = Schema.Struct({
@@ -240,12 +160,6 @@ export const CrewStartResult = Schema.Struct({
   runId: Schema.String,
   threadId: ThreadId,
 });
-export const CrewHandoffActionInput = Schema.Struct({
-  projectId: ProjectId,
-  requestId: Schema.String,
-  text: Schema.optional(Schema.String),
-});
-
 export class CrewOperationError extends Schema.TaggedError<CrewOperationError>()(
   "CrewOperationError",
   { reason: Schema.String },

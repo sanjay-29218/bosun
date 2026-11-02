@@ -1,7 +1,6 @@
 import {
   CAPTAIN_BOT_ID,
   CommandId,
-  DEFAULT_BOT_TOOLS,
   type Bot,
   type BotAvatar,
   type BotCreateInput,
@@ -74,7 +73,7 @@ const tools = (value: ReadonlyArray<string>) =>
     : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
 
 const DEFAULT_INSTRUCTIONS =
-  "Coordinate the person's requests for your projects. Hand project work to a project with t3_feature_start and a stable feature ID; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
+  "Coordinate the person's requests for your projects. Hand each request to its project with delegate_task; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
 
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&
@@ -146,7 +145,7 @@ const make = Effect.gen(function* () {
           "Bot instructions",
           16_000,
         ),
-        allowedTools: yield* tools(input.allowedTools ?? DEFAULT_BOT_TOOLS),
+        allowedTools: yield* tools(input.allowedTools ?? []),
         runtimeMode: input.runtimeMode ?? "approval-required",
         modelSelection: input.modelSelection ?? null,
         defaultWorkflowId: input.defaultWorkflowId ?? null,

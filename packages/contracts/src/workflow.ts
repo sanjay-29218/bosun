@@ -66,6 +66,8 @@ export const WorkflowDefinition = Schema.Struct({
     maxStepExecutions: Schema.Int,
     /** Automatic retries before a stage fails. Absent uses the environment's Crew setting. */
     retries: Schema.optionalKey(Schema.Int),
+    /** Who approves gates and answers stage questions; absent means a person. */
+    decisions: Schema.optionalKey(Schema.Literals(["person", "lead"])),
   }),
   layout: Schema.optionalKey(WorkflowLayout),
 });
@@ -254,21 +256,6 @@ export const ThreadCrewRequestTag = Schema.Struct({
 });
 export type ThreadCrewRequestTag = typeof ThreadCrewRequestTag.Type;
 
-/** A crew handoff a thread sent that is still out, or that failed: its "Waiting on" line. */
-export const ThreadCrewHandoff = Schema.Struct({
-  id: Schema.String,
-  /** The crew member doing the work, such as "Builder". */
-  member: Schema.String,
-  threadId: Schema.NullOr(ThreadId),
-  status: Schema.Literals(["queued", "running", "needs-input", "failed"]),
-  /** The first line of each, shortened. */
-  task: Schema.String,
-  question: Schema.NullOr(Schema.String),
-  error: Schema.NullOr(Schema.String),
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
-});
-export type ThreadCrewHandoff = typeof ThreadCrewHandoff.Type;
 /**
  * A stage result a later stage can receive. `version` counts the producing step's
  * completed executions, so a reworked design is `design.md` version 2.

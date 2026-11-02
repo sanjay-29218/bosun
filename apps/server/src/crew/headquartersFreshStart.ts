@@ -75,7 +75,7 @@ export function freshStartBriefing(
         `${message.role === "assistant" ? "You" : "To you"}: ${clip(message.text.trim())}`,
     );
   return [
-    "This is a fresh session. The person still sees the earlier conversation, but you no longer have it. Look up current work with crew_list_projects before you answer about it.",
+    "This is a fresh session. The person still sees the earlier conversation, but you no longer have it. Look up current work with t3_project_list and task_status before you answer about it.",
     prompt,
     ...(recent.length === 0 ? [] : [`The latest messages:\n\n${recent.join("\n\n")}`]),
   ].join("\n\n");

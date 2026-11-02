@@ -11,11 +11,7 @@ import * as Dialog from "../../components/ui/Dialog";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
-import {
-  useChildThreadInputs,
-  useCrewHandoffWait,
-  useThreadReportedModelSelection,
-} from "../../state/entities";
+import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -29,7 +25,6 @@ import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
-import type { CrewHandoffWait } from "@t3tools/client-runtime/state/crew-handoffs";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -51,7 +46,6 @@ import type {
   RuntimeRequestId,
   ScopedThreadRef,
   ServerConfig as T3ServerConfig,
-  ServerProvider,
   UsageLimitsReport,
 } from "@t3tools/contracts";
 import {
@@ -87,7 +81,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ComponentProps,
 } from "react";
 import {
   AppState,
@@ -132,7 +125,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
-import { getComposerDraftSnapshot, useComposerDraft } from "../../state/use-composer-drafts";
+import { getComposerDraftSnapshot } from "../../state/use-composer-drafts";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import {
   ANDROID_READING_MAX_WIDTH,
@@ -142,7 +135,6 @@ import {
 import { editPendingThreadMessage } from "../../state/edit-pending-thread-message";
 import { deviceEnvironment } from "../../state/device";
 import { useEnvironmentQuery } from "../../state/query";
-import { rolesEnvironment } from "../../state/roles";
 import { threadDevicePreviews } from "../devices/threadDevicePreviews";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
 import { useThreadServerBrowserTabs } from "../../state/preview";
@@ -197,7 +189,7 @@ import {
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { CrewHandoffCard } from "../crew/CrewHandoffCard";
-import { CrewStageCard, crewComposerMode } from "../crew/CrewStageCard";
+import { CrewStageCard } from "../crew/CrewStageCard";
 import { useCrewThreadStage } from "../../state/features";
 import { ThreadFeed, type ThreadFeedHandle, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
@@ -316,17 +308,6 @@ export interface ThreadDetailScreenProps {
 
 const USAGE_LIMITS_PANEL_GAP = 12;
 const USAGE_LIMITS_PANEL_MIN_HEIGHT = 44;
-
-const EMPTY_PROVIDERS: ReadonlyArray<ServerProvider> = [];
-
-/** The Crew card takes the composer's text as its note; only this wrapper re-renders on typing. */
-function CrewStageCardWithDraft(
-  props: Omit<ComponentProps<typeof CrewStageCard>, "note"> & { readonly draftKey: string | null },
-) {
-  const { draftKey, ...card } = props;
-  const note = useComposerDraft(draftKey).text;
-  return <CrewStageCard {...card} note={note} />;
-}
 
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
@@ -632,26 +613,6 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
   );
-  const crewWait = useCrewHandoffWait({
-    environmentId: props.environmentId,
-    threadId: props.selectedThread.id,
-  });
-  const cancelCrewHandoff = useAtomCommand(rolesEnvironment.cancel);
-  const retryCrewHandoff = useAtomCommand(rolesEnvironment.retry);
-  const [crewActionPending, setCrewActionPending] = useState(false);
-  const runCrewAction = async (wait: CrewHandoffWait) => {
-    const target = { environmentId: props.environmentId };
-    const projectId = props.selectedThread.projectId;
-    setCrewActionPending(true);
-    await (wait.kind === "failed"
-      ? retryCrewHandoff({ ...target, input: { projectId, requestId: wait.handoffIds[0]! } })
-      : Promise.all(
-          wait.handoffIds.map((requestId) =>
-            cancelCrewHandoff({ ...target, input: { projectId, requestId } }),
-          ),
-        ));
-    setCrewActionPending(false);
-  };
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: props.connectionError,
@@ -716,35 +677,6 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
           accessibilityLabel: "Stop background work",
           disabled: !props.canOperateThread || statusPending,
           onPress: () => void runStatusAction("stop"),
-        },
-      };
-    }
-    if (crewWait !== null && contentPresentationKind === "ready") {
-      const failed = crewWait.kind === "failed";
-      const openThreadId = crewWait.blockedBy?.threadId ?? crewWait.threadId;
-      return {
-        kind: "background",
-        label: crewWait.title,
-        accessibilityLabel: crewWait.detail
-          ? `${crewWait.title}: ${crewWait.detail}`
-          : crewWait.title,
-        waiting: true,
-        onPress: () => {
-          if (openThreadId === null) return;
-          Keyboard.dismiss();
-          openLinkedThread({ environmentId: props.environmentId, threadId: openThreadId });
-        },
-        action: {
-          label: crewActionPending
-            ? failed
-              ? "Retrying..."
-              : "Stopping..."
-            : failed
-              ? "Retry"
-              : "Stop",
-          accessibilityLabel: failed ? "Retry crew handoff" : "Stop crew handoffs",
-          disabled: !props.canOperateThread || crewActionPending,
-          onPress: () => void runCrewAction(crewWait),
         },
       };
     }
@@ -1323,15 +1255,6 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
 
   const isCrewThread = isCrewThreadId(props.selectedThread.id);
   const crewStage = useCrewThreadStage(props.selectedThread);
-  const crewComposer = crewComposerMode(crewStage);
-  const onChangeDraftMessage = props.onChangeDraftMessage;
-  const clearCrewNote = useCallback(() => onChangeDraftMessage(""), [onChangeDraftMessage]);
-  const openCrewDiff = useCallback(() => {
-    navigation.navigate("ThreadReview", {
-      environmentId: props.environmentId,
-      threadId: props.selectedThread.id,
-    });
-  }, [navigation, props.environmentId, props.selectedThread.id]);
 
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
@@ -1587,14 +1510,10 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                   ) : null}
                   {crewStage !== null ? (
                     <View className="shrink-0 px-4 pb-3">
-                      <CrewStageCardWithDraft
-                        draftKey={props.composerDraftKey ?? null}
+                      <CrewStageCard
                         environmentId={props.environmentId}
                         stage={crewStage}
                         canOperate={props.canOperateThread}
-                        onNoteSent={clearCrewNote}
-                        providers={props.serverConfig?.providers ?? EMPTY_PROVIDERS}
-                        onViewDiff={openCrewDiff}
                       />
                     </View>
                   ) : null}
@@ -1683,12 +1602,11 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                         reportedModelSelection={reportedModelSelection}
                         editorRef={composerEditorRef}
                         placeholder={
-                          crewComposer?.placeholder ??
-                          (props.activePendingApproval
+                          props.activePendingApproval
                             ? props.activePendingApproval.supportsFeedback
                               ? "Send feedback to decline this request"
                               : "Send a message to decline and redirect the agent"
-                            : "Ask anything")
+                            : "Ask anything"
                         }
                         contentMaxWidth={contentMaxWidth}
                         draftControls={props.draftMode?.controls}
@@ -1711,7 +1629,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                             : props.creationState?.kind === "preparing" &&
                                 !props.creationState.serverOwned
                               ? "Starting the task…"
-                              : (crewComposer?.sendBlockedReason ?? null)
+                              : null
                         }
                         interactionLocked={props.draftMode?.interactionLocked}
                         draftKey={props.composerDraftKey ?? undefined}

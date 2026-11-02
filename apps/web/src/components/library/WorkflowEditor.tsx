@@ -1,5 +1,11 @@
 import { orderWorkflowStages } from "@t3tools/client-runtime/state/library";
-import { type RoleConfig, type EnvironmentId, type WorkflowDefinition } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  type Bot,
+  type RoleConfig,
+  type EnvironmentId,
+  type WorkflowDefinition,
+} from "@t3tools/contracts";
 import { useBlocker } from "@tanstack/react-router";
 import {
   ArrowRightIcon,
@@ -18,7 +24,8 @@ import { requestConfirmDialog } from "../../confirmDialog";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
-import { formatEnvironmentQueryError } from "../../state/query";
+import { botsEnvironment } from "../../state/bots";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workflowsEnvironment } from "../../state/workflows";
 import { Alert, AlertDescription } from "../ui/alert";
@@ -104,6 +111,19 @@ export function WorkflowEditor({
   const revise = useAtomCommand(workflowsEnvironment.revise);
   const create = useAtomCommand(workflowsEnvironment.create);
   const deleteWorkflow = useDeleteWorkflow(environmentId);
+  // A bot's default workflow is what New feature starts its projects on.
+  const bots = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} })).data ?? [];
+  const canEditBots = useAtomValue(botsEnvironment.update.permissionAtom(environmentId));
+  const updateBot = useAtomCommand(botsEnvironment.update);
+  const defaultFor = bots.filter((bot) => bot.defaultWorkflowId === latest.id);
+  const makeDefaultFor = async (bot: Bot) => {
+    const result = await updateBot({
+      environmentId,
+      input: { id: bot.id, expectedRevision: bot.revision, defaultWorkflowId: latest.id },
+    });
+    if (result._tag === "Success")
+      toastManager.add({ type: "success", title: `${latest.name} is ${bot.name}'s default` });
+  };
   const crewRetries = useEnvironmentSettings(
     environmentId,
     (settings) => settings.crew.stageRetries,
@@ -240,6 +260,24 @@ export function WorkflowEditor({
         }
       />
       <SettingsRow
+        title="Lead decides"
+        description="The feature's lead approves gates and answers stage questions. You can still decide first."
+        control={
+          <Switch
+            size="sm"
+            aria-label="Lead decides"
+            checked={draft.defaults.decisions === "lead"}
+            onCheckedChange={(lead) => {
+              const { decisions: _decisions, ...defaults } = draft.defaults;
+              setDraft({
+                ...draft,
+                defaults: lead ? { ...defaults, decisions: "lead" } : defaults,
+              });
+            }}
+          />
+        }
+      />
+      <SettingsRow
         title="Stage runs per feature"
         description="Then the feature stops at Your call."
         control={
@@ -323,6 +361,15 @@ export function WorkflowEditor({
           <MoreHorizontalIcon />
         </MenuTrigger>
         <MenuPopup align="end">
+          {canEditBots
+            ? bots
+                .filter((bot) => bot.defaultWorkflowId !== latest.id)
+                .map((bot) => (
+                  <MenuItem key={bot.id} onClick={() => void makeDefaultFor(bot)}>
+                    Make default for {bot.name}
+                  </MenuItem>
+                ))
+            : null}
           <MenuItem onClick={() => void duplicate()}>Duplicate as new workflow</MenuItem>
           <MenuItem
             variant="destructive"
@@ -342,7 +389,16 @@ export function WorkflowEditor({
   return (
     <LibraryFrame
       title={title}
-      badge={<Badge variant="outline">v{saved.revision}</Badge>}
+      badge={
+        <>
+          <Badge variant="outline">v{saved.revision}</Badge>
+          {defaultFor.length > 0 ? (
+            <Badge variant="outline">
+              Default for {defaultFor.map((bot) => bot.name).join(", ")}
+            </Badge>
+          ) : null}
+        </>
+      }
       actions={actions}
     >
       <WorkspacePageContainer width={view === "canvas" ? "expanded" : "readable"}>

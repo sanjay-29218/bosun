@@ -29,9 +29,13 @@ export class FeatureWorkspaces extends Context.Service<
   FeatureWorkspaces,
   {
     /**
-     * The worktree the feature behind a workflow stage handoff works in, made from its base
-     * branch the first time a stage starts. Null when the feature works in the project's checkout.
+     * The worktree the feature works in, made from its base branch the first time a stage
+     * starts. Null when the feature works in the project's checkout.
      */
+    readonly forFeature: (
+      featureId: string,
+    ) => Effect.Effect<CrewWorkspace | null, FeatureWorkspaceError>;
+    /** `forFeature` for the feature behind a workflow stage handoff. */
     readonly forStageHandoff: (
       handoffId: string,
     ) => Effect.Effect<CrewWorkspace | null, FeatureWorkspaceError>;
@@ -48,8 +52,8 @@ export const FeatureWorkspacesLive = Layer.effect(
     const making = yield* Semaphore.make(1);
     const failed = (reason: string) => () => new FeatureWorkspaceError(reason);
 
-    // Traced by `forStageHandoff`, which only adds the lock around it.
-    const ensure = Effect.fnUntraced(function* (handoffId: string) {
+    // Traced by `forFeature`, which only adds the lock around it.
+    const ensure = Effect.fnUntraced(function* (featureId: string) {
       const rows = yield* sql<{
         readonly featureId: string;
         readonly projectId: string;
@@ -59,10 +63,9 @@ export const FeatureWorkspacesLive = Layer.effect(
         readonly branch: string | null;
         readonly worktreePath: string | null;
       }>`
-        SELECT f.id AS featureId, f.project_id AS projectId, f.title, f.workspace,
-          f.base_branch AS baseBranch, f.branch, f.worktree_path AS worktreePath
-        FROM workflow_stage_handoffs h JOIN features f ON f.id = h.feature_id
-        WHERE h.id = ${handoffId}
+        SELECT id AS featureId, project_id AS projectId, title, workspace,
+          base_branch AS baseBranch, branch, worktree_path AS worktreePath
+        FROM features WHERE id = ${featureId}
       `.pipe(Effect.mapError(failed("The feature's workspace is unreadable")));
       const feature = rows[0];
       if (!feature || feature.workspace === "local") return null;
@@ -89,15 +92,22 @@ export const FeatureWorkspacesLive = Layer.effect(
         .update(feature.featureId)
         .digest("hex")
         .slice(0, 6);
+      const branch = `bosun/${branchSlug(feature.title)}-${suffix}`;
       const created = yield* git
         .createWorktree({
           cwd: project.workspaceRoot,
           refName: base,
-          newRefName: `bosun/${branchSlug(feature.title)}-${suffix}`,
+          newRefName: branch,
           baseRefName: base,
           path: null,
         })
         .pipe(
+          // The name comes from the feature ID, so an earlier attempt that made the branch and
+          // then failed left it behind; that branch is this feature's, so work on it.
+          Effect.catchIf(
+            (error) => error.reason === "branch_already_exists",
+            () => git.createWorktree({ cwd: project.workspaceRoot, refName: branch, path: null }),
+          ),
           Effect.mapError(
             (error) =>
               new FeatureWorkspaceError(`Couldn't make the feature's worktree: ${error.message}`),
@@ -114,9 +124,17 @@ export const FeatureWorkspacesLive = Layer.effect(
       return workspace;
     });
 
+    const forFeature = Effect.fn("FeatureWorkspaces.forFeature")(function* (featureId: string) {
+      return yield* making.withPermits(1)(ensure(featureId));
+    });
+
     return {
+      forFeature,
       forStageHandoff: Effect.fn("FeatureWorkspaces.forStageHandoff")(function* (handoffId) {
-        return yield* making.withPermits(1)(ensure(handoffId));
+        const rows = yield* sql<{ readonly featureId: string }>`
+          SELECT feature_id AS featureId FROM workflow_stage_handoffs WHERE id = ${handoffId}
+        `.pipe(Effect.mapError(failed("The feature's workspace is unreadable")));
+        return rows[0] ? yield* forFeature(rows[0].featureId) : null;
       }),
     };
   }),

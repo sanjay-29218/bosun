@@ -267,8 +267,8 @@ its progress.
 
 In a project whose environment runs workflows, a new thread's composer has a **Workflow** button
 next to the model picker. **No workflow** keeps it a normal thread. Pick a workflow and the model
-picker becomes **Crew**, because each role brings its own model (change them under the
-project's crew settings). Your first message becomes the feature's brief, and you land in its
+picker hides, because each role brings its own model; the same menu lists the workflow's crew and
+their models (change them in the **Library**). Your first message becomes the feature's brief, and you land in its
 first stage thread. **New feature…** in the command palette opens the same composer.
 
 Each stage runs in an ordinary thread. The sidebar shows one row per feature, with a strip of its
@@ -278,14 +278,15 @@ in the right panel, which also lists outputs and lets you pause, resume, cancel 
 feature. A stage thread opens with a handoff card listing exactly what it was given. See
 [Feature threads](./bots.md#feature-threads).
 
-When a stage needs you, its composer shows a banner:
+When a stage needs you, it asks in its thread the way an agent's question does, on web and mobile.
+Pick an answer, or type a reply:
 
-- **Approval**: **Approve**, or **Request changes**. Write the change or an approval note in the
-  composer first; the note travels to the next stage.
-- **Failed**: **Retry**, **Send back…** to an earlier stage, or from **⋯** retry with another
-  model, skip the stage, or take over.
-- **Take over** hands the thread to you. When you're done, **Mark stage done** passes your result
-  on; the composer text is the summary.
+- **Question**: type your answer.
+- **Approval**: **Approve**, or type the changes you want to request them.
+- **Failed**: **Retry**, **Skip stage**, or send the work back to an earlier stage.
+- **Loop limit**: **Accept as is** or **One more round**.
+- **Take over** hands the thread to you. When you're done, pick **Mark stage done**, or type a
+  summary to pass on with it.
 
 The same actions are in the command palette while a stage thread is open.
 

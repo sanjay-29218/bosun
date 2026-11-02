@@ -84,12 +84,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
-import {
-  CrewStageSummary,
-  ThreadCrewHandoff,
-  ThreadCrewRequestTag,
-  ThreadFeatureTag,
-} from "./workflow.ts";
+import { CrewStageSummary, ThreadCrewRequestTag, ThreadFeatureTag } from "./workflow.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -515,8 +510,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The bot request a crew handoff thread works on; absent outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
-  /** Crew handoffs this thread sent that are still out, or its latest if it failed. */
-  crewHandoffs: Schema.optional(Schema.Array(ThreadCrewHandoff)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -1212,6 +1205,11 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   decision: Schema.optional(ProviderApprovalDecision),
   feedback: Schema.optional(Schema.String),
   answers: Schema.optional(ProviderUserInputAnswers),
+  /**
+   * Server code that asked instead of a provider. Its answer resolves the request and goes to
+   * that owner; no message reaches the thread's agent.
+   */
+  owner: Schema.optional(Schema.Literal("workflow")),
 });
 export type OrchestrationV2RuntimeRequest = typeof OrchestrationV2RuntimeRequest.Type;
 
@@ -2116,8 +2114,6 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The bot request this handoff thread works on; omitted outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
-  /** Crew handoffs this thread sent that are still out, or its latest if it failed. */
-  crewHandoffs: Schema.optional(Schema.Array(ThreadCrewHandoff)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
@@ -3281,6 +3277,8 @@ export const OrchestrationV2Command = Schema.Union([
     parentThreadId: ThreadId,
     parentRunId: RunId,
     parentNodeId: NodeId,
+    /** Runs the child in another project's checkout; the parent's project when omitted. */
+    projectId: Schema.optional(ProjectId),
     task: TrimmedNonEmptyString,
     title: Schema.optional(TrimmedNonEmptyString),
     modelSelection: ModelSelection,
@@ -3386,7 +3384,6 @@ const OrchestrationV2InternalCommand = Schema.Union([
     crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
     feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
     crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
-    crewHandoffs: Schema.optional(Schema.Array(ThreadCrewHandoff)),
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   /**
@@ -3499,6 +3496,18 @@ const OrchestrationV2InternalCommand = Schema.Union([
     placeholder: Schema.optional(Schema.String),
     delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /**
+   * Opens a question that server code, not a provider, asks on a thread. Internal so no client
+   * can ask on the server's behalf. Answer and dismiss it like any question.
+   */
+  Schema.Struct({
+    type: Schema.Literal("user-input.open"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: RuntimeRequestId,
+    owner: Schema.Literal("workflow"),
+    questions: Schema.Array(OrchestrationV2UserInputQuestion),
   }),
   /**
    * Records or updates a link an agent asked the user to make. Internal so no

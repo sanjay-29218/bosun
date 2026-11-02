@@ -89,17 +89,5 @@ export function createRoleAtoms<R, ER>(
       label: "environment-data:crew:start",
       tag: WS_METHODS.crewStart,
     }),
-    answer: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:crew:answer",
-      tag: WS_METHODS.crewAnswer,
-    }),
-    cancel: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:crew:cancel",
-      tag: WS_METHODS.crewCancel,
-    }),
-    retry: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:crew:retry",
-      tag: WS_METHODS.crewRetry,
-    }),
   };
 }

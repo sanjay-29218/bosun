@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation } from "@tanstack/react-router";
-import { KanbanIcon } from "lucide-react";
+import { LayoutGridIcon, TextAlignJustifyIcon } from "lucide-react";
 import { memo } from "react";
 
 import { shortcutLabelForCommand } from "../keybindings";
@@ -11,7 +11,7 @@ import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
- * Flips the main area between the thread list and the feature board, pressed on the board.
+ * Flips the main area between the thread list and the feature board, showing the current one.
  * It appears once an environment runs workflows, or on the board so there is a way back.
  */
 export const MainViewToggle = memo(function MainViewToggle() {
@@ -34,7 +34,11 @@ export const MainViewToggle = memo(function MainViewToggle() {
           variant="ghost"
           size="sm"
         >
-          <KanbanIcon className="size-4" />
+          {onBoard ? (
+            <LayoutGridIcon className="size-4" />
+          ) : (
+            <TextAlignJustifyIcon className="size-4" />
+          )}
         </Toggle>
       </TooltipTrigger>
       <TooltipPopup side="bottom">

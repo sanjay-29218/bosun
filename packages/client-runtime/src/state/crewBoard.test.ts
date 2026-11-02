@@ -2,7 +2,9 @@ import {
   botHeadquartersThreadId,
   EnvironmentId,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
+  type OrchestrationV2RunStatus,
   type FeatureCardState,
   type WorkflowDefinition,
 } from "@t3tools/contracts";
@@ -14,9 +16,12 @@ import {
   collectNeedsYou,
   countNeedsYouByBot,
   featureCardActions,
+  featureCardQuickActions,
   featureDropAction,
   featurePhase,
+  featureRef,
   featureQueuePositions,
+  groupFeaturesByColumn,
   groupFeaturesByPhase,
   matchesFeatureSearch,
   mostUsedWorkflowId,
@@ -26,9 +31,11 @@ import {
   sendBackTargets,
   stageOutcomes,
   stagePhase,
+  threadBoardColumn,
   type EnvironmentFeatureCard,
   type NeedsYouShell,
 } from "./crewBoard.ts";
+import type { EnvironmentThreadShell } from "./models.ts";
 
 const environmentId = EnvironmentId.make("env-1");
 const otherEnvironmentId = EnvironmentId.make("env-2");
@@ -134,6 +141,65 @@ describe("phases", () => {
     ]);
     expect(groups[2]!.cards.map((item) => item.featureId)).toEqual(["new", "old"]);
     expect(groups[5]!.cards.map((item) => item.featureId)).toEqual(["done"]);
+  });
+});
+
+describe("status columns", () => {
+  it("files features under Todo, Working, Needs you and Done, with the longest wait first", () => {
+    const groups = groupFeaturesByColumn([
+      card("unstarted", "working", null, { started: false }),
+      card("queued", "queued", "build"),
+      card("paused", "paused", "build"),
+      card("late", "failed", "build", { stateSince: "2026-10-03T00:00:00.000Z" }),
+      card("early", "approval", "plan", { stateSince: "2026-10-02T00:00:00.000Z" }),
+      card("stopped", "cancelled", "build"),
+      card("done", "done", "qa"),
+    ]);
+    expect(
+      groups.map((group) => [group.column, group.cards.map((item) => item.featureId)]),
+    ).toEqual([
+      ["todo", ["unstarted"]],
+      ["working", ["queued", "paused"]],
+      ["needs-you", ["early", "late"]],
+      ["done", ["stopped", "done"]],
+    ]);
+  });
+
+  it("files a chat under Needs you, Working or Done, as its sidebar row reads", () => {
+    const runtime = (status: OrchestrationV2RunStatus | "idle") => ({
+      status,
+      activeRunId: null,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      providerName: null,
+      lastError: null,
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    const chat = (
+      overrides: Partial<NeedsYouShell> = {},
+      fields: Partial<Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime">> = {},
+    ) => ({ ...shell("chat", overrides), pendingSubagentRequest: null, runtime: null, ...fields });
+    expect(
+      threadBoardColumn(chat({ hasPendingUserInput: true }, { runtime: runtime("running") })),
+    ).toBe("needs-you");
+    expect(threadBoardColumn(chat({}, { pendingSubagentRequest: "approval" }))).toBe("needs-you");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("queued") }))).toBe("working");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("waiting") }))).toBe("working");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("failed") }))).toBe("done");
+    expect(threadBoardColumn(chat({}, { runtime: runtime("idle") }))).toBe("done");
+    expect(threadBoardColumn(chat())).toBe("done");
+  });
+
+  it("shows only the buttons that settle what a card waits on", () => {
+    expect(featureCardQuickActions(card("a", "working", null, { started: false }))).toEqual([
+      "start",
+    ]);
+    expect(featureCardQuickActions(card("a", "working", "build"))).toEqual([]);
+    expect(featureCardQuickActions(card("a", "approval", "plan"))).toEqual([
+      "approve",
+      "request-changes",
+    ]);
+    expect(featureCardQuickActions(card("a", "failed", "build"))).toEqual(["retry", "cancel"]);
+    expect(featureCardQuickActions(card("a", "done", "qa"))).toEqual([]);
   });
 });
 
@@ -271,6 +337,23 @@ describe("search", () => {
     expect(matchesFeatureSearch(linked, parseFeatureSearch("#42"))).toBe(true);
     expect(matchesFeatureSearch(linked, parseFeatureSearch("github issues"))).toBe(true);
     expect(matchesFeatureSearch(linked, parseFeatureSearch("beta"))).toBe(true);
+  });
+
+  it("names a feature by its linked issue, else its own number", () => {
+    const numbered = card("k", "working", "build", { number: 3 });
+    expect(featureRef(numbered)).toBe("F-3");
+    expect(matchesFeatureSearch(numbered, parseFeatureSearch("f-3"))).toBe(true);
+    expect(featureRef(card("k", "working", "build"))).toBeNull();
+    const issue = {
+      url: "https://github.com/o/r/issues/42",
+      number: 42,
+      title: "Board shows GitHub issues",
+      state: "open" as const,
+      milestone: null,
+      subIssues: null,
+    };
+    const linked = card("k", "working", "build", { number: 3, issue });
+    expect(featureRef(linked)).toBe("#42");
   });
 });
 

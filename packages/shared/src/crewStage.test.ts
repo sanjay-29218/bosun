@@ -1,0 +1,271 @@
+import {
+  ProjectId,
+  ThreadId,
+  type WorkflowFeatureSnapshot,
+  type WorkflowStepSnapshot,
+} from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  availableCrewActions,
+  crewStageAnswer,
+  crewStagePrompt,
+  crewStageQuestion,
+  sendBackTargets,
+} from "./crewStage.ts";
+
+const step = (
+  id: string,
+  status: WorkflowStepSnapshot["status"],
+  threadId: string | null = null,
+): WorkflowStepSnapshot => ({
+  id,
+  status,
+  executionId: status === "pending" ? null : `${id}-execution`,
+  attempt: status === "pending" ? 0 : 1,
+  runId: threadId === null ? null : `${id}-run`,
+  threadId: threadId === null ? null : ThreadId.make(threadId),
+  outcome: null,
+});
+
+const snapshot = (
+  steps: ReadonlyArray<WorkflowStepSnapshot>,
+  overrides: Partial<WorkflowFeatureSnapshot> = {},
+): WorkflowFeatureSnapshot => ({
+  featureId: "feature",
+  projectId: ProjectId.make("project"),
+  definition: {
+    schemaVersion: 2,
+    id: "delivery",
+    name: "Delivery",
+    revision: 3,
+    start: "plan",
+    roles: {},
+    steps: {
+      plan: { type: "task", role: "planner", task: "Plan", next: { ready: "design" }, gate: true },
+      design: { type: "task", role: "designer", task: "Design", next: { ready: "qa_check" } },
+      qa_check: {
+        type: "task",
+        role: "qa_tester",
+        task: "Test",
+        next: { passed: "end", failed: "design" },
+      },
+      end: { type: "end" },
+    },
+    defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 10 },
+  },
+  eventVersion: 1,
+  createdAt: "2026-10-09T10:00:00.000Z",
+  steps,
+  activeStepId: steps.find((item) => item.status !== "completed")?.id ?? null,
+  readyStepIds: [],
+  executionCount: 1,
+  completed: false,
+  cancelled: false,
+  paused: false,
+  state: "working",
+  historyLength: 0,
+  recentEvents: [],
+  ...overrides,
+});
+
+describe("crew actions", () => {
+  it("offers gate decisions only while a stage awaits approval", () => {
+    const gate = snapshot([step("plan", "awaiting-approval", "t-plan")], { state: "approval" });
+    expect(availableCrewActions(gate)).toEqual([
+      "approve",
+      "request-changes",
+      "take-over",
+      "pause",
+      "cancel",
+    ]);
+  });
+
+  it("offers recovery for a failed stage, with send back only to finished stages", () => {
+    const failed = snapshot([
+      step("plan", "completed", "t-plan"),
+      step("design", "failed", "t-design"),
+    ]);
+    expect(sendBackTargets(failed)).toEqual(["plan"]);
+    expect(availableCrewActions(failed)).toEqual([
+      "retry",
+      "take-over",
+      "send-back",
+      "skip",
+      "pause",
+      "cancel",
+    ]);
+    const first = snapshot([step("plan", "failed", "t-plan")]);
+    expect(availableCrewActions(first)).not.toContain("send-back");
+  });
+
+  it("hands a taken-over stage on with Mark done, and a paused feature back with Resume", () => {
+    const takenOver = snapshot([step("plan", "taken-over", "t-plan")], { paused: true });
+    expect(availableCrewActions(takenOver)).toEqual(["retry", "mark-done", "resume", "cancel"]);
+  });
+
+  it("only reopens a finished or cancelled feature", () => {
+    expect(availableCrewActions(snapshot([], { completed: true, activeStepId: null }))).toEqual([
+      "reopen",
+    ]);
+    expect(availableCrewActions(snapshot([], { cancelled: true }))).toEqual(["reopen"]);
+  });
+
+  it("lets a queued feature start now", () => {
+    const queued = snapshot([step("plan", "pending")], { state: "queued" });
+    expect(availableCrewActions(queued)).toContain("start-now");
+  });
+});
+
+describe("crewStagePrompt", () => {
+  const failed = snapshot(
+    [step("plan", "completed", "t-plan"), step("design", "failed", "t-design")],
+    {
+      recentEvents: [
+        {
+          id: "e1",
+          stepId: "design",
+          executionId: "design-execution",
+          kind: "failed",
+          runId: "design-run",
+          outcome: null,
+          sourceKind: "workflow",
+          sourceId: "x",
+          actorId: "workflow",
+          detail: "Typecheck failed",
+          occurredAt: "2026-10-09T10:00:00.000Z",
+        },
+      ],
+    },
+  );
+
+  it("asks a stage's question in its thread, with Answer allowed", () => {
+    const asking = snapshot([step("handle", "needs-input", "t-handle")], {
+      recentEvents: [
+        {
+          id: "q1",
+          stepId: "handle",
+          executionId: "handle-execution",
+          kind: "question",
+          runId: "handle-run",
+          outcome: null,
+          sourceKind: "handoff",
+          sourceId: "x",
+          actorId: "handle-run",
+          detail: "Treat #45 as this feature?",
+          occurredAt: "2026-10-09T10:00:00.000Z",
+        },
+      ],
+    });
+    expect(crewStagePrompt(asking, ThreadId.make("t-handle"))).toEqual({
+      kind: "input",
+      stepId: "handle",
+      question: "Treat #45 as this feature?",
+    });
+    expect(availableCrewActions(asking)).toContain("answer");
+  });
+
+  it("shows the failure banner in the failed stage's thread only", () => {
+    expect(crewStagePrompt(failed, ThreadId.make("t-design"))).toEqual({
+      kind: "failure",
+      stepId: "design",
+      attempt: 1,
+      error: "Typecheck failed",
+    });
+    expect(crewStagePrompt(failed, ThreadId.make("t-plan"))).toBeNull();
+  });
+
+  it("lists the outcomes a person can mark a taken-over stage done with", () => {
+    const takenOver = snapshot([
+      step("plan", "completed", "t-plan"),
+      step("design", "completed", "t-design"),
+      step("qa_check", "taken-over", "t-qa"),
+    ]);
+    expect(crewStagePrompt(takenOver, ThreadId.make("t-qa"))).toEqual({
+      kind: "taken-over",
+      stepId: "qa_check",
+      outcomes: ["passed", "failed"],
+    });
+  });
+});
+
+describe("crewStageQuestion", () => {
+  const gate = { kind: "gate", stepId: "plan", summary: "Plan complete." } as const;
+
+  it("offers the allowed actions as options, and a reply requests changes", () => {
+    const question = crewStageQuestion({
+      prompt: gate,
+      actions: ["approve", "request-changes", "send-back", "cancel"],
+      sendBackTargets: ["brief"],
+    });
+    expect(question.header).toBe("Plan approval");
+    expect(question.options.map((option) => option.label)).toEqual([
+      "Approve",
+      "Send back to Brief",
+      "Stop feature",
+    ]);
+    expect(question.allowCustomAnswer).toBe(true);
+    expect(crewStageAnswer(gate, question.options[0]!.value!)).toEqual({ action: "approve" });
+    expect(crewStageAnswer(gate, question.options[1]!.value!)).toEqual({
+      action: "send-back",
+      stepId: "brief",
+    });
+    // A reply that reads like an option is still a reply.
+    expect(crewStageAnswer(gate, " approve ")).toEqual({
+      action: "request-changes",
+      text: "approve",
+    });
+  });
+
+  it("takes no reply where the action has no note, and a summary when you took over", () => {
+    const failure = {
+      kind: "failure",
+      stepId: "build",
+      attempt: 2,
+      error: "Tests failed",
+    } as const;
+    expect(
+      crewStageQuestion({ prompt: failure, actions: ["retry", "skip"], sendBackTargets: [] })
+        .allowCustomAnswer,
+    ).toBe(false);
+    expect(crewStageAnswer(failure, "try harder")).toBeNull();
+
+    const takenOver = { kind: "taken-over", stepId: "qa", outcomes: ["passed", "failed"] } as const;
+    const question = crewStageQuestion({
+      prompt: takenOver,
+      actions: ["mark-done", "retry"],
+      sendBackTargets: [],
+    });
+    expect(question.options.map((option) => option.label)).toEqual([
+      "Mark done: Passed",
+      "Mark done: Failed",
+      "Retry stage",
+    ]);
+    expect(crewStageAnswer(takenOver, question.options[1]!.value!)).toEqual({
+      action: "mark-done",
+      outcome: "failed",
+    });
+    expect(crewStageAnswer(takenOver, "Fixed by hand")).toEqual({
+      action: "mark-done",
+      text: "Fixed by hand",
+      outcome: "passed",
+    });
+  });
+
+  it("asks a stage's question, and a reply answers it", () => {
+    const input = {
+      kind: "input",
+      stepId: "handle",
+      question: "Treat #45 as this feature?",
+    } as const;
+    const question = crewStageQuestion({
+      prompt: input,
+      actions: ["answer", "take-over", "cancel"],
+      sendBackTargets: [],
+    });
+    expect(question.header).toBe("Handle asks");
+    expect(question.question).toContain("Treat #45 as this feature?");
+    expect(question.allowCustomAnswer).toBe(true);
+    expect(crewStageAnswer(input, " Option B ")).toEqual({ action: "answer", text: "Option B" });
+  });
+});
