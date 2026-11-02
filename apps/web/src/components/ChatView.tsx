@@ -2564,7 +2564,8 @@ export default function ChatView(props: ChatViewProps) {
     persistThreadSettingsForNextTurn,
   });
   const crewNow = useCrewNowItems({
-    stage: crewStage,
+    // A question open here already asks what the stage waits for.
+    stage: pendingUserInputs.length > 0 ? null : crewStage,
     canOperate: canOperateThread,
     onOpenThread: onOpenRelatedThreadStable,
   });

@@ -1266,40 +1266,55 @@ describe("Workflow execution", () => {
     }),
   );
 
-  it.effect("closes the question when a person decides first, and tells no lead they decide", () =>
-    withDirectory((directory) => {
-      const system = fixture(directory);
-      return Effect.gen(function* () {
-        const { featureId, execution, workflows, bindings, manager } = yield* seed("feature-two", {
-          gate: true,
-        });
-        const engine = yield* OrchestratorV2;
-        yield* execution.attach(featureId, projectId, bindings);
-        const plan = yield* activeStage(featureId);
-        yield* execution.report(plan.run.threadId, "ready", "Plan ready");
-        yield* execution.reconcileFeature(featureId);
-        const [gate] = (yield* engine.getThreadProjection(plan.run.threadId)).runtimeRequests;
-        expect(gate?.status).toBe("pending");
-        // A person decides on this workflow, so the lead hears nothing.
-        const { messages } = yield* engine.getThreadRecords(manager.threadId, ["messages"], {
-          messageRoles: ["user"],
-        });
-        expect(messages).toEqual([]);
+  it.effect(
+    "closes the question when a person decides first, wherever it waits, and tells no lead",
+    () =>
+      withDirectory((directory) => {
+        const system = fixture(directory);
+        return Effect.gen(function* () {
+          const { featureId, execution, workflows, bindings, manager } = yield* seed(
+            "feature-two",
+            {
+              gate: true,
+            },
+          );
+          const engine = yield* OrchestratorV2;
+          yield* execution.attach(featureId, projectId, bindings);
+          const plan = yield* activeStage(featureId);
+          yield* execution.report(plan.run.threadId, "ready", "Plan ready");
+          yield* execution.reconcileFeature(featureId);
+          const [gate] = (yield* engine.getThreadProjection(plan.run.threadId)).runtimeRequests;
+          expect(gate?.status).toBe("pending");
+          // A person decides on this workflow, so the lead hears nothing.
+          const { messages } = yield* engine.getThreadRecords(manager.threadId, ["messages"], {
+            messageRoles: ["user"],
+          });
+          expect(messages).toEqual([]);
 
-        // Approving from the board closes the question it answered.
-        yield* execution.control({
-          featureId,
-          projectId,
-          requestId: "person-approves",
-          actorId: "person",
-          kind: "approved",
-        });
-        expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
-          "completed",
-        );
-        const [closed] = (yield* engine.getThreadProjection(plan.run.threadId)).runtimeRequests;
-        expect(closed).toMatchObject({ status: "resolved", decision: "cancel" });
-      }).pipe(Effect.provide(system.layer));
-    }),
+          // Deleting the stage's thread moves its question to the thread that dispatched it.
+          yield* engine.dispatch({
+            type: "thread.delete",
+            commandId: CommandId.make("delete-waiting-planner"),
+            threadId: plan.run.threadId,
+          });
+          yield* execution.reconcileFeature(featureId);
+          const [moved] = (yield* engine.getThreadProjection(manager.threadId)).runtimeRequests;
+          expect(moved).toMatchObject({ status: "pending", owner: "workflow" });
+
+          // Approving from the board closes the question it answered.
+          yield* execution.control({
+            featureId,
+            projectId,
+            requestId: "person-approves",
+            actorId: "person",
+            kind: "approved",
+          });
+          expect((yield* workflows.getFeatureState(featureId))?.steps.get("plan")?.status).toBe(
+            "completed",
+          );
+          const [closed] = (yield* engine.getThreadProjection(manager.threadId)).runtimeRequests;
+          expect(closed).toMatchObject({ status: "resolved", decision: "cancel" });
+        }).pipe(Effect.provide(system.layer));
+      }),
   );
 });

@@ -704,9 +704,24 @@ export const WorkflowExecutionServiceLive = Layer.effect(
         actions: availableCrewActions(snapshot),
         sendBackTargets: sendBackTargets(snapshot),
       });
+      if (yield* engine.getThreadShell(step.threadId)) {
+        return {
+          threadId: step.threadId,
+          requestId: stageQuestionId(featureId, waiting.id),
+          prompt,
+          question,
+        };
+      }
+      // A deleted stage thread can't hold its question, so the thread that dispatched it asks.
+      const task = (yield* workflows.getFeatureCopy(featureId))?.definition.steps[step.id];
+      const execution = yield* executions.get(featureId);
+      const leadRunId =
+        task?.type === "task" ? execution?.bindings[task.role]?.dispatchRunId : null;
+      const leadRun = leadRunId ? yield* crew.getRun(leadRunId) : null;
+      if (!leadRun || !(yield* engine.getThreadShell(leadRun.threadId))) return null;
       return {
-        threadId: step.threadId,
-        requestId: stageQuestionId(featureId, waiting.id),
+        threadId: leadRun.threadId,
+        requestId: stageQuestionId(featureId, `${waiting.id}:lead`),
         prompt,
         question,
       };
