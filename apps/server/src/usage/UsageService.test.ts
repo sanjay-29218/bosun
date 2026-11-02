@@ -23,6 +23,7 @@ import {
 import * as Duration from "effect/Duration";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -2452,27 +2453,43 @@ describe("UsageService", () => {
   it.live("reports saved usage of a removed directory only for windows it reaches", () =>
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;
+      // Saved usage is kept for days counted back from the real clock, so the file is recent.
+      const written = DateTime.add(DateTime.startOf(yield* DateTime.now, "day"), {
+        days: -10,
+        hours: 10,
+      });
+      const writtenSeconds = DateTime.toEpochMillis(written) / 1000;
+      const day = (offset: number) =>
+        UsageDay.make(DateTime.formatIsoDateUtc(DateTime.add(written, { days: offset })));
       yield* Effect.promise(async () => {
-        await NodeFSP.writeFile(transcript, claudeLine(1, 5));
-        const lastWrite = Date.parse("2026-08-01T10:00:00Z") / 1000;
-        await NodeFSP.utimes(transcript, lastWrite, lastWrite);
+        await NodeFSP.writeFile(
+          transcript,
+          claudeLine(1, 5).replace("2026-08-01T10:00:00Z", DateTime.formatIso(written)),
+        );
+        await NodeFSP.utimes(transcript, writtenSeconds, writtenSeconds);
       });
       const service = yield* UsageService.make.pipe(
         Effect.provide(layerService({ prefix: "usage-service-saved-window-test", home, settings })),
       );
-      const first = yield* service.readSummary(WINDOW);
+      const window = {
+        timeZone: "UTC",
+        sinceDay: day(-1),
+        untilDay: day(1),
+      } as const;
+      const first = yield* service.readSummary(window);
+      assert.strictEqual(first.buckets.length > 0, true);
       yield* Effect.promise(() =>
         NodeFSP.rm(NodePath.join(home, "claude", "projects"), { recursive: true }),
       );
 
-      const reached = yield* service.readSummary(WINDOW);
+      const reached = yield* service.readSummary(window);
       assert.deepStrictEqual(reached.buckets, first.buckets);
       assert.strictEqual(reached.sources[0]?.status, "ok");
 
       const later = yield* service.readSummary({
         timeZone: "UTC",
-        sinceDay: UsageDay.make("2026-08-10"),
-        untilDay: UsageDay.make("2026-08-12"),
+        sinceDay: day(9),
+        untilDay: day(11),
       });
       assert.deepStrictEqual(later.buckets, []);
       assert.strictEqual(later.sources[0]?.status, "missing");
