@@ -274,11 +274,7 @@ import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { CrewHandoffCard } from "./crew/CrewHandoffCard";
-import {
-  ComposerCrewControl,
-  ComposerWorkflowPicker,
-  useDraftWorkflow,
-} from "./crew/ComposerWorkflowPicker";
+import { ComposerWorkflowPicker, useDraftWorkflow } from "./crew/ComposerWorkflowPicker";
 import { useCrewDraftStore } from "./crew/crewDraftStore";
 import type { ComposerControlSize } from "./chat/ComposerControl";
 import { featuresEnvironment } from "../state/features";
@@ -1124,9 +1120,6 @@ export default function ChatView(props: ChatViewProps) {
   const handleManageWorkflows = () => {
     void navigate({ to: "/library", search: {} });
   };
-  const handleEditCrew = () => {
-    void navigate({ to: "/library", search: {} });
-  };
   // A new thread with a workflow picked starts a feature; its first message is the brief.
   const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
   const draftWorkflow = useDraftWorkflow({ environmentId, projectId: draftProjectId, draftId });
@@ -1145,18 +1138,6 @@ export default function ChatView(props: ChatViewProps) {
         )
       : undefined;
   const draftWorkflowId = draftWorkflow.workflow?.id ?? null;
-  const renderCrewControl =
-    draftWorkflowId && draftId && draftProjectId
-      ? (size: ComposerControlSize) => (
-          <ComposerCrewControl
-            environmentId={environmentId}
-            projectId={draftProjectId}
-            draftId={draftId}
-            size={size}
-            onEditCrew={handleEditCrew}
-          />
-        )
-      : null;
   // The feature a draft created, kept until it starts, so retrying a failed start (or a
   // second Enter) reuses it instead of creating another. Create is idempotent per id.
   const pendingCrewFeatureRef = useRef<{
@@ -3649,7 +3630,7 @@ export default function ChatView(props: ChatViewProps) {
                           {!composerMounted ? null : (
                             <ChatComposer
                               renderWorkflowPicker={renderWorkflowPicker}
-                              renderCrewControl={renderCrewControl}
+                              workflowPicked={draftWorkflowId !== null}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}

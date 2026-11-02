@@ -14,8 +14,8 @@ feature** on a todo does the same with the todo already written in, and the feat
 The first time the board opens, **Start a feature** adds the starter workflow, "Feature delivery",
 first. These pick the default workflow of the bot that owns the project, or the first workflow
 when it has none. A plain new thread picks no workflow until you choose one. To change the default,
-pick a workflow and choose **Make default for** the bot in the same menu, or edit the bot. Change
-workflows in the **Library**, in the bot rail or at the bottom of the sidebar.
+open the workflow in the **Library** and choose **Make default for** the bot from its **⋯** menu,
+or edit the bot. The Library opens from the bot rail or the bottom of the sidebar.
 
 A feature started from the board gets a new worktree. From a thread, it works where the
 composer's **Local** / **New worktree** picker says. In a new worktree,

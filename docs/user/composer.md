@@ -267,8 +267,8 @@ its progress.
 
 In a project whose environment runs workflows, a new thread's composer has a **Workflow** button
 next to the model picker. **No workflow** keeps it a normal thread. Pick a workflow and the model
-picker becomes **Crew**, because each role brings its own model (change them under the
-project's crew settings). Your first message becomes the feature's brief, and you land in its
+picker hides, because each role brings its own model; the same menu lists the workflow's crew and
+their models (change them in the **Library**). Your first message becomes the feature's brief, and you land in its
 first stage thread. **New feature…** in the command palette opens the same composer.
 
 Each stage runs in an ordinary thread. The sidebar shows one row per feature, with a strip of its

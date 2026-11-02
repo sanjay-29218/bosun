@@ -369,8 +369,8 @@ export interface ChatComposerProps {
   activeThreadShell: ThreadShell | null;
   /** A new thread's Workflow picker, before the model picker. */
   renderWorkflowPicker?: ((size: ComposerControlSize) => ReactNode) | undefined;
-  /** While a workflow is picked, the crew stands in for the model and mode controls. */
-  renderCrewControl?: ((size: ComposerControlSize) => ReactNode) | null | undefined;
+  /** While a workflow is picked, its roles bring their own models, so those controls hide. */
+  workflowPicked?: boolean | undefined;
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -2345,7 +2345,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       modelPickerIconClassName={composerProviderState.modelPickerIconClassName}
       getModelDisabledReason={getModelDisabledReason}
       renderWorkflowPicker={props.renderWorkflowPicker}
-      renderCrewControl={props.renderCrewControl}
+      workflowPicked={props.workflowPicked}
     />
   );
   // An open question owns the space above the composer. Only a machine problem,

@@ -91,8 +91,8 @@ export function ComposerControlsBar(props: {
   getModelDisabledReason: ChatComposerProps["getModelDisabledReason"];
   /** A new thread's Workflow picker, before the model picker. */
   renderWorkflowPicker?: ((size: ComposerControlSize) => ReactNode) | undefined;
-  /** While a workflow is picked, the crew stands in for the model and mode controls. */
-  renderCrewControl?: ((size: ComposerControlSize) => ReactNode) | null | undefined;
+  /** While a workflow is picked, its roles bring their own models, so those controls hide. */
+  workflowPicked?: boolean | undefined;
 }) {
   const {
     environmentId,
@@ -313,9 +313,7 @@ export function ComposerControlsBar(props: {
   ) : (
     <>
       {props.renderWorkflowPicker?.(composerControlsCollapsed ? "xs" : "sm")}
-      {props.renderCrewControl ? (
-        props.renderCrewControl(composerControlsCollapsed ? "xs" : "sm")
-      ) : (
+      {props.workflowPicked ? null : (
         <>
           {composerModelPicker}
 
