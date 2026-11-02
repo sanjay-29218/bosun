@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -44,7 +45,7 @@ import { LibrarySidebar } from "./library/LibrarySidebar";
 import ThreadSidebar from "./Sidebar";
 import { BOT_RAIL_WIDTH, BotRail } from "./sidebar/BotRail";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
-import { isAppModalPage, useRailDestination } from "./sidebar/mainAppLocation";
+import { isAppModalPage, mainViewForPathname, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useShowBotRail } from "../state/botRail";
@@ -321,8 +322,18 @@ function SidebarControl() {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar, isMobile, mobileSheetMounted } = useSidebar();
+  const { toggleSidebar, setOpen, isMobile, mobileSheetMounted } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
+  const onBoard = useLocation({
+    select: (location) => mainViewForPathname(location.pathname) === "board",
+  });
+  const wasOnBoard = useRef(onBoard);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the board opens with the thread list closed, and leaving it opens the list again
+  useEffect(() => {
+    if (wasOnBoard.current === onBoard) return;
+    wasOnBoard.current = onBoard;
+    setOpen(!onBoard);
+  }, [onBoard, setOpen]);
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const stageBackdropVariant = useSidebarStageBackdropVariant(environmentIdentificationMode);
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {

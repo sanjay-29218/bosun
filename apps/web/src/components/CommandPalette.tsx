@@ -57,8 +57,8 @@ import {
   ChartNoAxesColumnIcon,
   ClockIcon,
   KanbanIcon,
+  LayoutGridIcon,
   LayersIcon,
-  ListIcon,
   ListTodoIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -81,6 +81,7 @@ import {
   UnlinkIcon,
   UserPlusIcon,
   WorkflowIcon,
+  TextAlignJustifyIcon,
 } from "lucide-react";
 import { openNewTodoDialog } from "./features/todoDialogs";
 import {
@@ -1761,9 +1762,9 @@ function OpenCommandPaletteDialog(props: {
         searchTerms: ["board", "list", "features", "kanban", "threads", "crew", "workflow", "view"],
         title: onBoard ? "Switch to List" : "Switch to Board",
         icon: onBoard ? (
-          <ListIcon className={ITEM_ICON_CLASS} />
+          <TextAlignJustifyIcon className={ITEM_ICON_CLASS} />
         ) : (
-          <KanbanIcon className={ITEM_ICON_CLASS} />
+          <LayoutGridIcon className={ITEM_ICON_CLASS} />
         ),
         shortcutCommand: "board.toggle",
         run: async () => {
