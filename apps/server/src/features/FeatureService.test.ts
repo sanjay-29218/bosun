@@ -23,7 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import { describe, expect } from "vite-plus/test";
+import { describe, expect, vi } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, projectManagerMemberId } from "../crew/CrewService.ts";
@@ -480,6 +480,17 @@ describe("feature creation", () => {
               workflowId: "feature-delivery",
             });
             yield* features.start(id, project);
+            yield* features.start(id, project);
+            const workflows = yield* WorkflowService;
+            const state = (yield* workflows.getFeatureState(id))!;
+            expect(state.steps.get("plan")?.status).toBe("running");
+            const records = yield* (yield* WorkflowStore).listEvents(id);
+            const started = records.find((event) => event.kind === "started");
+            expect(started?.sourceId).toBeDefined();
+            const handoff = yield* workflows.getStageHandoff(started!.sourceId!);
+            expect(handoff?.notes).toContainEqual(
+              expect.objectContaining({ actorId: "lead", text: "Check persisted delivery state" }),
+            );
             const bindings = (yield* executions.get(id))!.bindings;
             const thread = (role: string) =>
               crew.getRun(bindings[role]!.dispatchRunId).pipe(
@@ -488,6 +499,21 @@ describe("feature creation", () => {
               );
             return { bot: yield* thread("manager"), manager: yield* thread("planner") };
           });
+        const execution = yield* WorkflowExecutionService;
+        const createRun = crew.createRun;
+        using _launch = vi
+          .spyOn(crew, "createRun")
+          .mockImplementation((input) =>
+            createRun(input).pipe(
+              Effect.tap((run) =>
+                input.id.startsWith("feature-lead:")
+                  ? execution
+                      .report(run.threadId, "plan", "Check persisted delivery state")
+                      .pipe(Effect.orDie)
+                  : Effect.void,
+              ),
+            ),
+          );
         const first = yield* leads("lead-one", projectId);
         const second = yield* leads("lead-two", otherProjectId);
 

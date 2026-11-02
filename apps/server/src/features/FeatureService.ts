@@ -379,6 +379,7 @@ export const FeatureServiceLive = Layer.effect(
       leadRunIds: Readonly<Record<string, string>> = {},
     ) {
       const bindings: Record<string, WorkflowBindings[string]> = {};
+      const leads = new Map<string, { memberId: string; title: string }>();
       for (const [name, assignment] of Object.entries(definition.roles)) {
         const memberId = feature.crewAssignments[name];
         const owner =
@@ -402,13 +403,23 @@ export const FeatureServiceLive = Layer.effect(
           bindings[name] = { memberId, dispatchRunId: reused };
           continue;
         }
-        const run = yield* crew.createRun({
-          id: hashed("feature-lead", feature.id, leadMemberId),
-          memberId: leadMemberId,
-          projectId: feature.projectId,
-          taskText: featureLeadTask(feature, definition, leadMemberId),
-          ...(lead ? { title: lead.name } : {}),
-        });
+        const runId = hashed("feature-lead", feature.id, leadMemberId);
+        bindings[name] = { memberId, dispatchRunId: runId };
+        leads.set(runId, { memberId: leadMemberId, title: lead!.name });
+      }
+      // The provider can report immediately after launch, so its binding must exist first.
+      yield* executions.attach(feature.id, bindings);
+      for (const [id, lead] of leads) {
+        const existing = yield* crew.getRun(id);
+        const run =
+          existing?.run ??
+          (yield* crew.createRun({
+            id,
+            memberId: lead.memberId,
+            projectId: feature.projectId,
+            taskText: featureLeadTask(feature, definition, lead.memberId),
+            title: lead.title,
+          }));
         // A fixed command ID tags the thread once.
         yield* engine
           .dispatch({
@@ -422,7 +433,6 @@ export const FeatureServiceLive = Layer.effect(
               Effect.logWarning("Lead thread tag failed", { runId: run.id, error }),
             ),
           );
-        bindings[name] = { memberId, dispatchRunId: run.id };
       }
       return bindings;
     });
@@ -707,10 +717,8 @@ export const FeatureServiceLive = Layer.effect(
         if (!copy) {
           return yield* Effect.fail(new FeatureValidationError("This feature has no workflow"));
         }
-        // Starting twice is a no-op: the execution already exists.
-        if (!(yield* executions.get(id))) {
-          yield* execution.attach(id, projectId, yield* leadBindings(feature, copy.definition));
-        }
+        // Recreate a missing lead if startup stopped after persisting its binding.
+        yield* execution.attach(id, projectId, yield* leadBindings(feature, copy.definition));
         return (yield* workflows.getFeatureSnapshot(id, projectId))!;
       },
     );
