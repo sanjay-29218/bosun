@@ -10,7 +10,10 @@ export default Effect.gen(function* () {
   }
   yield* sql`ALTER TABLE features ADD COLUMN brief_request_hash TEXT`;
   const runColumns = yield* sql<{ readonly name: string }>`PRAGMA table_info(crew_runs)`;
-  if (!runColumns.some((column) => column.name === "opening_message_json")) {
+  if (
+    runColumns.length > 0 &&
+    !runColumns.some((column) => column.name === "opening_message_json")
+  ) {
     yield* sql`ALTER TABLE crew_runs ADD COLUMN opening_message_json TEXT`;
   }
 });
