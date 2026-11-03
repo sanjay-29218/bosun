@@ -575,14 +575,49 @@ describe("feature creation", () => {
           title: "Other project",
           workspaceRoot: NodePath.join(NodeOS.tmpdir(), "feature-other"),
         });
-        const leads = (id: string, project: ProjectId) =>
+        const leads = (
+          id: string,
+          project: ProjectId,
+          workflowId = "feature-delivery",
+          withFiles = true,
+        ) =>
           Effect.gen(function* () {
-            yield* features.create({
+            const config = yield* ServerConfig;
+            const pendingId = createPendingAttachmentId("png")!;
+            NodeFS.mkdirSync(config.attachmentsDir, { recursive: true });
+            NodeFS.writeFileSync(
+              NodePath.join(config.attachmentsDir, `${pendingId}.png`),
+              new Uint8Array([1, 2, 3]),
+            );
+            const feature = yield* features.create({
               id,
               projectId: project,
               title: `Feature ${id}`,
               brief: "Run the starter workflow",
-              workflowId: "feature-delivery",
+              workflowId,
+              briefAttachments: withFiles
+                ? [
+                    {
+                      type: "image",
+                      id: ChatAttachmentId.make(pendingId),
+                      name: "brief.png",
+                      mimeType: "image/png",
+                      sizeBytes: 3,
+                    },
+                  ]
+                : [],
+              briefContext: {
+                version: 1,
+                records: [
+                  {
+                    version: 1,
+                    contextId: ComposerContextId.make("brief-note"),
+                    kind: "note",
+                    label: "Constraint",
+                    payload: { note: "Keep the shared worktree" },
+                  },
+                ],
+              },
             });
             yield* features.start(id, project);
             const bindings = (yield* executions.get(id))!.bindings;
@@ -591,9 +626,9 @@ describe("feature creation", () => {
                 Effect.flatMap((view) => engine.getThreadShell(view!.run.threadId)),
                 Effect.map((shell) => shell!),
               );
-            return { bot: yield* thread("manager"), manager: yield* thread("planner") };
+            return { bot: yield* thread("manager"), manager: yield* thread("planner"), feature };
           });
-        const first = yield* leads("lead-one", projectId);
+        const first = yield* leads("lead-one", projectId, "feature-delivery-auto");
         const second = yield* leads("lead-two", otherProjectId);
 
         expect(first.bot.id).toBe(botHeadquartersThreadId(CAPTAIN_BOT_ID));
@@ -608,6 +643,27 @@ describe("feature creation", () => {
         expect(first.manager.title).toBe("Project manager");
         expect(first.manager.feature).toEqual({ id: "lead-one", title: "Feature lead-one" });
         expect(second.manager.feature).toEqual({ id: "lead-two", title: "Feature lead-two" });
+        const leadMessages = () =>
+          engine.getThreadRecords(first.manager.id, ["messages"], {
+            messageRoles: ["user"],
+          });
+        const opening = (yield* leadMessages()).messages;
+        expect(opening).toHaveLength(1);
+        expect(opening[0]?.text).toContain("Run the starter workflow");
+        expect(opening[0]?.text).toContain("never delegate stage work yourself");
+        expect(opening[0]?.attachments).toEqual(first.feature.briefAttachments);
+        expect(opening[0]?.context?.records).toContainEqual(
+          expect.objectContaining({ kind: "note", payload: { note: "Keep the shared worktree" } }),
+        );
+        yield* features.start("lead-one", projectId);
+        expect((yield* leadMessages()).messages).toHaveLength(1);
+        const textOnly = yield* leads("lead-text", projectId, "feature-delivery-auto", false);
+        const textOpening = yield* engine.getThreadRecords(textOnly.manager.id, ["messages"], {
+          messageRoles: ["user"],
+        });
+        expect(textOpening.messages).toHaveLength(1);
+        expect(textOpening.messages[0]?.text).toContain("Run the starter workflow");
+        expect(textOpening.messages[0]?.attachments).toEqual([]);
       }),
     ),
   );

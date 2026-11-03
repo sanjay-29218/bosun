@@ -46,7 +46,7 @@ export const encodeOpeningMessage = (message: OpeningMessage | null | undefined)
 export const decodeOpeningMessage = (json: string | null): OpeningMessage | null =>
   json === null ? null : Schema.decodeSync(openingMessageJson)(json);
 
-/** A feature's lead starts without a turn; its first decision request carries its brief. */
+/** Leads without an opening message wait for their first decision request. */
 export const startsIdle = (runId: string) => runId.startsWith("feature-lead:");
 
 export interface CrewThreadStart {
@@ -229,7 +229,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           ? { type: "existing_worktree", ...workspace }
           : { type: "root" },
         runSetupScript: !inUse,
-        ...(startsIdle(input.runId)
+        ...(startsIdle(input.runId) && input.openingMessage == null
           ? {}
           : {
               initialMessage: {

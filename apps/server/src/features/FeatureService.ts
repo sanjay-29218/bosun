@@ -32,6 +32,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as BotStore from "../bots/BotStore.ts";
+import { FeatureWorkspaces } from "./FeatureWorkspaces.ts";
 import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import {
@@ -310,6 +311,7 @@ export const FeatureServiceLive = Layer.effect(
     const workflows = yield* WorkflowService;
     const workflowStore = yield* WorkflowStore;
     const executions = yield* WorkflowExecutionStore;
+    const featureWorkspaces = yield* FeatureWorkspaces;
     const execution = yield* WorkflowExecutionService;
     const engine = yield* OrchestratorV2;
     const titleServices = yield* Effect.context<
@@ -386,6 +388,15 @@ export const FeatureServiceLive = Layer.effect(
       leadRunIds: Readonly<Record<string, string>> = {},
     ) {
       const bindings: Record<string, WorkflowBindings[string]> = {};
+      const leadStarts = definition.defaults.decisions === "lead";
+      const workspace = leadStarts
+        ? yield* featureWorkspaces
+            .forFeature(feature.id)
+            .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)))
+        : null;
+      const [brief] = yield* sql<{ readonly messageJson: string | null }>`
+        SELECT brief_message_json AS messageJson FROM features WHERE id = ${feature.id}
+      `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.leadBindings")));
       for (const [name, assignment] of Object.entries(definition.roles)) {
         const memberId = feature.crewAssignments[name];
         const owner =
@@ -414,6 +425,14 @@ export const FeatureServiceLive = Layer.effect(
           memberId: leadMemberId,
           projectId: feature.projectId,
           taskText: featureLeadTask(feature, definition),
+          ...(workspace ? { workspace } : {}),
+          ...(leadStarts
+            ? {
+                openingMessage: decodeOpeningMessage(brief?.messageJson ?? null) ?? {
+                  attachments: [],
+                },
+              }
+            : {}),
           ...(lead ? { title: lead.name } : {}),
         });
         // A fixed command ID tags the thread once.
