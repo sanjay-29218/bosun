@@ -24,56 +24,32 @@ const thread = (id: string, createdAt: string, fields: Partial<WorkGroupThread> 
   updatedAt: createdAt,
   ...fields,
 });
-const stage = (
-  id: string,
-  createdAt: string,
-  stepId: string,
-  index: number,
-  state: "working" | "approval" | "done" = "done",
-  current = false,
-) => thread(id, createdAt, { feature, crew: { stepId, index, total: 4, state, current } });
+const member = (id: string, createdAt: string, name: string) =>
+  thread(id, createdAt, { feature: { ...feature, member: name } });
 
 describe("groupWorkThreads", () => {
-  it("folds a feature into its current stage's row, with earlier stages from history", () => {
-    const plan = stage("plan", "1", "plan", 1);
-    const design1 = stage("design-1", "2", "design", 2);
-    const design2 = stage("design-2", "3", "design", 2);
-    const build = stage("build", "4", "build", 3, "approval", true);
-    const lead = thread("lead", "0", { feature, title: "Lead" });
+  it("folds a feature into its lead's row, with its crew's threads from history", () => {
+    const lead = thread("lead", "0", { feature, title: "Project manager" });
+    const plan = member("plan", "1", "Planner");
+    const replan = member("replan", "2", "Planner");
+    const build = member("build", "3", "Builder");
     const plain = thread("plain", "5");
 
-    const { primaries, groupByThreadKey } = groupWorkThreads(
-      [lead, build, plain],
-      [plan, design1, design2],
-    );
+    const { primaries, groupByThreadKey } = groupWorkThreads([lead, build, plain], [plan, replan]);
 
-    expect(primaries.map((item) => item.id)).toEqual(["build", "plain"]);
-    const group = groupByThreadKey.get("local:build")!;
+    expect(primaries.map((item) => item.id)).toEqual(["lead", "plain"]);
+    const group = groupByThreadKey.get("local:lead")!;
+    expect(group.kind).toBe("feature");
     expect(group.title).toBe("Clip crop editing");
-    expect(group.stages).toEqual(["done", "done", "needs-you", "pending"]);
-    expect(group.stageLine).toBe("Build · 3/4");
     expect(group.children.map((entry) => entry.label)).toEqual([
-      "Plan",
-      "Design",
-      "Design · try 2",
-      "Lead",
+      "Planner",
+      "Planner · try 2",
+      "Builder",
     ]);
   });
 
-  it("shows a one-stage workflow, such as Quick task, without a strip", () => {
-    const handle = thread("handle", "1", {
-      feature,
-      crew: { stepId: "handle", index: 1, total: 1, state: "working", current: true },
-    });
-
-    const group = groupWorkThreads([handle], []).groupByThreadKey.get("local:handle")!;
-    expect(group.kind).toBe("feature");
-    expect(group.stages).toEqual([]);
-    expect(group.stageLine).toBeNull();
-  });
-
   it("keeps a feature's history out of the list when none of its threads are visible", () => {
-    const { primaries, groupByThreadKey } = groupWorkThreads([], [stage("plan", "1", "plan", 1)]);
+    const { primaries, groupByThreadKey } = groupWorkThreads([], [member("plan", "1", "Planner")]);
     expect(primaries).toEqual([]);
     expect(groupByThreadKey.size).toBe(0);
   });
@@ -90,7 +66,6 @@ describe("groupWorkThreads", () => {
     const group = groupByThreadKey.get("local:pm-retry")!;
     expect(group.kind).toBe("request");
     expect(group.title).toBe("Triage open issues");
-    expect(group.stages).toEqual([]);
     expect(group.children.map((entry) => entry.label)).toEqual(["Project manager", "Builder"]);
   });
 });
@@ -118,17 +93,16 @@ const inboxThread = (
 });
 
 describe("featureRows", () => {
-  it("rows a feature on its list threads, primary first, leaving out old stages and archives", () => {
+  it("rows a feature on its lead, leaving out archives", () => {
     const rows = featureRows([
+      { ...member("plan", "1", "Planner"), archivedAt: null },
       { ...thread("lead", "0", { feature, title: "Lead" }), archivedAt: null },
-      { ...stage("plan", "1", "plan", 1), archivedAt: null },
-      { ...stage("build", "2", "build", 2, "working", true), archivedAt: null },
       { ...thread("old-lead", "0", { feature }), archivedAt: "2026-10-01" },
       { ...thread("plain", "3"), archivedAt: null },
     ]);
     expect(
       [...rows].map(([key, group]) => [key, workGroupThreads(group).map((item) => item.id)]),
-    ).toEqual([["local:f1", ["build", "lead"]]]);
+    ).toEqual([["local:f1", ["lead", "plan"]]]);
   });
 });
 
@@ -189,79 +163,48 @@ describe("workGroupInbox", () => {
 
   it("counts a row as working while any of its threads works", () => {
     const lead = { ...inboxThread("lead", "1"), feature };
-    const review = {
-      ...inboxThread("review", "2"),
-      feature,
-      crew: {
-        featureId: "f1",
-        stepId: "review",
-        index: 4,
-        total: 4,
-        state: "done" as const,
-        current: true,
-      },
-    };
     const builder = {
-      ...inboxThread("builder", "3", {
-        crewRequest: { id: "h", title: "Build it", member: "Builder" },
-      }),
-      feature,
+      ...inboxThread("builder", "3"),
+      feature: { ...feature, member: "Builder" },
     };
-    const { primaries, groupByThreadKey } = groupWorkThreads([lead, review, builder]);
+    const { primaries, groupByThreadKey } = groupWorkThreads([lead, builder]);
     const working = new Set<string>(["builder"]);
     const inbox = workGroupInbox(groupByThreadKey, {
       isWorking: (row) => working.has(row.id),
       returnedAt: () => undefined,
     });
 
-    expect(primaries.map((row) => row.id)).toEqual(["review"]);
-    expect(inbox.isWorking(review)).toBe(true);
+    expect(primaries.map((row) => row.id)).toEqual(["lead"]);
+    expect(inbox.isWorking(lead)).toBe(true);
     working.clear();
-    expect(inbox.isWorking(review)).toBe(false);
+    expect(inbox.isWorking(lead)).toBe(false);
   });
 });
 
 describe("workGroupOpenThread", () => {
-  const stageOf = (
-    id: string,
-    createdAt: string,
-    index: number,
-    state: "done" | "approval" | "working",
-    current: boolean,
-  ) => ({
-    ...inboxThread(id, createdAt),
-    feature,
-    crew: { featureId: "f1", stepId: id, index, total: 3, state, current },
-  });
-
-  it("opens the stage waiting on you, else the feature's lead", () => {
+  it("opens the crew thread waiting on you, else the feature's lead", () => {
     const lead = { ...inboxThread("lead", "2026-10-28T09:00:00.000Z"), feature };
-    const plan = stageOf("plan", "2026-10-28T10:00:00.000Z", 1, "done", false);
-    const helper = {
-      ...inboxThread("tester", "2026-10-28T11:00:00.000Z", {
-        crewRequest: { id: "h", title: "Test it", member: "Tester" },
-      }),
-      feature,
+    const plan = {
+      ...inboxThread("plan", "2026-10-28T10:00:00.000Z"),
+      feature: { ...feature, member: "Planner" },
     };
-    const waiting = stageOf("build", "2026-10-28T12:00:00.000Z", 2, "approval", true);
+    const waiting = {
+      ...inboxThread("build", "2026-10-28T12:00:00.000Z", { hasPendingApprovals: true }),
+      feature: { ...feature, member: "Builder" },
+    };
 
-    const group = workGroupOf(plan, [lead, plan, helper, waiting])!;
-    expect(group.primary.id).toBe("build");
+    const group = workGroupOf(plan, [lead, plan, waiting])!;
+    expect(group.primary.id).toBe("lead");
     expect(workGroupLead(group)?.id).toBe("lead");
     expect(workGroupOpenThread(group).id).toBe("build");
-
-    const working = stageOf("build", "2026-10-28T12:00:00.000Z", 2, "working", true);
-    expect(workGroupOpenThread(workGroupOf(working, [lead, plan, helper, working])!).id).toBe(
-      "lead",
-    );
+    expect(workGroupOpenThread(workGroupOf(plan, [lead, plan])!).id).toBe("lead");
   });
 });
 
 describe("workThreadLabel", () => {
-  it("names a thread by its feature and stage, or its request and crew member", () => {
-    expect(workThreadLabel(stage("build", "1", "qa_review", 3))).toBe(
-      "Clip crop editing · QA review",
-    );
+  it("names a thread by its feature or request and its crew member", () => {
+    expect(workThreadLabel(member("build", "1", "Builder"))).toBe("Clip crop editing · Builder");
+    expect(workThreadLabel(thread("lead", "1", { feature }))).toBe("Clip crop editing");
     expect(
       workThreadLabel(
         thread("pm", "1", { crewRequest: { id: "r", title: "Triage", member: "Builder" } }),

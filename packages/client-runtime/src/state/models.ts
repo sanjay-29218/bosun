@@ -185,9 +185,7 @@ export interface EnvironmentThreadShell {
   readonly pullRequests: ReadonlyArray<import("@t3tools/contracts").ThreadPullRequestLink>;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
-  /** The feature stage this thread runs; null for plain threads. */
-  readonly crew?: import("@t3tools/contracts").CrewStageSummary | null;
-  /** The feature this thread works on, as a stage or as its lead; null for plain threads. */
+  /** The feature this thread works on, as its lead or a crew member; null for plain threads. */
   readonly feature?: import("@t3tools/contracts").ThreadFeatureTag | null;
   /** The bot request this handoff thread works on; null outside a handoff chain. */
   readonly crewRequest?: import("@t3tools/contracts").ThreadCrewRequestTag | null;
@@ -300,7 +298,6 @@ export function presentThreadShell(
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
-    crew: thread.crew ?? null,
     feature: thread.feature ?? null,
     crewRequest: thread.crewRequest ?? null,
     lineage: thread.lineage,

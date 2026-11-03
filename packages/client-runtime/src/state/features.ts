@@ -11,14 +11,10 @@ interface FeatureTarget {
   readonly input: { readonly projectId: ProjectId; readonly featureId: string };
 }
 
-/**
- * Feature records, the Features board, and every action on a feature card or stage.
- * Pass the workflow `feature` query family so actions also refresh an open stage's snapshot.
- */
+/** Feature records, the Features board, and the actions on a feature card. */
 export function createFeatureAtoms<R, ER>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
   options: {
-    readonly workflowFeature?: (target: FeatureTarget) => Atom.Atom<unknown>;
     /** Re-reads a project's board while it is read, whenever this signal changes. */
     readonly boardRefreshTrigger?: (target: {
       readonly environmentId: EnvironmentId;
@@ -106,11 +102,6 @@ export function createFeatureAtoms<R, ER>(
       registry.refresh(list({ environmentId, input: { projectId } }));
       registry.refresh(board({ environmentId, input: { projectId } }));
       registry.refresh(detail({ environmentId, input: { projectId, featureId } }));
-      const workflowFeature = options.workflowFeature?.({
-        environmentId,
-        input: { projectId, featureId },
-      });
-      if (workflowFeature) registry.refresh(workflowFeature);
     });
   const refreshTarget = (target: FeatureTarget, registry: AtomRegistry.AtomRegistry) =>
     refresh(target.environmentId, target.input.projectId, target.input.featureId, registry);
@@ -141,27 +132,12 @@ export function createFeatureAtoms<R, ER>(
       onSuccess: (target, registry) =>
         refresh(target.environmentId, target.input.projectId, target.input.id, registry),
     }),
+    /** Reopens a closed feature, or closes one; closing leaves its threads as they are. */
     setStatus: action(WS_METHODS.featuresSetStatus),
+    /** Starts the feature's lead on its brief; succeeds with the lead's thread. */
     start: action(WS_METHODS.featuresStart),
-    /** From Done, pass `stepId` to pick the stage the follow-up starts at. */
-    reopen: action(WS_METHODS.featuresReopen),
     /** Links an issue by its URL; null unlinks it. */
     setIssue: action(WS_METHODS.featuresSetIssue),
-    approve: action(WS_METHODS.workflowsApprove),
-    requestChanges: action(WS_METHODS.workflowsRequestChanges),
-    answer: action(WS_METHODS.workflowsAnswer),
-    /** Pass `modelSelection` for Retry with another model. */
-    retry: action(WS_METHODS.workflowsRetry),
-    takeOver: action(WS_METHODS.workflowsTakeOver),
-    markDone: action(WS_METHODS.workflowsMarkDone),
-    sendBack: action(WS_METHODS.workflowsSendBack),
-    skip: action(WS_METHODS.workflowsSkip),
-    acceptAsIs: action(WS_METHODS.workflowsAcceptAsIs),
-    oneMoreRound: action(WS_METHODS.workflowsOneMoreRound),
-    startNow: action(WS_METHODS.workflowsStartNow),
-    pause: action(WS_METHODS.workflowsPause),
-    resume: action(WS_METHODS.workflowsResume),
-    cancel: action(WS_METHODS.workflowsCancel),
   };
 }
 
@@ -176,19 +152,4 @@ type TodoCommandTag =
 type FeatureActionTag =
   | typeof WS_METHODS.featuresSetStatus
   | typeof WS_METHODS.featuresStart
-  | typeof WS_METHODS.featuresReopen
-  | typeof WS_METHODS.featuresSetIssue
-  | typeof WS_METHODS.workflowsApprove
-  | typeof WS_METHODS.workflowsRequestChanges
-  | typeof WS_METHODS.workflowsAnswer
-  | typeof WS_METHODS.workflowsRetry
-  | typeof WS_METHODS.workflowsTakeOver
-  | typeof WS_METHODS.workflowsMarkDone
-  | typeof WS_METHODS.workflowsSendBack
-  | typeof WS_METHODS.workflowsSkip
-  | typeof WS_METHODS.workflowsAcceptAsIs
-  | typeof WS_METHODS.workflowsOneMoreRound
-  | typeof WS_METHODS.workflowsStartNow
-  | typeof WS_METHODS.workflowsPause
-  | typeof WS_METHODS.workflowsResume
-  | typeof WS_METHODS.workflowsCancel;
+  | typeof WS_METHODS.featuresSetIssue;

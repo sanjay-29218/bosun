@@ -522,10 +522,6 @@
     "./cloneUrl": {
       "types": "./src/cloneUrl.ts",
       "import": "./src/cloneUrl.ts"
-    },
-    "./crewStage": {
-      "types": "./src/crewStage.ts",
-      "import": "./src/crewStage.ts"
     }
   },
   "scripts": {

@@ -63,8 +63,7 @@ const linkKey = (
 ) =>
   issue.ticketId ? ticketKey(environmentId, issue.ticketId) : issueUrlKey(environmentId, issue.url);
 
-const isOpenFeature = (card: FeatureBoardCard) =>
-  card.state !== "done" && card.state !== "cancelled";
+const isOpenFeature = (card: FeatureBoardCard) => card.status === "open";
 
 /**
  * The feature working on each issue, by environment and issue URL. When several features link
@@ -81,7 +80,7 @@ export function featuresByIssue<
     if (
       !current ||
       (isOpenFeature(card) && !isOpenFeature(current)) ||
-      (isOpenFeature(card) === isOpenFeature(current) && card.stateSince > current.stateSince)
+      (isOpenFeature(card) === isOpenFeature(current) && card.updatedAt > current.updatedAt)
     ) {
       byIssue.set(key, card);
     }

@@ -1,4 +1,4 @@
-import { featureTagColor } from "@t3tools/client-runtime/crew-stage";
+import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import type { ThreadFeatureTag } from "@t3tools/contracts";
 import type { CSSProperties } from "react";
 

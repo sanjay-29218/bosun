@@ -39,23 +39,10 @@ const feature = (
   projectId,
   title: "Feature",
   issue: null,
-  workflow: { id: "w", name: "W", revision: 1, latestRevision: 1 },
-  state: "working",
-  started: true,
-  stateSince: "2026-10-01T00:00:00.000Z",
-  stage: {
-    stepId: "build",
-    index: 2,
-    total: 4,
-    role: "builder",
-    attempt: 1,
-    gate: false,
-    takenOver: false,
-  },
-  threadId: null,
-  detail: null,
-  yourCall: null,
-  queuedAt: null,
+  status: "open",
+  leadThreadId: null,
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
   ...overrides,
 });
 
@@ -70,11 +57,11 @@ const linkedTo = (number: number) => ({
 
 describe("features by issue", () => {
   it("matches an issue to its feature by URL, preferring an open feature", () => {
-    const done = feature({ featureId: "done", state: "done", issue: linkedTo(7) });
+    const done = feature({ featureId: "done", status: "closed", issue: linkedTo(7) });
     const running = feature({
       featureId: "running",
       issue: { ...linkedTo(7), url: "https://github.com/O/R/issues/7/" },
-      stateSince: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
     });
     const byIssue = featuresByIssue([done, running]);
     expect(featureForIssue(byIssue, issue(7))?.featureId).toBe("running");

@@ -5,69 +5,33 @@ import {
   ProviderInstanceId,
   ThreadId,
   type OrchestrationV2RunStatus,
-  type FeatureCardState,
-  type WorkflowDefinition,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   botNeedsYouKey,
-  buildFeatureStageBoard,
   collectNeedsYou,
   countNeedsYouByBot,
   featureCardActions,
-  featureCardQuickActions,
+  featureColumn,
   featureDropAction,
-  featurePhase,
   featureRef,
-  featureQueuePositions,
   groupFeaturesByColumn,
-  groupFeaturesByPhase,
   matchesFeatureSearch,
-  mostUsedWorkflowId,
   oldestNeedsYouItem,
-  ordinal,
-  parseFeatureSearch,
-  sendBackTargets,
-  stageOutcomes,
-  stagePhase,
   threadBoardColumn,
+  threadsByFeature,
+  type BoardThreadShell,
   type EnvironmentFeatureCard,
   type NeedsYouShell,
 } from "./crewBoard.ts";
 import type { EnvironmentThreadShell } from "./models.ts";
 
 const environmentId = EnvironmentId.make("env-1");
-const otherEnvironmentId = EnvironmentId.make("env-2");
 const projectId = ProjectId.make("project-1");
-
-const definition: WorkflowDefinition = {
-  schemaVersion: 2,
-  id: "feature-delivery",
-  name: "Feature delivery",
-  revision: 3,
-  start: "plan",
-  roles: {},
-  steps: {
-    plan: { type: "task", role: "planner", task: "Plan", next: { ready: "design" }, gate: true },
-    design: { type: "task", role: "designer", task: "Design", next: { ready: "build" } },
-    build: { type: "task", role: "builder", task: "Build", next: { built: "review" } },
-    review: {
-      type: "task",
-      role: "reviewer",
-      task: "Review",
-      next: { approved: "end", changes_requested: "build" },
-      limits: { changes_requested: 3 },
-    },
-    end: { type: "end" },
-  },
-  defaults: { questions: "supervisor", failure: "pause", maxStepExecutions: 30 },
-};
 
 const card = (
   featureId: string,
-  state: FeatureCardState,
-  stepId: string | null,
   overrides: Partial<EnvironmentFeatureCard> = {},
 ): EnvironmentFeatureCard => ({
   environmentId,
@@ -75,26 +39,10 @@ const card = (
   projectId,
   title: `Feature ${featureId}`,
   issue: null,
-  workflow: { id: definition.id, name: definition.name, revision: 3, latestRevision: 3 },
-  state,
-  started: true,
-  stateSince: "2026-10-01T00:00:00.000Z",
-  stage:
-    stepId === null
-      ? null
-      : {
-          stepId,
-          index: 1,
-          total: 4,
-          role: (definition.steps[stepId] as { role?: string } | undefined)?.role ?? "builder",
-          attempt: 1,
-          gate: false,
-          takenOver: false,
-        },
-  threadId: ThreadId.make(`thread-${featureId}`),
-  detail: null,
-  yourCall: null,
-  queuedAt: null,
+  status: "open",
+  leadThreadId: ThreadId.make(`lead-${featureId}`),
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
   ...overrides,
 });
 
@@ -113,67 +61,71 @@ const shell = (
   ...overrides,
 });
 
-describe("phases", () => {
-  it("reads a stage's phase from its id, then its role", () => {
-    expect(stagePhase("plan", "planner")).toBe("plan");
-    expect(stagePhase("qa", "qa")).toBe("verify");
-    expect(stagePhase("change_review", "manager")).toBe("verify");
-    expect(stagePhase("step-4", "designer")).toBe("design");
-    expect(stagePhase("merge", "you")).toBe("ship");
-    expect(stagePhase("polish", "polisher")).toBe("build");
-  });
+const runtime = (status: OrchestrationV2RunStatus | "idle") => ({
+  status,
+  activeRunId: null,
+  providerInstanceId: ProviderInstanceId.make("codex"),
+  providerName: null,
+  lastError: null,
+  updatedAt: "2026-10-01T00:00:00.000Z",
+});
 
-  it("puts done and cancelled features in Done and groups the rest newest first", () => {
-    expect(featurePhase(card("a", "cancelled", "build"))).toBe("done");
-    expect(featurePhase(card("b", "working", null))).toBe("plan");
-    const groups = groupFeaturesByPhase([
-      card("old", "working", "build", { stateSince: "2026-10-01T00:00:00.000Z" }),
-      card("new", "failed", "build", { stateSince: "2026-10-02T00:00:00.000Z" }),
-      card("done", "done", "review"),
-    ]);
-    expect(groups.map((group) => group.phase)).toEqual([
-      "plan",
-      "design",
-      "build",
-      "verify",
-      "ship",
-      "done",
-    ]);
-    expect(groups[2]!.cards.map((item) => item.featureId)).toEqual(["new", "old"]);
-    expect(groups[5]!.cards.map((item) => item.featureId)).toEqual(["done"]);
-  });
+/** A thread of feature `featureId`: its lead, or the crew member `member`. */
+const featureThread = (
+  id: string,
+  featureId: string,
+  fields: Partial<BoardThreadShell> = {},
+  member?: string,
+): BoardThreadShell & Pick<EnvironmentThreadShell, "feature"> => ({
+  ...shell(id),
+  pendingSubagentRequest: null,
+  runtime: null,
+  feature: { id: featureId, title: featureId, ...(member ? { member } : {}) },
+  ...fields,
 });
 
 describe("status columns", () => {
-  it("files features under Todo, Working, Needs you and Done, with the longest wait first", () => {
-    const groups = groupFeaturesByColumn([
-      card("unstarted", "working", null, { started: false }),
-      card("queued", "queued", "build"),
-      card("paused", "paused", "build"),
-      card("late", "failed", "build", { stateSince: "2026-10-03T00:00:00.000Z" }),
-      card("early", "approval", "plan", { stateSince: "2026-10-02T00:00:00.000Z" }),
-      card("stopped", "cancelled", "build"),
-      card("done", "done", "qa"),
+  it("files a feature by its lead's and crew's threads, with the longest wait first", () => {
+    const cards = [
+      card("unstarted", { leadThreadId: null }),
+      card("building"),
+      card("asking"),
+      card("reported", { updatedAt: "2026-09-30T00:00:00.000Z" }),
+      card("closed", { status: "closed" }),
+    ];
+    const threads = threadsByFeature([
+      featureThread("lead-building", "building"),
+      featureThread("builder", "building", { runtime: runtime("running") }, "Builder"),
+      featureThread("lead-asking", "asking", { hasPendingUserInput: true }),
+      featureThread("planner", "asking", { runtime: runtime("running") }, "Planner"),
+      featureThread("lead-reported", "reported", {
+        runtime: runtime("idle"),
+        updatedAt: "2026-09-30T00:00:00.000Z",
+      }),
+      featureThread("lead-closed", "closed", { runtime: runtime("running") }),
     ]);
     expect(
-      groups.map((group) => [group.column, group.cards.map((item) => item.featureId)]),
+      groupFeaturesByColumn(cards, threads).map((group) => [
+        group.column,
+        group.cards.map((item) => item.featureId),
+      ]),
     ).toEqual([
       ["todo", ["unstarted"]],
-      ["working", ["queued", "paused"]],
-      ["needs-you", ["early", "late"]],
-      ["done", ["stopped", "done"]],
+      ["working", ["building"]],
+      ["needs-you", ["reported", "asking"]],
+      ["done", ["closed"]],
     ]);
   });
 
-  it("files a chat under Needs you, Working or Done, as its sidebar row reads", () => {
-    const runtime = (status: OrchestrationV2RunStatus | "idle") => ({
-      status,
-      activeRunId: null,
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      providerName: null,
-      lastError: null,
-      updatedAt: "2026-10-01T00:00:00.000Z",
+  it("leaves archived threads out of where a feature stands", () => {
+    const archived = featureThread("lead", "f", {
+      archivedAt: "2026-10-02T00:00:00.000Z",
+      runtime: runtime("running"),
     });
+    expect(featureColumn(card("f"), [archived])).toBe("needs-you");
+  });
+
+  it("files a chat under Needs you, Working or Done, as its sidebar row reads", () => {
     const chat = (
       overrides: Partial<NeedsYouShell> = {},
       fields: Partial<Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime">> = {},
@@ -188,143 +140,28 @@ describe("status columns", () => {
     expect(threadBoardColumn(chat({}, { runtime: runtime("idle") }))).toBe("done");
     expect(threadBoardColumn(chat())).toBe("done");
   });
-
-  it("shows only the buttons that settle what a card waits on", () => {
-    expect(featureCardQuickActions(card("a", "working", null, { started: false }))).toEqual([
-      "start",
-    ]);
-    expect(featureCardQuickActions(card("a", "working", "build"))).toEqual([]);
-    expect(featureCardQuickActions(card("a", "approval", "plan"))).toEqual([
-      "approve",
-      "request-changes",
-    ]);
-    expect(featureCardQuickActions(card("a", "failed", "build"))).toEqual(["retry", "cancel"]);
-    expect(featureCardQuickActions(card("a", "done", "qa"))).toEqual([]);
-  });
-});
-
-describe("workflow stage board", () => {
-  it("lays cards under stages, counts gate waits, and hides other workflows", () => {
-    const board = buildFeatureStageBoard(definition, [
-      card("gated", "approval", "plan"),
-      card("building", "working", "build"),
-      card("unstarted", "working", null, { started: false }),
-      card("shipped", "done", "review"),
-      card("legacy", "failed", "polish", {
-        workflow: { ...card("x", "working", null).workflow, revision: 2 },
-      }),
-      card("bug", "working", "fix", {
-        workflow: { id: "bug-fix", name: "Bug fix", revision: 1, latestRevision: 1 },
-      }),
-    ]);
-    expect(board.columns.map((column) => column.stepId)).toEqual([
-      "plan",
-      "design",
-      "build",
-      "review",
-      "polish",
-      "done",
-    ]);
-    const plan = board.columns[0]!;
-    expect(plan).toMatchObject({ role: "planner", gate: true, waiting: 1 });
-    expect(plan.cards.map((item) => item.featureId).toSorted()).toEqual(["gated", "unstarted"]);
-    expect(board.columns[4]).toMatchObject({ onlyInRevision: 2, role: "builder" });
-    expect(board.columns[5]!.cards.map((item) => item.featureId)).toEqual(["shipped"]);
-    expect(board.hidden).toEqual([{ name: "Bug fix", count: 1 }]);
-    expect(board.loops).toEqual([
-      { from: "review", to: "build", outcome: "changes_requested", limit: 3 },
-    ]);
-  });
-
-  it("opens on the workflow most features run", () => {
-    const bug = { id: "bug-fix", name: "Bug fix", revision: 1, latestRevision: 1 };
-    expect(
-      mostUsedWorkflowId([
-        card("a", "working", "build", { workflow: bug }),
-        card("b", "working", "build", { workflow: bug }),
-        card("c", "working", "build"),
-      ]),
-    ).toBe("bug-fix");
-    expect(mostUsedWorkflowId([])).toBeNull();
-  });
 });
 
 describe("needs you", () => {
-  it("groups features and plain threads by kind, oldest first, without doubling stage threads", () => {
-    const groups = collectNeedsYou({
-      cards: [
-        card("gate", "approval", "plan", { stateSince: "2026-10-01T02:00:00.000Z" }),
-        card("failed", "failed", "build", { stateSince: "2026-10-01T01:00:00.000Z" }),
-        card("asks", "input", "plan", { stateSince: "2026-10-01T03:00:00.000Z" }),
-        card("busy", "working", "build"),
-        card("paused", "paused", "build"),
-        card("queued", "queued", "build"),
-      ],
-      shells: [
-        // The gate card's own stage thread is represented by the card.
-        shell("thread-gate", { hasPendingApprovals: true }),
-        // A working stage's tool approval is not on its card, so the thread shows.
-        shell("thread-busy", {
-          hasPendingApprovals: true,
-          runtime: { updatedAt: "2026-10-01T00:40:00.000Z" },
-        }),
-        shell("tool", {
-          hasPendingApprovals: true,
-          runtime: { updatedAt: "2026-10-01T00:30:00.000Z" },
-        }),
-        shell("question", { hasPendingUserInput: true }),
-        shell("archived", { hasPendingApprovals: true, archivedAt: "2026-10-01T00:00:00.000Z" }),
-        shell("idle"),
-      ],
-    });
-    expect(
-      groups.map((group) => [group.kind, group.items.map((item) => item.key.split(":")[1])]),
-    ).toEqual([
-      ["approval", ["tool", "thread-busy", "gate"]],
-      ["problem", ["failed"]],
-      ["question", ["question", "asks"]],
+  it("lists waiting threads by kind, oldest first", () => {
+    const groups = collectNeedsYou([
+      shell("late-approval", { hasPendingApprovals: true, updatedAt: "2026-10-03" }),
+      shell("question", { hasPendingUserInput: true, updatedAt: "2026-10-01" }),
+      shell("early-approval", { hasPendingApprovals: true, updatedAt: "2026-10-02" }),
+      shell("archived", { hasPendingApprovals: true, archivedAt: "2026-10-04" }),
+      shell("idle"),
     ]);
-    expect(oldestNeedsYouItem(groups)?.key).toBe("env-1:question");
-  });
-
-  it("reads stage threads from their crew summary, then their own requests", () => {
-    const crew = (current: boolean, state: FeatureCardState) => ({
-      featureId: "remote",
-      stepId: "build",
-      index: 3,
-      total: 4,
-      state,
-      current,
-    });
-    const groups = collectNeedsYou({
-      cards: [],
-      shells: [
-        shell("current", { crew: crew(true, "failed") }),
-        shell("earlier", { crew: crew(false, "failed") }),
-        shell("working", { crew: crew(true, "working"), hasPendingApprovals: true }),
-      ],
-    });
-    expect(groups.map((group) => [group.kind, group.items.map((item) => item.key)])).toEqual([
-      ["approval", ["env-1:working"]],
-      ["problem", ["env-1:current"]],
+    expect(groups.map((group) => [group.kind, group.items.map((item) => item.shell.id)])).toEqual([
+      ["approval", ["early-approval", "late-approval"]],
+      ["question", ["question"]],
     ]);
-    expect(oldestNeedsYouItem([])).toBeNull();
+    expect(oldestNeedsYouItem(groups)?.shell.id).toBe("question");
   });
 });
 
 describe("search", () => {
-  it("filters by workflow slug and free text", () => {
-    const search = parseFeatureSearch("workflow:Feature-Delivery  kanban");
-    expect(search).toEqual({ text: "kanban", workflows: ["feature-delivery"] });
-    const kanban = card("k", "working", "build", { title: "Kanban board MVP" });
-    expect(matchesFeatureSearch(kanban, search)).toBe(true);
-    expect(matchesFeatureSearch(kanban, parseFeatureSearch("workflow:bug-fix"))).toBe(false);
-    expect(matchesFeatureSearch(kanban, parseFeatureSearch("bosun builder"), ["bosun"])).toBe(true);
-    expect(matchesFeatureSearch(kanban, parseFeatureSearch("missing"))).toBe(false);
-  });
-
   it("finds a feature by its linked issue", () => {
-    const linked = card("k", "working", "build", {
+    const linked = card("k", {
       issue: {
         url: "https://github.com/o/r/issues/42",
         number: 42,
@@ -334,16 +171,17 @@ describe("search", () => {
         subIssues: null,
       },
     });
-    expect(matchesFeatureSearch(linked, parseFeatureSearch("#42"))).toBe(true);
-    expect(matchesFeatureSearch(linked, parseFeatureSearch("github issues"))).toBe(true);
-    expect(matchesFeatureSearch(linked, parseFeatureSearch("beta"))).toBe(true);
+    expect(matchesFeatureSearch(linked, "#42")).toBe(true);
+    expect(matchesFeatureSearch(linked, "github issues")).toBe(true);
+    expect(matchesFeatureSearch(linked, "beta")).toBe(true);
+    expect(matchesFeatureSearch(linked, "alpha")).toBe(false);
   });
 
   it("names a feature by its linked issue, else its own number", () => {
-    const numbered = card("k", "working", "build", { number: 3 });
+    const numbered = card("k", { number: 3 });
     expect(featureRef(numbered)).toBe("F-3");
-    expect(matchesFeatureSearch(numbered, parseFeatureSearch("f-3"))).toBe(true);
-    expect(featureRef(card("k", "working", "build"))).toBeNull();
+    expect(matchesFeatureSearch(numbered, "f-3")).toBe(true);
+    expect(featureRef(card("k"))).toBeNull();
     const issue = {
       url: "https://github.com/o/r/issues/42",
       number: 42,
@@ -352,64 +190,22 @@ describe("search", () => {
       milestone: null,
       subIssues: null,
     };
-    const linked = card("k", "working", "build", { number: 3, issue });
-    expect(featureRef(linked)).toBe("#42");
+    expect(featureRef(card("k", { number: 3, issue }))).toBe("#42");
   });
 });
 
-describe("queue, drag and actions", () => {
-  it("numbers queued features per environment by when they were queued", () => {
-    const positions = featureQueuePositions([
-      card("second", "queued", "build", { queuedAt: "2026-10-01T02:00:00.000Z" }),
-      card("first", "queued", "build", { queuedAt: "2026-10-01T01:00:00.000Z" }),
-      card("elsewhere", "queued", "build", {
-        environmentId: otherEnvironmentId,
-        queuedAt: "2026-10-01T03:00:00.000Z",
-      }),
-    ]);
-    expect(positions.get("env-1:first")).toBe(1);
-    expect(positions.get("env-1:second")).toBe(2);
-    expect(positions.get("env-2:elsewhere")).toBe(1);
-    expect([1, 2, 3, 4, 11, 22].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "22nd"]);
+describe("drag and actions", () => {
+  it("only closes into Done and reopens out of it", () => {
+    expect(featureDropAction(card("a"), "done")).toBe("close");
+    expect(featureDropAction(card("a"), "open")).toBeNull();
+    expect(featureDropAction(card("a", { status: "closed" }), "open")).toBe("reopen");
+    expect(featureDropAction(card("a", { status: "closed" }), "done")).toBeNull();
   });
 
-  it("only cancels into Done and reopens out of it", () => {
-    expect(featureDropAction(card("a", "working", "build"), "done")).toBe("cancel");
-    expect(featureDropAction(card("a", "working", "build"), "open")).toBeNull();
-    expect(featureDropAction(card("a", "done", "review"), "open")).toBe("reopen");
-    expect(featureDropAction(card("a", "cancelled", "build"), "done")).toBeNull();
-  });
-
-  it("offers each state's way out", () => {
-    expect(featureCardActions(card("a", "failed", "build"))).toEqual([
-      "retry",
-      "take-over",
-      "send-back",
-      "skip",
-      "cancel",
-    ]);
-    expect(featureCardActions(card("a", "working", null, { started: false }))).toEqual([
-      "start",
-      "cancel",
-    ]);
-    expect(featureCardActions(card("a", "cancelled", "build"))).toEqual(["reopen"]);
-    expect(featureCardActions(card("a", "queued", "build"))).toContain("start-now");
-    const takenOver = card("a", "working", "build");
-    expect(
-      featureCardActions({ ...takenOver, stage: { ...takenOver.stage!, takenOver: true } }),
-    ).toEqual(["mark-done", "retry", "send-back", "cancel"]);
-  });
-
-  it("sends back only to stages this run finished", () => {
-    const steps = [
-      { id: "plan", status: "completed" },
-      { id: "design", status: "pending" },
-      { id: "build", status: "skipped" },
-      { id: "review", status: "failed" },
-    ];
-    expect(sendBackTargets(definition, steps, "review")).toEqual(["plan", "build"]);
-    expect(sendBackTargets(definition, [], "plan")).toEqual([]);
-    expect(stageOutcomes(definition, "plan")).toEqual(["ready"]);
+  it("offers Start until the lead has its thread, and Reopen once closed", () => {
+    expect(featureCardActions(card("a", { leadThreadId: null }))).toEqual(["start", "close"]);
+    expect(featureCardActions(card("a"))).toEqual(["close"]);
+    expect(featureCardActions(card("a", { status: "closed" }))).toEqual(["reopen"]);
   });
 });
 

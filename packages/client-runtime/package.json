@@ -35,25 +35,13 @@
       "types": "./src/botAvatar.ts",
       "default": "./src/botAvatar.ts"
     },
-    "./state/workflows": {
-      "types": "./src/state/workflows.ts",
-      "default": "./src/state/workflows.ts"
-    },
     "./state/features": {
       "types": "./src/state/features.ts",
       "default": "./src/state/features.ts"
     },
-    "./state/featureThreads": {
-      "types": "./src/state/featureThreads.ts",
-      "default": "./src/state/featureThreads.ts"
-    },
-    "./crew-stage": {
-      "types": "./src/crewStage.ts",
-      "default": "./src/crewStage.ts"
-    },
-    "./state/crew": {
-      "types": "./src/state/crew.ts",
-      "default": "./src/state/crew.ts"
+    "./feature-tag": {
+      "types": "./src/featureTag.ts",
+      "default": "./src/featureTag.ts"
     },
     "./state/crew-board": {
       "types": "./src/state/crewBoard.ts",

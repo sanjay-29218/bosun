@@ -4,22 +4,17 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
-import { createWorkflowLibraryChangesAtomFamily } from "./workflows.ts";
 
 /**
  * Roles are global to an environment; crew reads and actions execute on the environment that
  * owns the project.
  */
-export function createRoleAtoms<R, ER>(
-  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
-  libraryChanges = createWorkflowLibraryChangesAtomFamily(runtime),
-) {
+export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>) {
   const roles = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:roles:list",
     tag: WS_METHODS.rolesList,
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
-    refreshTrigger: ({ environmentId }) => libraryChanges({ environmentId, input: {} }),
   });
   const configuration = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:crew:configuration",

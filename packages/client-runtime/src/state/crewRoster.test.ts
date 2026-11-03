@@ -21,37 +21,24 @@ const thread = (
   latestRun: null,
   ...fields,
 });
-const stage = (id: string, createdAt: string, stepId: string, index: number, current = false) =>
-  thread(id, createdAt, {
-    feature,
-    crew: { stepId, index, total: 3, state: current ? "approval" : "done", current },
-  });
+const member = (id: string, createdAt: string, name: string, fields = {}) =>
+  thread(id, createdAt, { feature: { ...feature, member: name }, ...fields });
 
 describe("buildCrewRoster", () => {
-  it("lists a feature's lead, its stages with their tries, then helpers", () => {
+  it("lists a feature's lead, then the members it handed work to, numbering repeats", () => {
     const lead = thread("lead", "1", { feature, title: "Project manager" });
-    const plan = stage("plan", "2", "plan", 1);
-    const design1 = stage("design-1", "3", "design", 2);
-    const design2 = stage("design-2", "4", "design", 2);
-    const build = stage("build", "5", "build", 3, true);
-    const tester = thread("tester", "6", {
-      feature,
-      crewRequest: { id: "h", title: "Test it", member: "Tester" },
-    });
-    const group = workGroupOf(build, [lead, plan, design1, design2, build, tester])!;
+    const plan = member("plan", "2", "Planner");
+    const replan = member("replan", "3", "Planner", { hasPendingUserInput: true });
+    const build = member("build", "4", "Builder");
+    const group = workGroupOf(build, [lead, plan, replan, build])!;
 
-    expect(
-      buildCrewRoster(group, null).map((entry) => [entry.kind, entry.name, entry.status]),
-    ).toEqual([
+    expect(group.primary).toBe(lead);
+    expect(buildCrewRoster(group).map((entry) => [entry.kind, entry.name, entry.status])).toEqual([
       ["lead", "Project manager", "Idle"],
-      ["stage", "Plan", "Done"],
-      ["stage", "Design", "Done"],
-      ["stage", "Build", "Approval"],
-      ["helper", "Tester", "Idle"],
+      ["member", "Planner", "Idle"],
+      ["member", "Planner · try 2", "Input"],
+      ["member", "Builder", "Idle"],
     ]);
-    const design = buildCrewRoster(group, null).find((entry) => entry.name === "Design")!;
-    expect(design.threadId).toBe("design-2");
-    expect(design.tries).toEqual(["design-1"]);
   });
 
   it("leads a bot request with its first role's latest try", () => {
@@ -64,7 +51,7 @@ describe("buildCrewRoster", () => {
     });
     const group = workGroupOf(first, [first, builder, retry])!;
 
-    expect(buildCrewRoster(group, null).map((entry) => [entry.name, entry.status])).toEqual([
+    expect(buildCrewRoster(group).map((entry) => [entry.name, entry.status])).toEqual([
       ["Project manager", "Approval"],
       ["Project manager · earlier try", "Idle"],
       ["Builder", "Idle"],
