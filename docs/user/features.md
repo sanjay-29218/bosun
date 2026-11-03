@@ -1,67 +1,67 @@
 # Features
 
-A feature is a brief that a crew of roles takes through a workflow. The board shows every feature
-across your projects and everything waiting on you. Click the board button at the top right of a
-thread, press `mod+alt+shift+b`, or choose **Switch to Board** in the command palette; the same
-button returns to your threads. The toggle appears when a connected environment runs
-workflows, and the app opens on whichever view you used last.
+A feature is a brief that a project's manager leads to done with a crew of roles. The board shows
+every feature across your projects and everything waiting on you. Click the board button at the
+top right of a thread, press `mod+alt+shift+b`, or choose **Switch to Board** in the command
+palette; the same button returns to your threads. The toggle appears when a connected environment
+runs features, and the app opens on whichever view you used last.
 
 ## Start a feature
 
-On the board, **New → New feature** opens a new thread in a new worktree with a workflow already
-picked in the composer's **Workflow** picker; your first message becomes the brief. **Start
-feature** on a todo does the same with the todo already written in, and the feature links to it.
-The first time the board opens, **Start a feature** adds the starter workflow, "Feature delivery",
-first. These pick the default workflow of the bot that owns the project, or the first workflow
-when it has none. A plain new thread picks no workflow until you choose one. To change the default,
-open the workflow in the **Library** and choose **Make default for** the bot from its **⋯** menu,
-or edit the bot. The Library opens from the bot rail or the bottom of the sidebar.
+On the board, **New → New feature** opens a feature draft in a new worktree; your first message
+becomes the brief. **Start feature** on a todo does the same with the todo already written in, and
+the feature links to it. Sending the brief starts the feature and opens its lead's thread: the
+project manager, which has the brief as its first message and the names of its crew. The first
+time the board opens, **Start a feature** adds the starter roles first.
 
-Ask a full-access bot to start a feature in a project with a workflow from the Library. It uses the project's default workflow when you do not name one.
+Ask a full-access bot to start a feature in a project, and it does the same.
 
-Attach images or files to the brief to send them to the first stage. With **Lead decides**, the lead also receives the brief and attachments as soon as the feature starts. Later stages use the crew's outputs and can read the first stage's thread for the original attachments.
+Attach images or files to the brief to send them to the lead with it.
 
-A feature started from the board gets a new worktree. From a thread, it works where the
-composer's **Local** / **New worktree** picker says. In a new worktree,
-the feature gets one branch and folder, made from the base branch when its first stage starts, and
-every stage and helper works there, so one feature becomes one pull request. **Local** works in
-the project's own checkout. A feature made from an existing thread works in that thread's
-workspace. Work too big for one builder is best split into separate features.
+The lead works in the feature's own worktree and branch, made from the base branch when the
+feature starts, so one feature becomes one pull request. From a thread, the feature works where the
+composer's **Local** / **New worktree** picker says; **Local** works in the project's own
+checkout. Work too big for one builder is best split into separate features.
+
+## The lead and its crew
+
+The crew is every role switched on for feature crews in the **Library** (from the bot rail or the
+bottom of the sidebar). The lead hands a crew member a task, such as a plan for the Planner, and
+the member's thread shows under the lead in the thread's **Crew** tab, named by the member. Each
+member runs with its role's instructions and model, in the feature's worktree, and its result
+comes back to the lead. The lead does small steps itself and skips what the work doesn't need.
+
+The lead asks you in its thread when it needs your decision, such as approving a plan, and waits
+for your answer. To ask for changes, reply in the lead's thread. When the work is done, the lead
+says so; close the feature from the board.
 
 ## The board
 
 The board has four columns. **Todo** holds each project's open issues and tickets that no feature
-works on yet, and features you haven't started. **Working** holds running, queued and paused
-features. **Needs you** holds features waiting on an approval, an answer, your call after a loop
-limit, or a failed stage, oldest first. **Done** holds finished and stopped features.
+works on yet, and features you haven't started. **Working** holds features whose lead or a crew
+member is running. **Needs you** holds features waiting on you, oldest first: a thread asks for an
+approval or an answer, or the lead has stopped and it's your turn. **Done** holds closed features.
 
 Your other threads sit beside the features, in the column their sidebar status puts them: running
 ones in Working, ones waiting on an approval or answer in Needs you, and the rest in Done. Click
-one to open it; hover for Snooze and Settle. Todo stays for work not started yet. Milestone, label
-and workflow filters show only features and todos.
+one to open it; hover for Snooze and Settle. Todo stays for work not started yet. Milestone and
+label filters show only features and todos.
 
-Each card shows its project, status, linked issue (or, without one, the feature's own number,
-such as F-3), and branch or pull request. Its buttons, such
-as Start feature, Approve, Answer…, Retry stage and Stop feature, act without opening the thread.
-Click a card to open the thread its sidebar row opens: the one waiting on you, else the feature's
-lead. Right-click it for the rest of the stage's menu,
-such as Take over, Send back to…, Skip stage and Pause. After you take over a stage, its card
-reads Taken over until you choose Mark done…, which asks for the route and a summary for the
-next stage, or hand it back with Retry stage.
-
-Cards move when the workflow moves them. Dragging a card into Done stops the feature, and dragging
-it out reopens it. Reopening a finished feature asks which stage the follow-up starts at; a
-stopped one resumes where it stopped.
+Each card shows its project, status, the crew member the status is about, its linked issue (or,
+without one, the feature's own number, such as F-3), and its branch or pull request. Click a card
+to open the lead's thread. **Start feature** starts one in Todo, and **Close feature** and
+**Reopen feature** are in its menu. Dragging a card into Done closes the feature, and dragging it
+out reopens it. Closing leaves its threads as they are.
 
 Hover any feature for **Snooze** and **Settle**, as on a thread, or drag it onto **Settled** under
 Done. Both act on the feature's threads, so the sidebar files it the same way, and a feature
 snoozed or settled in the sidebar moves on the board too. Snoozed features wait in **Snoozed**
 under Done until they wake; **Wake** brings one back early and **Un-settle** undoes a settle.
 
-Search (the magnifier in the board's header, or `/`) matches titles, stages, projects, issue
-numbers and feature numbers, and `workflow:feature-delivery` limits the features to one workflow. **Filter** narrows
-the board to a project, a milestone or issue labels; each filter in effect shows below the
-header, where its × removes it. **Display** switches between the columns and a list.
+Search (the magnifier in the board's header, or `/`) matches titles, projects, issue numbers and
+feature numbers. **Filter** narrows the board to a project, a milestone or issue labels; each
+filter in effect shows below the header, where its × removes it. **Display** switches between the
+columns and a list.
 
 ## Issues and tickets
 
@@ -91,7 +91,5 @@ create and close todos too.
 Features waiting on you collect in the board's Needs you column. Threads waiting on a tool
 approval or a question come up at the top of the sidebar's thread list, and `mod+shift+y` opens
 the one that has waited longest.
-On Feature delivery (auto), a feature's approvals and questions wait on its lead first, and come
-to you only when the lead asks.
 
 On the board, `C` adds a todo and `/` opens search.

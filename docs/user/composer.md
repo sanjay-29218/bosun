@@ -275,32 +275,13 @@ its progress.
   stop the turn only when it is working on the goal. Other goal commands wait for
   the turn to end.
 
-## Start a feature with a workflow
+## Start a feature
 
-In a project whose environment runs workflows, a new thread's composer has a **Workflow** button
-next to the model picker. **No workflow** keeps it a normal thread. Pick a workflow and the model
-picker hides, because each role brings its own model; the same menu lists the workflow's crew and
-their models (change them in the **Library**). Your first message becomes the feature's brief, and you land in its
-first stage thread. **New feature…** in the command palette opens the same composer.
-
-Each stage runs in an ordinary thread. The sidebar shows one row per feature, with a strip of its
-stages and the current one on its third line (`Design · 2/6`). The lead's and other stages'
-threads open from the stage name in the title bar, the thread's details panel, or the **Crew** tab
-in the right panel, which also lists outputs and lets you pause, resume, cancel or reopen the
-feature. A stage thread opens with a handoff card listing exactly what it was given. See
-[Feature threads](./bots.md#feature-threads).
-
-When a stage needs you, it asks in its thread the way an agent's question does, on web and mobile.
-Pick an answer, or type a reply:
-
-- **Question**: type your answer.
-- **Approval**: **Approve**, or type the changes you want to request them.
-- **Failed**: **Retry**, **Skip stage**, or send the work back to an earlier stage.
-- **Loop limit**: **Accept as is** or **One more round**.
-- **Take over** hands the thread to you. When you're done, pick **Mark stage done**, or type a
-  summary to pass on with it.
-
-The same actions are in the command palette while a stage thread is open.
+**New feature…** in the command palette, or **New → New feature** on the board, opens a composer
+for a feature's brief. The model picker hides, because the feature's lead and crew bring their own
+models (change them in the **Library**). Your first message becomes the brief, and you land in the
+lead's thread, where the project manager runs the feature with its crew. An ordinary new thread
+stays a normal thread. See [Features](./features.md#the-lead-and-its-crew).
 
 ## Context in your message
 

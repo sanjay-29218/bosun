@@ -34,6 +34,11 @@ import * as McpSchema from "effect/ai/McpSchema";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
+import {
+  crewRunPrompt,
+  featureLeadTask,
+  PROJECT_MANAGER_INSTRUCTIONS,
+} from "../../apps/server/src/crew/crewPrompts.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
 import {
@@ -60,8 +65,8 @@ import {
   PullRequestsToolkit,
 } from "../../apps/server/src/mcp/toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
-import { WorkflowsToolkit } from "../../apps/server/src/mcp/toolkits/workflows/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
+import { FeaturesToolkit } from "../../apps/server/src/mcp/toolkits/features/tools.ts";
 import {
   CLAUDE_PROVIDER,
   makeClaudeQueryOptions,
@@ -244,11 +249,15 @@ export const McpToolUseCase = Schema.Struct({
   rule: Schema.optional(Schema.String),
   privacy: Schema.optional(Schema.Literals(["commit-safe", "private"])),
   setup: Schema.Struct({
-    role: Schema.Literals(["top", "delegated-child", "native-subagent"]),
+    role: Schema.Literals(["top", "delegated-child", "native-subagent", "feature-lead"]),
     /** Runs only on this harness, for cases whose right answer depends on it. */
     harness: Schema.optional(Schema.Literals(["claude", "codex"])),
     /** The Linked environments beta is on, so T3 lists its link tools. */
     linkedEnvironments: Schema.optional(Schema.Boolean),
+    /** A feature lead's feature and crew. T3 opens the lead's thread with the brief, `prompt`. */
+    featureLead: Schema.optional(
+      Schema.Struct({ title: Schema.String, crew: Schema.Array(Schema.String) }),
+    ),
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
@@ -393,7 +402,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   PreviewToolkit,
   DeviceToolkit,
   HtmlToolkit,
-  WorkflowsToolkit,
+  FeaturesToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -940,7 +949,23 @@ export const buildMessages = (sample: Sample) => {
           userText,
         );
   const childPrompt = () => taskPrompt({ task: prompt, role: delegateRole });
-  push("user", text(role === "delegated-child" ? childPrompt() : prompt));
+  const leadPrompt = () => {
+    const lead = testCase.setup.featureLead;
+    if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
+    return crewRunPrompt({
+      instructions: PROJECT_MANAGER_INSTRUCTIONS,
+      taskText: featureLeadTask(
+        { id: "feature:eval", title: lead.title, brief: prompt },
+        lead.crew,
+      ),
+    });
+  };
+  push(
+    "user",
+    text(
+      role === "delegated-child" ? childPrompt() : role === "feature-lead" ? leadPrompt() : prompt,
+    ),
+  );
   // Claude Code gives a subagent its SubagentStart hooks' context as a reminder after the task.
   if (native && base.subagentContext) {
     push("user", reminder(`SubagentStart hook additional context: ${base.subagentContext}`));

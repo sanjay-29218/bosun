@@ -44,6 +44,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
+import { featureLeadTask } from "../crew/crewPrompts.ts";
 import {
   decodeFeatureIssue,
   encodeFeatureIssue,
@@ -148,15 +149,6 @@ const hashed = (prefix: string, featureId: string, id: string) =>
     .slice(0, 32)}`;
 /** The "feature-bot" prefix predates the Roles rename; existing member IDs keep it. */
 const featureMemberId = (featureId: string, slot: string) => hashed("feature-bot", featureId, slot);
-
-const featureLeadTask = (feature: FeatureRecord, crew: ReadonlyArray<string>) =>
-  [
-    `You lead feature "${feature.title}" (${feature.id}). The brief is your first message.`,
-    crew.length > 0
-      ? `Your crew: ${crew.join(", ")}. Hand one of them work with delegate_task, setting crewMember to their name; their result comes back to this thread. Do small steps yourself.`
-      : "This feature has no crew, so do the work yourself, or delegate_task a subagent.",
-    "When you need the person's decision, such as approving a plan, ask them and wait for the answer. Say plainly when the feature is done.",
-  ].join("\n\n");
 
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
@@ -363,7 +355,7 @@ export const FeatureServiceLive = Layer.effect(
         id: hashed("feature-lead", feature.id, manager.id),
         memberId: manager.id,
         projectId: feature.projectId,
-        taskText: `${featureLeadTask(feature, yield* crewNames(feature))}\n\nBrief:\n${feature.brief.slice(0, 8_000)}`,
+        taskText: featureLeadTask(feature, yield* crewNames(feature)),
         ...(workspace ? { workspace } : {}),
         openingMessage: decodeOpeningMessage(brief?.messageJson ?? null) ?? { attachments: [] },
         title: manager.name,

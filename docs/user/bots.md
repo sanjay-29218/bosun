@@ -1,8 +1,9 @@
-# Bots, workflows and roles
+# Bots and roles
 
-A **bot** (Captain, Social, Finance…) owns projects and runs their work. A **workflow** takes a
-feature through stages, and each stage runs as a **role**. All three belong to an environment and
-are shared by every project on it. Bots and the Library each have a place on the rail.
+A **bot** (Captain, Social, Finance…) owns projects and runs their work. A **role** is a kind of
+crew member, such as Planner or Builder, that a feature's lead can hand work to. Both belong to an
+environment and are shared by every project on it. Bots and the Library each have a place on the
+rail.
 
 ## Bots
 
@@ -12,19 +13,15 @@ A new Captain starts with **Full access**. The pencil beside the bot's name at t
 top of the sidebar opens its page too.
 
 Use **+ New** for another bot. A bot has a name, a robot avatar you build from parts (or
-**Shuffle**), a color, instructions, tools, a default model and the workflow its features start
-with. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
+**Shuffle**), a color, instructions, tools and a default model. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
 **Save**. A bot's threads, like a role's, get every T3 Code tool a thread you start gets, such as
 the browser, worktrees and pull requests; tick some under **T3 Code** only to limit it to those.
-They are offered only the crew tools its ticked crew tools allow. Threads you start yourself get
-only the crew tools that make the thread a feature and take it back out. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+They are offered only the crew tools its ticked crew tools allow. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
 A bot's **Projects** tab lists the projects it owns. Move one to another bot, or bring one over;
 work that already started keeps running as the bot that started it. You can also change a
 project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects,
 and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
-
-**Settings → Bots** holds what applies to every bot: the **Limits** below.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
 bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
@@ -33,14 +30,13 @@ command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
 questions. Each request it hands a project gets a fresh **project manager**: a subagent of the
 headquarters that works in its own worktree of that project. Small work it does itself and opens a
-pull request for; work that needs planning or several stages it starts as a feature on a workflow.
-Its result comes back to the headquarters. Ask the bot for a named workflow, such as "do this as
-Feature delivery", to have the manager start there. Each stage runs with its role's model and
-**Access**; what a stage hands off in turn runs with that stage's. The bot can also start projects
-from a name or by cloning a Git URL. With **Manage bots and workflows**, which Captain has from the
-start, it can create and edit bots, workflows and roles when you ask, such as "add a QA stage to
-Feature delivery"; they show up in Settings like ones you made. A feature's
-own threads, its stage thread and its project manager's thread, carry a tag with the feature's name.
+pull request for; work that needs planning or several hands it starts as a
+[feature](./features.md), which a lead runs with its crew. Its result comes back to the
+headquarters. Each crew member runs with its role's model and **Access**. The bot can also start
+projects from a name or by cloning a Git URL. With **Manage bots and roles**, which Captain has
+from the start, it can create and edit bots and roles when you ask, such as "add a Security
+reviewer role"; they show up like ones you made. A feature's threads, its lead's and its crew's,
+carry a tag with the feature's name.
 
 The headquarters follows the bot's current tools, model and **Access**. Its instructions are the
 ones it started with until it starts a new session. **Start new session…** in the thread's menu
@@ -70,8 +66,7 @@ Below the bots, the rail's places swap what the sidebar lists. **Bots** lists yo
 edit, as above. **Automations** lists your
 scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
 recent runs. A task can also run as a bot: see [Scheduled tasks](project-settings.md#scheduled-tasks). A red dot on Automations means a run failed and you haven't opened that task since.
-**Library** lists your workflows, each with its stages in order, and your roles; pick one to edit
-it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Bots, Automations and Library
+**Library** lists your roles; pick one to edit it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Bots, Automations and Library
 from the bottom of the sidebar, or **Open bots**, **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
 menu.
 
@@ -82,113 +77,41 @@ filters the rail and sidebar to some environments; pick **All environments** to 
 again. To move a project, right-click it in the sidebar's project picker and choose **Move to
 bot**.
 
-## Workflows
-
-The **Library** lists every connected environment's workflows; pick one to open its editor. **+
-New** beside Workflows asks for a name and starts a one-stage workflow to build on, or offers
-**Add Feature delivery**. Both add the starter roles too if they're missing. Feature delivery
-runs Plan and Design, each waiting for your approval, then Build and QA. QA sends changes back to
-Build up to twice, then the feature stops at **Your call**. **Feature delivery (auto)**, added with
-it, is the same except that the feature's lead approves Plan and Design (or asks for changes) and
-answers the stages' questions. You can still approve or answer yourself; whichever of you decides
-first counts. **Your call** and failed stages still wait for you. **Lead decides** under a
-workflow's **Settings** does the same for any workflow. With more than one
-environment, pick where the new workflow goes first. A dot on a workflow means a role it uses
-changed and it needs a new version.
-
-- **Stages** run in order from the first stage; **Start here** in a stage's menu changes which one that is. Each stage has a name, runs as a crew role, has a
-  task, and reports one of its outcomes. Under **Advanced** it can write files such as `plan.md`
-  and pick what it gets in its handoff: every earlier output by default, or only the files and
-  changes you pick. **Needs your approval** makes the feature wait for you after that stage. A stage can be removed once nothing starts at
-  it or routes to it.
-- **Routes**, listed under each stage, say where each outcome goes next, for example back to Build
-  when QA requests changes. A route back to an earlier stage can have a limit: after it has
-  been taken that many times, the feature stops at **Your call**. A stage's questions come to you, and on Feature delivery (auto) to the feature's lead as well. A failed stage retries the
-  number of times set under **Settings** (empty uses **Retries before a stage fails** in
-  **Settings → Bots**), then pauses and notifies you. A stage whose thread you stop waits for you
-  instead, and one the server restarted picks up where it left off.
-- **Canvas** and **Form** switch between two views of the same workflow. To add a stage on the
-  canvas, drag a role from the panel beside it onto the canvas and describe its task. Drag from
-  an outcome on a stage's right edge to another stage to route it there, and select a stage or
-  route to edit it in the panel beside the canvas. Routes back to an earlier stage are dashed and
-  run below the stages; point at an outcome or route to pick out its path. The expand button gives
-  the canvas the whole page; **Esc** shrinks it back. Where you place stages is saved with
-  the workflow, and **Arrange** lines them up left to right again.
-  Narrow screens always show the form.
-- **Publish** appears at the top of the page once you change something and saves a new version; **Discard** drops your edits. Features that already started
-  keep the version they began with. Use the **⋯** menu to duplicate or delete a workflow; deleting waits until no unfinished feature runs on it and no bot starts its features with it.
-
-Workflows record the version of each role they use. After you edit or turn off a role in Roles, the
-workflow shows that it changed, and new features can't start on it until you publish a new version.
-
 ## Roles
 
-The **Library**'s Roles are what workflow stages run as. **+ New** beside Roles adds one, and
-offers **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA Tester and
-Reviewer when an environment doesn't have them yet. The Builder builds on its own and uses subagents only for
-read-only work such as research; give any role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a default model. **Access** sets how freely its
-threads work, from **Supervised** to **Full access**; starter roles start on **Full access**, since stages run unattended. Pick a role to edit it. Roles aren't deleted: the **On** switch at the top turns one off
-to retire it, and back on. Only roles with **Available in workflows** switched on can be picked
-for a stage. Each project gets its own project manager the first time a request or
-feature needs one; editing a role changes the members made from it later, not existing ones.
+The **Library**'s Roles are who a feature's lead can hand work to. **+ New** beside Roles adds
+one, and offers **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA
+Tester and Reviewer when an environment doesn't have them yet. The project manager leads every
+feature; the others join each feature's crew while **On feature crews** is switched on. The
+Builder builds on its own and uses subagents only for read-only work such as research; give any
+role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
+default model. **Access** sets how freely its threads work, from **Supervised** to **Full
+access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
+edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
+on. Each project gets its own project manager the first time a request or feature needs one;
+editing a role changes the crews of features started later, not existing ones.
 
-**Limits**, at the bottom of **Settings → Bots**, are environment-wide:
-
-- **Agents running at once** (default 4). Further stage threads, and the helpers they hand work
-  to, wait as Queued. An agent waiting on a helper isn't counted, and threads you start yourself
-  are never counted or queued.
-- **Per provider** caps one provider, so its rate limit doesn't stall every feature. Empty means no
-  cap.
-- **Retries before a stage fails** (default 2), for workflows that don't set their own.
-
-Editing bots, workflows and roles is available on web and desktop.
+Editing bots and roles is available on web and desktop.
 
 ## Feature threads
 
-A feature shows in the sidebar as one row, titled by the feature. A strip under the title shows
-its stages: finished, the current one in its state's color, and the ones still to come. Clicking
-the row opens the stage waiting on you if there is one, otherwise the feature's lead (its project
-manager's thread). A thread of the feature that waits on you also shows under the row. Right-click
-the row for **Feature** → **Pause**, **Resume**, **Cancel** or **Reopen**.
+A feature shows in the sidebar as one row, titled by the feature, with the crew members its lead
+has handed work to on its third line. Clicking the row opens the thread waiting on you if there is
+one, otherwise the feature's lead (its project manager's thread). A thread of the feature that
+waits on you also shows under the row. The **Crew** tab in the right panel lists the lead and each
+crew member's thread with its state, plus the feature's branch and pull request; a member handed
+work twice shows as **Planner · try 2**. Subagents a crew member starts stay inside its thread.
 
-Inside any of the feature's threads:
+Requests a bot handed on through its older crew tools share one row titled by the request, with
+the crew members it went through; its first role is its lead. On mobile, the count on the row
+opens a menu of the crew.
 
-- The last part of the title bar names where you are (**Lead**, or a stage such as **Build**) and
-  switches between the lead and each stage.
-- The thread's details panel shows where the feature stands. Unfold it to see the lead and every
-  stage with its role and state, and jump to any of them.
-- The **Crew** tab in the right panel lists the same crew in full: retries under each stage,
-  helpers a stage asked for, what waits on you with **Approve** and a way to that stage, plus the
-  feature's outputs, branch and controls.
-- While a stage waits on you, the lead's thread shows a banner with **Open** and, for an approval,
-  **Approve**.
-
-Subagents aren't part of the crew list; they stay inside the thread that started them.
-
-A one-stage workflow shows the same way, without a strip. Requests a bot handed on through its
-older crew tools share one row titled by the request, with the crew members it went through in
-place of a strip; its first role is its lead. On mobile, the count on the row opens a menu of the
-crew.
-
-## Features from threads
-
-To turn a thread into a feature, choose **Make it a feature…** from the thread's ⋯ menu or the
-command palette. On mobile, choose **Workflow…** from the thread's menu. Pick a workflow and the stage
-this thread already covers. Earlier stages are marked skipped, and the thread keeps its history,
-branch and worktree. If the thread's last turn finished, its last reply is handed to the next
-stage, after approval if this stage has a gate. Otherwise this happens when the turn ends.
-**Detach from workflow** in a stage thread's menu turns it back into a plain thread and cancels
-the rest of the feature. Reopening the feature reattaches the thread.
-
-The mobile app runs features but does not edit workflows. The bot button in the thread list
-header opens the bot's headquarters. With more than one bot it also switches bots, and its menu
-shows how many threads wait on you under each one. The List / Board button beside it flips to the bot's features, with the ones
-waiting on you first. Choose a workflow in the new task sheet to start a feature with your prompt
-as its brief. In a stage thread, the card above the
-composer approves, retries or recovers the stage, and the composer text goes with the action as
-your note. **Library** in the bot button's menu opens **Settings → Workflows**, which shows each
-workflow's stages and links to **Settings → Roles** to edit roles. **Settings → Project** shows and
-changes the project's bot.
+The mobile app runs features, and edits roles in **Settings → Roles**. The bot button in the thread list header opens the bot's headquarters. With more than one bot it also
+switches bots, and its menu shows how many threads wait on you under each one. The List / Board
+button beside it flips to the bot's features, with the ones waiting on you first. Choose
+**Feature** under **Start as** in the new task sheet to start a feature with your prompt as its
+brief. **Library** in the bot button's menu opens **Settings → Roles**. **Settings → Project**
+shows and changes the project's bot.
 
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current crew status or send an action.

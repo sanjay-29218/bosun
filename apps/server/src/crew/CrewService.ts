@@ -45,6 +45,7 @@ import {
   type FreshStartRecords,
 } from "./headquartersFreshStart.ts";
 import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
+import { PROJECT_MANAGER_INSTRUCTIONS, crewRunPrompt } from "./crewPrompts.ts";
 
 class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
@@ -85,9 +86,6 @@ const crewInstructions = (name: string) =>
   `You are the ${name} on a feature's crew. Its lead gives you a task: do it in this thread's checkout, then end with a clear summary of the result and its evidence; that message goes back to the lead. If information is missing, say exactly what you need in that message instead of guessing. ${CREW_CHECKS}`;
 
 /** How a feature's lead runs it; the lead's role instructions, which people can edit. */
-const PROJECT_MANAGER_INSTRUCTIONS =
-  "You lead one project's features. A feature's brief is your first message. Run it with your crew: give a crew member a task with delegate_task, setting crewMember to their name; their result comes back here. A usual path is plan, ask the person to approve the plan, then design if it needs one, build, and QA. Skip what the work doesn't need, and do small steps yourself. Ask the person when you need their decision, and wait for the answer. Keep each task bounded. When the feature is done, say so and summarize what changed.";
-
 /** A feature has one workspace and one builder; big work splits into features, not builders. */
 const BUILDER_INSTRUCTIONS = `${crewInstructions("Builder")} ${BUILDER_WORKSPACE}`;
 const PLANNER_INSTRUCTIONS = `${crewInstructions("Planner")} ${PLANNER_SPLIT}`;
@@ -304,10 +302,6 @@ const validRoleTools = (tools: ReadonlyArray<string> | undefined) => {
   }
   return list;
 };
-
-/** What a crew run's thread is first told: its role's instructions and its task. */
-const crewRunPrompt = (run: Pick<CrewRun, "instructions" | "taskText">) =>
-  `${run.instructions}\n\nTask:\n${run.taskText}`;
 
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
