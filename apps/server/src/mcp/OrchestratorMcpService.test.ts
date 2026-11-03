@@ -2139,10 +2139,13 @@ describe("OrchestratorMcpService provider resolution", () => {
         });
         const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
           readonly task: string;
+          readonly title?: string;
           readonly crewMember?: string;
           readonly modelSelection: { readonly model: string };
         }>;
         assert.equal(request!.crewMember, "Planner");
+        // Named after the lead's task, not the instructions put in front of it.
+        assert.equal(request!.title, "Planner: Plan dark mode.");
         assert.equal(request!.modelSelection.model, plannerModel.model);
         assert.equal(request!.task, "You are the Planner on a feature's crew.\n\nPlan dark mode.");
         const stranger = yield* mcp

@@ -2515,7 +2515,14 @@ const make = Effect.gen(function* () {
             crewMember === null
               ? taskPrompt(input)
               : `${crewMember.instructions.trim()}\n\n${taskPrompt(input)}`,
-          ...(input.title === undefined ? {} : { title: input.title }),
+          // A crew thread is named from the lead's task, not the instructions put before it.
+          ...(input.title !== undefined
+            ? { title: input.title }
+            : crewMember === null
+              ? {}
+              : {
+                  title: `${crewMember.name}: ${input.task.trim().split("\n")[0]!}`.slice(0, 80),
+                }),
           ...(crewMember === null ? {} : { crewMember: crewMember.name }),
           modelSelection: target.modelSelection,
           runtimeMode,
