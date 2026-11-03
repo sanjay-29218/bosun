@@ -7,8 +7,10 @@ import { CrewService } from "../crew/CrewService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as TicketService from "../tickets/TicketService.ts";
-import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
-import { FeatureServiceLive } from "./FeatureService.ts";
+import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
+import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
+import { CrewDelegation } from "../mcp/CrewDelegation.ts";
+import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 
 /** Automations that run as a bot post into its headquarters, which the crew opens or restores. */
 const BotAutomationsLive = Layer.effectDiscard(
@@ -34,11 +36,21 @@ const BotAutomationsLive = Layer.effectDiscard(
   }),
 );
 
+/** `delegate_task` reaches a feature's crew through the feature service. */
+const CrewDelegationLive = Layer.effect(
+  CrewDelegation,
+  Effect.gen(function* () {
+    const features = yield* FeatureService;
+    return CrewDelegation.of({ member: features.crewMember, names: features.crewMemberNames });
+  }),
+);
+
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
   TicketService.layer.pipe(
     Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
   ),
+  CrewDelegationLive.pipe(Layer.provide(FeatureServiceLive)),
   BotService.layer,
   BotAutomationsLive,
-).pipe(Layer.provideMerge(WorkflowRuntimeLive));
+).pipe(Layer.provideMerge(FeatureWorkspacesLive), Layer.provideMerge(CrewRuntimeLive));

@@ -3,24 +3,55 @@ import * as Schema from "effect/Schema";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
-import {
-  CrewStageSummary,
-  FeatureCardState,
-  FeatureIssue,
-  WorkflowStagePosition,
-  WorkflowYourCall,
-} from "./workflow.ts";
+
+/**
+ * The issue a feature works on, as it read when linked. A Bosun ticket has `ticketId` and an
+ * empty `url`; `featureIssueRef` names either kind.
+ */
+export const FeatureIssue = Schema.Struct({
+  url: Schema.String,
+  ticketId: Schema.optionalKey(Schema.String),
+  number: Schema.Int,
+  title: Schema.String,
+  state: Schema.Literals(["open", "closed"]),
+  milestone: Schema.NullOr(Schema.String),
+  /** Its sub-issues, closed and in all; null when it has none. */
+  subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
+});
+export type FeatureIssue = typeof FeatureIssue.Type;
+
+/** `#12` for an issue, `T-12` for a ticket. */
+export const featureIssueRef = (issue: Pick<FeatureIssue, "number" | "ticketId">) =>
+  issue.ticketId === undefined ? `#${issue.number}` : `T-${issue.number}`;
+
+/** The feature a thread works on: its lead's thread and the crew threads the lead delegates. */
+export const ThreadFeatureTag = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  issue: Schema.optionalKey(FeatureIssue),
+  /** The crew member a delegated thread runs as, such as "Planner"; absent on the lead. */
+  member: Schema.optionalKey(Schema.String),
+});
+export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
+
+/** The bot request a crew handoff thread works on: the first handoff of its chain. */
+export const ThreadCrewRequestTag = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  /** The crew member this thread runs as, such as "Builder". */
+  member: Schema.String,
+});
+export type ThreadCrewRequestTag = typeof ThreadCrewRequestTag.Type;
 
 const FeatureFields = {
   id: Schema.String,
   projectId: ProjectId,
   title: Schema.String,
   brief: Schema.String,
-  workflowId: Schema.optionalKey(Schema.String),
 };
 /**
- * Where a feature's stages and their helpers work: one new worktree and branch for the whole
- * feature, or the project's own checkout.
+ * Where a feature's lead and crew work: one new worktree and branch for the whole feature, or
+ * the project's own checkout.
  */
 export const FeatureWorkspace = Schema.Literals(["worktree", "local"]);
 export type FeatureWorkspace = typeof FeatureWorkspace.Type;
@@ -36,21 +67,18 @@ export const FeatureCreateInput = Schema.Struct({
    * title, as it does for thread titles. A retry may then send the stand-in again.
    */
   autoTitle: Schema.optionalKey(Schema.Boolean),
-  /** Sent with the brief as the opening message of the feature's first stage. */
+  /** Sent with the brief as the opening message of the feature's lead. */
   briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
   briefContext: Schema.optionalKey(OrchestrationMessageContext),
 });
 export const FeatureRecord = Schema.Struct({
   ...FeatureFields,
-  workflowId: Schema.NullOr(Schema.String),
-  /** The workflow version this feature runs on. Publishing later versions never changes it. */
-  workflowRevision: Schema.NullOr(Schema.Int),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   status: Schema.Literals(["open", "closed"]),
   /** F-<number> within the project. Older servers omit it. */
   number: Schema.optionalKey(Schema.Int),
-  /** The crew member bound to each of the workflow's roles. */
+  /** The crew member of each role the lead can delegate to. */
   crewAssignments: Schema.Record(Schema.String, Schema.String),
   issue: Schema.NullOr(FeatureIssue),
   briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
@@ -72,42 +100,16 @@ export const FeatureSetIssueInput = Schema.Struct({
 });
 
 export const FeatureStartInput = FeatureGetInput;
-/** From Done, `stepId` picks the stage the follow-up starts at. */
-export const FeatureReopenInput = Schema.Struct({
-  ...FeatureGetInput.fields,
-  requestId: Schema.String,
-  stepId: Schema.optionalKey(Schema.String),
+/** A started feature and its lead's thread, where the brief went. */
+export const FeatureStartResult = Schema.Struct({
+  feature: FeatureRecord,
+  leadThreadId: ThreadId,
 });
+export type FeatureStartResult = typeof FeatureStartResult.Type;
 
 /**
- * Makes an existing thread the `stageId` stage of a new feature. `featureId` is chosen by
- * the caller, so a retry with the same ID returns the same feature.
- */
-export const FeatureAttachThreadInput = Schema.Struct({
-  featureId: Schema.String,
-  projectId: ProjectId,
-  threadId: ThreadId,
-  workflowId: Schema.String,
-  stageId: Schema.String,
-  title: Schema.String,
-});
-/** Turns a feature's current stage thread back into a plain thread and cancels the feature. */
-export const FeatureDetachThreadInput = Schema.Struct({
-  projectId: ProjectId,
-  threadId: ThreadId,
-  requestId: Schema.String,
-});
-export const FeatureThreadInput = Schema.Struct({ projectId: ProjectId, threadId: ThreadId });
-/** What a thread is to Crew: a feature's stage thread, or a plain thread that may become one. */
-export const FeatureThreadLink = Schema.Struct({
-  stage: Schema.NullOr(CrewStageSummary),
-  /** False for crew threads, which belong to the crew rather than to a person. */
-  attachable: Schema.Boolean,
-});
-export type FeatureThreadLink = typeof FeatureThreadLink.Type;
-/**
- * One card on the Features board, for a feature that runs a workflow. Everything else
- * about the feature loads when its stage thread is opened.
+ * One card on the Features board. Its column follows its lead's and crew's threads, which the
+ * client already holds; a feature not started yet has no lead thread.
  */
 export const FeatureBoardCard = Schema.Struct({
   featureId: Schema.String,
@@ -116,36 +118,10 @@ export const FeatureBoardCard = Schema.Struct({
   /** F-<number> within the project. Older servers omit it. */
   number: Schema.optionalKey(Schema.Int),
   issue: Schema.NullOr(FeatureIssue),
-  workflow: Schema.Struct({
-    id: Schema.String,
-    name: Schema.String,
-    /** The version this feature runs on. */
-    revision: Schema.Int,
-    /** The library's latest version; null once the workflow is deleted. */
-    latestRevision: Schema.NullOr(Schema.Int),
-  }),
-  state: FeatureCardState,
-  /** False until `features.start` attaches the crew. */
-  started: Schema.Boolean,
-  /** When the feature entered `state`, used to order what waits on you. */
-  stateSince: Schema.String,
-  stage: Schema.NullOr(
-    Schema.Struct({
-      ...WorkflowStagePosition.fields,
-      /** The workflow role that owns the stage, such as "designer". */
-      role: Schema.String,
-      attempt: Schema.Int,
-      gate: Schema.Boolean,
-      /** A person took the stage over; it waits for Mark done or Retry. */
-      takenOver: Schema.Boolean,
-    }),
-  ),
-  /** The current (or last) stage thread, which a card opens. */
-  threadId: Schema.NullOr(ThreadId),
-  /** The question, failure reason or decision note behind the state, trimmed. */
-  detail: Schema.NullOr(Schema.String),
-  yourCall: Schema.NullOr(WorkflowYourCall),
-  queuedAt: Schema.NullOr(Schema.String),
+  status: Schema.Literals(["open", "closed"]),
+  leadThreadId: Schema.NullOr(ThreadId),
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
 });
 export type FeatureBoardCard = typeof FeatureBoardCard.Type;
 

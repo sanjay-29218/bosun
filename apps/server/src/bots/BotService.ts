@@ -21,7 +21,6 @@ import { CrewService } from "../crew/CrewService.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
-import { WorkflowStore } from "../workflows/WorkflowStore.ts";
 import * as BotStore from "./BotStore.ts";
 
 export class BotValidationError extends Schema.TaggedError<BotValidationError>()(
@@ -91,26 +90,10 @@ const sameCreate = (bot: Bot, input: BotCreateInput) =>
 const make = Effect.gen(function* () {
   const store = yield* BotStore.BotStore;
   const projects = yield* ProjectService.ProjectService;
-  const workflows = yield* WorkflowStore;
   const random = yield* SecureRandom.SecureRandom;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   // Optional so bot tests run without the crew; the server always provides it.
   const crew = yield* Effect.serviceOption(CrewService);
-
-  const requireWorkflow = (id: string | null | undefined) =>
-    id === null || id === undefined
-      ? Effect.void
-      : workflows
-          .getLatestDefinition(id)
-          .pipe(
-            Effect.flatMap((definition) =>
-              definition
-                ? Effect.void
-                : Effect.fail(
-                    new BotValidationError({ reason: "Default workflow does not exist" }),
-                  ),
-            ),
-          );
 
   const requireBot = (id: string) =>
     store
@@ -132,7 +115,6 @@ const make = Effect.gen(function* () {
         if (sameCreate(existing, input)) return existing;
         return yield* new BotValidationError({ reason: "Bot ID belongs to another bot" });
       }
-      yield* requireWorkflow(input.defaultWorkflowId);
       const now = DateTime.formatIso(yield* DateTime.now);
       const all = yield* store.list;
       const bot: Bot = {
@@ -148,7 +130,6 @@ const make = Effect.gen(function* () {
         allowedTools: yield* tools(input.allowedTools ?? []),
         runtimeMode: input.runtimeMode ?? "approval-required",
         modelSelection: input.modelSelection ?? null,
-        defaultWorkflowId: input.defaultWorkflowId ?? null,
         longConversation: input.longConversation ?? "compact",
         position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
         revision: 1,
@@ -166,7 +147,6 @@ const make = Effect.gen(function* () {
       if (previous.revision !== input.expectedRevision) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
       }
-      if (input.defaultWorkflowId !== undefined) yield* requireWorkflow(input.defaultWorkflowId);
       const next: Bot = {
         ...previous,
         ...(input.name === undefined ? {} : { name: yield* text(input.name, "Bot name", 80) }),
@@ -180,9 +160,6 @@ const make = Effect.gen(function* () {
           : { allowedTools: yield* tools(input.allowedTools) }),
         ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
-        ...(input.defaultWorkflowId === undefined
-          ? {}
-          : { defaultWorkflowId: input.defaultWorkflowId }),
         ...(input.longConversation === undefined
           ? {}
           : { longConversation: input.longConversation }),

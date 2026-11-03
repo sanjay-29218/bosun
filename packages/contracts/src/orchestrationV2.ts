@@ -85,7 +85,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
-import { CrewStageSummary, ThreadCrewRequestTag, ThreadFeatureTag } from "./workflow.ts";
+import { ThreadCrewRequestTag, ThreadFeatureTag } from "./features.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -514,8 +514,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ),
   ),
-  /** The feature stage this thread runs; absent for threads outside a workflow. */
-  crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
   /** The feature this thread works on, as a stage or as its lead; absent otherwise. */
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The bot request a crew handoff thread works on; absent outside a handoff chain. */
@@ -2159,8 +2157,6 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
       }),
     ),
   ),
-  /** The feature stage this thread runs; omitted for plain threads and older servers. */
-  crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
   /** The feature this thread works on; omitted for plain threads and older servers. */
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The bot request this handoff thread works on; omitted outside a handoff chain. */
@@ -3345,6 +3341,8 @@ export const OrchestrationV2Command = Schema.Union([
     projectId: Schema.optional(ProjectId),
     task: TrimmedNonEmptyString,
     title: Schema.optional(TrimmedNonEmptyString),
+    /** The feature crew member the child runs as, named on its feature tag. */
+    crewMember: Schema.optional(TrimmedNonEmptyString),
     modelSelection: ModelSelection,
     runtimeMode: RuntimeMode,
     interactionMode: ProviderInteractionMode,
@@ -3452,7 +3450,6 @@ const OrchestrationV2InternalCommand = Schema.Union([
     type: Schema.Literal("thread.crew-stage.set"),
     commandId: CommandId,
     threadId: ThreadId,
-    crew: Schema.optional(Schema.NullOr(CrewStageSummary)),
     feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
     crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
     title: Schema.optional(TrimmedNonEmptyString),

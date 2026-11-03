@@ -16,7 +16,6 @@ import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
-import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
@@ -107,7 +106,6 @@ const layerAs = (threadId: ThreadId) =>
           getThreadShell: (id) => Effect.succeed({ ...liveThreadShell(id), projectId }),
         }),
         Layer.mock(FeatureService)({}),
-        Layer.mock(WorkflowExecutionService)({}),
         Layer.mock(IssueService.IssueService)({
           list: (project) =>
             project === projectId

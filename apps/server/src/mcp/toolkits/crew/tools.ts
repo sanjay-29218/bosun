@@ -12,7 +12,6 @@ import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import { WorkflowExecutionService } from "../../../workflows/WorkflowExecutionService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 export class CrewToolFailedError extends Schema.TaggedError<CrewToolFailedError>()(
@@ -31,24 +30,6 @@ const failure = Schema.Union([
   OrchestratorMcpFailure,
   CrewToolFailedError,
 ]);
-/** What a workflow stage's report recorded. */
-const StageReport = Schema.Struct({
-  stepId: Schema.String,
-  recorded: Schema.Literals(["completed", "question"]),
-});
-
-const Respond = Tool.make("crew_respond", {
-  description:
-    "Report the result of the workflow stage this thread runs: one of the stage's outcomes with a summary of the result and its evidence, or needs_input with the question a person must answer as the summary. Then end your turn; an answer arrives in this thread.",
-  parameters: Schema.Struct({
-    outcome: Schema.String,
-    summary: Schema.String,
-  }),
-  success: StageReport,
-  failure,
-  dependencies: [...dependencies, WorkflowExecutionService],
-}).annotate(Tool.Idempotent, true);
-
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
     "Link the issue the feature you work on tracks: an issue URL, such as one you just created, or a Bosun ticket as `T-14`. A feature has one issue: linking another replaces it, and null unlinks it. Every thread of the feature shows it.",
@@ -151,11 +132,4 @@ const UpdateTodo = Tool.make("crew_update_todo", {
   dependencies: [...dependencies, IssueService.IssueService, TicketService],
 }).annotate(Tool.Destructive, false);
 
-export const CrewToolkit = Toolkit.make(
-  Respond,
-  LinkIssue,
-  ListIssues,
-  CreateTodo,
-  ReadTodo,
-  UpdateTodo,
-);
+export const CrewToolkit = Toolkit.make(LinkIssue, ListIssues, CreateTodo, ReadTodo, UpdateTodo);

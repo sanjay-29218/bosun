@@ -32,20 +32,13 @@ export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 /**
  * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.
  * The rest name T3 MCP toolkits: a run gets every toolkit an ordinary thread gets, and naming
- * any limits it to those. `botOnly` grants are for bots, so role editors leave them out;
- * `roleOnly` ones are for workflow stages, which bots never run.
+ * any limits it to those. `botOnly` grants are for bots, so role editors leave them out.
  */
 export const CREW_TOOL_GRANTS = [
   {
-    id: "crew.respond",
-    label: "Report results",
-    description: "Report a workflow stage's outcome, or a question for a person.",
-    roleOnly: true,
-  },
-  {
     id: "crew.workflows",
-    label: "Manage bots and workflows",
-    description: "Create and edit bots, workflows and roles when asked.",
+    label: "Manage bots and roles",
+    description: "Create and edit bots and roles when asked.",
     botOnly: true,
   },
   {

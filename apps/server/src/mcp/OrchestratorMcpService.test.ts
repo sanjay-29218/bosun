@@ -55,6 +55,7 @@ import {
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import { CrewDelegation } from "./CrewDelegation.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -2023,6 +2024,149 @@ describe("OrchestratorMcpService provider resolution", () => {
           .pipe(Effect.flip);
         assert.include(missing.message, "project:gone");
       }).pipe(Effect.provide(service));
+    }),
+  );
+
+  it.effect("hands a feature lead's task to a crew member, as that member", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      const plannerModel = { instanceId: codexInstanceId, model: "gpt-5.4-mini" };
+      const task = {
+        id: taskId,
+        threadId: parentThreadId,
+        runId: parentRunId,
+        parentNodeId,
+        origin: "app_owned",
+        createdBy: "agent",
+        driver: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        providerThreadId: null,
+        childThreadId,
+        nativeTaskRef: null,
+        prompt: "Plan dark mode.",
+        title: null,
+        model: plannerModel.model,
+        status: "running",
+        result: null,
+        startedAt: null,
+        completedAt: null,
+      };
+      const leadProjection = (featureId: string | null) => (tasks: ReadonlyArray<unknown>) => {
+        const projection = parentProjection(tasks);
+        return {
+          ...projection,
+          thread: {
+            ...projection.thread,
+            ...(featureId === null ? {} : { feature: { id: featureId, title: "Dark mode" } }),
+          },
+        } as OrchestrationV2ThreadProjection;
+      };
+      const run = (featureId: string | null) => {
+        const projection = leadProjection(featureId);
+        const layerDependencies = Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            hasReceipt: () => Effect.succeed(false),
+            getThreadRecords: (threadId) =>
+              Ref.get(dispatched).pipe(
+                Effect.map((commands) =>
+                  threadId === parentThreadId
+                    ? projection(commands.length > 0 ? [task] : [])
+                    : childProjection,
+                ),
+              ),
+            isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+            assertProviderInstanceEnabled: () => Effect.void,
+            dispatch: (command) =>
+              Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+                Effect.as({
+                  sequence: 1,
+                  storedEvents: [
+                    {
+                      sequence: 1,
+                      commandId: null,
+                      event: { type: "subagent.updated", payload: task },
+                    },
+                  ],
+                } as never),
+              ),
+          }),
+          providerRegistryLayer([
+            providerSnapshot({
+              instanceId: codexInstanceId,
+              driver: ProviderDriverKind.make("codex"),
+              model: plannerModel.model,
+            }),
+          ]),
+          adapterRegistryLayer([codexInstanceId]),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+          ServerSettings.layerTest(),
+          Layer.succeed(
+            CrewDelegation,
+            CrewDelegation.of({
+              member: (feature, name) =>
+                Effect.succeed(
+                  feature === "feature:dark" && name === "Planner"
+                    ? {
+                        name: "Planner",
+                        instructions: "You are the Planner on a feature's crew.",
+                        modelSelection: plannerModel,
+                        runtimeMode: "full-access",
+                      }
+                    : null,
+                ),
+              names: () => Effect.succeed(["Planner", "Builder"]),
+            }),
+          ),
+        );
+        return OrchestratorMcpService.layer.pipe(
+          Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+          Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+          Layer.provide(layerDependencies),
+        );
+      };
+
+      yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        yield* mcp.delegateTask(scope, {
+          task: "Plan dark mode.",
+          crewMember: "Planner",
+          clientRequestId: "crew-planner-1",
+        });
+        const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
+          readonly task: string;
+          readonly crewMember?: string;
+          readonly modelSelection: { readonly model: string };
+        }>;
+        assert.equal(request!.crewMember, "Planner");
+        assert.equal(request!.modelSelection.model, plannerModel.model);
+        assert.equal(request!.task, "You are the Planner on a feature's crew.\n\nPlan dark mode.");
+        const stranger = yield* mcp
+          .delegateTask(scope, {
+            task: "Style it.",
+            crewMember: "Stylist",
+            clientRequestId: "crew-stylist-1",
+          })
+          .pipe(Effect.flip);
+        assert.include(stranger.message, "The crew: Planner, Builder.");
+      }).pipe(Effect.provide(run("feature:dark")));
+
+      // A thread outside any feature has no crew to delegate to.
+      const outside = yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* mcp
+          .delegateTask(scope, {
+            task: "Plan dark mode.",
+            crewMember: "Planner",
+            clientRequestId: "crew-planner-2",
+          })
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(run(null)));
+      assert.include(outside.message, "crewMember works only in a feature's lead thread");
     }),
   );
 

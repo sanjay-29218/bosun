@@ -1007,6 +1007,66 @@ it.effect("runs a delegated child in the project it names, at that project's che
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("names a crew member's child after its feature lead's crew", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const parentThreadId = ThreadId.make("thread:feature-lead");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-feature-lead"),
+      threadId: parentThreadId,
+      projectId: ProjectId.make("project:app"),
+      title: "Project manager",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "bosun/dark-mode",
+      worktreePath: "/worktrees/dark-mode",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const feature = { id: "feature:dark", title: "Dark mode" };
+    yield* orchestrator.dispatch({
+      type: "thread.crew-stage.set",
+      commandId: CommandId.make("tag-feature-lead"),
+      threadId: parentThreadId,
+      feature,
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("start-feature-lead"),
+      threadId: parentThreadId,
+      messageId: MessageId.make("message:feature-lead"),
+      text: "Plan dark mode with the crew",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const parentRun = (yield* projections.getThreadProjection(parentThreadId)).runs[0]!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate-planner"),
+      parentThreadId,
+      parentRunId: parentRun.id,
+      parentNodeId: parentRun.rootNodeId!,
+      task: "Plan dark mode",
+      crewMember: "Planner",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const task = (yield* projections.getThreadProjection(parentThreadId)).subagents[0]!;
+    const child = yield* projections.getThreadProjection(task.childThreadId!);
+    assert.deepEqual(child.thread.feature, { ...feature, member: "Planner" });
+    // The crew works in the lead's feature checkout.
+    assert.equal(child.thread.worktreePath, "/worktrees/dark-mode");
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("keeps delegated child pull-request links independent of the parent", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

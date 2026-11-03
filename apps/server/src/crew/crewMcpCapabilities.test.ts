@@ -23,8 +23,8 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
       `;
       yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
       yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'role', 'bot-run:builder', '["crew.respond"]'),
-        ('limited', 'role', 'bot-run:limited', '["crew.respond","worktree","device"]'),
+        ('builder', 'role', 'bot-run:builder', '["crew.workflows"]'),
+        ('limited', 'role', 'bot-run:limited', '["crew.workflows","worktree","device"]'),
         ('bare', 'role', 'bosun-run:bare', '[]'),
         ('malformed', 'role', 'bot-run:malformed', 'invalid'),
         ('bot-hq:bot-captain', 'bot-captain', 'bot-run:bot-hq:bot-captain', '["preview"]'),
@@ -68,7 +68,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
         CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)
       `;
       yield* sql`INSERT INTO crew_runs VALUES
-        ('stage', 'role', 'bot-run:stage', '["crew.respond","orchestration","worktree"]')`;
+        ('stage', 'role', 'bot-run:stage', '["crew.workflows","orchestration","worktree"]')`;
       const lineage = (parent: string, relationship: string) =>
         JSON.stringify({ lineage: { parentThreadId: parent, relationshipToParent: relationship } });
       yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES

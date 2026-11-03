@@ -29,15 +29,11 @@ export class FeatureWorkspaces extends Context.Service<
   FeatureWorkspaces,
   {
     /**
-     * The worktree the feature works in, made from its base branch the first time a stage
-     * starts. Null when the feature works in the project's checkout.
+     * The worktree the feature works in, made from its base branch when the feature starts.
+     * Null when the feature works in the project's checkout.
      */
     readonly forFeature: (
       featureId: string,
-    ) => Effect.Effect<CrewWorkspace | null, FeatureWorkspaceError>;
-    /** `forFeature` for the feature behind a workflow stage handoff. */
-    readonly forStageHandoff: (
-      handoffId: string,
     ) => Effect.Effect<CrewWorkspace | null, FeatureWorkspaceError>;
   }
 >()("t3/features/FeatureWorkspaces") {}
@@ -128,14 +124,6 @@ export const FeatureWorkspacesLive = Layer.effect(
       return yield* making.withPermits(1)(ensure(featureId));
     });
 
-    return {
-      forFeature,
-      forStageHandoff: Effect.fn("FeatureWorkspaces.forStageHandoff")(function* (handoffId) {
-        const rows = yield* sql<{ readonly featureId: string }>`
-          SELECT feature_id AS featureId FROM workflow_stage_handoffs WHERE id = ${handoffId}
-        `.pipe(Effect.mapError(failed("The feature's workspace is unreadable")));
-        return rows[0] ? yield* forFeature(rows[0].featureId) : null;
-      }),
-    };
+    return { forFeature };
   }),
 );

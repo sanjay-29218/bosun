@@ -7,15 +7,14 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
-import { WorkflowsToolkit } from "./toolkits/workflows/tools.ts";
 
 type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
 
 /**
- * What a crew thread needs from its run's grants: a grant, `"crew"` for any `crew.*` grant, or
- * `null` for none. `alsoPlain` tools are listed to every caller that isn't a crew thread too.
+ * What a crew thread needs from its run's grants: a grant, or `null` for none. Callers that
+ * aren't crew threads see none of these tools.
  */
-type Needs = Grant | "crew" | null | { readonly alsoPlain: Grant };
+type Needs = Grant | null;
 
 /**
  * `McpSchema.EnabledWhen` reads only the MCP client profile, so read the caller from the request
@@ -26,10 +25,9 @@ const callerHolds = (needs: Needs): boolean => {
   const grants =
     fiber &&
     Context.getOrUndefined(fiber.context, McpInvocationContext.McpInvocationContext)?.crewGrants;
-  if (grants === undefined) return typeof needs === "object" && needs !== null;
+  if (grants === undefined) return false;
   if (needs === null) return true;
-  if (needs === "crew") return grants.some((grant) => grant.startsWith("crew."));
-  return grants.includes(typeof needs === "object" ? needs.alsoPlain : needs);
+  return grants.includes(needs);
 };
 
 const gated = <Tools extends Record<string, Tool.Any>>(
@@ -49,8 +47,7 @@ const gated = <Tools extends Record<string, Tool.Any>>(
 
 /**
  * Bosun's toolkits, each tool listed only to crew threads whose run holds the grant its handler
- * checks. Threads that aren't a crew member's, and outside clients, see only the feature-link
- * tools, so a thread a person started can become a feature and leave it again.
+ * checks.
  */
 export const CrewGatedToolkits = {
   bots: gated(BotsToolkit, {
@@ -62,23 +59,13 @@ export const CrewGatedToolkits = {
     t3_bot_move_project: "crew.workflows",
   }),
   crew: gated(CrewToolkit, {
-    crew_respond: "crew.respond",
-    crew_link_issue: "crew",
-    crew_list_issues: "crew",
-    crew_create_todo: "crew",
-    crew_read_todo: "crew",
-    crew_update_todo: "crew",
+    crew_link_issue: null,
+    crew_list_issues: null,
+    crew_create_todo: null,
+    crew_read_todo: null,
+    crew_update_todo: null,
   }),
   features: gated(FeaturesToolkit, {
-    t3_feature_attach_thread: { alsoPlain: "crew.workflows" },
-    t3_feature_detach_thread: { alsoPlain: "crew.workflows" },
-  }),
-  workflows: gated(WorkflowsToolkit, {
-    t3_workflow_list: null,
-    t3_workflow_get: null,
-    t3_workflow_create: "crew.workflows",
-    t3_workflow_update: "crew.workflows",
-    t3_workflow_delete: "crew.workflows",
     t3_role_list: "crew.workflows",
     t3_role_create: "crew.workflows",
     t3_role_update: "crew.workflows",

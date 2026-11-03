@@ -75,7 +75,6 @@ import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import * as BotsHandlers from "./toolkits/bots/handlers.ts";
 import * as CrewHandlers from "./toolkits/crew/handlers.ts";
 import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
-import * as WorkflowsHandlers from "./toolkits/workflows/handlers.ts";
 import { CrewGatedToolkits } from "./crewToolGrants.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
@@ -1180,7 +1179,6 @@ export const layerCrewTools = Layer.mergeAll(
   toolkitRegistration(CrewGatedToolkits.bots, BotsHandlers.layer),
   toolkitRegistration(CrewGatedToolkits.crew, CrewHandlers.layer),
   toolkitRegistration(CrewGatedToolkits.features, FeaturesHandlers.layer),
-  toolkitRegistration(CrewGatedToolkits.workflows, WorkflowsHandlers.layer),
 );
 
 /**

@@ -116,9 +116,6 @@ import { CrewService } from "./crew/CrewService.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as IssueService from "./issues/IssueService.ts";
 import * as TicketService from "./tickets/TicketService.ts";
-import { WorkflowLibrary } from "./workflows/WorkflowLibrary.ts";
-import { WorkflowService } from "./workflows/WorkflowService.ts";
-import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import * as NativeChildWorkQuery from "./orchestration-v2/NativeChildWorkQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
@@ -3386,9 +3383,6 @@ export const layer = Layer.unwrap(
       features: yield* FeatureService,
       issues: yield* IssueService.IssueService,
       tickets: yield* TicketService.TicketService,
-      workflows: yield* WorkflowService,
-      workflowLibrary: yield* WorkflowLibrary,
-      workflowExecution: yield* WorkflowExecutionService,
     };
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const npmRelease = yield* NpmRelease.NpmRelease;
@@ -3460,7 +3454,7 @@ export const layer = Layer.unwrap(
         }).pipe(
           Effect.provide(
             layerWsRpc(session, clientAnalyticsProps, serverBrowser, reportProfiles).pipe(
-              Layer.merge(layerBosunWsRpc(crewServices, session.sessionId)),
+              Layer.merge(layerBosunWsRpc(crewServices)),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.
               Layer.provide(DefectReporter.layer),

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 
 import * as BotService from "../../../bots/BotService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { asWorkflowManager, fullAccessCaller } from "../workflows/access.ts";
+import { asCrewManager, fullAccessCaller } from "../features/access.ts";
 import { BotsToolkit } from "./tools.ts";
 
 const failed = (error: { readonly message: string }) =>
@@ -11,9 +11,9 @@ const failed = (error: { readonly message: string }) =>
 
 /**
  * Bots and project ownership belong to the environment: a bot changes them with "Manage
- * workflows", and every other caller needs full access.
+ * bots and roles", and every other caller needs full access.
  */
-const checkChange = asWorkflowManager(
+const checkChange = asCrewManager(
   fullAccessCaller(
     "Changing bots needs a live full-access/default calling thread or a full-access client.",
   ),

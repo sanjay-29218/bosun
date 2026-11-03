@@ -92,8 +92,6 @@ export const Bot = Schema.Struct({
   runtimeMode: RuntimeMode,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
-  /** The workflow clients preselect when a feature starts in one of this bot's projects. */
-  defaultWorkflowId: Schema.NullOr(Schema.String),
   longConversation: BotLongConversation,
   /** Rail order, counted from 0. */
   position: Schema.Int,
@@ -113,7 +111,6 @@ export const BotCreateInput = Schema.Struct({
   allowedTools: Schema.optionalKey(Schema.Array(Schema.String)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-  defaultWorkflowId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotCreateInput = typeof BotCreateInput.Type;
@@ -129,7 +126,6 @@ export const BotUpdateInput = Schema.Struct({
   allowedTools: Schema.optionalKey(Schema.Array(Schema.String)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-  defaultWorkflowId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotUpdateInput = typeof BotUpdateInput.Type;

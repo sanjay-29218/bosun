@@ -37,7 +37,6 @@ import {
   type CrewWorkspace,
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
-import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
 import {
   FRESH_START_QUIET_MINUTES,
   freshStartBriefing,
@@ -63,7 +62,7 @@ const BUILDER_ROLE_ID = "role:builder";
 
 /** How a bot's headquarters briefs the project manager it starts for one request. */
 const PROJECT_MANAGER_BRIEF =
-  "You are this project's manager for one request. Do small work yourself in this worktree, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several stages, start a feature with t3_feature_start instead (t3_workflow_list shows the workflows), and report that it started. Report what you did, or the question a person must answer.";
+  "You are this project's manager for one request. Do small work yourself in this worktree, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
 
 /** What a bot's headquarters does; its runs keep the text they started with. */
 const headquartersTask = (botId: string) =>
@@ -71,25 +70,27 @@ const headquartersTask = (botId: string) =>
     `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
     `Hand each request to its project with delegate_task: target.projectId set to that project and isolation "worktree". That child is the request's project manager, fresh for each request. Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. Then end your turn; its result wakes you.`,
     `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
-    "Feature workflows report here too, and each stage notice names its feature. The workflow sends each stage to its crew member, so never delegate stage work yourself.",
-    "When the person asks to create or change a workflow or role, do it with the t3_workflow_* and t3_role_* tools if you're allowed to, then say what changed. When they ask for a project's work to run on a workflow, name it in the project manager's task.",
+    "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
     "Tell the person only what they must decide.",
   ].join("\n\n");
 
-const STAGE_TOOLS = ["crew.respond"];
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
 const PLANNER_SPLIT =
   "If the work is too big for one builder, say so in your plan and propose splitting it into separate features, each with its own branch and pull request.";
-/** Several stages run at once on one machine, so each keeps its checks and servers small. */
-const STAGE_CHECKS =
-  "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you respond.";
-const stageInstructions = (name: string) =>
-  `You are the ${name}. Follow the assigned task in the linked T3 thread. Call crew_respond with a structured outcome and a concise summary when finished. If information is missing, call crew_respond with outcome "needs_input" and the exact question as the summary, then end your turn; the answer arrives in this thread. Do not report completion solely in prose. ${STAGE_CHECKS}`;
+/** Several crew threads run at once on one machine, so each keeps its checks and servers small. */
+const CREW_CHECKS =
+  "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you finish.";
+const crewInstructions = (name: string) =>
+  `You are the ${name} on a feature's crew. Its lead gives you a task: do it in this thread's checkout, then end with a clear summary of the result and its evidence; that message goes back to the lead. If information is missing, say exactly what you need in that message instead of guessing. ${CREW_CHECKS}`;
+
+/** How a feature's lead runs it; the lead's role instructions, which people can edit. */
+const PROJECT_MANAGER_INSTRUCTIONS =
+  "You lead one project's features. A feature's brief is your first message. Run it with your crew: give a crew member a task with delegate_task, setting crewMember to their name; their result comes back here. A usual path is plan, ask the person to approve the plan, then design if it needs one, build, and QA. Skip what the work doesn't need, and do small steps yourself. Ask the person when you need their decision, and wait for the answer. Keep each task bounded. When the feature is done, say so and summarize what changed.";
 
 /** A feature has one workspace and one builder; big work splits into features, not builders. */
-const BUILDER_INSTRUCTIONS = `${stageInstructions("Builder")} ${BUILDER_WORKSPACE}`;
-const PLANNER_INSTRUCTIONS = `${stageInstructions("Planner")} ${PLANNER_SPLIT}`;
+const BUILDER_INSTRUCTIONS = `${crewInstructions("Builder")} ${BUILDER_WORKSPACE}`;
+const PLANNER_INSTRUCTIONS = `${crewInstructions("Planner")} ${PLANNER_SPLIT}`;
 
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
@@ -97,9 +98,8 @@ const DEFAULT_ROLES = [
     id: PROJECT_MANAGER_ROLE_ID,
     name: "Project manager",
     autoCreateForFeature: false,
-    allowedTools: ["crew.respond"],
-    instructions:
-      "You manage one project's features. When a feature lets its lead decide, a message here names a stage's question: read it with t3_pending_request, check the stage's work, then answer it with t3_pending_request. When a workflow gives you a stage of your own, report its outcome with crew_respond. Keep the task and context bounded.",
+    allowedTools: [],
+    instructions: PROJECT_MANAGER_INSTRUCTIONS,
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
@@ -112,9 +112,8 @@ const DEFAULT_ROLES = [
   { id: "role:reviewer", name: "Reviewer" },
 ].map((role) => ({
   autoCreateForFeature: true,
-  // Stage roles report their outcome through crew_respond; without it a workflow can't start.
-  allowedTools: STAGE_TOOLS,
-  instructions: stageInstructions(role.name),
+  allowedTools: [],
+  instructions: crewInstructions(role.name),
   ...role,
 }));
 
@@ -307,7 +306,7 @@ const validRoleTools = (tools: ReadonlyArray<string> | undefined) => {
 };
 
 /** What a crew run's thread is first told: its role's instructions and its task. */
-export const crewRunPrompt = (run: Pick<CrewRun, "instructions" | "taskText">) =>
+const crewRunPrompt = (run: Pick<CrewRun, "instructions" | "taskText">) =>
   `${run.instructions}\n\nTask:\n${run.taskText}`;
 
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
@@ -323,7 +322,6 @@ export const CrewServiceLive = Layer.effect(
     const store = yield* CrewStore;
     const runtime = yield* CrewThreadRuntime;
     const bots = yield* BotStore.BotStore;
-    const library = yield* WorkflowLibrary;
 
     const threadInput = (run: CrewRun) => ({
       runId: run.id,
@@ -484,7 +482,6 @@ export const CrewServiceLive = Layer.effect(
           updatedAt: now,
         };
         yield* store.insertRole(role);
-        yield* library.changed;
         return role;
       },
     );
@@ -532,7 +529,6 @@ export const CrewServiceLive = Layer.effect(
         if (!(yield* store.updateRole(updated, previous.revision))) {
           return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
         }
-        yield* library.changed;
         return updated;
       },
     );

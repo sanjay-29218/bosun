@@ -15,8 +15,6 @@ import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { IssueService } from "../issues/IssueService.ts";
 import { TicketService } from "../tickets/TicketService.ts";
-import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
-import { WorkflowService } from "../workflows/WorkflowService.ts";
 import { ServerConfig } from "../config.ts";
 import { DeviceService } from "../device/DeviceService.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
@@ -95,8 +93,6 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(FeatureService)({}),
   Layer.mock(IssueService)({}),
   Layer.mock(TicketService)({}),
-  Layer.mock(WorkflowService)({}),
-  Layer.mock(WorkflowExecutionService)({}),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");

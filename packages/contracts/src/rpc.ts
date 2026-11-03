@@ -69,14 +69,10 @@ import {
   FeatureBoardCard,
   FeatureProjectInput,
   FeatureRecord,
-  FeatureReopenInput,
   FeatureSetIssueInput,
   FeatureSetStatusInput,
   FeatureStartInput,
-  FeatureAttachThreadInput,
-  FeatureDetachThreadInput,
-  FeatureThreadInput,
-  FeatureThreadLink,
+  FeatureStartResult,
 } from "./features.ts";
 import {
   IssueCreateInput,
@@ -96,25 +92,6 @@ import {
   TicketOperationError,
   TicketUpdateInput,
 } from "./tickets.ts";
-import {
-  WorkflowCreateInput,
-  WorkflowActionInput,
-  WorkflowAnswerInput,
-  WorkflowApproveInput,
-  WorkflowMarkDoneInput,
-  WorkflowRequestChangesInput,
-  WorkflowRetryInput,
-  WorkflowRouteInput,
-  WorkflowSendBackInput,
-  WorkflowDefinition,
-  WorkflowFeatureGetInput,
-  WorkflowFeatureSnapshot,
-  WorkflowOperationError,
-  WorkflowLibraryInput,
-  WorkflowReviseInput,
-  WorkflowStageHandoff,
-  WorkflowStageHandoffInput,
-} from "./workflow.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -488,11 +465,7 @@ export const WS_METHODS = {
   featuresGet: "features.get",
   featuresSetStatus: "features.setStatus",
   featuresStart: "features.start",
-  featuresReopen: "features.reopen",
   featuresSetIssue: "features.setIssue",
-  featuresAttachThread: "features.attachThread",
-  featuresDetachThread: "features.detachThread",
-  featuresThreadLink: "features.threadLink",
   featuresBoard: "features.board",
   issuesList: "issues.list",
   issuesGet: "issues.get",
@@ -503,29 +476,6 @@ export const WS_METHODS = {
   ticketsUpdate: "tickets.update",
   ticketsDelete: "tickets.delete",
   ticketsMoveToIssue: "tickets.moveToIssue",
-  workflowsList: "workflows.list",
-  workflowsEnsureStarter: "workflows.ensureStarter",
-  workflowsValidate: "workflows.validate",
-  workflowsCreate: "workflows.create",
-  workflowsRevise: "workflows.revise",
-  workflowsDelete: "workflows.delete",
-  workflowsGetFeature: "workflows.getFeature",
-  workflowsGetStageHandoff: "workflows.getStageHandoff",
-  workflowsAnswer: "workflows.answer",
-  workflowsRetry: "workflows.retry",
-  workflowsCancel: "workflows.cancel",
-  workflowsPause: "workflows.pause",
-  workflowsResume: "workflows.resume",
-  workflowsApprove: "workflows.approve",
-  workflowsRequestChanges: "workflows.requestChanges",
-  workflowsTakeOver: "workflows.takeOver",
-  workflowsMarkDone: "workflows.markDone",
-  workflowsSendBack: "workflows.sendBack",
-  workflowsSkip: "workflows.skip",
-  workflowsAcceptAsIs: "workflows.acceptAsIs",
-  workflowsOneMoreRound: "workflows.oneMoreRound",
-  workflowsStartNow: "workflows.startNow",
-  workflowsSubscribeLibrary: "workflows.subscribeLibrary",
   botsList: "bots.list",
   botsCreate: "bots.create",
   botsUpdate: "bots.update",
@@ -1222,125 +1172,10 @@ const WsFeaturesSetIssueRpc = Rpc.make(WS_METHODS.featuresSetIssue, {
   success: FeatureRecord,
   error: FeatureRpcError,
 });
-const WorkflowRpcError = Schema.Union([WorkflowOperationError, EnvironmentAuthorizationError]);
-const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
-  payload: WorkflowLibraryInput,
-  success: Schema.Array(WorkflowDefinition),
-  error: WorkflowRpcError,
-});
-const WsWorkflowsEnsureStarterRpc = Rpc.make(WS_METHODS.workflowsEnsureStarter, {
-  payload: WorkflowLibraryInput,
-  success: WorkflowDefinition,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsValidateRpc = Rpc.make(WS_METHODS.workflowsValidate, {
-  payload: WorkflowCreateInput,
-  success: Schema.Void,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
-  payload: WorkflowCreateInput,
-  success: WorkflowDefinition,
-  error: WorkflowRpcError,
-});
-// Refused while an unfinished feature or a bot's default still uses the workflow.
-const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
-  payload: Schema.Struct({ id: Schema.String }),
-  success: Schema.Void,
-  error: WorkflowRpcError,
-});
 /** Counts changes to the workflow and role library, so clients re-read it when an agent edits it. */
-const WsWorkflowsSubscribeLibraryRpc = Rpc.make(WS_METHODS.workflowsSubscribeLibrary, {
-  payload: Schema.Struct({}),
-  success: NonNegativeInt,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-const WsWorkflowsReviseRpc = Rpc.make(WS_METHODS.workflowsRevise, {
-  payload: WorkflowReviseInput,
-  success: WorkflowDefinition,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsGetFeatureRpc = Rpc.make(WS_METHODS.workflowsGetFeature, {
-  payload: WorkflowFeatureGetInput,
-  success: Schema.NullOr(WorkflowFeatureSnapshot),
-  error: WorkflowRpcError,
-});
-const WsWorkflowsGetStageHandoffRpc = Rpc.make(WS_METHODS.workflowsGetStageHandoff, {
-  payload: WorkflowStageHandoffInput,
-  success: Schema.NullOr(WorkflowStageHandoff),
-  error: WorkflowRpcError,
-});
-const WsWorkflowsAnswerRpc = Rpc.make(WS_METHODS.workflowsAnswer, {
-  payload: WorkflowAnswerInput,
-  success: WorkflowFeatureSnapshot,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsRetryRpc = Rpc.make(WS_METHODS.workflowsRetry, {
-  payload: WorkflowRetryInput,
-  success: WorkflowFeatureSnapshot,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsCancelRpc = Rpc.make(WS_METHODS.workflowsCancel, {
-  payload: WorkflowActionInput,
-  success: WorkflowFeatureSnapshot,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsPauseRpc = Rpc.make(WS_METHODS.workflowsPause, {
-  payload: WorkflowActionInput,
-  success: WorkflowFeatureSnapshot,
-  error: WorkflowRpcError,
-});
-const WsWorkflowsResumeRpc = Rpc.make(WS_METHODS.workflowsResume, {
-  payload: WorkflowActionInput,
-  success: WorkflowFeatureSnapshot,
-  error: WorkflowRpcError,
-});
-const workflowAction = <const Tag extends string, Payload extends Schema.Top>(
-  tag: Tag,
-  payload: Payload,
-) => Rpc.make(tag, { payload, success: WorkflowFeatureSnapshot, error: WorkflowRpcError });
-const WsWorkflowsApproveRpc = workflowAction(WS_METHODS.workflowsApprove, WorkflowApproveInput);
-const WsWorkflowsRequestChangesRpc = workflowAction(
-  WS_METHODS.workflowsRequestChanges,
-  WorkflowRequestChangesInput,
-);
-const WsWorkflowsTakeOverRpc = workflowAction(WS_METHODS.workflowsTakeOver, WorkflowActionInput);
-const WsWorkflowsMarkDoneRpc = workflowAction(WS_METHODS.workflowsMarkDone, WorkflowMarkDoneInput);
-const WsWorkflowsSendBackRpc = workflowAction(WS_METHODS.workflowsSendBack, WorkflowSendBackInput);
-const WsWorkflowsSkipRpc = workflowAction(WS_METHODS.workflowsSkip, WorkflowRouteInput);
-const WsWorkflowsAcceptAsIsRpc = workflowAction(WS_METHODS.workflowsAcceptAsIs, WorkflowRouteInput);
-const WsWorkflowsOneMoreRoundRpc = workflowAction(
-  WS_METHODS.workflowsOneMoreRound,
-  WorkflowActionInput,
-);
-const WsWorkflowsStartNowRpc = workflowAction(
-  WS_METHODS.workflowsStartNow,
-  WorkflowFeatureGetInput,
-);
 const WsFeaturesStartRpc = Rpc.make(WS_METHODS.featuresStart, {
   payload: FeatureStartInput,
-  success: WorkflowFeatureSnapshot,
-  error: FeatureRpcError,
-});
-const WsFeaturesReopenRpc = Rpc.make(WS_METHODS.featuresReopen, {
-  payload: FeatureReopenInput,
-  success: WorkflowFeatureSnapshot,
-  error: FeatureRpcError,
-});
-const WsFeaturesAttachThreadRpc = Rpc.make(WS_METHODS.featuresAttachThread, {
-  payload: FeatureAttachThreadInput,
-  success: WorkflowFeatureSnapshot,
-  error: FeatureRpcError,
-});
-const WsFeaturesDetachThreadRpc = Rpc.make(WS_METHODS.featuresDetachThread, {
-  payload: FeatureDetachThreadInput,
-  success: WorkflowFeatureSnapshot,
-  error: FeatureRpcError,
-});
-const WsFeaturesThreadLinkRpc = Rpc.make(WS_METHODS.featuresThreadLink, {
-  payload: FeatureThreadInput,
-  success: FeatureThreadLink,
+  success: FeatureStartResult,
   error: FeatureRpcError,
 });
 const BotRpcError = Schema.Union([BotOperationError, EnvironmentAuthorizationError]);
@@ -2413,11 +2248,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesGetRpc,
   WsFeaturesSetStatusRpc,
   WsFeaturesStartRpc,
-  WsFeaturesReopenRpc,
   WsFeaturesSetIssueRpc,
-  WsFeaturesAttachThreadRpc,
-  WsFeaturesDetachThreadRpc,
-  WsFeaturesThreadLinkRpc,
   WsFeaturesBoardRpc,
   WsIssuesListRpc,
   WsIssuesGetRpc,
@@ -2428,29 +2259,6 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsTicketsUpdateRpc,
   WsTicketsDeleteRpc,
   WsTicketsMoveToIssueRpc,
-  WsWorkflowsListRpc,
-  WsWorkflowsEnsureStarterRpc,
-  WsWorkflowsValidateRpc,
-  WsWorkflowsCreateRpc,
-  WsWorkflowsReviseRpc,
-  WsWorkflowsDeleteRpc,
-  WsWorkflowsGetFeatureRpc,
-  WsWorkflowsGetStageHandoffRpc,
-  WsWorkflowsAnswerRpc,
-  WsWorkflowsRetryRpc,
-  WsWorkflowsCancelRpc,
-  WsWorkflowsPauseRpc,
-  WsWorkflowsResumeRpc,
-  WsWorkflowsApproveRpc,
-  WsWorkflowsRequestChangesRpc,
-  WsWorkflowsTakeOverRpc,
-  WsWorkflowsMarkDoneRpc,
-  WsWorkflowsSendBackRpc,
-  WsWorkflowsSkipRpc,
-  WsWorkflowsAcceptAsIsRpc,
-  WsWorkflowsOneMoreRoundRpc,
-  WsWorkflowsStartNowRpc,
-  WsWorkflowsSubscribeLibraryRpc,
   WsBotsListRpc,
   WsBotsCreateRpc,
   WsBotsUpdateRpc,

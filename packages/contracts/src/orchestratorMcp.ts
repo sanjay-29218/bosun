@@ -170,6 +170,12 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   target: Schema.optional(OrchestratorMcpTarget),
   title: Schema.optional(OrchestratorMcpTitle),
   role: Schema.optional(OrchestratorMcpTaskRole),
+  crewMember: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Feature leads: a crew member's name, such as 'Planner'. The child runs as that member, with its instructions and model, in the feature's checkout.",
+    }),
+  ),
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:

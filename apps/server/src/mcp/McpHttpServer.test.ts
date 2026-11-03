@@ -35,8 +35,6 @@ import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import { TicketService } from "../tickets/TicketService.ts";
-import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
-import { WorkflowService } from "../workflows/WorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as McpOAuth from "../auth/McpOAuth.ts";
@@ -1489,8 +1487,6 @@ it.effect(
               Layer.mock(FeatureService)({}),
               Layer.mock(IssueService.IssueService)({}),
               Layer.mock(TicketService)({}),
-              Layer.mock(WorkflowService)({}),
-              Layer.mock(WorkflowExecutionService)({}),
             ),
           ),
         );
@@ -1546,62 +1542,43 @@ it.effect(
           });
         const plain = yield* sessionFor("plainToken");
         const crew = yield* sessionFor("crewToken");
-        const anyCrewGrant = [
+        // Crew threads and their subagents get the crew's todo, issue and feature tools.
+        const anyCrew = [
           "crew_create_todo",
           "crew_link_issue",
           "crew_list_issues",
           "crew_read_todo",
           "crew_update_todo",
-        ];
-        // Crew threads and their subagents start features in their own project, on a workflow
-        // they can read.
-        const anyCrew = ["t3_feature_start", "t3_workflow_get", "t3_workflow_list", "upstream"];
-        const plainTools = ["t3_feature_attach_thread", "t3_feature_detach_thread", "upstream"];
+          "t3_bot_list",
+          "t3_feature_start",
+          "upstream",
+        ].sort();
+        const plainTools = ["upstream"];
 
         expect(yield* plain.listed).toEqual(plainTools);
-        // Without a crew grant, a crew thread gets no crew tool.
-        expect(yield* crew.listed).toEqual([...anyCrew, "t3_bot_list"].sort());
-        expect((yield* crew.call("crew_respond")).error?.message).toContain("crew_respond");
+        expect(yield* crew.listed).toEqual(anyCrew);
 
         // A tool a thread isn't listed is refused before its handler runs.
         expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
+        expect((yield* crew.call("t3_role_list")).error?.message).toContain("t3_role_list");
         expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
 
-        // A grant change shows on the session's next tools/list.
-        yield* sql`
-        UPDATE crew_runs SET allowed_tools_json = '["crew.respond","orchestration"]'
-        WHERE id = 'builder'
-      `;
-        // Threads and subagents alone no longer unlocks the bot or feature-link tools.
-        expect(yield* crew.listed).toEqual(
-          [...anyCrewGrant, ...anyCrew, "crew_respond", "t3_bot_list"].sort(),
-        );
-
-        // Manage workflows does.
+        // A grant change shows on the session's next tools/list: Manage bots and roles unlocks
+        // the bot and role tools.
         yield* sql`
         UPDATE crew_runs SET allowed_tools_json = '["crew.workflows"]' WHERE id = 'builder'
       `;
         expect(yield* crew.listed).toEqual(
           [
-            ...anyCrewGrant,
+            ...anyCrew,
             "t3_bot_create",
             "t3_bot_delete",
-            "t3_bot_list",
             "t3_bot_move_project",
             "t3_bot_reorder",
             "t3_bot_update",
-            "t3_feature_attach_thread",
-            "t3_feature_detach_thread",
-            "t3_feature_start",
             "t3_role_create",
             "t3_role_list",
             "t3_role_update",
-            "t3_workflow_create",
-            "t3_workflow_delete",
-            "t3_workflow_get",
-            "t3_workflow_list",
-            "t3_workflow_update",
-            "upstream",
           ].sort(),
         );
         expect(yield* plain.listed).toEqual(plainTools);

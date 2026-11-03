@@ -122,6 +122,7 @@ import {
   runtimeModeRank,
   taskPrompt,
 } from "./delegatedTaskModes.ts";
+import { CrewDelegation } from "./CrewDelegation.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
@@ -1020,6 +1021,30 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  // Bosun's feature runtime: crew members a feature's lead delegates to.
+  const crewDelegation = yield* Effect.serviceOption(CrewDelegation);
+  const resolveCrewMember = Effect.fn("OrchestratorMcpService.resolveCrewMember")(function* (
+    featureId: string | undefined,
+    name: string,
+  ) {
+    if (featureId === undefined || Option.isNone(crewDelegation)) {
+      return yield* failure(
+        "invalid_request",
+        "crewMember works only in a feature's lead thread. Omit it to start a plain subagent.",
+      );
+    }
+    const crew = crewDelegation.value;
+    const unreadable = () => failure("orchestration_error", "Unable to read the feature's crew.");
+    const member = yield* crew.member(featureId, name).pipe(Effect.mapError(unreadable));
+    if (member !== null) return member;
+    const names = yield* crew.names(featureId).pipe(Effect.mapError(unreadable));
+    return yield* failure(
+      "invalid_request",
+      names.length === 0
+        ? "This feature has no crew. Omit crewMember to start a plain subagent."
+        : `No crew member is called "${name}". The crew: ${names.join(", ")}.`,
+    );
+  });
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
 
@@ -2383,6 +2408,10 @@ const make = Effect.gen(function* () {
           : readTask(scope, taskId, false, true);
       }
       const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
+      const crewMember =
+        input.crewMember === undefined
+          ? null
+          : yield* resolveCrewMember(parent.thread.feature?.id, input.crewMember);
       const otherProjectId =
         input.target?.projectId !== undefined && input.target.projectId !== parent.thread.projectId
           ? input.target.projectId
@@ -2410,7 +2439,18 @@ const make = Effect.gen(function* () {
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
       const target = yield* resolveTargetRechecking({
         parent,
-        target: input.target,
+        // A crew member brings its own model unless the lead names another.
+        target:
+          input.target ??
+          (crewMember === null
+            ? undefined
+            : {
+                providerInstanceId: crewMember.modelSelection.instanceId,
+                model: crewMember.modelSelection.model,
+                ...(crewMember.modelSelection.options === undefined
+                  ? {}
+                  : { options: crewMember.modelSelection.options }),
+              }),
         providers,
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
       });
@@ -2471,8 +2511,12 @@ const make = Effect.gen(function* () {
           parentRunId: parentRun.id,
           parentNodeId: parentRun.rootNodeId,
           ...(otherProjectId === undefined ? {} : { projectId: otherProjectId }),
-          task: taskPrompt(input),
+          task:
+            crewMember === null
+              ? taskPrompt(input)
+              : `${crewMember.instructions.trim()}\n\n${taskPrompt(input)}`,
           ...(input.title === undefined ? {} : { title: input.title }),
+          ...(crewMember === null ? {} : { crewMember: crewMember.name }),
           modelSelection: target.modelSelection,
           runtimeMode,
           interactionMode,

@@ -1,4 +1,3 @@
-import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 import { CrewService } from "./crew/CrewService.ts";
 import {
   CommandId,
@@ -446,8 +445,7 @@ const runOrderedV2StartupPhases = Effect.fn("serverRuntimeStartup.runOrderedV2St
 const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: StartupOptions) {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const keybindings = yield* Keybindings.Keybindings;
-  const workflowExecution = yield* WorkflowExecutionService;
-  const workflowScope = yield* Effect.scope;
+  const crewScope = yield* Effect.scope;
   const crew = yield* CrewService;
   const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
@@ -589,12 +587,8 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
 
     yield* runStartupPhase("crew.reconcile", crew.reconcileRuns());
     yield* runStartupPhase(
-      "workflows.start",
-      workflowExecution.start().pipe(Scope.provide(workflowScope)),
-    );
-    yield* runStartupPhase(
       "crew.headquarters.watch",
-      crew.watchHeadquarters().pipe(Scope.provide(workflowScope)),
+      crew.watchHeadquarters().pipe(Scope.provide(crewScope)),
     );
 
     const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(

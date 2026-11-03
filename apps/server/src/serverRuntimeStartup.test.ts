@@ -47,7 +47,6 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { WorkflowExecutionService } from "./workflows/WorkflowExecutionService.ts";
 
 it.effect.each([
   "disabled-codex",
@@ -212,7 +211,6 @@ it.effect.each([
           reconcileRuns: () => Effect.void,
           watchHeadquarters: () => Effect.void,
         }),
-        Layer.mock(WorkflowExecutionService)({ start: () => Effect.void }),
         // No provider logins or Connect link, so startup records no owners.
         FileSystem.layerNoop({}),
         Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeedNone }),

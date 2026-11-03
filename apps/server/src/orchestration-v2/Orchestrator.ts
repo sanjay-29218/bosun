@@ -3914,11 +3914,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: thread.updatedAt,
           };
         case "thread.crew-stage.set":
-          // Stage bookkeeping is not thread activity, so it never delays settling.
+          // Feature bookkeeping is not thread activity, so it never delays settling.
           return {
             ...thread,
             ...(command.title === undefined ? {} : { title: command.title }),
-            ...(command.crew === undefined ? {} : { crew: command.crew }),
             ...(command.feature === undefined ? {} : { feature: command.feature }),
             ...(command.crewRequest === undefined ? {} : { crewRequest: command.crewRequest }),
           };
@@ -7816,6 +7815,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? {}
           : { branch: null, worktreePath: null }),
         ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
+        // A crew member's thread shows under its feature's lead by the member's name.
+        ...(command.crewMember !== undefined && parentProjection.thread.feature
+          ? { feature: { ...parentProjection.thread.feature, member: command.crewMember } }
+          : {}),
       };
       const task: OrchestrationV2Subagent = {
         id: taskNodeId,

@@ -1,7 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { WorkflowDefinition } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -9,7 +7,15 @@ import * as BosunMigrations from "../BosunMigrations.ts";
 import { runMigrations } from "../Migrations.ts";
 
 const model = JSON.stringify({ instanceId: "codex", model: "gpt-5" });
-const decodeDefinition = Schema.decodeUnknownSync(Schema.fromJsonString(WorkflowDefinition));
+interface MigratedDefinition {
+  readonly id: string;
+  readonly roles: Record<
+    string,
+    { readonly roleId: string; readonly roleRevision: number; readonly supervisor: string | null }
+  >;
+  readonly steps: Record<string, { readonly type: string; readonly role?: string }>;
+}
+const decodeDefinition = (json: string): MigratedDefinition => JSON.parse(json);
 
 const templateDefinition = (projectId: string, plannerRevision: number) =>
   JSON.stringify({

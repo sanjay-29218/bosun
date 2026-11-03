@@ -218,7 +218,6 @@ export type ProjectionSettlementCandidate = Pick<
   | "activityRunStatus"
   | "pendingRuntimeRequest"
   | "pendingBackgroundTasks"
-  | "crew"
   | "feature"
   | "crewRequest"
   | "pendingGuestMessageCount"
@@ -1548,7 +1547,6 @@ export function threadShellFromProjection(
     ...(projection.thread.activeOrderKey === undefined
       ? {}
       : { activeOrderKey: projection.thread.activeOrderKey }),
-    ...(projection.thread.crew == null ? {} : { crew: projection.thread.crew }),
     ...(projection.thread.feature == null ? {} : { feature: projection.thread.feature }),
     ...(projection.thread.crewRequest == null
       ? {}
@@ -1834,7 +1832,6 @@ function shellFromState(input: {
     ...(input.state.thread.activeOrderKey === undefined
       ? {}
       : { activeOrderKey: input.state.thread.activeOrderKey }),
-    ...(input.state.thread.crew == null ? {} : { crew: input.state.thread.crew }),
     ...(input.state.thread.feature == null ? {} : { feature: input.state.thread.feature }),
     ...(input.state.thread.crewRequest == null
       ? {}

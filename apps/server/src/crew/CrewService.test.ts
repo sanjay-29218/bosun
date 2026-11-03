@@ -45,7 +45,6 @@ import {
   projectBuilderMemberId,
   projectManagerMemberId,
 } from "./CrewService.ts";
-import { WorkflowLibraryLive } from "../workflows/WorkflowLibrary.ts";
 import { CrewStore, CrewStoreLive } from "./CrewStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 import { freshStartRecords, runId } from "./headquartersFreshStart.testkit.ts";
@@ -374,12 +373,12 @@ describe("Bot foundation", () => {
           yield* sql`
               INSERT INTO bots (
                 id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
-                model_selection_json, default_workflow_id, position, revision, created_at,
+                model_selection_json, position, revision, created_at,
                 updated_at
               ) VALUES (
                 'bot-second', 'Second',
                 '{"head":"round","eyes":"round","face":"visor","top":"ball","cheeks":false,"smile":false}', 'blue', 'Coordinate.', '["crew.delegate"]',
-                'approval-required', NULL, NULL, 1, 1, '2026-01-01', '2026-01-01'
+                'approval-required', NULL, 1, 1, '2026-01-01', '2026-01-01'
               )
             `;
           yield* sql`UPDATE projection_projects SET bot_id = 'bot-second'
@@ -458,7 +457,6 @@ describe("Bot foundation", () => {
       const layer = CrewServiceLive.pipe(
         Layer.provideMerge(CrewStoreLive),
         Layer.provideMerge(BotStore.layer),
-        Layer.provideMerge(WorkflowLibraryLive),
         Layer.provide(fakeRuntime),
         Layer.provide(SqlitePersistence.layerMemory),
       );
@@ -525,7 +523,6 @@ describe("Bot foundation", () => {
         const layer = CrewServiceLive.pipe(
           Layer.provideMerge(CrewStoreLive),
           Layer.provideMerge(BotStore.layer),
-          Layer.provideMerge(WorkflowLibraryLive),
           Layer.provide(fakeRuntime),
           Layer.provide(SqlitePersistence.layerMemory),
         );
@@ -551,7 +548,6 @@ describe("Bot foundation", () => {
               allowedTools: [],
               runtimeMode: "full-access",
               modelSelection,
-              defaultWorkflowId: null,
               longConversation,
               position: 1,
               revision: 1,
@@ -687,16 +683,6 @@ describe("Bot foundation", () => {
             for (const threadId of [plan.threadId, build.threadId]) {
               expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
             }
-            // A feature's lead gets its thread, but no turn until a decision is asked of it.
-            const lead = yield* bots.createRun({
-              id: "feature-lead:board",
-              memberId: "execution-1",
-              projectId,
-              taskText: "Lead",
-            });
-            expect(yield* engine.getThreadShell(lead.threadId)).toMatchObject({
-              latestRunId: null,
-            });
           }),
         orchestration,
       ).pipe(

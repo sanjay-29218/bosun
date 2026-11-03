@@ -35,12 +35,6 @@ describe("RPC authorization scopes", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
-  it("requires operate access to delete a workflow", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsDelete)).toBe(
-      AuthOrchestrationOperateScope,
-    );
-  });
-
   it("requires operate access to open a bot's headquarters, which can create its thread", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.botsOpenHeadquarters)).toBe(
       AuthOrchestrationOperateScope,

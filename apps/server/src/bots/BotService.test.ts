@@ -27,7 +27,6 @@ import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.t
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import { WorkflowStoreLive } from "../workflows/WorkflowStore.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as BotService from "./BotService.ts";
@@ -53,7 +52,6 @@ const layer = BotService.layer.pipe(
   ),
   Layer.provideMerge(RuntimeLayer.layerProjectService),
   Layer.provideMerge(BotStore.layer),
-  Layer.provideMerge(WorkflowStoreLive),
   Layer.provideMerge(ProjectEnrichmentService.layer),
   Layer.provideMerge(
     Layer.mergeAll(
@@ -158,10 +156,6 @@ it.layer(layer)("BotService", (it) => {
       assert.strictEqual(renamed.revision, 2);
       const stale = yield* Effect.exit(bots.update({ id: bot.id, expectedRevision: 1, name: "X" }));
       assert.isTrue(Exit.isFailure(stale));
-      const missingWorkflow = yield* Effect.exit(
-        bots.update({ id: bot.id, expectedRevision: 2, defaultWorkflowId: "nope" }),
-      );
-      assert.isTrue(Exit.isFailure(missingWorkflow));
     }),
   );
 

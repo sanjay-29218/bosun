@@ -46,9 +46,6 @@ export const encodeOpeningMessage = (message: OpeningMessage | null | undefined)
 export const decodeOpeningMessage = (json: string | null): OpeningMessage | null =>
   json === null ? null : Schema.decodeSync(openingMessageJson)(json);
 
-/** Leads without an opening message wait for their first decision request. */
-export const startsIdle = (runId: string) => runId.startsWith("feature-lead:");
-
 export interface CrewThreadStart {
   readonly runId: string;
   readonly memberId: string;
@@ -229,16 +226,12 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           ? { type: "existing_worktree", ...workspace }
           : { type: "root" },
         runSetupScript: !inUse,
-        ...(startsIdle(input.runId) && input.openingMessage == null
-          ? {}
-          : {
-              initialMessage: {
-                messageId: MessageId.make(`${prefix}:${input.runId}:message`),
-                text: input.prompt,
-                attachments: input.openingMessage?.attachments ?? [],
-                context: origin(input),
-              },
-            }),
+        initialMessage: {
+          messageId: MessageId.make(`${prefix}:${input.runId}:message`),
+          text: input.prompt,
+          attachments: input.openingMessage?.attachments ?? [],
+          context: origin(input),
+        },
         createdBy: "agent",
         creationSource: "mcp",
       });

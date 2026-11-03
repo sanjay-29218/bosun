@@ -1,43 +1,20 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import * as NodeCrypto from "node:crypto";
 
 import * as EffectNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import {
-  botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
-  ChatAttachmentId,
-  CommandId,
-  ComposerContextId,
-  EventId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  RunId,
-  ThreadId,
-  type OrchestrationV2Run,
-} from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
+import { CAPTAIN_BOT_ID, CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
-import { CrewService, projectManagerMemberId } from "../crew/CrewService.ts";
-import { CrewStore } from "../crew/CrewStore.ts";
-import { WorkflowRuntimeLive } from "../workflows/runtimeLayer.ts";
-import { WorkflowWorkspaceEmpty } from "../workflows/WorkflowWorkspace.ts";
-import { WorkflowService } from "../workflows/WorkflowService.ts";
-import { WorkflowStore } from "../workflows/WorkflowStore.ts";
-import { WorkflowExecutionStore } from "../workflows/WorkflowExecutionStore.ts";
-import { createPendingAttachmentId } from "../attachmentStore.ts";
+import { CrewService } from "../crew/CrewService.ts";
+import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
@@ -48,13 +25,13 @@ import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import { WorkflowExecutionService } from "../workflows/WorkflowExecutionService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
+import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { firstIssueRef } from "./featureIssue.ts";
 
 const projectId = ProjectId.make("workflow-feature-project");
@@ -81,30 +58,18 @@ const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceContr
   },
 );
 
-const encodeBotIdentity = Schema.encodeSync(
-  Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
-);
-
 const withSystem = <E>(
   exercise: Effect.Effect<
     void,
     E,
     | FeatureService
     | CrewService
-    | CrewStore
-    | WorkflowService
-    | WorkflowStore
-    | WorkflowExecutionStore
-    | WorkflowExecutionService
     | OrchestrationEngineService
-    | ProjectionStore.ProjectionStoreV2
     | BotStore.BotStore
-    | ProjectStore.ProjectStoreV2
-    | ServerSettingsService
     | SqlClient.SqlClient
     | TextGeneration.TextGeneration
-    | SourceControlProviderRegistry.SourceControlProviderRegistry
-    | ServerConfig
+    | ProjectStore.ProjectStoreV2
+    | ServerSettingsService
   >,
 ) =>
   Effect.gen(function* () {
@@ -113,12 +78,8 @@ const withSystem = <E>(
     );
     const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
-      Layer.provideMerge(
-        WorkflowRuntimeLive.pipe(
-          Layer.provide(WorkflowWorkspaceEmpty),
-          Layer.provide(orchestration),
-        ),
-      ),
+      Layer.provideMerge(FeatureWorkspacesLive),
+      Layer.provideMerge(CrewRuntimeLive.pipe(Layer.provide(orchestration))),
       Layer.provideMerge(orchestration),
       // Stateless over SQLite, so seeded threads read back through the orchestrator.
       Layer.provideMerge(ProjectionStore.layer),
@@ -142,11 +103,7 @@ const withSystem = <E>(
       ),
     );
     yield* Effect.gen(function* () {
-      yield* seedCrewProject({
-        projectId,
-        title: "Feature project",
-        workspaceRoot: directory,
-      });
+      yield* seedCrewProject({ projectId, title: "Feature project", workspaceRoot: directory });
       yield* seedCrewProject({
         projectId: scratchProjectId,
         title: "Scratch",
@@ -162,270 +119,96 @@ const withSystem = <E>(
     );
   });
 
-describe("feature creation", () => {
-  effectIt.effect(
-    "pins the selected workflow and named crew across edits and duplicate creation",
-    () =>
-      withSystem(
-        Effect.gen(function* () {
-          const features = yield* FeatureService;
-          const workflows = yield* WorkflowService;
-          const bots = yield* CrewService;
-          const store = yield* CrewStore;
-          const definition = yield* workflows.ensureStarterDefinition();
-          const selected = {
-            ...definition,
-            id: "custom-crew",
-            name: "Custom crew",
-            roles: {
-              ...definition.roles,
-              second_planner: { roleId: "role:planner", roleRevision: 1, supervisor: "designer" },
-            },
-          };
-          yield* workflows.createDefinition(selected);
-          const input = {
-            id: "selected-feature",
-            projectId,
-            title: "Selected workflow",
-            brief: "Use the custom crew",
-            workflowId: selected.id,
-          };
-          const created = yield* features.create(input);
-          expect(created.number).toBe(1);
-          expect(created.workflowId).toBe(selected.id);
-          expect(created.workflowRevision).toBe(selected.revision);
-          expect((yield* features.get(created.id))?.workflowRevision).toBe(selected.revision);
-          expect(created.crewAssignments.manager).toBe(projectManagerMemberId(projectId));
-          expect(created.crewAssignments.second_planner).not.toBe(created.crewAssignments.planner);
-          const crew = (yield* store.listMembersForProject(projectId)).filter(
-            (bot) => bot.featureId === created.id,
-          );
-          expect(crew).toHaveLength(5);
-          expect(crew.every((bot) => bot.roleRevision === 1)).toBe(true);
-          expect(
-            yield* store.canDelegate(
-              created.crewAssignments.designer!,
-              created.crewAssignments.second_planner!,
-              projectId,
-            ),
-          ).toBe(true);
-          expect(
-            yield* store.canDelegate(
-              created.crewAssignments.manager!,
-              created.crewAssignments.second_planner!,
-              projectId,
-            ),
-          ).toBe(false);
-          const copy = yield* workflows.getFeatureCopy(created.id);
-          const role = (yield* store.getRole("role:planner"))!;
-          yield* bots.updateRole({
-            ...role,
-            expectedRevision: role.revision,
-            instructions: "Updated planner",
-          });
-          const revised = {
-            ...selected,
-            revision: 2,
-            roles: {
-              ...selected.roles,
-              planner: { ...definition.roles.planner!, roleRevision: 2 },
-              second_planner: { ...selected.roles.second_planner, roleRevision: 2 },
-            },
-          };
-          yield* workflows.reviseDefinition(revised, 1);
-          expect(yield* features.create(input)).toEqual(created);
-          expect(yield* features.get(created.id)).toEqual(created);
-          expect((yield* features.create({ ...input, id: "next-feature" })).number).toBe(2);
-          expect(yield* workflows.getFeatureCopy(created.id)).toEqual(copy);
-          expect((yield* store.getMember(created.crewAssignments.planner!))?.instructions).toBe(
-            role.instructions,
-          );
-          expect(
-            (yield* features.create({ ...input, workflowId: definition.id }).pipe(Effect.result))
-              ._tag,
-          ).toBe("Failure");
-          expect(
-            (yield* features.setStatus(created.id, projectId, "closed")).crewAssignments,
-          ).toEqual(created.crewAssignments);
-          expect(
-            (yield* features.setStatus(created.id, projectId, "open")).crewAssignments,
-          ).toEqual(created.crewAssignments);
-          expect(yield* workflows.getFeatureCopy(created.id)).toEqual(copy);
-        }),
-      ),
+describe("feature lead and crew", () => {
+  effectIt.effect("starts its lead with the brief once, naming the crew it can delegate to", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const target = { id: "lead-feature", projectId };
+        const feature = yield* features.create({
+          ...target,
+          title: "Dark mode",
+          brief: "Add a dark mode toggle to settings",
+          workspace: "local",
+        });
+        // Every role that joins features gets a member; the manager leads instead.
+        expect(Object.keys(feature.crewAssignments).toSorted()).toEqual([
+          "role:builder",
+          "role:designer",
+          "role:planner",
+          "role:qa-tester",
+          "role:reviewer",
+        ]);
+        expect((yield* features.board(projectId))[0]?.leadThreadId).toBeNull();
+
+        const started = yield* features.start(target.id, projectId);
+        // Starting again, as a retry does, returns the same lead.
+        expect((yield* features.start(target.id, projectId)).leadThreadId).toBe(
+          started.leadThreadId,
+        );
+        const shell = (yield* engine.getThreadShell(started.leadThreadId))!;
+        expect(shell.feature).toEqual({ id: target.id, title: "Dark mode" });
+        const { messages } = yield* engine.getThreadRecords(started.leadThreadId, ["messages"], {
+          messageRoles: ["user"],
+        });
+        expect(messages).toHaveLength(1);
+        expect(messages[0]!.text).toContain("Add a dark mode toggle to settings");
+        expect(messages[0]!.text).toMatch(/Your crew: [^.]*Planner[^.]*\./);
+        expect(messages[0]!.text).toContain("setting crewMember to their name");
+        expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(started.leadThreadId);
+      }),
+    ),
   );
 
-  effectIt.effect(
-    "rolls back a failed attachment and retries without leftover bots or copies",
-    () =>
-      withSystem(
-        Effect.gen(function* () {
-          const features = yield* FeatureService;
-          const workflows = yield* WorkflowService;
-          const store = yield* CrewStore;
-          const bots = yield* CrewService;
-          const input = {
-            id: "recovered-feature",
-            projectId,
-            title: "Recover creation",
-            brief: "Retry safely",
-            workflowId: "feature-delivery",
-          };
-          expect((yield* features.create(input).pipe(Effect.result))._tag).toBe("Failure");
-          expect(yield* features.get(input.id)).toBeNull();
-          expect(yield* workflows.getFeatureCopy(input.id)).toBeNull();
-          yield* workflows.ensureStarterDefinition();
-          // Fail after snapshot creation and the first bot insert to exercise transaction rollback.
-          const lateInput = { ...input, id: "late-failure" };
-          const collisionId = `feature-bot:${NodeCrypto.createHash("sha256")
-            .update(encodeBotIdentity([lateInput.id, "designer"]))
-            .digest("hex")
-            .slice(0, 32)}`;
-          yield* bots.createMember({
-            id: collisionId,
-            projectId,
-            name: "Existing unrelated bot",
-            instructions: "Keep me",
-            allowedTools: [],
-            modelSelection,
-            runtimeMode: "approval-required",
-          });
-          expect((yield* features.create(lateInput).pipe(Effect.result))._tag).toBe("Failure");
-          expect(yield* features.get(lateInput.id)).toBeNull();
-          expect(yield* workflows.getFeatureCopy(lateInput.id)).toBeNull();
-          expect(
-            (yield* store.listMembersForProject(projectId)).filter(
-              (bot) => bot.featureId === lateInput.id,
-            ),
-          ).toHaveLength(0);
-          const created = yield* features.create(input);
-          expect(created.status).toBe("open");
-          expect(yield* features.create(input)).toEqual(created);
-
-          // The brief's files are claimed under the feature once; a retry claims nothing.
-          const config = yield* ServerConfig;
-          const pendingId = createPendingAttachmentId("png")!;
-          NodeFS.mkdirSync(config.attachmentsDir, { recursive: true });
-          NodeFS.writeFileSync(
-            NodePath.join(config.attachmentsDir, `${pendingId}.png`),
-            new Uint8Array([1, 2, 3]),
-          );
-          const withFiles = {
-            ...input,
-            id: "feature-with-files",
-            briefContext: {
-              version: 1 as const,
-              records: [
-                {
-                  version: 1 as const,
-                  contextId: ComposerContextId.make("sketch"),
-                  kind: "image" as const,
-                  label: "sketch.png",
-                  attachmentId: pendingId,
-                  name: "sketch.png",
-                  mimeType: "image/png",
-                  sizeBytes: 3,
-                },
-              ],
-            },
-            briefAttachments: [
-              {
-                type: "image" as const,
-                id: ChatAttachmentId.make(pendingId),
-                name: "sketch.png",
-                mimeType: "image/png",
-                sizeBytes: 3,
-              },
-            ],
-          };
-          expect(
-            (yield* features
-              .create({ ...withFiles, id: "failed-with-files", workflowId: "missing" })
-              .pipe(Effect.result))._tag,
-          ).toBe("Failure");
-          expect(
-            NodeFS.readdirSync(config.attachmentsDir).some((name) =>
-              name.startsWith("failed-with-files-"),
-            ),
-          ).toBe(false);
-          const filed = yield* features.create(withFiles);
-          expect(filed.briefAttachments).toMatchObject([{ name: "sketch.png", sizeBytes: 3 }]);
-          expect(filed.briefAttachments![0]!.id).toMatch(/^feature-with-files-/);
-          expect((yield* features.get(filed.id))?.briefAttachments).toEqual(filed.briefAttachments);
-          const sql = yield* SqlClient.SqlClient;
-          expect(
-            yield* sql`SELECT json_extract(brief_message_json, '$.context.records[0].attachmentId') AS attachmentId FROM features WHERE id = ${filed.id}`,
-          ).toEqual([{ attachmentId: filed.briefAttachments![0]!.id }]);
-          expect(yield* features.create(withFiles)).toEqual(filed);
-          expect(
-            (yield* features
-              .create({
-                ...withFiles,
-                briefAttachments: [
-                  { ...withFiles.briefAttachments[0]!, id: createPendingAttachmentId("png") },
-                ],
-              })
-              .pipe(Effect.flip)).message,
-          ).toContain("another request");
-          expect(
-            (yield* features
-              .create({
-                ...withFiles,
-                briefContext: {
-                  version: 1,
-                  records: [
-                    {
-                      version: 1,
-                      contextId: ComposerContextId.make("new-context"),
-                      kind: "note",
-                      label: "Changed context",
-                      payload: { note: "Changed" },
-                    },
-                  ],
-                },
-              })
-              .pipe(Effect.flip)).message,
-          ).toContain("another request");
-          expect(
-            NodeFS.readdirSync(config.attachmentsDir).filter((name) =>
-              name.startsWith("feature-with-files-"),
-            ),
-          ).toHaveLength(1);
-          expect(
-            (yield* features.create({ ...withFiles, briefAttachments: [] }).pipe(Effect.flip))
-              .message,
-          ).toContain("another request");
-        }),
-      ),
+  effectIt.effect("finds a crew member by name or role for its lead, and no one else", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        yield* features.create({
+          id: "crew-feature",
+          projectId,
+          title: "Crew",
+          brief: "Exercise the crew",
+          workspace: "local",
+        });
+        const planner = yield* features.crewMember("crew-feature", " planner ");
+        expect(planner).toMatchObject({ name: "Planner", modelSelection });
+        expect(planner?.instructions).toContain("You are the Planner on a feature's crew.");
+        expect((yield* features.crewMember("crew-feature", "role:builder"))?.name).toBe("Builder");
+        expect(yield* features.crewMember("crew-feature", "Stylist")).toBeNull();
+        expect(yield* features.crewMember("no-such-feature", "Planner")).toBeNull();
+        expect((yield* features.crewMemberNames("crew-feature")).toSorted()).toEqual([
+          "Builder",
+          "Designer",
+          "Planner",
+          "QA Tester",
+          "Reviewer",
+        ]);
+      }),
+    ),
   );
 
   effectIt.effect("swaps a composer feature's stand-in title for a generated one", () =>
     withSystem(
       Effect.gen(function* () {
         const features = yield* FeatureService;
-        const crew = yield* CrewService;
-        const executions = yield* WorkflowExecutionStore;
         const engine = yield* OrchestrationEngineService;
-        yield* (yield* WorkflowService).ensureStarterDefinition();
         const standIn = "Um so let's add uh a dark mode toggle";
         const input = {
           id: "titled-feature",
           projectId,
           title: standIn,
           brief: `${standIn} to the settings page`,
-          workflowId: "feature-delivery",
+          workspace: "local" as const,
           autoTitle: true,
         };
         const feature = yield* features.create(input);
         expect(feature).not.toHaveProperty("autoTitle");
         // A retry may send a different stand-in once the title was replaced.
         expect(yield* features.create({ ...input, title: "Dark mode" })).toEqual(feature);
-        yield* features.start(input.id, projectId);
-        const managerRun = yield* crew.getRun(
-          (yield* executions.get(input.id))!.bindings.planner!.dispatchRunId,
-        );
-        const managerThreadId = managerRun!.run.threadId;
-        // A stage thread is named after the feature when it starts.
+        const { leadThreadId: managerThreadId } = yield* features.start(input.id, projectId);
+        // A thread named after the feature's stand-in follows its new title.
         yield* engine.dispatch({
           type: "thread.crew-stage.set",
           commandId: CommandId.make("titled-feature:stage-title"),
@@ -452,23 +235,17 @@ describe("feature creation", () => {
     withSystem(
       Effect.gen(function* () {
         const features = yield* FeatureService;
-        const crew = yield* CrewService;
-        const executions = yield* WorkflowExecutionStore;
         const engine = yield* OrchestrationEngineService;
-        yield* (yield* WorkflowService).ensureStarterDefinition();
         const target = { id: "issue-feature", projectId };
         yield* features.create({
           ...target,
           title: "Dark mode",
           brief: "Add dark mode",
-          workflowId: "feature-delivery",
+          workspace: "local",
         });
-        yield* features.start(target.id, projectId);
-        const run = yield* crew.getRun(
-          (yield* executions.get(target.id))!.bindings.planner!.dispatchRunId,
-        );
+        const { leadThreadId } = yield* features.start(target.id, projectId);
         const tagOf = () =>
-          engine.getThreadShell(run!.run.threadId).pipe(Effect.map((shell) => shell!.feature));
+          engine.getThreadShell(leadThreadId).pipe(Effect.map((shell) => shell!.feature));
 
         const linked = yield* features.setIssue({
           ...target,
@@ -503,13 +280,12 @@ describe("feature creation", () => {
       Effect.gen(function* () {
         const features = yield* FeatureService;
         const sql = yield* SqlClient.SqlClient;
-        yield* (yield* WorkflowService).ensureStarterDefinition();
         const target = { id: "ticket-feature", projectId };
         yield* features.create({
           ...target,
           title: "Board",
           brief: "Sketch the board",
-          workflowId: "feature-delivery",
+          workspace: "local",
         });
         yield* sql`
           INSERT INTO tickets (id, project_id, number, title, description, state, created_at, updated_at)
@@ -531,139 +307,6 @@ describe("feature creation", () => {
         expect(missing.message).toBe("No ticket T-8 in this project");
         expect(firstIssueRef("Sketch it\n\nTicket T-7")).toBe("T-7");
         expect(firstIssueRef("Fix T-7 later")).toBeNull();
-      }),
-    ),
-  );
-
-  effectIt.effect("binds a workflow's project manager role to the project's manager", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const store = yield* CrewStore;
-        yield* (yield* WorkflowService).ensureStarterDefinition();
-        const managerId = projectManagerMemberId(projectId);
-        expect(yield* store.getMember(managerId)).toBeNull();
-        const create = (id: string) =>
-          features.create({
-            id,
-            projectId,
-            title: id,
-            brief: "Run the starter workflow",
-            workflowId: "feature-delivery",
-          });
-        const first = yield* create("managed-one");
-        const second = yield* create("managed-two");
-        expect(first.crewAssignments.manager).toBe(managerId);
-        expect(second.crewAssignments.manager).toBe(managerId);
-        expect((yield* store.getMember(managerId))?.featureId).toBeNull();
-        expect(first.crewAssignments.planner).not.toBe(second.crewAssignments.planner);
-      }),
-    ),
-  );
-
-  effectIt.effect("leads every project's features from the bot's one pinned headquarters", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const crew = yield* CrewService;
-        const executions = yield* WorkflowExecutionStore;
-        const engine = yield* OrchestrationEngineService;
-        yield* (yield* WorkflowService).ensureStarterDefinition();
-        const otherProjectId = ProjectId.make("workflow-feature-other");
-        yield* seedCrewProject({
-          projectId: otherProjectId,
-          title: "Other project",
-          workspaceRoot: NodePath.join(NodeOS.tmpdir(), "feature-other"),
-        });
-        const leads = (
-          id: string,
-          project: ProjectId,
-          workflowId = "feature-delivery",
-          withFiles = true,
-        ) =>
-          Effect.gen(function* () {
-            const config = yield* ServerConfig;
-            const pendingId = createPendingAttachmentId("png")!;
-            NodeFS.mkdirSync(config.attachmentsDir, { recursive: true });
-            NodeFS.writeFileSync(
-              NodePath.join(config.attachmentsDir, `${pendingId}.png`),
-              new Uint8Array([1, 2, 3]),
-            );
-            const feature = yield* features.create({
-              id,
-              projectId: project,
-              title: `Feature ${id}`,
-              brief: "Run the starter workflow",
-              workflowId,
-              briefAttachments: withFiles
-                ? [
-                    {
-                      type: "image",
-                      id: ChatAttachmentId.make(pendingId),
-                      name: "brief.png",
-                      mimeType: "image/png",
-                      sizeBytes: 3,
-                    },
-                  ]
-                : [],
-              briefContext: {
-                version: 1,
-                records: [
-                  {
-                    version: 1,
-                    contextId: ComposerContextId.make("brief-note"),
-                    kind: "note",
-                    label: "Constraint",
-                    payload: { note: "Keep the shared worktree" },
-                  },
-                ],
-              },
-            });
-            yield* features.start(id, project);
-            const bindings = (yield* executions.get(id))!.bindings;
-            const thread = (role: string) =>
-              crew.getRun(bindings[role]!.dispatchRunId).pipe(
-                Effect.flatMap((view) => engine.getThreadShell(view!.run.threadId)),
-                Effect.map((shell) => shell!),
-              );
-            return { bot: yield* thread("manager"), manager: yield* thread("planner"), feature };
-          });
-        const first = yield* leads("lead-one", projectId, "feature-delivery-auto");
-        const second = yield* leads("lead-two", otherProjectId);
-
-        expect(first.bot.id).toBe(botHeadquartersThreadId(CAPTAIN_BOT_ID));
-        expect(second.bot.id).toBe(first.bot.id);
-        expect(first.bot.projectId).toBe(scratchProjectId);
-        expect(first.bot.title).toBe("Captain");
-        expect(first.bot.pinnedAt).not.toBeNull();
-        expect(first.bot.feature ?? null).toBeNull();
-
-        expect(first.manager.projectId).toBe(projectId);
-        expect(second.manager.projectId).toBe(otherProjectId);
-        expect(first.manager.title).toBe("Project manager");
-        expect(first.manager.feature).toEqual({ id: "lead-one", title: "Feature lead-one" });
-        expect(second.manager.feature).toEqual({ id: "lead-two", title: "Feature lead-two" });
-        const leadMessages = () =>
-          engine.getThreadRecords(first.manager.id, ["messages"], {
-            messageRoles: ["user"],
-          });
-        const opening = (yield* leadMessages()).messages;
-        expect(opening).toHaveLength(1);
-        expect(opening[0]?.text).toContain("Run the starter workflow");
-        expect(opening[0]?.text).toContain("never delegate stage work yourself");
-        expect(opening[0]?.attachments).toEqual(first.feature.briefAttachments);
-        expect(opening[0]?.context?.records).toContainEqual(
-          expect.objectContaining({ kind: "note", payload: { note: "Keep the shared worktree" } }),
-        );
-        yield* features.start("lead-one", projectId);
-        expect((yield* leadMessages()).messages).toHaveLength(1);
-        const textOnly = yield* leads("lead-text", projectId, "feature-delivery-auto", false);
-        const textOpening = yield* engine.getThreadRecords(textOnly.manager.id, ["messages"], {
-          messageRoles: ["user"],
-        });
-        expect(textOpening.messages).toHaveLength(1);
-        expect(textOpening.messages[0]?.text).toContain("Run the starter workflow");
-        expect(textOpening.messages[0]?.attachments).toEqual([]);
       }),
     ),
   );
@@ -715,573 +358,5 @@ describe("feature creation", () => {
           expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
         }),
       ),
-  );
-
-  effectIt.effect("deletes a workflow only once nothing still runs or starts on it", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const workflows = yield* WorkflowService;
-        const bots = yield* BotStore.BotStore;
-        yield* workflows.ensureStarterDefinition();
-        yield* features.create({
-          id: "uses-starter",
-          projectId,
-          title: "Ship the thing",
-          brief: "Run the starter workflow",
-          workflowId: "feature-delivery",
-        });
-        const refused = yield* workflows.deleteDefinition("feature-delivery").pipe(Effect.flip);
-        expect(refused.message).toContain('"Ship the thing" still runs on it');
-
-        // A finished feature keeps its own copy, so it no longer holds the workflow.
-        yield* workflows.recordTrustedEvent("uses-starter", {
-          id: "cancel",
-          stepId: "plan",
-          executionId: null,
-          kind: "cancelled",
-          runId: null,
-          outcome: null,
-          sourceKind: null,
-          sourceId: null,
-          actorId: "user",
-          detail: null,
-          occurredAt: "2026-10-14T00:00:00.000Z",
-        });
-        const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;
-        yield* bots.update(
-          { ...captain, defaultWorkflowId: "feature-delivery", revision: captain.revision + 1 },
-          captain.revision,
-        );
-        expect(
-          (yield* workflows.deleteDefinition("feature-delivery").pipe(Effect.flip)).message,
-        ).toContain("Captain starts its features with it");
-
-        const current = (yield* bots.get(CAPTAIN_BOT_ID))!;
-        yield* bots.update(
-          { ...current, defaultWorkflowId: null, revision: current.revision + 1 },
-          current.revision,
-        );
-        yield* workflows.deleteDefinition("feature-delivery");
-        expect(yield* workflows.getLatestDefinition("feature-delivery")).toBeNull();
-        expect((yield* workflows.getFeatureCopy("uses-starter"))?.definition.id).toBe(
-          "feature-delivery",
-        );
-        // The starter can come back after it was deleted.
-        expect((yield* workflows.ensureStarterDefinition()).revision).toBe(1);
-      }),
-    ),
-  );
-
-  effectIt.effect("requires a terminal workflow before closing an attached execution", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const workflows = yield* WorkflowService;
-        const executions = yield* WorkflowExecutionStore;
-        yield* workflows.ensureStarterDefinition();
-        const feature = yield* features.create({
-          id: "executing-feature",
-          projectId,
-          title: "Running",
-          brief: "Keep work visible",
-          workflowId: "feature-delivery",
-        });
-        yield* executions.attach(feature.id, {});
-        expect(
-          (yield* features.setStatus(feature.id, projectId, "closed").pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        expect((yield* features.get(feature.id))?.status).toBe("open");
-        yield* workflows.recordTrustedEvent(feature.id, {
-          id: "cancel",
-          stepId: "plan",
-          executionId: null,
-          kind: "cancelled",
-          runId: null,
-          outcome: null,
-          sourceKind: null,
-          sourceId: null,
-          actorId: "user",
-          detail: null,
-          occurredAt: "2026-09-30T00:00:00.000Z",
-        });
-        expect((yield* features.setStatus(feature.id, projectId, "closed")).status).toBe("closed");
-        expect((yield* features.setStatus(feature.id, projectId, "open")).status).toBe("open");
-        expect((yield* workflows.getFeatureSnapshot(feature.id, projectId))?.cancelled).toBe(true);
-      }),
-    ),
-  );
-  effectIt.effect("lists board cards only for features that run a workflow", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const workflows = yield* WorkflowService;
-        yield* workflows.ensureStarterDefinition();
-        yield* features.create({
-          id: "board-feature",
-          projectId,
-          title: "On the board",
-          brief: "Run the starter workflow",
-          workflowId: "feature-delivery",
-        });
-        yield* features.create({
-          id: "plain-feature",
-          projectId,
-          title: "No workflow",
-          brief: "Bots only",
-        });
-        const board = yield* features.board(projectId);
-        expect(board.map((card) => card.featureId)).toEqual(["board-feature"]);
-        expect(board[0]).toMatchObject({
-          title: "On the board",
-          started: false,
-          threadId: null,
-          workflow: { id: "feature-delivery", revision: 1, latestRevision: 1 },
-          stage: { stepId: "plan", index: 1, role: "planner", gate: true },
-        });
-      }),
-    ),
-  );
-
-  effectIt.effect("creates a feature with independent enabled bot instances exactly once", () =>
-    Effect.gen(function* () {
-      const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "workflow-feature-")),
-      );
-      const databasePath = NodePath.join(directory, "state.sqlite");
-      const orchestration = OrchestrationLayerLive;
-      const crewRuntime = WorkflowRuntimeLive.pipe(
-        Layer.provide(WorkflowWorkspaceEmpty),
-        Layer.provide(orchestration),
-      );
-      const layer = FeatureServiceLive.pipe(
-        Layer.provideMerge(crewRuntime),
-        Layer.provideMerge(orchestration),
-        Layer.provide(SqlitePersistence.layerFromPath(databasePath)),
-        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "feature-test-" })),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
-        Layer.provideMerge(TextGenerationPending),
-        Layer.provideMerge(SourceControlIssues),
-        Layer.provideMerge(RepositoryIdentityResolver.layer),
-        Layer.provideMerge(
-          DocumentText.layer.pipe(
-            Layer.provideMerge(Layer.mergeAll(NodeServices.layer, EffectNodeCrypto.layer)),
-          ),
-        ),
-      );
-      const exercise = Effect.gen(function* () {
-        const bots = yield* CrewService;
-        const crewStore = yield* CrewStore;
-        const features = yield* FeatureService;
-        yield* seedCrewProject({
-          projectId,
-          title: "Workflow feature project",
-          workspaceRoot: `/tmp/${projectId}`,
-        });
-        yield* bots.ensureDefaults(modelSelection);
-        const extra = yield* bots.createRole({
-          id: "role:writer",
-          name: "Writer",
-          instructions: "Write the feature copy.",
-          allowedTools: [],
-          modelSelection,
-          runtimeMode: "approval-required",
-          autoCreateForFeature: true,
-        });
-        const disabled = yield* bots.createRole({
-          id: "role:disabled",
-          name: "Disabled",
-          instructions: "Do not copy me.",
-          allowedTools: [],
-          modelSelection,
-          runtimeMode: "approval-required",
-          autoCreateForFeature: true,
-        });
-        yield* bots.updateRole({
-          ...disabled,
-          expectedRevision: disabled.revision,
-          enabled: false,
-        });
-
-        const input = {
-          id: "feature-one",
-          projectId,
-          title: "Deliver the feature",
-          brief: "Plan, build, test, and review it.",
-        };
-        const created = yield* features.create(input);
-        expect(created.status).toBe("open");
-        expect(created.updatedAt).toBe(created.createdAt);
-        expect(created.workflowId).toBeNull();
-        expect(created.workflowRevision).toBeNull();
-        const featureBots = (yield* crewStore.listMembersForProject(projectId)).filter(
-          (bot) => bot.featureId === input.id,
-        );
-        expect(featureBots).toHaveLength(6);
-        expect(featureBots.map((bot) => bot.roleId)).toContain(extra.id);
-        expect(featureBots.map((bot) => bot.roleId)).not.toContain(disabled.id);
-        expect(featureBots.every((bot) => bot.roleRevision === 1)).toBe(true);
-        for (const bot of featureBots) {
-          expect(
-            yield* crewStore.canDelegate(projectManagerMemberId(projectId), bot.id, projectId),
-          ).toBe(true);
-        }
-
-        yield* bots.updateRole({
-          ...extra,
-          expectedRevision: extra.revision,
-          instructions: "New role instructions",
-        });
-        expect(yield* features.create(input)).toEqual(created);
-        expect((yield* features.listByProject(projectId)).map((feature) => feature.id)).toEqual([
-          input.id,
-        ]);
-        expect(
-          (yield* crewStore.getMember(featureBots.find((bot) => bot.roleId === extra.id)!.id))
-            ?.instructions,
-        ).toBe("Write the feature copy.");
-        expect(
-          (yield* features.create({ ...input, title: "Different" }).pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        expect(
-          (yield* features
-            .create({ ...input, id: "bad-feature", projectId: ProjectId.make("missing-project") })
-            .pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        expect(yield* features.get("bad-feature")).toBeNull();
-        const closed = yield* features.setStatus(created.id, projectId, "closed");
-        expect(closed.status).toBe("closed");
-        expect(yield* features.setStatus(created.id, projectId, "closed")).toEqual(closed);
-        expect(
-          (yield* features
-            .setStatus(created.id, ProjectId.make("another-project"), "open")
-            .pipe(Effect.result))._tag,
-        ).toBe("Failure");
-        const reopened = yield* features.setStatus(created.id, projectId, "open");
-        expect(reopened.status).toBe("open");
-        expect(reopened.crewAssignments).toEqual(created.crewAssignments);
-        expect(
-          (yield* crewStore.listMembersForProject(projectId)).filter(
-            (bot) => bot.featureId === created.id,
-          ),
-        ).toHaveLength(6);
-      }).pipe(Effect.provide(layer));
-      yield* exercise.pipe(
-        Effect.ensuring(
-          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
-        ),
-      );
-    }),
-  );
-});
-
-/** A person's thread whose latest turn has `status`, ending with `reply` when it has one. */
-const seedThread = (
-  id: string,
-  options: {
-    readonly status: OrchestrationV2Run["status"];
-    readonly reply?: string;
-    readonly project?: ProjectId;
-    readonly archived?: boolean;
-  },
-) =>
-  Effect.gen(function* () {
-    const store = yield* ProjectionStore.ProjectionStoreV2;
-    const now = yield* DateTime.now;
-    const threadId = ThreadId.make(id);
-    const runId = RunId.make(`${id}:run`);
-    const instanceId = ProviderInstanceId.make("codex");
-    yield* store.apply({
-      id: EventId.make(`${id}:created`),
-      type: "thread.created",
-      threadId,
-      occurredAt: now,
-      payload: {
-        id: threadId,
-        projectId: options.project ?? projectId,
-        title: "Reconnect loop after sleep",
-        providerInstanceId: instanceId,
-        modelSelection: { instanceId, model: "test" },
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: "fix/reconnect",
-        worktreePath: null,
-        activeProviderThreadId: null,
-        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-        forkedFrom: null,
-        createdBy: "user",
-        creationSource: "web",
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: options.archived ? now : null,
-        settledOverride: null,
-        settledAt: null,
-        lastVisitedAt: null,
-        deletedAt: null,
-      },
-    });
-    const message = (role: "user" | "assistant", text: string) =>
-      store.apply({
-        id: EventId.make(`${id}:${role}`),
-        type: "message.updated",
-        threadId,
-        runId,
-        occurredAt: now,
-        payload: {
-          id: MessageId.make(`${id}:${role}`),
-          threadId,
-          runId,
-          nodeId: null,
-          role,
-          text,
-          attachments: [],
-          streaming: false,
-          createdBy: "user",
-          creationSource: "web",
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-    yield* message("user", "The socket reconnects twice after the laptop sleeps.");
-    yield* setRun(id, options.status);
-    if (options.reply) yield* message("assistant", options.reply);
-    return threadId;
-  });
-
-const setRun = (id: string, status: OrchestrationV2Run["status"]) =>
-  Effect.gen(function* () {
-    const store = yield* ProjectionStore.ProjectionStoreV2;
-    const now = yield* DateTime.now;
-    const threadId = ThreadId.make(id);
-    const instanceId = ProviderInstanceId.make("codex");
-    yield* store.apply({
-      id: EventId.make(`${id}:run:${status}`),
-      type: "run.updated",
-      threadId,
-      runId: RunId.make(`${id}:run`),
-      occurredAt: now,
-      payload: {
-        id: RunId.make(`${id}:run`),
-        threadId,
-        ordinal: 1,
-        providerInstanceId: instanceId,
-        modelSelection: { instanceId, model: "test" },
-        providerThreadId: null,
-        userMessageId: MessageId.make(`${id}:user`),
-        rootNodeId: null,
-        activeAttemptId: null,
-        status,
-        requestedAt: now,
-        startedAt: now,
-        completedAt: status === "completed" ? now : null,
-        checkpointId: null,
-        contextHandoffId: null,
-      },
-    });
-  });
-
-describe("making a thread a feature", () => {
-  const attach = (threadId: ThreadId, stageId: string, featureId = "attached") =>
-    Effect.gen(function* () {
-      const workflow = yield* (yield* WorkflowService).ensureStarterDefinition();
-      return yield* (yield* FeatureService).attachThread({
-        featureId,
-        projectId,
-        threadId,
-        workflowId: workflow.id,
-        stageId,
-        title: "Reconnect loop after sleep",
-        actorId: "person",
-      });
-    });
-  const status = (
-    snapshot: { readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string }> },
-    stepId: string,
-  ) => snapshot.steps.find((step) => step.id === stepId)?.status;
-
-  effectIt.effect("skips earlier stages and finishes the stage when the thread's turn ends", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const threadId = yield* seedThread("thread:attach", { status: "running" });
-        const snapshot = yield* attach(threadId, "qa");
-        for (const stepId of ["plan", "design", "build"]) {
-          expect(status(snapshot, stepId)).toBe("skipped");
-        }
-        expect(snapshot.activeStepId).toBe("qa");
-        expect(snapshot.steps.find((step) => step.id === "qa")).toMatchObject({
-          status: "taken-over",
-          threadId,
-          runId: null,
-        });
-        expect((yield* features.get("attached"))?.brief).toBe(
-          "The socket reconnects twice after the laptop sleeps.",
-        );
-        expect(yield* features.threadLink(projectId, threadId)).toEqual({
-          stage: {
-            featureId: "attached",
-            stepId: "qa",
-            index: 4,
-            total: 4,
-            state: "working",
-            current: true,
-          },
-          attachable: true,
-        });
-        // A retry returns the same feature; the same ID for another stage, or a second
-        // feature for the same thread, is refused.
-        expect((yield* attach(threadId, "qa")).activeStepId).toBe("qa");
-        expect((yield* attach(threadId, "build").pipe(Effect.flip)).message).toContain(
-          "another request",
-        );
-        expect(
-          (yield* (yield* FeatureService)
-            .attachThread({
-              featureId: "attached",
-              projectId,
-              threadId,
-              workflowId: "feature-delivery",
-              stageId: "qa",
-              title: "Another title",
-              actorId: "person",
-            })
-            .pipe(Effect.flip)).message,
-        ).toContain("another request");
-        expect((yield* attach(threadId, "qa", "second").pipe(Effect.flip)).message).toContain(
-          "already a feature's current stage",
-        );
-
-        // A failed turn leaves the stage open; a finished one completes it with the reply.
-        const execution = yield* WorkflowExecutionService;
-        yield* setRun("thread:attach", "failed");
-        yield* execution.reconcileFeature("attached");
-        expect((yield* (yield* WorkflowService).getFeatureState("attached"))?.activeStepId).toBe(
-          "qa",
-        );
-        yield* setRun("thread:attach", "completed");
-        yield* execution.reconcileFeature("attached");
-        const done = (yield* (yield* WorkflowService).getFeatureSnapshot("attached", projectId))!;
-        expect(done.completed).toBe(true);
-        expect(done.recentEvents.at(-1)).toMatchObject({
-          kind: "completed",
-          stepId: "qa",
-          outcome: "passed",
-          sourceKind: "workflow",
-          detail: 'Finished in thread "Reconnect loop after sleep"',
-        });
-        expect((yield* features.threadLink(projectId, threadId)).stage?.current).toBe(false);
-      }),
-    ),
-  );
-
-  effectIt.effect("hands a finished thread's result to the stage's gate straight away", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const threadId = yield* seedThread("thread:finished", {
-          status: "completed",
-          reply: "The plan: clear the backoff timer on sleep.",
-        });
-        const snapshot = yield* attach(threadId, "plan");
-        expect(snapshot.state).toBe("approval");
-        expect(snapshot.steps.find((step) => step.id === "plan")).toMatchObject({
-          status: "awaiting-approval",
-          pendingOutcome: "ready",
-          threadId,
-        });
-        expect(snapshot.recentEvents.at(-1)?.detail).toBe(
-          "The plan: clear the backoff timer on sleep.",
-        );
-
-        // Detached at the gate and reopened, the stage waits for a new turn: the finished one
-        // has already been handed on, and reconciling must not record it again.
-        const features = yield* FeatureService;
-        yield* features.detachThread({
-          projectId,
-          threadId,
-          requestId: "detach-at-gate",
-          actorId: "person",
-        });
-        const reopened = yield* features.reopen({
-          id: "attached",
-          projectId,
-          requestId: "reopen-at-gate",
-          actorId: "person",
-        });
-        expect(reopened.steps.find((step) => step.id === "plan")).toMatchObject({
-          status: "taken-over",
-          threadId,
-        });
-        yield* (yield* WorkflowExecutionService).reconcileFeature("attached");
-        expect(
-          (yield* (yield* WorkflowService).getFeatureState("attached"))?.steps.get("plan")?.status,
-        ).toBe("taken-over");
-      }),
-    ),
-  );
-
-  effectIt.effect("detaches to a plain thread, and reopening reattaches it", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const features = yield* FeatureService;
-        const threadId = yield* seedThread("thread:detach", { status: "running" });
-        yield* attach(threadId, "qa");
-        const detach = (requestId: string) =>
-          features.detachThread({ projectId, threadId, requestId, actorId: "person" });
-        const detached = yield* detach("detach-1");
-        expect(detached.cancelled).toBe(true);
-        expect(detached.recentEvents.at(-1)?.detail).toBe("Detached from the workflow");
-        expect((yield* features.threadLink(projectId, threadId)).stage?.current).toBe(false);
-        expect((yield* detach("detach-1")).cancelled).toBe(true);
-        expect((yield* detach("detach-2").pipe(Effect.flip)).message).toContain(
-          "not a feature's current stage",
-        );
-
-        const reopen = (requestId: string) =>
-          features.reopen({ id: "attached", projectId, requestId, actorId: "person" });
-        const reopened = yield* reopen("reopen-1");
-        expect(reopened.steps.find((step) => step.id === "qa")).toMatchObject({
-          status: "taken-over",
-          threadId,
-        });
-        expect((yield* features.threadLink(projectId, threadId)).stage?.current).toBe(true);
-
-        // Once the thread joins another feature, the first one can no longer take it back,
-        // and a retried detach still lands on the feature it first detached.
-        yield* detach("detach-3");
-        yield* attach(threadId, "qa", "second");
-        expect((yield* reopen("reopen-2").pipe(Effect.flip)).message).toContain(
-          "now another feature's stage",
-        );
-        expect((yield* detach("detach-3")).featureId).toBe("attached");
-        expect((yield* features.threadLink(projectId, threadId)).stage).toMatchObject({
-          featureId: "second",
-          current: true,
-        });
-      }),
-    ),
-  );
-
-  effectIt.effect("refuses threads it cannot make a feature", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const archived = yield* seedThread("thread:archived", {
-          status: "running",
-          archived: true,
-        });
-        expect((yield* attach(archived, "qa").pipe(Effect.flip)).message).toContain("Unarchive");
-        const elsewhere = yield* seedThread("thread:elsewhere", {
-          status: "running",
-          project: ProjectId.make("another-project"),
-        });
-        expect((yield* attach(elsewhere, "qa").pipe(Effect.flip)).message).toContain(
-          "not found in project",
-        );
-        const plain = yield* seedThread("thread:off-path", { status: "running" });
-        expect((yield* attach(plain, "change_review").pipe(Effect.flip)).message).toContain(
-          "workflow's path",
-        );
-        expect(yield* (yield* FeatureService).get("attached")).toBeNull();
-      }),
-    ),
   );
 });
