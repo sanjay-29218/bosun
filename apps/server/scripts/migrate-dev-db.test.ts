@@ -42,12 +42,18 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ["stopped-thread", "project-kept", "completed", "{}", "2026-08-01"],
         ["fork-thread", "project-kept", "completed", forkPayload, "2026-08-02"],
         ["running-thread", "project-kept", "running", "{}", "2026-08-05"],
-        ["settled-thread", "project-kept", "completed", '{"settledAt":"2026-08-01"}', "2026-08-05"],
+        [
+          "settled-thread",
+          "project-kept",
+          "completed",
+          '{"settledAt":"2026-08-01","feature":{"id":"feature-kept"}}',
+          "2026-08-05",
+        ],
         [
           "archived-thread",
           "project-kept",
           "completed",
-          '{"archivedAt":"2026-08-01"}',
+          '{"archivedAt":"2026-08-01","feature":{"id":"feature-archived"}}',
           "2026-08-05",
         ],
         [
@@ -71,6 +77,11 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         yield* sql`INSERT INTO orchestration_events
           (event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at, actor_kind, payload_json, metadata_json)
           VALUES (${`event-${threadId}`}, 'thread', ${threadId}, 0, 'thread.created', '2026-08-01', 'user', '{}', '{}')`;
+      }
+      for (const featureId of ["feature-kept", "feature-archived", "feature-threadless"]) {
+        yield* sql`INSERT INTO features
+          (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json)
+          VALUES (${featureId}, 'project-kept', ${featureId}, 'Brief', '2026-08-01', '2026-08-01', 'open', '{}')`;
       }
       yield* sql`INSERT INTO orchestration_v2_projection_provider_sessions
         (provider_session_id, thread_id, provider, status, updated_at, payload_json)
@@ -143,7 +154,8 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
                 (SELECT COUNT(*) FROM scheduled_task_webhook_pending) AS webhooks,
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers,
               (SELECT COUNT(*) FROM peer_environment_links) AS links`;
-          return { threads, events, sessions, leftovers };
+          const features = yield* sql<{ id: string }>`SELECT id FROM features`;
+          return { threads, events, sessions, leftovers, features };
         }),
       );
       assert.deepStrictEqual(
@@ -153,6 +165,10 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       assert.deepStrictEqual(
         kept.events.map((row) => row.stream_id),
         ["fork-thread", "settled-thread", "stopped-thread"],
+      );
+      assert.deepStrictEqual(
+        kept.features.map((row) => row.id),
+        ["feature-kept"],
       );
       assert.deepStrictEqual(
         kept.sessions.map((row) => row.provider_session_id),

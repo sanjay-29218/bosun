@@ -389,6 +389,10 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
           `DELETE FROM "${name}" WHERE thread_id NOT IN (SELECT thread_id FROM kept_threads)`,
         ).unprepared;
       }
+      // A feature without its threads shows on the board as never started.
+      yield* sql`DELETE FROM features WHERE id NOT IN (
+        SELECT json_extract(payload_json, '$.feature.id') FROM orchestration_v2_projection_threads
+        WHERE json_extract(payload_json, '$.feature.id') IS NOT NULL)`;
       yield* sql`DELETE FROM orchestration_v2_projection_context_transfers
         WHERE source_thread_id NOT IN (SELECT thread_id FROM kept_threads)
            OR target_thread_id NOT IN (SELECT thread_id FROM kept_threads)`;
