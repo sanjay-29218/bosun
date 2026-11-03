@@ -351,11 +351,14 @@ export const FeatureServiceLive = Layer.effect(
       const [brief] = yield* sql<{ readonly messageJson: string | null }>`
         SELECT brief_message_json AS messageJson FROM features WHERE id = ${feature.id}
       `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.startLead")));
+      const runId = hashed("feature-lead", feature.id, manager.id);
+      // A lead started on older text keeps it: the run's task is part of its identity.
+      const started = yield* crewStore.getRun(runId);
       const run = yield* crew.createRun({
-        id: hashed("feature-lead", feature.id, manager.id),
+        id: runId,
         memberId: manager.id,
         projectId: feature.projectId,
-        taskText: featureLeadTask(feature, yield* crewNames(feature)),
+        taskText: started?.taskText ?? featureLeadTask(feature, yield* crewNames(feature)),
         ...(workspace ? { workspace } : {}),
         openingMessage: decodeOpeningMessage(brief?.messageJson ?? null) ?? { attachments: [] },
         title: manager.name,

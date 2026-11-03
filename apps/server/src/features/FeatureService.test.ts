@@ -143,7 +143,9 @@ describe("feature lead and crew", () => {
         expect((yield* features.board(projectId))[0]?.leadThreadId).toBeNull();
 
         const started = yield* features.start(target.id, projectId);
-        // Starting again, as a retry does, returns the same lead.
+        // Starting again, as a retry does, returns the same lead, even one started on older text.
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE crew_runs SET task_text = 'Older lead task' WHERE thread_id = ${started.leadThreadId}`;
         expect((yield* features.start(target.id, projectId)).leadThreadId).toBe(
           started.leadThreadId,
         );
@@ -154,8 +156,7 @@ describe("feature lead and crew", () => {
         });
         expect(messages).toHaveLength(1);
         expect(messages[0]!.text).toContain("Add a dark mode toggle to settings");
-        expect(messages[0]!.text).toMatch(/Your crew: [^.]*Planner[^.]*\./);
-        expect(messages[0]!.text).toContain("setting crewMember to their name");
+        expect(messages[0]!.text).toMatch(/^Crew: .*Planner/m);
         expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(started.leadThreadId);
       }),
     ),

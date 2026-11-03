@@ -10,16 +10,16 @@ export const PROJECT_MANAGER_INSTRUCTIONS =
 export const crewRunPrompt = (run: { readonly instructions: string; readonly taskText: string }) =>
   `${run.instructions}\n\nTask:\n${run.taskText}`;
 
-/** A feature lead's task: the feature, the crew it can hand work to, and the brief. */
+/**
+ * A feature lead's task: only what differs per feature. How to run a feature lives in the
+ * project manager's instructions and the `crewMember` field of `delegate_task`.
+ */
 export const featureLeadTask = (
   feature: { readonly id: string; readonly title: string; readonly brief: string },
   crew: ReadonlyArray<string>,
 ) =>
   [
-    `You lead feature "${feature.title}" (${feature.id}). The brief is your first message.`,
-    crew.length > 0
-      ? `Your crew: ${crew.join(", ")}. Hand one of them work with delegate_task, setting crewMember to their name; their result comes back to this thread. Do small steps yourself.`
-      : "This feature has no crew, so do the work yourself, or delegate_task a subagent.",
-    "When you need the person's decision, such as approving a plan, ask them and wait for the answer. Say plainly when the feature is done.",
+    `Feature: "${feature.title}" (${feature.id})`,
+    `Crew: ${crew.length > 0 ? crew.join(", ") : "none"}`,
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
-  ].join("\n\n");
+  ].join("\n");
