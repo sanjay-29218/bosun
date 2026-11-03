@@ -1,4 +1,3 @@
-import { formatStageName } from "@t3tools/client-runtime/crew-stage";
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardQuickActions,
@@ -30,7 +29,6 @@ import {
   chatSince,
   chatStatus,
   chatTitle,
-  WAITING_STATES,
   WithThreadDetails,
   WorkingDuration,
   featureStatus,
@@ -116,35 +114,25 @@ function Chip(props: { readonly children: ReactNode; readonly className?: string
   );
 }
 
-/** What the row says after its title: the question or failure, else its stage or state. */
-function featureSubtitle(card: EnvironmentFeatureCard, statusLabel: string): string | null {
-  if (card.detail && WAITING_STATES.has(card.state)) return card.detail;
-  if (card.state === "working" && card.stage) return formatStageName(card.stage.stepId);
-  if (card.state === "done") return null;
-  return statusLabel;
-}
-
 export const FeatureRow = memo(function FeatureRow(props: {
   readonly card: EnvironmentFeatureCard;
   readonly handlers: FeatureBoardHandlers;
-  readonly queuePosition: number | undefined;
   readonly shelf: FeatureShelf;
 }) {
   const { card, handlers } = props;
-  // Each row follows only its own stage thread, so a streaming stage repaints one row.
+  // The lead's thread carries the feature's branch and pull request.
   const shell = useThreadShell(
-    card.threadId ? scopeThreadRef(card.environmentId, card.threadId) : null,
+    card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
   const pullRequest = shell?.linkedPullRequest ?? shell?.branchPullRequest ?? null;
-  const status = featureStatus(card, props.queuePosition);
+  const { column, status, thread } = featureStatus(card, handlers.threadsFor(card));
   const StatusIcon = status.icon;
-  const waiting = WAITING_STATES.has(card.state);
   const workingSince =
-    card.state === "working" && !card.stage?.takenOver && shell
-      ? resolveThreadWorkingStartedAt(shell)
-      : null;
+    column === "working" && thread ? resolveThreadWorkingStartedAt(thread) : null;
   const actions = featureCardQuickActions(card);
-  const subtitle = featureSubtitle(card, status.label);
+  // After the title: its state, and which crew member it is about.
+  const subtitle =
+    column === "done" ? null : [status.label, thread?.feature?.member].filter(Boolean).join(" · ");
   return (
     <WithThreadDetails shell={shell} project={handlers.projectFor(card)}>
       <div
@@ -173,14 +161,12 @@ export const FeatureRow = memo(function FeatureRow(props: {
           </Chip>
         ) : null}
         {actions.length > 0 ? (
-          <span
-            className={cn("relative z-10 flex shrink-0 gap-1.5", !waiting && hoverOnlyClassName)}
-          >
-            {actions.map((action, index) => (
+          <span className={cn("relative z-10 flex shrink-0 gap-1.5", hoverOnlyClassName)}>
+            {actions.map((action) => (
               <Button
                 key={action}
                 size="xs"
-                variant={index === 0 && waiting ? "default" : "outline"}
+                variant="outline"
                 onClick={(event) => handlers.onAction(card, action, event)}
               >
                 {action === "start" ? <PlayIcon aria-hidden /> : null}
@@ -200,7 +186,7 @@ export const FeatureRow = memo(function FeatureRow(props: {
               <WorkingDuration startedAt={workingSince} />
             </span>
           ) : (
-            <RelativeTime timestamp={card.stateSince} />
+            <RelativeTime timestamp={card.updatedAt} />
           )}
         </span>
       </div>

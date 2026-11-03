@@ -10,19 +10,14 @@ import {
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import {
   AuthOrchestrationOperateScope,
+  featureIssueRef,
   headquartersBotId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 
-import {
-  featureLifecycleFor,
-  readFeatureMenuState,
-  runFeatureIssueAction,
-  runFeatureLifecycleAction,
-  runFeatureThreadAction,
-} from "../components/features/featureThreadActions";
+import { runFeatureIssueAction } from "../components/crew/FeatureIssue";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import { startBotNewSession } from "../components/bots/startBotNewSession";
 import {
@@ -141,7 +136,6 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
-      const feature = await readFeatureMenuState(threadRef, thread.projectId);
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -158,9 +152,9 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         isHeadquarters: headquartersBotId(thread.id) !== null,
-        feature,
-        // The header knows only its own thread: a stage thread offers the feature actions.
-        featureLifecycle: featureLifecycleFor(thread, []),
+        feature: thread.feature
+          ? { issueRef: thread.feature.issue ? featureIssueRef(thread.feature.issue) : null }
+          : null,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
@@ -259,23 +253,6 @@ export function useThreadActionMenu(input: {
           return;
         case "rename":
           onStartRename();
-          return;
-        case "make-feature":
-        case "detach-feature":
-          await runFeatureThreadAction(action, threadRef, thread);
-          return;
-        case "feature-pause":
-        case "feature-resume":
-        case "feature-cancel":
-        case "feature-reopen":
-          if (thread.feature) {
-            await runFeatureLifecycleAction(action, {
-              environmentId: threadRef.environmentId,
-              projectId: thread.projectId,
-              featureId: thread.feature.id,
-              title: thread.feature.title,
-            });
-          }
           return;
         case "feature-issue":
         case "feature-open-issue":

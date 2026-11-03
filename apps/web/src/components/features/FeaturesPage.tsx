@@ -2,11 +2,10 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   featureCardKey,
-  featureQueuePositions,
   groupFeaturesByColumn,
   matchesFeatureSearch,
-  parseFeatureSearch,
   threadBoardColumn,
+  threadsByFeature,
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
@@ -27,7 +26,6 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import {
   boardChatThreads,
   featureRows,
-  workGroupOpenThread,
   workGroupThreads,
 } from "@t3tools/client-runtime/state/work-groups";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
@@ -48,9 +46,11 @@ import {
   useOlderSettledShelfGrowth,
 } from "../../state/olderSettledShelf";
 import { useProjects, useQuietThreadShells } from "../../state/entities";
+import { useEnvironmentQuery } from "../../state/query";
+import { rolesEnvironment } from "../../state/roles";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import { useEnsureStarterWorkflow } from "../library/RoleEditor";
+import { hasStarterRoles, useAddStarterRoles } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
@@ -66,15 +66,14 @@ import { BoardFilterChips, BoardFilterMenu, type BoardFilterSection } from "./Bo
 import { BoardTitle } from "./BoardTitle";
 import { chatSince, chatTitle } from "./FeatureCard";
 import { FeatureStatusBoard, type BoardSection, type FeatureBoardHandlers } from "./FeatureBoards";
-import { FeatureNoteDialog } from "./FeatureNoteDialog";
 import {
   readFeaturesPagePreferences,
   saveFeaturesPagePreferences,
   type FeaturesPagePreferences,
 } from "./featuresPagePreferences";
 import { resolveFeaturesShortcut } from "./featuresShortcuts";
-import { useFeatureActions, type FeatureNoteRequest } from "./useFeatureActions";
-import { useFeatureBoard, useWorkflowEnvironmentIds } from "./useFeatureBoard";
+import { useFeatureActions } from "./useFeatureActions";
+import { useFeatureBoard, useFeatureEnvironmentIds } from "./useFeatureBoard";
 import { useIssueBoard } from "./useIssueBoard";
 import { useStartFeatureDraft } from "./TodoDetail";
 import { openNewTodoDialog, openTodo } from "./todoDialogs";
@@ -115,18 +114,17 @@ export function FeaturesPage(props: {
   const [query, setQuery] = useState(props.search.q ?? "");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [noteRequest, setNoteRequest] = useState<FeatureNoteRequest | null>(null);
   const [labelFilters, setLabelFilters] = useState<ReadonlySet<string>>(new Set());
 
-  // Projects on servers that run workflows; the scope picker lists only these.
-  const workflowEnvironmentIds = useWorkflowEnvironmentIds();
+  // Projects on servers that run features; the scope picker lists only these.
+  const featureEnvironmentIds = useFeatureEnvironmentIds();
   const allProjects = useProjects();
   // The board follows the bot rail like the sidebar does.
   const railProjectKeys = useBotRailProjectKeys();
   const projects = allProjects
     .filter(
       (project) =>
-        workflowEnvironmentIds.has(project.environmentId) &&
+        featureEnvironmentIds.has(project.environmentId) &&
         (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
     )
     .toSorted((a, b) => a.title.localeCompare(b.title));
@@ -167,25 +165,22 @@ export function FeaturesPage(props: {
     }),
   );
 
-  const parsedSearch = parseFeatureSearch(query);
+  const searchWords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const visibleCards = board.cards.filter(
     (card) =>
-      matchesFeatureSearch(card, parsedSearch, [projectFor(card)?.title]) &&
+      matchesFeatureSearch(card, query, [projectFor(card)?.title]) &&
       (milestoneFilter === null || milestoneFeatureKeys.has(featureCardKey(card))),
   );
-  // Todo holds open issues no feature works on; a stopped feature hands its issue back.
+  // Todo holds open issues no feature works on; a closed feature keeps its issue in Done.
   const todos = issueBoard.issues
-    .filter((issue) => {
-      const feature = featureFor(issue);
-      return (
+    .filter(
+      (issue) =>
         issue.state === "open" &&
-        (feature === null || feature.state === "cancelled") &&
+        featureFor(issue) === null &&
         inMilestone(issue) &&
         (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
-        parsedSearch.workflows.length === 0 &&
-        matchesIssueSearch(issue, parsedSearch.text)
-      );
-    })
+        matchesIssueSearch(issue, searchWords.join(" ")),
+    )
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   // The board shows what the thread list shows. A feature sits where its row does: settled,
@@ -194,15 +189,16 @@ export function FeaturesPage(props: {
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread } = useThreadActions();
   const shells = useQuietThreadShells();
   const rows = featureRows(shells);
+  const featureThreads = threadsByFeature(shells);
+  const threadsFor = (card: EnvironmentFeatureCard) =>
+    featureThreads.get(featureCardKey(card)) ?? [];
   const nowMinute = useNowMinute();
   const rowFor = (card: EnvironmentFeatureCard) => {
     const group = rows.get(featureCardKey(card));
     return group ? workGroupThreads(group) : [];
   };
-  const closed = (card: EnvironmentFeatureCard) =>
-    card.state === "done" || card.state === "cancelled";
   const listedCards = visibleCards.filter(
-    (card) => (!card.started && !closed(card)) || rowFor(card).length > 0,
+    (card) => (card.leadThreadId === null && card.status === "open") || rowFor(card).length > 0,
   );
   const isSettled = (card: EnvironmentFeatureCard) =>
     rowFor(card)[0]?.settledOverride === "settled";
@@ -213,12 +209,13 @@ export function FeaturesPage(props: {
   const snoozedUntil = (card: EnvironmentFeatureCard) => rowFor(card)[0]?.snoozedUntil ?? "";
   const settledCards = listedCards
     .filter(isSettled)
-    .toSorted((a, b) => b.stateSince.localeCompare(a.stateSince));
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const snoozedCards = listedCards
     .filter((card) => !isSettled(card) && isSnoozed(card))
     .toSorted((a, b) => snoozedUntil(a).localeCompare(snoozedUntil(b)));
   const groups = groupFeaturesByColumn(
     listedCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
+    featureThreads,
   );
 
   // Settled counts the board's older settled threads this client hasn't loaded, as the sidebar's
@@ -252,10 +249,8 @@ export function FeaturesPage(props: {
   };
 
   // Chats sit beside features where their sidebar rows' status puts them. They have no
-  // milestone, label or workflow, so those filters leave only features and todos.
-  const chatFiltersApply =
-    milestoneFilter === null && labelFilters.size === 0 && parsedSearch.workflows.length === 0;
-  const searchWords = parsedSearch.text.toLowerCase().split(" ").filter(Boolean);
+  // milestone or label, so those filters leave only features and todos.
+  const chatFiltersApply = milestoneFilter === null && labelFilters.size === 0;
   const chatSections = new Map<BoardSection, EnvironmentThreadShell[]>();
   for (const shell of chatFiltersApply ? boardChatThreads(shells) : []) {
     const project = projectFor(shell);
@@ -341,24 +336,14 @@ export function FeaturesPage(props: {
     }
   };
 
-  const actions = useFeatureActions({ onNoteRequest: setNoteRequest });
+  const actions = useFeatureActions();
   const startFeatureDraft = useStartFeatureDraft();
   const handlers: FeatureBoardHandlers = {
     projectFor,
-    queuePositions: featureQueuePositions(board.cards),
-    // A card opens what its sidebar row opens: the thread waiting on you, else the lead.
+    threadsFor,
     onOpen: (card) => {
-      const group = rows.get(featureCardKey(card));
-      const thread = group ? workGroupOpenThread(group) : null;
-      if (!thread) {
-        if (!actions.openCard(card))
-          toastManager.add({ type: "info", title: "This feature has no thread to open yet" });
-        return;
-      }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: thread.environmentId, threadId: thread.id },
-      });
+      if (!actions.openCard(card))
+        toastManager.add({ type: "info", title: "Start this feature to open its lead" });
     },
     onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) =>
       void actions.showMenu(card, { x: event.clientX, y: event.clientY }),
@@ -367,10 +352,9 @@ export function FeaturesPage(props: {
     canShelf: (card) => rowFor(card).length > 0,
     onWake: wake,
     onSnooze: snooze,
-    onDrop: (card, action, position) => {
+    onDrop: (card, action) => {
       if (action === "settle") toggleShelf(card);
-      else if (action === "cancel") void actions.run(card, "cancel");
-      else void actions.reopenFromDrop(card, position);
+      else void actions.run(card, action);
     },
     onOpenTodo: (issue) =>
       openTodo(
@@ -414,7 +398,7 @@ export function FeaturesPage(props: {
       ),
   };
 
-  // New feature opens a new thread's composer, whose Workflow picker starts the feature.
+  // New feature opens a new thread's composer, whose first message starts the feature.
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
   const startNewFeature = () => {
     if (!newFeatureProject) return;
@@ -423,7 +407,7 @@ export function FeaturesPage(props: {
       projectId: newFeatureProject.id,
     });
   };
-  const browseWorkflows = () => void navigate({ to: "/library", search: {} });
+  const browseRoles = () => void navigate({ to: "/library", search: {} });
   const newTodo = () =>
     openNewTodoDialog(
       newFeatureProject
@@ -565,7 +549,7 @@ export function FeaturesPage(props: {
             type="search"
             autoFocus
             aria-label="Search the board"
-            placeholder="Search, #number, or workflow:bug-fix"
+            placeholder="Search or #number"
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
             onBlur={() => {
@@ -634,7 +618,7 @@ export function FeaturesPage(props: {
   if (projects.length === 0) {
     body = (
       <p className="py-10 text-center text-sm text-muted-foreground">
-        Connect an environment that runs workflows to see features.
+        Connect an environment that runs features to see them.
       </p>
     );
   } else if (firstRun) {
@@ -643,8 +627,8 @@ export function FeaturesPage(props: {
         <div className="flex flex-col items-center gap-2">
           <h2 className="text-lg font-medium">Nothing on the board yet</h2>
           <p className="max-w-md text-sm text-muted-foreground">
-            Add a todo, then start a feature from it. Your crew takes it through a workflow, and
-            anything that needs your approval waits under Needs you.
+            Add a todo, then start a feature from it. Its project manager hands the work to your
+            crew, and anything that needs your answer waits under Needs you.
           </p>
         </div>
         <div className="flex gap-2">
@@ -661,8 +645,8 @@ export function FeaturesPage(props: {
               Start a feature
             </Button>
           )}
-          <Button variant="ghost" onClick={browseWorkflows}>
-            Browse workflows
+          <Button variant="ghost" onClick={browseRoles}>
+            Browse roles
           </Button>
         </div>
       </div>
@@ -735,32 +719,34 @@ export function FeaturesPage(props: {
           </ScrollArea>
         )}
       </div>
-      <FeatureNoteDialog
-        request={noteRequest}
-        onClose={() => setNoteRequest(null)}
-        onSubmit={(request, text) =>
-          actions.run(request.card, request.action, {
-            text,
-            ...(request.outcome === undefined ? {} : { outcome: request.outcome }),
-          })
-        }
-      />
     </SidebarInset>
   );
 }
 
-/** The first feature runs on the starter workflow, so this adds it, and its roles, if missing. */
+/** The first feature's crew comes from the starter roles, so this adds them if missing. */
 function StartFirstFeatureButton(props: {
   readonly environmentId: EnvironmentId;
   readonly onReady: () => void;
 }) {
-  const ensureStarter = useEnsureStarterWorkflow(props.environmentId);
+  const roles = useEnvironmentQuery(
+    rolesEnvironment.roles({ environmentId: props.environmentId, input: {} }),
+  );
+  const starterRoles = useAddStarterRoles(props.environmentId);
   const [busy, setBusy] = useState(false);
   const start = async () => {
+    if (hasStarterRoles(roles.data ?? [])) return props.onReady();
+    if (!starterRoles.ready) {
+      toastManager.add({
+        type: "error",
+        title: "Choose a default model first",
+        description: "The starter roles run on it. Set one in Settings, then try again.",
+      });
+      return;
+    }
     setBusy(true);
-    const ready = await ensureStarter();
+    const added = await starterRoles.add();
     setBusy(false);
-    if (ready) props.onReady();
+    if (added) props.onReady();
   };
   return (
     <Button variant="outline" onClick={() => void start()} disabled={busy}>

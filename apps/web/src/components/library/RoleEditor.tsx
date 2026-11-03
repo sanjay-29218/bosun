@@ -20,10 +20,9 @@ import {
   resolveDefaultProviderModelSelection,
 } from "../../providerInstances";
 import { rolesEnvironment } from "../../state/roles";
-import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
+import { formatEnvironmentQueryError } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { workflowsEnvironment } from "../../state/workflows";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
@@ -171,37 +170,6 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
 export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
   roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
 
-/**
- * Adds the starter workflows, and first the starter roles they run as when those are missing.
- * Resolves false after reporting why it couldn't.
- */
-export function useEnsureStarterWorkflow(environmentId: EnvironmentId) {
-  const roles = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
-  const starterRoles = useAddStarterRoles(environmentId);
-  const ensureStarter = useAtomCommand(workflowsEnvironment.ensureStarter);
-  return async () => {
-    if (!hasStarterRoles(roles.data ?? [])) {
-      if (!starterRoles.ready) {
-        toastManager.add({
-          type: "error",
-          title: "Choose a default model first",
-          description: "The starter roles run on it. Set one in Settings, then try again.",
-        });
-        return false;
-      }
-      if (!(await starterRoles.add())) return false;
-    }
-    const result = await ensureStarter({ environmentId, input: {} });
-    if (result._tag === "Success") return true;
-    toastManager.add({
-      type: "error",
-      title: "Could not add the starter workflow",
-      description: formatEnvironmentQueryError(result.cause),
-    });
-    return false;
-  };
-}
-
 type RoleChange = Partial<
   Pick<
     RoleConfig,
@@ -215,7 +183,6 @@ type RoleChange = Partial<
   >
 >;
 
-/** Saves a role. A workflow pins role versions, so it has to be republished to pick this up. */
 function useSaveRole(environmentId: EnvironmentId) {
   const update = useAtomCommand(rolesEnvironment.update);
   return async (role: RoleConfig, change: RoleChange) => {
@@ -234,22 +201,13 @@ function useSaveRole(environmentId: EnvironmentId) {
         expectedRevision: role.revision,
       },
     });
-    if (result._tag !== "Success") {
-      toastManager.add({
-        type: "error",
-        title: `Could not save ${role.name}`,
-        description: formatEnvironmentQueryError(result.cause),
-      });
-      return false;
-    }
-    if (next.autoCreateForFeature) {
-      toastManager.add({
-        type: "info",
-        title: `${next.name} saved`,
-        description: "Publish the workflows that use this role to start new features with it.",
-      });
-    }
-    return true;
+    if (result._tag === "Success") return true;
+    toastManager.add({
+      type: "error",
+      title: `Could not save ${role.name}`,
+      description: formatEnvironmentQueryError(result.cause),
+    });
+    return false;
   };
 }
 
@@ -279,8 +237,8 @@ export function RoleEditorForm({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     role?.runtimeMode ?? "auto-accept-edits",
   );
-  // Turning a role off retires it. The project manager leads features rather than running
-  // stages, so it can't be turned off and never runs as a stage.
+  // Turning a role off retires it. The project manager leads features rather than joining
+  // their crews, so it can't be turned off and is never a crew member.
   const isProjectManager = role?.id === PROJECT_MANAGER_ROLE_ID;
   const [enabled, setEnabled] = useState(role?.enabled ?? true);
   const [saving, setSaving] = useState(false);
@@ -390,11 +348,11 @@ export function RoleEditorForm({
           />
           {role && !isProjectManager ? (
             <SettingsRow
-              title="Available in workflows"
+              title="On feature crews"
               description="Turn off to retire this role. Running features keep it."
               control={
                 <Switch
-                  aria-label="Workflow stages can use this role"
+                  aria-label="New features' crews get this role"
                   checked={enabled}
                   onCheckedChange={setEnabled}
                 />

@@ -3,9 +3,8 @@ import type { PromptUltrathink } from "./TraitsPicker";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
-import type { ReactNode } from "react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ComposerControl, type ComposerControlSize } from "./ComposerControl";
+import { ComposerControl } from "./ComposerControl";
 import {
   ComposerFooterModeControls,
   ComposerModelPicker,
@@ -89,10 +88,8 @@ export function ComposerControlsBar(props: {
   onModelPickerOpenChange: (open: boolean) => void;
   modelPickerIconClassName: string | undefined;
   getModelDisabledReason: ChatComposerProps["getModelDisabledReason"];
-  /** A new thread's Workflow picker, before the model picker. */
-  renderWorkflowPicker?: ((size: ComposerControlSize) => ReactNode) | undefined;
-  /** While a workflow is picked, its roles bring their own models, so those controls hide. */
-  workflowPicked?: boolean | undefined;
+  /** A feature's lead runs on its bot's model, so a draft that starts one hides these controls. */
+  startsFeature?: boolean | undefined;
 }) {
   const {
     environmentId,
@@ -273,8 +270,7 @@ export function ComposerControlsBar(props: {
     </ComposerControl>
   ) : (
     <>
-      {props.renderWorkflowPicker?.(controlSize)}
-      {props.workflowPicked ? null : (
+      {props.startsFeature ? null : (
         <>
           {composerModelPicker}
 

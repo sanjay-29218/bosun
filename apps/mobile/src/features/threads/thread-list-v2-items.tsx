@@ -25,25 +25,16 @@ import {
   formatWorkingDurationLabel,
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
-import {
-  AuthOrchestrationOperateScope,
-  type EnvironmentMachineKind,
-  type FeatureCardState,
-} from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, type EnvironmentMachineKind } from "@t3tools/contracts";
 import { featureIssueRef } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
-import { featureTagColor, formatCrewStageLine } from "@t3tools/client-runtime/crew-stage";
+import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
-import {
-  workGroupOpenThread,
-  type WorkGroup,
-  type WorkStageStatus,
-} from "@t3tools/client-runtime/state/work-groups";
+import { workGroupOpenThread, type WorkGroup } from "@t3tools/client-runtime/state/work-groups";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import type { MenuAction } from "@react-native-menu/menu";
-import { useNavigation } from "@react-navigation/native";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -144,30 +135,6 @@ const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> =
     icon: "exclamationmark.circle",
     className: "text-warning-foreground",
     iconTintClassName: "accent-warning-foreground",
-  },
-};
-// Crew states a plain thread doesn't have. Approval, Input and Failed reuse the thread labels.
-const CREW_STATUS_LABEL_BY_STATE: Partial<Record<FeatureCardState, StatusLabel>> = {
-  approval: STATUS_LABEL_BY_STATUS.approval!,
-  input: STATUS_LABEL_BY_STATUS.input!,
-  failed: STATUS_LABEL_BY_STATUS.failed!,
-  "your-call": {
-    label: "Your call",
-    icon: "exclamationmark.triangle",
-    className: "text-warning-foreground",
-    iconTintClassName: "accent-warning-foreground",
-  },
-  queued: {
-    label: "Queued",
-    icon: "list.number",
-    className: "text-foreground-secondary",
-    iconTintClassName: "accent-foreground-secondary",
-  },
-  paused: {
-    label: "Paused",
-    icon: "stop.fill",
-    className: "text-foreground-secondary",
-    iconTintClassName: "accent-foreground-secondary",
   },
 };
 const DONE_STATUS_LABEL: StatusLabel = {
@@ -658,18 +625,9 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   );
 });
 
-const STAGE_CLASS_NAMES: Record<WorkStageStatus, string> = {
-  done: "bg-foreground-muted opacity-50",
-  working: "bg-adaptive-sky-600-400",
-  "needs-you": "bg-warning",
-  failed: "bg-danger-foreground",
-  paused: "bg-foreground-muted",
-  pending: "bg-border",
-};
-
 /**
- * Line 3 of a feature or bot request row: its color, where it is (a strip of stages, or the
- * crew members it went through), and a menu of its crew for a quick jump between threads.
+ * Line 3 of a feature or bot request row: its color, the crew members it went through, and a
+ * menu of its crew for a quick jump between threads.
  */
 function ThreadListV2WorkGroupLine(props: {
   readonly group: WorkGroup<EnvironmentThreadShell>;
@@ -687,29 +645,19 @@ function ThreadListV2WorkGroupLine(props: {
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
           .map((thread) => thread.crewRequest?.member ?? thread.title)
           .join(" → ")
-      : null;
+      : group.children.map((entry) => entry.label).join(" → ");
   // The row's own status is its primary thread's; another thread waiting on you shows here.
   const waiting = group.children.find((entry) => threadNeedsYouKind(entry.thread) !== null);
   const threads = [group.primary, ...group.children.map((entry) => entry.thread)];
-  const roster = buildCrewRoster(group, null);
+  const roster = buildCrewRoster(group);
   return (
     <View className="min-w-0 shrink flex-row items-center gap-1.5">
       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-      {group.stages.length > 0 ? (
-        <View className="flex-row items-center" style={{ gap: 2 }}>
-          {group.stages.map((status, index) => (
-            <View
-              // oxlint-disable-next-line react/no-array-index-key -- stages are positional
-              key={index}
-              className={cn("rounded-full", STAGE_CLASS_NAMES[status])}
-              style={{ width: 10, height: 4 }}
-            />
-          ))}
-        </View>
+      {chain ? (
+        <Text className={cn("shrink text-xs", props.mutedClassName)} numberOfLines={1}>
+          {chain}
+        </Text>
       ) : null}
-      <Text className={cn("shrink text-xs", props.mutedClassName)} numberOfLines={1}>
-        {group.stageLine ?? chain}
-      </Text>
       {waiting ? (
         <Pressable
           className="-m-2 shrink p-2"
@@ -739,7 +687,6 @@ function ThreadListV2WorkGroupLine(props: {
             id: entry.key,
             title: entry.kind === "lead" ? `${entry.name} · lead` : entry.name,
             subtitle: entry.status,
-            attributes: { disabled: entry.threadId === null },
           }))}
           onPressAction={({ nativeEvent }) => {
             const threadId = roster.find((entry) => entry.key === nativeEvent.event)?.threadId;
@@ -891,15 +838,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
-  // Line 3 of a stage thread: "Design · 2/6". Only the current stage carries the feature's state.
-  const crewStage = thread.crew ?? null;
-  const crewLine = crewStage ? formatCrewStageLine(crewStage) : null;
+  const crewMember = thread.feature?.member ?? null;
   const statusLabel =
-    (crewStage?.current ? CREW_STATUS_LABEL_BY_STATE[crewStage.state] : undefined) ??
     (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
       ? { ...workingLabel, label: "Goal" }
-      : workingLabel) ??
-    (isUnread ? DONE_STATUS_LABEL : undefined);
+      : workingLabel) ?? (isUnread ? DONE_STATUS_LABEL : undefined);
   const recede = shouldRecedeThreadRow({ status, selected });
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const rowAccessibilityLabel = `${thread.title}${props.hasQueuedMessages ? ", messages queued to send" : ""}${isRegeneratingTitle ? ", regenerating title" : ""}`;
@@ -1047,7 +990,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         : [],
     [props.autoSettleOptOutSupported, thread.autoSettleDisabledAt],
   );
-  const navigation = useNavigation();
   const canTurnIntoProject = canTurnThreadIntoProject(thread);
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
@@ -1159,13 +1101,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         copyTextWithHaptic(thread.id, { target: "thread-id" });
       }
       if (nativeEvent.event === "delete") handleDelete();
-      // Make it a feature, or Detach for a feature's stage thread: the sheet asks which.
-      if (nativeEvent.event === "feature-thread") {
-        navigation.navigate("FeatureThread", {
-          environmentId: thread.environmentId,
-          threadId: thread.id,
-        });
-      }
       if (nativeEvent.event === "snooze:custom") {
         setCustomSnoozeOpen(true);
         return;
@@ -1186,7 +1121,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }
     },
     [
-      navigation,
       onNewThreadOnBranch,
       thread,
       handleArchive,
@@ -1449,19 +1383,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             {featureIssueRef(thread.feature.issue)}
           </Text>
         ) : null}
-        {crewLine !== null && !props.workGroup ? (
+        {crewMember !== null && !props.workGroup ? (
           <Text
             className={cn(
               "flex-1 text-xs",
               selected
                 ? selectedThreadRowColors.mutedForegroundClassName
-                : crewStage?.current && crewStage.state === "failed"
-                  ? "text-danger-foreground"
-                  : rowAppearance.mutedForegroundClassName,
+                : rowAppearance.mutedForegroundClassName,
             )}
             numberOfLines={1}
           >
-            {crewLine}
+            {crewMember}
           </Text>
         ) : (status === "failed" || status === "limited") && thread.runtime?.lastError ? (
           <Text
@@ -1728,7 +1660,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 : []),
               { id: "copy-thread", title: "Copy thread", image: "text.bubble" },
               { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
-              { id: "feature-thread", title: "Workflow…", image: "arrow.triangle.branch" },
               ...(snoozedRow
                 ? snoozedMenuActions
                 : !props.settlementSupported

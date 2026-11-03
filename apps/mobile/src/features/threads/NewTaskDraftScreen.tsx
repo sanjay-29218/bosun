@@ -72,8 +72,6 @@ import { ProjectCloneBanner } from "./ProjectCloneBanner";
 import { useActiveBot } from "../../state/bots";
 import { featuresEnvironment } from "../../state/features";
 import { useSetThreadListView } from "../home/use-thread-list-view";
-import { useEnvironmentQuery } from "../../state/query";
-import { workflowsEnvironment } from "../../state/workflows";
 import { Menu } from "../../components/ui/Menu";
 import { uuidv4 } from "../../lib/uuid";
 import {
@@ -199,30 +197,11 @@ export function NewTaskDraftScreen(props: {
     selectedProject?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
-  // Crew mode: a chosen workflow turns the prompt into a feature brief.
+  // Crew mode: the prompt becomes a feature's brief, which its lead gets as its first message.
   const crewEnabled = selectedEnvironmentServerConfig?.environment.capabilities.workflows === true;
-  const workflowDefinitions = useEnvironmentQuery(
-    crewEnabled && selectedProject
-      ? workflowsEnvironment.definitions({
-          environmentId: selectedProject.environmentId,
-          input: {},
-        })
-      : null,
-  ).data;
-  const [selectedWorkflow, setSelectedWorkflow] = useState<{
-    readonly projectKey: string;
-    /** Null when you chose No workflow. */
-    readonly workflowId: string | null;
-  } | null>(null);
-  // A new task is a plain thread until you pick a workflow.
-  const workflowId =
-    selectedWorkflow !== null && selectedWorkflow.projectKey === selectedProjectKey
-      ? selectedWorkflow.workflowId
-      : null;
-  const workflow =
-    workflowId === null
-      ? null
-      : (workflowDefinitions?.find((definition) => definition.id === workflowId) ?? null);
+  const [featureProjectKey, setFeatureProjectKey] = useState<string | null>(null);
+  const asFeature =
+    crewEnabled && featureProjectKey !== null && featureProjectKey === selectedProjectKey;
   const activeBotViewKey = useActiveBot().viewKey;
   const setThreadListView = useSetThreadListView();
   const createFeature = useAtomCommand(featuresEnvironment.create);
@@ -591,10 +570,9 @@ export function NewTaskDraftScreen(props: {
     locked: isComposerInteractionLocked,
   });
 
-  /** Starts a feature with the prompt as its brief, then opens its first stage thread. */
-  async function startWorkflowFeature(
+  /** Starts a feature with the prompt as its brief, then opens its lead's thread. */
+  async function startFeatureFromBrief(
     project: NonNullable<typeof flow.selectedProject>,
-    workflowId: string,
     brief: string,
     briefAttachments: ReadonlyArray<ChatAttachment>,
     draftKey: NonNullable<typeof flow.draftKey>,
@@ -610,7 +588,6 @@ export function NewTaskDraftScreen(props: {
           projectId: project.id,
           title: firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine,
           brief,
-          workflowId,
           autoTitle: true,
           // The feature works where this screen would start a thread.
           workspace: flow.workspaceMode,
@@ -631,9 +608,7 @@ export function NewTaskDraftScreen(props: {
         clearModelSelection: true,
         clearWorkspaceSelection: true,
       });
-      const snapshot = started._tag === "Success" ? started.value : null;
-      const threadId =
-        snapshot?.steps.find((step) => step.id === snapshot.activeStepId)?.threadId ?? null;
+      const threadId = started._tag === "Success" ? started.value.leadThreadId : null;
       promptInputRef.current?.blur();
       if (threadId === null) {
         void setThreadListView(activeBotViewKey, "board");
@@ -680,7 +655,7 @@ export function NewTaskDraftScreen(props: {
     const workspaceMode = workspaceSelection.mode;
     const selectedBranchName = workspaceSelection.branch;
     const initialMessageText = draft.text.trim();
-    if (workflow !== null) {
+    if (asFeature) {
       if (initialMessageText.length === 0 || flow.submitting || attachmentBlockReason !== null)
         return null;
       const briefAttachments = draft.attachments.map((attachment) =>
@@ -702,9 +677,8 @@ export function NewTaskDraftScreen(props: {
         );
         return null;
       }
-      await startWorkflowFeature(
+      await startFeatureFromBrief(
         selectedProject,
-        workflow.id,
         initialMessageText,
         briefAttachments.filter((attachment) => attachment !== null),
         draftKey,
@@ -817,11 +791,11 @@ export function NewTaskDraftScreen(props: {
       ? cloneBlocksStart
         ? "Wait for the project clone to finish."
         : flow.submitting
-          ? workflow !== null
+          ? asFeature
             ? "Starting the feature…"
             : "Starting the thread…"
-          : // A workflow brings its own crew models and workspace, so only the brief matters.
-            workflow === null &&
+          : // A feature's crew brings its own models and workspace, so only the brief matters.
+            !asFeature &&
               flow.workspaceMode === "worktree" &&
               (!flow.selectedBranchName || !flow.isGitRepoKnown)
             ? "Choose a base branch before creating a worktree."
@@ -978,37 +952,30 @@ export function NewTaskDraftScreen(props: {
     </View>
   );
 
-  // Picking a workflow starts a feature whose crew picks each stage's model and workspace.
-  const workflowControl =
-    crewEnabled && (workflowDefinitions?.length ?? 0) > 0 ? (
+  const featureControl =
+    crewEnabled && selectedProjectKey !== null ? (
       <View className="flex-row items-center px-2 pb-1">
         <Menu
-          accessibilityLabel="Workflow"
+          accessibilityLabel="Start as"
           actions={[
-            { id: "", title: "No workflow", state: workflow === null ? "on" : "off" },
-            ...(workflowDefinitions ?? []).map((definition) => ({
-              id: definition.id,
-              title: definition.name,
-              state: workflow?.id === definition.id ? ("on" as const) : ("off" as const),
-            })),
+            { id: "thread", title: "Thread", state: asFeature ? "off" : "on" },
+            {
+              id: "feature",
+              title: "Feature",
+              subtitle: "A lead runs the brief with its crew",
+              state: asFeature ? "on" : "off",
+            },
           ]}
           onPressAction={({ nativeEvent }) =>
-            setSelectedWorkflow(
-              selectedProjectKey === null
-                ? null
-                : {
-                    projectKey: selectedProjectKey,
-                    workflowId: nativeEvent.event === "" ? null : nativeEvent.event,
-                  },
-            )
+            setFeatureProjectKey(nativeEvent.event === "feature" ? selectedProjectKey : null)
           }
         >
           <ComposerInlineControl
-            accessibilityLabel="Workflow"
+            accessibilityLabel="Start as"
             disabled={isComposerInteractionLocked}
-            emphasized={workflow !== null}
+            emphasized={asFeature}
             icon="point.3.connected.trianglepath.dotted"
-            label={workflow ? `${workflow.name} · crew picks models` : "No workflow"}
+            label={asFeature ? "Feature · crew picks models" : "Thread"}
             maxWidth="100%"
           />
         </Menu>
@@ -1095,8 +1062,8 @@ export function NewTaskDraftScreen(props: {
                   />
                 </View>
               ) : null}
-              {workflowControl}
-              {flow.canChooseWorkspace && workflow === null ? workspaceControls : null}
+              {featureControl}
+              {flow.canChooseWorkspace && !asFeature ? workspaceControls : null}
             </View>
           ),
           editorRef: promptInputRef,
@@ -1154,7 +1121,7 @@ export function NewTaskDraftScreen(props: {
         onReconnectEnvironment={() => onReconnectEnvironment(selectedProject.environmentId)}
         canSwitchThreadProvider
         onUpdateThreadInteractionMode={
-          flow.planModeEnabled && workflow === null ? flow.setInteractionMode : undefined
+          flow.planModeEnabled && !asFeature ? flow.setInteractionMode : undefined
         }
         onRespondToApproval={async () => {}}
         onSelectUserInputOption={() => {}}

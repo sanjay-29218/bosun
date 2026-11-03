@@ -125,7 +125,9 @@ export function threadsByFeature<
   for (const shell of shells) {
     if (!shell.feature) continue;
     const key = featureCardKey({ environmentId: shell.environmentId, featureId: shell.feature.id });
-    byFeature.set(key, [...(byFeature.get(key) ?? []), shell]);
+    const threads = byFeature.get(key);
+    if (threads) threads.push(shell);
+    else byFeature.set(key, [shell]);
   }
   return byFeature;
 }

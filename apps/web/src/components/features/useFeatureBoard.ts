@@ -24,23 +24,24 @@ const BOARD_REFRESH_MS = 30_000;
 
 const targetKey = (target: FeatureBoardTarget) => `${target.environmentId}:${target.projectId}`;
 
-/** Environments whose server runs workflows, as a stable comma-joined key. */
-const workflowEnvironmentsKeyAtom = Atom.make((get) =>
+/** Environments whose server runs features, as a stable comma-joined key. */
+const featureEnvironmentsKeyAtom = Atom.make((get) =>
   [...get(environmentServerConfigsAtom)]
     .filter(([, config]) => config.environment.capabilities.workflows === true)
     .map(([environmentId]) => environmentId)
     .toSorted()
     .join(","),
-).pipe(Atom.withLabel("web-features:workflow-environments"));
+).pipe(Atom.withLabel("web-features:feature-environments"));
 
-export function useWorkflowEnvironmentIds(): ReadonlySet<string> {
-  const key = useAtomValue(workflowEnvironmentsKeyAtom);
+export function useFeatureEnvironmentIds(): ReadonlySet<string> {
+  const key = useAtomValue(featureEnvironmentsKeyAtom);
   return new Set(key ? key.split(",") : []);
 }
 
 /**
  * A per-project string that changes when a thread starts, stops, or starts waiting on you.
- * Stage threads move cards, so a board refetches on that, never on streamed messages.
+ * Starting a feature makes its lead's thread, so a board refetches on that, never on streamed
+ * messages.
  */
 const threadActivityKeysAtom = Atom.make((get) => {
   const keys = new Map<string, string[]>();
@@ -115,8 +116,8 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
     }
   }, [activity, stableTargets]);
 
-  // Another client's decision (a cancel, an approval) may change no thread shell here, so an
-  // open, visible board also refetches on a slow timer.
+  // Another client closing or reopening a feature changes no thread shell here, so an open,
+  // visible board also refetches on a slow timer.
   const refresh = () => {
     for (const target of stableTargets)
       appAtomRegistry.refresh(

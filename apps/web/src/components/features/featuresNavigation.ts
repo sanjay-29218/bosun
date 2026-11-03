@@ -11,8 +11,8 @@ import { toastManager } from "../ui/toast";
  */
 export function openNextNeedsYou(navigate: ReturnType<typeof useNavigate>): void {
   const shells = appAtomRegistry.get(needsYouThreadsAtom);
-  const oldest = oldestNeedsYouItem(collectNeedsYou({ cards: [], shells }));
-  if (oldest?.type !== "thread") {
+  const oldest = oldestNeedsYouItem(collectNeedsYou(shells));
+  if (oldest === null) {
     toastManager.add({ id: "needs-you-next", title: "Nothing needs you", timeout: 1500 });
     return;
   }

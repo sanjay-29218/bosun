@@ -20,7 +20,7 @@ export interface HomeHeaderProps {
   readonly onOpenSettings: () => void;
   /** Null with fewer than two bots. */
   readonly botSwitcher: BotSwitcherMenu | null;
-  /** Null when no connected environment runs workflows and the list shows threads. */
+  /** Null when no connected environment runs features and the list shows threads. */
   readonly viewToggle: ThreadListViewToggle | null;
   readonly onStartNewTask: () => void;
 }

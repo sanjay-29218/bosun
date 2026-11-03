@@ -213,9 +213,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const noServerTargets = selectedTargets.length === 0;
   const crewAvailable = selectedTargets.some(
-    (target) =>
-      target.serverConfig.environment.capabilities.workflows === true ||
-      target.serverConfig.environment.capabilities.crew === true,
+    (target) => target.serverConfig.environment.capabilities.crew === true,
   );
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const scopedProjectMembers =
@@ -269,10 +267,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
       ? [
           {
             title: "Crew",
-            rows: [
-              page("SettingsWorkflows", "point.3.connected.trianglepath.dotted", "Workflows"),
-              page("SettingsRoles", "person.2", "Roles"),
-            ],
+            rows: [page("SettingsRoles", "person.2", "Roles")],
           },
         ]
       : []),

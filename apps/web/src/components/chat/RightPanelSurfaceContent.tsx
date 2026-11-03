@@ -78,8 +78,6 @@ export function RightPanelSurfaceContent(props: {
   readonly terminal: RightPanelTerminalProps;
   readonly pullRequest: RightPanelPullRequestProps;
   readonly files: RightPanelFileProps;
-  /** Opens the workflow editor from a feature thread's Crew tab. */
-  readonly onEditWorkflow: () => void;
   readonly sideChatParentPanel: SideChatParentPanel;
 }) {
   const { surface, threadRef, visible, onCloseSurface } = props;
@@ -172,7 +170,7 @@ export function RightPanelSurfaceContent(props: {
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
     case "feature":
-      return <CrewPanel threadRef={threadRef} onEditWorkflow={props.onEditWorkflow} />;
+      return <CrewPanel threadRef={threadRef} />;
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

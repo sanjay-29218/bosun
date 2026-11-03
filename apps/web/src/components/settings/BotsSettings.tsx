@@ -8,7 +8,6 @@ import { useEnvironmentQuery } from "../../state/query";
 import { BotOwnerSelect } from "../bots/BotProjects";
 import { BOTS_PATH } from "../sidebar/mainAppLocation";
 import { Button } from "../ui/button";
-import { CrewLimitsSettings } from "./CrewLimitsSettings";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
@@ -29,7 +28,6 @@ export function BotsSettings() {
           }
         />
       </SettingsSection>
-      <CrewLimitsSettings />
     </SettingsPageContainer>
   );
 }

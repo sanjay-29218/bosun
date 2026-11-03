@@ -13,7 +13,7 @@ export interface BotSwitcherMenu {
   readonly elsewhereNeedsYou: number;
   /**
    * All bots and each bot to switch to (with `state`), then the active bot's headquarters,
-   * then Automations and Library, the web rail's places for scheduled tasks and workflows.
+   * then Automations and Library, the web rail's places for scheduled tasks and roles.
    */
   readonly items: ReadonlyArray<{
     readonly key: string;
@@ -102,7 +102,7 @@ export function buildBotSwitcherMenu(input: {
       {
         key: "library",
         title: "Library",
-        subtitle: "Workflows and roles",
+        subtitle: "Roles",
         onPress: input.openLibrary,
       },
     ],

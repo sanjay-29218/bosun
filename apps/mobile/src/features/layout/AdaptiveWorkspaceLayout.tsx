@@ -643,7 +643,7 @@ function AdaptiveWorkspaceLayoutContent(
     openSettings(navigation, "SettingsScheduledTasks");
   };
   const handleOpenLibrary = () => {
-    openSettings(navigation, "SettingsWorkflows");
+    openSettings(navigation, "SettingsRoles");
   };
 
   const handleOpenThreadPullRequests = useOpenThreadPullRequests();

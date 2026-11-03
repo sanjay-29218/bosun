@@ -32,7 +32,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
-import { useProjects } from "../../state/entities";
+import { useProjects, useQuietThreadShells } from "../../state/entities";
 import { featuresEnvironment } from "../../state/features";
 import { useEnvironmentQuery } from "../../state/query";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -55,8 +55,8 @@ import {
 } from "./todoDialogs";
 
 /**
- * Starts a feature in a new thread's composer, in a new worktree: its Workflow picker starts it
- * on the bot's default workflow, and the first message is the brief. A todo's brief names it, by
+ * Starts a feature in a new thread's composer, in a new worktree: the first message is the
+ * brief, which goes to the feature's lead. A todo's brief names it, by
  * the issue's URL or a `Ticket T-<number>` line, so creating the feature links it.
  */
 export function useStartFeatureDraft() {
@@ -225,14 +225,21 @@ function MoreActions(props: { readonly children: ReactNode }) {
   );
 }
 
-/** The feature working on a todo, as its live status; opening it shows the feature's thread. */
+/** The feature working on a todo, as its live status; opening it shows the feature's lead. */
 function FeatureChip(props: { readonly feature: EnvironmentFeatureCard | null }) {
   const navigate = useNavigate();
+  const shells = useQuietThreadShells();
   const { feature } = props;
   if (!feature) return <Chip>No feature yet</Chip>;
-  const status = featureStatus(feature, undefined);
+  const { status } = featureStatus(
+    feature,
+    shells.filter(
+      (shell) =>
+        shell.environmentId === feature.environmentId && shell.feature?.id === feature.featureId,
+    ),
+  );
   const StatusIcon = status.icon;
-  const threadId = feature.threadId;
+  const threadId = feature.leadThreadId;
   return (
     <Tooltip>
       <TooltipTrigger

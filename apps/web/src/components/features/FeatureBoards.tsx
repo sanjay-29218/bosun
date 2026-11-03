@@ -124,7 +124,7 @@ interface SectionItems {
 /** Stand-ins for todos still loading, so slow projects don't trickle into the sorted list. */
 const PENDING_TODOS = [0, 1, 2];
 
-type DropAction = "cancel" | "reopen" | "settle";
+type DropAction = "close" | "reopen" | "settle";
 type DropTarget = "open" | "done" | "settled";
 
 export interface FeatureBoardHandlers {
@@ -132,7 +132,8 @@ export interface FeatureBoardHandlers {
     readonly environmentId: EnvironmentId;
     readonly projectId: ProjectId;
   }) => EnvironmentProject | null;
-  readonly queuePositions: ReadonlyMap<string, number>;
+  /** The feature's lead's and crew's threads. */
+  readonly threadsFor: (card: EnvironmentFeatureCard) => ReadonlyArray<EnvironmentThreadShell>;
   readonly onOpen: (card: EnvironmentFeatureCard) => void;
   readonly onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) => void;
   readonly onAction: (
@@ -148,7 +149,7 @@ export interface FeatureBoardHandlers {
   readonly onWake: (card: EnvironmentFeatureCard) => void;
   /** Snoozes a feature's threads until `snoozedUntil`. */
   readonly onSnooze: (card: EnvironmentFeatureCard, snoozedUntil: string) => void;
-  /** Called only for an allowed move: into Done stops, out of it reopens, onto Settled settles. */
+  /** Called only for an allowed move: into Done closes, out of it reopens, onto Settled settles. */
   readonly onDrop: (
     card: EnvironmentFeatureCard,
     action: DropAction,
@@ -277,8 +278,8 @@ function ColumnCards(props: {
           <FeatureCard
             key={featureCardKey(card)}
             card={card}
+            threads={handlers.threadsFor(card)}
             project={handlers.projectFor(card)}
-            queuePosition={shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))}
             settled={shelved}
             draggable={!shelved}
             onOpen={handlers.onOpen}
@@ -521,9 +522,6 @@ function FeatureStatusList(props: {
                       key={featureCardKey(card)}
                       card={card}
                       handlers={handlers}
-                      queuePosition={
-                        shelved ? undefined : handlers.queuePositions.get(featureCardKey(card))
-                      }
                       shelf={isShelf(items.section) ? items.section : null}
                     />
                   )}

@@ -269,8 +269,6 @@ interface MessagesTimelineProps {
     readonly environmentLabel?: string;
     readonly open?: () => void;
   } | null;
-  /** Pinned above the first message, such as a stage thread's handoff card. */
-  headerContent?: ReactNode;
   workflowOpening?: WorkflowOpening | null;
   onForkFromRun?: (input: {
     readonly sourceThreadId: ThreadId;
@@ -373,7 +371,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   renderHtmlRender,
   turnItemSource,
   parentThreadLink = null,
-  headerContent = null,
   workflowOpening = null,
   onForkFromRun,
   supportsConversationRollback,
@@ -712,7 +709,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     unmatchedPendingApprovals.length === 0 &&
     !isWorking &&
     parentThreadLink === null &&
-    headerContent === null &&
     historyControls === undefined &&
     footer === null;
   const [listOpening, setListOpening] = useState<TimelineListOpening>(() =>
@@ -1119,7 +1115,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
       {parentThreadLink === null ? listHeaderLeadingContent : null}
       {historyControls ? <TimelineHistoryControl {...historyControls} /> : null}
       {parentThreadLink !== null ? listHeaderLeadingContent : null}
-      {headerContent}
     </>
   );
 

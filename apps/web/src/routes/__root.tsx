@@ -20,7 +20,6 @@ import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { FeatureIssueDialogHost } from "../components/crew/FeatureIssue";
 import { NewTodoDialogHost } from "../components/features/NewTodoDialog";
 import { TodoDetailHost } from "../components/features/TodoDetail";
-import { MakeFeatureDialogHost } from "../components/features/MakeFeatureDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
@@ -172,7 +171,6 @@ function RootRouteBranch() {
     return (
       <>
         <CustomSnoozeDialogHost />
-        <MakeFeatureDialogHost />
         <FeatureIssueDialogHost />
         <NewTodoDialogHost />
         <TodoDetailHost />
@@ -217,7 +215,6 @@ function RootRouteBranch() {
         <ReopenClosedViewShortcut />
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />
-        <MakeFeatureDialogHost />
         <FeatureIssueDialogHost />
         <NewTodoDialogHost />
         <TodoDetailHost />

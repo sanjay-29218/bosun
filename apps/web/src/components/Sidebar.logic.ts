@@ -10,7 +10,6 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
-import { isHiddenStageThread } from "@t3tools/client-runtime/crew-stage";
 import {
   threadSearchMatchKey,
   threadSearchSubject,
@@ -615,15 +614,11 @@ export function resolveSidebarRowThreadId(
 }
 
 /**
- * A feature is one row: its current stage thread. Earlier ones open from the breadcrumb.
  * Bot headquarters open from the bot header. `delegatedUnderParent` holds the tasks linked
  * environments run for a listed thread, by thread key; they show under it, as subagents do.
  */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<
-    SidebarThreadSummary,
-    "archivedAt" | "crew" | "environmentId" | "id" | "lineage"
-  > & {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
     projectId: string;
   },
 >(
@@ -639,16 +634,18 @@ export function filterSidebarV2VisibleThreads<
         thread.lineage,
         delegatedUnderParent,
       ) &&
-      !isHiddenStageThread(thread) &&
       headquartersBotId(thread.id) === null &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
 }
 
-/** A feature's earlier stage threads, which show only inside its row. */
-export function filterSidebarStageHistory<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "crew"> & {
+/**
+ * A feature's crew threads. They run under the lead as its delegated tasks, so they show only
+ * inside the feature's row.
+ */
+export function filterSidebarCrewThreads<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "feature"> & {
     environmentId: string;
     projectId: string;
   },
@@ -656,7 +653,7 @@ export function filterSidebarStageHistory<
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
-      isHiddenStageThread(thread) &&
+      thread.feature?.member !== undefined &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
@@ -881,29 +878,14 @@ type SidebarThreadStatusInput = Pick<
   | "pendingGuestMessageCount"
   | "runtime"
   | "blockedOnThreadWait"
-> &
-  Partial<Pick<SidebarThreadSummary, "crew">>;
+>;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
-  // A stage waiting on a person outranks its thread's own runtime, which has usually stopped.
-  const crewState = thread.crew?.current ? thread.crew.state : null;
-  if (
-    thread.hasPendingApprovals ||
-    thread.pendingSubagentRequest === "approval" ||
-    crewState === "approval" ||
-    crewState === "your-call"
-  ) {
+  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return "approval";
   }
-  if (
-    thread.hasPendingUserInput ||
-    thread.pendingSubagentRequest === "user_input" ||
-    crewState === "input"
-  ) {
+  if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
     return "input";
-  }
-  if (crewState === "failed") {
-    return "failed";
   }
   // A guest is waiting on the owner; the agent's own requests come first.
   if ((thread.pendingGuestMessageCount ?? 0) > 0) {

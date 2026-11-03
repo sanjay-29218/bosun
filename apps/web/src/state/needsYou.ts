@@ -8,8 +8,8 @@ let previousKey = "";
 let previous: ReadonlyArray<EnvironmentThreadShell> = [];
 
 /**
- * Threads waiting on you: tool approvals, questions, and stage threads at a gate, question or
- * failure. The same array comes back until that set changes, so readers skip streamed updates.
+ * Threads waiting on you: tool approvals and questions. The same array comes back until that
+ * set changes, so readers skip streamed updates.
  */
 export const needsYouThreadsAtom = Atom.make((get): ReadonlyArray<EnvironmentThreadShell> => {
   const waiting = get(environmentThreadShells.threadShellsAtom).filter(

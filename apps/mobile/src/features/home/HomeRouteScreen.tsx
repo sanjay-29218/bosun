@@ -135,7 +135,7 @@ export function HomeRouteScreen() {
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
         openAutomations: () => openSettings(navigation, "SettingsScheduledTasks"),
-        openLibrary: () => openSettings(navigation, "SettingsWorkflows"),
+        openLibrary: () => openSettings(navigation, "SettingsRoles"),
       }),
     [activeBot, navigation, openHeadquarters],
   );
@@ -336,7 +336,6 @@ export function HomeRouteScreen() {
             threads={threads}
             active={visible}
             searchQuery={searchQuery}
-            scopeKey={`${activeBot.viewKey}|${selectedEnvironmentId ?? "all"}|${selectedProjectKey ?? "all"}`}
             onOpenThread={(environmentId, threadId) =>
               handleSelectThread({ environmentId, id: threadId })
             }

@@ -82,28 +82,15 @@ import {
   PinOffIcon,
   SquarePenIcon,
   TextSearchIcon,
-  UnlinkIcon,
   UserPlusIcon,
   WorkflowIcon,
   TextAlignJustifyIcon,
 } from "lucide-react";
 import { openNewTodoDialog } from "./features/todoDialogs";
-import {
-  CREW_ACTION_COPY,
-  featureStageRows,
-  formatStageName,
-  sendBackTargets,
-  type CrewAction,
-} from "@t3tools/client-runtime/crew-stage";
-import { getComposerDraftState, useComposerDraftStore } from "../composerDraftStore";
-import { botsEnvironment } from "../state/bots";
-import { workflowsEnvironment } from "../state/workflows";
 import { headquartersMember, useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
 import { startBotNewSession } from "./bots/startBotNewSession";
 import { BotAvatar } from "./BotAvatar";
-import { useEnvironmentSupportsWorkflows } from "./crew/ComposerWorkflowPicker";
-import { botDefaultWorkflowId, useCrewDraftStore } from "./crew/crewDraftStore";
-import { useCrewStage } from "./crew/useCrewStage";
+import { useEnvironmentRunsFeatures } from "../state/features";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
   useDeferredValue,
@@ -270,8 +257,6 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
-import { runFeatureThreadAction } from "./features/featureThreadActions";
-import { featureThreadsEnvironment } from "../state/featureThreads";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
@@ -529,20 +514,6 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
-  const activeThreadFeatureLink = useEnvironmentQuery(
-    activeThread
-      ? featureThreadsEnvironment.link({
-          environmentId: activeThread.environmentId,
-          input: { projectId: activeThread.projectId, threadId: activeThread.id },
-        })
-      : null,
-  ).data;
-  const canAttachFeature = useAtomValue(
-    featureThreadsEnvironment.attach.permissionAtom(activeThread?.environmentId ?? null),
-  );
-  const canDetachFeature = useAtomValue(
-    featureThreadsEnvironment.detach.permissionAtom(activeThread?.environmentId ?? null),
-  );
   const canShareActiveThreadWithGuest = useAtomValue(
     canShareWithGuestAtom(activeThread?.environmentId ?? ("" as EnvironmentId)),
   );
@@ -736,33 +707,10 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadKey = activeThread
     ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
     : null;
-  // Stage actions for an open stage thread, and New feature… where workflows run.
-  const crewStage = useCrewStage(activeThread);
-  const currentProjectSupportsWorkflows = useEnvironmentSupportsWorkflows(
+  // New feature… where the server runs features.
+  const currentProjectRunsFeatures = useEnvironmentRunsFeatures(
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null,
   );
-  const currentProjectWorkflows = useEnvironmentQuery(
-    currentProjectSupportsWorkflows &&
-      (activeThread ?? activeDraftThread) &&
-      (activeThread?.projectId ?? activeDraftThread?.projectId)
-      ? workflowsEnvironment.definitions({
-          environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
-          input: {},
-        })
-      : null,
-  ).data;
-  const currentProjectBotsQuery = useEnvironmentQuery(
-    currentProjectSupportsWorkflows && (activeThread ?? activeDraftThread)
-      ? botsEnvironment.list({
-          environmentId: (activeThread?.environmentId ?? activeDraftThread?.environmentId)!,
-          input: {},
-        })
-      : null,
-  );
-  const currentProjectBots = currentProjectBotsQuery.data;
-  // Until bots load, the bot's default is unknown; an older server without bots fails instead.
-  const currentProjectBotsSettled =
-    currentProjectBots !== null || currentProjectBotsQuery.error !== null;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -1502,58 +1450,17 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (activeThread !== null && activeThreadFeatureLink?.attachable) {
-    const thread = activeThread;
-    const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-    if (activeThreadFeatureLink.stage?.current) {
-      actionItems.push({
-        kind: "action",
-        value: "action:detach-feature",
-        searchTerms: ["detach", "workflow", "feature", "crew", "plain thread"],
-        title: "Detach from workflow",
-        disabled: !canDetachFeature,
-        icon: <UnlinkIcon className={ITEM_ICON_CLASS} />,
-        run: () => runFeatureThreadAction("detach-feature", threadRef, thread),
-      });
-    } else {
-      actionItems.push({
-        kind: "action",
-        value: "action:make-feature",
-        searchTerms: ["make", "feature", "workflow", "crew", "attach", "stage"],
-        title: "Make it a feature…",
-        disabled: !canAttachFeature,
-        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
-        run: () => runFeatureThreadAction("make-feature", threadRef, thread),
-      });
-    }
-  }
-
-  // New feature… starts on the project's bot's default workflow, else the first one.
-  const botWorkflowId =
-    currentProject && currentProjectBots
-      ? botDefaultWorkflowId(currentProjectBots, currentProject)
-      : null;
-  const firstWorkflow =
-    currentProjectWorkflows?.find((workflow) => workflow.id === botWorkflowId) ??
-    currentProjectWorkflows?.[0];
-  // Waits for bots, or picking it early would pin the first workflow over the bot's default.
-  if (
-    firstWorkflow &&
-    currentProjectBotsSettled &&
-    currentProjectEnvironmentId &&
-    currentProjectId
-  ) {
+  if (currentProjectRunsFeatures && currentProjectEnvironmentId && currentProjectId) {
     const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
     actionItems.push({
       kind: "action",
       value: "action:crew:new-feature",
-      searchTerms: ["new feature", "workflow", "crew", "brief"],
+      searchTerms: ["new feature", "crew", "brief", "project manager"],
       title: "New feature…",
       description: "A new thread whose first message is the brief",
       icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
-        const created = await handleNewThread(projectRef);
-        if (created) useCrewDraftStore.getState().setWorkflow(created.draftId, firstWorkflow.id);
+        await handleNewThread(projectRef, { envMode: "worktree", feature: true });
       },
     });
   }
@@ -1570,97 +1477,6 @@ function OpenCommandPaletteDialog(props: {
         openGuestShareDialog(threadRef);
       },
     });
-  }
-
-  if (crewStage?.snapshot) {
-    const stage = crewStage;
-    const snapshot = crewStage.snapshot;
-    const threadRef = scopeThreadRef(stage.thread.environmentId, stage.thread.id);
-    // Notes come from the stage thread's composer, as in its banner.
-    const note = () =>
-      getComposerDraftState(useComposerDraftStore.getState(), threadRef)?.prompt.trim() ?? "";
-    const runStage = async (
-      action: CrewAction,
-      input: Parameters<typeof stage.run>[1] = {},
-    ): Promise<void> => {
-      await stage.run(action, input);
-    };
-    for (const action of stage.actions) {
-      // An answer and Mark stage done's outcome come from the stage's question.
-      if (action === "answer" || action === "mark-done") continue;
-      const copy = CREW_ACTION_COPY[action];
-      if (action === "reopen" && snapshot.completed) {
-        // A finished feature reopens as a follow-up at a stage you pick.
-        actionItems.push({
-          kind: "submenu",
-          value: "action:crew:reopen",
-          searchTerms: ["reopen", "follow up", "feature"],
-          title: copy.label,
-          description: copy.description,
-          icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
-          addonIcon: <WorkflowIcon className={ADDON_ICON_CLASS} />,
-          groups: [
-            {
-              value: "crew-reopen",
-              label: "Reopen at",
-              items: featureStageRows(snapshot).map((row) => ({
-                kind: "action" as const,
-                value: `action:crew:reopen:${row.stepId}`,
-                searchTerms: [row.stepId],
-                title: row.name,
-                icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
-                run: () => runStage("reopen", { stepId: row.stepId }),
-              })),
-            },
-          ],
-        });
-        continue;
-      }
-      if (action === "send-back") {
-        actionItems.push({
-          kind: "submenu",
-          value: "action:crew:send-back",
-          searchTerms: ["send back", "stage", "rework", "feature"],
-          title: copy.label,
-          description: copy.description,
-          icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
-          addonIcon: <WorkflowIcon className={ADDON_ICON_CLASS} />,
-          groups: [
-            {
-              value: "crew-send-back",
-              label: "Send back to",
-              items: sendBackTargets(snapshot).map((stepId) => ({
-                kind: "action" as const,
-                value: `action:crew:send-back:${stepId}`,
-                searchTerms: [stepId],
-                title: formatStageName(stepId),
-                icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
-                run: () => runStage("send-back", { stepId, text: note() }),
-              })),
-            },
-          ],
-        });
-        continue;
-      }
-      actionItems.push({
-        kind: "action",
-        value: `action:crew:${action}`,
-        searchTerms: [copy.label, "stage", "feature", "crew"],
-        title: action === "approve" ? "Approve gate" : copy.label,
-        description: copy.description,
-        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
-        run: async () => {
-          if (action === "request-changes" && !note()) {
-            toastManager.add({
-              type: "info",
-              title: "Describe the changes you want in the composer first",
-            });
-            return;
-          }
-          await runStage(action, action === "request-changes" ? { text: note() } : {});
-        },
-      });
-    }
   }
 
   if (activeThread !== null) {
@@ -1830,7 +1646,7 @@ function OpenCommandPaletteDialog(props: {
       {
         kind: "action",
         value: "action:board-toggle",
-        searchTerms: ["board", "list", "features", "kanban", "threads", "crew", "workflow", "view"],
+        searchTerms: ["board", "list", "features", "kanban", "threads", "crew", "view"],
         title: onBoard ? "Switch to List" : "Switch to Board",
         icon: onBoard ? (
           <TextAlignJustifyIcon className={ITEM_ICON_CLASS} />
@@ -1883,7 +1699,7 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:library",
-    searchTerms: ["library", "workflows", "roles", "crew", "stages", "canvas"],
+    searchTerms: ["library", "roles", "crew", "project manager"],
     title: "Open library",
     icon: <LayersIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "library.open",

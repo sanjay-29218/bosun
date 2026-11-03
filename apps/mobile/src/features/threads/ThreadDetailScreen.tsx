@@ -25,7 +25,6 @@ import {
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
-import { isCrewThreadId } from "@t3tools/client-runtime/crew-message-origin";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -197,9 +196,6 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
-import { CrewHandoffCard } from "../crew/CrewHandoffCard";
-import { CrewStageCard } from "../crew/CrewStageCard";
-import { useCrewThreadStage } from "../../state/features";
 import { ThreadFeed, type ThreadFeedHandle, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { WorkspaceMutationIdProvider } from "./WorkspaceMutationIdProvider";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
@@ -1402,9 +1398,6 @@ function ThreadDetailBody(
     feedTouchStartRef.current = null;
   };
 
-  const isCrewThread = isCrewThreadId(props.selectedThread.id);
-  const crewStage = useCrewThreadStage(props.selectedThread);
-
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
@@ -1453,15 +1446,6 @@ function ThreadDetailBody(
                 workspaceRoot={props.threadCwd}
                 feed={props.selectedThreadFeed}
                 pendingHandoff={props.pendingHandoff}
-                headerAccessory={
-                  isCrewThread ? (
-                    <CrewHandoffCard
-                      environmentId={props.environmentId}
-                      projectId={props.selectedThread.projectId}
-                      threadId={props.selectedThread.id}
-                    />
-                  ) : null
-                }
                 worktreeSetup={props.worktreeSetup}
                 setupWorkingStartedAt={props.setupWorkingStartedAt}
                 queuedMessages={props.queuedMessages}
@@ -1713,15 +1697,6 @@ function ThreadDetailBody(
                           onEditTask={props.creationState.onEditTask}
                         />
                       </Animated.View>
-                    ) : null}
-                    {crewStage !== null ? (
-                      <View className="shrink-0 px-4 pb-3">
-                        <CrewStageCard
-                          environmentId={props.environmentId}
-                          stage={crewStage}
-                          canOperate={props.canOperateThread}
-                        />
-                      </View>
                     ) : null}
                     {props.activePendingApproval || props.activePendingUserInput ? (
                       <Animated.View

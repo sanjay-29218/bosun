@@ -41,7 +41,6 @@ type BotChange = Partial<
     | "allowedTools"
     | "modelSelection"
     | "runtimeMode"
-    | "defaultWorkflowId"
     | "longConversation"
   >
 >;
@@ -65,7 +64,6 @@ function useSaveBot(environmentId: EnvironmentId, onFailure: () => void) {
   };
 }
 
-const NO_WORKFLOW = "none";
 const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
   compact: "Compact",
   "new-session": "Start a new session",
@@ -73,7 +71,7 @@ const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
 
 type Tab = "behavior" | "projects" | "tools" | "look";
 
-/** Grants for workflow stages, which a bot never runs; a bot's tools leave them out. */
+/** Grants only feature crews use, which a bot never joins; a bot's tools leave them out. */
 const ROLE_ONLY_GRANTS: ReadonlySet<string> = new Set(
   CREW_TOOL_GRANTS.filter((grant) => "roleOnly" in grant).map((grant) => grant.id),
 );
@@ -88,7 +86,6 @@ export function BotEditor({
   environmentId,
   bot,
   defaultModel,
-  workflows,
   usedAvatars,
   projects,
   projectCount,
@@ -99,7 +96,6 @@ export function BotEditor({
   readonly environmentId: EnvironmentId;
   readonly bot: Bot | null;
   readonly defaultModel: ModelSelection | null;
-  readonly workflows: ReadonlyArray<{ readonly id: string; readonly name: string }>;
   /** Avatars other bots wear; a new bot starts with a starter one nobody has. */
   readonly usedAvatars: ReadonlyArray<BotAvatarParts>;
   readonly projects: ReactNode;
@@ -133,7 +129,6 @@ export function BotEditor({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     bot?.runtimeMode ?? "approval-required",
   );
-  const [defaultWorkflowId, setDefaultWorkflowId] = useState(bot?.defaultWorkflowId ?? null);
   const [longConversation, setLongConversation] = useState<BotLongConversation>(
     bot?.longConversation ?? "compact",
   );
@@ -146,7 +141,6 @@ export function BotEditor({
     allowedTools: tools,
     runtimeMode,
     modelSelection,
-    defaultWorkflowId,
     longConversation,
   };
   const edited = bot
@@ -157,7 +151,6 @@ export function BotEditor({
       tools.join("\n") !== botTools(bot.allowedTools).join("\n") ||
       JSON.stringify(modelSelection) !== JSON.stringify(bot.modelSelection) ||
       runtimeMode !== bot.runtimeMode ||
-      defaultWorkflowId !== bot.defaultWorkflowId ||
       longConversation !== bot.longConversation
     : fields.name.length > 0 || instructions.trim().length > 0;
   // A new bot may leave instructions empty to start from the server's defaults.
@@ -168,11 +161,6 @@ export function BotEditor({
     modelSelection !== null &&
     (bot === null || instructions.trim().length > 0) &&
     !saving;
-  // A default workflow that was deleted still shows, so saving doesn't drop it silently.
-  const workflowOptions =
-    defaultWorkflowId && !workflows.some((workflow) => workflow.id === defaultWorkflowId)
-      ? [...workflows, { id: defaultWorkflowId, name: defaultWorkflowId }]
-      : workflows;
 
   useBlocker({
     shouldBlockFn: async () =>
@@ -297,35 +285,6 @@ export function BotEditor({
               </EditorField>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
-              <EditorField label="Default workflow">
-                <Select
-                  value={defaultWorkflowId ?? NO_WORKFLOW}
-                  onValueChange={(next) =>
-                    setDefaultWorkflowId(
-                      typeof next === "string" && next !== NO_WORKFLOW ? next : null,
-                    )
-                  }
-                >
-                  <SelectTrigger aria-label="Default workflow">
-                    <SelectValue>
-                      {(value: string) =>
-                        value === NO_WORKFLOW
-                          ? "None"
-                          : (workflowOptions.find((workflow) => workflow.id === value)?.name ??
-                            value)
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value={NO_WORKFLOW}>None</SelectItem>
-                    {workflowOptions.map((workflow) => (
-                      <SelectItem key={workflow.id} value={workflow.id}>
-                        {workflow.name}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </EditorField>
               <EditorField label="Long conversations">
                 <Select
                   value={longConversation}

@@ -1,8 +1,4 @@
-import {
-  CREW_STATE_LABELS,
-  featureTagColor,
-  formatCrewStageLine,
-} from "@t3tools/client-runtime/crew-stage";
+import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { featureIssueMeta, FeatureIssueIcon } from "../crew/FeatureIssue";
 import { FeatureTag } from "../crew/FeatureTag";
@@ -368,11 +364,9 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">{thread.feature.title}</div>
           </div>
         ) : null}
-        {thread.crew ? (
+        {thread.feature?.member ? (
           <div className="flex min-w-0 items-center gap-2 ps-5 text-muted-foreground">
-            <div className="min-w-0 truncate">
-              {formatCrewStageLine(thread.crew)} · {CREW_STATE_LABELS[thread.crew.state]}
-            </div>
+            <div className="min-w-0 truncate">{thread.feature.member}</div>
           </div>
         ) : null}
         {thread.feature?.issue ? (
@@ -1248,7 +1242,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const metaLineEmpty =
     !props.workGroup &&
     !thread.feature &&
-    !thread.crew &&
     !thread.branch &&
     !showsScratchMachine &&
     prBadge === null &&
@@ -1267,8 +1260,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {featureIssueRef(thread.feature.issue)}
         </span>
       ) : null}
-      {thread.crew && !props.workGroup ? (
-        <span className="shrink-0 text-muted-foreground">{formatCrewStageLine(thread.crew)}</span>
+      {thread.feature?.member && !props.workGroup ? (
+        <span className="shrink-0 text-muted-foreground">{thread.feature.member}</span>
       ) : null}
       {thread.branch ? (
         <>

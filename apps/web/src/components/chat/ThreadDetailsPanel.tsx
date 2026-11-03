@@ -50,7 +50,7 @@ interface ThreadDetailsPanelProps extends Pick<
   forceNewWorktree?: boolean;
   environmentId: EnvironmentId;
   threadId: ThreadId;
-  /** Opens the feature panel; set on a feature's stage thread. */
+  /** Opens the Crew tab; set on a feature's or bot request's threads. */
   onOpenFeature?: (() => void) | undefined;
   projectId: ProjectId;
   worktreePath: string | null;

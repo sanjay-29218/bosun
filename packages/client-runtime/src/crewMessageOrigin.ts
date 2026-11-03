@@ -17,7 +17,3 @@ export const crewMessageOrigin = (context: OrchestrationMessageContext | undefin
     ? { memberId, runId: fields.runId }
     : null;
 };
-
-/** Crew run threads keep the persisted "bot-run:" id prefix. */
-export const isCrewThreadId = (threadId: string) =>
-  threadId.startsWith("bot-run:") || threadId.startsWith("bosun-run:");

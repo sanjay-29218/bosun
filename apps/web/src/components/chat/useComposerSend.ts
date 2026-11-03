@@ -160,7 +160,7 @@ type DraftEnvironmentRouting = ReturnType<typeof useDraftEnvironmentRouting>;
 type UsageLimitsPanel = ReturnType<typeof useUsageLimitsPanel>;
 type TimelineFollow = ReturnType<typeof useTimelineFollow>;
 
-/** What a new thread with a workflow picked starts its feature with. */
+/** What a draft that starts a feature sends its lead. */
 export interface CrewFeatureBrief {
   readonly brief: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
@@ -223,7 +223,7 @@ interface ComposerSendInput {
   readonly respondingRequestIds: PendingThreadRequests["respondingRequestIds"];
   readonly activePendingProgress: PendingThreadRequests["activePendingProgress"];
   readonly onAdvanceActivePendingUserInput: PendingThreadRequests["onAdvanceActivePendingUserInput"];
-  /** Set while a new thread has a workflow picked: sending starts a feature with the prompt as its brief. */
+  /** Set while a draft starts a feature: sending starts it with the prompt as its brief. */
   readonly startCrewFeature: ((brief: CrewFeatureBrief) => Promise<boolean>) | null;
   readonly onRespondToApproval: PendingThreadRequests["onRespondToApproval"];
   readonly beginLocalDispatch: LocalDispatchState["beginLocalDispatch"];
@@ -577,7 +577,7 @@ export function useComposerSend(input: ComposerSendInput) {
         threadContexts: sendCtx.threadContexts,
         environmentContexts: sendCtx.environmentContexts,
       });
-      // The brief titles the feature and goes to every stage, so it needs text.
+      // The brief titles the feature and is its lead's first message, so it needs text.
       if (snapshot.messageText.length === 0) return;
       const fail = (message: string) => {
         sendInFlightRef.current = false;

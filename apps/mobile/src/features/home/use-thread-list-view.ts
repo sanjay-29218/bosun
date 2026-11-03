@@ -21,7 +21,7 @@ export function useSetThreadListView() {
 
 /**
  * The thread list column's view, remembered per bot. Null while no connected environment
- * runs workflows: the list then shows threads and offers no toggle.
+ * runs features: the list then shows threads and offers no toggle.
  */
 export function useThreadListView(
   viewKey: string,

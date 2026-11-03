@@ -792,7 +792,6 @@ function ThreadNavigationSidebarPane(
       threads={threads}
       active={props.visible}
       searchQuery={props.searchQuery}
-      scopeKey={`${activeBot.viewKey}|${options.selectedEnvironmentId ?? "all"}|${selectedProjectKey ?? "all"}`}
       onOpenThread={openBoardThread}
       onStartFeature={startNewTask}
       contentContainerStyle={contentContainerStyle}

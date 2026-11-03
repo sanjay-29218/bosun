@@ -36,7 +36,7 @@ import {
   saveFeaturesPagePreferences,
 } from "./featuresPagePreferences";
 import { closeNewTodoDialog, newTodoDialogAtom, type NewTodoTarget } from "./todoDialogs";
-import { useWorkflowEnvironmentIds } from "./useFeatureBoard";
+import { useFeatureEnvironmentIds } from "./useFeatureBoard";
 
 type TodoKind = "ticket" | "issue";
 
@@ -54,12 +54,12 @@ const projectKey = (project: { readonly environmentId: EnvironmentId; readonly i
 
 export function NewTodoDialogHost() {
   const target = useAtomValue(newTodoDialogAtom);
-  const workflowEnvironmentIds = useWorkflowEnvironmentIds();
+  const featureEnvironmentIds = useFeatureEnvironmentIds();
   const railProjectKeys = useBotRailProjectKeys();
   const projects = useProjects()
     .filter(
       (project) =>
-        workflowEnvironmentIds.has(project.environmentId) &&
+        featureEnvironmentIds.has(project.environmentId) &&
         (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
     )
     .toSorted((a, b) => a.title.localeCompare(b.title));

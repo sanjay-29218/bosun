@@ -15,7 +15,6 @@ const TONE_TEXT: Record<CrewRosterTone, string> = {
   waiting: "text-warning-foreground",
   failed: "text-error-foreground",
   idle: "text-muted-foreground",
-  next: "text-muted-foreground",
 };
 
 /** Where one of the crew stands, as an icon. */
@@ -30,7 +29,7 @@ export function CrewRosterIcon({ tone }: { readonly tone: CrewRosterTone }) {
       return <CircleDotIcon aria-hidden className={className} />;
     case "failed":
       return <CircleAlertIcon aria-hidden className={className} />;
-    default:
+    case "idle":
       return <CircleIcon aria-hidden className={cn(className, "opacity-60")} />;
   }
 }
@@ -42,14 +41,7 @@ export function CrewRosterHereMark() {
   );
 }
 
-/** Where one of the crew stands, in words, after its earlier tries. */
+/** Where one of the crew stands, in words. */
 export function CrewRosterStatus({ entry }: { readonly entry: CrewRosterEntry }) {
-  return (
-    <span className="shrink-0 text-xs">
-      {entry.tries.length > 0 ? (
-        <span className="text-muted-foreground">{entry.tries.length + 1} tries · </span>
-      ) : null}
-      <span className={TONE_TEXT[entry.tone]}>{entry.status}</span>
-    </span>
-  );
+  return <span className={cn("shrink-0 text-xs", TONE_TEXT[entry.tone])}>{entry.status}</span>;
 }

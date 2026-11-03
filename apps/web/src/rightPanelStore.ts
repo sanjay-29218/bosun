@@ -54,7 +54,7 @@ export type RightPanelSurface =
       /** Set when breadcrumbs moved a folder browser up to the workspace root. */
       folderTrail?: string;
     }
-  /** A stage thread's feature: its stages, outputs and workspace. */
+  /** The Crew tab: a feature's or bot request's crew, and a feature's workspace. */
   | { id: "feature"; kind: "feature" }
   | {
       id: `file:${string}` | `attachment:${string}`;

@@ -118,7 +118,7 @@ describe("buildBotSwitcherMenu", () => {
     });
     const [automations, library] = menu!.items.slice(-2);
     expect(automations).toMatchObject({ title: "Automations", subtitle: "Scheduled tasks" });
-    expect(library).toMatchObject({ title: "Library", subtitle: "Workflows and roles" });
+    expect(library).toMatchObject({ title: "Library", subtitle: "Roles" });
     expect(library).not.toHaveProperty("state");
     automations!.onPress();
     library!.onPress();

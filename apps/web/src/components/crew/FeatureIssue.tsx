@@ -9,6 +9,7 @@ import {
   type EnvironmentId,
   type FeatureIssue,
   type ProjectId,
+  type ThreadFeatureTag,
 } from "@t3tools/contracts";
 import { CircleCheckIcon, CircleDotIcon } from "lucide-react";
 import { Atom } from "effect/reactivity";
@@ -17,6 +18,7 @@ import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { featuresEnvironment } from "../../state/features";
+import { openFeatureIssue } from "../features/todoDialogs";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -75,6 +77,29 @@ const featureIssueDialogAtom = Atom.make<FeatureIssueTarget | null>(null).pipe(
 
 export function openFeatureIssueDialog(target: FeatureIssueTarget): void {
   appAtomRegistry.set(featureIssueDialogAtom, target);
+}
+
+/** A thread menu's issue item: opens the feature's issue, or the dialog that links it. */
+export function runFeatureIssueAction(
+  action: "feature-issue" | "feature-open-issue",
+  thread: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+    readonly feature: ThreadFeatureTag;
+  },
+): void {
+  const issue = thread.feature.issue ?? null;
+  if (action === "feature-open-issue") {
+    if (issue) openFeatureIssue(thread, issue);
+    return;
+  }
+  openFeatureIssueDialog({
+    environmentId: thread.environmentId,
+    projectId: thread.projectId,
+    featureId: thread.feature.id,
+    featureTitle: thread.feature.title,
+    issue,
+  });
 }
 
 const close = () => appAtomRegistry.set(featureIssueDialogAtom, null);

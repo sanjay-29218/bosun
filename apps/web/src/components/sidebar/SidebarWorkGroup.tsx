@@ -1,11 +1,7 @@
-import { featureTagColor } from "@t3tools/client-runtime/crew-stage";
+import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type {
-  WorkGroup,
-  WorkGroupEntry,
-  WorkStageStatus,
-} from "@t3tools/client-runtime/state/work-groups";
+import type { WorkGroup, WorkGroupEntry } from "@t3tools/client-runtime/state/work-groups";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   CircleAlertIcon,
@@ -21,15 +17,6 @@ import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar
 
 export type SidebarWorkGroup = WorkGroup<EnvironmentThreadShell>;
 
-const STAGE_CLASSES: Record<WorkStageStatus, string> = {
-  done: "bg-muted-foreground/45",
-  working: "bg-info",
-  "needs-you": "bg-warning",
-  failed: "bg-error",
-  paused: "bg-muted-foreground/70",
-  pending: "bg-border",
-};
-
 const STATUS_LABELS: Partial<Record<SidebarThreadStatus, string>> = {
   approval: "Approval",
   input: "Input",
@@ -40,15 +27,16 @@ const STATUS_LABELS: Partial<Record<SidebarThreadStatus, string>> = {
 const workColor = (group: SidebarWorkGroup) =>
   featureTagColor(group.primary.feature?.id ?? group.primary.crewRequest?.id ?? group.key);
 
-/** The meta line of a feature or bot request row: its color and where it is. */
+/** The meta line of a feature or bot request row: its color and who has worked on it. */
 export function SidebarWorkGroupSummary(props: { readonly group: SidebarWorkGroup }) {
   const { group } = props;
+  // A feature's row is its lead, so its chain is the crew the lead handed work to.
   const chain =
     group.kind === "request"
       ? [group.primary, ...group.children.map((entry) => entry.thread)]
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
           .map((thread) => thread.crewRequest?.member ?? thread.title)
-      : [];
+      : group.children.map((entry) => entry.label);
   return (
     <span className="flex min-w-0 shrink items-center gap-1.5">
       <span
@@ -56,28 +44,13 @@ export function SidebarWorkGroupSummary(props: { readonly group: SidebarWorkGrou
         className="size-1.5 shrink-0 rounded-full"
         style={{ backgroundColor: workColor(group) }}
       />
-      {group.stages.length > 0 ? <WorkStageStrip stages={group.stages} /> : null}
-      {group.stageLine ? (
-        <span className="shrink-0 text-muted-foreground">{group.stageLine}</span>
-      ) : chain.length > 0 ? (
+      {chain.length > 0 ? (
         <span className="min-w-0 truncate text-muted-foreground">
           {chain.length > 3
             ? `${chain.slice(0, 2).join(" → ")} → +${chain.length - 2}`
             : chain.join(" → ")}
         </span>
       ) : null}
-    </span>
-  );
-}
-
-/** One segment per workflow stage: done, the current stage in its state's color, then the rest. */
-export function WorkStageStrip(props: { readonly stages: ReadonlyArray<WorkStageStatus> }) {
-  return (
-    <span aria-hidden className="inline-flex shrink-0 items-center gap-0.5">
-      {props.stages.map((status, index) => (
-        // oxlint-disable-next-line react/no-array-index-key -- stages are positional
-        <span key={index} className={cn("h-1 w-2.5 rounded-full", STAGE_CLASSES[status])} />
-      ))}
     </span>
   );
 }
@@ -103,7 +76,7 @@ function StatusIcon({ status }: { readonly status: SidebarThreadStatus }) {
   }
 }
 
-/** One of a group's other threads, listed under its row: a stage, an attempt, or a helper. */
+/** One of a group's other threads, listed under its row: a crew member, or an attempt. */
 export const SidebarWorkGroupEntry = memo(function SidebarWorkGroupEntry(props: {
   readonly entry: WorkGroupEntry<EnvironmentThreadShell>;
   readonly isActive: boolean;

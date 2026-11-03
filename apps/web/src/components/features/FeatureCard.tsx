@@ -1,16 +1,19 @@
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardQuickActions,
+  featureColumn,
   featureRef,
-  ordinal,
-  type EnvironmentFeatureCard,
   threadBoardColumn,
+  threadNeedsYouKind,
+  type EnvironmentFeatureCard,
   type FeatureCardActionId,
+  type FeatureColumn,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueRef, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
 import {
   formatWorkingDurationLabel,
   resolveThreadWorkingStartedAt,
+  threadRuntimeIsActive,
 } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -19,18 +22,14 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import {
   AlarmClockOffIcon,
   CheckIcon,
-  CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleIcon,
-  CircleSlashIcon,
-  ClockIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
   MessageSquareIcon,
   MilestoneIcon,
   NotebookTextIcon,
-  PauseIcon,
   PlayIcon,
   ShieldQuestionIcon,
   Undo2Icon,
@@ -71,55 +70,74 @@ interface FeatureStatus {
   readonly icon: LucideIcon;
 }
 
+const WORKING: FeatureStatus = {
+  label: "Working",
+  className: "text-info-foreground",
+  icon: CircleDashedIcon,
+};
+const APPROVAL: FeatureStatus = {
+  label: "Approval",
+  className: "text-warning-foreground",
+  icon: ShieldQuestionIcon,
+};
+const INPUT: FeatureStatus = {
+  label: "Input",
+  className: "text-indigo-600 dark:text-indigo-300",
+  icon: MessageCircleQuestionIcon,
+};
+
+const waitingStatus = (shell: EnvironmentThreadShell) =>
+  shell.hasPendingApprovals || shell.pendingSubagentRequest === "approval" ? APPROVAL : INPUT;
+
+const waitsOnYou = (shell: EnvironmentThreadShell) =>
+  threadNeedsYouKind(shell) !== null || shell.pendingSubagentRequest != null;
+
 /**
- * Status words and icons reuse the sidebar's (sky working, amber approval, indigo input, red
- * failed), so a feature reads the same on the board as its thread does in the sidebar.
+ * Where a feature stands, from its lead's and crew's threads, and the thread that puts it there:
+ * the one waiting on you, else the one running. Status words and icons reuse the sidebar's, so
+ * a feature reads the same on the board as its threads do in the sidebar.
  */
 export function featureStatus(
   card: EnvironmentFeatureCard,
-  queuePosition: number | undefined,
-): FeatureStatus {
-  if (!card.started && card.state !== "done" && card.state !== "cancelled")
-    return { label: "Not started", className: "text-muted-foreground", icon: CircleIcon };
-  switch (card.state) {
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): {
+  readonly column: FeatureColumn;
+  readonly status: FeatureStatus;
+  readonly thread: EnvironmentThreadShell | null;
+} {
+  const live = threads.filter((thread) => thread.archivedAt === null);
+  const column = featureColumn(card, live);
+  switch (column) {
+    case "todo":
+      return {
+        column,
+        status: { label: "Not started", className: "text-muted-foreground", icon: CircleIcon },
+        thread: null,
+      };
     case "working":
-      return card.stage?.takenOver
-        ? { label: "Taken over", className: "text-warning-foreground", icon: UserRoundIcon }
-        : { label: "Working", className: "text-info-foreground", icon: CircleDashedIcon };
-    case "queued":
       return {
-        label: queuePosition ? `Queued · ${ordinal(queuePosition)}` : "Queued",
-        className: "text-muted-foreground",
-        icon: ClockIcon,
+        column,
+        status: WORKING,
+        thread: live.find((thread) => threadRuntimeIsActive(thread.runtime)) ?? null,
       };
-    case "approval":
-      return { label: "Approval", className: "text-warning-foreground", icon: ShieldQuestionIcon };
-    case "input":
+    case "needs-you": {
+      const waiting = live.find(waitsOnYou) ?? null;
       return {
-        label: "Input",
-        className: "text-indigo-600 dark:text-indigo-300",
-        icon: MessageCircleQuestionIcon,
+        column,
+        status: waiting
+          ? waitingStatus(waiting)
+          : { label: "Your turn", className: "text-warning-foreground", icon: UserRoundIcon },
+        thread: waiting,
       };
-    case "your-call":
-      return { label: "Your call", className: "text-warning-foreground", icon: UserRoundIcon };
-    case "failed":
-      return { label: "Failed", className: "text-error-foreground", icon: CircleAlertIcon };
-    case "paused":
-      return { label: "Paused", className: "text-muted-foreground", icon: PauseIcon };
-    case "cancelled":
-      return { label: "Stopped", className: "text-muted-foreground", icon: CircleSlashIcon };
+    }
     case "done":
-      return { label: "Done", className: "text-success-foreground", icon: CircleCheckIcon };
+      return {
+        column,
+        status: { label: "Done", className: "text-success-foreground", icon: CircleCheckIcon },
+        thread: null,
+      };
   }
 }
-
-/** States whose card says what it waits on: the question, the failure, the decision. */
-export const WAITING_STATES = new Set<EnvironmentFeatureCard["state"]>([
-  "approval",
-  "input",
-  "your-call",
-  "failed",
-]);
 
 // Self-ticking like the sidebar's, so a working card re-renders only this label each second.
 export function WorkingDuration(props: { readonly startedAt: string }) {
@@ -329,15 +347,9 @@ export const chatSince = (shell: EnvironmentThreadShell) =>
 export function chatStatus(shell: EnvironmentThreadShell): FeatureStatus | null {
   switch (threadBoardColumn(shell)) {
     case "needs-you":
-      return shell.hasPendingApprovals || shell.pendingSubagentRequest === "approval"
-        ? { label: "Approval", className: "text-warning-foreground", icon: ShieldQuestionIcon }
-        : {
-            label: "Input",
-            className: "text-indigo-600 dark:text-indigo-300",
-            icon: MessageCircleQuestionIcon,
-          };
+      return waitingStatus(shell);
     case "working":
-      return { label: "Working", className: "text-info-foreground", icon: CircleDashedIcon };
+      return WORKING;
     case "done":
       return null;
   }
@@ -410,8 +422,9 @@ export const ChatCard = memo(function ChatCard(props: {
 
 export const FeatureCard = memo(function FeatureCard(props: {
   readonly card: EnvironmentFeatureCard;
+  /** The feature's lead's and crew's threads. */
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly project: EnvironmentProject | null;
-  readonly queuePosition: number | undefined;
   /** In the Settled shelf: receded, with Un-settle in place of Settle. */
   readonly settled: boolean;
   readonly draggable: boolean;
@@ -427,23 +440,20 @@ export const FeatureCard = memo(function FeatureCard(props: {
   readonly onDragStart?: (card: EnvironmentFeatureCard, event: DragEvent) => void;
 }) {
   const { card } = props;
-  // Each card follows only its own stage thread, so a streaming stage repaints one card.
+  // The lead's thread carries the feature's branch and pull request.
   const shell = useThreadShell(
-    card.threadId ? scopeThreadRef(card.environmentId, card.threadId) : null,
+    card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
   const pullRequest = shell?.linkedPullRequest ?? shell?.branchPullRequest ?? null;
-  const status = featureStatus(card, props.queuePosition);
-  const closed = card.state === "done" || card.state === "cancelled";
+  const { column, status, thread } = featureStatus(card, props.threads);
   const workingSince =
-    card.state === "working" && !card.stage?.takenOver && shell
-      ? resolveThreadWorkingStartedAt(shell)
-      : null;
+    column === "working" && thread ? resolveThreadWorkingStartedAt(thread) : null;
   const actions = featureCardQuickActions(card);
   const StatusIcon = status.icon;
   const statusLabel =
-    card.state === "done" || !card.started ? (
+    column === "done" || column === "todo" ? (
       <span className="text-secondary-label">
-        <RelativeTime timestamp={card.stateSince} />
+        <RelativeTime timestamp={card.updatedAt} />
       </span>
     ) : (
       <span className={cn("inline-flex shrink-0 items-center gap-1 font-medium", status.className)}>
@@ -452,6 +462,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
         {workingSince ? <WorkingDuration startedAt={workingSince} /> : null}
       </span>
     );
+  const member = thread?.feature?.member;
   const ref = featureRef(card);
   const meta = ref || pullRequest || shell;
   return (
@@ -465,7 +476,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
         }}
         className={cn(
           cardClassName,
-          card.started || closed ? "border-border/70 hover:border-border" : "border-dashed",
+          column === "todo" ? "border-dashed" : "border-border/70 hover:border-border",
           props.settled && "opacity-70 hover:opacity-100",
         )}
       >
@@ -473,9 +484,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
           <StatusWithControl status={statusLabel} control={props.parkControls} />
         </CardHeader>
         <CardTitle title={card.title} onOpen={() => props.onOpen(card)} />
-        {card.detail && WAITING_STATES.has(card.state) ? (
-          <p className="mt-0.5 line-clamp-2 min-w-0 text-muted-foreground">{card.detail}</p>
-        ) : null}
+        {member ? <p className="mt-0.5 min-w-0 truncate text-muted-foreground">{member}</p> : null}
         {meta ? (
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
             {card.issue ? (
@@ -505,11 +514,11 @@ export const FeatureCard = memo(function FeatureCard(props: {
         ) : null}
         {actions.length > 0 ? (
           <div className="relative z-10 mt-2 flex flex-wrap gap-1.5">
-            {actions.map((action, index) => (
+            {actions.map((action) => (
               <Button
                 key={action}
                 size="xs"
-                variant={index === 0 && WAITING_STATES.has(card.state) ? "default" : "outline"}
+                variant="outline"
                 onClick={(event) => props.onAction(card, action, event)}
               >
                 {action === "start" ? <PlayIcon aria-hidden /> : null}

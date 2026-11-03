@@ -27,7 +27,6 @@ const reviewer: RoleConfig = {
 // Stable arrays, like the query results the real hook returns.
 const state = vi.hoisted(() => ({
   connected: true,
-  workflows: [] as never[],
   roles: [] as RoleConfig[],
 }));
 
@@ -43,7 +42,6 @@ vi.mock(import("../../state/library"), async (original) => {
       ? [
           {
             environmentId: EnvironmentId.make("laptop"),
-            workflows: state.workflows,
             roles: state.roles,
             error: null,
           },
@@ -95,11 +93,11 @@ describe("LibraryPage", () => {
     await expect.element(instructions).toHaveTextContent("Review the change for security");
   });
 
-  it("says when the selected workflow no longer exists", async () => {
+  it("says when the selected role no longer exists", async () => {
     setup([reviewer]);
     await using _screen = await render(
-      <LibraryPage environmentId={environmentId} workflowId="feature-delivery" />,
+      <LibraryPage environmentId={environmentId} roleId="role:designer" />,
     );
-    await expect.element(page.getByText("Workflow unavailable")).toBeInTheDocument();
+    await expect.element(page.getByText("Role unavailable")).toBeInTheDocument();
   });
 });

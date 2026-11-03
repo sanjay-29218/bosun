@@ -1,33 +1,22 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { crewStageRefreshKey } from "@t3tools/client-runtime/crew-stage";
 import {
   threadBoardSignal,
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import { createFeatureAtoms } from "@t3tools/client-runtime/state/features";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
-import type {
-  EnvironmentId,
-  CrewStageSummary,
-  ProjectId,
-  ThreadId,
-  WorkflowFeatureSnapshot,
-} from "@t3tools/contracts";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AppState } from "react-native";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { environmentProjects } from "./projects";
-import { formatEnvironmentQueryError, useEnvironmentQuery } from "./query";
+import { formatEnvironmentQueryError } from "./query";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
-import { workflowsEnvironment } from "./workflows";
 
 export interface FeatureBoardTarget {
   readonly environmentId: EnvironmentId;
@@ -51,8 +40,8 @@ const boardSignalsAtom = Atom.make((get) => {
 }).pipe(Atom.withLabel("feature-board-signals"));
 
 /**
- * Changes when a thread in the project starts, stops, or starts waiting on you. Stage moves
- * happen at those points, so a board that is on screen re-reads then instead of polling.
+ * Changes when a thread in the project starts, stops, or starts waiting on you. Starting a
+ * feature makes its lead's thread, so a board that is on screen re-reads then instead of polling.
  */
 const boardSignalAtom = Atom.family((key: string) =>
   Atom.make((get) => get(boardSignalsAtom).get(key) ?? "").pipe(
@@ -61,7 +50,6 @@ const boardSignalAtom = Atom.family((key: string) =>
 );
 
 export const featuresEnvironment = createFeatureAtoms(connectionAtomRuntime, {
-  workflowFeature: workflowsEnvironment.feature,
   boardRefreshTrigger: ({ environmentId, input }) =>
     boardSignalAtom(boardKey({ environmentId, projectId: input.projectId })),
 });
@@ -72,7 +60,7 @@ const boardAtom = (target: FeatureBoardTarget) =>
     input: { projectId: target.projectId },
   });
 
-/** Projects on environments whose server runs workflows. */
+/** Projects on environments whose server runs features. */
 export const crewProjectsAtom = Atom.make((get) => {
   const configs = get(environmentServerConfigsAtom);
   return get(environmentProjects.projectsAtom).filter(
@@ -80,7 +68,7 @@ export const crewProjectsAtom = Atom.make((get) => {
   );
 }).pipe(Atom.withLabel("crew-projects"));
 
-/** Workflow projects the board can show: the active bot's, or every one without a switcher. */
+/** Feature projects the board can show: the active bot's, or every one without a switcher. */
 export function useBoardProjects(
   botProjectKeys: ReadonlySet<string> | null,
 ): ReadonlyArray<EnvironmentProject> {
@@ -102,8 +90,8 @@ const ACTIVE_BOARD_REFRESH_MS = 30_000;
 /**
  * The server-built board cards of every target, merged. Each project loads and fails on its
  * own. While `active` (on screen, app in the foreground) boards re-read on arrival and every
- * 30 seconds: a decision made on another device (a pause, or an approval that starts no run
- * yet) moves no thread here, so the thread signal alone would miss it.
+ * 30 seconds: closing or reopening a feature on another device moves no thread here, so the
+ * thread signal alone would miss it.
  */
 export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, active: boolean) {
   const registry = useContext(RegistryContext);
@@ -155,47 +143,4 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, acti
     }
     return { cards, errors, pending, refresh };
   }, [refresh, results]);
-}
-
-/** An open stage thread with its feature's workflow snapshot. */
-export interface CrewThreadStage {
-  readonly threadId: ThreadId;
-  readonly summary: CrewStageSummary;
-  readonly snapshot: WorkflowFeatureSnapshot;
-  /** The stage thread's title, which names the feature. */
-  readonly title: string;
-}
-
-/**
- * Loads a stage thread's feature only while the thread is open, and reloads it when the
- * shell's `crew` summary or run status says something moved.
- */
-export function useCrewThreadStage(thread: EnvironmentThreadShell): CrewThreadStage | null {
-  const crew = thread.crew ?? null;
-  const query = useEnvironmentQuery(
-    crew
-      ? workflowsEnvironment.feature({
-          environmentId: thread.environmentId,
-          input: { projectId: thread.projectId, featureId: crew.featureId },
-        })
-      : null,
-  );
-  const changeKey = crewStageRefreshKey(crew, thread.latestRun?.status);
-  const lastKey = useRef(changeKey);
-  const { refresh } = query;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reloads the feature query when the shell's crew summary or run status moves; a refresh can't run during render.
-  useEffect(() => {
-    if (changeKey === lastKey.current) return;
-    lastKey.current = changeKey;
-    if (changeKey !== null) refresh();
-  }, [changeKey, refresh]);
-
-  const snapshot = query.data;
-  return useMemo(
-    () =>
-      crew && snapshot && snapshot.featureId === crew.featureId
-        ? { threadId: thread.id, summary: crew, snapshot, title: thread.title }
-        : null,
-    [crew, snapshot, thread.id, thread.title],
-  );
 }

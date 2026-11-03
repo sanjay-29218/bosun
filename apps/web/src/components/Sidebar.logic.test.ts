@@ -8,7 +8,7 @@ import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
   deleteSelectedThreadEntries,
-  filterSidebarStageHistory,
+  filterSidebarCrewThreads,
   filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
@@ -182,29 +182,26 @@ describe("sidebar thread lineage helpers", () => {
 });
 
 describe("filterSidebarV2VisibleThreads", () => {
-  it("shows one row per feature: its current stage thread", () => {
-    const crew = {
-      featureId: "feature",
-      stepId: "design",
-      index: 2,
-      total: 6,
-      state: "approval",
-      current: true,
-    } as const;
-    const current = makeThreadFixture({ id: ThreadId.make("thread-design"), crew });
-    const earlier = makeThreadFixture({
-      id: ThreadId.make("thread-plan"),
-      crew: { ...crew, stepId: "plan", index: 1, current: false },
+  it("lists a feature's lead, and keeps its crew threads for inside the lead's row", () => {
+    const feature = { id: "feature", title: "Clip crop editing" };
+    const lead = makeThreadFixture({ id: ThreadId.make("thread-lead"), feature });
+    const planner = makeThreadFixture({
+      id: ThreadId.make("thread-planner"),
+      feature: { ...feature, member: "Planner" },
+      lineage: {
+        rootThreadId: lead.id,
+        parentThreadId: lead.id,
+        relationshipToParent: "subagent",
+      },
     });
     const plain = makeThreadFixture({ id: ThreadId.make("thread-plain") });
+    const threads = [lead, planner, plain];
     expect(
-      filterSidebarV2VisibleThreads([current, earlier, plain], null, new Set()).map(
-        (thread) => thread.id,
-      ),
-    ).toEqual([current.id, plain.id]);
-    expect(
-      filterSidebarStageHistory([current, earlier, plain], null).map((thread) => thread.id),
-    ).toEqual([earlier.id]);
+      filterSidebarV2VisibleThreads(threads, null, new Set()).map((thread) => thread.id),
+    ).toEqual([lead.id, plain.id]);
+    expect(filterSidebarCrewThreads(threads, null).map((thread) => thread.id)).toEqual([
+      planner.id,
+    ]);
   });
 });
 
@@ -256,35 +253,6 @@ describe("resolveSidebarThreadStatus", () => {
   };
 
   const idle = { hasPendingApprovals: false, hasPendingUserInput: false, runtime: null };
-
-  it("shows what a feature's current stage waits on, whatever its thread is doing", () => {
-    const crew = {
-      featureId: "feature",
-      stepId: "build",
-      index: 3,
-      total: 6,
-      state: "failed",
-      current: true,
-    } as const;
-    expect(resolveSidebarThreadStatus({ ...idle, crew })).toBe("failed");
-    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "approval" } })).toBe(
-      "approval",
-    );
-    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "your-call" } })).toBe(
-      "approval",
-    );
-    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, state: "input" } })).toBe(
-      "input",
-    );
-    // Working and queued features read from the thread's own runtime.
-    expect(
-      resolveSidebarThreadStatus({ ...idle, runtime, crew: { ...crew, state: "working" } }),
-    ).toBe("working");
-    // Earlier stage threads keep their own status.
-    expect(resolveSidebarThreadStatus({ ...idle, crew: { ...crew, current: false } })).toBe(
-      "ready",
-    );
-  });
 
   it("prioritizes awaiting input over a running runtime, below approval", () => {
     expect(

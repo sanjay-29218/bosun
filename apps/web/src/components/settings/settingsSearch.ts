@@ -1172,14 +1172,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["captain add edit manage bots rail open bots"],
   },
   {
-    id: "role-limits",
-    title: "Crew limits",
-    to: "/settings/bots",
-    searchTerms: [
-      "agents running at once concurrency queued per provider caps rate limit retries stage fails",
-    ],
-  },
-  {
     id: "secret-providers",
     title: "Secret providers",
     to: "/settings/secrets",

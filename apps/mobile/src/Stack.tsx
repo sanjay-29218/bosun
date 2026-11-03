@@ -66,7 +66,6 @@ import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadPullRequestsSheet } from "./features/threads/ThreadPullRequestsSheet";
 import { ThreadAgentsSheet } from "./features/threads/ThreadAgentsSheet";
-import { FeatureThreadSheet } from "./features/threads/FeatureThreadSheet";
 import { ThreadBackgroundWorkSheet } from "./features/threads/ThreadBackgroundWorkSheet";
 import { ThreadQueueSheet } from "./features/threads/ThreadQueueControl";
 import {
@@ -98,7 +97,6 @@ import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsCl
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
 import { SettingsRolesRouteScreen } from "./features/settings/SettingsRolesRouteScreen";
-import { SettingsWorkflowsRouteScreen } from "./features/settings/SettingsWorkflowsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -382,14 +380,6 @@ const SETTINGS_SCREENS = {
     options: {
       ...SETTINGS_PAGE_OPTIONS,
       title: "Chat",
-    },
-  }),
-  SettingsWorkflows: createNativeStackScreen({
-    screen: SettingsWorkflowsRouteScreen,
-    linking: "settings/workflows",
-    options: {
-      ...SETTINGS_PAGE_OPTIONS,
-      title: "Workflows",
     },
   }),
   SettingsRoles: createNativeStackScreen({
@@ -918,15 +908,6 @@ const RootStackConfig = createWorkspaceStackNavigator({
         ...HORIZONTAL_FORM_SHEET_OPTIONS,
         headerShown: false,
         sheetAllowedDetents: formSheetDetents(0.5, 0.9),
-        sheetGrabberVisible: true,
-      },
-    }),
-    FeatureThread: createNativeStackScreen({
-      screen: FeatureThreadSheet,
-      options: {
-        ...HORIZONTAL_FORM_SHEET_OPTIONS,
-        headerShown: false,
-        sheetAllowedDetents: formSheetDetents(0.7, 0.95),
         sheetGrabberVisible: true,
       },
     }),

@@ -1,4 +1,4 @@
-import type { ContextMenuItem, FeatureCardState } from "@t3tools/contracts";
+import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 export type ThreadActionMenuId =
@@ -26,13 +26,7 @@ export type ThreadActionMenuId =
   | "copy-branch"
   | "copy-thread"
   | "copy-thread-id"
-  | "make-feature"
-  | "detach-feature"
   | "feature"
-  | "feature-pause"
-  | "feature-resume"
-  | "feature-cancel"
-  | "feature-reopen"
   | "feature-issue"
   | "feature-open-issue"
   | "new-session"
@@ -101,17 +95,8 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
-  /**
-   * The thread's place in Crew: a feature's current stage, or a plain thread that can
-   * become one. Absent for crew threads and servers without features.
-   */
-  readonly feature?: { readonly isStage: boolean } | null;
-  /**
-   * Where the thread's feature stands, for pausing, resuming, cancelling or reopening it, and
-   * the number of the issue it links, for opening or changing it.
-   */
-  readonly featureLifecycle?: {
-    readonly state: FeatureCardState;
+  /** The feature the thread works on, for opening or changing the issue it links. */
+  readonly feature?: {
     /** `#12` or `T-12`; null when the feature links none. */
     readonly issueRef: string | null;
   } | null;
@@ -125,22 +110,6 @@ export interface ThreadActionMenuState {
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
 }
-
-/** The feature-wide actions that apply in `state`. */
-export function featureLifecycleActions(
-  state: FeatureCardState,
-): ReadonlyArray<"feature-pause" | "feature-resume" | "feature-cancel" | "feature-reopen"> {
-  if (state === "done" || state === "cancelled") return ["feature-reopen"];
-  if (state === "paused") return ["feature-resume", "feature-cancel"];
-  return ["feature-pause", "feature-cancel"];
-}
-
-const FEATURE_LIFECYCLE_LABELS = {
-  "feature-pause": "Pause feature",
-  "feature-resume": "Resume feature",
-  "feature-cancel": "Stop feature…",
-  "feature-reopen": "Reopen feature",
-} as const;
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
@@ -268,7 +237,7 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    ...(state.featureLifecycle
+    ...(state.feature
       ? [
           {
             id: "feature" as const,
@@ -276,47 +245,22 @@ export function buildThreadActionMenuItems(
             icon: "workflow",
             separatorBefore: true,
             children: [
-              ...featureLifecycleActions(state.featureLifecycle.state).map((id) => ({
-                id,
-                label: FEATURE_LIFECYCLE_LABELS[id],
-                ...(id === "feature-cancel" ? { destructive: true } : {}),
-              })),
-              ...(state.featureLifecycle.issueRef === null
+              ...(state.feature.issueRef === null
                 ? []
                 : [
                     {
                       id: "feature-open-issue" as const,
-                      label: state.featureLifecycle.issueRef.startsWith("#")
-                        ? `Open issue ${state.featureLifecycle.issueRef}`
-                        : `Open ${state.featureLifecycle.issueRef}`,
-                      separatorBefore: true,
+                      label: state.feature.issueRef.startsWith("#")
+                        ? `Open issue ${state.feature.issueRef}`
+                        : `Open ${state.feature.issueRef}`,
                     },
                   ]),
               {
                 id: "feature-issue" as const,
-                label: state.featureLifecycle.issueRef === null ? "Link issue…" : "Change issue…",
-                ...(state.featureLifecycle.issueRef === null ? { separatorBefore: true } : {}),
+                label: state.feature.issueRef === null ? "Link issue…" : "Change issue…",
               },
             ],
           },
-        ]
-      : []),
-    ...(state.feature
-      ? [
-          state.feature.isStage
-            ? {
-                id: "detach-feature" as const,
-                label: "Detach from workflow",
-                icon: "unlink",
-                destructive: true,
-                separatorBefore: true,
-              }
-            : {
-                id: "make-feature" as const,
-                label: "Make it a feature…",
-                icon: "workflow",
-                separatorBefore: true,
-              },
         ]
       : []),
     ...(state.isHeadquarters

@@ -86,7 +86,7 @@ export function createNewThreadHandler(router: AnyRouter) {
       replace?: boolean;
       /** Composer text for the draft, set before it shows. A draft with user text keeps it. */
       prompt?: string;
-      /** Opened to start a feature, so the composer starts on a workflow; see crewDraftStore. */
+      /** Opened to start a feature: the first message is its brief; see crewDraftStore. */
       feature?: boolean;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {

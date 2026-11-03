@@ -1,4 +1,3 @@
-import { CREW_STATE_LABELS } from "@t3tools/client-runtime/crew-stage";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { featureIssueRef, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -17,13 +16,11 @@ import { useWorkGroup } from "../../state/workGroup";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS } from "../chat/threadDetailsPanelStyles";
-import { WorkStageStrip } from "../sidebar/SidebarWorkGroup";
 import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
 import { FeatureIssueIcon, openFeatureIssueDialog } from "./FeatureIssue";
 import { FeatureTag } from "./FeatureTag";
 import { openFeatureIssue } from "../features/todoDialogs";
-import { useCrewStageContext } from "./useCrewStage";
 
 const STEPS_OPEN_KEY = "t3code:thread-details:crew-steps-open";
 
@@ -40,13 +37,10 @@ export function ThreadFeatureRow(props: {
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const thread = useThreadShell(threadRef);
   const group = useWorkGroup(thread?.feature || thread?.crewRequest ? threadRef : null);
-  const stage = useCrewStageContext();
   const [stepsOpen, setStepsOpen] = useLocalStorage(STEPS_OPEN_KEY, false, Schema.Boolean);
   if (!thread || !group) return null;
   const feature = thread.feature;
-  const snapshot = stage?.thread.id === thread.id ? stage.snapshot : null;
-  const roster = buildCrewRoster(group, snapshot);
-  const current = group.kind === "feature" ? group.primary.crew : null;
+  const roster = buildCrewRoster(group);
   const openThread = (threadId: ThreadId) =>
     void navigate({
       to: "/$environmentId/$threadId",
@@ -92,13 +86,8 @@ export function ThreadFeatureRow(props: {
         ) : (
           <ChevronRightIcon className="text-muted-foreground" />
         )}
-        <span className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
-          {group.stages.length > 0 ? <WorkStageStrip stages={group.stages} /> : null}
-          <span className="min-w-0 truncate">
-            {current && group.stageLine
-              ? `${group.stageLine} · ${CREW_STATE_LABELS[current.state]}`
-              : roster.map((entry) => entry.name).join(" → ")}
-          </span>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {roster.map((entry) => entry.name).join(" → ")}
         </span>
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{roster.length}</span>
       </ThreadDetailsControl>
@@ -107,17 +96,16 @@ export function ThreadFeatureRow(props: {
             <ThreadDetailsControl
               key={entry.key}
               part="row"
-              disabled={entry.threadId === null}
               aria-current={entry.threadId === thread.id ? "page" : undefined}
-              onClick={entry.threadId ? () => openThread(entry.threadId!) : undefined}
+              onClick={() => openThread(entry.threadId)}
             >
               {entry.threadId === thread.id ? <CrewRosterHereMark /> : null}
               <CrewRosterIcon tone={entry.tone} />
               <span className="min-w-0 flex-1 truncate text-start">
                 {entry.name}
-                <span className="text-muted-foreground">
-                  {entry.kind === "lead" ? " · lead" : entry.role ? ` · ${entry.role}` : ""}
-                </span>
+                {entry.kind === "lead" ? (
+                  <span className="text-muted-foreground"> · lead</span>
+                ) : null}
               </span>
               <CrewRosterStatus entry={entry} />
             </ThreadDetailsControl>

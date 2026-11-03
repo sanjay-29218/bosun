@@ -18,10 +18,9 @@ import { requestConfirmDialog } from "../../confirmDialog";
 import { useEnvironmentScheduledTasks } from "../../state/automations";
 import { botsEnvironment } from "../../state/bots";
 import { useShownBotEnvironmentIds } from "../../state/botRail";
-import { useProjects, useServerConfigs } from "../../state/entities";
+import { useProjects } from "../../state/entities";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { workflowsEnvironment } from "../../state/workflows";
 import { LibraryFrame } from "../library/LibraryFrame";
 import { useEnvironmentDefaultModel } from "../library/RoleEditor";
 import { BOTS_PATH } from "../sidebar/mainAppLocation";
@@ -93,11 +92,6 @@ function EnvironmentBotPage({
 }) {
   const navigate = useNavigate();
   const botsQuery = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
-  const workflowsSupported =
-    useServerConfigs().get(environmentId)?.environment.capabilities.workflows === true;
-  const workflowsQuery = useEnvironmentQuery(
-    workflowsSupported ? workflowsEnvironment.definitions({ environmentId, input: {} }) : null,
-  );
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const projects = useProjects()
     .filter((project) => project.environmentId === environmentId)
@@ -159,7 +153,6 @@ function EnvironmentBotPage({
           environmentId={environmentId}
           bot={bot}
           defaultModel={defaultModel}
-          workflows={workflowsQuery.data ?? []}
           usedAvatars={bots.map((candidate) => candidate.avatar)}
           projectCount={ownedProjects.length}
           projects={

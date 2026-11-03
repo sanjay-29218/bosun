@@ -42,10 +42,7 @@ export function LibraryFrame({
           </WorkspaceBreadcrumb>
           {actions}
         </WorkspacePageHeader>
-        {/* The workflow canvas expands to fill this. */}
-        <div data-workflow-canvas-host="" className="relative flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>
-        </div>
+        <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>
       </div>
     </SidebarInset>
   );

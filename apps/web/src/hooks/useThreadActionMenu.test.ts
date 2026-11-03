@@ -34,13 +34,7 @@ function recordEffect(action: string) {
   state.completed.resolve();
 }
 
-vi.mock("../components/features/featureThreadActions", () => ({
-  featureLifecycleFor: () => null,
-  readFeatureMenuState: async () => null,
-  runFeatureIssueAction: vi.fn(),
-  runFeatureLifecycleAction: vi.fn(),
-  runFeatureThreadAction: vi.fn(),
-}));
+vi.mock("../components/crew/FeatureIssue", () => ({ runFeatureIssueAction: vi.fn() }));
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
 vi.mock("../components/bots/startBotNewSession", () => ({ startBotNewSession: vi.fn() }));
 vi.mock("react", () => ({

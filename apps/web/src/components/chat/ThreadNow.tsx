@@ -86,7 +86,7 @@ export function ThreadNow({
   syncPhase,
   goal,
 }: {
-  /** What needs you elsewhere, such as a subagent's question or a crew stage's gate. */
+  /** What needs you elsewhere, such as a subagent's question. */
   readonly attention: ReadonlyArray<ThreadNowItem>;
   readonly work: ReadonlyArray<ThreadNowItem>;
   readonly syncPhase: ThreadSyncPhase | null;

@@ -5,20 +5,20 @@ import { memo } from "react";
 
 import { shortcutLabelForCommand } from "../keybindings";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useWorkflowEnvironmentIds } from "./features/useFeatureBoard";
+import { useFeatureEnvironmentIds } from "./features/useFeatureBoard";
 import { mainViewForPathname, useShowMainView } from "./sidebar/mainAppLocation";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
  * Flips the main area between the thread list and the feature board, showing the current one.
- * It appears once an environment runs workflows, or on the board so there is a way back.
+ * It appears once an environment runs features, or on the board so there is a way back.
  */
 export const MainViewToggle = memo(function MainViewToggle() {
   const onBoard = useLocation({
     select: (location) => mainViewForPathname(location.pathname) === "board",
   });
-  const supported = useWorkflowEnvironmentIds().size > 0;
+  const supported = useFeatureEnvironmentIds().size > 0;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const showMainView = useShowMainView();
   if (!supported && !onBoard) return null;

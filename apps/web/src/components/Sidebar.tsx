@@ -60,6 +60,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   AuthOrchestrationOperateScope,
+  featureIssueRef,
   headquartersBotId,
   type ScopedThreadRef,
   type ThreadId,
@@ -188,13 +189,7 @@ import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
-import {
-  featureLifecycleFor,
-  runFeatureIssueAction,
-  runFeatureLifecycleAction,
-  readFeatureMenuState,
-  runFeatureThreadAction,
-} from "./features/featureThreadActions";
+import { runFeatureIssueAction } from "./crew/FeatureIssue";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
@@ -202,7 +197,7 @@ import {
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
-  filterSidebarStageHistory,
+  filterSidebarCrewThreads,
   filterSidebarV2VisibleThreads,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
@@ -624,10 +619,10 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     scopedProjectKeys,
     delegatedUnderParent,
   );
-  // A feature's or bot request's threads fold into one row; earlier stages show only inside it.
+  // A feature's or bot request's threads fold into one row; crew threads show only inside it.
   const { primaries: visible, groupByThreadKey: workGroups } = groupWorkThreads(
     scopedThreads,
-    filterSidebarStageHistory(threads, scopedProjectKeys),
+    filterSidebarCrewThreads(threads, scopedProjectKeys),
   );
   const inboxObservation = workGroupInbox(
     workGroups,
@@ -2675,7 +2670,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           timestampFormat,
           thread.environmentId,
         );
-        const feature = await readFeatureMenuState(threadRef, thread.projectId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -2720,8 +2714,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               },
               snoozePresets,
               isHeadquarters: headquartersBotId(thread.id) !== null,
-              feature,
-              featureLifecycle: featureLifecycleFor(thread, threadByKeyRef.current.values()),
+              feature: thread.feature
+                ? { issueRef: thread.feature.issue ? featureIssueRef(thread.feature.issue) : null }
+                : null,
             }),
             position,
           ),
@@ -2882,23 +2877,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
-            return;
-          case "make-feature":
-          case "detach-feature":
-            await runFeatureThreadAction(clicked.value, threadRef, thread);
-            return;
-          case "feature-pause":
-          case "feature-resume":
-          case "feature-cancel":
-          case "feature-reopen":
-            if (thread.feature) {
-              await runFeatureLifecycleAction(clicked.value, {
-                environmentId: thread.environmentId,
-                projectId: thread.projectId,
-                featureId: thread.feature.id,
-                title: thread.feature.title,
-              });
-            }
             return;
           case "feature-issue":
           case "feature-open-issue":
