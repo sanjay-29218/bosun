@@ -27,6 +27,16 @@ export function headquartersMember(
   );
 }
 
+// Only the newest open navigates, so a slow environment's answer can't override a later pick.
+let latestOpen = 0;
+
+/** Drops any headquarters still opening, for a bot switch that shouldn't be overridden. */
+export const supersedeHeadquartersOpen = () => {
+  latestOpen += 1;
+};
+const beginOpen = () => ++latestOpen;
+const isLatestOpen = (request: number) => request === latestOpen;
+
 export function useOpenBotHeadquarters() {
   const navigate = useNavigate();
   const connected = useConnectedEnvironmentIds();
@@ -35,8 +45,10 @@ export function useOpenBotHeadquarters() {
   return (bot: LogicalBot) => {
     const member = headquartersMember(bot, connected, environmentFilter);
     if (!member) return;
+    const request = beginOpen();
     void open({ environmentId: member.environmentId, input: { botId: member.botId } }).then(
       (result) => {
+        if (!isLatestOpen(request)) return;
         if (result._tag === "Success") {
           void navigate({
             to: "/$environmentId/$threadId",

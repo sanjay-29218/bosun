@@ -23,10 +23,10 @@ work that already started keeps running as the bot that started it. You can also
 project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects,
 and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
 
-Each bot has one **headquarters** thread where it oversees every project it owns. Open it from the
-bot at the top of the sidebar (or the thread list on mobile), by clicking the selected bot in the
-rail again, by ⌘-clicking (Ctrl-clicking) any bot in the rail, or with **Open …'s thread** in the
-command palette. A dot there shows when it's
+Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
+the rail opens it and switches the sidebar to that bot's threads; ⌘-click (Ctrl-click) only switches
+the sidebar. You can also open it from the bot at the top of the sidebar (or the thread list on
+mobile), or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
 questions. Each request it hands a project gets a fresh **project manager**: a subagent of the
 headquarters that works in its own worktree of that project. Small work it does itself and opens a
@@ -50,9 +50,11 @@ archived headquarters.
 ### The bot rail
 
 A rail of bot avatars sits at the left edge of the window, with **Usage** and **Settings** at its
-bottom. With two or more bots, pick a bot to see only its projects in the sidebar and the board; the List / Board choice is remembered per bot, and in the list, picking a bot opens its first thread. **All bots**, at the top of the rail, shows every bot's
-threads again. Switch bots with **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or
-**Switch to …** and **Show All bots** in the command palette. **Bots: Show All Bots** has no
+bottom. Clicking a bot opens its headquarters and narrows the sidebar and the board to its
+projects. To narrow them without leaving the page, ⌘-click (Ctrl-click) the bot, press
+**Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or use **Switch to …** in the command
+palette; the List / Board choice is remembered per bot, and in the list that opens the bot's first
+thread. **Show All bots** in the command palette shows every bot's threads again; it has no
 shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
 thread moves to **Ctrl+Cmd+1–9** (**Ctrl+Alt+1–9**). On mobile, the bot button in the thread
 list header lists **All bots** first.

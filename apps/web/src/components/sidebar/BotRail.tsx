@@ -54,7 +54,7 @@ import {
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
-import { useOpenBotHeadquarters } from "./openBotHeadquarters";
+import { supersedeHeadquartersOpen, useOpenBotHeadquarters } from "./openBotHeadquarters";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
 /** The rail's width; the sidebar sits right of it. */
@@ -89,20 +89,25 @@ export const BotRail = memo(function BotRail({
   });
   // Null is All bots. Switching saves and restores List / Board per selection.
   const switchTo = (bot: LogicalBot | null) => {
+    supersedeHeadquartersOpen();
     if ((bot?.key ?? null) !== (active?.key ?? null) || onUtilityPage) {
       switchBotMainView(() => selectBot(bot));
       return true;
     }
     return false;
   };
-  // Picking a bot shows its threads; picking it again, or Mod+click, opens its headquarters.
+  // A click opens the bot's headquarters; Mod+click only switches the sidebar to its threads.
+  // Selects without switchTo, whose view switch would race the headquarters navigation.
   const select = (bot: LogicalBot, event: MouseEvent) => {
-    const direct = event.metaKey || event.ctrlKey;
-    if (switchTo(bot) && !direct) return;
+    if (event.metaKey || event.ctrlKey) {
+      switchTo(bot);
+      return;
+    }
+    if (bot.key !== active?.key) selectBot(bot);
     if (isMobile) setOpenMobile(false);
     openHeadquarters(bot);
   };
-  const openHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its thread`;
+  const switchHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to show its threads only`;
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
@@ -156,7 +161,7 @@ export const BotRail = memo(function BotRail({
             <RailItem
               key={bot.key}
               label={bot.name}
-              hint={bot.key === active?.key ? "Click to open its thread" : openHint}
+              hint={switchHint}
               active={onBots && bot.key === active?.key}
               signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
               shortcut={shortcutFor(botJumpCommandForIndex(index))}
