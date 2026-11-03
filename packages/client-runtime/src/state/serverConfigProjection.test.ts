@@ -79,3 +79,43 @@ describe("applyServerConfigProjection settingsUpdated", () => {
     expect(Option.getOrThrow(next).config).toBe(Option.getOrThrow(current).config);
   });
 });
+
+describe("applyServerConfigProjection crewUpdated", () => {
+  it("keeps the crew counts through a reconnect snapshot until new ones arrive", () => {
+    const current = Option.some({
+      config: { settings: {} } as unknown as ServerConfig,
+      latestEvent: {} as ServerConfigStreamEvent,
+      source: "live" as const,
+    });
+    const counted = applyServerConfigProjection(current, {
+      version: 1,
+      type: "crewUpdated",
+      payload: { bots: 2, library: 0, features: 5 },
+    });
+    expect(Option.getOrThrow(counted).config.crewRevision).toEqual({
+      bots: 2,
+      library: 0,
+      features: 5,
+    });
+    const reconnected = applyServerConfigProjection(counted, {
+      version: 1,
+      type: "snapshot",
+      config: { settings: {} } as unknown as ServerConfig,
+    });
+    expect(Option.getOrThrow(reconnected).config.crewRevision).toEqual({
+      bots: 2,
+      library: 0,
+      features: 5,
+    });
+    // A replayed snapshot carries the session's latest counts, which win.
+    const replayed = applyServerConfigProjection(reconnected, {
+      version: 1,
+      type: "snapshot",
+      config: {
+        settings: {},
+        crewRevision: { bots: 3, library: 0, features: 5 },
+      } as unknown as ServerConfig,
+    });
+    expect(Option.getOrThrow(replayed).config.crewRevision?.bots).toBe(3);
+  });
+});

@@ -14,10 +14,13 @@ export function ThreadHoverCardPopup({ className, ...props }: ComponentProps<typ
 
 export function ThreadHoverCard({
   title,
+  status,
   children,
   footer,
 }: {
   title: string;
+  /** What the thread's work is doing now, under the title. */
+  status?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
 }) {
@@ -26,6 +29,7 @@ export function ThreadHoverCard({
       <div className="min-w-0 truncate text-xs leading-tight font-medium text-foreground">
         {title}
       </div>
+      {status ? <div className="text-xs">{status}</div> : null}
       <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">{children}</div>
       {footer}
     </div>

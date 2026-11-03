@@ -113,6 +113,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
 import * as BotService from "./bots/BotService.ts";
 import { CrewService } from "./crew/CrewService.ts";
+import { CrewChanges } from "./crew/CrewChanges.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as IssueService from "./issues/IssueService.ts";
 import * as TicketService from "./tickets/TicketService.ts";
@@ -1400,6 +1401,7 @@ export const layerWsRpc = (
       const nativeChildWork = yield* NativeChildWorkQuery.NativeChildWorkQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
+      const crewChanges = yield* Effect.serviceOption(CrewChanges);
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
@@ -3258,6 +3260,17 @@ export const layerWsRpc = (
                       })),
                     )
                   : Stream.empty;
+              // The current counts first, so a client catches up on what it missed while away.
+              const crewUpdates =
+                input.crewRevisions === true && Option.isSome(crewChanges)
+                  ? crewChanges.value.changes.pipe(
+                      Stream.map((payload) => ({
+                        version: 1 as const,
+                        type: "crewUpdated" as const,
+                        payload,
+                      })),
+                    )
+                  : Stream.empty;
               const settingsUpdates = settingsChanges.pipe(
                 Stream.map((settings) => ServerSettings.redactServerSettingsForClient(settings)),
                 Stream.map((settings) => ({
@@ -3273,7 +3286,10 @@ export const layerWsRpc = (
                   providerStatuses,
                   Stream.merge(
                     settingsUpdates,
-                    Stream.merge(environmentThemeUpdates, usageLimitSourceUpdates),
+                    Stream.merge(
+                      environmentThemeUpdates,
+                      Stream.merge(usageLimitSourceUpdates, crewUpdates),
+                    ),
                   ),
                 ),
               );

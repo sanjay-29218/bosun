@@ -607,6 +607,18 @@ export const ServerEventLoopStall = Schema.Struct({
 });
 export type ServerEventLoopStall = typeof ServerEventLoopStall.Type;
 
+/**
+ * How many times bots, the Library (roles and workflows) and features changed since the server
+ * started. A client re-reads a list when its count moves; a restart starts the counts over, and
+ * the snapshot that follows any reconnect carries the new ones.
+ */
+export const CrewRevision = Schema.Struct({
+  bots: Schema.Int,
+  library: Schema.Int,
+  features: Schema.Int,
+});
+export type CrewRevision = typeof CrewRevision.Type;
+
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
@@ -661,6 +673,8 @@ export const ServerConfig = Schema.Struct({
   environmentThemes: Schema.optional(Schema.Array(EnvironmentTheme)),
   /** Stream-only and opt-in; the source stream emits the current set on subscribe. */
   usageLimitSources: Schema.optional(UsageLimitSourceSnapshots),
+  /** Stream-only and opt-in, like `usageLimitSources`: the current counts come on subscribe. */
+  crewRevision: Schema.optional(CrewRevision),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
@@ -782,6 +796,13 @@ export const ServerConfigStreamUsageLimitSourcesUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamUsageLimitSourcesUpdatedEvent =
   typeof ServerConfigStreamUsageLimitSourcesUpdatedEvent.Type;
 
+export const ServerConfigStreamCrewUpdatedEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("crewUpdated"),
+  payload: CrewRevision,
+});
+export type ServerConfigStreamCrewUpdatedEvent = typeof ServerConfigStreamCrewUpdatedEvent.Type;
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
@@ -789,6 +810,7 @@ export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSettingsUpdatedEvent,
   ServerConfigStreamEnvironmentThemesUpdatedEvent,
   ServerConfigStreamUsageLimitSourcesUpdatedEvent,
+  ServerConfigStreamCrewUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

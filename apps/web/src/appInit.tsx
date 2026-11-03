@@ -47,7 +47,10 @@ import {
 import { startProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
-import { primaryServerConfigAtom } from "./state/server";
+import { subscribeCrewListRefresh } from "@t3tools/client-runtime/state/bots";
+import { botsEnvironment } from "./state/bots";
+import { rolesEnvironment } from "./state/roles";
+import { environmentServerConfigsAtom, primaryServerConfigAtom } from "./state/server";
 import { environmentShell } from "./state/shell";
 import { installChatRouteCommands } from "./shortcuts/chatRouteCommands";
 import { startWorkspaceFocus } from "./lib/workspaceFocus";
@@ -116,6 +119,18 @@ function startClientAppearance(): void {
   apply();
 }
 
+/** Bots and the Library re-read when the server says they changed, by an agent or anyone. */
+function startCrewListRefresh(): void {
+  subscribeCrewListRefresh(appAtomRegistry, environmentServerConfigsAtom, {
+    bots: (environmentId) =>
+      appAtomRegistry.refresh(botsEnvironment.list({ environmentId, input: {} })),
+    library: (environmentId) => {
+      appAtomRegistry.refresh(rolesEnvironment.roles({ environmentId, input: {} }));
+      appAtomRegistry.refresh(rolesEnvironment.workflows({ environmentId, input: {} }));
+    },
+  });
+}
+
 function startDocumentTitle(): void {
   appAtomRegistry.subscribe(
     primaryServerConfigAtom,
@@ -180,6 +195,7 @@ export function startAppServices(): AppRouter {
 
   startClientAppearance();
   startDocumentTitle();
+  startCrewListRefresh();
   startEnvironmentThemeRepaint();
   startBrowserChromeThemeSync(router);
   startDefaultThemeAdoption();

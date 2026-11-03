@@ -20,7 +20,7 @@ import {
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ChevronRightIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
@@ -28,6 +28,8 @@ import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
 import { ChatCard, FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
+import { FeatureChildList } from "./FeatureChildList";
+import { FeatureNow } from "./FeatureNow";
 import { ChatRow, FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 
 const PAGE = 10;
@@ -132,8 +134,10 @@ export interface FeatureBoardHandlers {
     readonly environmentId: EnvironmentId;
     readonly projectId: ProjectId;
   }) => EnvironmentProject | null;
-  /** The feature's lead's and crew's threads. */
+  /** The feature's lead's and crew's threads, and a parent's open children's. */
   readonly threadsFor: (card: EnvironmentFeatureCard) => ReadonlyArray<EnvironmentThreadShell>;
+  /** The child features the board shows under a parent. */
+  readonly childrenFor: (card: EnvironmentFeatureCard) => ReadonlyArray<EnvironmentFeatureCard>;
   readonly onOpen: (card: EnvironmentFeatureCard) => void;
   readonly onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) => void;
   readonly onAction: (
@@ -290,6 +294,16 @@ function ColumnCards(props: {
                 card={card}
                 shelf={isShelf(items.section) ? items.section : null}
                 handlers={handlers}
+              />
+            }
+            subfeatures={
+              <FeatureChildList cards={handlers.childrenFor(card)} handlers={handlers} />
+            }
+            now={
+              <FeatureNow
+                card={card}
+                threadsFor={handlers.threadsFor}
+                childCards={handlers.childrenFor(card)}
               />
             }
             onDragStart={drag.onDragStart}
@@ -518,12 +532,22 @@ function FeatureStatusList(props: {
                   pageSize={PAGED.has(items.section) ? PAGE : null}
                   more={more}
                   render={(card) => (
-                    <FeatureRow
-                      key={featureCardKey(card)}
-                      card={card}
-                      handlers={handlers}
-                      shelf={isShelf(items.section) ? items.section : null}
-                    />
+                    <Fragment key={featureCardKey(card)}>
+                      <FeatureRow
+                        card={card}
+                        handlers={handlers}
+                        shelf={isShelf(items.section) ? items.section : null}
+                      />
+                      {handlers.childrenFor(card).map((child) => (
+                        <FeatureRow
+                          key={featureCardKey(child)}
+                          card={child}
+                          handlers={handlers}
+                          shelf={isShelf(items.section) ? items.section : null}
+                          nested
+                        />
+                      ))}
+                    </Fragment>
                   )}
                 />
                 <Paged

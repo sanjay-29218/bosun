@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -105,7 +106,7 @@ const make = Effect.gen(function* () {
         ),
       );
 
-  return BotService.of({
+  const service = BotService.of({
     list: store.list,
     get: store.get,
     create: Effect.fn("BotService.create")(function* (input) {
@@ -225,6 +226,16 @@ const make = Effect.gen(function* () {
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),
+  });
+  // Every change tells clients to re-read the bots, whoever asked for it.
+  const bots = (yield* crewChangeNotifier).notifying("bots");
+  return BotService.of({
+    ...service,
+    create: bots(service.create),
+    update: bots(service.update),
+    delete: bots(service.delete),
+    reorder: bots(service.reorder),
+    moveProject: bots(service.moveProject),
   });
 });
 

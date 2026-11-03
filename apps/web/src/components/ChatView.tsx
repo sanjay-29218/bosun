@@ -1162,10 +1162,14 @@ export default function ChatView(props: ChatViewProps) {
       return false;
     }
     const title = brief.split("\n")[0]!.trim().slice(0, 120) || "New feature";
+    const baseBranch = sendEnvMode === "worktree" ? (activeThreadBranch ?? null) : null;
+    // Everything the server compares on a retry, so a changed request gets a new id.
     const key = JSON.stringify([
       draftId,
       draftProjectId,
       draftWorkflowId ?? null,
+      sendEnvMode,
+      baseBranch,
       brief,
       attachments.map((attachment) => attachment.id),
       context ?? null,
@@ -1200,9 +1204,7 @@ export default function ChatView(props: ChatViewProps) {
           ...(draftWorkflowId ? { workflowId: draftWorkflowId } : {}),
           // The feature works where this composer would start a thread.
           workspace: sendEnvMode,
-          ...(sendEnvMode === "worktree" && activeThreadBranch
-            ? { baseBranch: activeThreadBranch }
-            : {}),
+          ...(baseBranch ? { baseBranch } : {}),
           ...(attachments.length > 0 ? { briefAttachments: attachments } : {}),
           ...(context ? { briefContext: context } : {}),
         },

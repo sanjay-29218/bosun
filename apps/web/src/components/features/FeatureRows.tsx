@@ -34,6 +34,7 @@ import {
   featureStatus,
   type FeatureShelf,
 } from "./FeatureCard";
+import { FeatureNow } from "./FeatureNow";
 
 /** A long stack shows its first page, then a button for the rest. */
 export function Paged<T>(props: {
@@ -118,6 +119,8 @@ export const FeatureRow = memo(function FeatureRow(props: {
   readonly card: EnvironmentFeatureCard;
   readonly handlers: FeatureBoardHandlers;
   readonly shelf: FeatureShelf;
+  /** A child feature, indented under its parent's row. */
+  readonly nested?: boolean;
 }) {
   const { card, handlers } = props;
   // The lead's thread carries the feature's branch and pull request.
@@ -134,13 +137,27 @@ export const FeatureRow = memo(function FeatureRow(props: {
   const subtitle =
     column === "done" ? null : [status.label, thread?.feature?.member].filter(Boolean).join(" · ");
   return (
-    <WithThreadDetails shell={shell} project={handlers.projectFor(card)}>
+    <WithThreadDetails
+      shell={shell}
+      project={handlers.projectFor(card)}
+      status={
+        <FeatureNow
+          card={card}
+          threadsFor={handlers.threadsFor}
+          childCards={handlers.childrenFor(card)}
+        />
+      }
+    >
       <div
         onContextMenu={(event) => {
           event.preventDefault();
           handlers.onMenu(card, event);
         }}
-        className={cn(rowClassName, props.shelf !== null && "opacity-70 hover:opacity-100")}
+        className={cn(
+          rowClassName,
+          props.nested && "ps-8",
+          props.shelf !== null && "opacity-70 hover:opacity-100",
+        )}
       >
         <RowId>{featureRef(card)}</RowId>
         <StatusIcon aria-label={status.label} className={cn("size-4 shrink-0", status.className)} />

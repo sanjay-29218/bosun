@@ -365,6 +365,7 @@ export interface ServerConfigSubscriptionOptions {
   readonly environmentThemes?: boolean;
   readonly usageLimitSources?: boolean;
   readonly usageLimitsCommand?: boolean;
+  readonly crewRevisions?: boolean;
 }
 
 // Configs are JSON-shaped. Missing and undefined object fields persist identically.
@@ -436,6 +437,7 @@ export const makeEnvironmentServerConfigState = Effect.fn("EnvironmentServerConf
       const {
         environmentThemes: _themes,
         usageLimitSources: _sources,
+        crewRevision: _crew,
         lastEventLoopStall: _stall,
         ...cacheable
       } = config;
@@ -486,6 +488,7 @@ export const makeEnvironmentServerConfigState = Effect.fn("EnvironmentServerConf
       ...(subscription.environmentThemes === true ? { environmentThemes: true } : {}),
       ...(subscription.usageLimitSources === true ? { usageLimitSources: true } : {}),
       ...(subscription.usageLimitsCommand === true ? { usageLimitsCommand: true } : {}),
+      ...(subscription.crewRevisions === true ? { crewRevisions: true } : {}),
     }).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
@@ -755,6 +758,7 @@ export function createServerEnvironmentAtoms<R, E>(
     readonly environmentThemes?: boolean;
     readonly usageLimitSources?: boolean;
     readonly usageLimitsCommand?: boolean;
+    readonly crewRevisions?: boolean;
   },
 ) {
   const configScheduler = createAtomCommandScheduler();
@@ -770,6 +774,7 @@ export function createServerEnvironmentAtoms<R, E>(
           ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
           ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
           ...(options.usageLimitsCommand === true ? { usageLimitsCommand: true } : {}),
+          ...(options.crewRevisions === true ? { crewRevisions: true } : {}),
         }),
       )
       .pipe(

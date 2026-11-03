@@ -75,7 +75,7 @@ const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
 const StartFeature = Tool.make("t3_feature_start", {
   ...shared,
   description:
-    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): the workflow's lead gets its instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch; set workspace to local only when the person asks to work in the project's checkout. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
+    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): the workflow's lead gets its instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch, made from baseBranch when set (an existing branch, such as another feature's, to stack on it) and otherwise from the project's current branch; set workspace to local only when the person asks to work in the project's checkout. Started from a feature's thread, the new feature is that feature's child: its lead reports back to that feature's lead when it finishes. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
   parameters: Schema.Struct({
     projectId: Schema.optional(Schema.String),
     title: Schema.String,
@@ -83,12 +83,30 @@ const StartFeature = Tool.make("t3_feature_start", {
     featureId: Schema.optional(Schema.String),
     workspace: Schema.optional(FeatureWorkspace),
     workflowId: Schema.optional(Schema.String),
+    baseBranch: Schema.optional(Schema.String),
   }),
   success: Schema.Struct({
     featureId: Schema.String,
     projectId: Schema.String,
     title: Schema.String,
     leadThreadId: ThreadId,
+    branch: Schema.NullOr(Schema.String),
+    parentFeatureId: Schema.NullOr(Schema.String),
+  }),
+}).annotate(Tool.Destructive, false);
+
+const FinishFeature = Tool.make("t3_feature_finish", {
+  ...shared,
+  description:
+    "Report that the feature you lead is done, with its pull request open when the project has a remote. The board then shows it ready for review. For a child feature, its parent feature's lead also gets your summary with the branch and pull request, and plans its next step from it. Call it once the work is done; call it again after more work if you're asked for changes.",
+  parameters: Schema.Struct({
+    summary: Schema.String.annotate({
+      description: "What the feature changed, what was checked, and anything left open.",
+    }),
+  }),
+  success: Schema.Struct({
+    featureId: Schema.String,
+    parentFeatureId: Schema.NullOr(Schema.String),
   }),
 }).annotate(Tool.Destructive, false);
 
@@ -99,4 +117,5 @@ export const FeaturesToolkit = Toolkit.make(
   CreateWorkflow,
   UpdateWorkflow,
   StartFeature,
+  FinishFeature,
 );

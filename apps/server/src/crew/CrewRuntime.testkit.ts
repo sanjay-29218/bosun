@@ -70,6 +70,8 @@ const gitWorkflowTestLayer = (
     pruneWorktrees: () => Effect.void,
     createWorktree,
     currentBranch: () => Effect.succeed(null),
+    // Every branch exists but those named no-such-*.
+    hasCommit: ({ refName }) => Effect.succeed(!refName.startsWith("no-such-")),
   });
 // Reads the projects tests seed through `seedCrewProject`.
 const ProjectServiceTestLayer = Layer.effect(

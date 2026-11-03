@@ -1,4 +1,4 @@
-import { WS_METHODS, type EnvironmentId } from "@t3tools/contracts";
+import { WS_METHODS, type CrewRevision, type EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
@@ -56,4 +56,46 @@ export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       tag: WS_METHODS.botsStartNewSession,
     }),
   };
+}
+
+const CREW_SCOPES = ["bots", "library", "features"] as const;
+
+/**
+ * Which lists to re-read when an environment's crew counts move (`crewUpdated`): the server
+ * counts every change to bots, the Library and features, whoever made it.
+ */
+function changedCrewScopes(
+  previous: CrewRevision | undefined,
+  next: CrewRevision | undefined,
+): ReadonlyArray<keyof CrewRevision> {
+  if (previous === undefined || next === undefined) return [];
+  return CREW_SCOPES.filter((scope) => previous[scope] !== next[scope]);
+}
+
+/**
+ * Re-reads an environment's lists when its crew counts move, with `refresh` saying how per list.
+ * Returns the unsubscribe.
+ */
+export function subscribeCrewListRefresh(
+  registry: AtomRegistry.AtomRegistry,
+  configsAtom: Atom.Atom<
+    ReadonlyMap<EnvironmentId, { readonly crewRevision?: CrewRevision | undefined }>
+  >,
+  refresh: Partial<Record<keyof CrewRevision, (environmentId: EnvironmentId) => void>>,
+): () => void {
+  let previous = new Map<EnvironmentId, CrewRevision | undefined>();
+  return registry.subscribe(
+    configsAtom,
+    (configs) => {
+      const next = new Map<EnvironmentId, CrewRevision | undefined>();
+      for (const [environmentId, config] of configs) {
+        next.set(environmentId, config.crewRevision);
+        for (const scope of changedCrewScopes(previous.get(environmentId), config.crewRevision)) {
+          refresh[scope]?.(environmentId);
+        }
+      }
+      previous = next;
+    },
+    { immediate: true },
+  );
 }

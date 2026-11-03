@@ -6,6 +6,7 @@ import {
   CREW_TOOL_GRANTS,
   CREW_TURN_STATE,
   headquartersBotId,
+  EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
@@ -46,8 +47,10 @@ import {
   headquartersIdle,
   type FreshStartRecords,
 } from "./headquartersFreshStart.ts";
+import { crewChangeNotifier } from "./CrewChanges.ts";
 import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
 import {
+  EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
   PROJECT_MANAGER_INSTRUCTIONS,
   crewRunPrompt,
@@ -969,7 +972,7 @@ export const CrewServiceLive = Layer.effect(
       yield* store.grantDelegation(sourceMemberId, targetMemberId);
     });
 
-    return {
+    const service = {
       ensureDefaults: Effect.fn("CrewService.ensureDefaults")(function* (modelSelection) {
         for (const role of DEFAULT_ROLES) {
           if (yield* store.getRole(role.id)) continue;
@@ -980,8 +983,8 @@ export const CrewServiceLive = Layer.effect(
             ),
           );
         }
-        if (!(yield* store.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))) {
-          yield* createWorkflow({
+        const builtIn: ReadonlyArray<CreateWorkflowInput> = [
+          {
             id: FEATURE_DELIVERY_WORKFLOW_ID,
             name: "Feature delivery",
             instructions: FEATURE_DELIVERY_INSTRUCTIONS,
@@ -989,10 +992,21 @@ export const CrewServiceLive = Layer.effect(
             crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
               role.id === PROJECT_MANAGER_ROLE_ID ? [] : [role.id],
             ),
-          }).pipe(
+          },
+          {
+            id: EPIC_WORKFLOW_ID,
+            name: "Epic",
+            instructions: EPIC_INSTRUCTIONS,
+            leadRoleId: PROJECT_MANAGER_ROLE_ID,
+            crewRoleIds: ["role:planner", "role:qa-tester"],
+          },
+        ];
+        for (const workflow of builtIn) {
+          if (yield* store.getWorkflow(workflow.id)) continue;
+          yield* createWorkflow(workflow).pipe(
             Effect.catch((error) =>
               store
-                .getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)
+                .getWorkflow(workflow.id)
                 .pipe(Effect.filterOrFail(Predicate.isNotNull, () => error)),
             ),
           );
@@ -1153,6 +1167,18 @@ export const CrewServiceLive = Layer.effect(
           Effect.forkScoped,
         );
       }),
+    } satisfies CrewServiceShape;
+    // Library changes, and the bot models the defaults fill in, tell clients to re-read them.
+    const changes = yield* crewChangeNotifier;
+    const library = changes.notifying("library");
+    return {
+      ...service,
+      ensureDefaults: changes.notifying("bots")(library(service.ensureDefaults)),
+      createRole: library(service.createRole),
+      updateRole: library(service.updateRole),
+      createWorkflow: library(service.createWorkflow),
+      updateWorkflow: library(service.updateWorkflow),
+      deleteWorkflow: library(service.deleteWorkflow),
     } satisfies CrewServiceShape;
   }),
 );

@@ -12,6 +12,7 @@ import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
+import { ThreadCrewSection } from "../crew/ThreadCrewSection";
 import { ThreadFeatureRow } from "../crew/ThreadFeatureRow";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
@@ -258,6 +259,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   environmentId={props.environmentId}
                   threadId={props.threadId}
                 />
+              ) : null}
+
+              {!props.draftId ? (
+                <ThreadCrewSection environmentId={props.environmentId} threadId={props.threadId} />
               ) : null}
 
               {density === "full" && !props.draftId && (visible.lineage || visible.sideChats) ? (

@@ -71,6 +71,7 @@ const make = Effect.gen(function* () {
         readonly featureId?: string | undefined;
         readonly workspace?: FeatureWorkspace | undefined;
         readonly workflowId?: string | undefined;
+        readonly baseBranch?: string | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(
@@ -84,18 +85,32 @@ const make = Effect.gen(function* () {
               "Starting a feature in another project needs a live full-access/default calling thread.",
             );
           }
-          const { feature, leadThreadId } = yield* features.launch({
+          const { feature, leadThreadId, branch } = yield* features.launch({
             ...input,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
+            // A feature's thread starts its feature's children.
+            ...(shell.feature ? { parentFeatureId: shell.feature.id } : {}),
           });
           return {
             featureId: feature.id,
             projectId: feature.projectId,
             title: feature.title,
             leadThreadId,
+            branch,
+            parentFeatureId: feature.parentFeatureId ?? null,
           };
         }).pipe(Effect.mapError(asMcpFailure)),
+    ),
+    t3_feature_finish: McpToolAccess.actsAsCaller((input: { readonly summary: string }) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.requireThreadScope(
+          yield* McpInvocationContext.McpInvocationContext,
+          "t3_feature_finish",
+        );
+        const feature = yield* features.finishForThread(scope.thread.threadId, input.summary);
+        return { featureId: feature.id, parentFeatureId: feature.parentFeatureId ?? null };
+      }).pipe(Effect.mapError(asMcpFailure)),
     ),
   };
 });

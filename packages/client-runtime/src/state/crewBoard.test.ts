@@ -13,11 +13,15 @@ import {
   collectNeedsYou,
   countNeedsYouByBot,
   featureCardActions,
+  featureCardKey,
   featureColumn,
   featureDropAction,
+  featureFinished,
+  featureOpenThreadId,
   featureRef,
   groupFeaturesByColumn,
   matchesFeatureSearch,
+  nestFeatureChildren,
   oldestNeedsYouItem,
   threadBoardColumn,
   threadsByFeature,
@@ -115,6 +119,104 @@ describe("status columns", () => {
       ["needs-you", ["reported", "asking"]],
       ["done", ["closed"]],
     ]);
+  });
+
+  it("nests child features under their top parent, whose column follows its open children", () => {
+    const cards = [
+      card("epic"),
+      card("shell", { parentFeatureId: "epic", number: 2 }),
+      card("recording", { parentFeatureId: "shell", number: 3 }),
+      card("export", { parentFeatureId: "epic", number: 4, status: "closed" }),
+      card("stray", { parentFeatureId: "not-on-this-board" }),
+    ];
+    const nested = nestFeatureChildren(
+      cards,
+      threadsByFeature([
+        featureThread("lead-epic", "epic", { runtime: runtime("idle") }),
+        featureThread("lead-recording", "recording", { runtime: runtime("running") }),
+        featureThread("lead-export", "export", { hasPendingUserInput: true }),
+      ]),
+    );
+    expect(nested.cards.map((item) => item.featureId)).toEqual(["epic", "stray"]);
+    expect(nested.children.get(featureCardKey(cards[0]!))?.map((item) => item.featureId)).toEqual([
+      "shell",
+      "recording",
+      "export",
+    ]);
+    // A grandchild runs, so the epic works; its closed child's question no longer counts.
+    expect(
+      groupFeaturesByColumn(nested.cards, nested.threads).map((group) => [
+        group.column,
+        group.cards.map((item) => item.featureId),
+      ]),
+    ).toEqual([
+      ["todo", []],
+      ["working", ["epic"]],
+      ["needs-you", ["stray"]],
+      ["done", []],
+    ]);
+    // A child's own column still reads only its own threads.
+    expect(featureColumn(cards[1]!, nested.threads.get(featureCardKey(cards[1]!)) ?? [])).toBe(
+      "needs-you",
+    );
+
+    // A closed parent can't hold an open child, which would hide it in Done.
+    const closedParent = nestFeatureChildren(
+      [card("epic", { status: "closed" }), card("shell", { parentFeatureId: "epic" })],
+      new Map(),
+    );
+    expect(closedParent.cards.map((item) => item.featureId)).toEqual(["epic", "shell"]);
+    expect(closedParent.children.size).toBe(0);
+  });
+
+  it("reads a lead's report from its latest run as finished, and a child's as done", () => {
+    const lead = (runId: string) =>
+      featureThread("lead-f", "f", {
+        runtime: runtime("idle"),
+        latestRun: { runId, status: "completed" } as never,
+      });
+    const report = { outcome: "finished" as const, runId: "run-2" };
+    const child = card("f", { parentFeatureId: "epic", report });
+    expect(featureFinished(child, [lead("run-2")])).toBe(true);
+    expect(featureColumn(child, [lead("run-2")])).toBe("done");
+    // A later run, or a quiet note instead of a report, isn't finished work.
+    expect(featureColumn(child, [lead("run-3")])).toBe("needs-you");
+    expect(
+      featureFinished(card("f", { report: { outcome: "stopped", runId: "run-2" } }), [
+        lead("run-2"),
+      ]),
+    ).toBe(false);
+    // A top-level feature that reported waits for the person to review it.
+    expect(featureColumn(card("f", { report }), [lead("run-2")])).toBe("needs-you");
+  });
+
+  it("opens the thread asking you something, longest wait first, else the lead", () => {
+    const at = (minute: number) => ({
+      ...runtime("idle"),
+      updatedAt: `2026-10-01T00:0${minute}:00.000Z`,
+    });
+    const lead = featureThread("lead-f", "f", { pendingSubagentRequest: "approval" });
+    const builder = featureThread(
+      "builder",
+      "f",
+      { hasPendingApprovals: true, runtime: at(5) },
+      "Builder",
+    );
+    const planner = featureThread(
+      "planner",
+      "f",
+      { hasPendingUserInput: true, runtime: at(2) },
+      "Planner",
+    );
+    expect(featureOpenThreadId(card("f"), [lead, builder, planner])).toBe("planner");
+    expect(featureOpenThreadId(card("f"), [lead, builder])).toBe("builder");
+    expect(
+      featureOpenThreadId(card("f"), [
+        { ...planner, archivedAt: "2026-10-02T00:00:00.000Z" },
+        featureThread("qa", "f", { runtime: runtime("running") }, "QA Tester"),
+      ]),
+    ).toBe("lead-f");
+    expect(featureOpenThreadId(card("f", { leadThreadId: null }), [])).toBeNull();
   });
 
   it("leaves archived threads out of where a feature stands", () => {

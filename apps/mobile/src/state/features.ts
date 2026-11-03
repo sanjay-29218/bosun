@@ -9,7 +9,7 @@ import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -84,14 +84,25 @@ export function useBoardProjects(
   );
 }
 
-/** How often an on-screen board re-reads. */
+/** How often an on-screen board re-reads a server too old to say when features change. */
 const ACTIVE_BOARD_REFRESH_MS = 30_000;
 
 /**
+ * Each environment's feature count (`crewUpdated`), which moves when a feature's own record
+ * changes, such as another device closing one. `none` for servers that don't send it.
+ */
+const featureRevisionsAtom = Atom.make((get) =>
+  [...get(environmentServerConfigsAtom)]
+    .map(([environmentId, config]) => `${environmentId}=${config.crewRevision?.features ?? "none"}`)
+    .sort()
+    .join(";"),
+).pipe(Atom.withLabel("mobile-features:feature-revisions"));
+
+/**
  * The server-built board cards of every target, merged. Each project loads and fails on its
- * own. While `active` (on screen, app in the foreground) boards re-read on arrival and every
- * 30 seconds: closing or reopening a feature on another device moves no thread here, so the
- * thread signal alone would miss it.
+ * own. While `active` (on screen, app in the foreground) boards re-read on arrival and when
+ * their environment's feature count moves: closing or reopening a feature on another device
+ * moves no thread here, so the thread signal alone would miss it. Older servers are polled.
  */
 export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, active: boolean) {
   const registry = useContext(RegistryContext);
@@ -108,25 +119,37 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, acti
     [key, stableTargets],
   );
   const results = useAtomValue(resultsAtom);
+  const featureRevisions = useAtomValue(featureRevisionsAtom);
+  const polled = featureRevisions.split(";").some((entry) => entry.endsWith("=none"));
 
   const refresh = useCallback(() => {
     for (const target of stableTargets) registry.refresh(boardAtom(target));
   }, [registry, stableTargets]);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls boards and listens to AppState while the board is on screen; both are torn down on hide or unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-reads boards on arrival, foregrounding and feature-count changes while on screen, polling only older servers; all torn down on hide or unmount.
   useEffect(() => {
     if (!active || stableTargets.length === 0) return undefined;
     refresh();
-    const timer = setInterval(() => {
-      if (AppState.currentState === "active") refresh();
-    }, ACTIVE_BOARD_REFRESH_MS);
+    const timer = polled
+      ? setInterval(() => {
+          if (AppState.currentState === "active") refresh();
+        }, ACTIVE_BOARD_REFRESH_MS)
+      : undefined;
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") refresh();
     });
     return () => {
-      clearInterval(timer);
+      if (timer !== undefined) clearInterval(timer);
       subscription.remove();
     };
-  }, [active, refresh, stableTargets.length]);
+  }, [active, refresh, stableTargets.length, polled]);
+
+  const previousRevisions = useRef<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refetches on-screen boards from the server when their environments' feature counts move.
+  useEffect(() => {
+    const previous = previousRevisions.current;
+    previousRevisions.current = featureRevisions;
+    if (active && previous !== null && previous !== featureRevisions) refresh();
+  }, [active, featureRevisions, refresh]);
 
   return useMemo(() => {
     const cards: EnvironmentFeatureCard[] = [];

@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type ProjectId,
   type FeatureBoardCard,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
@@ -76,7 +77,22 @@ export const FEATURE_COLUMN_LABELS: Record<FeatureColumn, string> = {
 
 /** The shell fields a column reads from a feature's threads, or from a chat. */
 export type BoardThreadShell = NeedsYouShell &
-  Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime">;
+  Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime"> & {
+    readonly latestRun?: Pick<NonNullable<EnvironmentThreadShell["latestRun"]>, "runId"> | null;
+  };
+
+/**
+ * Whether the feature's lead reported it finished (t3_feature_finish) during its latest run, so
+ * nothing has happened in it since. A lead that merely stopped hasn't.
+ */
+export function featureFinished(
+  card: Pick<FeatureBoardCard, "leadThreadId" | "report">,
+  threads: ReadonlyArray<BoardThreadShell>,
+): boolean {
+  if (card.report?.outcome !== "finished" || card.leadThreadId === null) return false;
+  const lead = threads.find((thread) => thread.id === card.leadThreadId);
+  return lead?.latestRun?.runId === card.report.runId;
+}
 
 const threadWaitsOnYou = (shell: BoardThreadShell) =>
   threadNeedsYouKind(shell) !== null || shell.pendingSubagentRequest != null;
@@ -93,17 +109,35 @@ export function threadBoardColumn(shell: BoardThreadShell): Exclude<FeatureColum
 /**
  * Where a feature stands, from `threads`, its lead's and crew's threads. A started feature works
  * while any of them runs, and otherwise waits on you: its lead stops to ask you or to report.
- * Only closing a feature moves it to Done.
+ * Closing a feature moves it to Done, and so does a child reporting itself finished.
  */
 export function featureColumn(
-  card: Pick<FeatureBoardCard, "status" | "leadThreadId">,
+  card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
   threads: ReadonlyArray<BoardThreadShell>,
 ): FeatureColumn {
   if (card.status === "closed") return "done";
   if (card.leadThreadId === null) return "todo";
   const live = threads.filter((thread) => thread.archivedAt === null);
   if (live.some(threadWaitsOnYou)) return "needs-you";
-  return live.some((thread) => threadRuntimeIsActive(thread.runtime)) ? "working" : "needs-you";
+  if (live.some((thread) => threadRuntimeIsActive(thread.runtime))) return "working";
+  // A child that reported finished handed its work to its parent's lead, not to the person.
+  return card.parentFeatureId !== undefined && featureFinished(card, live) ? "done" : "needs-you";
+}
+
+/**
+ * The thread opening a feature lands on: the one asking the person something, longest waiting
+ * first, else its lead. A lead waiting only on its crew gives way to the member that asks, and
+ * a parent's threads include its children's, so a child's question opens from the parent.
+ */
+export function featureOpenThreadId(
+  card: Pick<FeatureBoardCard, "leadThreadId">,
+  threads: ReadonlyArray<BoardThreadShell>,
+): ThreadId | null {
+  const since = (thread: BoardThreadShell) => thread.runtime?.updatedAt ?? thread.updatedAt;
+  const asking = threads
+    .filter((thread) => threadNeedsYouKind(thread) !== null)
+    .sort((a, b) => since(a).localeCompare(since(b)));
+  return asking[0]?.id ?? card.leadThreadId;
 }
 
 /** When a feature last moved: its newest thread change, else its own. */
@@ -130,6 +164,63 @@ export function threadsByFeature<
     else byFeature.set(key, [shell]);
   }
   return byFeature;
+}
+
+/**
+ * Child features sit under their top parent, numbered in order, so a big piece of work reads as
+ * one card. A child whose parent isn't among `cards`, or an open child of a closed parent, stands
+ * on its own. The parent's `threads`
+ * entry gains its open children's threads, so its column follows them; others keep their own.
+ */
+export function nestFeatureChildren<Card extends EnvironmentFeatureCard, Shell>(
+  cards: ReadonlyArray<Card>,
+  threads: ReadonlyMap<string, ReadonlyArray<Shell>>,
+): {
+  readonly cards: ReadonlyArray<Card>;
+  readonly children: ReadonlyMap<string, ReadonlyArray<Card>>;
+  readonly threads: ReadonlyMap<string, ReadonlyArray<Shell>>;
+} {
+  const byKey = new Map(cards.map((card) => [featureCardKey(card), card]));
+  const parentOf = (card: Card) =>
+    card.parentFeatureId === undefined
+      ? undefined
+      : byKey.get(featureCardKey({ ...card, featureId: card.parentFeatureId }));
+  const rootOf = (card: Card) => {
+    const seen = new Set<Card>([card]);
+    let root = card;
+    for (let parent = parentOf(root); parent && !seen.has(parent); parent = parentOf(root)) {
+      seen.add(parent);
+      root = parent;
+    }
+    return root;
+  };
+  const top: Card[] = [];
+  const children = new Map<string, Card[]>();
+  for (const card of cards) {
+    const root = rootOf(card);
+    // An open child of a closed parent stands alone, or Done would hide it.
+    if (root === card || (card.status === "open" && root.status === "closed")) {
+      top.push(card);
+      continue;
+    }
+    const key = featureCardKey(root);
+    children.set(key, [...(children.get(key) ?? []), card]);
+  }
+  const merged = new Map(threads);
+  for (const [key, list] of children) {
+    list.sort(
+      (a, b) =>
+        (a.number ?? Number.MAX_SAFE_INTEGER) - (b.number ?? Number.MAX_SAFE_INTEGER) ||
+        a.createdAt.localeCompare(b.createdAt),
+    );
+    merged.set(key, [
+      ...(threads.get(key) ?? []),
+      ...list
+        .filter((child) => child.status === "open")
+        .flatMap((child) => threads.get(featureCardKey(child)) ?? []),
+    ]);
+  }
+  return { cards: top, children, threads: merged };
 }
 
 export interface FeatureColumnGroup<Card extends EnvironmentFeatureCard = EnvironmentFeatureCard> {

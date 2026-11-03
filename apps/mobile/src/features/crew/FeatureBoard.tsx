@@ -7,9 +7,12 @@ import {
   featureCardActions,
   featureCardKey,
   featureCardQuickActions,
+  featureColumn,
+  featureOpenThreadId,
   featureRef,
   groupFeaturesByColumn,
   matchesFeatureSearch,
+  nestFeatureChildren,
   threadsByFeature,
   type EnvironmentFeatureCard,
   type FeatureColumn,
@@ -36,6 +39,10 @@ const COLUMN_ORDER: ReadonlyArray<FeatureColumn> = ["needs-you", "working", "tod
 function FeatureRow(props: {
   readonly card: EnvironmentFeatureCard;
   readonly projectTitle: string | null;
+  /** A child feature's own column, shown since its group is its parent's. */
+  readonly childColumn?: FeatureColumn;
+  /** The thread a tap opens: the one asking you something, else the lead. */
+  readonly openThreadId: ThreadId | null;
   readonly onOpenThread: (environmentId: EnvironmentId, threadId: ThreadId) => void;
 }) {
   const { card, onOpenThread } = props;
@@ -62,7 +69,7 @@ function FeatureRow(props: {
     ...(id === "close" ? { attributes: { destructive: true } } : {}),
   }));
   const ref = featureRef(card);
-  const leadThreadId = card.leadThreadId;
+  const openThreadId = props.openThreadId;
 
   return (
     <Menu
@@ -73,11 +80,14 @@ function FeatureRow(props: {
     >
       <Pressable
         accessibilityRole="button"
-        disabled={leadThreadId === null}
+        disabled={openThreadId === null}
         onPress={() => {
-          if (leadThreadId !== null) onOpenThread(card.environmentId, leadThreadId);
+          if (openThreadId !== null) onOpenThread(card.environmentId, openThreadId);
         }}
-        className="flex-row items-center gap-3 border-b border-border px-4 py-3 active:opacity-70"
+        className={cn(
+          "flex-row items-center gap-3 border-b border-border px-4 py-3 active:opacity-70",
+          props.childColumn !== undefined && "py-2 pl-8",
+        )}
       >
         <View className="min-w-0 flex-1 gap-0.5">
           {props.projectTitle !== null ? (
@@ -88,9 +98,11 @@ function FeatureRow(props: {
           <Text className="font-t3-medium text-base text-foreground" numberOfLines={2}>
             {card.title}
           </Text>
-          {ref ? (
+          {ref || props.childColumn !== undefined ? (
             <Text className="text-xs text-foreground-secondary" numberOfLines={1}>
-              {ref}
+              {[ref, props.childColumn && FEATURE_COLUMN_LABELS[props.childColumn]]
+                .filter(Boolean)
+                .join(" · ")}
             </Text>
           ) : null}
         </View>
@@ -207,13 +219,24 @@ export function FeatureBoard(props: {
         projectTitles.get(scopedProjectKey(card.environmentId, card.projectId)),
       ]),
     );
+    // Children sit under their parent, whose group follows them too.
+    const nested = nestFeatureChildren(cards, threadsByFeature(props.threads));
     const groups = new Map(
-      groupFeaturesByColumn(cards, threadsByFeature(props.threads)).map((group) => [
+      groupFeaturesByColumn(nested.cards, nested.threads).map((group) => [
         group.column,
         group.cards,
       ]),
     );
-    return COLUMN_ORDER.map((column) => ({ column, cards: groups.get(column) ?? [] }));
+    return {
+      groups: COLUMN_ORDER.map((column) => ({ column, cards: groups.get(column) ?? [] })),
+      openThreadId: (card: EnvironmentFeatureCard) =>
+        featureOpenThreadId(card, nested.threads.get(featureCardKey(card)) ?? []),
+      children: (card: EnvironmentFeatureCard) =>
+        (nested.children.get(featureCardKey(card)) ?? []).map((child) => ({
+          child,
+          column: featureColumn(child, nested.threads.get(featureCardKey(child)) ?? []),
+        })),
+    };
   }, [board.cards, projectTitles, props.searchQuery, props.threads]);
   const needsYouThreads = useMemo(() => {
     const text = props.searchQuery.trim().toLowerCase();
@@ -232,12 +255,24 @@ export function FeatureBoard(props: {
     showProject ? (projectTitles.get(scopedProjectKey(environmentId, projectId)) ?? null) : null;
   const rows = (list: ReadonlyArray<EnvironmentFeatureCard>) =>
     list.map((card) => (
-      <FeatureRow
-        key={featureCardKey(card)}
-        card={card}
-        projectTitle={projectTitleFor(card.environmentId, card.projectId)}
-        onOpenThread={props.onOpenThread}
-      />
+      <View key={featureCardKey(card)}>
+        <FeatureRow
+          card={card}
+          projectTitle={projectTitleFor(card.environmentId, card.projectId)}
+          openThreadId={columns.openThreadId(card)}
+          onOpenThread={props.onOpenThread}
+        />
+        {columns.children(card).map(({ child, column }) => (
+          <FeatureRow
+            key={featureCardKey(child)}
+            card={child}
+            projectTitle={null}
+            childColumn={column}
+            openThreadId={columns.openThreadId(child)}
+            onOpenThread={props.onOpenThread}
+          />
+        ))}
+      </View>
     ));
 
   let body: ReactNode;
@@ -260,10 +295,10 @@ export function FeatureBoard(props: {
       </View>
     );
   } else {
-    const empty = columns.every((group) => group.cards.length === 0);
+    const empty = columns.groups.every((group) => group.cards.length === 0);
     body = (
       <>
-        {columns.map(({ column, cards }) => {
+        {columns.groups.map(({ column, cards }) => {
           if (column === "done") {
             if (cards.length === 0) return null;
             return (

@@ -30,9 +30,11 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as BotService from "./BotService.ts";
+import { CrewChanges, CrewChangesLive } from "../crew/CrewChanges.ts";
 import * as BotStore from "./BotStore.ts";
 
 const layer = BotService.layer.pipe(
+  Layer.provideMerge(CrewChangesLive),
   Layer.provideMerge(
     ScheduledTaskService.layer.pipe(
       Layer.provide(
@@ -99,12 +101,18 @@ it.layer(layer)("BotService", (it) => {
   it.effect("creates bots on the rail, idempotently, and reorders them", () =>
     Effect.gen(function* () {
       const bots = yield* BotService.BotService;
+      const changes = yield* CrewChanges;
+      const before = (yield* changes.revision).bots;
       const created = yield* bots.create(social);
+      // Clients re-read the bots when their count moves, whoever created one.
+      assert.strictEqual((yield* changes.revision).bots, before + 1);
       assert.deepStrictEqual(yield* bots.create(social), created);
       assert.strictEqual(created.position, 1);
       assert.strictEqual(created.modelSelection, null);
+      const counted = (yield* changes.revision).bots;
       const conflict = yield* Effect.exit(bots.create({ ...social, name: "Other" }));
       assert.isTrue(Exit.isFailure(conflict));
+      assert.strictEqual((yield* changes.revision).bots, counted);
       // Bots and crew members act in the same runs, so they can't share an ID.
       const sql = yield* SqlClient.SqlClient;
       yield* sql`

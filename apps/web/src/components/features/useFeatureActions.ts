@@ -2,6 +2,8 @@ import { RegistryContext } from "@effect/atom-react";
 import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardActions,
+  featureOpenThreadId,
+  type BoardThreadShell,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
 } from "@t3tools/client-runtime/state/crew-board";
@@ -71,9 +73,14 @@ export function useFeatureActions() {
   };
 
   /** Opens the feature's lead; a feature not started yet has none. */
-  const openCard = (card: EnvironmentFeatureCard) => {
-    if (!card.leadThreadId) return false;
-    openThread(card, card.leadThreadId);
+  /** Opens the thread asking the person something among `threads`, else the lead's. */
+  const openCard = (
+    card: EnvironmentFeatureCard,
+    threads: ReadonlyArray<BoardThreadShell> = [],
+  ) => {
+    const threadId = featureOpenThreadId(card, threads);
+    if (!threadId) return false;
+    openThread(card, threadId);
     return true;
   };
 

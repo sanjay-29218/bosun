@@ -67,6 +67,19 @@ it.effect(
       SELECT workflow_id AS workflowId FROM features WHERE id = 'feature-one'
     `;
       assert.strictEqual(feature?.workflowId, null);
+
+      // Epic joins it, led by the manager with the Planner and QA Tester the crew has.
+      yield* BosunMigrations.runMigrations(96);
+      const [epic] = yield* sql<{ readonly leadRoleId: string; readonly crew: string }>`
+      SELECT lead_role_id AS leadRoleId, crew_role_ids_json AS crew
+      FROM workflows WHERE id = 'workflow:epic'
+    `;
+      assert.strictEqual(epic?.leadRoleId, "role:project-manager");
+      assert.deepStrictEqual(JSON.parse(epic!.crew), ["role:planner"]);
+      const [child] = yield* sql<{ readonly parent: string | null }>`
+      SELECT parent_feature_id AS parent FROM features WHERE id = 'feature-one'
+    `;
+      assert.strictEqual(child?.parent, null);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 

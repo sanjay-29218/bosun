@@ -23,7 +23,22 @@ Attach images or files to the brief to send them to the lead with it.
 The lead works in the feature's own worktree and branch, made from the base branch when the
 feature starts, so one feature becomes one pull request. From a thread, the feature works where the
 composer's **Local** / **New worktree** picker says; **Local** works in the project's own
-checkout. Work too big for one builder is best split into separate features.
+checkout. Work too big for one builder is best split into separate features: start it on the
+**Epic** workflow.
+
+## Big work: Epic
+
+An **Epic** feature's lead splits the work into child features and asks you to approve the split.
+Each child is an ordinary feature with its own worktree, branch, crew and pull request. A child
+that builds on another starts from that child's branch, so their pull requests stack. When a
+child's lead finishes, it reports to the Epic's lead with its summary and pull request, and the
+Epic's lead starts what comes next. Closing a child that hasn't reported does the same. Once every
+child is in, the Epic's lead checks them together in its own worktree and lists the pull requests
+in the order to merge them.
+
+On the board, children are listed under their Epic's card, each with its own status. The Epic's
+column follows its lead and its open children, so it shows Working while any child runs. Click a
+child to open its lead; its menu closes or reopens it.
 
 ## The lead and its crew
 
@@ -38,7 +53,8 @@ comes back to the lead. The lead does small steps itself and skips what the work
 
 The lead asks you in its thread when it needs your decision, such as approving a plan, and waits
 for your answer. To ask for changes, reply in the lead's thread. When the work is done, the lead
-says so; close the feature from the board.
+reports it, and its card reads **Ready for review**; close the feature from the board once you're
+happy with it.
 
 ## The board
 

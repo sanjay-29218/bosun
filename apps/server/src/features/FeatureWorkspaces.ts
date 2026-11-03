@@ -35,6 +35,11 @@ export class FeatureWorkspaces extends Context.Service<
     readonly forFeature: (
       featureId: string,
     ) => Effect.Effect<CrewWorkspace | null, FeatureWorkspaceError>;
+    /** Fails unless `branch` exists in the project's repository, to start a feature from. */
+    readonly requireBranch: (
+      projectId: ProjectId,
+      branch: string,
+    ) => Effect.Effect<void, FeatureWorkspaceError>;
   }
 >()("t3/features/FeatureWorkspaces") {}
 
@@ -89,6 +94,27 @@ export const FeatureWorkspacesLive = Layer.effect(
       return { branch: `bosun/${branchSlug(feature.title)}-${suffix}`, baseRef: base };
     });
 
-    return { forFeature };
+    const requireBranch = Effect.fn("FeatureWorkspaces.requireBranch")(function* (
+      projectId: ProjectId,
+      branch: string,
+    ) {
+      const project = Option.getOrUndefined(
+        yield* projects
+          .get(projectId)
+          .pipe(Effect.mapError(failed("The feature's project is unavailable"))),
+      );
+      if (!project) return yield* Effect.fail(new FeatureWorkspaceError("Project not found"));
+      // Exactly what the worktree will start from, not any ref ending in the name.
+      const exists = yield* git
+        .hasCommit({ cwd: project.workspaceRoot, refName: branch })
+        .pipe(Effect.orElseSucceed(() => false));
+      if (!exists) {
+        return yield* Effect.fail(
+          new FeatureWorkspaceError(`Branch ${branch} doesn't exist in this project`),
+        );
+      }
+    });
+
+    return { forFeature, requireBranch };
   }),
 );

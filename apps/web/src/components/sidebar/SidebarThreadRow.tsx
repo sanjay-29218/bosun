@@ -254,6 +254,8 @@ function SidebarProviderStack(props: {
 export function ThreadDetailsHoverCard(props: {
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
+  /** Where the thread's feature stands now, shown under the title. */
+  status?: ReactNode;
 }) {
   const { thread } = props;
   const providerEntryByInstanceId =
@@ -294,6 +296,7 @@ export function ThreadDetailsHoverCard(props: {
       branchMismatch={null}
       terminalStatus={terminalStatusFromRunningIds(runningTerminalIds)}
       terminalProcessCount={runningTerminalIds.length}
+      status={props.status}
     />
   );
 }
@@ -312,6 +315,7 @@ function SidebarThreadTooltip({
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
+  status,
 }: {
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
@@ -329,6 +333,7 @@ function SidebarThreadTooltip({
   } | null;
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
+  status?: ReactNode;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
   const previousProviderNames = thread.providerInstanceHistory
@@ -339,6 +344,7 @@ function SidebarThreadTooltip({
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
         title={thread.title}
+        status={status}
         footer={
           supportsMultiplePullRequests && thread.pullRequests.length > 0 ? (
             <div className="border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">

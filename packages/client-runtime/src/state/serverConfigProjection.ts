@@ -75,10 +75,15 @@ export function applyServerConfigProjection(
       const carriedSources = Option.isSome(current)
         ? current.value.config.usageLimitSources
         : undefined;
+      const carriedCrew = Option.isSome(current) ? current.value.config.crewRevision : undefined;
       const config: ServerConfig = {
         ...event.config,
         ...(carriedThemes === undefined ? {} : { environmentThemes: carriedThemes }),
         ...(carriedSources === undefined ? {} : { usageLimitSources: carriedSources }),
+        // A replayed snapshot carries the session's latest counts; prefer them to older ones.
+        ...(event.config.crewRevision === undefined && carriedCrew !== undefined
+          ? { crewRevision: carriedCrew }
+          : {}),
       };
       return Option.some({
         // Every reconnect re-sends the whole config, usually unchanged apart from timestamps.
@@ -118,6 +123,12 @@ export function applyServerConfigProjection(
           source: "live",
         };
       });
+    case "crewUpdated":
+      return Option.map(current, (projection) => ({
+        config: { ...projection.config, crewRevision: event.payload },
+        latestEvent: event,
+        source: "live",
+      }));
     case "environmentThemesUpdated":
       return Option.map(current, (projection) => ({
         config: {

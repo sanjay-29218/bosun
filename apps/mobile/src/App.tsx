@@ -45,7 +45,11 @@ import {
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
 import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./Stack";
+import { subscribeCrewListRefresh } from "@t3tools/client-runtime/state/bots";
 import { appAtomRegistry } from "./state/atom-registry";
+import { botsEnvironment } from "./state/bots";
+import { rolesEnvironment } from "./state/roles";
+import { environmentServerConfigsAtom } from "./state/server";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
 import { environmentThreadShells } from "./state/threads";
 import { environmentShell } from "./state/shell";
@@ -190,6 +194,15 @@ const appServiceDisposers = [
   installAppShortcuts(linkToAppPath),
   installAppUpdateChecks(),
   installShowcaseCapture(rootPathnameFromState),
+  // Bots and the Library re-read when the server says they changed, by an agent or anyone.
+  subscribeCrewListRefresh(appAtomRegistry, environmentServerConfigsAtom, {
+    bots: (environmentId) =>
+      appAtomRegistry.refresh(botsEnvironment.list({ environmentId, input: {} })),
+    library: (environmentId) => {
+      appAtomRegistry.refresh(rolesEnvironment.roles({ environmentId, input: {} }));
+      appAtomRegistry.refresh(rolesEnvironment.workflows({ environmentId, input: {} }));
+    },
+  }),
 ];
 disposeOnFoundationReplace(typeof module === "undefined" ? undefined : module.hot, () => {
   for (const dispose of appServiceDisposers) dispose();

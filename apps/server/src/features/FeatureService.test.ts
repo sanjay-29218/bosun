@@ -9,13 +9,16 @@ import { it as effectIt } from "@effect/vitest";
 import {
   CAPTAIN_BOT_ID,
   CommandId,
+  EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   ProjectId,
   ProviderInstanceId,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
@@ -125,6 +128,15 @@ const withSystem = <E>(
     );
   });
 
+/** The text of each message a person, or another thread, sent to `threadId`. */
+const userTexts = (threadId: ThreadId) =>
+  OrchestrationEngineService.pipe(
+    Effect.flatMap((engine) =>
+      engine.getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] }),
+    ),
+    Effect.map(({ messages }) => messages.map((message) => message.text)),
+  );
+
 describe("feature lead and crew", () => {
   effectIt.effect("starts its lead with the brief once, naming the crew it can delegate to", () =>
     withSystem(
@@ -226,6 +238,353 @@ describe("feature lead and crew", () => {
         expect(yield* Effect.flip(crew.deleteWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))).toMatchObject(
           { message: "Feature delivery can be edited but not deleted" },
         );
+      }),
+    ),
+  );
+
+  effectIt.effect("starts child features that report back to their parent's lead once", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const parent = yield* features.launch({
+          projectId,
+          title: "Port to Mac",
+          brief: "Port the app to a native Mac app",
+          workspace: "local",
+          workflowId: EPIC_WORKFLOW_ID,
+        });
+        expect((yield* userTexts(parent.leadThreadId))[0]).toMatch(/^Workflow: Epic$/m);
+        const child = yield* features.launch({
+          projectId,
+          title: "App shell",
+          brief: "Build the app shell",
+          workspace: "local",
+          parentFeatureId: parent.feature.id,
+        });
+        expect(child.feature.parentFeatureId).toBe(parent.feature.id);
+        const card = (yield* features.board(projectId)).find(
+          (entry) => entry.featureId === child.feature.id,
+        );
+        expect(card?.parentFeatureId).toBe(parent.feature.id);
+        // The child's lead knows whose work it is part of, and how to report back.
+        const opening = (yield* userTexts(child.leadThreadId))[0]!;
+        expect(opening).toContain(`Parent feature: "Port to Mac" (${parent.feature.id})`);
+        // The report instruction comes last, after the brief.
+        expect(opening.trimEnd()).toMatch(/call t3_feature_finish with a short summary\. .*\.$/);
+        expect(
+          yield* Effect.flip(
+            features.launch({
+              projectId,
+              title: "Orphan",
+              brief: "No parent",
+              workspace: "local",
+              parentFeatureId: "no-such-feature",
+            }),
+          ),
+        ).toMatchObject({ message: "Parent feature not found" });
+
+        // A retry of a feature ID from another parent, or on another base, is another request.
+        const fixed = {
+          projectId,
+          featureId: "fixed-child",
+          title: "Recording",
+          brief: "Record the screen",
+          workspace: "local" as const,
+          parentFeatureId: parent.feature.id,
+        };
+        yield* features.launch(fixed);
+        expect((yield* features.launch(fixed)).feature.id).toBe("fixed-child");
+        const { parentFeatureId: _parent, ...orphan } = fixed;
+        expect(yield* Effect.flip(features.launch(orphan))).toMatchObject({
+          message: "Feature ID belongs to another request",
+        });
+        expect(
+          yield* Effect.flip(
+            features.launch({ ...fixed, workspace: "worktree", baseBranch: "bosun/other" }),
+          ),
+        ).toMatchObject({ message: "Feature ID belongs to another request" });
+
+        // The project's checkout can't start from another branch.
+        expect(
+          yield* Effect.flip(
+            features.launch({ ...fixed, featureId: "local-stacked", baseBranch: "bosun/shell" }),
+          ),
+        ).toMatchObject({
+          message: "A feature in the project's checkout can't start from another branch",
+        });
+
+        // Only a feature's lead reports it done, and only to a parent.
+        // Any feature's lead reports it finished; the board shows which run did.
+        const cardOf = (id: string) =>
+          features
+            .board(projectId)
+            .pipe(Effect.map((cards) => cards.find((card) => card.featureId === id)));
+        yield* features.finishForThread(parent.leadThreadId, "Plan is ready");
+        expect((yield* cardOf(parent.feature.id))?.report).toMatchObject({ outcome: "finished" });
+        expect((yield* cardOf(parent.feature.id))?.report?.runId).toBeTruthy();
+        expect(yield* userTexts(parent.leadThreadId)).toHaveLength(1);
+        yield* features.finishForThread(child.leadThreadId, "Shell builds and launches");
+        const reports = (yield* userTexts(parent.leadThreadId)).slice(1);
+        expect(reports).toHaveLength(1);
+        expect(reports[0]).toContain(`Child feature finished: "App shell"`);
+        expect(reports[0]).toContain("Shell builds and launches");
+
+        // Closing a child that already reported doesn't report again; reopening resets that.
+        yield* features.setStatus(child.feature.id, projectId, "closed");
+        expect(yield* userTexts(parent.leadThreadId)).toHaveLength(2);
+        yield* features.setStatus(child.feature.id, projectId, "open");
+        expect((yield* cardOf(child.feature.id))?.report).toBeUndefined();
+        yield* features.setStatus(child.feature.id, projectId, "closed");
+        expect((yield* cardOf(child.feature.id))?.report).toEqual({
+          outcome: "closed",
+          runId: null,
+        });
+        const afterClose = (yield* userTexts(parent.leadThreadId)).slice(1);
+        expect(afterClose).toHaveLength(2);
+        expect(afterClose).toContainEqual(
+          expect.stringContaining(`Child feature closed: "App shell"`),
+        );
+
+        // A crew member's thread in the child isn't its lead.
+        const engine = yield* OrchestrationEngineService;
+        const memberThread = ThreadId.make("child-builder-thread");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("child-builder:create"),
+          threadId: memberThread,
+          projectId,
+          title: "Builder",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make("child-builder:tag"),
+          threadId: memberThread,
+          feature: { id: child.feature.id, title: "App shell", member: "Builder" },
+        });
+        expect(
+          yield* Effect.flip(features.finishForThread(memberThread, "Built it")),
+        ).toMatchObject({ message: "Only a feature's lead can report it done" });
+
+        // A close whose report can't be delivered isn't marked reported.
+        const sql = yield* SqlClient.SqlClient;
+        const reportedAt = (id: string) =>
+          sql<{ readonly at: string | null }>`
+            SELECT reported_at AS at FROM features WHERE id = ${id}
+          `.pipe(Effect.map((rows) => rows[0]?.at ?? null));
+        yield* features.setStatus(child.feature.id, projectId, "open");
+        yield* engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("parent-lead:archive"),
+          threadId: parent.leadThreadId,
+        });
+        yield* features.setStatus(child.feature.id, projectId, "closed");
+        expect(yield* reportedAt(child.feature.id)).toBeNull();
+        expect((yield* userTexts(parent.leadThreadId)).slice(1)).toHaveLength(2);
+        expect(
+          yield* Effect.flip(features.finishForThread(child.leadThreadId, "Archived lead")),
+        ).toMatchObject({ message: "The parent feature's lead thread is archived" });
+        yield* engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.make("parent-lead:unarchive"),
+          threadId: parent.leadThreadId,
+        });
+        // Closing it again retries the report, once.
+        yield* features.setStatus(child.feature.id, projectId, "closed");
+        yield* features.setStatus(child.feature.id, projectId, "closed");
+        expect((yield* userTexts(parent.leadThreadId)).slice(1)).toHaveLength(3);
+        expect(yield* reportedAt(child.feature.id)).not.toBeNull();
+
+        // With its parent closed, a finished child is told nobody heard.
+        yield* features.setStatus(parent.feature.id, projectId, "closed");
+        expect(
+          yield* Effect.flip(features.finishForThread(child.leadThreadId, "More work")),
+        ).toMatchObject({
+          message: "The parent feature is closed, so its lead wasn't told",
+        });
+        expect((yield* userTexts(parent.leadThreadId)).slice(1)).toHaveLength(3);
+      }),
+    ),
+  );
+
+  effectIt.effect("tells the parent's lead once when a child goes quiet without reporting", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const sql = yield* SqlClient.SqlClient;
+        const parent = yield* features.launch({
+          projectId,
+          title: "Habit tracker",
+          brief: "Build a habit tracker",
+          workspace: "local",
+          workflowId: EPIC_WORKFLOW_ID,
+        });
+        const engine = yield* OrchestrationEngineService;
+        // Started, and its lead's first turn released past preparing, so its turn start is queued.
+        const child = (title: string) =>
+          features
+            .launch({
+              projectId,
+              title,
+              brief: `Build the ${title}`,
+              workspace: "local",
+              parentFeatureId: parent.feature.id,
+            })
+            .pipe(
+              Effect.tap((started) =>
+                engine
+                  .streamStoredEventsFrom({
+                    threadId: started.leadThreadId,
+                    eventType: "run.updated",
+                  })
+                  .pipe(
+                    Stream.filter(
+                      (stored) =>
+                        stored.event.type === "run.updated" &&
+                        stored.event.payload.status !== "preparing",
+                    ),
+                    Stream.runHead,
+                  ),
+              ),
+            );
+        const notes = () => userTexts(parent.leadThreadId).pipe(Effect.map((all) => all.slice(1)));
+        // Its turn ended, and the work queued to start it ran (no effect worker runs in tests).
+        const setLeadRun = (threadId: ThreadId, status: string) =>
+          Effect.all([
+            sql`UPDATE orchestration_v2_projection_runs SET status = ${status} WHERE thread_id = ${threadId}`,
+            sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+          ]);
+
+        // Its lead's turn ended without t3_feature_finish: the parent hears, once per turn.
+        const storage = yield* child("storage");
+        yield* setLeadRun(storage.leadThreadId, "completed");
+        // A checkpoint still being captured after the turn settles without an event; it doesn't
+        // hold the report back.
+        yield* sql`
+          INSERT INTO orchestration_v2_effect_outbox
+            (effect_id, command_id, thread_id, effect_type, payload_json, status, attempt_count,
+              available_at, created_at, updated_at)
+          VALUES ('checkpoint-storage', 'checkpoint-storage', ${storage.leadThreadId},
+            'checkpoint.capture', '{}', 'running', 0, '1970-01-01T00:00:00.000Z',
+            '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z')
+        `;
+        yield* features.reportIfQuiet(storage.leadThreadId);
+        yield* features.reportIfQuiet(storage.leadThreadId);
+        const [stopped] = yield* notes();
+        expect(yield* notes()).toHaveLength(1);
+        expect(stopped).toMatch(/^Child feature stopped without reporting: "storage"/);
+        expect(stopped).toContain("t3_thread_send");
+
+        // A lead still working, or one that already reported this turn, sends nothing.
+        const api = yield* child("API");
+        yield* setLeadRun(api.leadThreadId, "running");
+        yield* features.reportIfQuiet(api.leadThreadId);
+        expect(yield* notes()).toHaveLength(1);
+        yield* setLeadRun(api.leadThreadId, "completed");
+        yield* features.finishForThread(api.leadThreadId, "API is in");
+        yield* features.reportIfQuiet(api.leadThreadId);
+        expect(yield* notes()).toHaveLength(2);
+        // A report from an earlier run doesn't cover a later one that stopped without one.
+        yield* sql`UPDATE features SET reported_run_id = 'an-earlier-run' WHERE id = ${api.feature.id}`;
+        yield* setLeadRun(api.leadThreadId, "completed");
+        yield* features.reportIfQuiet(api.leadThreadId);
+        expect(yield* notes()).toHaveLength(3);
+
+        // A message after its report, even steering the same run, withdraws "finished".
+        const apiCard = () =>
+          features
+            .board(projectId)
+            .pipe(Effect.map((cards) => cards.find((card) => card.featureId === api.feature.id)));
+        yield* features.finishForThread(api.leadThreadId, "API is in, again");
+        expect((yield* apiCard())?.report?.outcome).toBe("finished");
+        yield* features.withdrawFinished(api.leadThreadId, "1969-12-31T00:00:00.000Z");
+        expect((yield* apiCard())?.report?.outcome).toBe("finished");
+        yield* features.withdrawFinished(api.leadThreadId, "2999-01-01T00:00:00.000Z");
+        expect((yield* apiCard())?.report).toBeUndefined();
+
+        // A child that went quiet while nobody watched is caught up on.
+        const cli = yield* child("CLI");
+        yield* setLeadRun(cli.leadThreadId, "completed");
+        yield* features.reconcileChildren();
+        yield* features.reportIfQuiet(cli.leadThreadId);
+        expect(yield* notes()).toContainEqual(
+          expect.stringMatching(/^Child feature stopped without reporting: "CLI"/),
+        );
+
+        // An interrupted turn says so, once nothing is queued to resume it.
+        const page = yield* child("web page");
+        yield* setLeadRun(page.leadThreadId, "cancelled");
+        // A restart queues resuming the cut-short turn; until that runs, it isn't quiet.
+        yield* sql`
+          INSERT INTO orchestration_v2_effect_outbox
+            (effect_id, command_id, thread_id, effect_type, payload_json, status, attempt_count,
+              available_at, created_at, updated_at)
+          VALUES ('resume-page', 'resume-page', ${page.leadThreadId}, 'provider-runtime.continue', '{}',
+            'pending', 0, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z',
+            '1970-01-01T00:00:00.000Z')
+        `;
+        const before = (yield* notes()).length;
+        yield* features.reportIfQuiet(page.leadThreadId);
+        expect(yield* notes()).toHaveLength(before);
+        yield* setLeadRun(page.leadThreadId, "cancelled");
+        yield* features.reportIfQuiet(page.leadThreadId);
+        expect(yield* notes()).toContainEqual(
+          expect.stringMatching(/^Child feature was interrupted: "web page"/),
+        );
+      }),
+    ),
+  );
+
+  effectIt.effect("stacks a child on a branch that exists, and refuses one that doesn't", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const sql = yield* SqlClient.SqlClient;
+        const parent = yield* features.launch({
+          projectId,
+          title: "Port to Mac",
+          brief: "Port the app",
+          workspace: "local",
+        });
+        const stacked = yield* features.launch({
+          projectId,
+          title: "Recording",
+          brief: "Record the screen",
+          baseBranch: "bosun/app-shell-123abc",
+          parentFeatureId: parent.feature.id,
+        });
+        expect(stacked.branch).toMatch(/^bosun\/recording-/);
+        const [run] = yield* sql<{ readonly baseRef: string | null }>`
+          SELECT base_ref AS baseRef FROM crew_runs WHERE thread_id = ${stacked.leadThreadId}
+        `;
+        expect(run?.baseRef).toBe("bosun/app-shell-123abc");
+        expect((yield* userTexts(stacked.leadThreadId))[0]).toContain(
+          "Base branch: bosun/app-shell-123abc.",
+        );
+        // A feature that isn't a child keeps its lead's task free of its base.
+        const standalone = yield* features.launch({
+          projectId,
+          title: "Settings",
+          brief: "Add settings",
+          baseBranch: "main",
+        });
+        expect((yield* userTexts(standalone.leadThreadId))[0]).not.toContain("Base branch:");
+        expect(
+          yield* Effect.flip(
+            features.launch({
+              projectId,
+              title: "Editor",
+              brief: "Edit recordings",
+              baseBranch: "no-such-branch",
+            }),
+          ),
+        ).toMatchObject({ message: "Branch no-such-branch doesn't exist in this project" });
       }),
     ),
   );

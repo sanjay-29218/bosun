@@ -108,6 +108,8 @@ export const RoleUpdateInput = Schema.Struct({
 });
 /** The workflow a feature follows when none is chosen. People can edit it but not delete it. */
 export const FEATURE_DELIVERY_WORKFLOW_ID = "workflow:feature-delivery";
+/** The built-in workflow whose lead splits big work into child features. */
+export const EPIC_WORKFLOW_ID = "workflow:epic";
 
 /**
  * How a kind of work runs: the role that leads it, the roles it can hand work to, and plain

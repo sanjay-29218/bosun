@@ -86,6 +86,8 @@ export const FeatureRecord = Schema.Struct({
   briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
   /** The workflow the feature follows. Older servers omit it. */
   workflowId: Schema.optionalKey(Schema.String),
+  /** The feature whose lead started this one, which hears when it finishes. */
+  parentFeatureId: Schema.optionalKey(Schema.String),
 });
 export const FeatureProjectInput = Schema.Struct({ projectId: ProjectId });
 export const FeatureGetInput = Schema.Struct({
@@ -124,6 +126,18 @@ export const FeatureBoardCard = Schema.Struct({
   issue: Schema.NullOr(FeatureIssue),
   status: Schema.Literals(["open", "closed"]),
   leadThreadId: Schema.NullOr(ThreadId),
+  /** Its parent feature, under which the board shows it. */
+  parentFeatureId: Schema.optionalKey(Schema.String),
+  /**
+   * How its lead last reported, and during which lead run: `finished` through
+   * t3_feature_finish, or a note the server sent when a child went quiet. Reopening clears it.
+   */
+  report: Schema.optionalKey(
+    Schema.Struct({
+      outcome: Schema.Literals(["finished", "closed", "stopped", "failed", "interrupted"]),
+      runId: Schema.NullOr(Schema.String),
+    }),
+  ),
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });

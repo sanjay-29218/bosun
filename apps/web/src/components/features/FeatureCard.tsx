@@ -2,6 +2,7 @@ import {
   FEATURE_CARD_ACTION_LABELS,
   featureCardQuickActions,
   featureColumn,
+  featureFinished,
   featureRef,
   threadBoardColumn,
   threadNeedsYouKind,
@@ -86,6 +87,13 @@ const INPUT: FeatureStatus = {
   icon: MessageCircleQuestionIcon,
 };
 
+/** A lead that reported its feature finished: the person reviews it, then closes it. */
+const READY_FOR_REVIEW: FeatureStatus = {
+  label: "Ready for review",
+  className: "text-success-foreground",
+  icon: CircleCheckIcon,
+};
+
 const waitingStatus = (shell: EnvironmentThreadShell) =>
   shell.hasPendingApprovals || shell.pendingSubagentRequest === "approval" ? APPROVAL : INPUT;
 
@@ -126,7 +134,9 @@ export function featureStatus(
         column,
         status: waiting
           ? waitingStatus(waiting)
-          : { label: "Your turn", className: "text-warning-foreground", icon: UserRoundIcon },
+          : featureFinished(card, live)
+            ? READY_FOR_REVIEW
+            : { label: "Your turn", className: "text-warning-foreground", icon: UserRoundIcon },
         thread: waiting,
       };
     }
@@ -325,13 +335,17 @@ export function ChatParkControls(props: {
 export function WithThreadDetails(props: {
   readonly shell: EnvironmentThreadShell | null;
   readonly project: EnvironmentProject | null;
+  /** While true, a nested trigger shows its own details instead. */
+  readonly disabled?: boolean;
+  /** Where its feature stands now, under the card's title. */
+  readonly status?: ReactNode;
   readonly children: ReactElement<{ readonly children?: ReactNode }>;
 }) {
   if (!props.shell) return props.children;
   return (
-    <Tooltip>
+    <Tooltip disabled={props.disabled ?? false}>
       <TooltipTrigger render={props.children}>{props.children.props.children}</TooltipTrigger>
-      <ThreadDetailsHoverCard thread={props.shell} project={props.project} />
+      <ThreadDetailsHoverCard thread={props.shell} project={props.project} status={props.status} />
     </Tooltip>
   );
 }
@@ -437,6 +451,10 @@ export const FeatureCard = memo(function FeatureCard(props: {
   ) => void;
   /** Snooze and Settle, swapped in for the status on hover. */
   readonly parkControls: ReactNode;
+  /** Its child features, listed under its own details; each shows its own on hover. */
+  readonly subfeatures?: ReactNode;
+  /** Where it stands now, in its hover card. */
+  readonly now?: ReactNode;
   readonly onDragStart?: (card: EnvironmentFeatureCard, event: DragEvent) => void;
 }) {
   const { card } = props;
@@ -465,8 +483,14 @@ export const FeatureCard = memo(function FeatureCard(props: {
   const member = thread?.feature?.member;
   const ref = featureRef(card);
   const meta = ref || pullRequest || shell;
+  const [overSubfeature, setOverSubfeature] = useState(false);
   return (
-    <WithThreadDetails shell={shell} project={props.project}>
+    <WithThreadDetails
+      shell={shell}
+      project={props.project}
+      disabled={overSubfeature}
+      status={props.now}
+    >
       <div
         draggable={props.draggable}
         onDragStart={props.onDragStart ? (event) => props.onDragStart!(card, event) : undefined}
@@ -510,6 +534,14 @@ export const FeatureCard = memo(function FeatureCard(props: {
               </span>
             ) : null}
             {shell ? <ThreadProviderStack thread={shell} /> : null}
+          </div>
+        ) : null}
+        {props.subfeatures ? (
+          <div
+            onPointerEnter={() => setOverSubfeature(true)}
+            onPointerLeave={() => setOverSubfeature(false)}
+          >
+            {props.subfeatures}
           </div>
         ) : null}
         {actions.length > 0 ? (

@@ -1550,6 +1550,7 @@ it.effect(
           "crew_read_todo",
           "crew_update_todo",
           "t3_bot_list",
+          "t3_feature_finish",
           "t3_feature_start",
           "upstream",
         ].sort();

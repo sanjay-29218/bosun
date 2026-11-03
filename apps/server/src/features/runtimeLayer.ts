@@ -7,6 +7,7 @@ import { CrewService } from "../crew/CrewService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as TicketService from "../tickets/TicketService.ts";
+import { CrewChangesLive } from "../crew/CrewChanges.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
@@ -45,12 +46,23 @@ const CrewDelegationLive = Layer.effect(
   }),
 );
 
+/** A child feature that goes quiet without reporting tells its parent's lead anyway. */
+const ChildFeatureWatchLive = Layer.effectDiscard(
+  FeatureService.pipe(Effect.flatMap((features) => features.watchChildren())),
+);
+
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
   TicketService.layer.pipe(
     Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
   ),
   CrewDelegationLive.pipe(Layer.provide(FeatureServiceLive)),
+  ChildFeatureWatchLive.pipe(Layer.provide(FeatureServiceLive)),
   BotService.layer,
   BotAutomationsLive,
-).pipe(Layer.provideMerge(FeatureWorkspacesLive), Layer.provideMerge(CrewRuntimeLive));
+).pipe(
+  Layer.provideMerge(FeatureWorkspacesLive),
+  Layer.provideMerge(CrewRuntimeLive),
+  // One counter for bots, the Library and features, which ws.ts streams to clients.
+  Layer.provideMerge(CrewChangesLive),
+);

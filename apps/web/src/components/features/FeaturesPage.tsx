@@ -3,6 +3,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   featureCardKey,
   groupFeaturesByColumn,
+  nestFeatureChildren,
   matchesFeatureSearch,
   threadBoardColumn,
   threadsByFeature,
@@ -190,22 +191,37 @@ export function FeaturesPage(props: {
   const shells = useQuietThreadShells();
   const rows = featureRows(shells);
   const featureThreads = threadsByFeature(shells);
-  const threadsFor = (card: EnvironmentFeatureCard) =>
-    featureThreads.get(featureCardKey(card)) ?? [];
   const nowMinute = useNowMinute();
   const rowFor = (card: EnvironmentFeatureCard) => {
     const group = rows.get(featureCardKey(card));
     return group ? workGroupThreads(group) : [];
   };
-  const listedCards = visibleCards.filter(
-    (card) => (card.leadThreadId === null && card.status === "open") || rowFor(card).length > 0,
-  );
   const isSettled = (card: EnvironmentFeatureCard) =>
     rowFor(card)[0]?.settledOverride === "settled";
   const isSnoozed = (card: EnvironmentFeatureCard) => {
     const primary = rowFor(card)[0];
     return primary !== undefined && effectiveSnoozed(primary, { now: `${nowMinute}:00.000Z` });
   };
+  // Children sit under their parent, which then stands for them all, but only on the same
+  // shelf: settling or snoozing a parent mustn't hide a child that still needs you.
+  const shelfOf = (card: EnvironmentFeatureCard) =>
+    isSettled(card) ? "settled" : isSnoozed(card) ? "snoozed" : "open";
+  const startedOrTodo = visibleCards.filter(
+    (card) => (card.leadThreadId === null && card.status === "open") || rowFor(card).length > 0,
+  );
+  const shelves = (["open", "snoozed", "settled"] as const).map((shelf) =>
+    nestFeatureChildren(
+      startedOrTodo.filter((card) => shelfOf(card) === shelf),
+      featureThreads,
+    ),
+  );
+  const listedCards = shelves.flatMap((shelf) => shelf.cards);
+  const childCards = new Map(shelves.flatMap((shelf) => [...shelf.children]));
+  const nestedThreads = new Map(featureThreads);
+  for (const shelf of shelves)
+    for (const key of shelf.children.keys()) nestedThreads.set(key, shelf.threads.get(key) ?? []);
+  const threadsFor = (card: EnvironmentFeatureCard) =>
+    nestedThreads.get(featureCardKey(card)) ?? [];
   const snoozedUntil = (card: EnvironmentFeatureCard) => rowFor(card)[0]?.snoozedUntil ?? "";
   const settledCards = listedCards
     .filter(isSettled)
@@ -215,7 +231,7 @@ export function FeaturesPage(props: {
     .toSorted((a, b) => snoozedUntil(a).localeCompare(snoozedUntil(b)));
   const groups = groupFeaturesByColumn(
     listedCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
-    featureThreads,
+    nestedThreads,
   );
 
   // Settled counts the board's older settled threads this client hasn't loaded, as the sidebar's
@@ -341,8 +357,9 @@ export function FeaturesPage(props: {
   const handlers: FeatureBoardHandlers = {
     projectFor,
     threadsFor,
+    childrenFor: (card) => childCards.get(featureCardKey(card)) ?? [],
     onOpen: (card) => {
-      if (!actions.openCard(card))
+      if (!actions.openCard(card, threadsFor(card)))
         toastManager.add({ type: "info", title: "Start this feature to open its lead" });
     },
     onMenu: (card: EnvironmentFeatureCard, event: MouseEvent) =>

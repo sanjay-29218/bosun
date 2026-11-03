@@ -58,6 +58,17 @@ const threadActivityKeysAtom = Atom.make((get) => {
     .join(";");
 }).pipe(Atom.withLabel("web-features:thread-activity"));
 
+/**
+ * Each environment's feature count (`crewUpdated`), which moves when a feature's own record
+ * changes, such as another client closing one. `none` for servers that don't send it.
+ */
+const featureRevisionsAtom = Atom.make((get) =>
+  [...get(environmentServerConfigsAtom)]
+    .map(([environmentId, config]) => `${environmentId}=${config.crewRevision?.features ?? "none"}`)
+    .toSorted()
+    .join(";"),
+).pipe(Atom.withLabel("web-features:feature-revisions"));
+
 const boardResultsAtom = (key: string, targets: ReadonlyArray<FeatureBoardTarget>) =>
   Atom.make((get) =>
     targets.map((target) => ({
@@ -86,6 +97,7 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
   const resultsAtom = board.atom;
   const results = useAtomValue(resultsAtom);
   const activity = useAtomValue(threadActivityKeysAtom);
+  const featureRevisions = useAtomValue(featureRevisionsAtom);
 
   // Refresh a project's board when its threads change state. The first pass only records.
   const previousActivity = useRef<ReadonlyMap<string, string> | null>(null);
@@ -116,8 +128,6 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
     }
   }, [activity, stableTargets]);
 
-  // Another client closing or reopening a feature changes no thread shell here, so an open,
-  // visible board also refetches on a slow timer.
   const refresh = () => {
     for (const target of stableTargets)
       appAtomRegistry.refresh(
@@ -127,13 +137,25 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>) {
         }),
       );
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Polls the server while the board is mounted; the interval is cleared on unmount.
+  // A feature's own record changing (another client closing one) moves its environment's count.
+  const previousRevisions = useRef<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Refetches the board from the server when its environments' feature counts move.
   useEffect(() => {
+    const previous = previousRevisions.current;
+    previousRevisions.current = featureRevisions;
+    if (previous !== null && previous !== featureRevisions) refresh();
+  }, [featureRevisions, refresh]);
+
+  // Servers too old to send the count are polled instead, while the board is visible.
+  const polled = featureRevisions.split(";").some((entry) => entry.endsWith("=none"));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Polls older servers while the board is mounted; the interval is cleared on unmount.
+  useEffect(() => {
+    if (!polled) return;
     const handle = window.setInterval(() => {
       if (document.visibilityState === "visible") refresh();
     }, BOARD_REFRESH_MS);
     return () => window.clearInterval(handle);
-  }, [refresh]);
+  }, [polled, refresh]);
 
   const cards: EnvironmentFeatureCard[] = [];
   const errors: string[] = [];
