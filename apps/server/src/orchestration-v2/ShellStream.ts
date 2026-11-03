@@ -146,7 +146,9 @@ function omitIdleSubagentShellsWith(
     (thread) =>
       thread.lineage.relationshipToParent !== "subagent" ||
       isLiveSubagentShell(thread) ||
-      facts.subagentParentIds.has(thread.id),
+      facts.subagentParentIds.has(thread.id) ||
+      // A feature lists its crew threads, finished or not; a feature has only a few.
+      Boolean(thread.feature?.member),
   );
 }
 
@@ -184,8 +186,9 @@ function omitOlderSettledShellsWith(
 
 /**
  * Idle subagent children have no sidebar row, so clients that opt in read them from their thread
- * family instead. A child stays while it is live or the parent of another child, so the request
- * and working walks over shell rows never meet a gap in a nested chain.
+ * family instead. A child stays while it is live, the parent of another child, or a feature's
+ * crew member, so the request and working walks over shell rows never meet a gap in a nested
+ * chain and a feature's panel keeps its whole crew.
  */
 export function omitIdleSubagentShells(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
@@ -261,7 +264,10 @@ function shellSubscriberThreadIds(
   const subagents = index.filter(
     (entry) =>
       entry.lineage.relationshipToParent === "subagent" &&
-      (!options.omitIdleSubagents || entry.mayBeLive || facts.subagentParentIds.has(entry.id)),
+      (!options.omitIdleSubagents ||
+        entry.mayBeLive ||
+        entry.crewMember ||
+        facts.subagentParentIds.has(entry.id)),
   );
   const ancestorIds = hiddenChildAncestorIds([
     ...subagents,

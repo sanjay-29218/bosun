@@ -181,6 +181,8 @@ describe("omitIdleSubagentShells", () => {
       // Idle, but a woken grandchild walks through it to reach the root's badge.
       row("middle", "root"),
       row("grandchild", "middle"),
+      // A feature's crew thread is listed under its feature, finished or not.
+      row("crew", "root", { feature: { id: "feature-1", title: "Feature", member: "Builder" } }),
     ];
     expect(omitIdleSubagentShells(threads).map((thread) => thread.id)).toEqual([
       "root",
@@ -189,6 +191,7 @@ describe("omitIdleSubagentShells", () => {
       "asking",
       "background",
       "middle",
+      "crew",
     ]);
   });
 
