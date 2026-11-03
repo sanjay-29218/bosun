@@ -27,18 +27,24 @@ export interface CrewRosterEntry {
   readonly tone: CrewRosterTone;
 }
 
-function threadStatus(thread: CrewRosterThread) {
+function threadStatus(thread: CrewRosterThread, kind: "lead" | "member") {
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return { status: "Approval", tone: "waiting" as const };
   }
   if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
     return { status: "Input", tone: "waiting" as const };
   }
-  if (thread.runtime?.status === "idle") return { status: "Waiting", tone: "idle" as const };
   if (threadRuntimeIsActive(thread.runtime)) return { status: "Working", tone: "working" as const };
   if (thread.runtime?.status === "failed" || thread.latestRun?.status === "failed") {
     return { status: "Failed", tone: "failed" as const };
   }
+  // A member's finished turn reported to the lead; a lead that stopped is waiting on the person.
+  if (thread.latestRun?.status === "completed") {
+    return kind === "lead"
+      ? { status: "Your turn", tone: "waiting" as const }
+      : { status: "Done", tone: "done" as const };
+  }
+  if (thread.runtime?.status === "idle") return { status: "Waiting", tone: "idle" as const };
   return { status: "Idle", tone: "idle" as const };
 }
 
@@ -47,7 +53,7 @@ function threadEntry(
   kind: "lead" | "member",
   name: string,
 ): CrewRosterEntry {
-  return { key: thread.id, kind, name, threadId: thread.id, ...threadStatus(thread) };
+  return { key: thread.id, kind, name, threadId: thread.id, ...threadStatus(thread, kind) };
 }
 
 /**

@@ -488,6 +488,13 @@ export function ThreadRelationshipsPanel(props: {
   })
     // The graph rebuilds missing parents from lineage, so filter the rows it returns.
     .filter((row) => !isHiddenRelation(row.threadId) && !isHiddenUnloadedRelation(row))
+    // A feature's crew is listed by role in its crew list, not again as agents.
+    .filter(
+      (row) =>
+        row.edge.kind !== "subagent" ||
+        isParentThreadRelationship(row.edge, props.threadId) ||
+        !graph.nodes.get(row.threadId)?.thread?.feature?.member,
+    )
     .map((row) => {
       const agent =
         row.edge.kind === "subagent" && !isParentThreadRelationship(row.edge, props.threadId)

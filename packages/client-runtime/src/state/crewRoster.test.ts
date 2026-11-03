@@ -26,16 +26,18 @@ const member = (id: string, createdAt: string, name: string, fields = {}) =>
 
 describe("buildCrewRoster", () => {
   it("lists a feature's lead, then the members it handed work to, numbering repeats", () => {
-    const lead = thread("lead", "1", { feature, title: "Project manager" });
-    const plan = member("plan", "2", "Planner");
+    // A finished turn: the member's part is done, and the lead has handed back to you.
+    const finished = { latestRun: { status: "completed" } as CrewRosterThread["latestRun"] };
+    const lead = thread("lead", "1", { feature, title: "Project manager", ...finished });
+    const plan = member("plan", "2", "Planner", finished);
     const replan = member("replan", "3", "Planner", { hasPendingUserInput: true });
     const build = member("build", "4", "Builder");
     const group = workGroupOf(build, [lead, plan, replan, build])!;
 
     expect(group.primary).toBe(lead);
     expect(buildCrewRoster(group).map((entry) => [entry.kind, entry.name, entry.status])).toEqual([
-      ["lead", "Project manager", "Idle"],
-      ["member", "Planner", "Idle"],
+      ["lead", "Project manager", "Your turn"],
+      ["member", "Planner", "Done"],
       ["member", "Planner · try 2", "Input"],
       ["member", "Builder", "Idle"],
     ]);
