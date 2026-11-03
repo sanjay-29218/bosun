@@ -19,7 +19,7 @@ import {
   readProject,
   useAllEnvironmentShellsBootstrapped,
   useProjects,
-  useThreadShells,
+  useVisibleThreadShells,
 } from "../state/entities";
 import { useEnvironments } from "../state/environments";
 
@@ -41,7 +41,7 @@ function ChatIndexRouteView() {
  */
 function IndexDraftLanding() {
   const projects = useProjects();
-  const threads = useThreadShells();
+  const threads = useVisibleThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
   const router = useRouter();

@@ -9,7 +9,8 @@ import { newProjectFolderName } from "@t3tools/shared/path";
 import * as NodeOS from "node:os";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -214,7 +215,8 @@ const make = Effect.gen(function* () {
   const gitWorkflow = yield* GitWorkflow.GitWorkflowService;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const projects = yield* ProjectService.ProjectService;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
+  const digester = yield* Digest.Digest;
 
   // Non-recursive mkdir atomically claims a name; racers move on after AlreadyExists.
   const claimFreeFolder = Effect.fnUntraced(function* <E>(
@@ -243,8 +245,8 @@ const make = Effect.gen(function* () {
       Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
       Effect.flatMap((isRepository) =>
         isRepository
-          ? crypto
-              .digest("SHA-256", new TextEncoder().encode(config.baseDir))
+          ? digester
+              .digest(Digest.sha256, new TextEncoder().encode(config.baseDir))
               .pipe(
                 Effect.map((hash) =>
                   Option.some(
@@ -278,8 +280,8 @@ const make = Effect.gen(function* () {
         ),
       );
       yield* makeScratchFolder(workspaceRoot);
-      const id = yield* crypto
-        .randomUUIDv4()
+      const id = yield* random
+        .uuidV4()
         .pipe(Effect.mapError((cause) => new ScratchProjectError({ workspaceRoot, cause })));
       const bootstrapped = yield* projects
         .bootstrap({
@@ -350,7 +352,7 @@ const make = Effect.gen(function* () {
           ? Effect.succeedSome(folderFor(id.slice(-8)))
           : attempt === 2
             ? Effect.succeedSome(fullFolder)
-            : crypto.randomUUIDv4().pipe(
+            : random.uuidV4().pipe(
                 Effect.map((uuid) => Option.some(`${fullFolder}-${uuid.slice(0, 8)}`)),
                 Effect.mapError((cause) => new ScratchFolderError({ folder: fullFolder, cause })),
               ),
@@ -444,8 +446,8 @@ const make = Effect.gen(function* () {
       scaffoldRepository(workspaceRoot, input.name).pipe(
         Effect.mapError((cause) => new NamedProjectFolderError({ folder: workspaceRoot, cause })),
       ),
-      crypto
-        .randomUUIDv4()
+      random
+        .uuidV4()
         .pipe(Effect.mapError((cause) => new NamedProjectCreateError({ workspaceRoot, cause }))),
     ]).pipe(Effect.onExit((exit) => (Exit.isSuccess(exit) ? Effect.void : removeFolder)));
     const [commitError, id] = prepared;

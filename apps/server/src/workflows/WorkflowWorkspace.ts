@@ -1,6 +1,6 @@
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -60,7 +60,7 @@ export const WorkflowWorkspaceLive = Layer.effect(
     const path = yield* Path.Path;
     const engine = yield* OrchestratorV2;
     const checkpoints = yield* CheckpointStore.CheckpointStore;
-    const crypto = yield* Crypto.Crypto;
+    const digest = yield* Digest.Digest;
     // Checkpoint refs never move, so a range's stats never change.
     const diffStats = new Map<string, Omit<StageThreadDiff, "turnCount">>();
 
@@ -129,7 +129,7 @@ export const WorkflowWorkspaceLive = Layer.effect(
         const fromRef = yield* checkpointRefForScopeOrdinal({
           scopeId: root.id,
           ordinalWithinScope: 0,
-        }).pipe(Effect.provideService(Crypto.Crypto, crypto));
+        }).pipe(Effect.provideService(Digest.Digest, digest));
         const key = `${fromRef}\0${last.ref}`;
         let stats = diffStats.get(key);
         if (!stats) {
