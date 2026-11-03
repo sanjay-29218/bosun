@@ -94,6 +94,8 @@ export function ComposerControlsBar(props: {
    * picker in place of these controls.
    */
   startsFeature?: boolean | undefined;
+  /** A new project thread can be started as a feature instead, from its Workflow picker. */
+  canStartFeature?: boolean | undefined;
 }) {
   const {
     environmentId,
@@ -274,15 +276,15 @@ export function ComposerControlsBar(props: {
     </ComposerControl>
   ) : (
     <>
-      {props.startsFeature ? (
-        draftId ? (
-          <ComposerWorkflowPicker
-            environmentId={environmentId}
-            draftId={draftId}
-            size={controlSize}
-          />
-        ) : null
-      ) : (
+      {(props.startsFeature || props.canStartFeature) && draftId ? (
+        <ComposerWorkflowPicker
+          environmentId={environmentId}
+          draftId={draftId}
+          size={controlSize}
+          startsFeature={props.startsFeature === true}
+        />
+      ) : null}
+      {props.startsFeature ? null : (
         <>
           {composerModelPicker}
 

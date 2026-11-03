@@ -1130,13 +1130,14 @@ export default function ChatView(props: ChatViewProps) {
     !isServerThread && activeProject
       ? deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings)
       : undefined;
-  // A draft New feature opened starts a feature; its first message is the brief.
+  // A project draft starts a feature once its Workflow picker picks one; the first message is the brief.
   const draftProjectId = isLocalDraftThread && activeProject ? activeProject.id : null;
   const runsFeatures = useEnvironmentRunsFeatures(environmentId);
   const featureDraftMarked = useCrewDraftStore((state) =>
     draftId ? state.featureDraftIds[draftId] === true : false,
   );
-  const startsFeature = runsFeatures && featureDraftMarked && draftProjectId !== null;
+  const canStartFeature = runsFeatures && draftProjectId !== null;
+  const startsFeature = canStartFeature && featureDraftMarked;
   const draftWorkflowId = useDraftWorkflow(environmentId, draftId, startsFeature).workflow?.id;
   const createFeature = useAtomCommand(featuresEnvironment.create);
   const startFeature = useAtomCommand(featuresEnvironment.start);
@@ -3692,6 +3693,7 @@ export default function ChatView(props: ChatViewProps) {
                           {!composerMounted ? null : (
                             <ChatComposer
                               startsFeature={startsFeature}
+                              canStartFeature={canStartFeature}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}

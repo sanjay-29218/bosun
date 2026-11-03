@@ -368,6 +368,8 @@ export interface ChatComposerProps {
   activeThreadShell: ThreadShell | null;
   /** The first message starts a feature, as its brief to the feature's lead. */
   startsFeature?: boolean | undefined;
+  /** A new project thread can be started as a feature instead. */
+  canStartFeature?: boolean | undefined;
   promptHistoryEntries: ReadonlyArray<TimelineEntry>;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -2368,6 +2370,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       modelPickerIconClassName={composerProviderState.modelPickerIconClassName}
       getModelDisabledReason={getModelDisabledReason}
       startsFeature={props.startsFeature}
+      canStartFeature={props.canStartFeature}
     />
   );
   // An open question owns the space above the composer. Only a machine problem,
