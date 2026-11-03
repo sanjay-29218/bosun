@@ -1212,6 +1212,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         modelSelection,
         runtimeMode: "full-access",
         interactionMode: "default",
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: parentThreadId },
       },
       runs: [
         {
@@ -2055,18 +2056,23 @@ describe("OrchestratorMcpService provider resolution", () => {
         startedAt: null,
         completedAt: null,
       };
-      const leadProjection = (featureId: string | null) => (tasks: ReadonlyArray<unknown>) => {
-        const projection = parentProjection(tasks);
-        return {
-          ...projection,
-          thread: {
-            ...projection.thread,
-            ...(featureId === null ? {} : { feature: { id: featureId, title: "Dark mode" } }),
-          },
-        } as OrchestrationV2ThreadProjection;
-      };
-      const run = (featureId: string | null) => {
-        const projection = leadProjection(featureId);
+      const leadProjection =
+        (featureId: string | null, member?: string) => (tasks: ReadonlyArray<unknown>) => {
+          const projection = parentProjection(tasks);
+          return {
+            ...projection,
+            thread: {
+              ...projection.thread,
+              ...(featureId === null
+                ? {}
+                : {
+                    feature: { id: featureId, title: "Dark mode", ...(member ? { member } : {}) },
+                  }),
+            },
+          } as OrchestrationV2ThreadProjection;
+        };
+      const run = (featureId: string | null, member?: string) => {
+        const projection = leadProjection(featureId, member);
         const layerDependencies = Layer.mergeAll(
           NodeServices.layer,
           NodeCrypto.layer,
@@ -2215,6 +2221,19 @@ describe("OrchestratorMcpService provider resolution", () => {
           .pipe(Effect.flip);
       }).pipe(Effect.provide(run(null)));
       assert.include(outside.message, "crewMember works only in a feature's lead thread");
+
+      // Only the lead runs the crew: a crew member can't hand work to another one.
+      const fromCrew = yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* mcp
+          .delegateTask(scope, {
+            task: "Test it.",
+            crewMember: "Planner",
+            clientRequestId: "crew-from-builder-1",
+          })
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(run("feature:dark", "Builder")));
+      assert.include(fromCrew.message, "crewMember works only in a feature's lead thread");
     }),
   );
 

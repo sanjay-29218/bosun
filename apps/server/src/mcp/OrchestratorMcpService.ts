@@ -1047,9 +1047,14 @@ const make = Effect.gen(function* () {
     return latest?.id ?? null;
   });
   const resolveCrewMember = Effect.fn("OrchestratorMcpService.resolveCrewMember")(function* (
-    featureId: string | undefined,
+    caller: Pick<OrchestrationV2ThreadProjection["thread"], "feature" | "lineage">,
     name: string,
   ) {
+    // The lead is the feature's top-level thread; crew threads and subagents under it are not.
+    const featureId =
+      caller.feature && !caller.feature.member && caller.lineage.relationshipToParent !== "subagent"
+        ? caller.feature.id
+        : undefined;
     if (featureId === undefined || Option.isNone(crewDelegation)) {
       return yield* failure(
         "invalid_request",
@@ -2434,7 +2439,7 @@ const make = Effect.gen(function* () {
       const crewMember =
         input.crewMember === undefined
           ? null
-          : yield* resolveCrewMember(parent.thread.feature?.id, input.crewMember);
+          : yield* resolveCrewMember(parent.thread, input.crewMember);
       const otherProjectId =
         input.target?.projectId !== undefined && input.target.projectId !== parent.thread.projectId
           ? input.target.projectId
