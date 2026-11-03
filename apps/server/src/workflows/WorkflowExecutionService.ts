@@ -567,6 +567,12 @@ export const WorkflowExecutionServiceLive = Layer.effect(
               taskText: `${withFeatureName(execution.brief?.title ?? "", taskText).trim()}\n\nContext:\n${contextText.trim()}`,
               ...(step.modelSelection ? { modelSelection: step.modelSelection } : {}),
               ...(workspace ? { workspace } : {}),
+              ...(execution.brief?.openingMessage &&
+              copy.eventsFromSequence === 0 &&
+              (events.find((event) => event.kind === "started")?.executionId ?? executionId) ===
+                executionId
+                ? { openingMessage: execution.brief.openingMessage }
+                : {}),
             })
             .pipe(Effect.result);
           const run = yield* crew.getRun(runId);

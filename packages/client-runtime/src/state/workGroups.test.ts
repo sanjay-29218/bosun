@@ -186,6 +186,39 @@ describe("workGroupInbox", () => {
       "newer",
     ]);
   });
+
+  it("counts a row as working while any of its threads works", () => {
+    const lead = { ...inboxThread("lead", "1"), feature };
+    const review = {
+      ...inboxThread("review", "2"),
+      feature,
+      crew: {
+        featureId: "f1",
+        stepId: "review",
+        index: 4,
+        total: 4,
+        state: "done" as const,
+        current: true,
+      },
+    };
+    const builder = {
+      ...inboxThread("builder", "3", {
+        crewRequest: { id: "h", title: "Build it", member: "Builder" },
+      }),
+      feature,
+    };
+    const { primaries, groupByThreadKey } = groupWorkThreads([lead, review, builder]);
+    const working = new Set<string>(["builder"]);
+    const inbox = workGroupInbox(groupByThreadKey, {
+      isWorking: (row) => working.has(row.id),
+      returnedAt: () => undefined,
+    });
+
+    expect(primaries.map((row) => row.id)).toEqual(["review"]);
+    expect(inbox.isWorking(review)).toBe(true);
+    working.clear();
+    expect(inbox.isWorking(review)).toBe(false);
+  });
 });
 
 describe("workGroupOpenThread", () => {

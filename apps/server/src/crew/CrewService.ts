@@ -38,7 +38,6 @@ import {
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
 import { WorkflowLibrary } from "../workflows/WorkflowLibrary.ts";
-import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
 import {
   FRESH_START_QUIET_MINUTES,
   freshStartBriefing,
@@ -46,6 +45,7 @@ import {
   headquartersIdle,
   type FreshStartRecords,
 } from "./headquartersFreshStart.ts";
+import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
 
 class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
@@ -160,6 +160,7 @@ export interface CreateCrewRunInput {
   readonly title?: string;
   /** The worktree the thread opens in; the project's checkout when absent. */
   readonly workspace?: CrewWorkspace;
+  readonly openingMessage?: OpeningMessage | null;
 }
 
 export interface CrewRunView {
@@ -335,6 +336,7 @@ export const CrewServiceLive = Layer.effect(
       runtimeMode: run.runtimeMode,
       createdAt: run.createdAt,
       workspace: run.workspace,
+      openingMessage: run.openingMessage ?? null,
     });
 
     const markDispatched = (
@@ -675,6 +677,7 @@ export const CrewServiceLive = Layer.effect(
           createdAt,
           dispatchedAt: null,
           workspace: input.workspace ?? null,
+          openingMessage: input.openingMessage ?? null,
         };
         yield* store.insertRun(run);
         const persisted = yield* store.getRun(id);
@@ -732,6 +735,7 @@ export const CrewServiceLive = Layer.effect(
           createdAt: DateTime.formatIso(yield* DateTime.now),
           dispatchedAt: null,
           workspace: null,
+          openingMessage: null,
         });
       }
       const run = (yield* store.getRun(id))!;

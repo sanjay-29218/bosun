@@ -12,7 +12,7 @@ import { useRememberThreadProject } from "./useRememberThreadProject";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { connectionTone } from "../connection/connectionTone";
 import { AppBar } from "../../components/ui/AppBar";
-import { ThreadId } from "@t3tools/contracts";
+import { type ChatAttachment, ChatAttachmentId, ThreadId } from "@t3tools/contracts";
 
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
@@ -596,6 +596,7 @@ export function NewTaskDraftScreen(props: {
     project: NonNullable<typeof flow.selectedProject>,
     workflowId: string,
     brief: string,
+    briefAttachments: ReadonlyArray<ChatAttachment>,
     draftKey: NonNullable<typeof flow.draftKey>,
   ): Promise<void> {
     flow.setSubmitting(true);
@@ -616,6 +617,7 @@ export function NewTaskDraftScreen(props: {
           ...(flow.workspaceMode === "worktree" && selectedBranchName
             ? { baseBranch: selectedBranchName }
             : {}),
+          ...(briefAttachments.length > 0 ? { briefAttachments } : {}),
         },
       });
       if (created._tag !== "Success") return;
@@ -679,15 +681,34 @@ export function NewTaskDraftScreen(props: {
     const selectedBranchName = workspaceSelection.branch;
     const initialMessageText = draft.text.trim();
     if (workflow !== null) {
-      if (initialMessageText.length === 0 || flow.submitting) return null;
-      if (draft.attachments.length > 0) {
+      if (initialMessageText.length === 0 || flow.submitting || attachmentBlockReason !== null)
+        return null;
+      const briefAttachments = draft.attachments.map((attachment) =>
+        attachment.uploadedAttachmentId &&
+        attachment.uploadEnvironmentId === selectedProject.environmentId
+          ? {
+              type: attachment.type,
+              id: ChatAttachmentId.make(attachment.uploadedAttachmentId),
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+            }
+          : null,
+      );
+      if (briefAttachments.includes(null)) {
         Dialog.alert(
-          "Remove attachments",
-          "A feature starts from the text of its brief. Remove the attachments, or choose No workflow.",
+          "Attachments are not ready",
+          "Wait for uploads to finish, or retry failed uploads.",
         );
         return null;
       }
-      await startWorkflowFeature(selectedProject, workflow.id, initialMessageText, draftKey);
+      await startWorkflowFeature(
+        selectedProject,
+        workflow.id,
+        initialMessageText,
+        briefAttachments.filter((attachment) => attachment !== null),
+        draftKey,
+      );
       return null;
     }
 

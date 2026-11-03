@@ -14,6 +14,11 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
+import {
+  decodeOpeningMessage,
+  encodeOpeningMessage,
+  type OpeningMessage,
+} from "./CrewThreadRuntime.ts";
 
 export interface CrewMember {
   readonly id: string;
@@ -81,6 +86,8 @@ export interface CrewRun {
   readonly createdAt: string;
   readonly dispatchedAt: string | null;
   readonly workspace: CrewWorkspace | null;
+  /** Sent with the thread's first message: a feature's brief attachments, on its first stage. */
+  readonly openingMessage?: OpeningMessage | null;
 }
 
 interface CrewMemberRow {
@@ -133,6 +140,7 @@ interface CrewRunRow {
   readonly dispatchedAt: string | null;
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly openingMessageJson: string | null;
 }
 
 const parseModelSelection = Schema.decodeUnknownSync(ModelSelection);
@@ -194,6 +202,7 @@ const decodeRun = (row: CrewRunRow): CrewRun => ({
   dispatchedAt: row.dispatchedAt,
   workspace:
     row.branch && row.worktreePath ? { branch: row.branch, worktreePath: row.worktreePath } : null,
+  openingMessage: decodeOpeningMessage(row.openingMessageJson),
 });
 
 export interface CrewStoreShape {
@@ -322,7 +331,7 @@ export const CrewStoreLive = Layer.effect(
           r.dispatch_state AS dispatchState, r.recovery_attempt AS recoveryAttempt,
           r.last_error AS lastError,
           r.created_at AS createdAt, r.dispatched_at AS dispatchedAt,
-          r.branch, r.worktree_path AS worktreePath
+          r.branch, r.worktree_path AS worktreePath, r.opening_message_json AS openingMessageJson
         FROM crew_runs AS r
         LEFT JOIN bots AS b
           ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
@@ -485,13 +494,13 @@ export const CrewStoreLive = Layer.effect(
             id, member_id, project_id, thread_id, task_text, title, instructions,
             allowed_tools_json, member_revision,
             model_selection_json, runtime_mode, dispatch_state, recovery_attempt, last_error,
-            created_at, dispatched_at, branch, worktree_path
+            created_at, dispatched_at, branch, worktree_path, opening_message_json
           ) VALUES (
             ${run.id}, ${run.memberId}, ${run.projectId}, ${run.threadId}, ${run.taskText},
             ${run.title}, ${run.instructions}, ${JSON.stringify(run.allowedTools)},
             ${run.memberRevision}, ${JSON.stringify(run.modelSelection)},
             ${run.runtimeMode}, ${run.dispatchState}, ${run.recoveryAttempt}, ${run.lastError}, ${run.createdAt},
-            ${run.dispatchedAt}, ${run.workspace?.branch ?? null}, ${run.workspace?.worktreePath ?? null}
+            ${run.dispatchedAt}, ${run.workspace?.branch ?? null}, ${run.workspace?.worktreePath ?? null}, ${encodeOpeningMessage(run.openingMessage)}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
       getRun,
@@ -509,7 +518,7 @@ export const CrewStoreLive = Layer.effect(
             dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
             last_error AS lastError,
             created_at AS createdAt, dispatched_at AS dispatchedAt,
-            branch, worktree_path AS worktreePath
+            branch, worktree_path AS worktreePath, opening_message_json AS openingMessageJson
           FROM crew_runs AS r WHERE dispatch_state = ${CREW_DISPATCH_STATE.QUEUED}
             -- A workflow dispatches its stages' runs itself, and fails a stage whose dispatch failed.
             AND r.id NOT LIKE 'bot-handoff:%'

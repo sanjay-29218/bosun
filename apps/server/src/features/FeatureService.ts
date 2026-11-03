@@ -17,11 +17,13 @@ import {
   type WorkflowDefinition,
   type WorkflowFeatureSnapshot,
 } from "@t3tools/contracts";
+import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
@@ -30,11 +32,20 @@ import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as BotStore from "../bots/BotStore.ts";
+import { FeatureWorkspaces } from "./FeatureWorkspaces.ts";
 import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
-import { CrewThreadRuntime } from "../crew/CrewThreadRuntime.ts";
+import {
+  CrewThreadRuntime,
+  decodeOpeningMessage,
+  encodeOpeningMessage,
+  type OpeningMessage,
+} from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import * as AttachmentClaims from "../orchestration-v2/AttachmentClaims.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
+import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -70,6 +81,7 @@ export type CreateFeatureInput = typeof FeatureCreateInput.Type;
 
 export type FeatureServiceError =
   | FeatureValidationError
+  | AttachmentClaims.AttachmentClaimError
   | CrewServiceError
   | PersistenceSqlError
   | WorkflowServiceError
@@ -185,8 +197,12 @@ const featureLeadTask = (feature: FeatureRecord, definition: WorkflowDefinition)
 const assignmentsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const encodeAssignments = Schema.encodeSync(assignmentsJson);
 const decodeAssignments = Schema.decodeSync(assignmentsJson);
-interface FeatureRow extends Omit<FeatureRecord, "crewAssignments" | "issue" | "number"> {
+interface FeatureRow extends Omit<
+  FeatureRecord,
+  "crewAssignments" | "issue" | "number" | "briefAttachments"
+> {
   readonly number: number | null;
+  readonly briefMessageJson: string | null;
   readonly crewAssignmentsJson: string;
   readonly issueJson: string | null;
 }
@@ -295,12 +311,16 @@ export const FeatureServiceLive = Layer.effect(
     const workflows = yield* WorkflowService;
     const workflowStore = yield* WorkflowStore;
     const executions = yield* WorkflowExecutionStore;
+    const featureWorkspaces = yield* FeatureWorkspaces;
     const execution = yield* WorkflowExecutionService;
     const engine = yield* OrchestratorV2;
     const titleServices = yield* Effect.context<
       | ProjectStore.ProjectStoreV2
       | ServerSettings.ServerSettingsService
       | TextGeneration.TextGeneration
+    >();
+    const claimServices = yield* Effect.context<
+      FileSystem.FileSystem | ServerConfig.ServerConfig | DocumentText.DocumentText
     >();
     const scope = yield* Effect.scope;
     const projects = yield* ProjectStore.ProjectStoreV2;
@@ -309,12 +329,13 @@ export const FeatureServiceLive = Layer.effect(
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
         try: () => {
-          const { crewAssignmentsJson, issueJson, number, ...feature } = row;
+          const { crewAssignmentsJson, issueJson, number, briefMessageJson, ...feature } = row;
           return {
             ...feature,
             ...(number != null ? { number } : {}),
             crewAssignments: decodeAssignments(crewAssignmentsJson),
             issue: decodeFeatureIssue(issueJson),
+            briefAttachments: decodeOpeningMessage(briefMessageJson)?.attachments ?? [],
           };
         },
         catch: toPersistenceSqlError("FeatureService.decode"),
@@ -325,7 +346,8 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, f.number, w.workflow_id AS workflowId,
           w.workflow_revision AS workflowRevision,
-          f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson
+          f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson,
+          f.brief_message_json AS briefMessageJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.id = ${id}
       `.pipe(
@@ -366,6 +388,15 @@ export const FeatureServiceLive = Layer.effect(
       leadRunIds: Readonly<Record<string, string>> = {},
     ) {
       const bindings: Record<string, WorkflowBindings[string]> = {};
+      const leadStarts = definition.defaults.decisions === "lead";
+      const workspace = leadStarts
+        ? yield* featureWorkspaces
+            .forFeature(feature.id)
+            .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)))
+        : null;
+      const [brief] = yield* sql<{ readonly messageJson: string | null }>`
+        SELECT brief_message_json AS messageJson FROM features WHERE id = ${feature.id}
+      `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.leadBindings")));
       for (const [name, assignment] of Object.entries(definition.roles)) {
         const memberId = feature.crewAssignments[name];
         const owner =
@@ -394,6 +425,14 @@ export const FeatureServiceLive = Layer.effect(
           memberId: leadMemberId,
           projectId: feature.projectId,
           taskText: featureLeadTask(feature, definition),
+          ...(workspace ? { workspace } : {}),
+          ...(leadStarts
+            ? {
+                openingMessage: decodeOpeningMessage(brief?.messageJson ?? null) ?? {
+                  attachments: [],
+                },
+              }
+            : {}),
           ...(lead ? { title: lead.name } : {}),
         });
         // A fixed command ID tags the thread once.
@@ -521,18 +560,70 @@ export const FeatureServiceLive = Layer.effect(
         if (!(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new FeatureValidationError("Project does not exist"));
         }
+        const requestHash = NodeCrypto.createHash("sha256")
+          .update(
+            encodeOpeningMessage({
+              attachments: input.briefAttachments ?? [],
+              ...(input.briefContext ? { context: input.briefContext } : {}),
+            })!,
+          )
+          .digest("hex");
+        const sameRequest = Effect.fn("FeatureService.sameRequest")(function* (
+          existing: FeatureRecord,
+        ) {
+          const [row] = yield* sql<{
+            readonly requestHash: string | null;
+            readonly messageJson: string | null;
+          }>`
+            SELECT brief_request_hash AS requestHash, brief_message_json AS messageJson FROM features WHERE id = ${existing.id}
+          `.pipe(Effect.mapError(queryError));
+          return (
+            existing.projectId === input.projectId &&
+            (input.autoTitle || existing.title === input.title) &&
+            existing.brief === input.brief &&
+            existing.workflowId === (input.workflowId ?? null) &&
+            (row?.requestHash === requestHash ||
+              (row?.requestHash == null &&
+                row?.messageJson == null &&
+                (input.briefAttachments?.length ?? 0) === 0 &&
+                (input.briefContext?.records.length ?? 0) === 0))
+          );
+        });
+        const earlier = yield* get(input.id);
+        if (earlier) {
+          if (!(yield* sameRequest(earlier))) {
+            return yield* Effect.fail(
+              new FeatureValidationError("Feature ID belongs to another request"),
+            );
+          }
+          return earlier;
+        }
+        // The brief's files belong to the feature, so they are claimed under its ID.
+        const sent = input.briefAttachments ?? [];
+        const claimed = yield* AttachmentClaims.claimPendingAttachments({
+          threadId: input.id,
+          attachments: sent,
+        }).pipe(Effect.provideContext(claimServices));
+        // Only the server attributes guests, so the brief keeps just its records.
+        const records =
+          remapComposerContextAttachments(
+            input.briefContext,
+            sent,
+            claimed.attachments,
+          )?.records.filter((record) => record.kind !== "guest" && record.kind !== "bot") ?? [];
+        const openingMessage: OpeningMessage | null =
+          claimed.attachments.length > 0 || records.length > 0
+            ? {
+                attachments: claimed.attachments,
+                ...(records.length > 0 ? { context: { version: 1, records } } : {}),
+              }
+            : null;
         const { feature, created } = yield* sql
           .withTransaction(
             Effect.gen(function* () {
               const existing = yield* get(input.id);
               if (existing) {
-                if (
-                  existing.projectId !== input.projectId ||
-                  // A generated title has replaced the stand-in a retry sends again.
-                  (!input.autoTitle && existing.title !== input.title) ||
-                  existing.brief !== input.brief ||
-                  existing.workflowId !== (input.workflowId ?? null)
-                ) {
+                if (!(yield* sameRequest(existing))) {
                   return yield* Effect.fail(
                     new FeatureValidationError("Feature ID belongs to another request"),
                   );
@@ -554,19 +645,22 @@ export const FeatureServiceLive = Layer.effect(
               const createdAt = DateTime.formatIso(yield* DateTime.now);
               // The number is taken in the insert itself, so concurrent creates cannot share one.
               const [inserted] = yield* sql<{ readonly number: number }>`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number)
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash)
               VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null},
-                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}))
+                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash})
               RETURNING number
             `;
               const {
                 autoTitle: _autoTitle,
                 workspace: _workspace,
                 baseBranch: _baseBranch,
+                briefAttachments: _briefAttachments,
+                briefContext: _briefContext,
                 ...fields
               } = input;
               const feature: FeatureRecord = {
                 ...fields,
+                briefAttachments: claimed.attachments,
                 workflowId: input.workflowId ?? null,
                 workflowRevision: copy?.definition.revision ?? null,
                 crewAssignments,
@@ -579,7 +673,16 @@ export const FeatureServiceLive = Layer.effect(
               return { feature, created: true };
             }),
           )
-          .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
+          .pipe(
+            Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }),
+            Effect.tap(({ created }) =>
+              created
+                ? Effect.void
+                : AttachmentClaims.releaseClaimedAttachments(claimed.claimedPaths),
+            ),
+            Effect.tapError(() => AttachmentClaims.releaseClaimedAttachments(claimed.claimedPaths)),
+            Effect.provideContext(claimServices),
+          );
         // An issue linked in the brief comes first, so a generated title can read it.
         const issueUrl = created ? firstIssueRef(feature.brief) : null;
         if (issueUrl !== null || (input.autoTitle && created)) {
@@ -787,7 +890,8 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, f.number, w.workflow_id AS workflowId,
         w.workflow_revision AS workflowRevision,
-          f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson
+          f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson,
+          f.brief_message_json AS briefMessageJson
         FROM features f LEFT JOIN feature_workflows w ON w.feature_id = f.id
         WHERE f.project_id = ${projectId}
         ORDER BY f.created_at DESC, f.id DESC

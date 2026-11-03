@@ -46,6 +46,7 @@ import SlimFeatureDelivery from "./Migrations/088_SlimFeatureDelivery.ts";
 import LeadDecisions from "./Migrations/089_LeadDecisions.ts";
 import FeatureNumbers from "./Migrations/090_FeatureNumbers.ts";
 import StageQuestions from "./Migrations/091_StageQuestions.ts";
+import FeatureOpeningMessages from "./Migrations/092_FeatureOpeningMessages.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -78,13 +79,13 @@ const migrationEntries = [
   [82, "StageChecksInProportion", StageChecksInProportion],
   [83, "FeatureWorkspaces", FeatureWorkspaces],
   [84, "OneBuilderPerFeature", OneBuilderPerFeature],
-  // 085 is taken by work that lands separately.
   [86, "BotLongConversation", BotLongConversation],
   [87, "CrewFullAccess", CrewFullAccess],
   [88, "SlimFeatureDelivery", SlimFeatureDelivery],
   [89, "LeadDecisions", LeadDecisions],
   [90, "FeatureNumbers", FeatureNumbers],
   [91, "StageQuestions", StageQuestions],
+  [92, "FeatureOpeningMessages", FeatureOpeningMessages],
 ] as const;
 
 const legacyNames = new Set([

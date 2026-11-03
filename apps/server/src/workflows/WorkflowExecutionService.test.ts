@@ -7,6 +7,8 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import {
+  ChatAttachmentId,
+  ComposerContextId,
   CommandId,
   EventId,
   GitCommandError,
@@ -31,7 +33,11 @@ import { describe, expect } from "vite-plus/test";
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, CrewServiceLive } from "../crew/CrewService.ts";
 import { CrewStoreLive } from "../crew/CrewStore.ts";
-import { CrewThreadRuntime, type CrewThreadStart } from "../crew/CrewThreadRuntime.ts";
+import {
+  encodeOpeningMessage,
+  CrewThreadRuntime,
+  type CrewThreadStart,
+} from "../crew/CrewThreadRuntime.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
@@ -396,8 +402,34 @@ describe("Workflow execution", () => {
       return Effect.gen(function* () {
         const { featureId, execution, workflows, bindings } = yield* seed();
         const sql = yield* SqlClient.SqlClient;
-        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace)
-          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree')`;
+        const openingMessage = {
+          attachments: [
+            {
+              type: "image" as const,
+              id: ChatAttachmentId.make("sketch"),
+              name: "sketch.png",
+              mimeType: "image/png",
+              sizeBytes: 3,
+            },
+          ],
+          context: {
+            version: 1 as const,
+            records: [
+              {
+                version: 1 as const,
+                contextId: ComposerContextId.make("sketch"),
+                kind: "image" as const,
+                label: "sketch.png",
+                attachmentId: ChatAttachmentId.make("sketch"),
+                name: "sketch.png",
+                mimeType: "image/png",
+                sizeBytes: 3,
+              },
+            ],
+          },
+        };
+        yield* sql`INSERT INTO features (id, project_id, title, brief, created_at, updated_at, workspace, brief_message_json)
+          VALUES (${featureId}, ${projectId}, 'Kanban board', 'Add a board', '', '', 'worktree', ${encodeOpeningMessage(openingMessage)})`;
         const promptOf = (record: Parameters<typeof renderStageHandoff>[0]) => {
           const { taskText, contextText } = renderStageHandoff(record);
           return `Feature "Kanban board". ${taskText}\n\nContext:\n${contextText}`;
@@ -426,6 +458,10 @@ describe("Workflow execution", () => {
           },
         });
         expect(plan.run.taskText).toBe(promptOf(planRecord));
+        expect(plan.run.openingMessage).toEqual(openingMessage);
+        expect(system.starts.find((start) => start.runId === plan.run.id)?.openingMessage).toEqual(
+          openingMessage,
+        );
         expect(
           yield* workflows.getStageHandoffForThread(ProjectId.make("other"), plan.run.threadId),
         ).toBeNull();
@@ -464,6 +500,7 @@ describe("Workflow execution", () => {
           { stepId: "plan", kind: "routed", outcome: "ready", text: "Plan ready" },
         ]);
         expect(review.run.taskText).toBe(promptOf(reviewRecord));
+        expect(review.run.openingMessage).toBeNull();
         expect(review.run.taskText).toContain("plan.md v1, from plan");
         expect(review.run.taskText).toContain("git diff refs/t3/plan/0 refs/t3/plan/2");
 

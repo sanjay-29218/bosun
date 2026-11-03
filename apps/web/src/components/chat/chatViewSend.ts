@@ -17,7 +17,13 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { readLocalApi } from "../../localApi";
-import { getUploadedAttachments } from "../../lib/attachmentUploadQueue";
+import {
+  awaitAttachmentUploads,
+  getUploadedAttachments,
+  readAttachmentUpload,
+  retryAttachmentUpload,
+  startAttachmentUpload,
+} from "../../lib/attachmentUploadQueue";
 import { findRevertCheckpoint } from "../../session-logic";
 import { type ChatMessage } from "../../types";
 import { randomUUID } from "~/lib/utils";
@@ -26,6 +32,7 @@ import { newThreadId } from "~/lib/utils";
 import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
+  type ComposerThreadTarget,
   useComposerDraftStore,
   DraftId,
 } from "../../composerDraftStore";
@@ -328,6 +335,26 @@ export function resolveMultipleModelTargets(input: {
       }).interactionMode,
     };
   });
+}
+
+/** Starts (or retries) each attachment's upload and waits for all of them to settle. */
+export async function uploadComposerAttachments(input: {
+  readonly environmentId: EnvironmentId;
+  readonly attachments: ReadonlyArray<ComposerImageAttachment | ComposerFileAttachment>;
+  readonly draftTarget: ComposerThreadTarget;
+}): Promise<void> {
+  for (const attachment of input.attachments) {
+    const upload =
+      readAttachmentUpload(attachment.id)?.status === "failed"
+        ? retryAttachmentUpload
+        : startAttachmentUpload;
+    upload({
+      environmentId: input.environmentId,
+      image: attachment,
+      draftTarget: input.draftTarget,
+    });
+  }
+  await awaitAttachmentUploads(input.attachments.map((attachment) => attachment.id));
 }
 
 /**

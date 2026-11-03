@@ -17,6 +17,10 @@ when it has none. A plain new thread picks no workflow until you choose one. To 
 open the workflow in the **Library** and choose **Make default for** the bot from its **⋯** menu,
 or edit the bot. The Library opens from the bot rail or the bottom of the sidebar.
 
+Ask a full-access bot to start a feature in a project with a workflow from the Library. It uses the project's default workflow when you do not name one.
+
+Attach images or files to the brief to send them to the first stage. With **Lead decides**, the lead also receives the brief and attachments as soon as the feature starts. Later stages use the crew's outputs and can read the first stage's thread for the original attachments.
+
 A feature started from the board gets a new worktree. From a thread, it works where the
 composer's **Local** / **New worktree** picker says. In a new worktree,
 the feature gets one branch and folder, made from the base branch when its first stage starts, and

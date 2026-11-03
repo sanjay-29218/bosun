@@ -1,5 +1,6 @@
 import {
   OrchestratorMcpFailure,
+  ProjectId,
   type FeatureWorkspace,
   type RoleCreateInput,
   type RoleUpdateInput,
@@ -109,13 +110,14 @@ const make = Effect.gen(function* () {
           const shell = yield* threads.getThreadShell(scope.thread.threadId);
           if (shell === null) return yield* invalid("This thread has no project");
           if (input.projectId !== undefined && input.projectId !== shell.projectId) {
-            return yield* invalid(
-              "A feature starts in this thread's own project. To start work in another project, hand it a task with delegate_task and target.projectId.",
+            yield* fullAccessCaller(
+              "Starting a feature in another project needs a live full-access/default calling thread.",
             );
           }
           const { feature, snapshot } = yield* features.launch({
             ...input,
-            projectId: shell.projectId,
+            projectId:
+              input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
           });
           return {
             featureId: feature.id,

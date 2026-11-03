@@ -308,7 +308,7 @@ it.effect("bots need the Manage workflows grant; other threads need full access 
   }).pipe(Effect.provide(layer)),
 );
 
-it.effect("any thread starts a feature in its own project, and only there", () =>
+it.effect("threads start features locally and full-access bots can target a project", () =>
   Effect.gen(function* () {
     launches.length = 0;
     const own = ProjectId.make("project:mcp-test");
@@ -328,9 +328,13 @@ it.effect("any thread starts a feature in its own project, and only there", () =
       { projectId: own, workflowId: undefined },
     ]);
 
-    const elsewhere = yield* call("t3_feature_start", { ...input, projectId: "elsewhere" }, person);
-    expect(failure(elsewhere).code).toBe("invalid_request");
-    expect(failure(elsewhere).message).toContain("delegate_task");
-    expect(launches).toHaveLength(2);
+    const target = { ...input, projectId: projectId, workflowId: "feature-delivery-auto" };
+    const elsewhere = yield* call("t3_feature_start", target, captain);
+    expect(elsewhere.isFailure).toBe(false);
+    expect(launches.at(-1)).toEqual({ projectId, workflowId: "feature-delivery-auto" });
+
+    const refused = yield* call("t3_feature_start", target, person, "approval-required");
+    expect(failure(refused).code).toBe("capability_denied");
+    expect(launches).toHaveLength(3);
   }).pipe(Effect.provide(layer)),
 );

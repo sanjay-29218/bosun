@@ -42,9 +42,17 @@ it.effect("upgrades a Feature-only database without skipping Workflow storage", 
       INSERT INTO workflow_executions (feature_id, bindings_json)
       VALUES ('feature-one', '{}')
     `;
-    assert.deepStrictEqual(yield* sql`SELECT title, brief FROM features`, [
-      { title: "Existing feature", brief: "Keep this brief" },
-    ]);
+    assert.deepStrictEqual(
+      yield* sql`SELECT title, brief, brief_message_json AS openingMessage, brief_request_hash AS requestHash FROM features`,
+      [
+        {
+          title: "Existing feature",
+          brief: "Keep this brief",
+          openingMessage: null,
+          requestHash: null,
+        },
+      ],
+    );
     assert.deepStrictEqual(
       yield* sql`SELECT status, updated_at, crew_assignments_json FROM features`,
       [{ status: "open", updated_at: "2026-09-30", crew_assignments_json: "{}" }],

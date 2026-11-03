@@ -110,7 +110,7 @@ const UpdateRole = Tool.make("t3_role_update", {
 const StartFeature = Tool.make("t3_feature_start", {
   ...shared,
   description:
-    "Start a feature in this thread's project: create it from a short title and a brief (the task, up to 16,000 characters) and run it on a workflow (t3_workflow_list). Omit workflowId for the project's default. The feature works in its own new worktree and branch; set workspace to local only when the person asks to work in the project's checkout. threadId is the current stage's thread, null while it waits for an agent slot. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
+    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project): create it from a short title and a brief (the task, up to 16,000 characters) and run it on a workflow (t3_workflow_list). Omit workflowId for the project's default. The feature works in its own new worktree and branch; set workspace to local only when the person asks to work in the project's checkout. threadId is the current stage's thread, null while it waits for an agent slot. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
   parameters: Schema.Struct({
     projectId: Schema.optional(Schema.String),
     title: Schema.String,
