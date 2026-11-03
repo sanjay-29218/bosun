@@ -8,7 +8,7 @@ export const PROJECT_MANAGER_INSTRUCTIONS =
 
 /** The built-in workflow's instructions, which people can edit. */
 export const FEATURE_DELIVERY_INSTRUCTIONS =
-  "Plan, ask the person to approve the plan, then design if it needs one, build, and QA. Skip what the work doesn't need.";
+  "Have the Planner plan it, then ask the person to approve the plan. Have the Designer design it if it needs one. Have the Builder build it, then the QA Tester check it and the Reviewer review the diff; send what they find back to the Builder until both pass. Then have the Builder commit, push and open the pull request. Skip what the work doesn't need.";
 
 /** What a crew run's thread is first told: its role's instructions and its task. */
 export const crewRunPrompt = (run: { readonly instructions: string; readonly taskText: string }) =>

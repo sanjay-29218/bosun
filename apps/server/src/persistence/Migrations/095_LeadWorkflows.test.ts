@@ -53,7 +53,7 @@ it.effect(
     `;
       assert.strictEqual(workflow?.name, "Feature delivery");
       assert.strictEqual(workflow?.leadRoleId, "role:project-manager");
-      assert.include(workflow?.instructions ?? "", "Plan, ask the person to approve the plan");
+      assert.include(workflow?.instructions ?? "", "ask the person to approve the plan");
       assert.deepStrictEqual(JSON.parse(workflow!.crew).toSorted(), [
         "role:builder",
         "role:planner",

@@ -11,7 +11,7 @@ const OLD_MANAGER =
 const NEW_MANAGER =
   "You lead one project's work. Your first message names the workflow to follow, your crew, and the brief. Follow the workflow with your crew, and do small steps yourself. Ask the person when you need their decision, and wait for the answer. Keep each task bounded. When the work is done, say so and summarize what changed.";
 const FEATURE_DELIVERY =
-  "Plan, ask the person to approve the plan, then design if it needs one, build, and QA. Skip what the work doesn't need.";
+  "Have the Planner plan it, then ask the person to approve the plan. Have the Designer design it if it needs one. Have the Builder build it, then the QA Tester check it and the Reviewer review the diff; send what they find back to the Builder until both pass. Then have the Builder commit, push and open the pull request. Skip what the work doesn't need.";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
