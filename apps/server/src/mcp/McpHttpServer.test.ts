@@ -1576,6 +1576,8 @@ it.effect(
             "t3_bot_move_project",
             "t3_bot_reorder",
             "t3_bot_update",
+            "t3_feature_workflow_create",
+            "t3_feature_workflow_update",
             "t3_role_create",
             "t3_role_list",
             "t3_role_update",

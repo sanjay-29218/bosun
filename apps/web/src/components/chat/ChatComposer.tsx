@@ -3432,7 +3432,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             : projectSelectionRequired
                               ? "Choose a project above to start a thread"
                               : props.startsFeature
-                                ? "Describe the feature. Its project manager takes it from here"
+                                ? "Describe the feature. Its lead takes it from here"
                                 : showProviderUnavailable
                                   ? "Enable a provider in Settings to send a message"
                                   : DEFAULT_COMPOSER_PLACEHOLDER

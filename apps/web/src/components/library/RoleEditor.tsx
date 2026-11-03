@@ -173,13 +173,7 @@ export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
 type RoleChange = Partial<
   Pick<
     RoleConfig,
-    | "name"
-    | "instructions"
-    | "allowedTools"
-    | "modelSelection"
-    | "runtimeMode"
-    | "enabled"
-    | "autoCreateForFeature"
+    "name" | "instructions" | "allowedTools" | "modelSelection" | "runtimeMode" | "enabled"
   >
 >;
 
@@ -196,7 +190,6 @@ function useSaveRole(environmentId: EnvironmentId) {
         allowedTools: [...next.allowedTools],
         modelSelection: next.modelSelection,
         runtimeMode: next.runtimeMode,
-        autoCreateForFeature: next.autoCreateForFeature,
         enabled: next.enabled,
         expectedRevision: role.revision,
       },
@@ -237,9 +230,7 @@ export function RoleEditorForm({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     role?.runtimeMode ?? "auto-accept-edits",
   );
-  // Turning a role off retires it. The project manager leads features rather than joining
-  // their crews, so it can't be turned off and is never a crew member.
-  const isProjectManager = role?.id === PROJECT_MANAGER_ROLE_ID;
+  // Turning a role off retires it: new features skip it, and running ones keep it.
   const [enabled, setEnabled] = useState(role?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const fields = {
@@ -248,7 +239,6 @@ export function RoleEditorForm({
     allowedTools: tools,
     modelSelection,
     runtimeMode,
-    autoCreateForFeature: isProjectManager ? (role?.autoCreateForFeature ?? false) : true,
   };
   const edited = role
     ? fields.name !== role.name ||
@@ -257,7 +247,6 @@ export function RoleEditorForm({
       fields.modelSelection.instanceId !== role.modelSelection.instanceId ||
       fields.modelSelection.model !== role.modelSelection.model ||
       fields.runtimeMode !== role.runtimeMode ||
-      fields.autoCreateForFeature !== role.autoCreateForFeature ||
       enabled !== role.enabled
     : fields.name.length > 0 || fields.instructions.length > 0 || tools.length > 0;
   const canSave =
@@ -346,13 +335,13 @@ export function RoleEditorForm({
               />
             }
           />
-          {role && !isProjectManager ? (
+          {role ? (
             <SettingsRow
-              title="On feature crews"
-              description="Turn off to retire this role. Running features keep it."
+              title="On"
+              description="Turn off to retire this role. New features skip it; running ones keep it."
               control={
                 <Switch
-                  aria-label="New features' crews get this role"
+                  aria-label="New features use this role"
                   checked={enabled}
                   onCheckedChange={setEnabled}
                 />

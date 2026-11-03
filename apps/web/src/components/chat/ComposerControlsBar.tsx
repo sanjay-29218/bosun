@@ -29,6 +29,7 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import { ComposerWorkflowPicker } from "../crew/ComposerWorkflowPicker";
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -88,7 +89,10 @@ export function ComposerControlsBar(props: {
   onModelPickerOpenChange: (open: boolean) => void;
   modelPickerIconClassName: string | undefined;
   getModelDisabledReason: ChatComposerProps["getModelDisabledReason"];
-  /** A feature's lead runs on its bot's model, so a draft that starts one hides these controls. */
+  /**
+   * A feature's lead runs on its role's model, so a draft that starts one shows its Workflow
+   * picker in place of these controls.
+   */
   startsFeature?: boolean | undefined;
 }) {
   const {
@@ -270,7 +274,15 @@ export function ComposerControlsBar(props: {
     </ComposerControl>
   ) : (
     <>
-      {props.startsFeature ? null : (
+      {props.startsFeature ? (
+        draftId ? (
+          <ComposerWorkflowPicker
+            environmentId={environmentId}
+            draftId={draftId}
+            size={controlSize}
+          />
+        ) : null
+      ) : (
         <>
           {composerModelPicker}
 

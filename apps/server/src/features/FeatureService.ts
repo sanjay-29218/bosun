@@ -2,6 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import {
+  FEATURE_DELIVERY_WORKFLOW_ID,
   CommandId,
   type FeatureBoardCard,
   type FeatureCreateInput,
@@ -21,6 +22,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -28,7 +30,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as BotStore from "../bots/BotStore.ts";
 import { FeatureWorkspaces } from "./FeatureWorkspaces.ts";
 import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
-import { CrewStore } from "../crew/CrewStore.ts";
+import { CrewStore, type Workflow } from "../crew/CrewStore.ts";
 import {
   CrewThreadRuntime,
   decodeOpeningMessage,
@@ -101,6 +103,7 @@ export interface FeatureServiceShape {
     readonly brief: string;
     readonly featureId?: string | undefined;
     readonly workspace?: FeatureWorkspace | undefined;
+    readonly workflowId?: string | undefined;
   }) => Effect.Effect<FeatureStartResult, FeatureServiceError>;
   /** The feature's crew member called `name`, which its lead delegates to; null when none is. */
   readonly crewMember: (
@@ -142,6 +145,7 @@ export class FeatureService extends Context.Service<FeatureService, FeatureServi
 
 const validText = (value: string, max: number) => value.trim().length > 0 && value.length <= max;
 
+const FEATURE_LEAD_RUN_PREFIX = "feature-lead";
 const hashed = (prefix: string, featureId: string, id: string) =>
   `${prefix}:${NodeCrypto.createHash("sha256")
     .update(JSON.stringify([featureId, id]))
@@ -155,9 +159,10 @@ const encodeAssignments = Schema.encodeSync(assignmentsJson);
 const decodeAssignments = Schema.decodeSync(assignmentsJson);
 interface FeatureRow extends Omit<
   FeatureRecord,
-  "crewAssignments" | "issue" | "number" | "briefAttachments"
+  "crewAssignments" | "issue" | "number" | "briefAttachments" | "workflowId"
 > {
   readonly number: number | null;
+  readonly workflowId: string | null;
   readonly briefMessageJson: string | null;
   readonly crewAssignmentsJson: string;
   readonly issueJson: string | null;
@@ -281,9 +286,17 @@ export const FeatureServiceLive = Layer.effect(
     const decodeRow = (row: FeatureRow) =>
       Effect.try({
         try: () => {
-          const { crewAssignmentsJson, issueJson, number, briefMessageJson, ...feature } = row;
+          const {
+            crewAssignmentsJson,
+            issueJson,
+            number,
+            briefMessageJson,
+            workflowId,
+            ...feature
+          } = row;
           return {
             ...feature,
+            workflowId: workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID,
             ...(number != null ? { number } : {}),
             crewAssignments: decodeAssignments(crewAssignmentsJson),
             issue: decodeFeatureIssue(issueJson),
@@ -298,7 +311,7 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, f.number,
           f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson,
-          f.brief_message_json AS briefMessageJson
+          f.brief_message_json AS briefMessageJson, f.workflow_id AS workflowId
         FROM features f
         WHERE f.id = ${id}
       `.pipe(
@@ -336,14 +349,26 @@ export const FeatureServiceLive = Layer.effect(
       return members.flatMap((member) => (member?.enabled ? [member.name] : []));
     });
 
+    const requireWorkflow = Effect.fn("FeatureService.requireWorkflow")(function* (
+      workflowId: string,
+    ) {
+      const workflow = yield* crew.getWorkflow(workflowId);
+      if (!workflow) {
+        return yield* Effect.fail(new FeatureValidationError(`Workflow not found: ${workflowId}`));
+      }
+      return workflow;
+    });
+
     /**
-     * The feature's lead: the project manager, in a run of its own in the feature's worktree,
-     * with the brief as its first message. The run ID is fixed, so starting again reuses it.
+     * The feature's lead: its workflow's lead role, in a run of its own in the feature's
+     * worktree, with the workflow and brief as its first message. The run ID is fixed, so
+     * starting again reuses it.
      */
     const startLead = Effect.fn("FeatureService.startLead")(function* (feature: FeatureRecord) {
-      const manager = yield* crew.ensureProjectManager(feature.projectId);
+      const workflow = yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID);
+      const manager = yield* crew.ensureProjectLead(feature.projectId, workflow.leadRoleId);
       if (!manager.enabled) {
-        return yield* Effect.fail(new FeatureValidationError("The project manager is unavailable"));
+        return yield* Effect.fail(new FeatureValidationError(`${manager.name} is unavailable`));
       }
       const workspace = yield* featureWorkspaces
         .forFeature(feature.id)
@@ -351,14 +376,15 @@ export const FeatureServiceLive = Layer.effect(
       const [brief] = yield* sql<{ readonly messageJson: string | null }>`
         SELECT brief_message_json AS messageJson FROM features WHERE id = ${feature.id}
       `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.startLead")));
-      const runId = hashed("feature-lead", feature.id, manager.id);
+      const runId = hashed(FEATURE_LEAD_RUN_PREFIX, feature.id, manager.id);
       // A lead started on older text keeps it: the run's task is part of its identity.
       const started = yield* crewStore.getRun(runId);
       const run = yield* crew.createRun({
         id: runId,
         memberId: manager.id,
         projectId: feature.projectId,
-        taskText: started?.taskText ?? featureLeadTask(feature, yield* crewNames(feature)),
+        taskText:
+          started?.taskText ?? featureLeadTask(feature, workflow, yield* crewNames(feature)),
         ...(workspace ? { workspace } : {}),
         openingMessage: decodeOpeningMessage(brief?.messageJson ?? null) ?? { attachments: [] },
         title: manager.name,
@@ -380,18 +406,19 @@ export const FeatureServiceLive = Layer.effect(
     });
 
     /**
-     * The crew a feature's lead delegates to: a member of every role that joins features, each
-     * reporting to the project's manager. The manager itself is the lead and isn't copied.
+     * The crew a feature's lead delegates to: a member of each enabled role in its workflow's
+     * crew, each reporting to the workflow's lead.
      */
     const assembleCrew = Effect.fn("FeatureService.assembleCrew")(function* (
       featureId: string,
       projectId: ProjectId,
+      workflow: Workflow,
     ) {
-      const roles = (yield* crewStore.listRoles()).filter(
-        (role) => role.enabled && role.autoCreateForFeature,
-      );
+      const roles = (yield* Effect.forEach(workflow.crewRoleIds, (id) => crewStore.getRole(id)))
+        .filter(Predicate.isNotNull)
+        .filter((role) => role.enabled);
       const manager = yield* crew
-        .ensureProjectManager(projectId)
+        .ensureProjectLead(projectId, workflow.leadRoleId)
         .pipe(Effect.catchTags({ CrewValidationError: () => Effect.succeed(null) }));
       const bindings = new Map<string, string>();
       for (const [position, role] of roles.entries()) {
@@ -452,6 +479,7 @@ export const FeatureServiceLive = Layer.effect(
           `.pipe(Effect.mapError(queryError));
           return (
             existing.projectId === input.projectId &&
+            existing.workflowId === (input.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID) &&
             (input.autoTitle || existing.title === input.title) &&
             existing.brief === input.brief &&
             (row?.requestHash === requestHash ||
@@ -470,6 +498,7 @@ export const FeatureServiceLive = Layer.effect(
           }
           return earlier;
         }
+        const workflow = yield* requireWorkflow(input.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID);
         // The brief's files belong to the feature, so they are claimed under its ID.
         const sent = input.briefAttachments ?? [];
         const claimed = yield* AttachmentClaims.claimPendingAttachments({
@@ -503,13 +532,13 @@ export const FeatureServiceLive = Layer.effect(
                 return { feature: existing, created: false };
               }
 
-              const crewAssignments = yield* assembleCrew(input.id, input.projectId);
+              const crewAssignments = yield* assembleCrew(input.id, input.projectId, workflow);
               const createdAt = DateTime.formatIso(yield* DateTime.now);
               // The number is taken in the insert itself, so concurrent creates cannot share one.
               const [inserted] = yield* sql<{ readonly number: number }>`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash)
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id)
               VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null},
-                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash})
+                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id})
               RETURNING number
             `;
               const {
@@ -518,6 +547,7 @@ export const FeatureServiceLive = Layer.effect(
                 baseBranch: _baseBranch,
                 briefAttachments: _briefAttachments,
                 briefContext: _briefContext,
+                workflowId: _workflowId,
                 ...fields
               } = input;
               const feature: FeatureRecord = {
@@ -525,6 +555,7 @@ export const FeatureServiceLive = Layer.effect(
                 briefAttachments: claimed.attachments,
                 crewAssignments,
                 issue: null,
+                workflowId: workflow.id,
                 createdAt,
                 updatedAt: createdAt,
                 status: "open",
@@ -668,6 +699,7 @@ export const FeatureServiceLive = Layer.effect(
           title: input.title.trim(),
           brief: input.brief.trim(),
           ...(input.workspace ? { workspace: input.workspace } : {}),
+          ...(input.workflowId ? { workflowId: input.workflowId } : {}),
         });
         return yield* start(feature.id, input.projectId).pipe(
           Effect.mapError(
@@ -706,7 +738,7 @@ export const FeatureServiceLive = Layer.effect(
         SELECT f.id, f.project_id AS projectId, f.title, f.brief, f.created_at AS createdAt,
           f.updated_at AS updatedAt, f.status, f.number,
           f.crew_assignments_json AS crewAssignmentsJson, f.issue_json AS issueJson,
-          f.brief_message_json AS briefMessageJson
+          f.brief_message_json AS briefMessageJson, f.workflow_id AS workflowId
         FROM features f
         WHERE f.project_id = ${projectId}
         ORDER BY f.created_at DESC, f.id DESC
@@ -765,15 +797,21 @@ export const FeatureServiceLive = Layer.effect(
       listByProject,
       board: Effect.fn("FeatureService.board")(function* (projectId) {
         const records = yield* listByProject(projectId);
-        // A feature's lead is its first top-level thread: crew threads hang under it.
+        // A feature's lead is its lead run's thread; features from before leads use their
+        // first top-level thread. Crew threads hang under the lead.
         const leads = yield* sql<{ readonly featureId: string; readonly threadId: ThreadId }>`
-          SELECT json_extract(payload_json, '$.feature.id') AS featureId, thread_id AS threadId,
-            MIN(created_at) AS createdAt
-          FROM orchestration_v2_projection_threads
-          WHERE project_id = ${projectId} AND deleted_at IS NULL
-            AND json_extract(payload_json, '$.feature.id') IS NOT NULL
-            AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
-          GROUP BY featureId
+          SELECT featureId, threadId FROM (
+            SELECT json_extract(payload_json, '$.feature.id') AS featureId, thread_id AS threadId,
+              ROW_NUMBER() OVER (
+                PARTITION BY json_extract(payload_json, '$.feature.id')
+                ORDER BY thread_id LIKE ${`bot-run:${FEATURE_LEAD_RUN_PREFIX}:%`} DESC,
+                  created_at, thread_id
+              ) AS rank
+            FROM orchestration_v2_projection_threads
+            WHERE project_id = ${projectId} AND deleted_at IS NULL
+              AND json_extract(payload_json, '$.feature.id') IS NOT NULL
+              AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
+          ) WHERE rank = 1
         `.pipe(Effect.mapError(queryError));
         const leadByFeature = new Map(leads.map((lead) => [lead.featureId, lead.threadId]));
         return records.map((feature): FeatureBoardCard => ({

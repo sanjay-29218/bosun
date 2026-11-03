@@ -1,11 +1,12 @@
 import { EnvironmentId } from "@t3tools/contracts";
 
-/** What the Library's main pane shows: a role on an environment, or a new one. */
+/** What the Library's main pane shows: a workflow or role on an environment, or a new one. */
 export interface LibrarySearch {
   readonly environmentId?: EnvironmentId;
+  readonly workflowId?: string;
   readonly roleId?: string;
-  /** A new role, on `environmentId` when given. */
-  readonly new?: "role";
+  /** A new workflow or role, on `environmentId` when given. */
+  readonly new?: "workflow" | "role";
 }
 
 const nonEmpty = (value: unknown): value is string =>
@@ -16,6 +17,12 @@ export function validateLibrarySearch(raw: Record<string, unknown>): LibrarySear
     ...(nonEmpty(raw.environmentId)
       ? { environmentId: EnvironmentId.make(raw.environmentId) }
       : {}),
-    ...(nonEmpty(raw.roleId) ? { roleId: raw.roleId } : raw.new === "role" ? { new: "role" } : {}),
+    ...(nonEmpty(raw.workflowId)
+      ? { workflowId: raw.workflowId }
+      : nonEmpty(raw.roleId)
+        ? { roleId: raw.roleId }
+        : raw.new === "workflow" || raw.new === "role"
+          ? { new: raw.new }
+          : {}),
   };
 }

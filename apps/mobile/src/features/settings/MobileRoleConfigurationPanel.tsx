@@ -25,7 +25,7 @@ const RUNTIME_MODES: ReadonlyArray<RuntimeMode> = [
   "full-access",
 ];
 
-function Action(props: {
+export function Action(props: {
   readonly label: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
@@ -56,7 +56,6 @@ function Editor(props: {
     readonly allowedTools: Array<string>;
     readonly modelSelection: ModelSelection;
     readonly runtimeMode: RuntimeMode;
-    readonly autoCreateForFeature: boolean;
     readonly enabled: boolean;
     readonly expectedRevision?: number;
   }) => Promise<boolean>;
@@ -71,9 +70,6 @@ function Editor(props: {
   const [model, setModel] = useState(initialModel?.model ?? "");
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     props.role?.runtimeMode ?? "approval-required",
-  );
-  const [autoCreateForFeature, setAutoCreateForFeature] = useState(
-    props.role?.autoCreateForFeature ?? false,
   );
   const [enabled, setEnabled] = useState(props.role?.enabled ?? true);
   // The fields above match this revision. If someone else saves a newer one, this save is
@@ -151,10 +147,6 @@ function Editor(props: {
           )
         }
       />
-      <Action
-        label={`Feature default: ${autoCreateForFeature ? "on" : "off"}`}
-        onPress={() => setAutoCreateForFeature(!autoCreateForFeature)}
-      />
       {props.role ? (
         <Action label={`Enabled: ${enabled ? "on" : "off"}`} onPress={() => setEnabled(!enabled)} />
       ) : null}
@@ -179,7 +171,6 @@ function Editor(props: {
               allowedTools: [...allowedTools],
               modelSelection,
               runtimeMode,
-              autoCreateForFeature,
               enabled,
               ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
             })
@@ -192,7 +183,7 @@ function Editor(props: {
   );
 }
 
-function useRun(onSuccess: () => void) {
+export function useRun(onSuccess: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (

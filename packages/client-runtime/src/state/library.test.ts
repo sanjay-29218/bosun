@@ -3,6 +3,7 @@ import {
   PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
+  type WorkflowConfig,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -19,32 +20,33 @@ const role = (id: string, overrides: Partial<RoleConfig> = {}): RoleConfig => ({
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
   runtimeMode: "approval-required",
   enabled: true,
-  autoCreateForFeature: true,
   revision: 1,
   ...overrides,
 });
 
-describe("roleAvailabilityNote", () => {
-  it("says when a role is off or kept off feature crews", () => {
-    expect(roleAvailabilityNote(role("role:builder"))).toBeNull();
-    expect(roleAvailabilityNote(role("role:builder", { enabled: false }))).toBe("Off");
-    expect(roleAvailabilityNote(role("role:helper", { autoCreateForFeature: false }))).toBe(
-      "Not on feature crews",
-    );
-  });
+const delivery: WorkflowConfig = {
+  id: "workflow:feature-delivery",
+  name: "Feature delivery",
+  instructions: "Plan, build, QA.",
+  leadRoleId: PROJECT_MANAGER_ROLE_ID,
+  crewRoleIds: ["role:builder"],
+  revision: 1,
+};
 
-  it("leaves the project manager alone, since it leads every feature", () => {
-    expect(
-      roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID, { autoCreateForFeature: false })),
-    ).toBeNull();
+describe("roleAvailabilityNote", () => {
+  it("says when a role is off or no workflow leads or uses it", () => {
+    expect(roleAvailabilityNote(role("role:builder"), [delivery])).toBeNull();
+    expect(roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID), [delivery])).toBeNull();
+    expect(roleAvailabilityNote(role("role:builder", { enabled: false }), [delivery])).toBe("Off");
+    expect(roleAvailabilityNote(role("role:helper"), [delivery])).toBe("Not in a workflow");
   });
 });
 
 describe("libraryRoleEntries", () => {
   it("sorts roles by name and keeps an id per environment apart", () => {
     const entries = libraryRoleEntries([
-      { environmentId: local, roles: [role("role:reviewer"), role("role:builder")] },
-      { environmentId: remote, roles: [role("role:builder")] },
+      { environmentId: local, roles: [role("role:reviewer"), role("role:builder")], workflows: [] },
+      { environmentId: remote, roles: [role("role:builder")], workflows: [] },
     ]);
     expect(entries.map((entry) => entry.key)).toEqual([
       "local:role:builder",

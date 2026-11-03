@@ -97,6 +97,7 @@ import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsCl
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
 import { SettingsRolesRouteScreen } from "./features/settings/SettingsRolesRouteScreen";
+import { SettingsWorkflowsRouteScreen } from "./features/settings/SettingsWorkflowsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -388,6 +389,14 @@ const SETTINGS_SCREENS = {
     options: {
       ...SETTINGS_PAGE_OPTIONS,
       title: "Roles",
+    },
+  }),
+  SettingsWorkflows: createNativeStackScreen({
+    screen: SettingsWorkflowsRouteScreen,
+    linking: "settings/workflows",
+    options: {
+      ...SETTINGS_PAGE_OPTIONS,
+      title: "Workflows",
     },
   }),
   SettingsScheduledTasks: createNativeStackScreen({

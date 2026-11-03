@@ -278,9 +278,10 @@ its progress.
 ## Start a feature
 
 **New feature…** in the command palette, or **New → New feature** on the board, opens a composer
-for a feature's brief. The model picker hides, because the feature's lead and crew bring their own
-models (change them in the **Library**). Your first message becomes the brief, and you land in the
-lead's thread, where the project manager runs the feature with its crew. An ordinary new thread
+for a feature's brief. The model picker gives way to a **Workflow** picker, which starts on
+**Feature delivery**, because the feature's lead and crew bring their own models (change them in
+the **Library**). Your first message becomes the brief, and you land in the lead's thread, where
+the workflow's lead runs the feature with its crew. An ordinary new thread
 stays a normal thread. See [Features](./features.md#the-lead-and-its-crew).
 
 ## Context in your message

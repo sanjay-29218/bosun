@@ -36,6 +36,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
 import {
   crewRunPrompt,
+  FEATURE_DELIVERY_INSTRUCTIONS,
   featureLeadTask,
   PROJECT_MANAGER_INSTRUCTIONS,
 } from "../../apps/server/src/crew/crewPrompts.ts";
@@ -956,6 +957,7 @@ export const buildMessages = (sample: Sample) => {
       instructions: PROJECT_MANAGER_INSTRUCTIONS,
       taskText: featureLeadTask(
         { id: "feature:eval", title: lead.title, brief: prompt },
+        { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
         lead.crew,
       ),
     });

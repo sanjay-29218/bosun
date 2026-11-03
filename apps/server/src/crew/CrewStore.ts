@@ -45,7 +45,17 @@ export interface Role {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly enabled: boolean;
-  readonly autoCreateForFeature: boolean;
+  readonly revision: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface Workflow {
+  readonly id: string;
+  readonly name: string;
+  readonly instructions: string;
+  readonly leadRoleId: string;
+  readonly crewRoleIds: ReadonlyArray<string>;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -117,7 +127,6 @@ interface RoleRow {
   readonly modelSelectionJson: string;
   readonly runtimeMode: string;
   readonly enabled: number;
-  readonly autoCreateForFeature: number;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -177,11 +186,24 @@ const decodeRole = (row: RoleRow): Role => ({
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
-  autoCreateForFeature: row.autoCreateForFeature === 1,
   revision: row.revision,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
+
+interface WorkflowRow extends Omit<Workflow, "crewRoleIds"> {
+  readonly crewRoleIdsJson: string;
+}
+
+const decodeWorkflow = ({ crewRoleIdsJson, ...row }: WorkflowRow): Workflow => {
+  const crewRoleIds: unknown = JSON.parse(crewRoleIdsJson);
+  return {
+    ...row,
+    crewRoleIds: Array.isArray(crewRoleIds)
+      ? crewRoleIds.filter((id): id is string => typeof id === "string")
+      : [],
+  };
+};
 
 const decodeRun = (row: CrewRunRow): CrewRun => ({
   id: row.id,
@@ -221,6 +243,14 @@ export interface CrewStoreShape {
   ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly getRole: (id: string) => Effect.Effect<Role | null, PersistenceSqlError>;
   readonly listRoles: () => Effect.Effect<ReadonlyArray<Role>, PersistenceSqlError>;
+  readonly insertWorkflow: (workflow: Workflow) => Effect.Effect<void, PersistenceSqlError>;
+  readonly updateWorkflow: (
+    workflow: Workflow,
+    expectedRevision: number,
+  ) => Effect.Effect<boolean, PersistenceSqlError>;
+  readonly deleteWorkflow: (id: string) => Effect.Effect<void, PersistenceSqlError>;
+  readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
+  readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
   readonly insertMember: (member: CrewMember) => Effect.Effect<void, PersistenceSqlError>;
   readonly getMember: (id: string) => Effect.Effect<CrewMember | null, PersistenceSqlError>;
   readonly listMembersForProject: (
@@ -316,7 +346,7 @@ export const CrewStoreLive = Layer.effect(
         SELECT id, name, instructions,
           allowed_tools_json AS allowedToolsJson,
           model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-          enabled, auto_create_for_feature AS autoCreateForFeature,
+          enabled,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM roles WHERE id = ${id}
       `.pipe(
@@ -362,8 +392,7 @@ export const CrewStoreLive = Layer.effect(
           ) VALUES (
             ${role.id}, ${role.name}, ${role.instructions},
             ${JSON.stringify(role.allowedTools)}, ${JSON.stringify(role.modelSelection)},
-            ${role.runtimeMode}, ${role.enabled ? 1 : 0},
-            ${role.autoCreateForFeature ? 1 : 0}, ${role.revision},
+            ${role.runtimeMode}, ${role.enabled ? 1 : 0}, 0, ${role.revision},
             ${role.createdAt}, ${role.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -374,7 +403,6 @@ export const CrewStoreLive = Layer.effect(
             allowed_tools_json = ${JSON.stringify(role.allowedTools)},
             model_selection_json = ${JSON.stringify(role.modelSelection)},
             runtime_mode = ${role.runtimeMode}, enabled = ${role.enabled ? 1 : 0},
-            auto_create_for_feature = ${role.autoCreateForFeature ? 1 : 0},
             revision = ${role.revision}, updated_at = ${role.updatedAt}
           WHERE id = ${role.id} AND revision = ${expectedRevision}
           RETURNING id
@@ -388,7 +416,7 @@ export const CrewStoreLive = Layer.effect(
           SELECT id, name, instructions,
             allowed_tools_json AS allowedToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled, auto_create_for_feature AS autoCreateForFeature,
+            enabled,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM roles
           ORDER BY name, id
@@ -396,6 +424,61 @@ export const CrewStoreLive = Layer.effect(
           Effect.mapError(queryError),
           Effect.flatMap((rows) =>
             Effect.try({ try: () => rows.map(decodeRole), catch: decodeError }),
+          ),
+        ),
+      insertWorkflow: (workflow) =>
+        sql`
+          INSERT INTO workflows (
+            id, name, instructions, lead_role_id, crew_role_ids_json, revision, created_at, updated_at
+          ) VALUES (
+            ${workflow.id}, ${workflow.name}, ${workflow.instructions}, ${workflow.leadRoleId},
+            ${JSON.stringify(workflow.crewRoleIds)}, ${workflow.revision},
+            ${workflow.createdAt}, ${workflow.updatedAt}
+          )
+        `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+      updateWorkflow: (workflow, expectedRevision) =>
+        sql<{ readonly id: string }>`
+          UPDATE workflows SET
+            name = ${workflow.name}, instructions = ${workflow.instructions},
+            lead_role_id = ${workflow.leadRoleId},
+            crew_role_ids_json = ${JSON.stringify(workflow.crewRoleIds)},
+            revision = ${workflow.revision}, updated_at = ${workflow.updatedAt}
+          WHERE id = ${workflow.id} AND revision = ${expectedRevision}
+          RETURNING id
+        `.pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
+      deleteWorkflow: (id) =>
+        sql`DELETE FROM workflows WHERE id = ${id}`.pipe(
+          Effect.asVoid,
+          Effect.mapError(queryError),
+        ),
+      getWorkflow: (id) =>
+        sql<WorkflowRow>`
+          SELECT id, name, instructions, lead_role_id AS leadRoleId,
+            crew_role_ids_json AS crewRoleIdsJson, revision, created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM workflows WHERE id = ${id}
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) =>
+            Effect.try({
+              try: () => (rows[0] ? decodeWorkflow(rows[0]) : null),
+              catch: decodeError,
+            }),
+          ),
+        ),
+      listWorkflows: () =>
+        sql<WorkflowRow>`
+          SELECT id, name, instructions, lead_role_id AS leadRoleId,
+            crew_role_ids_json AS crewRoleIdsJson, revision, created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM workflows ORDER BY name, id
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) =>
+            Effect.try({ try: () => rows.map(decodeWorkflow), catch: decodeError }),
           ),
         ),
       insertMember: (member) =>

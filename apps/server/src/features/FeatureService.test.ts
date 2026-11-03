@@ -6,7 +6,13 @@ import * as NodePath from "node:path";
 import * as EffectNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
-import { CAPTAIN_BOT_ID, CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  CAPTAIN_BOT_ID,
+  CommandId,
+  FEATURE_DELIVERY_WORKFLOW_ID,
+  ProjectId,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -156,8 +162,70 @@ describe("feature lead and crew", () => {
         });
         expect(messages).toHaveLength(1);
         expect(messages[0]!.text).toContain("Add a dark mode toggle to settings");
+        expect(messages[0]!.text).toMatch(/^Workflow: Feature delivery$/m);
         expect(messages[0]!.text).toMatch(/^Crew: .*Planner/m);
         expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(started.leadThreadId);
+      }),
+    ),
+  );
+
+  effectIt.effect("runs a feature on its workflow's lead, crew and instructions", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const role = (id: string, name: string) =>
+          crew.createRole({
+            id,
+            name,
+            instructions: `You are the ${name}.`,
+            modelSelection,
+            runtimeMode: "full-access",
+          });
+        yield* role("role:content-lead", "Content lead");
+        yield* role("role:copywriter", "Copywriter");
+        const workflow = yield* crew.createWorkflow({
+          id: "workflow:social",
+          name: "Social media",
+          instructions: "Draft the week's posts, then ask the person to approve them.",
+          leadRoleId: "role:content-lead",
+          crewRoleIds: ["role:copywriter", "role:content-lead", "role:copywriter"],
+        });
+        // The lead leads; it isn't on its own crew.
+        expect(workflow.crewRoleIds).toEqual(["role:copywriter"]);
+        const input = {
+          id: "social-feature",
+          projectId,
+          title: "Launch week",
+          brief: "Posts for the launch",
+          workspace: "local" as const,
+          workflowId: workflow.id,
+        };
+        const feature = yield* features.create(input);
+        expect(feature.workflowId).toBe(workflow.id);
+        expect(Object.keys(feature.crewAssignments)).toEqual(["role:copywriter"]);
+        // The same feature ID on another workflow is another request.
+        const { workflowId: _workflowId, ...onDefault } = input;
+        expect((yield* Effect.flip(features.create(onDefault))).message).toBe(
+          "Feature ID belongs to another request",
+        );
+
+        const { leadThreadId } = yield* features.start(input.id, projectId);
+        expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Content lead");
+        const { messages } = yield* engine.getThreadRecords(leadThreadId, ["messages"], {
+          messageRoles: ["user"],
+        });
+        const text = messages[0]!.text;
+        expect(text).toContain("You are the Content lead.");
+        expect(text).toContain(
+          "Workflow: Social media\nDraft the week's posts, then ask the person to approve them.",
+        );
+        expect(text).toMatch(/^Crew: Copywriter\. /m);
+        expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(leadThreadId);
+        expect(yield* Effect.flip(crew.deleteWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))).toMatchObject(
+          { message: "Feature delivery can be edited but not deleted" },
+        );
       }),
     ),
   );

@@ -116,6 +116,22 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
           crew
             .updateRole(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.workflowsList]: () =>
+          crew
+            .listWorkflows()
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.workflowsCreate]: (input) =>
+          crew
+            .createWorkflow(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.workflowsUpdate]: (input) =>
+          crew
+            .updateWorkflow(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.workflowsDelete]: (input) =>
+          crew
+            .deleteWorkflow(input.id)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
         [WS_METHODS.crewConfiguration]: (input) =>
           crew
             .projectConfiguration(input.projectId)

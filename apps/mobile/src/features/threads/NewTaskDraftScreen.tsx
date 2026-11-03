@@ -35,6 +35,7 @@ import { KeyboardController } from "react-native-keyboard-controller";
 
 import {
   AuthOrchestrationOperateScope,
+  FEATURE_DELIVERY_WORKFLOW_ID,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
@@ -71,6 +72,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectCloneBanner } from "./ProjectCloneBanner";
 import { useActiveBot } from "../../state/bots";
 import { featuresEnvironment } from "../../state/features";
+import { useEnvironmentQuery } from "../../state/query";
+import { rolesEnvironment } from "../../state/roles";
 import { useSetThreadListView } from "../home/use-thread-list-view";
 import { Menu } from "../../components/ui/Menu";
 import { uuidv4 } from "../../lib/uuid";
@@ -202,6 +205,18 @@ export function NewTaskDraftScreen(props: {
   const [featureProjectKey, setFeatureProjectKey] = useState<string | null>(null);
   const asFeature =
     crewEnabled && featureProjectKey !== null && featureProjectKey === selectedProjectKey;
+  const [workflowChoice, setWorkflowChoice] = useState<string | null>(null);
+  const featureWorkflows =
+    useEnvironmentQuery(
+      asFeature && selectedProject
+        ? rolesEnvironment.workflows({ environmentId: selectedProject.environmentId, input: {} })
+        : null,
+    ).data ?? [];
+  // Workflows are environment-local, so a choice from another environment falls back.
+  const featureWorkflow =
+    featureWorkflows.find((workflow) => workflow.id === workflowChoice) ??
+    featureWorkflows.find((workflow) => workflow.id === FEATURE_DELIVERY_WORKFLOW_ID) ??
+    null;
   const activeBotViewKey = useActiveBot().viewKey;
   const setThreadListView = useSetThreadListView();
   const createFeature = useAtomCommand(featuresEnvironment.create);
@@ -595,6 +610,7 @@ export function NewTaskDraftScreen(props: {
             ? { baseBranch: selectedBranchName }
             : {}),
           ...(briefAttachments.length > 0 ? { briefAttachments } : {}),
+          ...(featureWorkflow ? { workflowId: featureWorkflow.id } : {}),
         },
       });
       if (created._tag !== "Success") return;
@@ -954,7 +970,7 @@ export function NewTaskDraftScreen(props: {
 
   const featureControl =
     crewEnabled && selectedProjectKey !== null ? (
-      <View className="flex-row items-center px-2 pb-1">
+      <View className="flex-row items-center gap-1 px-2 pb-1">
         <Menu
           accessibilityLabel="Start as"
           actions={[
@@ -979,6 +995,27 @@ export function NewTaskDraftScreen(props: {
             maxWidth="100%"
           />
         </Menu>
+        {asFeature && featureWorkflow ? (
+          <View className="min-w-0 shrink">
+            <Menu
+              accessibilityLabel="Workflow"
+              actions={featureWorkflows.map((workflow) => ({
+                id: workflow.id,
+                title: workflow.name,
+                state: workflow.id === featureWorkflow.id ? "on" : "off",
+              }))}
+              onPressAction={({ nativeEvent }) => setWorkflowChoice(nativeEvent.event)}
+            >
+              <ComposerInlineControl
+                accessibilityLabel={`Workflow: ${featureWorkflow.name}`}
+                disabled={isComposerInteractionLocked}
+                icon="list.bullet"
+                label={featureWorkflow.name}
+                maxWidth="100%"
+              />
+            </Menu>
+          </View>
+        ) : null}
       </View>
     ) : null;
 

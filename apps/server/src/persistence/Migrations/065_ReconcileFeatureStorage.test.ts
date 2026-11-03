@@ -80,7 +80,7 @@ it.effect("upgrades a Workflow-only database, then drops the engine's storage", 
     assert.deepStrictEqual(
       yield* sql`
         SELECT name FROM sqlite_master
-        WHERE type = 'table' AND (name LIKE 'workflow_%' OR name IN ('feature_workflows', 'crew_stage_threads'))
+        WHERE type = 'table' AND (name GLOB 'workflow_*' OR name IN ('feature_workflows', 'crew_stage_threads'))
       `,
       [],
     );

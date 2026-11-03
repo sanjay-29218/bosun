@@ -4,6 +4,8 @@ import {
   type FeatureWorkspace,
   type RoleCreateInput,
   type RoleUpdateInput,
+  type WorkflowCreateInput,
+  type WorkflowUpdateInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -19,10 +21,10 @@ import { FeaturesToolkit } from "./tools.ts";
 /** Bot and crew threads need the grant to read roles; everyone else may. */
 const checkRead = asCrewManager(Effect.void);
 
-/** Every caller that isn't a bot or crew thread needs full access to change roles. */
+/** Every caller that isn't a bot or crew thread needs full access to change the Library. */
 const checkWrite = asCrewManager(
   fullAccessCaller(
-    "Changing roles needs a live full-access/default calling thread or a full-access client.",
+    "Changing roles or workflows needs a live full-access/default calling thread or a full-access client.",
   ),
 );
 
@@ -47,13 +49,19 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   return {
     t3_role_list: McpToolAccess.reads(() =>
-      reading(crew.listRoles()).pipe(Effect.map((roles) => ({ roles }))),
+      reading(Effect.all({ roles: crew.listRoles(), workflows: crew.listWorkflows() })),
     ),
     t3_role_create: McpToolAccess.writesWithCapability((input: typeof RoleCreateInput.Type) =>
       writing(crew.createRole(input)),
     ),
     t3_role_update: McpToolAccess.writesWithCapability((input: typeof RoleUpdateInput.Type) =>
       writing(crew.updateRole(input)),
+    ),
+    t3_feature_workflow_create: McpToolAccess.writesWithCapability(
+      (input: typeof WorkflowCreateInput.Type) => writing(crew.createWorkflow(input)),
+    ),
+    t3_feature_workflow_update: McpToolAccess.writesWithCapability(
+      (input: typeof WorkflowUpdateInput.Type) => writing(crew.updateWorkflow(input)),
     ),
     t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {
@@ -62,6 +70,7 @@ const make = Effect.gen(function* () {
         readonly brief: string;
         readonly featureId?: string | undefined;
         readonly workspace?: FeatureWorkspace | undefined;
+        readonly workflowId?: string | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(

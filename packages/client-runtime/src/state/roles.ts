@@ -6,8 +6,8 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 /**
- * Roles are global to an environment; crew reads and actions execute on the environment that
- * owns the project.
+ * Roles and workflows are global to an environment; crew reads and actions execute on the
+ * environment that owns the project.
  */
 export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>) {
   const roles = createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -22,11 +22,24 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
   });
+  const workflows = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:workflows:list",
+    tag: WS_METHODS.workflowsList,
+    staleTimeMs: 5_000,
+    idleTtlMs: 60_000,
+  });
   const refreshRoles = (
     target: { readonly environmentId: EnvironmentId },
     registry: AtomRegistry.AtomRegistry,
   ) =>
     Effect.sync(() => registry.refresh(roles({ environmentId: target.environmentId, input: {} })));
+  const refreshWorkflows = (
+    target: { readonly environmentId: EnvironmentId },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() =>
+      registry.refresh(workflows({ environmentId: target.environmentId, input: {} })),
+    );
   const refreshConfiguration = (
     target: {
       readonly environmentId: EnvironmentId;
@@ -36,6 +49,7 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
   ) => Effect.sync(() => registry.refresh(configuration(target)));
   return {
     roles,
+    workflows,
     configuration,
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:roles:create",
@@ -47,11 +61,27 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       tag: WS_METHODS.rolesUpdate,
       onSuccess: refreshRoles,
     }),
-    /** Creates the missing default roles and the Captain. */
+    createWorkflow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:create",
+      tag: WS_METHODS.workflowsCreate,
+      onSuccess: refreshWorkflows,
+    }),
+    updateWorkflow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:update",
+      tag: WS_METHODS.workflowsUpdate,
+      onSuccess: refreshWorkflows,
+    }),
+    deleteWorkflow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:delete",
+      tag: WS_METHODS.workflowsDelete,
+      onSuccess: refreshWorkflows,
+    }),
+    /** Creates the missing default roles, Feature delivery, and the Captain. */
     initialize: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:initialize",
       tag: WS_METHODS.crewInitialize,
-      onSuccess: refreshRoles,
+      onSuccess: (target, registry) =>
+        Effect.andThen(refreshRoles(target, registry), refreshWorkflows(target, registry)),
     }),
     instantiate: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:instantiate",

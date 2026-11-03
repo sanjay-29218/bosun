@@ -67,6 +67,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 
   [WS_METHODS.rolesCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.rolesUpdate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.workflowsCreate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.workflowsUpdate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.workflowsDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewInitialize]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewInstantiate]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewSetHierarchy]: AuthOrchestrationOperateScope,

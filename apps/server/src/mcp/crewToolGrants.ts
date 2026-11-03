@@ -69,6 +69,8 @@ export const CrewGatedToolkits = {
     t3_role_list: "crew.workflows",
     t3_role_create: "crew.workflows",
     t3_role_update: "crew.workflows",
+    t3_feature_workflow_create: "crew.workflows",
+    t3_feature_workflow_update: "crew.workflows",
     t3_feature_start: null,
   }),
 };

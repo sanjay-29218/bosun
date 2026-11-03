@@ -1,8 +1,11 @@
 import {
   DEFAULT_UNIFIED_SETTINGS,
   EnvironmentId,
+  FEATURE_DELIVERY_WORKFLOW_ID,
+  PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
+  type WorkflowConfig,
 } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -20,19 +23,32 @@ const reviewer: RoleConfig = {
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "approval-required",
   enabled: true,
-  autoCreateForFeature: true,
   revision: 1,
+};
+const projectManager: RoleConfig = { ...reviewer, id: PROJECT_MANAGER_ROLE_ID, name: "Lead" };
+const designer: RoleConfig = { ...reviewer, id: "role:designer", name: "Designer" };
+const featureDelivery: WorkflowConfig = {
+  id: FEATURE_DELIVERY_WORKFLOW_ID,
+  name: "Feature delivery",
+  instructions: "Plan, build and review",
+  leadRoleId: PROJECT_MANAGER_ROLE_ID,
+  crewRoleIds: [reviewer.id],
+  revision: 3,
 };
 
 // Stable arrays, like the query results the real hook returns.
 const state = vi.hoisted(() => ({
   connected: true,
   roles: [] as RoleConfig[],
+  workflows: [] as WorkflowConfig[],
+  updateWorkflow: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
 }));
 
-function setup(roles: RoleConfig[]) {
+function setup(roles: RoleConfig[], workflows: WorkflowConfig[] = []) {
   state.connected = true;
   state.roles = roles;
+  state.workflows = workflows;
+  state.updateWorkflow = vi.fn(async () => ({ _tag: "Success", value: undefined }));
 }
 
 vi.mock(import("../../state/library"), async (original) => {
@@ -43,6 +59,7 @@ vi.mock(import("../../state/library"), async (original) => {
           {
             environmentId: EnvironmentId.make("laptop"),
             roles: state.roles,
+            workflows: state.workflows,
             error: null,
           },
         ]
@@ -62,7 +79,26 @@ vi.mock(import("../../state/roles"), async (original) => {
     rolesEnvironment: {
       ...actual.rolesEnvironment,
       update: { ...actual.rolesEnvironment.update, permissionAtom: () => allowed },
+      updateWorkflow: {
+        ...actual.rolesEnvironment.updateWorkflow,
+        permissionAtom: () => allowed,
+      },
+      deleteWorkflow: {
+        ...actual.rolesEnvironment.deleteWorkflow,
+        permissionAtom: () => allowed,
+      },
     },
+  };
+});
+vi.mock(import("../../state/use-atom-command"), async (original) => {
+  const actual = await original();
+  const { rolesEnvironment } = await import("../../state/roles");
+  return {
+    ...actual,
+    useAtomCommand: ((command: Parameters<typeof actual.useAtomCommand>[0]) =>
+      command === rolesEnvironment.updateWorkflow
+        ? state.updateWorkflow
+        : actual.useAtomCommand(command)) as never,
   };
 });
 vi.mock(import("../../state/environments"), async (original) => ({
@@ -91,6 +127,30 @@ describe("LibraryPage", () => {
     state.connected = true;
     await screen.rerender(<LibraryPage {...selection} />);
     await expect.element(instructions).toHaveTextContent("Review the change for security");
+  });
+
+  it("saves a workflow's crew, and keeps Feature delivery from being deleted", async () => {
+    setup([projectManager, reviewer, designer], [featureDelivery]);
+    await using _screen = await render(
+      <LibraryPage environmentId={environmentId} workflowId={FEATURE_DELIVERY_WORKFLOW_ID} />,
+    );
+    await expect.element(page.getByRole("button", { name: "Save workflow" })).toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: "Delete workflow" }))
+      .not.toBeInTheDocument();
+    await userEvent.click(page.getByText("Designer"));
+    await userEvent.click(page.getByRole("button", { name: "Save workflow" }));
+    expect(state.updateWorkflow).toHaveBeenCalledWith({
+      environmentId,
+      input: {
+        id: FEATURE_DELIVERY_WORKFLOW_ID,
+        name: "Feature delivery",
+        instructions: "Plan, build and review",
+        leadRoleId: PROJECT_MANAGER_ROLE_ID,
+        crewRoleIds: [reviewer.id, designer.id],
+        expectedRevision: 3,
+      },
+    });
   });
 
   it("says when the selected role no longer exists", async () => {

@@ -70,6 +70,8 @@ export const FeatureCreateInput = Schema.Struct({
   /** Sent with the brief as the opening message of the feature's lead. */
   briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
   briefContext: Schema.optionalKey(OrchestrationMessageContext),
+  /** The workflow the feature follows; defaults to Feature delivery. */
+  workflowId: Schema.optionalKey(Schema.String),
 });
 export const FeatureRecord = Schema.Struct({
   ...FeatureFields,
@@ -82,6 +84,8 @@ export const FeatureRecord = Schema.Struct({
   crewAssignments: Schema.Record(Schema.String, Schema.String),
   issue: Schema.NullOr(FeatureIssue),
   briefAttachments: Schema.optionalKey(Schema.Array(ChatAttachment)),
+  /** The workflow the feature follows. Older servers omit it. */
+  workflowId: Schema.optionalKey(Schema.String),
 });
 export const FeatureProjectInput = Schema.Struct({ projectId: ProjectId });
 export const FeatureGetInput = Schema.Struct({

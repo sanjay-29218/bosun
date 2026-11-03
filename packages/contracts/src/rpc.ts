@@ -59,6 +59,10 @@ import {
   CrewStartInput,
   CrewStartResult,
   RoleConfig,
+  WorkflowConfig,
+  WorkflowCreateInput,
+  WorkflowDeleteInput,
+  WorkflowUpdateInput,
   RoleCreateInput,
   RoleUpdateInput,
 } from "./crew.ts";
@@ -487,6 +491,10 @@ export const WS_METHODS = {
   rolesList: "roles.list",
   rolesCreate: "roles.create",
   rolesUpdate: "roles.update",
+  workflowsList: "workflows.list",
+  workflowsCreate: "workflows.create",
+  workflowsUpdate: "workflows.update",
+  workflowsDelete: "workflows.delete",
   crewConfiguration: "crew.configuration",
   crewInitialize: "crew.initialize",
   crewInstantiate: "crew.instantiate",
@@ -1172,7 +1180,6 @@ const WsFeaturesSetIssueRpc = Rpc.make(WS_METHODS.featuresSetIssue, {
   success: FeatureRecord,
   error: FeatureRpcError,
 });
-/** Counts changes to the workflow and role library, so clients re-read it when an agent edits it. */
 const WsFeaturesStartRpc = Rpc.make(WS_METHODS.featuresStart, {
   payload: FeatureStartInput,
   success: FeatureStartResult,
@@ -1234,6 +1241,26 @@ const WsRolesCreateRpc = Rpc.make(WS_METHODS.rolesCreate, {
 const WsRolesUpdateRpc = Rpc.make(WS_METHODS.rolesUpdate, {
   payload: RoleUpdateInput,
   success: RoleConfig,
+  error: CrewRpcError,
+});
+const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(WorkflowConfig),
+  error: CrewRpcError,
+});
+const WsWorkflowsCreateRpc = Rpc.make(WS_METHODS.workflowsCreate, {
+  payload: WorkflowCreateInput,
+  success: WorkflowConfig,
+  error: CrewRpcError,
+});
+const WsWorkflowsUpdateRpc = Rpc.make(WS_METHODS.workflowsUpdate, {
+  payload: WorkflowUpdateInput,
+  success: WorkflowConfig,
+  error: CrewRpcError,
+});
+const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
+  payload: WorkflowDeleteInput,
+  success: Schema.Void,
   error: CrewRpcError,
 });
 const WsCrewConfigurationRpc = Rpc.make(WS_METHODS.crewConfiguration, {
@@ -2270,6 +2297,10 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsRolesListRpc,
   WsRolesCreateRpc,
   WsRolesUpdateRpc,
+  WsWorkflowsListRpc,
+  WsWorkflowsCreateRpc,
+  WsWorkflowsUpdateRpc,
+  WsWorkflowsDeleteRpc,
   WsCrewConfigurationRpc,
   WsCrewInitializeRpc,
   WsCrewInstantiateRpc,

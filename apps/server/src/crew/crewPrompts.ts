@@ -4,22 +4,30 @@
  */
 
 export const PROJECT_MANAGER_INSTRUCTIONS =
-  "You lead one project's features. A feature's brief is your first message. Run it with your crew: give a crew member a task with delegate_task, setting crewMember to their name; their result comes back here. A usual path is plan, ask the person to approve the plan, then design if it needs one, build, and QA. Skip what the work doesn't need, and do small steps yourself. Ask the person when you need their decision, and wait for the answer. Keep each task bounded. When the feature is done, say so and summarize what changed.";
+  "You lead one project's work. Your first message names the workflow to follow, your crew, and the brief. Follow the workflow with your crew, and do small steps yourself. Ask the person when you need their decision, and wait for the answer. Keep each task bounded. When the work is done, say so and summarize what changed.";
+
+/** The built-in workflow's instructions, which people can edit. */
+export const FEATURE_DELIVERY_INSTRUCTIONS =
+  "Plan, ask the person to approve the plan, then design if it needs one, build, and QA. Skip what the work doesn't need.";
 
 /** What a crew run's thread is first told: its role's instructions and its task. */
 export const crewRunPrompt = (run: { readonly instructions: string; readonly taskText: string }) =>
   `${run.instructions}\n\nTask:\n${run.taskText}`;
 
 /**
- * A feature lead's task: only what differs per feature. How to run a feature lives in the
- * project manager's instructions and the `crewMember` field of `delegate_task`.
+ * A feature lead's task: the workflow it follows and what differs per feature. A lead can be any
+ * role, so the task says how to hand work to the crew.
  */
 export const featureLeadTask = (
   feature: { readonly id: string; readonly title: string; readonly brief: string },
+  workflow: { readonly name: string; readonly instructions: string },
   crew: ReadonlyArray<string>,
 ) =>
   [
+    `Workflow: ${workflow.name}\n${workflow.instructions}`,
     `Feature: "${feature.title}" (${feature.id})`,
-    `Crew: ${crew.length > 0 ? crew.join(", ") : "none"}`,
+    crew.length > 0
+      ? `Crew: ${crew.join(", ")}. Give one a task with delegate_task, setting crewMember to their name; their result comes back here.`
+      : "Crew: none. Do the work yourself.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
-  ].join("\n");
+  ].join("\n\n");

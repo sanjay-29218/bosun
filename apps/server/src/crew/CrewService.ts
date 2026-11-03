@@ -6,6 +6,7 @@ import {
   CREW_TOOL_GRANTS,
   CREW_TURN_STATE,
   headquartersBotId,
+  FEATURE_DELIVERY_WORKFLOW_ID,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   ThreadId,
@@ -33,6 +34,7 @@ import {
   type CrewDelegationGrant,
   type CrewHierarchyNode,
   type Role,
+  type Workflow,
   type CrewRun,
   type CrewWorkspace,
 } from "./CrewStore.ts";
@@ -45,7 +47,11 @@ import {
   type FreshStartRecords,
 } from "./headquartersFreshStart.ts";
 import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
-import { PROJECT_MANAGER_INSTRUCTIONS, crewRunPrompt } from "./crewPrompts.ts";
+import {
+  FEATURE_DELIVERY_INSTRUCTIONS,
+  PROJECT_MANAGER_INSTRUCTIONS,
+  crewRunPrompt,
+} from "./crewPrompts.ts";
 
 class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
@@ -59,6 +65,9 @@ class CrewValidationError extends Error {
 export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
 /** The builder a project manager hands direct requests to, created with the manager. */
 export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
+/** The member that leads a workflow led by a role other than the project manager. */
+const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
+  `bot-lead:${projectId}:${roleId}`;
 const BUILDER_ROLE_ID = "role:builder";
 
 /** How a bot's headquarters briefs the project manager it starts for one request. */
@@ -85,7 +94,6 @@ const CREW_CHECKS =
 const crewInstructions = (name: string) =>
   `You are the ${name} on a feature's crew. Its lead gives you a task: do it in this thread's checkout, then end with a clear summary of the result and its evidence; that message goes back to the lead. If information is missing, say exactly what you need in that message instead of guessing. ${CREW_CHECKS}`;
 
-/** How a feature's lead runs it; the lead's role instructions, which people can edit. */
 /** A feature has one workspace and one builder; big work splits into features, not builders. */
 const BUILDER_INSTRUCTIONS = `${crewInstructions("Builder")} ${BUILDER_WORKSPACE}`;
 const PLANNER_INSTRUCTIONS = `${crewInstructions("Planner")} ${PLANNER_SPLIT}`;
@@ -95,7 +103,6 @@ const DEFAULT_ROLES = [
   {
     id: PROJECT_MANAGER_ROLE_ID,
     name: "Project manager",
-    autoCreateForFeature: false,
     allowedTools: [],
     instructions: PROJECT_MANAGER_INSTRUCTIONS,
   },
@@ -109,7 +116,6 @@ const DEFAULT_ROLES = [
   { id: "role:qa-tester", name: "QA Tester" },
   { id: "role:reviewer", name: "Reviewer" },
 ].map((role) => ({
-  autoCreateForFeature: true,
   allowedTools: [],
   instructions: crewInstructions(role.name),
   ...role,
@@ -134,7 +140,18 @@ export interface CreateRoleInput {
   readonly allowedTools?: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
-  readonly autoCreateForFeature?: boolean;
+}
+
+export interface CreateWorkflowInput {
+  readonly id: string;
+  readonly name: string;
+  readonly instructions: string;
+  readonly leadRoleId: string;
+  readonly crewRoleIds: ReadonlyArray<string>;
+}
+
+export interface UpdateWorkflowInput extends CreateWorkflowInput {
+  readonly expectedRevision: number;
 }
 
 export interface UpdateRoleInput extends CreateRoleInput {
@@ -196,6 +213,24 @@ export interface CrewServiceShape {
   readonly getMember: (id: string) => Effect.Effect<CrewMember | null, PersistenceSqlError>;
   readonly getRole: (id: string) => Effect.Effect<Role | null, PersistenceSqlError>;
   readonly listRoles: () => Effect.Effect<ReadonlyArray<Role>, PersistenceSqlError>;
+  readonly createWorkflow: (
+    input: CreateWorkflowInput,
+  ) => Effect.Effect<Workflow, CrewServiceError>;
+  readonly updateWorkflow: (
+    input: UpdateWorkflowInput,
+  ) => Effect.Effect<Workflow, CrewServiceError>;
+  /** Feature delivery stays; features that follow a deleted workflow can't start their lead. */
+  readonly deleteWorkflow: (id: string) => Effect.Effect<void, CrewServiceError>;
+  readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
+  readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
+  /**
+   * The project's member of a workflow's lead role: its manager for the project manager role,
+   * else one made from the role on first use.
+   */
+  readonly ensureProjectLead: (
+    projectId: ProjectId,
+    roleId: string,
+  ) => Effect.Effect<CrewMember, CrewServiceError>;
   readonly instantiate: (
     id: string,
     projectId: ProjectId,
@@ -469,7 +504,6 @@ export const CrewServiceLive = Layer.effect(
           name,
           instructions,
           allowedTools,
-          autoCreateForFeature: input.autoCreateForFeature ?? false,
           enabled: true,
           revision: 1,
           createdAt: now,
@@ -516,7 +550,6 @@ export const CrewServiceLive = Layer.effect(
           modelSelection: input.modelSelection,
           runtimeMode: input.runtimeMode,
           enabled: input.enabled,
-          autoCreateForFeature: input.autoCreateForFeature ?? false,
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
         };
@@ -526,6 +559,74 @@ export const CrewServiceLive = Layer.effect(
         return updated;
       },
     );
+
+    /** The workflow's fields, checked, with its crew deduplicated and without its lead. */
+    const workflowFields = Effect.fn("CrewService.workflowFields")(function* (
+      input: CreateWorkflowInput,
+    ) {
+      const fields = yield* Effect.try({
+        try: () => ({
+          name: nonEmpty(input.name, "Workflow name", 200),
+          instructions: nonEmpty(input.instructions, "Workflow instructions", 16_000),
+        }),
+        catch: () => new CrewValidationError("Give the workflow a name and instructions"),
+      });
+      if (!(yield* store.getRole(input.leadRoleId))) {
+        return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.leadRoleId}`));
+      }
+      const crewRoleIds = [...new Set(input.crewRoleIds)].filter((id) => id !== input.leadRoleId);
+      for (const id of crewRoleIds) {
+        if (!(yield* store.getRole(id))) {
+          return yield* Effect.fail(new CrewValidationError(`Role not found: ${id}`));
+        }
+      }
+      return { ...fields, leadRoleId: input.leadRoleId, crewRoleIds };
+    });
+
+    const createWorkflow: CrewServiceShape["createWorkflow"] = Effect.fn(
+      "CrewService.createWorkflow",
+    )(function* (input) {
+      const id = yield* Effect.try({
+        try: () => nonEmpty(input.id, "Workflow ID", 128),
+        catch: () => new CrewValidationError("Invalid workflow ID"),
+      });
+      if (yield* store.getWorkflow(id)) {
+        return yield* Effect.fail(new CrewValidationError(`Workflow ID is already in use: ${id}`));
+      }
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const workflow: Workflow = {
+        id,
+        ...(yield* workflowFields(input)),
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      yield* store.insertWorkflow(workflow);
+      return workflow;
+    });
+
+    const updateWorkflow: CrewServiceShape["updateWorkflow"] = Effect.fn(
+      "CrewService.updateWorkflow",
+    )(function* (input) {
+      const previous = yield* store.getWorkflow(input.id);
+      if (!previous) {
+        return yield* Effect.fail(new CrewValidationError(`Workflow not found: ${input.id}`));
+      }
+      const stale = new CrewValidationError(
+        `Workflow changed: it is at revision ${previous.revision}; reload and retry`,
+      );
+      if (previous.revision !== input.expectedRevision) return yield* Effect.fail(stale);
+      const updated: Workflow = {
+        ...previous,
+        ...(yield* workflowFields(input)),
+        revision: previous.revision + 1,
+        updatedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+      if (!(yield* store.updateWorkflow(updated, previous.revision))) {
+        return yield* Effect.fail(stale);
+      }
+      return updated;
+    });
 
     /** A member of `roleId` for the project, carrying the role's configuration. */
     const projectMemberFromRole = Effect.fn("CrewService.projectMemberFromRole")(function* (
@@ -581,6 +682,22 @@ export const CrewServiceLive = Layer.effect(
       yield* store.grantDelegation(managerId, builderId);
       if (builder.created) yield* store.setParent(builderId, managerId, 0);
       return manager.member;
+    });
+
+    const ensureProjectLead: CrewServiceShape["ensureProjectLead"] = Effect.fn(
+      "CrewService.ensureProjectLead",
+    )(function* (projectId, roleId) {
+      if (roleId === PROJECT_MANAGER_ROLE_ID) return yield* ensureProjectManager(projectId);
+      if (!(yield* runtime.projectExists(projectId))) {
+        return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+      }
+      const lead = yield* projectMemberFromRole(
+        projectLeadMemberId(projectId, roleId),
+        projectId,
+        roleId,
+        `You lead work in project ${projectId}.`,
+      );
+      return lead.member;
     });
 
     /**
@@ -863,6 +980,23 @@ export const CrewServiceLive = Layer.effect(
             ),
           );
         }
+        if (!(yield* store.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))) {
+          yield* createWorkflow({
+            id: FEATURE_DELIVERY_WORKFLOW_ID,
+            name: "Feature delivery",
+            instructions: FEATURE_DELIVERY_INSTRUCTIONS,
+            leadRoleId: PROJECT_MANAGER_ROLE_ID,
+            crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
+              role.id === PROJECT_MANAGER_ROLE_ID ? [] : [role.id],
+            ),
+          }).pipe(
+            Effect.catch((error) =>
+              store
+                .getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)
+                .pipe(Effect.filterOrFail(Predicate.isNotNull, () => error)),
+            ),
+          );
+        }
         // Bots without a model can't run yet; give them the one the crew was set up with.
         const now = DateTime.formatIso(yield* DateTime.now);
         for (const bot of yield* bots.list) {
@@ -874,6 +1008,7 @@ export const CrewServiceLive = Layer.effect(
         }
       }),
       ensureProjectManager,
+      ensureProjectLead,
       startRequest: Effect.fn("CrewService.startRequest")(function* (input) {
         const existing = yield* store.getRun(input.id);
         // A retry of an accepted request must not depend on today's crew or owner.
@@ -896,6 +1031,18 @@ export const CrewServiceLive = Layer.effect(
       getMember: store.getMember,
       getRole: store.getRole,
       listRoles: store.listRoles,
+      createWorkflow,
+      updateWorkflow,
+      deleteWorkflow: Effect.fn("CrewService.deleteWorkflow")(function* (id) {
+        if (id === FEATURE_DELIVERY_WORKFLOW_ID) {
+          return yield* Effect.fail(
+            new CrewValidationError("Feature delivery can be edited but not deleted"),
+          );
+        }
+        yield* store.deleteWorkflow(id);
+      }),
+      getWorkflow: store.getWorkflow,
+      listWorkflows: store.listWorkflows,
       instantiate: Effect.fn("CrewService.instantiate")(function* (id, projectId, roleId) {
         const role = yield* store.getRole(roleId);
         if (!role?.enabled) {

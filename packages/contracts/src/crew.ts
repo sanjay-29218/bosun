@@ -37,8 +37,8 @@ export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 export const CREW_TOOL_GRANTS = [
   {
     id: "crew.workflows",
-    label: "Manage bots and roles",
-    description: "Create and edit bots and roles when asked.",
+    label: "Manage bots, roles and workflows",
+    description: "Create and edit bots, roles and workflows when asked.",
     botOnly: true,
   },
   {
@@ -81,7 +81,7 @@ export type CrewMemberSummary = typeof CrewMemberSummary.Type;
 
 export const CrewProjectInput = Schema.Struct({ projectId: ProjectId });
 
-/** A global role. Workflows pin a role's revision; editing it never rewrites existing members. */
+/** A global role: who a lead or crew member is. Editing it never rewrites existing members. */
 export const RoleConfig = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -90,8 +90,6 @@ export const RoleConfig = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   enabled: Schema.Boolean,
-  /** The role can run workflow stages, and joins features started without a workflow. */
-  autoCreateForFeature: Schema.Boolean,
   revision: Schema.Int,
 });
 export type RoleConfig = typeof RoleConfig.Type;
@@ -102,14 +100,42 @@ export const RoleCreateInput = Schema.Struct({
   allowedTools: Schema.Array(Schema.String),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
-  autoCreateForFeature: Schema.Boolean,
 });
 export const RoleUpdateInput = Schema.Struct({
   ...RoleCreateInput.fields,
   expectedRevision: Schema.Int,
   enabled: Schema.Boolean,
 });
-/** Creates the default roles that are missing, using `modelSelection` for each. */
+/** The workflow a feature follows when none is chosen. People can edit it but not delete it. */
+export const FEATURE_DELIVERY_WORKFLOW_ID = "workflow:feature-delivery";
+
+/**
+ * How a kind of work runs: the role that leads it, the roles it can hand work to, and plain
+ * instructions the lead follows. A feature's lead gets them with the brief as its first message.
+ */
+export const WorkflowConfig = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  instructions: Schema.String,
+  leadRoleId: Schema.String,
+  crewRoleIds: Schema.Array(Schema.String),
+  revision: Schema.Int,
+});
+export type WorkflowConfig = typeof WorkflowConfig.Type;
+export const WorkflowCreateInput = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  instructions: Schema.String,
+  leadRoleId: Schema.String,
+  crewRoleIds: Schema.Array(Schema.String),
+});
+export const WorkflowUpdateInput = Schema.Struct({
+  ...WorkflowCreateInput.fields,
+  expectedRevision: Schema.Int,
+});
+export const WorkflowDeleteInput = Schema.Struct({ id: Schema.String });
+
+/** Creates the default roles and workflow that are missing, using `modelSelection` for each role. */
 export const CrewInitializeInput = Schema.Struct({ modelSelection: ModelSelection });
 
 export const CrewHierarchyNode = Schema.Struct({

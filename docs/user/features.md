@@ -10,8 +10,10 @@ runs features, and the app opens on whichever view you used last.
 
 On the board, **New → New feature** opens a feature draft in a new worktree; your first message
 becomes the brief. **Start feature** on a todo does the same with the todo already written in, and
-the feature links to it. Sending the brief starts the feature and opens its lead's thread: the
-project manager, which has the brief as its first message and the names of its crew. The first
+the feature links to it. The composer's **Workflow** picker chooses how the feature runs, and
+starts on **Feature delivery**. Sending the brief starts the feature and opens its lead's thread:
+the workflow's lead, which has the workflow's instructions, the brief and the names of its crew as
+its first message. The first
 time the board opens, **Start a feature** adds the starter roles first.
 
 Ask a full-access bot to start a feature in a project, and it does the same.
@@ -25,8 +27,11 @@ checkout. Work too big for one builder is best split into separate features.
 
 ## The lead and its crew
 
-The crew is every role switched on for feature crews in the **Library** (from the bot rail or the
-bottom of the sidebar). The lead hands a crew member a task, such as a plan for the Planner, and
+A feature follows a workflow from the **Library** (from the bot rail or the bottom of the
+sidebar): the role that leads it, the crew roles it hands work to, and instructions for the lead.
+**Feature delivery** is led by the Project manager with a Planner, Designer, Builder, QA Tester
+and Reviewer; you can edit it but not delete it. Crew roles that are turned off are skipped. The
+lead hands a crew member a task, such as a plan for the Planner, and
 the member's thread shows under the lead in the thread's **Crew** tab, named by the member. Each
 member runs with its role's instructions and model, in the feature's worktree, and its result
 comes back to the lead. The lead does small steps itself and skips what the work doesn't need.

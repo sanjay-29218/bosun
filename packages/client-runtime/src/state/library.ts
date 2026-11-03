@@ -1,41 +1,54 @@
-import { PROJECT_MANAGER_ROLE_ID, type EnvironmentId, type RoleConfig } from "@t3tools/contracts";
+import type { EnvironmentId, RoleConfig, WorkflowConfig } from "@t3tools/contracts";
 
-/** Roles are environment-local, so their ids only mean something with the environment. */
+/** Roles and workflows are environment-local, so their ids only mean something with it. */
 const libraryItemKey = (environmentId: EnvironmentId, id: string) => `${environmentId}:${id}`;
 
-/** Why a role won't join new features' crews, or null when it will. */
-export function roleAvailabilityNote(role: RoleConfig): string | null {
+/** Why a role won't take part in new features, or null when a workflow leads or uses it. */
+export function roleAvailabilityNote(
+  role: RoleConfig,
+  workflows: ReadonlyArray<WorkflowConfig>,
+): string | null {
   if (!role.enabled) return "Off";
-  // The project manager leads every feature rather than joining its crew.
-  if (!role.autoCreateForFeature && role.id !== PROJECT_MANAGER_ROLE_ID) {
-    return "Not on feature crews";
-  }
-  return null;
+  const used = workflows.some(
+    (workflow) => workflow.leadRoleId === role.id || workflow.crewRoleIds.includes(role.id),
+  );
+  return used ? null : "Not in a workflow";
 }
 
 export interface EnvironmentLibrary {
   readonly environmentId: EnvironmentId;
   readonly roles: ReadonlyArray<RoleConfig>;
+  readonly workflows: ReadonlyArray<WorkflowConfig>;
 }
 
-export interface LibraryRoleEntry {
+interface LibraryEntry<Item> {
   readonly key: string;
   readonly environmentId: EnvironmentId;
-  readonly role: RoleConfig;
+  readonly item: Item;
 }
+export type LibraryRoleEntry = LibraryEntry<RoleConfig>;
+export type LibraryWorkflowEntry = LibraryEntry<WorkflowConfig>;
 
-/**
- * The Library's roles across environments, sorted by name. The same role on two environments
- * sits side by side, in environment order.
- */
-export function libraryRoleEntries(
+/** Every environment's items, sorted by name; one id on two environments sits side by side. */
+function libraryEntries<Item extends { readonly id: string; readonly name: string }>(
   environments: ReadonlyArray<EnvironmentLibrary>,
-): ReadonlyArray<LibraryRoleEntry> {
+  items: (library: EnvironmentLibrary) => ReadonlyArray<Item>,
+): ReadonlyArray<LibraryEntry<Item>> {
   return environments
-    .flatMap(({ environmentId, roles }) =>
-      roles.map((role) => ({ key: libraryItemKey(environmentId, role.id), environmentId, role })),
+    .flatMap((library) =>
+      items(library).map((item) => ({
+        key: libraryItemKey(library.environmentId, item.id),
+        environmentId: library.environmentId,
+        item,
+      })),
     )
     .sort((left, right) =>
-      left.role.name.localeCompare(right.role.name, undefined, { sensitivity: "base" }),
+      left.item.name.localeCompare(right.item.name, undefined, { sensitivity: "base" }),
     );
 }
+
+export const libraryRoleEntries = (environments: ReadonlyArray<EnvironmentLibrary>) =>
+  libraryEntries(environments, (library) => library.roles);
+
+export const libraryWorkflowEntries = (environments: ReadonlyArray<EnvironmentLibrary>) =>
+  libraryEntries(environments, (library) => library.workflows);

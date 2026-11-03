@@ -267,7 +267,10 @@ function useSettingsIndexSections(): SettingsListSection[] {
       ? [
           {
             title: "Crew",
-            rows: [page("SettingsRoles", "person.2", "Roles")],
+            rows: [
+              page("SettingsRoles", "person.2", "Roles"),
+              page("SettingsWorkflows", "point.3.connected.trianglepath.dotted", "Workflows"),
+            ],
           },
         ]
       : []),

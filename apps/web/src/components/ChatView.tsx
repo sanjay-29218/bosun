@@ -277,6 +277,7 @@ import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { useCrewDraftStore } from "./crew/crewDraftStore";
+import { useDraftWorkflow } from "./crew/ComposerWorkflowPicker";
 import { featuresEnvironment, useEnvironmentRunsFeatures } from "../state/features";
 import { useSideChat } from "./chat/useSideChat";
 import { useRemoteOpenState } from "~/remoteOpen";
@@ -1136,6 +1137,7 @@ export default function ChatView(props: ChatViewProps) {
     draftId ? state.featureDraftIds[draftId] === true : false,
   );
   const startsFeature = runsFeatures && featureDraftMarked && draftProjectId !== null;
+  const draftWorkflowId = useDraftWorkflow(environmentId, draftId, startsFeature).workflow?.id;
   const createFeature = useAtomCommand(featuresEnvironment.create);
   const startFeature = useAtomCommand(featuresEnvironment.start);
   // The feature a draft created, kept until it starts, so retrying a failed start (or a
@@ -1162,6 +1164,7 @@ export default function ChatView(props: ChatViewProps) {
     const key = JSON.stringify([
       draftId,
       draftProjectId,
+      draftWorkflowId ?? null,
       brief,
       attachments.map((attachment) => attachment.id),
       context ?? null,
@@ -1193,6 +1196,7 @@ export default function ChatView(props: ChatViewProps) {
           title,
           brief,
           autoTitle: true,
+          ...(draftWorkflowId ? { workflowId: draftWorkflowId } : {}),
           // The feature works where this composer would start a thread.
           workspace: sendEnvMode,
           ...(sendEnvMode === "worktree" && activeThreadBranch

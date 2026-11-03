@@ -140,12 +140,10 @@ describe("Bot foundation", () => {
             instructions: "Research the assigned question.",
             modelSelection,
             runtimeMode: "approval-required",
-            autoCreateForFeature: true,
           });
           const member = yield* bots.instantiate("bot:researcher", projectId, role.id);
           expect(member.roleId).toBe(role.id);
           expect(member.roleRevision).toBe(1);
-          expect((yield* bots.getRole(role.id))?.autoCreateForFeature).toBe(true);
           const updatedRole = yield* bots.updateRole({
             ...role,
             name: "Investigator",
@@ -651,7 +649,10 @@ describe("Bot foundation", () => {
           NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
         );
         const setups = yield* Queue.unbounded<ThreadId>();
-        const checkouts = yield* Queue.unbounded<{ refName: string; newRefName?: string }>();
+        const checkouts = yield* Queue.unbounded<{
+          refName: string;
+          newRefName?: string | undefined;
+        }>();
         const orchestration = makeCrewTestOrchestration({
           runSetup: (input) =>
             Queue.offer(setups, ThreadId.make(input.threadId)).pipe(

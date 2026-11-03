@@ -66,7 +66,7 @@ Below the bots, the rail's places swap what the sidebar lists. **Bots** lists yo
 edit, as above. **Automations** lists your
 scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
 recent runs. A task can also run as a bot: see [Scheduled tasks](project-settings.md#scheduled-tasks). A red dot on Automations means a run failed and you haven't opened that task since.
-**Library** lists your roles; pick one to edit it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Bots, Automations and Library
+**Library** lists your workflows and roles; pick one to edit it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Bots, Automations and Library
 from the bottom of the sidebar, or **Open bots**, **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
 menu.
 
@@ -77,12 +77,16 @@ filters the rail and sidebar to some environments; pick **All environments** to 
 again. To move a project, right-click it in the sidebar's project picker and choose **Move to
 bot**.
 
-## Roles
+## Workflows and roles
 
-The **Library**'s Roles are who a feature's lead can hand work to. **+ New** beside Roles adds
-one, and offers **Add the starter roles** for a Project manager, Planner, Designer, Builder, QA
-Tester and Reviewer when an environment doesn't have them yet. The project manager leads every
-feature; the others join each feature's crew while **On feature crews** is switched on. The
+A **Library** workflow is how a kind of feature runs: a name, the role that leads it, the crew
+roles the lead can hand work to, and instructions for the lead. **+ New** beside Workflows adds
+one. **Feature delivery** is the default and can be edited but not deleted. A role no workflow
+uses says **Not in a workflow**.
+
+The **Library**'s Roles are who leads a feature and who its lead can hand work to. **+ New**
+beside Roles adds one, and offers **Add the starter roles** for a Project manager, Planner,
+Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research; give any
 role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
 default model. **Access** sets how freely its threads work, from **Supervised** to **Full
@@ -91,7 +95,7 @@ edit it. Roles aren't deleted: the **On** switch at the top turns one off to ret
 on. Each project gets its own project manager the first time a request or feature needs one;
 editing a role changes the crews of features started later, not existing ones.
 
-Editing bots and roles is available on web and desktop.
+Editing bots, workflows and roles is available on web and desktop.
 
 ## Feature threads
 
