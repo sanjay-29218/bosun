@@ -9,7 +9,7 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
@@ -92,7 +92,7 @@ const make = Effect.gen(function* () {
   const store = yield* BotStore.BotStore;
   const projects = yield* ProjectService.ProjectService;
   const workflows = yield* WorkflowStore;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   // Optional so bot tests run without the crew; the server always provides it.
   const crew = yield* Effect.serviceOption(CrewService);
@@ -245,9 +245,7 @@ const make = Effect.gen(function* () {
     }),
     moveProject: Effect.fn("BotService.moveProject")(function* ({ projectId, botId }) {
       yield* requireBot(botId);
-      const commandId = CommandId.make(
-        `bot-move:${yield* crypto.randomUUIDv4().pipe(Effect.orDie)}`,
-      );
+      const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),
   });

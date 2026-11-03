@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId, ProjectId, ThreadId, VcsProcessSpawnError } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
@@ -76,7 +77,7 @@ const layer = (baseDir: string, options?: HarnessOptions) =>
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(ServerSettings.layerTest()),
     Layer.provideMerge(ServerConfig.layerTest(baseDir, baseDir)),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
 const withScratch = <A, E>(
@@ -96,7 +97,7 @@ const withScratch = <A, E>(
     const fileSystem = yield* FileSystem.FileSystem;
     const baseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-managed-folders-" });
     return yield* body({ baseDir }).pipe(Effect.provide(layer(baseDir, options)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 const git = (cwd: string, args: ReadonlyArray<string>) =>
   ProcessRunner.ProcessRunner.pipe(
@@ -128,7 +129,7 @@ it.effect("keeps Scratch outside the Git checkout the data dir sits in", () =>
       assert.isTrue(yield* scratch.isScratchProject(projectId));
       assert.isTrue(yield* fileSystem.exists(root));
     }).pipe(Effect.provide(layer(baseDir)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("offers a Scratch folder when Git is not installed", () =>

@@ -3,6 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
@@ -78,7 +79,7 @@ const withSystem = <A, E>(
     Layer.provideMerge(SqlitePersistence.layerFromPath(databasePath)),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "bot-test-" })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   return Effect.gen(function* () {
     const engine = yield* OrchestrationEngineService;

@@ -3,6 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import {
@@ -213,7 +214,7 @@ const fixture = (
     Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "workflow-execution-" })),
     Layer.provideMerge(ServerSettingsService.layerTest({ crew })),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   return {
     layer,

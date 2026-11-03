@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeCrypto from "node:crypto";
 
+import * as EffectNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
@@ -121,7 +122,7 @@ const withSystem = <E>(
       Layer.provideMerge(TextGenerationPending),
       Layer.provideMerge(SourceControlIssues),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
-      Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, EffectNodeCrypto.layer)),
       // Bots keep their headquarters in the Scratch project.
       Layer.provideMerge(
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -702,7 +703,7 @@ describe("feature creation", () => {
         Layer.provideMerge(TextGenerationPending),
         Layer.provideMerge(SourceControlIssues),
         Layer.provideMerge(RepositoryIdentityResolver.layer),
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, EffectNodeCrypto.layer)),
       );
       const exercise = Effect.gen(function* () {
         const bots = yield* CrewService;

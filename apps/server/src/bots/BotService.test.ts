@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CAPTAIN_BOT_ID,
@@ -73,7 +74,7 @@ const layer = BotService.layer.pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "bot-service-test-" })),
   Layer.provide(ServerSettings.layerTest()),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const automation = (title: string, botId: string | null): ScheduledTaskUpsertInput => ({
