@@ -9,6 +9,7 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as TicketService from "../tickets/TicketService.ts";
 import { CrewChangesLive } from "../crew/CrewChanges.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
+import { dismissRetiredWorkflowQuestions } from "../crew/retiredWorkflowQuestions.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
@@ -64,6 +65,14 @@ const FeatureReportsLive = Layer.effectDiscard(
   Layer.provide(Layer.merge(FeatureServiceLive, ProjectionStore.layer)),
 );
 
+const RetiredWorkflowQuestionsLive = Layer.effectDiscard(
+  dismissRetiredWorkflowQuestions().pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Could not dismiss retired workflow questions", { cause }),
+    ),
+  ),
+);
+
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
   TicketService.layer.pipe(
@@ -74,6 +83,7 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   BotService.layer,
   BotAutomationsLive,
   FeatureReportsLive,
+  RetiredWorkflowQuestionsLive,
 ).pipe(
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),

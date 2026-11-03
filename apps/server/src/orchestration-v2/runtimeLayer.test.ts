@@ -63,6 +63,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import { dismissRetiredWorkflowQuestions } from "../crew/retiredWorkflowQuestions.ts";
 import { ROLLBACK_FAILED_MESSAGE } from "./CheckpointRollbackService.ts";
 import * as EffectWorker from "./EffectWorker.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
@@ -287,7 +288,7 @@ const layerTest = Layer.mergeAll(
 ).pipe(
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(McpProviderSessions.layer),
-  Layer.provide(SqlitePersistence.layerMemory),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
@@ -2006,6 +2007,34 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
       // The workflow acts on the answer; the stage's agent gets no message and no turn starts.
       assert.lengthOf(answered.messages, 0);
       assert.lengthOf(answered.runs, 0);
+
+      // With the engine retired, one it left pending is dismissed; an answered one stays.
+      const leftId = RuntimeRequestId.make("runtime-workflow-question-left");
+      yield* orchestrator.dispatch({
+        type: "user-input.open",
+        commandId: CommandId.make("runtime-workflow-question-left-open"),
+        threadId,
+        requestId: leftId,
+        owner: "workflow",
+        questions: [
+          {
+            id: "crew-stage",
+            header: "Plan approval",
+            question: "Plan complete.",
+            options: [],
+            allowCustomAnswer: true,
+          },
+        ],
+      });
+      yield* dismissRetiredWorkflowQuestions();
+      const swept = yield* orchestrator.getThreadProjection(threadId);
+      const left = swept.runtimeRequests.find((request) => request.id === leftId);
+      assert.equal(left?.status, "resolved");
+      assert.isUndefined(left?.answers);
+      assert.deepEqual(swept.runtimeRequests.find((request) => request.id === requestId)?.answers, {
+        "crew-stage": "crew:approve",
+      });
+      assert.lengthOf(swept.messages, 0);
     }),
   );
 
