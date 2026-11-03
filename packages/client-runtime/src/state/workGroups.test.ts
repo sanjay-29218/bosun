@@ -34,8 +34,16 @@ describe("groupWorkThreads", () => {
     const replan = member("replan", "2", "Planner");
     const build = member("build", "3", "Builder");
     const plain = thread("plain", "5");
+    // A plain subagent works on the feature, but belongs to the thread that started it.
+    const helper = thread("helper", "4", {
+      feature,
+      lineage: { relationshipToParent: "subagent" },
+    });
 
-    const { primaries, groupByThreadKey } = groupWorkThreads([lead, build, plain], [plan, replan]);
+    const { primaries, groupByThreadKey } = groupWorkThreads(
+      [lead, build, plain],
+      [plan, replan, helper],
+    );
 
     expect(primaries.map((item) => item.id)).toEqual(["lead", "plain"]);
     const group = groupByThreadKey.get("local:lead")!;

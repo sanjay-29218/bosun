@@ -20,6 +20,7 @@ export interface WorkGroupThread {
     readonly member?: string | undefined;
   } | null;
   readonly crewRequest?: ThreadCrewRequestTag | null;
+  readonly lineage?: { readonly relationshipToParent: "fork" | "subagent" | null };
 }
 
 export interface WorkGroupEntry<T> {
@@ -39,6 +40,14 @@ export interface WorkGroup<T> {
 
 /** The key a thread groups under, or null for a thread outside any work. */
 function workGroupKey(thread: WorkGroupThread): string | null {
+  // A plain subagent works on the feature but shows under the thread that started it.
+  if (
+    thread.feature &&
+    !thread.feature.member &&
+    thread.lineage?.relationshipToParent === "subagent"
+  ) {
+    return null;
+  }
   if (thread.feature) return `${thread.environmentId}:feature:${thread.feature.id}`;
   if (thread.crewRequest) return `${thread.environmentId}:request:${thread.crewRequest.id}`;
   return null;

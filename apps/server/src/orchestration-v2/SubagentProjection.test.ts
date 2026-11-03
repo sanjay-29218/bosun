@@ -86,6 +86,7 @@ it("keeps a subagent child awake when its parent thread is snoozed", () => {
   const parentThread: OrchestrationV2AppThread = {
     ...makeParentThread(),
     titleRegeneration: { requestId: CommandId.make("command:parent-title"), startedAt: snoozedAt },
+    feature: { id: "feature-1", title: "Dark mode", member: "Builder" },
   };
   const childProviderThreadId = ProviderThreadId.make("provider-thread:subagent-awake-child");
   const parentNodeId = NodeId.make("node:subagent-parent");
@@ -114,6 +115,8 @@ it("keeps a subagent child awake when its parent thread is snoozed", () => {
   assert.deepEqual(childThread.modelSelection, childModelSelection);
   assert.equal(childThread.activeProviderThreadId, childProviderThreadId);
   assert.isUndefined(childThread.historyOrigin);
+  // It works on its parent's feature, but a crew member's own subagent isn't that member.
+  assert.deepEqual(childThread.feature, { id: "feature-1", title: "Dark mode" });
   assert.deepEqual(childThread.lineage, {
     parentThreadId,
     relationshipToParent: "subagent",
