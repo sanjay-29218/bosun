@@ -48,6 +48,7 @@ import FeatureNumbers from "./Migrations/090_FeatureNumbers.ts";
 import StageQuestions from "./Migrations/091_StageQuestions.ts";
 import FeatureOpeningMessages from "./Migrations/092_FeatureOpeningMessages.ts";
 import LeadAndCrew from "./Migrations/093_LeadAndCrew.ts";
+import CrewRunBaseRef from "./Migrations/094_CrewRunBaseRef.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -88,6 +89,7 @@ const migrationEntries = [
   [91, "StageQuestions", StageQuestions],
   [92, "FeatureOpeningMessages", FeatureOpeningMessages],
   [93, "LeadAndCrew", LeadAndCrew],
+  [94, "CrewRunBaseRef", CrewRunBaseRef],
 ] as const;
 
 const legacyNames = new Set([

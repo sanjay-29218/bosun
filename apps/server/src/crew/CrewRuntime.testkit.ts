@@ -62,11 +62,15 @@ const VcsDriverRegistryTestLayer = VcsDriverRegistry.layer.pipe(
 const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
   Layer.provide(VcsDriverRegistryTestLayer),
 );
-const GitWorkflowTestLayer = Layer.mock(GitWorkflow.GitWorkflowService)({
-  pruneWorktrees: () => Effect.void,
-  createWorktree: () => Effect.succeed({} as never),
-  currentBranch: () => Effect.succeed(null),
-});
+const gitWorkflowTestLayer = (
+  createWorktree: GitWorkflow.GitWorkflowService["Service"]["createWorktree"] = () =>
+    Effect.succeed({} as never),
+) =>
+  Layer.mock(GitWorkflow.GitWorkflowService)({
+    pruneWorktrees: () => Effect.void,
+    createWorktree,
+    currentBranch: () => Effect.succeed(null),
+  });
 // Reads the projects tests seed through `seedCrewProject`.
 const ProjectServiceTestLayer = Layer.effect(
   ProjectService.ProjectService,
@@ -139,6 +143,7 @@ const TestProviderInstanceRegistry = Layer.succeed(
 export const makeCrewTestOrchestration = (
   options: {
     readonly runSetup?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"];
+    readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
   } = {},
 ) =>
   Layer.mergeAll(
@@ -174,7 +179,7 @@ export const makeCrewTestOrchestration = (
     Layer.provide(ServerConfigLayer),
     Layer.provideMerge(ServerSettings.layerTest()),
     Layer.provide(TestProviderInstanceRegistry),
-    Layer.provideMerge(GitWorkflowTestLayer),
+    Layer.provideMerge(gitWorkflowTestLayer(options.createWorktree)),
     Layer.provide(ProjectServiceTestLayer),
     Layer.provide(PlatformTestLayer),
   );

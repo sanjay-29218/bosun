@@ -24,24 +24,6 @@ it.effect("upgrades a Feature-only database without skipping Workflow storage", 
       VALUES ('feature-one', 'project', 'Existing feature', 'Keep this brief', '2026-09-30')
     `;
     yield* runMigrations();
-    yield* sql`INSERT INTO workflow_definition_heads VALUES ('workflow', 1)`;
-    yield* sql`
-      INSERT INTO workflow_definition_revisions
-      VALUES ('workflow', 1, '{}', '2026-09-30')
-    `;
-    yield* sql`
-      INSERT INTO feature_workflows
-        (feature_id, project_id, workflow_id, workflow_revision, definition_json, created_at)
-      VALUES ('feature-one', 'project', 'workflow', 1, '{}', '2026-09-30')
-    `;
-    yield* sql`
-      INSERT INTO workflow_step_events (feature_id, event_id, event_json, occurred_at)
-      VALUES ('feature-one', 'event', '{"kind":"paused"}', '2026-09-30')
-    `;
-    yield* sql`
-      INSERT INTO workflow_executions (feature_id, bindings_json)
-      VALUES ('feature-one', '{}')
-    `;
     assert.deepStrictEqual(
       yield* sql`SELECT title, brief, brief_message_json AS openingMessage, brief_request_hash AS requestHash FROM features`,
       [
@@ -62,7 +44,7 @@ it.effect("upgrades a Feature-only database without skipping Workflow storage", 
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect("upgrades a Workflow-only database without losing copied revisions or events", () =>
+it.effect("upgrades a Workflow-only database, then drops the engine's storage", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA foreign_keys = ON`;
@@ -94,13 +76,14 @@ it.effect("upgrades a Workflow-only database without losing copied revisions or 
       INSERT INTO features (id, project_id, title, brief, created_at)
       VALUES ('new-feature', 'project', 'New feature', 'A brief', '2026-09-30')
     `;
+    // 093 removed the workflow engine and its storage.
     assert.deepStrictEqual(
-      yield* sql`SELECT definition_json, event_version FROM feature_workflows`,
-      [{ definition_json: '{"revision":1}', event_version: 1 }],
+      yield* sql`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND (name LIKE 'workflow_%' OR name IN ('feature_workflows', 'crew_stage_threads'))
+      `,
+      [],
     );
-    assert.deepStrictEqual(yield* sql`SELECT event_id, event_json FROM workflow_step_events`, [
-      { event_id: "existing-event", event_json: '{"kind":"paused"}' },
-    ]);
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
     assert.deepStrictEqual(yield* runMigrations(), []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

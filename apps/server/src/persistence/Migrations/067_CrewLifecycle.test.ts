@@ -6,7 +6,7 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as BosunMigrations from "../BosunMigrations.ts";
 import { runMigrations } from "../Migrations.ts";
 
-it.effect("adds Crew queue and stage summary storage to an existing feature database", () =>
+it.effect("upgrades a feature database with Crew queue storage, then drops the engine's", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA foreign_keys = ON`;
@@ -27,14 +27,14 @@ it.effect("adds Crew queue and stage summary storage to an existing feature data
       INSERT INTO workflow_executions (feature_id, bindings_json) VALUES ('feature-one', '{}')
     `;
     yield* runMigrations();
+    // 093 removed the workflow engine and its storage.
     assert.deepStrictEqual(
-      yield* sql`SELECT bindings_json, queued_at, slot_instance_id FROM workflow_executions`,
-      [{ bindings_json: "{}", queued_at: null, slot_instance_id: null }],
+      yield* sql`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND (name LIKE 'workflow_%' OR name IN ('feature_workflows', 'crew_stage_threads'))
+      `,
+      [],
     );
-    yield* sql`
-      INSERT INTO crew_stage_threads (thread_id, feature_id, summary_json)
-      VALUES ('thread', 'feature-one', '{}')
-    `;
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
     assert.deepStrictEqual(yield* runMigrations(), []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

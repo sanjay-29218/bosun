@@ -6,7 +6,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import type { CrewWorkspace } from "../crew/CrewStore.ts";
@@ -29,8 +28,9 @@ export class FeatureWorkspaces extends Context.Service<
   FeatureWorkspaces,
   {
     /**
-     * The worktree the feature works in, made from its base branch when the feature starts.
-     * Null when the feature works in the project's checkout.
+     * Where the feature works: its worktree, or a branch its lead's thread checks out from the
+     * base branch as it starts, so starting never waits on the checkout. Null when the feature
+     * works in the project's checkout.
      */
     readonly forFeature: (
       featureId: string,
@@ -44,12 +44,9 @@ export const FeatureWorkspacesLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const git = yield* GitWorkflowService;
-    // Two stages of one feature must not each make a worktree.
-    const making = yield* Semaphore.make(1);
     const failed = (reason: string) => () => new FeatureWorkspaceError(reason);
 
-    // Traced by `forFeature`, which only adds the lock around it.
-    const ensure = Effect.fnUntraced(function* (featureId: string) {
+    const forFeature = Effect.fn("FeatureWorkspaces.forFeature")(function* (featureId: string) {
       const rows = yield* sql<{
         readonly featureId: string;
         readonly projectId: string;
@@ -65,6 +62,7 @@ export const FeatureWorkspacesLive = Layer.effect(
       `.pipe(Effect.mapError(failed("The feature's workspace is unreadable")));
       const feature = rows[0];
       if (!feature || feature.workspace === "local") return null;
+      // Features started before their leads made the worktree recorded it here.
       if (feature.branch && feature.worktreePath) {
         return { branch: feature.branch, worktreePath: feature.worktreePath };
       }
@@ -88,40 +86,7 @@ export const FeatureWorkspacesLive = Layer.effect(
         .update(feature.featureId)
         .digest("hex")
         .slice(0, 6);
-      const branch = `bosun/${branchSlug(feature.title)}-${suffix}`;
-      const created = yield* git
-        .createWorktree({
-          cwd: project.workspaceRoot,
-          refName: base,
-          newRefName: branch,
-          baseRefName: base,
-          path: null,
-        })
-        .pipe(
-          // The name comes from the feature ID, so an earlier attempt that made the branch and
-          // then failed left it behind; that branch is this feature's, so work on it.
-          Effect.catchIf(
-            (error) => error.reason === "branch_already_exists",
-            () => git.createWorktree({ cwd: project.workspaceRoot, refName: branch, path: null }),
-          ),
-          Effect.mapError(
-            (error) =>
-              new FeatureWorkspaceError(`Couldn't make the feature's worktree: ${error.message}`),
-          ),
-        );
-      const workspace = {
-        branch: created.worktree.refName,
-        worktreePath: created.worktree.path,
-      };
-      yield* sql`
-        UPDATE features SET branch = ${workspace.branch}, worktree_path = ${workspace.worktreePath}
-        WHERE id = ${feature.featureId}
-      `.pipe(Effect.mapError(failed("The feature's workspace is unwritable")));
-      return workspace;
-    });
-
-    const forFeature = Effect.fn("FeatureWorkspaces.forFeature")(function* (featureId: string) {
-      return yield* making.withPermits(1)(ensure(featureId));
+      return { branch: `bosun/${branchSlug(feature.title)}-${suffix}`, baseRef: base };
     });
 
     return { forFeature };

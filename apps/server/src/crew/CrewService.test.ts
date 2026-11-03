@@ -643,54 +643,82 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("opens runs in their worktree, only the first runs setup, and a lead idles", () =>
-    Effect.gen(function* () {
-      const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
-      );
-      const setups = yield* Queue.unbounded<ThreadId>();
-      const orchestration = makeCrewTestOrchestration({
-        runSetup: (input) =>
-          Queue.offer(setups, ThreadId.make(input.threadId)).pipe(
-            Effect.as({ status: "no-script" as const }),
+  effectIt.effect(
+    "opens runs in their worktree, only the first runs setup, and one can make it",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-worktree-")),
+        );
+        const setups = yield* Queue.unbounded<ThreadId>();
+        const checkouts = yield* Queue.unbounded<{ refName: string; newRefName?: string }>();
+        const orchestration = makeCrewTestOrchestration({
+          runSetup: (input) =>
+            Queue.offer(setups, ThreadId.make(input.threadId)).pipe(
+              Effect.as({ status: "no-script" as const }),
+            ),
+          createWorktree: (input) =>
+            Queue.offer(checkouts, { refName: input.refName, newRefName: input.newRefName }).pipe(
+              Effect.as({
+                worktree: { path: "/worktrees/lead", refName: input.newRefName! },
+              } as never),
+            ),
+        });
+        yield* withSystem(
+          NodePath.join(directory, "state.sqlite"),
+          ({ bots, engine }) =>
+            Effect.gen(function* () {
+              yield* createProject(engine);
+              yield* createBot(bots);
+              const workspace = { branch: "bosun/board-1a2b3c", worktreePath: "/worktrees/board" };
+              const run = (id: string) =>
+                bots.createRun({ id, memberId: "execution-1", projectId, taskText: id, workspace });
+              const plan = yield* run("plan");
+              expect(yield* Queue.take(setups)).toBe(plan.threadId);
+              const build = yield* run("build");
+              // Setup runs before the launch releases the run, so a released run had its chance.
+              const released = yield* engine
+                .streamStoredEventsFrom({ threadId: build.threadId, eventType: "run.updated" })
+                .pipe(
+                  Stream.filterMap((stored) =>
+                    stored.event.type === "run.updated" &&
+                    stored.event.payload.status !== "preparing"
+                      ? Result.succeed(stored.event.payload.status)
+                      : Result.failVoid,
+                  ),
+                  Stream.runHead,
+                );
+              expect(released).toEqual(Option.some("starting"));
+              expect(yield* Queue.size(setups)).toBe(0);
+              for (const threadId of [plan.threadId, build.threadId]) {
+                expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
+              }
+              // A run that names only a branch and its base has its thread check the worktree out.
+              const lead = yield* bots.createRun({
+                id: "lead",
+                memberId: "execution-1",
+                projectId,
+                taskText: "lead",
+                workspace: { branch: "bosun/lead-1a2b3c", baseRef: "main" },
+              });
+              expect(lead.workspace).toEqual({ branch: "bosun/lead-1a2b3c", baseRef: "main" });
+              expect(yield* Queue.take(checkouts)).toEqual({
+                refName: "main",
+                newRefName: "bosun/lead-1a2b3c",
+              });
+              expect(yield* Queue.take(setups)).toBe(lead.threadId);
+              expect(yield* engine.getThreadShell(lead.threadId)).toMatchObject({
+                branch: "bosun/lead-1a2b3c",
+                worktreePath: "/worktrees/lead",
+              });
+            }),
+          orchestration,
+        ).pipe(
+          Effect.ensuring(
+            Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
           ),
-      });
-      yield* withSystem(
-        NodePath.join(directory, "state.sqlite"),
-        ({ bots, engine }) =>
-          Effect.gen(function* () {
-            yield* createProject(engine);
-            yield* createBot(bots);
-            const workspace = { branch: "bosun/board-1a2b3c", worktreePath: "/worktrees/board" };
-            const run = (id: string) =>
-              bots.createRun({ id, memberId: "execution-1", projectId, taskText: id, workspace });
-            const plan = yield* run("plan");
-            expect(yield* Queue.take(setups)).toBe(plan.threadId);
-            const build = yield* run("build");
-            // Setup runs before the launch releases the run, so a released run had its chance.
-            const released = yield* engine
-              .streamStoredEventsFrom({ threadId: build.threadId, eventType: "run.updated" })
-              .pipe(
-                Stream.filterMap((stored) =>
-                  stored.event.type === "run.updated" && stored.event.payload.status !== "preparing"
-                    ? Result.succeed(stored.event.payload.status)
-                    : Result.failVoid,
-                ),
-                Stream.runHead,
-              );
-            expect(released).toEqual(Option.some("starting"));
-            expect(yield* Queue.size(setups)).toBe(0);
-            for (const threadId of [plan.threadId, build.threadId]) {
-              expect(yield* engine.getThreadShell(threadId)).toMatchObject(workspace);
-            }
-          }),
-        orchestration,
-      ).pipe(
-        Effect.ensuring(
-          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
-        ),
-      );
-    }),
+        );
+      }),
   );
 
   effectIt.effect("recovers a persisted queued run after restart", () =>

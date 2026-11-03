@@ -30,7 +30,6 @@ fresh("new bot storage", (it) => {
           "crew_hierarchy",
           "crew_members",
           "crew_runs",
-          "crew_stage_threads",
           "roles",
         ],
       );

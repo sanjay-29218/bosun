@@ -183,7 +183,10 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         runtimeMode: input.runtimeMode,
         interactionMode: "default",
         branch: input.workspace?.branch ?? null,
-        worktreePath: input.workspace?.worktreePath ?? null,
+        worktreePath:
+          input.workspace && "worktreePath" in input.workspace
+            ? input.workspace.worktreePath
+            : null,
         createdBy: "agent",
         creationSource: "mcp",
       });
@@ -213,6 +216,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       // The first thread in a worktree runs the project's setup script; later ones reuse it.
       const inUse =
         workspace !== null &&
+        "worktreePath" in workspace &&
         (yield* worktreeInUse(input.projectId, input.threadId, workspace.worktreePath));
       yield* launcher.launch({
         commandId,
@@ -222,9 +226,12 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         modelSelection: input.modelSelection,
         runtimeMode: input.runtimeMode,
         interactionMode: "default",
-        workspaceStrategy: workspace
-          ? { type: "existing_worktree", ...workspace }
-          : { type: "root" },
+        workspaceStrategy:
+          workspace === null
+            ? { type: "root" }
+            : "worktreePath" in workspace
+              ? { type: "existing_worktree", ...workspace }
+              : { type: "worktree", ...workspace },
         runSetupScript: !inUse,
         initialMessage: {
           messageId: MessageId.make(`${prefix}:${input.runId}:message`),

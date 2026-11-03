@@ -62,11 +62,13 @@ export interface CrewDelegationGrant {
   readonly targetMemberId: string;
 }
 
-/** Where a crew run's thread works when it isn't the project's checkout. */
-export interface CrewWorkspace {
-  readonly branch: string;
-  readonly worktreePath: string;
-}
+/**
+ * Where a crew run's thread works when it isn't the project's checkout: a worktree, or one its
+ * thread makes from `baseRef` as it starts.
+ */
+export type CrewWorkspace =
+  | { readonly branch: string; readonly worktreePath: string }
+  | { readonly branch: string; readonly baseRef: string };
 
 export interface CrewRun {
   readonly id: string;
@@ -140,6 +142,7 @@ interface CrewRunRow {
   readonly dispatchedAt: string | null;
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly baseRef: string | null;
   readonly openingMessageJson: string | null;
 }
 
@@ -200,8 +203,13 @@ const decodeRun = (row: CrewRunRow): CrewRun => ({
   lastError: row.lastError,
   createdAt: row.createdAt,
   dispatchedAt: row.dispatchedAt,
-  workspace:
-    row.branch && row.worktreePath ? { branch: row.branch, worktreePath: row.worktreePath } : null,
+  workspace: !row.branch
+    ? null
+    : row.worktreePath
+      ? { branch: row.branch, worktreePath: row.worktreePath }
+      : row.baseRef
+        ? { branch: row.branch, baseRef: row.baseRef }
+        : null,
   openingMessage: decodeOpeningMessage(row.openingMessageJson),
 });
 
@@ -331,7 +339,8 @@ export const CrewStoreLive = Layer.effect(
           r.dispatch_state AS dispatchState, r.recovery_attempt AS recoveryAttempt,
           r.last_error AS lastError,
           r.created_at AS createdAt, r.dispatched_at AS dispatchedAt,
-          r.branch, r.worktree_path AS worktreePath, r.opening_message_json AS openingMessageJson
+          r.branch, r.worktree_path AS worktreePath, r.base_ref AS baseRef,
+          r.opening_message_json AS openingMessageJson
         FROM crew_runs AS r
         LEFT JOIN bots AS b
           ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
@@ -494,13 +503,16 @@ export const CrewStoreLive = Layer.effect(
             id, member_id, project_id, thread_id, task_text, title, instructions,
             allowed_tools_json, member_revision,
             model_selection_json, runtime_mode, dispatch_state, recovery_attempt, last_error,
-            created_at, dispatched_at, branch, worktree_path, opening_message_json
+            created_at, dispatched_at, branch, worktree_path, base_ref, opening_message_json
           ) VALUES (
             ${run.id}, ${run.memberId}, ${run.projectId}, ${run.threadId}, ${run.taskText},
             ${run.title}, ${run.instructions}, ${JSON.stringify(run.allowedTools)},
             ${run.memberRevision}, ${JSON.stringify(run.modelSelection)},
             ${run.runtimeMode}, ${run.dispatchState}, ${run.recoveryAttempt}, ${run.lastError}, ${run.createdAt},
-            ${run.dispatchedAt}, ${run.workspace?.branch ?? null}, ${run.workspace?.worktreePath ?? null}, ${encodeOpeningMessage(run.openingMessage)}
+            ${run.dispatchedAt}, ${run.workspace?.branch ?? null},
+            ${run.workspace && "worktreePath" in run.workspace ? run.workspace.worktreePath : null},
+            ${run.workspace && "baseRef" in run.workspace ? run.workspace.baseRef : null},
+            ${encodeOpeningMessage(run.openingMessage)}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
       getRun,
@@ -518,7 +530,8 @@ export const CrewStoreLive = Layer.effect(
             dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
             last_error AS lastError,
             created_at AS createdAt, dispatched_at AS dispatchedAt,
-            branch, worktree_path AS worktreePath, opening_message_json AS openingMessageJson
+            branch, worktree_path AS worktreePath, base_ref AS baseRef,
+            opening_message_json AS openingMessageJson
           FROM crew_runs AS r WHERE dispatch_state = ${CREW_DISPATCH_STATE.QUEUED}
             -- A workflow dispatches its stages' runs itself, and fails a stage whose dispatch failed.
             AND r.id NOT LIKE 'bot-handoff:%'
