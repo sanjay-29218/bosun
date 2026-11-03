@@ -1023,6 +1023,29 @@ const make = Effect.gen(function* () {
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   // Bosun's feature runtime: crew members a feature's lead delegates to.
   const crewDelegation = yield* Effect.serviceOption(CrewDelegation);
+  /** The newest thread this lead started for the crew member named `name`, if any. */
+  const latestCrewThread = Effect.fn("OrchestratorMcpService.latestCrewThread")(function* (
+    tasks: OrchestrationV2ThreadProjection["subagents"],
+    name: string,
+  ) {
+    const childIds = [
+      ...new Set(
+        tasks.flatMap((task) =>
+          task.origin === "app_owned" && task.childThreadId !== null ? [task.childThreadId] : [],
+        ),
+      ),
+    ];
+    let latest: { readonly id: ThreadId; readonly createdAt: string } | null = null;
+    for (const childId of childIds) {
+      const child = yield* threadManagement
+        .getThreadShell(childId)
+        .pipe(Effect.orElseSucceed(() => null));
+      if (child === null || child.archivedAt !== null || child.feature?.member !== name) continue;
+      const createdAt = DateTime.formatIso(child.createdAt);
+      if (latest === null || createdAt > latest.createdAt) latest = { id: child.id, createdAt };
+    }
+    return latest?.id ?? null;
+  });
   const resolveCrewMember = Effect.fn("OrchestratorMcpService.resolveCrewMember")(function* (
     featureId: string | undefined,
     name: string,
@@ -2428,6 +2451,65 @@ const make = Effect.gen(function* () {
           "parent_not_active",
           "Delegated tasks require an active run owned by this MCP provider session.",
         );
+      }
+      // A crew member keeps one thread per feature, so later tasks build on its history.
+      const crewTasks =
+        crewMember === null || input.target !== undefined
+          ? []
+          : yield* threadManagement.getThreadRecords(parent.thread.id, ["subagents"]).pipe(
+              Effect.map(({ subagents }) => subagents),
+              Effect.mapError(() =>
+                failure("orchestration_error", "Unable to read this thread's crew tasks."),
+              ),
+            );
+      const crewThreadId =
+        crewMember === null ? null : yield* latestCrewThread(crewTasks, crewMember.name);
+      if (crewMember !== null && crewThreadId !== null) {
+        const busy = crewTasks.some(
+          (task) =>
+            task.childThreadId === crewThreadId &&
+            (task.status === "pending" || task.status === "running" || task.status === "waiting"),
+        );
+        if (busy) {
+          return yield* failure(
+            "invalid_request",
+            `${crewMember.name} is still on its last task; its result comes back here. Hand it the next task once it reports.`,
+          );
+        }
+        const key = yield* requestKey(input.clientRequestId);
+        const sent = yield* threadManagement
+          .sendToThread({
+            projectId: parent.thread.projectId,
+            commandId: stableCommandId({ scope, requestKey: key, operation: "crew-task" }),
+            threadId: crewThreadId,
+            senderThreadId: parent.thread.id,
+            messageId: stableOperationMessageId({ scope, requestKey: key, operation: "crew-task" }),
+            text: taskPrompt(input),
+            attachments: [],
+            mode: "auto",
+            createdBy: "agent",
+            creationSource: "mcp",
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              isThreadManagementError(error)
+                ? threadManagementFailure(error)
+                : failure(
+                    "orchestration_error",
+                    `Unable to hand ${crewMember.name} the task: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                  ),
+            ),
+          );
+        const taskId = sent.run.delegatedTaskId;
+        if (taskId === undefined) {
+          return yield* failure(
+            "orchestration_error",
+            `${crewMember.name}'s thread took the task but started no task to report back.`,
+          );
+        }
+        return yield* input.mode === "wait"
+          ? awaitTask(scope, taskId, input.timeoutMs)
+          : readTask(scope, taskId, false, true);
       }
       const providers = yield* loadProviders;
       const key = yield* requestKey(input.clientRequestId);

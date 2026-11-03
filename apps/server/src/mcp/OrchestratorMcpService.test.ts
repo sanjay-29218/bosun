@@ -2030,6 +2030,10 @@ describe("OrchestratorMcpService provider resolution", () => {
   it.effect("hands a feature lead's task to a crew member, as that member", () =>
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      const sent = yield* Ref.make<
+        ReadonlyArray<{ readonly threadId: string; readonly text: string }>
+      >([]);
+      const taskStatus = yield* Ref.make("running");
       const plannerModel = { instanceId: codexInstanceId, model: "gpt-5.4-mini" };
       const task = {
         id: taskId,
@@ -2069,12 +2073,32 @@ describe("OrchestratorMcpService provider resolution", () => {
           Layer.mock(ThreadManagementService.ThreadManagementService)({
             hasReceipt: () => Effect.succeed(false),
             getThreadRecords: (threadId) =>
-              Ref.get(dispatched).pipe(
-                Effect.map((commands) =>
+              Effect.all([Ref.get(dispatched), Ref.get(taskStatus)]).pipe(
+                Effect.map(([commands, status]) =>
                   threadId === parentThreadId
-                    ? projection(commands.length > 0 ? [task] : [])
+                    ? projection(commands.length > 0 ? [{ ...task, status }] : [])
                     : childProjection,
                 ),
+              ),
+            getThreadShell: (threadId) =>
+              Effect.succeed(
+                threadId === childThreadId
+                  ? ({
+                      id: childThreadId,
+                      archivedAt: null,
+                      createdAt: DateTime.makeUnsafe(0),
+                      feature: { id: "feature:dark", title: "Dark mode", member: "Planner" },
+                    } as never)
+                  : null,
+              ),
+            sendToThread: (input) =>
+              Ref.update(sent, (all) => [
+                ...all,
+                { threadId: input.threadId, text: input.text },
+              ]).pipe(
+                Effect.as({
+                  run: { id: "run:crew-follow-up", delegatedTaskId: taskId, status: "running" },
+                } as never),
               ),
             isProviderInstanceEnabledForProject: () => Effect.succeed(true),
             assertProviderInstanceEnabled: () => Effect.void,
@@ -2156,6 +2180,27 @@ describe("OrchestratorMcpService provider resolution", () => {
           })
           .pipe(Effect.flip);
         assert.include(stranger.message, "The crew: Planner, Builder.");
+
+        // The Planner's next task goes to its own thread, keeping its history, once it reports.
+        const busy = yield* mcp
+          .delegateTask(scope, {
+            task: "Revise the plan.",
+            crewMember: "Planner",
+            clientRequestId: "crew-planner-2",
+          })
+          .pipe(Effect.flip);
+        assert.include(busy.message, "Planner is still on its last task");
+        yield* Ref.set(taskStatus, "completed");
+        yield* mcp.delegateTask(scope, {
+          task: "Revise the plan.",
+          crewMember: "Planner",
+          clientRequestId: "crew-planner-3",
+        });
+        assert.lengthOf(yield* Ref.get(dispatched), 1);
+        const [followUp] = yield* Ref.get(sent);
+        assert.equal(followUp!.threadId, childThreadId);
+        assert.include(followUp!.text, "Revise the plan.");
+        assert.notInclude(followUp!.text, "You are the Planner");
       }).pipe(Effect.provide(run("feature:dark")));
 
       // A thread outside any feature has no crew to delegate to.
