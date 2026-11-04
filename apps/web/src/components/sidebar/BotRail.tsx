@@ -51,6 +51,7 @@ import {
   BOTS_PATH,
   isSidebarUtilityPage,
   LIBRARY_PATH,
+  readBotHref,
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
@@ -82,6 +83,7 @@ export const BotRail = memo(function BotRail({
   const multipleBots = bots.length > 1;
 
   const openHeadquarters = useOpenBotHeadquarters();
+  const navigate = useNavigate();
   const destination = useRailDestination();
   const onBots = destination === "bots";
   const onUtilityPage = useLocation({
@@ -96,16 +98,23 @@ export const BotRail = memo(function BotRail({
     }
     return false;
   };
-  // A click opens the bot's headquarters; Mod+click only switches the sidebar to its threads.
-  // Selects without switchTo, whose view switch would race the headquarters navigation.
+  // A click returns to where the bot was left, or opens its headquarters the first time and when
+  // it's the bot you're on. Mod+click only switches the sidebar to its threads. Selects without
+  // switchTo, whose view switch would race this navigation.
   const select = (bot: LogicalBot, event: MouseEvent) => {
     if (event.metaKey || event.ctrlKey) {
       switchTo(bot);
       return;
     }
-    if (bot.key !== active?.key) selectBot(bot);
     if (isMobile) setOpenMobile(false);
-    openHeadquarters(bot);
+    const href = bot.key === active?.key ? undefined : readBotHref(bot.key);
+    if (bot.key !== active?.key) selectBot(bot);
+    if (href === undefined) {
+      openHeadquarters(bot);
+      return;
+    }
+    supersedeHeadquartersOpen();
+    void navigate({ href });
   };
   const switchHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to show its threads only`;
 

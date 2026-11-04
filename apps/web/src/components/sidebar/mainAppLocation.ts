@@ -122,6 +122,13 @@ function rememberMainView(environmentId: EnvironmentId | null, view: MainView) {
   }
 }
 
+// Where each bot was left: its board, a thread, or its headquarters. Lost on reload, when a
+// bot's first click opens its headquarters again.
+const botHrefs = new Map<string, string>();
+
+/** The page the bot showed last in this session, if any. */
+export const readBotHref = (botKey: string) => botHrefs.get(botKey);
+
 /**
  * Remembers where Settings, Usage, and the utility pages lead back to, and the main view
  * each location shows so the List / Board toggle and the next launch return to it.
@@ -138,6 +145,8 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     const view = mainViewForPathname(pathname);
     mainViewHrefs[view] = href;
     rememberMainView(readActiveEnvironmentId(), view);
+    const botKey = readActiveLogicalBotKey();
+    if (botKey !== null) botHrefs.set(botKey, href);
   };
   record();
   return router.subscribe("onResolved", record);
