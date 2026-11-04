@@ -52,6 +52,7 @@ import {
   isSidebarUtilityPage,
   LIBRARY_PATH,
   readBotHref,
+  rememberBotHref,
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
@@ -107,6 +108,7 @@ export const BotRail = memo(function BotRail({
       return;
     }
     if (isMobile) setOpenMobile(false);
+    if (active && bot.key !== active.key) rememberBotHref(active.key);
     const href = bot.key === active?.key ? undefined : readBotHref(bot.key);
     if (bot.key !== active?.key) selectBot(bot);
     if (href === undefined) {

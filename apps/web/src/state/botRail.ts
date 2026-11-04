@@ -171,6 +171,23 @@ function readActiveLogicalBot(): LogicalBot | null {
   );
 }
 
+/**
+ * Makes the rail entry holding `botId` on `environmentId` the active one. A headquarters can open
+ * from the palette, the Bots page or a link, and the sidebar should follow the bot it belongs to.
+ */
+export function selectBotOfHeadquarters(environmentId: EnvironmentId, botId: string): void {
+  const bot = appAtomRegistry
+    .get(logicalBotsAtom)
+    .find((candidate) =>
+      candidate.members.some(
+        (member) => member.environmentId === environmentId && member.botId === botId,
+      ),
+    );
+  if (!bot || readActiveLogicalBotKey() === bot.key) return;
+  const store = useUiStateStore.getState();
+  store.setActiveBotIdByEnvironmentId(selectLogicalBot(store.activeBotIdByEnvironmentId, bot));
+}
+
 /** The active rail entry's key, read outside React (the main view is remembered per bot). */
 export function readActiveLogicalBotKey(): string | null {
   return readActiveLogicalBot()?.key ?? null;
