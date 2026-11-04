@@ -100,17 +100,14 @@ export const BotRail = memo(function BotRail({
     return false;
   };
   // A click returns to where the bot was left, or opens its headquarters the first time and when
-  // it's the bot you're on. Mod+click only switches the sidebar to its threads. Selects without
-  // switchTo, whose view switch would race this navigation.
+  // it's the bot you're on; Mod+click always opens its headquarters. Selects without switchTo,
+  // whose view switch would race this navigation.
   const select = (bot: LogicalBot, event: MouseEvent) => {
-    if (event.metaKey || event.ctrlKey) {
-      switchTo(bot);
-      return;
-    }
+    const same = bot.key === active?.key;
     if (isMobile) setOpenMobile(false);
-    if (active && bot.key !== active.key) rememberBotHref(active.key);
-    const href = bot.key === active?.key ? undefined : readBotHref(bot.key);
-    if (bot.key !== active?.key) selectBot(bot);
+    if (active && !same) rememberBotHref(active.key);
+    const href = same || event.metaKey || event.ctrlKey ? undefined : readBotHref(bot.key);
+    if (!same) selectBot(bot);
     if (href === undefined) {
       openHeadquarters(bot);
       return;
@@ -118,7 +115,7 @@ export const BotRail = memo(function BotRail({
     supersedeHeadquartersOpen();
     void navigate({ href });
   };
-  const switchHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to show its threads only`;
+  const headquartersHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its headquarters`;
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
@@ -172,7 +169,7 @@ export const BotRail = memo(function BotRail({
             <RailItem
               key={bot.key}
               label={bot.name}
-              hint={switchHint}
+              hint={headquartersHint}
               active={onBots && bot.key === active?.key}
               signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
               shortcut={shortcutFor(botJumpCommandForIndex(index))}

@@ -24,7 +24,8 @@ project's bot in **Settings → Project → Bot**. A bot can only be deleted onc
 and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
-the rail opens it the first time, and clicking the bot you're on opens it again. You can also open it from the bot at the top of the sidebar (or the thread list on
+the rail opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
+(Ctrl-clicking) a bot always opens it. You can also open it from the bot at the top of the sidebar (or the thread list on
 mobile), or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
 questions. It hands a project small, clear work as a **task**: a fresh project manager that works
@@ -52,8 +53,8 @@ archived headquarters.
 A rail of bot avatars sits at the left edge of the window, with **Usage** and **Settings** at its
 bottom. Clicking a bot narrows the sidebar and the board to its projects and takes you back to
 where you left it, such as its board or a thread. The first time, and when you click the bot
-you're already on, it opens its headquarters. To narrow them without leaving the page, ⌘-click (Ctrl-click) the bot, press
-**Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or use **Switch to …** in the command
+you're already on, it opens its headquarters; ⌘-click (Ctrl-click) always does. To narrow them
+without leaving the page, press **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or use **Switch to …** in the command
 palette; the List / Board choice is remembered per bot, and in the list that opens the bot's first
 thread. **Show All bots** in the command palette shows every bot's threads again; it has no
 shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
