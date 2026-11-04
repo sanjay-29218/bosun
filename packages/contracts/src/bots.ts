@@ -82,6 +82,15 @@ export type BotAvatar = typeof BotAvatar.Type;
 export const BotLongConversation = Schema.Literals(["compact", "new-session"]);
 export type BotLongConversation = typeof BotLongConversation.Type;
 
+/** Labels the briefing that opens a headquarters' new session, so clients mark where it began. */
+export const BOT_FRESH_START_LABEL = "Fresh start";
+const isFreshStartRecord = Schema.is(
+  Schema.Struct({ kind: Schema.Literal("bot"), label: Schema.Literal(BOT_FRESH_START_LABEL) }),
+);
+export const isBotFreshStartContext = (
+  context: { readonly records: ReadonlyArray<unknown> } | undefined,
+): boolean => context?.records.some(isFreshStartRecord) ?? false;
+
 export const Bot = Schema.Struct({
   id: Schema.String,
   name: Schema.String,

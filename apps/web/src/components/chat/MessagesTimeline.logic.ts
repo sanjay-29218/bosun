@@ -50,6 +50,7 @@ import {
 } from "../../types";
 import {
   idleCompactionOf,
+  isBotFreshStartContext,
   isCompactionCommandMessage,
   type MessageId,
   type OrchestrationV2IdleCompaction,
@@ -583,6 +584,12 @@ type MessagesTimelineRowContent =
       failed?: true;
       /** The provider's reason, when a failed compaction gave one. */
       failure?: string;
+    }
+  | {
+      /** Marks where a bot's headquarters started over in a new session. */
+      kind: "session-start";
+      id: string;
+      createdAt: string;
     }
   | {
       kind: "message";
@@ -2032,6 +2039,17 @@ export function deriveMessagesTimelineRows(input: {
       terminalAssistantMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
 
+    if (
+      timelineEntry.message.role === "user" &&
+      isBotFreshStartContext(timelineEntry.message.context)
+    ) {
+      nextRows.push({
+        kind: "session-start",
+        id: `session-start:${timelineEntry.id}`,
+        createdAt: timelineEntry.createdAt,
+      });
+    }
+
     nextRows.push({
       kind: "message",
       id: timelineEntry.id,
@@ -2435,6 +2453,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.failure === bc.failure
       );
     }
+
+    case "session-start":
+      return a.createdAt === (b as typeof a).createdAt;
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;

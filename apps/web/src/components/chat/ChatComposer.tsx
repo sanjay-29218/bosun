@@ -385,6 +385,8 @@ export interface ChatComposerProps {
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
   onUsageLimitsCommand?: (() => void) | undefined;
+  /** Set on a bot's headquarters, where `/new` starts a new session. */
+  onNewSessionCommand?: (() => void) | undefined;
   sideChatAvailable?: boolean;
   sideChatDisabledReason?: string | null;
   environmentUnavailable: {
@@ -1155,6 +1157,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeUiEnabled,
     sideChatAvailable: props.sideChatAvailable === true,
     sideChatDisabledReason: props.sideChatDisabledReason ?? null,
+    newSessionAvailable: props.onNewSessionCommand !== undefined,
     compactSlashCommandAvailable,
     selectedProvider,
     selectedProviderSkills,
@@ -1847,7 +1850,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   };
 
-  const { onUsageLimitsCommand } = props;
+  const { onUsageLimitsCommand, onNewSessionCommand } = props;
   const onSelectComposerItem = (item: ComposerCommandItem) => {
     if (composerSelectLockRef.current) return;
     composerSelectLockRef.current = true;
@@ -1881,6 +1884,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (applied) {
           setComposerHighlightedItemId(null);
           setIsComposerModelPickerOpen(true);
+        }
+        return;
+      }
+      if (item.command === "new") {
+        if (!onNewSessionCommand) return;
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          focusEditorAfterReplace: false,
+        });
+        if (applied) {
+          setComposerHighlightedItemId(null);
+          onNewSessionCommand();
         }
         return;
       }

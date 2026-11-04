@@ -39,10 +39,11 @@ reviewer role"; they show up like ones you made. A feature's threads, its lead's
 carry a tag with the feature's name.
 
 The headquarters follows the bot's current tools, model and **Access**. Its instructions are the
-ones it started with until it starts a new session. **Start new session…** in the thread's menu
-(or the command palette, or a long press on the bot on mobile) does that now: you keep the whole
-conversation, while the bot starts again from its current instructions and the last few messages
-and looks up ongoing work instead of remembering it. A long conversation is otherwise compacted by
+ones it started with until it starts a new session. Type **/new** in its composer, or pick
+**Start new session…** in the thread's menu (or the command palette, or a long press on the bot on
+mobile), to do that now: you keep the whole conversation, while the bot starts again from its
+current instructions and the last few messages and looks up ongoing work instead of remembering it.
+A **New session** divider in the thread shows where it began. A long conversation is otherwise compacted by
 its provider; set **Long conversations** to **Start a new session** on the bot to do this instead,
 once the bot has been quiet for half an hour. Opening the thread also brings back a deleted or
 archived headquarters.

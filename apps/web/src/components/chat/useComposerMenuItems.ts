@@ -66,6 +66,7 @@ export function useComposerMenuItems({
   planModeUiEnabled,
   sideChatAvailable,
   sideChatDisabledReason,
+  newSessionAvailable,
   compactSlashCommandAvailable,
   selectedProvider,
   selectedProviderSkills,
@@ -85,6 +86,8 @@ export function useComposerMenuItems({
   readonly planModeUiEnabled: boolean;
   readonly sideChatAvailable: boolean;
   readonly sideChatDisabledReason: string | null;
+  /** A bot's headquarters can start over in a new session from `/new`. */
+  readonly newSessionAvailable: boolean;
   readonly compactSlashCommandAvailable: boolean;
   readonly selectedProvider: ProviderDriverKind;
   readonly selectedProviderSkills: ServerProvider["skills"];
@@ -257,6 +260,17 @@ export function useComposerMenuItems({
                 command: "btw",
                 label: "/btw",
                 description: sideChatDisabledReason ?? "Same as /side",
+              },
+            ] as const)
+          : []),
+        ...(newSessionAvailable
+          ? ([
+              {
+                id: "slash:new",
+                type: "slash-command",
+                command: "new",
+                label: "/new",
+                description: "Start a new session; the bot keeps this thread",
               },
             ] as const)
           : []),
