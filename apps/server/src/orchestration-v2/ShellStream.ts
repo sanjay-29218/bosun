@@ -13,6 +13,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   isListedThreadLineage,
+  isNestedSubagentLineage,
   isLiveSubagentShell,
   isOlderSettledThreadShell,
   OrchestrationProjectShell as ProjectShellSchema,
@@ -96,7 +97,7 @@ function shellTrimFacts(rows: ReadonlyArray<ShellTrimRow>): ShellTrimFacts {
   const subagentThreadIds = new Set<string>();
   const settledTimes: Array<number> = [];
   for (const row of rows) {
-    if (row.lineage.relationshipToParent === "subagent") {
+    if (isNestedSubagentLineage(row.lineage)) {
       subagentThreadIds.add(row.id);
       if (row.lineage.parentThreadId) subagentParentIds.add(row.lineage.parentThreadId);
     } else if (
@@ -144,7 +145,7 @@ function omitIdleSubagentShellsWith(
 ): ReadonlyArray<OrchestrationV2ThreadShell> {
   return threads.filter(
     (thread) =>
-      thread.lineage.relationshipToParent !== "subagent" ||
+      !isNestedSubagentLineage(thread.lineage) ||
       isLiveSubagentShell(thread) ||
       facts.subagentParentIds.has(thread.id) ||
       // A feature lists its crew threads, finished or not; a feature has only a few.
@@ -263,7 +264,7 @@ function shellSubscriberThreadIds(
   const facts = shellTrimFacts(index);
   const subagents = index.filter(
     (entry) =>
-      entry.lineage.relationshipToParent === "subagent" &&
+      isNestedSubagentLineage(entry.lineage) &&
       (!options.omitIdleSubagents ||
         entry.mayBeLive ||
         entry.crewMember ||
@@ -276,7 +277,7 @@ function shellSubscriberThreadIds(
   const keptSubagentIds = new Set(subagents.map((entry) => entry.id));
   const beforeMs = facts.olderSettledBeforeMs;
   return index.flatMap((entry) =>
-    entry.lineage.relationshipToParent === "subagent"
+    isNestedSubagentLineage(entry.lineage)
       ? keptSubagentIds.has(entry.id)
         ? [entry.id]
         : []
@@ -425,7 +426,7 @@ export function shouldPublishShellApplicationEvent(
   if ("aggregateKind" in stored) return true;
   const { event } = stored;
   if (event.type === "thread.created") {
-    if (event.payload.lineage.relationshipToParent === "subagent") {
+    if (isNestedSubagentLineage(event.payload.lineage)) {
       subagentThreadIds.add(event.threadId);
     }
     return true;

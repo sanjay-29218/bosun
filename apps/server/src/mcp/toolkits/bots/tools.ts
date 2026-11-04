@@ -36,7 +36,7 @@ const List = Tool.make("t3_bot_list", {
 const Create = Tool.make("t3_bot_create", {
   ...shared,
   description:
-    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
+    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Without modelSelection it runs on this thread's model. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
   parameters: BotCreateInput,
   success: Bot,
 }).annotate(Tool.Idempotent, true);

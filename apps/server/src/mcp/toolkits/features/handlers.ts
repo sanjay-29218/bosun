@@ -1,4 +1,5 @@
 import {
+  headquartersBotId,
   OrchestratorMcpFailure,
   ProjectId,
   type FeatureWorkspace,
@@ -80,17 +81,34 @@ const make = Effect.gen(function* () {
           );
           const shell = yield* threads.getThreadShell(scope.thread.threadId);
           if (shell === null) return yield* invalid("This thread has no project");
+          // A bot's headquarters lives outside its projects, so it may start features in the ones
+          // it owns; anyone else needs full access to reach another project.
           if (input.projectId !== undefined && input.projectId !== shell.projectId) {
-            yield* fullAccessCaller(
-              "Starting a feature in another project needs a live full-access/default calling thread.",
-            );
+            const botId = headquartersBotId(scope.thread.threadId);
+            const owner =
+              botId === null ? null : yield* features.projectBot(ProjectId.make(input.projectId));
+            if (botId === null || owner !== botId) {
+              yield* fullAccessCaller(
+                "Starting a feature in another project needs a live full-access/default calling thread, or the headquarters of the bot that owns it.",
+              );
+            }
           }
           const { feature, leadThreadId, branch } = yield* features.launch({
             ...input,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
-            // A feature's thread starts its feature's children.
-            ...(shell.feature ? { parentFeatureId: shell.feature.id } : {}),
+            // A feature's thread starts its feature's children, which report to their parent's
+            // lead; any other thread hears from the lead each time it stops.
+            ...(shell.feature
+              ? { parentFeatureId: shell.feature.id }
+              : {
+                  // A subagent, such as a bot's project manager, has already reported back; its
+                  // top thread is the one to keep posted.
+                  requesterThreadId:
+                    shell.lineage.relationshipToParent === "subagent"
+                      ? shell.lineage.rootThreadId
+                      : scope.thread.threadId,
+                }),
           });
           return {
             featureId: feature.id,

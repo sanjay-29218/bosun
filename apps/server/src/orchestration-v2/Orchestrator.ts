@@ -7895,27 +7895,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.title === undefined ? {} : { title: command.title }),
         ordinal: (yield* subagentCount(command.parentThreadId)) + 1,
       });
+      const otherProject =
+        command.projectId !== undefined && command.projectId !== parentProjection.thread.projectId;
+      const subagentThread = makeSubagentChildThread({
+        parentThread: parentProjection.thread,
+        childThreadId,
+        parentNodeId: taskNodeId,
+        activeProviderThreadId: null,
+        providerInstanceId: command.modelSelection.instanceId,
+        modelSelection: command.modelSelection,
+        title: taskTitle,
+        now,
+        createdBy: command.createdBy,
+        creationSource: command.creationSource,
+      });
       const childThread: OrchestrationV2AppThread = {
-        ...makeSubagentChildThread({
-          parentThread: parentProjection.thread,
-          childThreadId,
-          parentNodeId: taskNodeId,
-          activeProviderThreadId: null,
-          providerInstanceId: command.modelSelection.instanceId,
-          modelSelection: command.modelSelection,
-          title: taskTitle,
-          now,
-          createdBy: command.createdBy,
-          creationSource: command.creationSource,
-        }),
+        ...subagentThread,
         runtimeMode: command.runtimeMode,
         interactionMode: command.interactionMode,
         // The parent's checkout belongs to its own project, so another project starts at its root.
-        ...(command.workspaceStrategy === undefined &&
-        (command.projectId === undefined || command.projectId === parentProjection.thread.projectId)
+        ...(command.workspaceStrategy === undefined && !otherProject
           ? {}
           : { branch: null, worktreePath: null }),
         ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
+        // Work handed to another project belongs to that project's lists.
+        ...(otherProject ? { lineage: { ...subagentThread.lineage, listed: true } } : {}),
         // A crew member's thread shows under its feature's lead by the member's name.
         ...(command.crewMember !== undefined && parentProjection.thread.feature
           ? { feature: { ...parentProjection.thread.feature, member: command.crewMember } }

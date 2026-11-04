@@ -14,7 +14,7 @@ import {
   type ModelSelection,
   type ProjectId,
   type RuntimeMode,
-  type ThreadId,
+  ThreadId,
 } from "@t3tools/contracts";
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -111,6 +111,7 @@ export interface FeatureServiceShape {
   /**
    * Creates a feature and starts it. A retry with the same `featureId` returns the same one.
    * `baseBranch`, which must exist, stacks it on another feature's branch.
+   * `requesterThreadId`, for a feature that isn't a child, hears from the lead whenever it stops with its crew idle.
    */
   readonly launch: (input: {
     readonly projectId: ProjectId;
@@ -121,7 +122,14 @@ export interface FeatureServiceShape {
     readonly workflowId?: string | undefined;
     readonly baseBranch?: string | undefined;
     readonly parentFeatureId?: string | undefined;
+    readonly requesterThreadId?: ThreadId | undefined;
   }) => Effect.Effect<FeatureStartResult, FeatureServiceError>;
+  /** The bot that owns `projectId`, or null. */
+  readonly projectBot: (projectId: ProjectId) => Effect.Effect<string | null, PersistenceSqlError>;
+  /** The thread that started the feature and hears from its lead, or null. */
+  readonly requesterThreadId: (
+    featureId: string,
+  ) => Effect.Effect<ThreadId | null, PersistenceSqlError>;
   /**
    * The lead in `threadId` reports its feature done: its parent's lead gets `summary` with the
    * feature's branch and pull request. Closing a child that hasn't reported does the same.
@@ -425,11 +433,26 @@ export const FeatureServiceLive = Layer.effect(
     const requireWorkflow = Effect.fn("FeatureService.requireWorkflow")(function* (
       workflowId: string,
     ) {
-      const workflow = yield* crew.getWorkflow(workflowId);
-      if (!workflow) {
-        return yield* Effect.fail(new FeatureValidationError(`Workflow not found: ${workflowId}`));
-      }
-      return workflow;
+      const exact = yield* crew.getWorkflow(workflowId);
+      if (exact) return exact;
+      // Agents name a workflow loosely: its ID without the prefix, or its name.
+      const wanted = workflowId
+        .trim()
+        .toLowerCase()
+        .replace(/^workflow:/, "");
+      const workflows = yield* crew.listWorkflows();
+      const match = workflows.find(
+        (workflow) =>
+          workflow.id.replace(/^workflow:/, "") === wanted ||
+          workflow.name.trim().toLowerCase() === wanted,
+      );
+      if (match) return match;
+      const known = workflows.map((workflow) => `${workflow.id} (${workflow.name})`).join(", ");
+      return yield* Effect.fail(
+        new FeatureValidationError(
+          `Workflow not found: ${workflowId}. Use one of: ${known}, or leave workflowId out for Feature delivery.`,
+        ),
+      );
     });
 
     /**
@@ -802,16 +825,25 @@ export const FeatureServiceLive = Layer.effect(
             .requireBranch(input.projectId, baseBranch)
             .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
         }
+        // The stored ID, however the caller named it, so a retry is the same request.
+        const workflow = input.workflowId ? yield* requireWorkflow(input.workflowId) : null;
         const feature = yield* create({
           id: input.featureId ?? `feature:${NodeCrypto.randomUUID()}`,
           projectId: input.projectId,
           title: input.title.trim(),
           brief: input.brief.trim(),
           ...(input.workspace ? { workspace: input.workspace } : {}),
-          ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+          ...(workflow ? { workflowId: workflow.id } : {}),
           ...(baseBranch ? { baseBranch } : {}),
           ...(input.parentFeatureId ? { parentFeatureId: input.parentFeatureId } : {}),
         });
+        // Before the lead starts, so its first stop finds who to tell; a retry keeps the first.
+        if (input.requesterThreadId !== undefined) {
+          yield* sql`
+            UPDATE features SET requester_thread_id = ${input.requesterThreadId}
+            WHERE id = ${feature.id} AND requester_thread_id IS NULL AND parent_feature_id IS NULL
+          `.pipe(Effect.mapError(queryError));
+        }
         return yield* start(feature.id, input.projectId).pipe(
           Effect.mapError(
             (error) =>
@@ -822,6 +854,14 @@ export const FeatureServiceLive = Layer.effect(
         );
       },
     );
+
+    const requesterThreadId: FeatureServiceShape["requesterThreadId"] = (featureId) =>
+      sql<{ readonly threadId: string | null }>`
+        SELECT requester_thread_id AS threadId FROM features WHERE id = ${featureId}
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.map((rows) => (rows[0]?.threadId ? ThreadId.make(rows[0].threadId) : null)),
+      );
 
     const crewMember: FeatureServiceShape["crewMember"] = Effect.fn("FeatureService.crewMember")(
       function* (featureId, name) {
@@ -1100,6 +1140,8 @@ export const FeatureServiceLive = Layer.effect(
       start,
       setIssue: bumped(setIssue),
       launch: bumped(launch),
+      requesterThreadId,
+      projectBot: bots.projectOwner,
       reportIfQuiet,
       reconcileChildren,
       withdrawFinished,

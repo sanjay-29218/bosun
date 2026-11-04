@@ -1437,7 +1437,13 @@ it.effect(
       `;
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'role', 'bot-run:builder', '["worktree"]')`;
+        ('builder', 'role', 'bot-run:builder', '["worktree"]'),
+        ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]')`;
+        const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
+        const launched: Array<{
+          readonly projectId: string;
+          readonly requesterThreadId?: string | undefined;
+        }> = [];
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
           requestNamespace: thread,
@@ -1453,6 +1459,7 @@ it.effect(
         const scopes = new Map([
           ["plainToken", scopeFor("thread-plain")],
           ["crewToken", scopeFor("bot-run:builder")],
+          ["hqToken", scopeFor("bot-run:bot-hq:captain")],
         ]);
         const UpstreamToolkit = Toolkit.make(
           Tool.make("upstream", {
@@ -1482,11 +1489,36 @@ it.effect(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeedContext(sqlContext),
-              McpToolAccessTestkit.liveThreadsLayer,
-              Layer.mock(BotService.BotService)({ list: Effect.succeed([]) }),
+              // Without full access, only ownership lets a headquarters reach another project.
+              Layer.mock(ThreadManagementService.ThreadManagementService)({
+                getThreadShell: (threadId) =>
+                  Effect.succeed(
+                    McpToolAccessTestkit.liveThreadShell(threadId, {
+                      runtimeMode: "approval-required",
+                    }),
+                  ),
+              }),
+              Layer.mock(BotService.BotService)({
+                list: Effect.succeed([]),
+                create: (input) => {
+                  createdBots.push(input);
+                  return Effect.succeed(input as never);
+                },
+              }),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
-              Layer.mock(FeatureService)({}),
+              Layer.mock(FeatureService)({
+                projectBot: (projectId) =>
+                  Effect.succeed(projectId === "project:owned" ? "captain" : null),
+                launch: (input) => {
+                  launched.push(input);
+                  return Effect.succeed({
+                    feature: { id: "feature:x", projectId: input.projectId, title: input.title },
+                    leadThreadId: ThreadId.make("bot-run:feature-lead:x"),
+                    branch: null,
+                  } as never);
+                },
+              }),
               Layer.mock(IssueService.IssueService)({}),
               Layer.mock(TicketService)({}),
             ),
@@ -1539,7 +1571,8 @@ it.effect(
               listed: rpc("tools/list", {}).pipe(
                 Effect.map((body) => (body.result?.tools ?? []).map((tool) => tool.name).sort()),
               ),
-              call: (name: string) => rpc("tools/call", { name, arguments: {} }),
+              call: (name: string, args: object = {}) =>
+                rpc("tools/call", { name, arguments: args }),
             };
           });
         const plain = yield* sessionFor("plainToken");
@@ -1587,6 +1620,40 @@ it.effect(
           ].sort(),
         );
         expect(yield* plain.listed).toEqual(plainTools);
+
+        // A bot an agent creates without a model runs on the agent's.
+        yield* crew.call("t3_bot_create", {
+          id: "bot:docs",
+          name: "Docs",
+          avatar: {
+            head: "squircle",
+            face: "visor",
+            eyes: "round",
+            top: "none",
+            cheeks: false,
+            smile: true,
+          },
+          color: "blue",
+        });
+        expect(createdBots.map((bot) => bot.modelSelection)).toEqual([
+          McpToolAccessTestkit.liveThreadShell(ThreadId.make("bot-run:builder")).modelSelection,
+        ]);
+
+        // A bot's headquarters starts features in the projects its bot owns; it reports there.
+        const start = (session: typeof crew, projectId: string) =>
+          session
+            .call("t3_feature_start", { projectId, title: "Dark mode", brief: "Add dark mode" })
+            .pipe(Effect.map((body) => JSON.stringify(body)));
+        const headquarters = yield* sessionFor("hqToken");
+        expect(yield* start(crew, "project:owned")).toContain("the bot that owns it");
+        expect(yield* start(headquarters, "project:other")).toContain("the bot that owns it");
+        expect(yield* start(headquarters, "project:owned")).toContain("feature:x");
+        expect(launched).toEqual([
+          expect.objectContaining({
+            projectId: "project:owned",
+            requesterThreadId: "bot-run:bot-hq:captain",
+          }),
+        ]);
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

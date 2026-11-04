@@ -1,13 +1,18 @@
 import { useLocation, useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { headquartersBotId, type EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useState } from "react";
 
 import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 import { withoutAssistantCitationHash } from "../../lib/assistantCitationNavigation";
-import { readActiveLogicalBotKey, requestBotFirstThread } from "../../state/botRail";
+import {
+  readActiveLogicalBotKey,
+  requestBotFirstThread,
+  selectBotOfHeadquarters,
+} from "../../state/botRail";
 import { readActiveEnvironmentId } from "../../state/entities";
+import { resolveThreadRouteRef } from "../../threadRoutes";
 
 /** Settings and Usage open as modals over the last main-app view. */
 export function isAppModalPage(pathname: string) {
@@ -123,6 +128,18 @@ function rememberMainView(environmentId: EnvironmentId | null, view: MainView) {
   }
 }
 
+// Where each bot was left: its board, a thread, or its headquarters. Lost on reload, when a
+// bot's first click opens its headquarters again.
+const botHrefs = new Map<string, string>();
+
+/** The page the bot showed last in this session, if any. */
+export const readBotHref = (botKey: string) => botHrefs.get(botKey);
+
+/** Saves the main page on screen for `botKey`, which the app may have opened on before bots loaded. */
+export function rememberBotHref(botKey: string) {
+  if (mainAppHref !== null) botHrefs.set(botKey, mainAppHref);
+}
+
 /**
  * Remembers where Settings, Usage, and the utility pages lead back to, and the main view
  * each location shows so the List / Board toggle and the next launch return to it.
@@ -137,9 +154,16 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     mainAppHref = href;
     // The index only forwards to a draft or the board, so it is neither view.
     if (pathname === "/") return;
+    const thread = resolveThreadRouteRef(router.state.matches.at(-1)?.params ?? {});
+    const headquartersOf = thread ? headquartersBotId(thread.threadId) : null;
+    if (thread && headquartersOf !== null) {
+      selectBotOfHeadquarters(thread.environmentId, headquartersOf);
+    }
     const view = mainViewForPathname(pathname);
     mainViewHrefs[view] = href;
     rememberMainView(readActiveEnvironmentId(), view);
+    const botKey = readActiveLogicalBotKey();
+    if (botKey !== null) botHrefs.set(botKey, href);
   };
   record();
   return router.subscribe("onResolved", record);

@@ -51,10 +51,12 @@ import {
   BOTS_PATH,
   isSidebarUtilityPage,
   LIBRARY_PATH,
+  readBotHref,
+  rememberBotHref,
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
-import { useOpenBotHeadquarters } from "./openBotHeadquarters";
+import { supersedeHeadquartersOpen, useOpenBotHeadquarters } from "./openBotHeadquarters";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
 /** The rail's width; the sidebar sits right of it. */
@@ -82,6 +84,7 @@ export const BotRail = memo(function BotRail({
   const multipleBots = bots.length > 1;
 
   const openHeadquarters = useOpenBotHeadquarters();
+  const navigate = useNavigate();
   const destination = useRailDestination();
   const onBots = destination === "bots";
   const onUtilityPage = useLocation({
@@ -89,20 +92,30 @@ export const BotRail = memo(function BotRail({
   });
   // Null is All bots. Switching saves and restores List / Board per selection.
   const switchTo = (bot: LogicalBot | null) => {
+    supersedeHeadquartersOpen();
     if ((bot?.key ?? null) !== (active?.key ?? null) || onUtilityPage) {
       switchBotMainView(() => selectBot(bot));
       return true;
     }
     return false;
   };
-  // Picking a bot shows its threads; picking it again, or Mod+click, opens its headquarters.
+  // A click returns to where the bot was left, or opens its headquarters the first time and when
+  // it's the bot you're on; Mod+click always opens its headquarters. Selects without switchTo,
+  // whose view switch would race this navigation.
   const select = (bot: LogicalBot, event: MouseEvent) => {
-    const direct = event.metaKey || event.ctrlKey;
-    if (switchTo(bot) && !direct) return;
+    const same = bot.key === active?.key;
     if (isMobile) setOpenMobile(false);
-    openHeadquarters(bot);
+    if (active && !same) rememberBotHref(active.key);
+    const href = same || event.metaKey || event.ctrlKey ? undefined : readBotHref(bot.key);
+    if (!same) selectBot(bot);
+    if (href === undefined) {
+      openHeadquarters(bot);
+      return;
+    }
+    supersedeHeadquartersOpen();
+    void navigate({ href });
   };
-  const openHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its thread`;
+  const headquartersHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its headquarters`;
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
@@ -156,7 +169,7 @@ export const BotRail = memo(function BotRail({
             <RailItem
               key={bot.key}
               label={bot.name}
-              hint={bot.key === active?.key ? "Click to open its thread" : openHint}
+              hint={headquartersHint}
               active={onBots && bot.key === active?.key}
               signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
               shortcut={shortcutFor(botJumpCommandForIndex(index))}

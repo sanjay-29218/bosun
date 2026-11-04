@@ -3,6 +3,7 @@ import {
   CommandId,
   MessageId,
   EventId,
+  isListedThreadLineage,
   NodeId,
   type OrchestrationV2DomainEvent,
   PlanId,
@@ -1004,6 +1005,9 @@ it.effect("runs a delegated child in the project it names, at that project's che
     assert.isNull(child.thread.branch);
     assert.isNull(child.thread.worktreePath);
     assert.equal(child.thread.lineage.parentThreadId, parentThreadId);
+    // The app project lists it; the headquarters still gets its result.
+    assert.isTrue(isListedThreadLineage(child.thread.lineage));
+    assert.equal(child.thread.lineage.relationshipToParent, "subagent");
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -1064,6 +1068,7 @@ it.effect("names a crew member's child after its feature lead's crew", () =>
     assert.deepEqual(child.thread.feature, { ...feature, member: "Planner" });
     // The crew works in the lead's feature checkout.
     assert.equal(child.thread.worktreePath, "/worktrees/dark-mode");
+    assert.isFalse(isListedThreadLineage(child.thread.lineage));
   }).pipe(Effect.provide(layerTest)),
 );
 

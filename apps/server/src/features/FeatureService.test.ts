@@ -181,6 +181,30 @@ describe("feature lead and crew", () => {
     ),
   );
 
+  effectIt.effect("keeps the thread that launched a feature to hear from its lead", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const launch = (requesterThreadId: ThreadId) =>
+          features.launch({
+            projectId,
+            featureId: "launched-feature",
+            title: "Dark mode",
+            brief: "Add a dark mode toggle to settings",
+            workspace: "local",
+            requesterThreadId,
+          });
+        const first = yield* launch(ThreadId.make("bot-run:bot-hq:bot-captain"));
+        // A retry from elsewhere starts nothing new and keeps who asked first.
+        const retry = yield* launch(ThreadId.make("thread:someone-else"));
+        expect(retry.leadThreadId).toBe(first.leadThreadId);
+        expect(yield* features.requesterThreadId("launched-feature")).toBe(
+          "bot-run:bot-hq:bot-captain",
+        );
+      }),
+    ),
+  );
+
   effectIt.effect("runs a feature on its workflow's lead, crew and instructions", () =>
     withSystem(
       Effect.gen(function* () {
@@ -254,6 +278,26 @@ describe("feature lead and crew", () => {
           workflowId: EPIC_WORKFLOW_ID,
         });
         expect((yield* userTexts(parent.leadThreadId))[0]).toMatch(/^Workflow: Epic$/m);
+        // Agents name workflows loosely; an unknown one lists the real ones.
+        const named = yield* features.launch({
+          projectId,
+          title: "Port to Linux",
+          brief: "Port the app to Linux",
+          workspace: "local",
+          workflowId: "epic",
+        });
+        expect(named.feature.workflowId).toBe(EPIC_WORKFLOW_ID);
+        const unknown = (yield* Effect.flip(
+          features.launch({
+            projectId,
+            title: "Port to BeOS",
+            brief: "Port the app to BeOS",
+            workflowId: "lead-driven",
+          }),
+        )).message;
+        expect(unknown).toContain("Workflow not found: lead-driven. Use one of:");
+        expect(unknown).toContain("workflow:feature-delivery (Feature delivery)");
+        expect(unknown).toContain("workflow:epic (Epic)");
         const child = yield* features.launch({
           projectId,
           title: "App shell",

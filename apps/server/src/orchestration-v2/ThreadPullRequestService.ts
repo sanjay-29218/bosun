@@ -1,4 +1,5 @@
 import {
+  isNestedSubagentLineage,
   CommandId,
   type OrchestrationProjectShell,
   type OrchestrationV2DomainEvent,
@@ -133,9 +134,7 @@ export const make = Effect.gen(function* () {
     // Subagent children refresh after their own runs; sweeping them costs a lookup each per minute.
     const snapshotThreads =
       request.threadId === null
-        ? threadSnapshot.threads.filter(
-            (thread) => thread.lineage.relationshipToParent !== "subagent",
-          )
+        ? threadSnapshot.threads.filter((thread) => !isNestedSubagentLineage(thread.lineage))
         : threadSnapshot.threads;
     const projects = new Map(projectShells.map((project) => [project.id, project]));
     if (request.backfill) {

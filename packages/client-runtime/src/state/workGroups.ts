@@ -173,14 +173,17 @@ export function boardChatThreads<
   T extends WorkGroupThread & {
     readonly archivedAt: unknown;
     readonly delegatedFrom: unknown;
-    readonly lineage: { readonly relationshipToParent: string | null };
+    readonly lineage: {
+      readonly relationshipToParent: string | null;
+      readonly listed?: boolean | undefined;
+    };
   },
 >(threads: ReadonlyArray<T>): T[] {
   const rows = threads.filter(
     (thread) =>
       thread.archivedAt === null &&
       !thread.feature &&
-      thread.lineage.relationshipToParent !== "subagent" &&
+      (thread.lineage.relationshipToParent !== "subagent" || thread.lineage.listed === true) &&
       thread.delegatedFrom == null &&
       headquartersBotId(thread.id) === null,
   );

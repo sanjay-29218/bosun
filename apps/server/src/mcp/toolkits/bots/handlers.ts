@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 
 import * as BotService from "../../../bots/BotService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { readCaller } from "../../threadAccess.ts";
 import { asCrewManager, fullAccessCaller } from "../features/access.ts";
 import { BotsToolkit } from "./tools.ts";
 
@@ -36,7 +37,19 @@ export const layer = McpToolAccess.toLayer(BotsToolkit, {
     ),
   ),
   t3_bot_create: McpToolAccess.writesWithCapability((input) =>
-    changingBots((bots) => bots.create(input)),
+    Effect.gen(function* () {
+      // A bot can't run without a model, and the editor always sets one; a bot an agent
+      // creates without one starts on that agent's.
+      const modelSelection =
+        input.modelSelection ??
+        (yield* readCaller().pipe(
+          Effect.map(({ caller }) => caller?.modelSelection ?? null),
+          Effect.orElseSucceed(() => null),
+        ));
+      return yield* changingBots((bots) =>
+        bots.create(modelSelection === null ? input : { ...input, modelSelection }),
+      );
+    }),
   ),
   t3_bot_update: McpToolAccess.writesWithCapability((input) =>
     changingBots((bots) => bots.update(input)),
