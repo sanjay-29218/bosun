@@ -89,8 +89,11 @@ const make = Effect.gen(function* () {
             ...input,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
-            // A feature's thread starts its feature's children.
-            ...(shell.feature ? { parentFeatureId: shell.feature.id } : {}),
+            // A feature's thread starts its feature's children, which report to their parent's
+            // lead; any other thread hears from the lead each time it stops.
+            ...(shell.feature
+              ? { parentFeatureId: shell.feature.id }
+              : { requesterThreadId: scope.thread.threadId }),
           });
           return {
             featureId: feature.id,

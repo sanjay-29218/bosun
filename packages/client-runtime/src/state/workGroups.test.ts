@@ -128,6 +128,8 @@ describe("boardChatThreads", () => {
       row("chat"),
       row("fork", {}, { lineage: { relationshipToParent: "fork" } }),
       row("subagent", {}, { lineage: { relationshipToParent: "subagent" } }),
+      // A bot's task for this project is the project's work.
+      row("handed-off", {}, { lineage: { relationshipToParent: "subagent", listed: true } }),
       row("delegated", {}, { delegatedFrom: { threadId: "elsewhere" } }),
       row("archived", {}, { archivedAt: "2026-10-01" }),
       row("stage", { feature }),
@@ -135,7 +137,7 @@ describe("boardChatThreads", () => {
       row("pm", { createdAt: "0", crewRequest: request("Project manager") }),
       row("builder", { crewRequest: request("Builder") }),
     ]);
-    expect(chats.map((item) => item.id)).toEqual(["chat", "fork", "pm"]);
+    expect(chats.map((item) => item.id)).toEqual(["chat", "fork", "handed-off", "pm"]);
   });
 });
 

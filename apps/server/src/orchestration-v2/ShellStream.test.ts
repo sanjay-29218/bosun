@@ -183,6 +183,15 @@ describe("omitIdleSubagentShells", () => {
       row("grandchild", "middle"),
       // A feature's crew thread is listed under its feature, finished or not.
       row("crew", "root", { feature: { id: "feature-1", title: "Feature", member: "Builder" } }),
+      // Work handed to another project is listed there, finished or not.
+      row("handed-off", "root", {
+        lineage: {
+          parentThreadId: ThreadId.make("root"),
+          relationshipToParent: "subagent",
+          rootThreadId: ThreadId.make("root"),
+          listed: true,
+        },
+      }),
     ];
     expect(omitIdleSubagentShells(threads).map((thread) => thread.id)).toEqual([
       "root",
@@ -192,6 +201,7 @@ describe("omitIdleSubagentShells", () => {
       "background",
       "middle",
       "crew",
+      "handed-off",
     ]);
   });
 

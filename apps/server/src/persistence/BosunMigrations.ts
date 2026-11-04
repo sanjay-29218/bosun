@@ -52,6 +52,7 @@ import CrewRunBaseRef from "./Migrations/094_CrewRunBaseRef.ts";
 import LeadWorkflows from "./Migrations/095_LeadWorkflows.ts";
 import FeatureParents from "./Migrations/096_FeatureParents.ts";
 import FeatureReports from "./Migrations/097_FeatureReports.ts";
+import ProjectHandoffs from "./Migrations/098_ProjectHandoffs.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -96,6 +97,7 @@ const migrationEntries = [
   [95, "LeadWorkflows", LeadWorkflows],
   [96, "FeatureParents", FeatureParents],
   [97, "FeatureReports", FeatureReports],
+  [98, "ProjectHandoffs", ProjectHandoffs],
 ] as const;
 
 const legacyNames = new Set([

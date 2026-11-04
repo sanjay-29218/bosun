@@ -81,7 +81,7 @@ const PROJECT_MANAGER_BRIEF =
 const headquartersTask = (botId: string) =>
   [
     `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
-    `Hand each request to its project with delegate_task: target.projectId set to that project and isolation "worktree". That child is the request's project manager, fresh for each request. Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. Then end your turn; its result wakes you.`,
+    `Hand each request to its project, where it runs as one of that project's threads and its result wakes you. For small, clear work, start a task: delegate_task with target.projectId set to that project and isolation "worktree". Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. For work that needs planning, design or several steps, or when the person asks for a feature, start one with t3_feature_start and that projectId: its lead runs it with its crew and reports here each time it stops. Link the thread you started in your reply, then end your turn.`,
     `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
     "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
     "Tell the person only what they must decide.",

@@ -28,11 +28,12 @@ the rail opens it and switches the sidebar to that bot's threads; ⌘-click (Ctr
 the sidebar. You can also open it from the bot at the top of the sidebar (or the thread list on
 mobile), or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
-questions. Each request it hands a project gets a fresh **project manager**: a subagent of the
-headquarters that works in its own worktree of that project. Small work it does itself and opens a
-pull request for; work that needs planning or several hands it starts as a
-[feature](./features.md), which a lead runs with its crew. Its result comes back to the
-headquarters. Each crew member runs with its role's model and **Access**. The bot can also start
+questions. It hands a project small, clear work as a **task**: a fresh project manager that works
+in its own worktree of that project and opens a pull request. Work that needs planning or several
+steps, or that you ask to be a feature, it starts as a [feature](./features.md), which a lead runs
+with its crew. Either way the work is one of that project's threads, listed and on the board with
+its other work, and the bot links it in its reply. A task's result, and what a feature's lead says
+each time it stops, come back to the headquarters. Each crew member runs with its role's model and **Access**. The bot can also start
 projects from a name or by cloning a Git URL. With **Manage bots and roles**, which Captain has
 from the start, it can create and edit bots and roles when you ask, such as "add a Security
 reviewer role"; they show up like ones you made. A feature's threads, its lead's and its crew's,

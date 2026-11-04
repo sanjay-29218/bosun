@@ -172,8 +172,8 @@ export const messageHitsQuery = (
         AND projects.deleted_at IS NULL
         AND (${projectId} IS NULL OR threads.project_id = ${projectId})
         AND threads.thread_id NOT IN (SELECT value FROM json_each(${excludedThreadIds}))
-        AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
-          IS NOT 'subagent'
+        AND (json_extract(threads.payload_json, '$.lineage.relationshipToParent')
+          IS NOT 'subagent' OR json_extract(threads.payload_json, '$.lineage.listed') IS 1)
         AND json_extract(threads.payload_json, '$.lineage.sideChat') IS NOT 1
     )
     ${
@@ -331,8 +331,8 @@ export const make = Effect.gen(function* () {
       WHERE threads.deleted_at IS NULL
         AND threads.archived_at IS NULL
         AND projects.deleted_at IS NULL
-        AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
-          IS NOT 'subagent'
+        AND (json_extract(threads.payload_json, '$.lineage.relationshipToParent')
+          IS NOT 'subagent' OR json_extract(threads.payload_json, '$.lineage.listed') IS 1)
         AND json_extract(threads.payload_json, '$.lineage.sideChat') IS NOT 1
         AND (${projectId} IS NULL OR threads.project_id = ${projectId})
     `,
@@ -362,8 +362,8 @@ export const make = Effect.gen(function* () {
       WHERE threads.deleted_at IS NULL
         AND json_extract(threads.payload_json, '$.archivedAt') IS NULL
         AND projects.deleted_at IS NULL
-        AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
-          IS NOT 'subagent'
+        AND (json_extract(threads.payload_json, '$.lineage.relationshipToParent')
+          IS NOT 'subagent' OR json_extract(threads.payload_json, '$.lineage.listed') IS 1)
         AND json_extract(threads.payload_json, '$.lineage.sideChat') IS NOT 1
         AND json_extract(threads.payload_json, '$.settledOverride') = 'settled'
         AND json_extract(threads.payload_json, '$.settledAt') < ${before}
@@ -385,8 +385,8 @@ export const make = Effect.gen(function* () {
       WHERE threads.thread_id IN (SELECT value FROM json_each(${threadIds}))
         AND threads.deleted_at IS NULL
         AND json_extract(threads.payload_json, '$.archivedAt') IS NULL
-        AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
-          IS NOT 'subagent'
+        AND (json_extract(threads.payload_json, '$.lineage.relationshipToParent')
+          IS NOT 'subagent' OR json_extract(threads.payload_json, '$.lineage.listed') IS 1)
         AND json_extract(threads.payload_json, '$.lineage.sideChat') IS NOT 1
         AND json_extract(threads.payload_json, '$.settledOverride') = 'settled'
         AND json_extract(threads.payload_json, '$.settledAt') < ${before}

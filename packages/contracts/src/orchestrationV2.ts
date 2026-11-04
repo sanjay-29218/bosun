@@ -157,12 +157,19 @@ export const OrchestrationV2AppThreadLineage = Schema.Struct({
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   rootThreadId: ThreadId,
   sideChat: Schema.optional(Schema.Boolean),
+  /** A subagent handed to another project: that project lists it, and it still reports back. */
+  listed: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2AppThreadLineage = typeof OrchestrationV2AppThreadLineage.Type;
 
-/** Subagents and side chats live inside their parent's view, never in thread lists. */
+/** A subagent that lives only inside its parent's view. */
+export const isNestedSubagentLineage = (
+  lineage: Pick<OrchestrationV2AppThreadLineage, "relationshipToParent" | "listed">,
+): boolean => lineage.relationshipToParent === "subagent" && lineage.listed !== true;
+
+/** Nested subagents and side chats live inside their parent's view, never in thread lists. */
 export const isListedThreadLineage = (lineage: OrchestrationV2AppThreadLineage): boolean =>
-  lineage.relationshipToParent !== "subagent" && lineage.sideChat !== true;
+  !isNestedSubagentLineage(lineage) && lineage.sideChat !== true;
 
 export const OrchestrationV2ContextTransferType = Schema.Literals([
   "fork",
