@@ -124,6 +124,8 @@ export interface FeatureServiceShape {
     readonly parentFeatureId?: string | undefined;
     readonly requesterThreadId?: ThreadId | undefined;
   }) => Effect.Effect<FeatureStartResult, FeatureServiceError>;
+  /** The bot that owns `projectId`, or null. */
+  readonly projectBot: (projectId: ProjectId) => Effect.Effect<string | null, PersistenceSqlError>;
   /** The thread that started the feature and hears from its lead, or null. */
   readonly requesterThreadId: (
     featureId: string,
@@ -822,7 +824,7 @@ export const FeatureServiceLive = Layer.effect(
         if (input.requesterThreadId !== undefined) {
           yield* sql`
             UPDATE features SET requester_thread_id = ${input.requesterThreadId}
-            WHERE id = ${feature.id} AND requester_thread_id IS NULL
+            WHERE id = ${feature.id} AND requester_thread_id IS NULL AND parent_feature_id IS NULL
           `.pipe(Effect.mapError(queryError));
         }
         return yield* start(feature.id, input.projectId).pipe(
@@ -1122,6 +1124,7 @@ export const FeatureServiceLive = Layer.effect(
       setIssue: bumped(setIssue),
       launch: bumped(launch),
       requesterThreadId,
+      projectBot: bots.projectOwner,
       reportIfQuiet,
       reconcileChildren,
       withdrawFinished,

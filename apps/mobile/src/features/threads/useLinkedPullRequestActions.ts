@@ -16,7 +16,11 @@ import {
   capitalizeTerm,
   sourceControlClients,
 } from "@t3tools/client-runtime/source-control-clients";
-import { AuthOrchestrationOperateScope, type ThreadPullRequestLink } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  isNestedSubagentLineage,
+  type ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import * as Clipboard from "expo-clipboard";
 
 import * as Dialog from "../../components/ui/Dialog";
@@ -49,7 +53,7 @@ export function useLinkedPullRequestActions(input: {
     thread.archivedAt === null &&
     thread.settledAt === null &&
     thread.settledOverride !== "settled" &&
-    thread.lineage.relationshipToParent !== "subagent";
+    !isNestedSubagentLineage(thread.lineage);
   const link = useAtomCommand(threadEnvironment.linkPullRequest, { reportFailure: false });
   const unlink = useAtomCommand(threadEnvironment.unlinkPullRequest, { reportFailure: false });
   const watch = useAtomCommand(threadEnvironment.watchPullRequest, { reportFailure: false });

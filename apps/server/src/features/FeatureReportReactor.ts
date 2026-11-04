@@ -1,4 +1,9 @@
-import { CommandId, MessageId, type OrchestrationV2DomainEvent } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  type OrchestrationV2DomainEvent,
+  type ThreadId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -14,6 +19,15 @@ const REPORTED_STATUSES = new Set(["completed", "failed"]);
 const OPEN_TASK_STATUSES = new Set(["pending", "running", "waiting"]);
 const UNDELIVERED_RESULT_STATES = new Set(["pending", "claimed"]);
 const MAX_REPORT_CHARS = 8_000;
+/** Requests that wait on the person; auth refreshes and tool calls resolve without them. */
+const ASKING_KINDS = new Set<string>([
+  "user_input",
+  "command",
+  "file-read",
+  "file-change",
+  "mcp-elicitation",
+  "permission",
+]);
 
 /**
  * Tells the thread that started a feature what its lead said each time the lead stops with no
@@ -32,17 +46,79 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const features = yield* FeatureService;
 
+  /** The feature `threadId` leads and the thread to tell, or null when there's none to tell. */
+  const requesterOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const lead = yield* projections.getThread(threadId);
+    const feature = lead.feature;
+    // A lead's and its crew's own subagents carry the feature too; only the lead reports.
+    if (
+      !feature ||
+      feature.member !== undefined ||
+      lead.lineage.relationshipToParent === "subagent"
+    ) {
+      return null;
+    }
+    const requesterId = yield* features.requesterThreadId(feature.id);
+    if (requesterId === null || requesterId === lead.id) return null;
+    const requester = yield* projections.getThread(requesterId);
+    if (requester.archivedAt !== null || requester.deletedAt !== null) return null;
+    return { feature, requesterId };
+  });
+
+  const post = (input: {
+    readonly key: string;
+    readonly requesterId: ThreadId;
+    readonly leadThreadId: ThreadId;
+    readonly text: string;
+    readonly failed: boolean;
+    readonly summary: string;
+  }) =>
+    engine.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make(`server:feature-report:${input.key}`),
+      threadId: input.requesterId,
+      messageId: MessageId.make(`message:feature-report:${input.key}`),
+      text: input.text,
+      notification: {
+        source: { kind: "subagent", childThreadId: input.leadThreadId },
+        outcome: input.failed ? "failed" : "updated",
+        summary: input.summary,
+      },
+      attachments: [],
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "agent",
+      creationSource: "server",
+    });
+
   // Runs for every domain event; most return before reading anything.
   const handle: FeatureReportReactor["Service"]["handle"] = Effect.fnUntraced(
     function* (event) {
+      // A lead waiting on the person won't stop until they answer, so say so now.
+      if (event.type === "runtime-request.updated") {
+        const request = event.payload;
+        if (request.status !== "pending" || !ASKING_KINDS.has(request.kind)) return;
+        if (request.owner !== undefined) return;
+        const target = yield* requesterOf(event.threadId);
+        if (target === null) return;
+        const asks = request.kind === "user_input" ? "a question" : "an approval";
+        yield* post({
+          key: `request:${request.id}`,
+          requesterId: target.requesterId,
+          leadThreadId: event.threadId,
+          text: `Feature "${target.feature.title}" (lead thread ${event.threadId}) is waiting on the person: ${asks} in its lead's thread.`,
+          failed: false,
+          summary: `Feature "${target.feature.title}" is waiting on you`,
+        });
+        return;
+      }
       if (event.type !== "run.updated" || !REPORTED_STATUSES.has(event.payload.status)) return;
       const run = event.payload;
+      const target = yield* requesterOf(run.threadId);
+      if (target === null) return;
       const lead = yield* projections.getThreadRecords(run.threadId, ["subagents", "messages"], {
         messageRoles: ["assistant"],
         messageRunIds: [run.id],
       });
-      const feature = lead.thread.feature;
-      if (!feature || feature.member !== undefined) return;
       // The crew's result wakes the lead again; it reports once that turn stops.
       if (
         lead.subagents.some(
@@ -53,30 +129,18 @@ const make = Effect.gen(function* () {
       ) {
         return;
       }
-      const requesterId = yield* features.requesterThreadId(feature.id);
-      if (requesterId === null || requesterId === lead.thread.id) return;
-      const requester = yield* projections.getThread(requesterId);
-      if (requester.archivedAt !== null || requester.deletedAt !== null) return;
       const said = lead.messages.findLast((message) => !message.streaming)?.text.trim() ?? "";
       const text =
         said.length > MAX_REPORT_CHARS
           ? `${said.slice(0, MAX_REPORT_CHARS)}… (read the rest in the lead's thread)`
           : said || "(no message)";
-      yield* engine.dispatch({
-        type: "message.dispatch",
-        commandId: CommandId.make(`server:feature-report:${run.id}`),
-        threadId: requesterId,
-        messageId: MessageId.make(`message:feature-report:${run.id}`),
-        text: `Feature "${feature.title}" (lead thread ${lead.thread.id}) [${run.status}]:\n${text}`,
-        notification: {
-          source: { kind: "subagent", childThreadId: lead.thread.id },
-          outcome: run.status === "failed" ? "failed" : "updated",
-          summary: `Feature "${feature.title}" reported back`,
-        },
-        attachments: [],
-        dispatchMode: { type: "queue_after_active" },
-        createdBy: "agent",
-        creationSource: "server",
+      yield* post({
+        key: run.id,
+        requesterId: target.requesterId,
+        leadThreadId: run.threadId,
+        text: `Feature "${target.feature.title}" (lead thread ${run.threadId}) [${run.status}]:\n${text}`,
+        failed: run.status === "failed",
+        summary: `Feature "${target.feature.title}" reported back`,
       });
     },
     (effect, event) =>

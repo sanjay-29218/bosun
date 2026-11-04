@@ -24,8 +24,16 @@ const runUpdated = (status: string, threadId = leadThreadId) =>
     payload: { id: RunId.make(`run:${threadId}:1`), threadId, status },
   }) as unknown as OrchestrationV2DomainEvent;
 
+const requestUpdated = (status: string, kind = "user_input") =>
+  ({
+    type: "runtime-request.updated",
+    threadId: leadThreadId,
+    payload: { id: "request:plan", status, kind },
+  }) as unknown as OrchestrationV2DomainEvent;
+
 const setup = (input: {
   readonly member?: string;
+  readonly subagent?: boolean;
   readonly openTask?: boolean;
   readonly requester?: ThreadId | null;
 }) =>
@@ -41,18 +49,23 @@ const setup = (input: {
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
             getThreadRecords: () =>
               Effect.succeed({
-                thread: {
-                  id: leadThreadId,
-                  feature: {
-                    id: "feature:dark",
-                    title: "Dark mode",
-                    ...(input.member ? { member: input.member } : {}),
-                  },
-                },
                 subagents: input.openTask ? [{ status: "running" }] : [{ status: "completed" }],
                 messages: [{ text: "The plan is ready. Approve it?", streaming: false }],
               } as never),
-            getThread: () => Effect.succeed({ archivedAt: null, deletedAt: null } as never),
+            getThread: (threadId) =>
+              Effect.succeed(
+                (threadId === leadThreadId
+                  ? {
+                      id: leadThreadId,
+                      lineage: { relationshipToParent: input.subagent ? "subagent" : null },
+                      feature: {
+                        id: "feature:dark",
+                        title: "Dark mode",
+                        ...(input.member ? { member: input.member } : {}),
+                      },
+                    }
+                  : { id: threadId, archivedAt: null, deletedAt: null }) as never,
+              ),
           }),
           Layer.mock(FeatureService)({
             requesterThreadId: () =>
@@ -85,6 +98,8 @@ it.effect("stays quiet while the crew works, for crew threads, and with no one t
     for (const [input, status] of [
       [{ openTask: true }, "completed"],
       [{ member: "Builder" }, "completed"],
+      // A lead's or crew member's own subagent carries the feature but isn't its lead.
+      [{ subagent: true }, "completed"],
       [{ requester: null }, "completed"],
       [{}, "running"],
       [{}, "interrupted"],
@@ -93,5 +108,21 @@ it.effect("stays quiet while the crew works, for crew threads, and with no one t
       yield* reactor.handle(runUpdated(status));
       assert.deepEqual(yield* Ref.get(dispatched), [], JSON.stringify({ input, status }));
     }
+  }),
+);
+
+it.effect("tells the thread that started a feature when its lead waits on the person", () =>
+  Effect.gen(function* () {
+    const { reactor, dispatched } = yield* setup({});
+    yield* reactor.handle(requestUpdated("pending"));
+    yield* reactor.handle(requestUpdated("resolved"));
+    yield* reactor.handle(requestUpdated("pending", "auth_refresh"));
+    const reports = yield* Ref.get(dispatched);
+    assert.lengthOf(reports, 1);
+    const [report] = reports;
+    if (report?.type !== "message.dispatch") return assert.fail("expected a message");
+    assert.equal(report.threadId, headquartersId);
+    assert.include(report.text, "waiting on the person: a question");
+    assert.equal(report.commandId, "server:feature-report:request:request:plan");
   }),
 );

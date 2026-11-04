@@ -1,4 +1,5 @@
 import {
+  isNestedSubagentLineage,
   CommandId,
   MessageId,
   type OrchestrationV2Notification,
@@ -412,7 +413,7 @@ export const make = Effect.gen(function* () {
       ? "merged"
       : thread.settledOverride === "settled" || thread.settledAt !== null
         ? "settled"
-        : thread.lineage.relationshipToParent === "subagent"
+        : isNestedSubagentLineage(thread.lineage)
           ? "subagent"
           : undefined;
 

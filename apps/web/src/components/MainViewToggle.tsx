@@ -7,11 +7,12 @@ import { shortcutLabelForCommand } from "../keybindings";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useFeatureEnvironmentIds } from "./features/useFeatureBoard";
 import { mainViewForPathname, useShowMainView } from "./sidebar/mainAppLocation";
-import { Toggle } from "./ui/toggle";
+import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
- * Flips the main area between the thread list and the feature board, showing the current one.
+ * Flips the main area between the thread list and the feature board. Its icon is the view it
+ * opens, like any button, not the one showing.
  * It appears once an environment runs features, or on the board so there is a way back.
  */
 export const MainViewToggle = memo(function MainViewToggle() {
@@ -26,20 +27,19 @@ export const MainViewToggle = memo(function MainViewToggle() {
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="flex shrink-0" />}>
-        <Toggle
+        <Button
           className="shrink-0 [-webkit-app-region:no-drag]"
-          pressed={onBoard}
-          onPressedChange={() => void showMainView(onBoard ? "list" : "board")}
-          aria-label="Toggle feature board"
+          onClick={() => void showMainView(onBoard ? "list" : "board")}
+          aria-label={onBoard ? "Show threads" : "Show feature board"}
           variant="ghost"
-          size="sm"
+          size="icon-sm"
         >
           {onBoard ? (
-            <LayoutGridIcon className="size-4" />
-          ) : (
             <TextAlignJustifyIcon className="size-4" />
+          ) : (
+            <LayoutGridIcon className="size-4" />
           )}
-        </Toggle>
+        </Button>
       </TooltipTrigger>
       <TooltipPopup side="bottom">
         {onBoard ? "Back to threads" : "Feature board"}
