@@ -1437,6 +1437,7 @@ it.effect(
         yield* sql`INSERT INTO crew_runs VALUES
         ('builder', 'role', 'bot-run:builder', '["worktree"]'),
         ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]')`;
+        const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
@@ -1495,7 +1496,13 @@ it.effect(
                     }),
                   ),
               }),
-              Layer.mock(BotService.BotService)({ list: Effect.succeed([]) }),
+              Layer.mock(BotService.BotService)({
+                list: Effect.succeed([]),
+                create: (input) => {
+                  createdBots.push(input);
+                  return Effect.succeed(input as never);
+                },
+              }),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
               Layer.mock(FeatureService)({
@@ -1611,6 +1618,24 @@ it.effect(
           ].sort(),
         );
         expect(yield* plain.listed).toEqual(plainTools);
+
+        // A bot an agent creates without a model runs on the agent's.
+        yield* crew.call("t3_bot_create", {
+          id: "bot:docs",
+          name: "Docs",
+          avatar: {
+            head: "squircle",
+            face: "visor",
+            eyes: "round",
+            top: "none",
+            cheeks: false,
+            smile: true,
+          },
+          color: "blue",
+        });
+        expect(createdBots.map((bot) => bot.modelSelection)).toEqual([
+          McpToolAccessTestkit.liveThreadShell(ThreadId.make("bot-run:builder")).modelSelection,
+        ]);
 
         // A bot's headquarters starts features in the projects its bot owns; it reports there.
         const start = (session: typeof crew, projectId: string) =>
