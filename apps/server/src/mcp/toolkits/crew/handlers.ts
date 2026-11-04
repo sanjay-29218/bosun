@@ -1,8 +1,10 @@
 import {
+  featureIssueRef,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   ticketRef,
   type RepositoryIssue,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -107,15 +109,38 @@ const make = Effect.gen(function* () {
     );
 
   return {
-    crew_link_issue: McpToolAccess.actsAsCaller((input: { readonly url: string | null }) =>
-      asCrewMember((threadId) =>
-        features.setIssueForThread(threadId, input.url).pipe(
-          Effect.map((feature) => ({
-            featureId: feature.id,
-            issue: feature.issue && { number: feature.issue.number, title: feature.issue.title },
-          })),
+    crew_link_issue: McpToolAccess.actsAsCaller(
+      (input: { readonly url: string | null; readonly threadId?: ThreadId | undefined }) =>
+        asCrewMember((callerId) =>
+          Effect.gen(function* () {
+            const caller = yield* threads.getThreadShell(callerId);
+            const target =
+              input.threadId === undefined ? caller : yield* threads.getThreadShell(input.threadId);
+            if (input.threadId !== undefined && target?.lineage.parentThreadId !== callerId) {
+              return yield* new CrewToolFailedError({
+                reason: "threadId must be a task this thread delegated",
+              });
+            }
+            if (input.threadId === undefined && caller?.feature) {
+              const feature = yield* features.setIssueForThread(callerId, input.url);
+              return {
+                featureId: feature.id,
+                threadId: null,
+                issue: feature.issue && {
+                  ref: featureIssueRef(feature.issue),
+                  title: feature.issue.title,
+                },
+              };
+            }
+            const threadId = input.threadId ?? callerId;
+            const issue = yield* features.setThreadIssue(threadId, input.url);
+            return {
+              featureId: null,
+              threadId,
+              issue: issue && { ref: featureIssueRef(issue), title: issue.title },
+            };
+          }),
         ),
-      ),
     ),
     crew_list_issues: McpToolAccess.readsAsCaller(
       (input: {

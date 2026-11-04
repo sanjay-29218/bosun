@@ -91,7 +91,15 @@ thread's details panel and hover card show its title, milestone and sub-issue pr
 that contains an issue link, or a `Ticket T-14` line, links it when the feature starts, and the
 crew can link the issue it opens. To link, change or unlink one yourself, choose **Link issue…** in
 a card's menu, in a thread's **Feature** menu, or in the thread's details panel, and paste an issue
-link or a ticket number such as `T-14`. Issue links work for GitHub.
+link or a ticket number such as `T-14`. Issue links work for GitHub. You can also name an issue
+of the project's repository as `#56`, or an issue of another tracker by its key or link, such as
+Linear's `LIN-123`; Bosun keeps that key and link but can't read the issue's title or state.
+
+A small task a bot or lead hands off can link an issue too, so every piece of work traces back to
+one. Ask the agent to name the issue when it hands the task off, or to link one later. The task's
+thread shows it in its details panel and sidebar row, its parent shows it in **Lineage**, and its
+card on the board shows its number. The agent working the task is told the issue and puts
+`Closes #56` or `Refs #56` in its pull request.
 
 Todo lists the open issues of each project's GitHub repository and its tickets. A ticket is a todo
 kept in Bosun, numbered `T-1`, `T-2` and so on per project, for work that shouldn't be a public

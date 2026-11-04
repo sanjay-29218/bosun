@@ -3986,6 +3986,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.feature === undefined ? {} : { feature: command.feature }),
             ...(command.crewRequest === undefined ? {} : { crewRequest: command.crewRequest }),
+            ...(command.issue === undefined ? {} : { issue: command.issue }),
           };
         case "thread.title.regeneration.complete":
           return thread.titleRegeneration?.requestId === command.requestId
@@ -7924,6 +7925,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.crewMember !== undefined && parentProjection.thread.feature
           ? { feature: { ...parentProjection.thread.feature, member: command.crewMember } }
           : {}),
+        ...(command.issue === undefined ? {} : { issue: command.issue }),
       };
       const task: OrchestrationV2Subagent = {
         id: taskNodeId,

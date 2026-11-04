@@ -29,6 +29,7 @@ import {
   resolveLatestMergeBackRun,
 } from "@t3tools/client-runtime/state/thread-workflows";
 import {
+  featureIssueRef,
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
   NodeId,
@@ -41,6 +42,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
+import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { groupBy } from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import { useNavigate } from "@tanstack/react-router";
@@ -748,6 +750,12 @@ export function ThreadRelationshipsPanel(props: {
             {threadTitle}
           </span>
         </span>
+        {node?.thread?.issue ? (
+          <span className="flex shrink-0 items-center gap-1 text-2xs tabular-nums text-muted-foreground">
+            <FeatureIssueIcon issue={node.thread.issue} className="size-3" />
+            {featureIssueRef(node.thread.issue)}
+          </span>
+        ) : null}
         {agent ? null : (
           <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         )}

@@ -220,6 +220,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "pendingBackgroundTasks"
   | "feature"
   | "crewRequest"
+  | "issue"
   | "pendingGuestMessageCount"
 > &
   Pick<OrchestrationV2AppThread, "lastSnoozeWakeAt"> & {
@@ -1592,6 +1593,7 @@ export function threadShellFromProjection(
       ? {}
       : { activeOrderKey: projection.thread.activeOrderKey }),
     ...(projection.thread.feature == null ? {} : { feature: projection.thread.feature }),
+    ...(projection.thread.issue == null ? {} : { issue: projection.thread.issue }),
     ...(projection.thread.crewRequest == null
       ? {}
       : { crewRequest: projection.thread.crewRequest }),
@@ -1877,6 +1879,7 @@ function shellFromState(input: {
       ? {}
       : { activeOrderKey: input.state.thread.activeOrderKey }),
     ...(input.state.thread.feature == null ? {} : { feature: input.state.thread.feature }),
+    ...(input.state.thread.issue == null ? {} : { issue: input.state.thread.issue }),
     ...(input.state.thread.crewRequest == null
       ? {}
       : { crewRequest: input.state.thread.crewRequest }),

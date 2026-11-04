@@ -1,6 +1,7 @@
 import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
-import { featureIssueMeta, FeatureIssueIcon } from "../crew/FeatureIssue";
+import { featureIssueMeta } from "../crew/FeatureIssue";
+import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { FeatureTag } from "../crew/FeatureTag";
 import { SidebarWorkGroupSummary, type SidebarWorkGroup } from "./SidebarWorkGroup";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
@@ -336,6 +337,7 @@ function SidebarThreadTooltip({
   status?: ReactNode;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
+  const issue = thread.issue ?? thread.feature?.issue;
   const previousProviderNames = thread.providerInstanceHistory
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
@@ -375,17 +377,15 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate">{thread.feature.member}</div>
           </div>
         ) : null}
-        {thread.feature?.issue ? (
+        {issue ? (
           <div className="flex min-w-0 items-start gap-2">
-            <FeatureIssueIcon issue={thread.feature.issue} className="mt-0.5 size-3" />
+            <FeatureIssueIcon issue={issue} className="mt-0.5 size-3" />
             <div className="min-w-0">
               <div className="truncate text-foreground/75">
-                {featureIssueRef(thread.feature.issue)} {thread.feature.issue.title}
+                {featureIssueRef(issue)} {issue.title}
               </div>
-              {featureIssueMeta(thread.feature.issue) ? (
-                <div className="truncate text-muted-foreground">
-                  {featureIssueMeta(thread.feature.issue)}
-                </div>
+              {featureIssueMeta(issue) ? (
+                <div className="truncate text-muted-foreground">{featureIssueMeta(issue)}</div>
               ) : null}
             </div>
           </div>
@@ -1244,10 +1244,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     ) : null;
   const diff = latestRunDiff(thread);
+  const issue = thread.issue ?? thread.feature?.issue;
   // Only the trailing icons would remain, so the row moves them to the title line instead.
   const metaLineEmpty =
     !props.workGroup &&
     !thread.feature &&
+    !thread.issue &&
     !thread.branch &&
     !showsScratchMachine &&
     prBadge === null &&
@@ -1261,9 +1263,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       ) : thread.feature ? (
         <FeatureTag feature={thread.feature} />
       ) : null}
-      {thread.feature?.issue ? (
+      {issue ? (
         <span className="shrink-0 text-muted-foreground tabular-nums">
-          {featureIssueRef(thread.feature.issue)}
+          {featureIssueRef(issue)}
         </span>
       ) : null}
       {thread.feature?.member && !props.workGroup ? (
