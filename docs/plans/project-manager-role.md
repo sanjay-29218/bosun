@@ -97,7 +97,8 @@ Reports flow back up the same edges:
 - Crew report to their Feature manager, as subagent results.
 - Child Feature managers report to the Epic's Feature manager (`t3_feature_finish`).
 - Feature managers and tasks report to the Project manager (requester reports and subagent results).
-- The Project manager reports to the bot that sent the request (the reply reactor, Phase 2).
+- The Project manager answers the bot that sent the request (`t3_project_reply` on a stored request,
+  Phase 2).
 
 ### Lifetimes
 
@@ -125,11 +126,15 @@ projects and manages the Library.
 
 May:
 
-- read the project's code and git state, and inspect feature worktrees (`t3_worktree_status`);
+- read the project's code and git state, including what each feature's branch changes
+  (`git diff --name-only <base>...<branch>` from the project checkout, which shares its git
+  directory with every feature worktree);
 - create, list, comment on and close issues, tickets and milestones;
 - start tasks (`delegate_task` in a worktree) and features (`t3_feature_start`, including Epic
   features) in **its own project**;
-- answer or redirect Feature managers (`t3_thread_send` to their lead threads);
+- answer a Feature manager's pending question (`t3_pending_request` respond), or redirect it
+  (`t3_thread_send` to its lead thread). Permission approvals stay with the person:
+  `t3_pending_request` can't approve them.
 - stop a feature;
 - report to the bot, or ask the bot and person a question;
 - merge a pull request when the person asks it to, or when its instructions say so. By default
@@ -146,7 +151,9 @@ May not:
 and calls `t3_feature_finish`.
 
 - Its questions now reach the Project manager first, because the Project manager is the feature's
-  requester. That already works through `FeatureReportReactor`.
+  requester. That already works through `FeatureReportReactor` for top-level features. An Epic
+  child has no requester, and the quiet-child watcher skips a child waiting on input, so a child's
+  question reaches its parent's lead only after Phase 2 adds that (see "Questions").
 - It does not start sibling features (the Epic's Feature manager starts its own children). It does
   not close issues, and it does not talk to the bot.
 
@@ -158,24 +165,26 @@ and calls `t3_feature_finish`.
 
 1. The person tells Captain: "Add a CSV export to the reports page in project X."
 2. Captain calls `t3_project_send({ projectId: X, message })`. The server ensures X's Project manager
-   thread exists, queues the message with Captain's HQ as sender, and returns the thread link. Captain
-   links it and ends its turn.
+   thread exists, stores request R-7 with Captain's HQ as its requester, queues the message headed
+   with R-7, and returns the request ID and thread link. Captain links it and ends its turn.
 3. The Project manager checks the backlog (`crew_list_issues`) for an existing issue. It finds none,
    so it creates one (`crew_create_todo as: issue`, or a ticket when the project isn't on GitHub).
 4. It judges the work: one clear change, so a **task** or a **feature**.
    - A task: `delegate_task` in a worktree, with `issue: "#123"` (task-issue-links).
    - A feature: `t3_feature_start({ title, brief, issue: "#123" })`. The issue is linked when the
      feature is created, so every thread shows it from the start.
-5. The Project manager checks the open features (`t3_feature_list`, Phase 3) and starts this one at
-   once, because it doesn't overlap any of them.
+5. The Project manager checks the open features (`t3_feature_list`, Phase 2) and their changed
+   files. It starts this one at once, because it doesn't overlap any of them. It answers R-7 with
+   `t3_project_reply` ("started feature …, issue #123"), leaving the request open.
 6. The Feature manager runs Plan → Build → QA → Review.
-   - When it needs a decision, it stops with the question. `FeatureReportReactor` posts the question
-     to the Project manager, which answers from the brief, the issue or earlier decisions
-     (`t3_thread_send`), or else asks Captain.
+   - When it needs a decision, it asks. `FeatureReportReactor` tells the Project manager, which
+     answers the pending question from the brief, the issue or earlier decisions
+     (`t3_pending_request` respond), or else asks Captain through R-7.
    - When it's done, the Builder opens the PR against `staging` with "Refs #123", and the Feature
      manager calls `t3_feature_finish`.
-7. The Project manager hears the result. Its turn ends, and the reply reactor posts its summary to
-   Captain's HQ.
+7. The Project manager hears the result in a later turn, as a server report with no sender. It looks
+   up the open request for that work (`t3_project_requests`) and answers R-7 with
+   `t3_project_reply({ done: true })`.
 8. The person, or a bot, merges the PR into `staging`. The server sees the merge and tells the
    Project manager once (Phase 4). The Project manager closes #123 with a comment linking the PR.
 
@@ -227,8 +236,9 @@ These go in the role's instructions. They are not hard rules.
 - Run one after another, or stack with `baseBranch`, when they edit the same files, change a shared
   contract or schema, or add database migrations (migration numbers collide). Do the same when one
   needs another's API or decision.
-- Before starting, look at what is running: open features, their branches and changed files
-  (`t3_worktree_status`), and open PRs. Prefer queuing over a likely merge conflict.
+- Before starting, look at what is running: open features and their branches (`t3_feature_list`),
+  each branch's changed files (`git diff --name-only <base>...<branch>`), and open PRs. Prefer
+  queuing over a likely merge conflict.
 - There is no cap on how many run at once. The Project manager, and an Epic's Feature manager
   within its milestone, judge it from the work. Today's "Run at most two children at once" in
   `EPIC_INSTRUCTIONS` goes too (Phase 1).
@@ -295,7 +305,11 @@ compatibility shim.
 
 - Set `roles.name` to 'Feature manager' where the name is still 'Project manager'. Bump its revision
   so open editors re-read it.
-- Make the same name change for `crew_members` with that role and the old name.
+- Make the same name change only for the project-level members, `bot-manager:*`. Feature-scoped
+  members keep their names: a custom workflow can have today's role as a crew member, its lead's
+  stored task names it "Project manager", and `FeatureService.crewMember` matches by current name
+  or role ID, so renaming it would break `delegate_task({ crewMember: "Project manager" })` in a
+  running feature. The migration test covers such a workflow.
 - Replace the old default instructions with the new ones only where they are unchanged. This follows
   `095_LeadWorkflows`, which replaced the manager text the same way.
 - Drop "Run at most two children at once" from the Epic workflow's instructions where they are
@@ -343,8 +357,15 @@ manager" wording in `features.ndjson`.
 - A new default role "Project manager", id `role:project-manager` (freed in Phase 1). It holds the
   defaults every project's manager starts from.
 - Its instructions hold the guidelines above.
-- Grants: `orchestration` (`delegate_task`, `t3_thread_send`/`read`) and `pull-requests`. Not
-  `crew.workflows`.
+- Grants: none ticked, like the other starter roles, so it gets every T3 toolkit an ordinary
+  thread gets. Ticking toolkits limits it to those (`crewMcpCapabilities`). Not `crew.workflows`.
+- **Crew tools need fixing first.** The `crew` capability, which every `crew_*` todo tool requires,
+  comes only from a `crew.*` grant, and the only one is the bot-only `crew.workflows`
+  (`crewMcpCapabilities.ts`). So today a feature lead can't call `crew_link_issue` or
+  `crew_list_issues` either, although `CrewGatedToolkits` lists them for every crew thread. Fix:
+  every crew thread (`isCrewThread`) gets `crew`, and `CrewGatedToolkits` keeps gating each tool.
+  That also fixes Feature managers. Test it with real tool calls on a default lead and a default
+  Project manager.
 - It can't be a workflow's lead or crew. `createWorkflow`/`updateWorkflow` refuse it, and the web and
   mobile role pickers and `roleAvailabilityNote` skip it.
 
@@ -355,35 +376,65 @@ manager" wording in `features.ndjson`.
 
 **Per-project settings** (the person's call: like a bot, but for one project)
 
-- Each project's manager has its own instructions, model, access and long-conversation setting. A
-  member already carries its own copy of these, so this edits the member and adds no new storage.
+- Each project's manager has its own instructions, model, access, tools and long-conversation
+  setting. A member already carries instructions, model, runtime mode and `allowedTools`. Add a
+  `long_conversation` column to `crew_members` and a member update operation in `CrewStore`.
+- **Live settings.** A bot's HQ reads its bot's current grants (`runGrants` joins `bots` for
+  `bot-hq:` runs) and model and mode (`syncHeadquarters`). Extend both to `project-hq:` runs, read
+  from the member. Otherwise MCP authorization keeps the standing run's grants from when it was
+  created. Feature and task runs keep their snapshots.
 - New projects start from the role's defaults. Editing the role changes managers created later,
   the same way roles already behave.
 - Where: a **Project manager** section in **Settings → Project** on web and desktop, and in the
-  project settings on mobile. Saving re-syncs the standing thread, as `syncHeadquarters` does for a
-  bot. New instructions reach it on its next new session, as they do for a bot's headquarters.
-- An RPC `crew.updateProjectManager({ projectId, instructions, modelSelection, runtimeMode,
+  project settings on mobile. Saving re-syncs the standing thread. New instructions reach it on its
+  next new session, as they do for a bot's headquarters.
+- Contracts: a read of the project's manager settings, and an RPC
+  `crew.updateProjectManager({ projectId, instructions, modelSelection, runtimeMode, allowedTools,
   longConversation })`, guarded in `CLIENT_GUARDED_RPC_SCOPES`.
 - Generalize `ensureHeadquarters` (lock, restore, pin, `syncSettings`, fresh start, `startNewSession`)
   to "standing runs" for bots and projects, rather than copying it.
 - The thread lives in the project, listed and pinned. Its workspace is the project checkout.
 
-**New MCP tool `t3_project_send({ projectId, message })`**
+**Requests: `t3_project_send`, `t3_project_reply`, `t3_project_requests`**
 
-- It ensures the Project manager exists and queues the message with the caller as sender. It returns
-  the thread ID and link.
-- Allowed for the HQ of the owning bot, or for a full-access caller.
+Results come back long after the turn that took the request. A feature finishes in a later turn,
+as a server report with no sender. So the link from request to requester is stored, not inferred
+from a turn's messages.
+
+- A `project_requests` table: `id` (R-n per project), `project_id`, `requester_thread_id`, `text`,
+  `status` (open or done), `created_at` and `closed_at`. The request record links to its work only
+  through its issue and the Project manager's own notes. The issue is the durable link, so there is
+  no table joining requests to features.
+- `t3_project_send({ projectId, message, requestId? })` ensures the Project manager exists, stores
+  the request, and queues the message headed with its ID and requester. It returns the request ID
+  and the thread link. A retry with the same `requestId` returns the same request. It is allowed for
+  the HQ of the owning bot, or for a full-access caller.
+- `t3_project_reply({ requestId, message, done? })`, Project manager only, posts to the requester
+  thread with a fixed message ID per reply. `done: true` closes the request.
+- `t3_project_requests({ status? })` lists the project's requests, so a fresh session finds what it
+  still owes.
+- Server notices (feature reports, merge notices) carry no request and never need a reply. The
+  instructions say so.
+- Fallback: when a Project manager turn that took a request message ends with no reply to that
+  request, the server posts the turn's last message to the requester once, as an interim reply. Key
+  it by request and run, so a restart doesn't repeat it.
 - A matching client RPC lets the person send from the UI later; that isn't needed in this phase.
 
-**Reply reactor**
+**Questions**
 
-When a Project manager turn that consumed messages from other threads ends, the reactor posts the
-Project manager's last message to each sender it didn't message itself during that turn. This
-mirrors `FeatureReportReactor`, so a bot always hears back, and the Project manager needs no "reply"
-tool.
+- A Feature manager's question reaches the Project manager through `FeatureReportReactor`, which
+  already posts when a lead waits on the person. The Project manager answers with
+  `t3_pending_request` (`list`, `read`, `respond`). Permission approvals stay with the person.
+- An Epic child's question doesn't reach its parent's lead today. Extend `FeatureReportReactor`: a
+  child's lead waiting on input notifies its parent's lead, the way a top-level lead notifies its
+  requester. Test a top-level question and an Epic child's question.
 
-- The reactor must use the message's `senderThreadId`.
-- Write a test for a turn that batches messages from two bots.
+**`t3_feature_list({ status?, parentFeatureId? })`** (moved here from Phase 3)
+
+- It returns the project's features: lead thread, branch, base branch, parent, issue, PR and its
+  state, requester, and the finished or report outcome. It reads what `board` already reads.
+- The Project manager needs it after a fresh session and to judge overlap. Phase 2's instructions
+  name only tools that ship in Phase 2.
 
 **Work the Project manager starts**
 
@@ -395,8 +446,14 @@ tool.
   board like features.
 
 **Bot HQ text:** "Hand each request for a project to its Project manager with `t3_project_send`; it
-picks task, feature or milestone and reports back here. Start a feature or task in the project
-yourself only when the person asks you to."
+picks task, feature or milestone and replies here. Start a feature or task in the project yourself
+only when the person asks you to."
+
+- An HQ run stores its task text when it is created, and a fresh start reuses that stored text. So
+  changing `headquartersTask()` alone leaves existing installs on the old routing, even after
+  `/new`. Add a migration like `098_ProjectHandoffs`. It replaces the stored HQ task text where it
+  is still stock, and the stock parts of bot instructions that send work straight to tasks or
+  features. Custom text stays.
 
 **Reads:** `t3_project_list` and `t3_project_read` gain `managerThreadId` (null until created).
 
@@ -410,7 +467,7 @@ yourself only when the person asks you to."
 
 **Docs:** user `bots.md` (bots → Project manager → features) and `features.md`. In internals
 `crew.md`, add a short section on the two managers, why the Project manager is a standing thread,
-and the reply reactor.
+and why requests are stored.
 
 **Evals (new cases):**
 
@@ -429,7 +486,7 @@ and the reply reactor.
 - Project managers on many projects mean idle threads, but an idle thread costs nothing until it gets
   a message.
 
-### Phase 3: the backlog (issues, milestones, feature list)
+### Phase 3: the backlog (issues and milestones)
 
 **Issue links at start**
 
@@ -452,12 +509,6 @@ and the reply reactor.
 - New tool `crew_comment_todo({ ref, body })`, so decisions survive a fresh session. This is
   optional; drop it if the Project manager keeps decisions on the issue some other way.
 
-**New read tool `t3_feature_list({ status?, parentFeatureId? })`**
-
-- It returns the project's features: lead thread, branch, base branch, parent, issue, PR and its
-  state, and the finished or report outcome. It reads what `board` already reads.
-- The Project manager needs it after a fresh session and to judge overlap. Bots can use it too.
-
 **Projects without GitHub:** tickets have no milestones, so big work is a parent feature plus a
 parent ticket. Linear isn't covered by `IssueService` today; the reference parsing can come from
 task-issue-links if it adds Linear.
@@ -471,17 +522,18 @@ issue creation has today. Check it on a GitHub App token.
 
 **Merge notice**
 
-- When a PR linked to a feature's lead thread, or to a task thread, becomes `merged`, notify that
-  work's requester (the Project manager) once.
-- Use a fixed message ID per PR so restarts don't repeat it.
+- Derive it from persisted PR snapshot updates. `PullRequestSyncReactor` already refreshes every
+  linked PR's snapshot, merges included. Linking a PR doesn't start a watch, and a watch can end
+  early (settled thread, comment limit), so hooking `PullRequestWatchReactor` would miss merges.
+  Watches stay optional and for reviews only.
+- Send the notice to the **project's Project manager**, not the work's requester. An Epic child has
+  no requester, and work a bot started directly has the bot's HQ as requester; the Project manager
+  owns closing issues either way. The PR has to be linked to a thread of a feature or of a task in
+  the project.
+- Key it by host, repository and PR number, with a fixed message ID, so restarts and
+  several threads linking the same PR don't repeat it. On startup, reconcile merged snapshots that
+  have no notice yet.
 - The notice names the feature, issue, milestone and target branch.
-- Hook it into `PullRequestWatchReactor`'s merged transition.
-
-**Watching**
-
-- Verify that feature and task PRs are watched by default. `c047f66ad5` keeps tracking on listed
-  handoff threads, but lead threads in the same project need checking.
-- If they aren't, turn on a tracking-only watch when a feature's PR is linked.
 
 **Closing**
 
@@ -499,8 +551,8 @@ it. A visible state guards against a missed close: the board shows "merged, issu
 **`main` merges:** when `staging` later merges into `main`, GitHub's auto-close of "Closes #N"
 finds the issue already closed and does nothing.
 
-**Risk:** PR-watch quota. The watch sweeps every 2 minutes, and more watched PRs mean more host
-calls. Use the existing fingerprint path.
+**Risk:** none on host quota. The notice reads snapshots the sync reactor already keeps, and adds
+no host calls.
 
 ### Phase 5: cleanup
 
@@ -508,12 +560,13 @@ calls. Use the existing fingerprint path.
   `delegate_task` with `target.projectId`. The HQ instructions from Phase 2 make the Project manager
   the default, and the bot starts work directly only when the person asks. There is no server limit.
 - A feature or task a bot starts directly still belongs to the project. Its requester is the bot's
-  HQ, so the Project manager doesn't hear its reports. `t3_feature_list` still shows it, so the
-  Project manager sees it when judging overlap and when closing issues after a merge.
+  HQ, so the Project manager doesn't hear its reports. `t3_feature_list` still shows it, and merge
+  notices go to the Project manager anyway (Phase 4).
 - Delete what is dead: `bot-builder:<projectId>` and its delegation grant, which nothing reads since
   lead-and-crew, and `startRequest` and the `crewStart` RPC if Phase 1 found them unused.
-- #56's Lineage on a bot HQ then shows the Project manager threads it messaged. The Project
-  manager's Lineage shows its features and tasks.
+- Lineage: #56 makes the Project manager's Lineage show the features it started. A bot's Lineage
+  won't show the Project manager, because a sent message isn't a Lineage edge. A bot reaches it
+  through the link in its reply and **Open project manager**. No new Lineage edge.
 
 This phase is small; fold it into Phase 4 if that PR has room.
 
