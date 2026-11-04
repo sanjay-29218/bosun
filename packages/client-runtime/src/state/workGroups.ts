@@ -173,7 +173,10 @@ export function boardChatThreads<
   T extends WorkGroupThread & {
     readonly archivedAt: unknown;
     readonly delegatedFrom: unknown;
-    readonly lineage: { readonly relationshipToParent: string | null; readonly listed?: boolean };
+    readonly lineage: {
+      readonly relationshipToParent: string | null;
+      readonly listed?: boolean | undefined;
+    };
   },
 >(threads: ReadonlyArray<T>): T[] {
   const rows = threads.filter(
