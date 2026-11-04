@@ -433,11 +433,26 @@ export const FeatureServiceLive = Layer.effect(
     const requireWorkflow = Effect.fn("FeatureService.requireWorkflow")(function* (
       workflowId: string,
     ) {
-      const workflow = yield* crew.getWorkflow(workflowId);
-      if (!workflow) {
-        return yield* Effect.fail(new FeatureValidationError(`Workflow not found: ${workflowId}`));
-      }
-      return workflow;
+      const exact = yield* crew.getWorkflow(workflowId);
+      if (exact) return exact;
+      // Agents name a workflow loosely: its ID without the prefix, or its name.
+      const wanted = workflowId
+        .trim()
+        .toLowerCase()
+        .replace(/^workflow:/, "");
+      const workflows = yield* crew.listWorkflows();
+      const match = workflows.find(
+        (workflow) =>
+          workflow.id.replace(/^workflow:/, "") === wanted ||
+          workflow.name.trim().toLowerCase() === wanted,
+      );
+      if (match) return match;
+      const known = workflows.map((workflow) => `${workflow.id} (${workflow.name})`).join(", ");
+      return yield* Effect.fail(
+        new FeatureValidationError(
+          `Workflow not found: ${workflowId}. Use one of: ${known}, or leave workflowId out for Feature delivery.`,
+        ),
+      );
     });
 
     /**
@@ -810,13 +825,15 @@ export const FeatureServiceLive = Layer.effect(
             .requireBranch(input.projectId, baseBranch)
             .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
         }
+        // The stored ID, however the caller named it, so a retry is the same request.
+        const workflow = input.workflowId ? yield* requireWorkflow(input.workflowId) : null;
         const feature = yield* create({
           id: input.featureId ?? `feature:${NodeCrypto.randomUUID()}`,
           projectId: input.projectId,
           title: input.title.trim(),
           brief: input.brief.trim(),
           ...(input.workspace ? { workspace: input.workspace } : {}),
-          ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+          ...(workflow ? { workflowId: workflow.id } : {}),
           ...(baseBranch ? { baseBranch } : {}),
           ...(input.parentFeatureId ? { parentFeatureId: input.parentFeatureId } : {}),
         });

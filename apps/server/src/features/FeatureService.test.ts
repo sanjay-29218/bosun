@@ -278,6 +278,26 @@ describe("feature lead and crew", () => {
           workflowId: EPIC_WORKFLOW_ID,
         });
         expect((yield* userTexts(parent.leadThreadId))[0]).toMatch(/^Workflow: Epic$/m);
+        // Agents name workflows loosely; an unknown one lists the real ones.
+        const named = yield* features.launch({
+          projectId,
+          title: "Port to Linux",
+          brief: "Port the app to Linux",
+          workspace: "local",
+          workflowId: "epic",
+        });
+        expect(named.feature.workflowId).toBe(EPIC_WORKFLOW_ID);
+        const unknown = (yield* Effect.flip(
+          features.launch({
+            projectId,
+            title: "Port to BeOS",
+            brief: "Port the app to BeOS",
+            workflowId: "lead-driven",
+          }),
+        )).message;
+        expect(unknown).toContain("Workflow not found: lead-driven. Use one of:");
+        expect(unknown).toContain("workflow:feature-delivery (Feature delivery)");
+        expect(unknown).toContain("workflow:epic (Epic)");
         const child = yield* features.launch({
           projectId,
           title: "App shell",
