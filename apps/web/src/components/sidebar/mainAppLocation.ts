@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
+import { withoutAssistantCitationHash } from "../../lib/assistantCitationNavigation";
 import { readActiveLogicalBotKey, requestBotFirstThread } from "../../state/botRail";
 import { readActiveEnvironmentId } from "../../state/entities";
 
@@ -128,8 +129,9 @@ function rememberMainView(environmentId: EnvironmentId | null, view: MainView) {
  */
 export function startMainAppLocationTracking(router: AnyRouter): () => void {
   const record = () => {
-    const { pathname, href } = router.state.location;
+    const { pathname } = router.state.location;
     if (isAppModalPage(pathname) || SHELL_LESS_PATHS.has(pathname)) return;
+    const href = withoutAssistantCitationHash(router.state.location.href);
     appModalReturnHref = href;
     if (isSidebarUtilityPage(pathname)) return;
     mainAppHref = href;

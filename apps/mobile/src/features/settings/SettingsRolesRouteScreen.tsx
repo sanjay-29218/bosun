@@ -9,8 +9,8 @@ import {
 } from "../../lib/modelOptions";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import {
-  AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
+  useSettingsEnvironmentMenu,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -21,13 +21,14 @@ import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-en
 export function SettingsRolesRouteScreen() {
   const { selectedTargets } = useSettingsEnvironmentFilter();
   const insets = useSafeAreaInsets();
+  const environmentMenu = useSettingsEnvironmentMenu();
   const targets = selectedTargets.filter(
     (target) => target.serverConfig.environment.capabilities.crew === true,
   );
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Roles" trailing={<AndroidSettingsEnvironmentFilter />}>
+      <SettingsScreen title="Roles" menus={[environmentMenu]}>
         <ScreenScrollView
           className="flex-1"
           contentInsetAdjustmentBehavior="automatic"

@@ -119,8 +119,10 @@ search. See [Features](./features.md).
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `featuresPageOpen`, `composerFocus`, `draftThreadRoute`,
-`turnRunning`, `editableFocus`, `isWeb`, `isDesktop`, `isMac`, and `multipleBots`.
+`previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `featuresPageOpen`,
+`composerFocus`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, `isDesktop`,
+`isMac`, and `multipleBots`. `rightPanelOpen` applies only to `rightPanel.new` and is true
+while the right panel is open; the default `mod+t` uses it to open the panel's new-tab menu.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the

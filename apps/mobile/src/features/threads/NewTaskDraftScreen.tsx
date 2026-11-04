@@ -1025,7 +1025,6 @@ export function NewTaskDraftScreen(props: {
         header={
           <AppBar
             title="New thread"
-            sidebar={false}
             onBack={goBack}
             options={{
               ...threadHeaderAppearance(NATIVE_LIQUID_GLASS_SUPPORTED),

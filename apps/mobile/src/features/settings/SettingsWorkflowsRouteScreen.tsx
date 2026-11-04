@@ -3,8 +3,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import {
-  AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
+  useSettingsEnvironmentMenu,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -15,13 +15,14 @@ import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 export function SettingsWorkflowsRouteScreen() {
   const { selectedTargets } = useSettingsEnvironmentFilter();
   const insets = useSafeAreaInsets();
+  const environmentMenu = useSettingsEnvironmentMenu();
   const targets = selectedTargets.filter(
     (target) => target.serverConfig.environment.capabilities.crew === true,
   );
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Workflows" trailing={<AndroidSettingsEnvironmentFilter />}>
+      <SettingsScreen title="Workflows" menus={[environmentMenu]}>
         <ScreenScrollView
           className="flex-1"
           contentInsetAdjustmentBehavior="automatic"
