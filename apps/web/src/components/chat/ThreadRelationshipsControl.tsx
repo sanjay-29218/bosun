@@ -512,12 +512,15 @@ export function ThreadRelationshipsPanel(props: {
     related = [],
     active = [],
     previous = [],
+    handedOff = [],
     sideChats = [],
   } = groupBy(relationshipRows, ({ threadId, edge }) => {
     const isParent = isParentThreadRelationship(edge, props.threadId);
-    if (!isParent && graph.nodes.get(threadId)?.thread?.lineage.sideChat === true)
-      return "sideChats";
+    const lineage = graph.nodes.get(threadId)?.thread?.lineage;
+    if (!isParent && lineage?.sideChat === true) return "sideChats";
     if (edge.kind !== "subagent" || isParent) return "related";
+    // Work handed to another project lives in that project's list; this is the link to it.
+    if (lineage?.listed === true) return "handedOff";
     return ["completed", "failed", "error", "cancelled", "interrupted", "idle"].includes(
       edge.status ?? "",
     )
@@ -527,6 +530,7 @@ export function ThreadRelationshipsPanel(props: {
   const groups = [
     { id: "related", label: null, rows: related, expanded: true },
     { id: "active", label: null, rows: active, expanded: true },
+    { id: "handedOff", label: "Handed to projects", rows: handedOff, expanded: true },
     { id: "previous", label: "Previous agents", rows: previous, expanded: false },
   ];
   // Tasks running in a linked environment have no thread here; they get their own rows.
@@ -547,6 +551,7 @@ export function ThreadRelationshipsPanel(props: {
     (related.length > 0 ||
       active.length > 0 ||
       previous.length > 0 ||
+      handedOff.length > 0 ||
       runningCount > 0 ||
       remoteSubagents.length > 0 ||
       delegatedFrom !== undefined ||
