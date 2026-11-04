@@ -31,6 +31,8 @@ export const ThreadFeatureTag = Schema.Struct({
   issue: Schema.optionalKey(FeatureIssue),
   /** The crew member a delegated thread runs as, such as "Planner"; absent on the lead. */
   member: Schema.optionalKey(Schema.String),
+  /** The thread that started the feature, on its lead's tag. */
+  requesterThreadId: Schema.optionalKey(ThreadId),
 });
 export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
 

@@ -207,6 +207,34 @@ describe("thread relationships", () => {
     );
   });
 
+  it("links a feature's lead, not its crew, to the thread that started it", () => {
+    const starter = ThreadId.make("thread-hq");
+    const lead = ThreadId.make("thread-lead");
+    const crew = ThreadId.make("thread-crew");
+    const feature = { id: "feature-1", title: "Dark mode", requesterThreadId: starter };
+    const graph = deriveThreadRelationshipGraph({
+      threads: [
+        { id: starter, status: "completed", lineage: { parentThreadId: null } },
+        {
+          id: lead,
+          status: "running",
+          feature,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+        },
+        {
+          id: crew,
+          status: "running",
+          feature: { ...feature, member: "Builder" },
+          lineage: { parentThreadId: lead, relationshipToParent: "subagent" },
+        },
+      ] as never,
+      projection: null,
+    });
+    expect(graph.edges.filter((edge) => edge.kind === "feature")).toEqual([
+      { sourceThreadId: starter, targetThreadId: lead, kind: "feature", status: "running" },
+    ]);
+  });
+
   it("keeps the live shell when an archived snapshot contains the same thread id", () => {
     const parent = ThreadId.make("thread-parent");
     const staleParent = ThreadId.make("thread-stale-parent");

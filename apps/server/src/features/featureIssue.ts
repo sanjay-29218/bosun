@@ -1,4 +1,4 @@
-import { FeatureIssue, type ThreadFeatureTag } from "@t3tools/contracts";
+import { FeatureIssue, type ThreadFeatureTag, type ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -15,10 +15,12 @@ export const featureTag = (feature: {
   readonly id: string;
   readonly title: string;
   readonly issue: FeatureIssue | null;
+  readonly requesterThreadId?: ThreadId | null | undefined;
 }): ThreadFeatureTag => ({
   id: feature.id,
   title: feature.title,
   ...(feature.issue ? { issue: feature.issue } : {}),
+  ...(feature.requesterThreadId ? { requesterThreadId: feature.requesterThreadId } : {}),
 });
 
 /** The issue number in an issue link: GitHub's /owner/repo/issues/N or GitLab's /-/issues/N. */

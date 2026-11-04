@@ -201,6 +201,18 @@ describe("feature lead and crew", () => {
         expect(yield* features.requesterThreadId("launched-feature")).toBe(
           "bot-run:bot-hq:bot-captain",
         );
+        const engine = yield* OrchestrationEngineService;
+        const requesterOf = () =>
+          engine
+            .getThreadShell(first.leadThreadId)
+            .pipe(Effect.map((shell) => shell?.feature?.requesterThreadId));
+        expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-captain");
+        yield* features.setIssue({
+          id: "launched-feature",
+          projectId,
+          url: "https://github.com/owner/repo/issues/42",
+        });
+        expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-captain");
       }),
     ),
   );

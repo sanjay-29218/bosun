@@ -6,7 +6,17 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer";
+export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer" | "feature";
+
+/** The thread that started the feature this thread leads; crew threads share the tag. */
+export function featureRequesterThreadId(
+  thread: Pick<OrchestrationV2ThreadShell, "feature" | "lineage">,
+): ThreadId | null {
+  const feature = thread.feature;
+  if (!feature?.requesterThreadId || feature.member !== undefined) return null;
+  if (thread.lineage.relationshipToParent === "subagent") return null;
+  return feature.requesterThreadId;
+}
 
 export interface ThreadRelationshipNode {
   readonly threadId: ThreadId;
@@ -86,6 +96,15 @@ export function deriveThreadRelationshipGraph(input: {
       ? [...threads, { ...selectedThread, activityRunStatus: null, status: null }]
       : threads;
   for (const thread of lineageThreads) {
+    const requesterThreadId = featureRequesterThreadId(thread);
+    if (requesterThreadId !== null && requesterThreadId !== thread.id) {
+      addEdge({
+        sourceThreadId: requesterThreadId,
+        targetThreadId: thread.id,
+        kind: "feature",
+        status: thread.activityRunStatus ?? thread.status,
+      });
+    }
     const parentThreadId =
       thread.forkedFrom?.type === "run"
         ? thread.forkedFrom.threadId
