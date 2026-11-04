@@ -189,6 +189,8 @@ export interface EnvironmentThreadShell {
   readonly feature?: import("@t3tools/contracts").ThreadFeatureTag | null;
   /** The bot request this handoff thread works on; null outside a handoff chain. */
   readonly crewRequest?: import("@t3tools/contracts").ThreadCrewRequestTag | null;
+  /** The issue a delegated task works on, apart from its feature's; null when it has none. */
+  readonly issue?: import("@t3tools/contracts").FeatureIssue | null;
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -300,6 +302,7 @@ export function presentThreadShell(
     branchPullRequest: thread.branchPullRequest ?? null,
     feature: thread.feature ?? null,
     crewRequest: thread.crewRequest ?? null,
+    issue: thread.issue ?? null,
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
     linkOrigin: thread.linkOrigin ?? null,

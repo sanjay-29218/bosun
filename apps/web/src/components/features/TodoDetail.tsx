@@ -43,7 +43,7 @@ import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger }
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { FeatureIssueIcon } from "../crew/FeatureIssue";
+import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { featureStatus } from "./FeatureCard";
 import { cn } from "../../lib/utils";
 import {

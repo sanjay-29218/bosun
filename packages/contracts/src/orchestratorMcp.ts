@@ -176,6 +176,12 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
         "Feature leads: a crew member's name, such as 'Planner'. The child runs as that member, with its instructions and model, in the feature's checkout.",
     }),
   ),
+  issue: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Issue it works on: a link, `#56`, `T-14`, or a key like `LIN-123`. Its thread shows it; the child cites it in its PR.",
+    }),
+  ),
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:

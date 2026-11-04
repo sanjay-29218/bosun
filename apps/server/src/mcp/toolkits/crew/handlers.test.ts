@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import { FeatureService } from "../../../features/FeatureService.ts";
@@ -24,6 +25,17 @@ import { CrewToolkit } from "./tools.ts";
 
 const projectId = ProjectId.make("project:bots");
 const stageThread = ThreadId.make("bot-run:stage");
+/** A task the stage thread delegated, one another thread delegated, and a feature's lead. */
+const taskThread = ThreadId.make("bot-run:task");
+const strangerTask = ThreadId.make("bot-run:stranger-task");
+const leadThread = ThreadId.make("feature:lead");
+const delegatedBy = (parent: ThreadId) => ({
+  lineage: {
+    rootThreadId: parent,
+    parentThreadId: parent,
+    relationshipToParent: "subagent" as const,
+  },
+});
 const issueList: IssueList = {
   repository: "acme/web",
   unavailable: null,
@@ -86,7 +98,7 @@ const ticket: Ticket = {
   closedAt: null,
 };
 
-const layerAs = (threadId: ThreadId) =>
+const layerAs = (threadId: ThreadId, features: Partial<FeatureService["Service"]> = {}) =>
   McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -103,9 +115,16 @@ const layerAs = (threadId: ThreadId) =>
           issuedAt: 0,
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
-          getThreadShell: (id) => Effect.succeed({ ...liveThreadShell(id), projectId }),
+          getThreadShell: (id) =>
+            Effect.succeed({
+              ...liveThreadShell(id),
+              projectId,
+              ...(id === taskThread ? delegatedBy(stageThread) : {}),
+              ...(id === strangerTask ? delegatedBy(ThreadId.make("bot-run:other")) : {}),
+              ...(id === leadThread ? { feature: { id: "feature:dark", title: "Dark mode" } } : {}),
+            }),
         }),
-        Layer.mock(FeatureService)({}),
+        Layer.mock(FeatureService)(features),
         Layer.mock(IssueService.IssueService)({
           list: (project) =>
             project === projectId
@@ -183,4 +202,69 @@ it.effect("reads a todo as a ticket for T-<number> and refuses an unnamed one", 
     const unnamed = yield* Effect.flip(read("the board one"));
     expect(unnamed.message).toContain("T-<number>");
   }).pipe(Effect.provide(layerAs(stageThread))),
+);
+
+it.effect("links an issue to the caller's feature, its own task, or a task it delegated", () =>
+  Effect.gen(function* () {
+    const linked = yield* Ref.make<ReadonlyArray<string>>([]);
+    const issue = {
+      url: "https://linear.app/acme/issue/LIN-9",
+      key: "LIN-9",
+      number: 9,
+      title: "Login fails",
+      state: "open" as const,
+      milestone: null,
+      subIssues: null,
+    };
+    const features = {
+      setThreadIssue: (threadId: ThreadId, ref: string | null) =>
+        Ref.update(linked, (all) => [...all, `task ${threadId}`]).pipe(
+          Effect.as(ref === null ? null : issue),
+        ),
+      setIssueForThread: (threadId: ThreadId) =>
+        Ref.update(linked, (all) => [...all, `feature of ${threadId}`]).pipe(
+          Effect.as({ id: "feature:dark", issue } as never),
+        ),
+    };
+    const link = (caller: ThreadId, params: { url: string | null; threadId?: ThreadId }) =>
+      Effect.gen(function* () {
+        const toolkit = yield* CrewToolkit;
+        const chunks = yield* toolkit
+          .handle("crew_link_issue", params)
+          .pipe(Stream.unwrap, Stream.runCollect);
+        return chunks.at(-1)?.result;
+      }).pipe(Effect.provide(layerAs(caller, features)));
+    const linkedIssue = { ref: "LIN-9", title: "Login fails" };
+
+    expect(yield* link(stageThread, { url: "LIN-9" })).toEqual({
+      featureId: null,
+      threadId: stageThread,
+      issue: linkedIssue,
+    });
+    expect(yield* link(stageThread, { url: "LIN-9", threadId: taskThread })).toEqual({
+      featureId: null,
+      threadId: taskThread,
+      issue: linkedIssue,
+    });
+    expect(yield* link(stageThread, { url: null, threadId: taskThread })).toEqual({
+      featureId: null,
+      threadId: taskThread,
+      issue: null,
+    });
+    expect(yield* link(leadThread, { url: "LIN-9" })).toEqual({
+      featureId: "feature:dark",
+      threadId: null,
+      issue: linkedIssue,
+    });
+    const stranger = yield* Effect.flip(
+      link(stageThread, { url: "LIN-9", threadId: strangerTask }),
+    );
+    expect(stranger.message).toContain("a task this thread delegated");
+    expect(yield* Ref.get(linked)).toEqual([
+      `task ${stageThread}`,
+      `task ${taskThread}`,
+      `task ${taskThread}`,
+      `feature of ${leadThread}`,
+    ]);
+  }),
 );

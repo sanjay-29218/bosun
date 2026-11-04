@@ -14,6 +14,7 @@ import {
   type OrchestrationV2ThreadShell,
   type ScheduledTask,
   ScheduledTaskId,
+  IssueOperationError,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -1940,11 +1941,12 @@ describe("OrchestratorMcpService provider resolution", () => {
     }),
   );
 
-  it.effect("runs a local task in the project it names, worktree included", () =>
+  it.effect("runs a local task in the project it names, worktree and issue included", () =>
     Effect.gen(function* () {
       const appProjectId = ProjectId.make("project:app");
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const resolvedIn = yield* Ref.make<ReadonlyArray<string>>([]);
+      const issuesReadIn = yield* Ref.make<ReadonlyArray<string>>([]);
       const task = {
         id: taskId,
         threadId: parentThreadId,
@@ -2014,6 +2016,28 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
         Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
         ServerSettings.layerTest(),
+        Layer.succeed(
+          CrewDelegation,
+          CrewDelegation.of({
+            member: () => Effect.succeed(null),
+            names: () => Effect.succeed([]),
+            resolveIssue: (projectId, ref) =>
+              Ref.update(issuesReadIn, (ids) => [...ids, projectId]).pipe(
+                Effect.andThen(
+                  ref === "#56"
+                    ? Effect.succeed({
+                        url: "https://github.com/acme/app/issues/56",
+                        number: 56,
+                        title: "Login fails",
+                        state: "open" as const,
+                        milestone: null,
+                        subIssues: null,
+                      })
+                    : Effect.fail(new IssueOperationError({ reason: "Paste a link to an issue" })),
+                ),
+              ),
+          }),
+        ),
       );
       const service = OrchestratorMcpService.layer.pipe(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
@@ -2034,13 +2058,32 @@ describe("OrchestratorMcpService provider resolution", () => {
           task: "Fix the login bug.",
           target: { projectId: appProjectId },
           isolation: "worktree",
+          issue: "#56",
           clientRequestId: "delegate-other-project-1",
         });
         const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
           readonly projectId?: string;
           readonly workspaceStrategy?: unknown;
+          readonly task: string;
+          readonly issue?: { readonly number: number };
         }>;
         assert.equal(request!.projectId, appProjectId);
+        // The issue is read in the task's project, kept on its thread, and named in its task.
+        assert.deepEqual(yield* Ref.get(issuesReadIn), [appProjectId]);
+        assert.equal(request!.issue?.number, 56);
+        assert.equal(
+          request!.task,
+          'Fix the login bug.\n\nThis task works on Issue #56 Login fails (https://github.com/acme/app/issues/56). Reference it in the description of any pull request for this work: "Closes #56" when the work resolves it, "Refs #56" when it only contributes.',
+        );
+        const unreadable = yield* mcp
+          .delegateTask(scope, {
+            task: "Fix the login bug.",
+            target: { projectId: appProjectId },
+            issue: "nope",
+            clientRequestId: "delegate-other-project-3",
+          })
+          .pipe(Effect.flip);
+        assert.include(unreadable.message, "Unable to link issue nope");
         assert.deepEqual(request!.workspaceStrategy, {
           type: "worktree",
           baseRef: "abc123",
@@ -2183,6 +2226,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                     : null,
                 ),
               names: () => Effect.succeed(["Planner", "Builder"]),
+              resolveIssue: () => Effect.die("unused"),
             }),
           ),
         );

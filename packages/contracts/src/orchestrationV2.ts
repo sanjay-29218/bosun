@@ -85,7 +85,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
-import { ThreadCrewRequestTag, ThreadFeatureTag } from "./features.ts";
+import { FeatureIssue, ThreadCrewRequestTag, ThreadFeatureTag } from "./features.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -523,6 +523,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   ),
   /** The feature this thread works on, as a stage or as its lead; absent otherwise. */
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
+  /** The issue a delegated task works on, apart from any feature's. */
+  issue: Schema.optional(Schema.NullOr(FeatureIssue)),
   /** The bot request a crew handoff thread works on; absent outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -2166,6 +2168,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   ),
   /** The feature this thread works on; omitted for plain threads and older servers. */
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
+  /** The issue a delegated task works on; omitted when it has none. */
+  issue: Schema.optional(Schema.NullOr(FeatureIssue)),
   /** The bot request this handoff thread works on; omitted outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -3350,6 +3354,8 @@ export const OrchestrationV2Command = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
     /** The feature crew member the child runs as, named on its feature tag. */
     crewMember: Schema.optional(TrimmedNonEmptyString),
+    /** The issue the child works on, shown with its thread. */
+    issue: Schema.optional(FeatureIssue),
     modelSelection: ModelSelection,
     runtimeMode: RuntimeMode,
     interactionMode: ProviderInteractionMode,
@@ -3459,6 +3465,8 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
     crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
+    /** The issue a delegated task works on; null unlinks it. */
+    issue: Schema.optional(Schema.NullOr(FeatureIssue)),
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   /**

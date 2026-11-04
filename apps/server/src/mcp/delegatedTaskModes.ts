@@ -1,4 +1,6 @@
 import {
+  featureIssueRef,
+  type FeatureIssue,
   type ModelSelection,
   OrchestratorMcpFailure,
   type OrchestratorMcpDelegateTaskInput,
@@ -87,9 +89,26 @@ export function resolveInteractionMode(
     : Effect.succeed(resolved);
 }
 
-/** The task as its child receives it, with the role the caller asked for. */
-export function taskPrompt(input: OrchestratorMcpDelegateTaskInput): string {
-  return input.role === undefined || input.role === "general"
-    ? input.task
-    : `Act as the ${input.role} sub-agent for this task.\n\n${input.task}`;
+/**
+ * The task as its child receives it, with the role the caller asked for and the issue it works
+ * on: `issue` as linked, else the caller's own reference when it could not be read here.
+ */
+export function taskPrompt(input: OrchestratorMcpDelegateTaskInput, issue?: FeatureIssue): string {
+  const task =
+    input.role === undefined || input.role === "general"
+      ? input.task
+      : `Act as the ${input.role} sub-agent for this task.\n\n${input.task}`;
+  const ref = issue ? featureIssueRef(issue) : input.issue?.trim() || undefined;
+  if (ref === undefined) return task;
+  const name = issue
+    ? [
+        issue.ticketId === undefined ? "Issue" : "Ticket",
+        ref,
+        issue.title,
+        issue.url && `(${issue.url})`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : `Issue ${ref}`;
+  return `${task}\n\nThis task works on ${name}. Reference it in the description of any pull request for this work: "Closes ${ref}" when the work resolves it, "Refs ${ref}" when it only contributes.`;
 }

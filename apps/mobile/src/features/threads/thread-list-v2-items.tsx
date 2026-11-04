@@ -839,6 +839,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
   const crewMember = thread.feature?.member ?? null;
+  const issue = thread.issue ?? thread.feature?.issue;
   const statusLabel =
     (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
       ? { ...workingLabel, label: "Goal" }
@@ -1371,7 +1372,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             </Text>
           </View>
         ) : null}
-        {thread.feature?.issue ? (
+        {issue ? (
           <Text
             className={cn(
               "shrink-0 text-2xs font-t3-medium",
@@ -1380,7 +1381,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 : rowAppearance.mutedForegroundClassName,
             )}
           >
-            {featureIssueRef(thread.feature.issue)}
+            {featureIssueRef(issue)}
           </Text>
         ) : null}
         {crewMember !== null && !props.workGroup ? (

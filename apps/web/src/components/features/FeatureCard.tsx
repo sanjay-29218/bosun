@@ -19,7 +19,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { featureIssueRef, type EnvironmentId } from "@t3tools/contracts";
 import {
   AlarmClockOffIcon,
   CheckIcon,
@@ -52,7 +52,7 @@ import { useNowSecond } from "../../hooks/useNowSecond";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import { formatRelativeTime } from "../../timestampFormat";
-import { FeatureIssueIcon } from "../crew/FeatureIssue";
+import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
@@ -413,6 +413,12 @@ export const ChatCard = memo(function ChatCard(props: {
         <CardTitle title={chatTitle(shell)} onOpen={() => props.handlers.onOpenChat(shell)} />
         <div className="mt-1 flex min-w-0 items-center gap-1.5 text-secondary-label">
           <MessageSquareIcon aria-label="Thread" className="size-3 shrink-0" />
+          {shell.issue ? (
+            <span className="flex shrink-0 items-center gap-1 tabular-nums">
+              <FeatureIssueIcon issue={shell.issue} className="size-3" />
+              {featureIssueRef(shell.issue)}
+            </span>
+          ) : null}
           {shell.branch ? (
             <span className="flex min-w-0 flex-1 items-center gap-1">
               <GitBranchIcon aria-hidden className="size-3 shrink-0" />

@@ -48,5 +48,6 @@ export const closeNewTodoDialog = () => appAtomRegistry.set(newTodoDialogAtom, n
 /** Opens a feature's linked issue: a ticket in the todo sheet, an issue on its host. */
 export function openFeatureIssue(owner: TodoOwner, issue: FeatureIssue): void {
   if (issue.ticketId !== undefined) openTodo({ ...owner, ticketId: issue.ticketId });
-  else void readLocalApi()?.shell.openExternal(issue.url);
+  // A bare tracker key, such as `LIN-123`, has nowhere to open.
+  else if (issue.url) void readLocalApi()?.shell.openExternal(issue.url);
 }
