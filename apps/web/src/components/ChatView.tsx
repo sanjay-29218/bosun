@@ -57,6 +57,7 @@ import {
   AuthTerminalOperateScope,
   type AssistantCitation,
   type ChatFileAttachment,
+  headquartersBotId,
   isProviderNativeSubagentThread,
   orchestrationV2WorktreePending,
   type EnvironmentId,
@@ -258,6 +259,7 @@ import {
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { startBotNewSession } from "./bots/startBotNewSession";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
@@ -2903,6 +2905,12 @@ export default function ChatView(props: ChatViewProps) {
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const sendSideChatStable = useStableCallback((prompt: string) => sideChat.open(prompt));
+  const headquartersBot =
+    isServerThread && activeThread && canOperateThread ? headquartersBotId(activeThread.id) : null;
+  const startNewSessionStable = useStableCallback(() => {
+    if (headquartersBot === null || !activeThread) return;
+    void startBotNewSession(environmentId, { id: headquartersBot, name: activeThread.title });
+  });
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
       environmentId,
@@ -3761,6 +3769,9 @@ export default function ChatView(props: ChatViewProps) {
                               onToggleKeepFullHistory={toggleKeepFullHistoryStable}
                               sideChatAvailable={sideChat.available}
                               sideChatDisabledReason={sideChatDisabledReason}
+                              onNewSessionCommand={
+                                headquartersBot === null ? undefined : startNewSessionStable
+                              }
                               onUsageLimitsCommand={
                                 usageLimitsOffered &&
                                 usageLimitsKey !== null &&

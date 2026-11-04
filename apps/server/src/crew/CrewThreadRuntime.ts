@@ -2,6 +2,7 @@ import {
   ChatAttachment,
   OrchestrationMessageContext,
   headquartersBotId,
+  BOT_FRESH_START_LABEL,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
   CommandId,
@@ -365,7 +366,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
               {
                 version: 1,
                 contextId: ComposerContextId.make("bot-origin"),
-                label: "Fresh start",
+                label: BOT_FRESH_START_LABEL,
                 kind: "bot",
                 payload: { memberId: "crew", runId: input.runId },
               },

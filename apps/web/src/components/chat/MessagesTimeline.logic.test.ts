@@ -1,4 +1,4 @@
-import { ThreadId, type WorktreeSetupSnapshot } from "@t3tools/contracts";
+import { BOT_FRESH_START_LABEL, ThreadId, type WorktreeSetupSnapshot } from "@t3tools/contracts";
 import {
   CheckpointRef,
   NodeId,
@@ -839,6 +839,49 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRows).toHaveLength(2);
     expect(assistantRows[0]?.showAssistantCopyButton).toBe(false);
     expect(assistantRows[1]?.showAssistantCopyButton).toBe(true);
+  });
+
+  it("marks where a headquarters' fresh-start briefing begins a new session", () => {
+    const userMessage = (id: string, label: string, createdAt: string) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt,
+      message: {
+        id: id as never,
+        role: "user" as const,
+        text: "This is a fresh session.",
+        context: {
+          version: 1 as const,
+          records: [
+            {
+              version: 1 as const,
+              contextId: "bot-origin" as never,
+              label,
+              kind: "bot",
+              payload: { memberId: "crew" },
+            },
+          ],
+        },
+        runId: null,
+        createdAt,
+        updatedAt: createdAt,
+        streaming: false,
+      },
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        userMessage("opening", "bot-captain", "2026-01-01T00:00:00Z"),
+        userMessage("briefing", BOT_FRESH_START_LABEL, "2026-01-01T01:00:00Z"),
+      ],
+      expandedRunIds: new Set(),
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "session-start", "message"]);
+    expect(rows[1]?.createdAt).toBe("2026-01-01T01:00:00Z");
   });
 
   it("projects assistant diffs and rewinds the first visible run to thread start after a rewind", () => {

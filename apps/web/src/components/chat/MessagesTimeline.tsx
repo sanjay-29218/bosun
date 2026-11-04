@@ -59,6 +59,7 @@ import {
   CircleAlertIcon,
   MessagesSquareIcon,
   Minimize2Icon,
+  RefreshCwIcon,
 } from "lucide-react";
 import { ChevronDown, ChevronRight } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -1490,6 +1491,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow key={row.id} row={row} /> : null}
       {row.kind === "attempt-fold" ? <AttemptFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
+      {row.kind === "session-start" ? <SessionStartTimelineRow /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserMessageRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
@@ -1575,6 +1577,23 @@ function ContextCompactionTimelineRow({
         {row.active ? <ActivityShimmerOverlay>{content}</ActivityShimmerOverlay> : null}
       </span>
       <span className={cn("h-px flex-1", row.failed ? "bg-destructive/30" : "bg-border/70")} />
+    </div>
+  );
+}
+
+function SessionStartTimelineRow() {
+  return (
+    <div
+      role="separator"
+      aria-label="New session"
+      className="mx-auto flex w-full max-w-(--chat-content-max-width) items-center gap-3 py-1 text-muted-foreground text-xs"
+    >
+      <span className="h-px flex-1 bg-border/70" />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <RefreshCwIcon aria-hidden="true" className="size-3" />
+        New session
+      </span>
+      <span className="h-px flex-1 bg-border/70" />
     </div>
   );
 }
