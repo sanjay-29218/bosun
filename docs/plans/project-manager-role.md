@@ -1,16 +1,23 @@
 # Plan: a Project manager per project, and Feature managers per feature
 
-Status: proposal, research only. Base: `origin/staging` at `19108ec227`.
+Status: proposal, research only. Base: `origin/staging` at `19108ec227`. The person's answers to
+the first round of open questions are folded in (see [Decisions](#decisions)).
 
 ## Summary
 
-Today's "Project manager" leads one feature at a time, so it becomes the **Feature manager**. Only its
-label and default text change; its stored IDs stay. A new **Project manager** gets one standing thread
-per project, which lives as long as the project, like a bot's headquarters lives as long as the
-bot. Bots hand every request for a project to that thread. The Project manager owns the backlog
-(issues and milestones). It decides task, feature or milestone and when to run work in parallel. It
-answers its Feature managers, and it closes issues and milestones once their pull requests merge
-into `staging`.
+Today's "Project manager" leads one feature at a time, so it becomes the **Feature manager**. Its
+role ID moves to `role:feature-manager`. A new **Project manager** takes over
+`role:project-manager` and gets one standing thread per project, which lives as long as the
+project, like a bot's headquarters lives as long as the bot. It is configured like a bot, but for
+one project: instructions, model, access.
+
+- **Requests:** bots hand requests for a project to that thread by default. They start work in a
+  project directly only when the person asks.
+- **Backlog:** the Project manager owns it (issues and milestones).
+- **Judgement:** it decides task, feature or milestone and when to run work in parallel. It leads a
+  milestone itself, or hands it to an Epic's Feature manager.
+- **After merges:** it answers its Feature managers, and it closes issues and milestones once their
+  pull requests merge into `staging`.
 
 Most of the machinery exists already:
 
@@ -47,7 +54,8 @@ The plan mostly wires these into one new standing thread, plus a rename.
   Lead-and-crew (`b631961d2a`) fixed it, so PR #52 is superseded. Close both and keep the eval case
   `feature-lead-hands-plan-to-planner`, renamed in Phase 1.
 - **#50 (bots can't start features in owned projects).** Closed by `51eb5c99ac` and `c047f66ad5`.
-  This plan routes bots through the Project manager instead (Phase 5).
+  That path stays. This plan makes the Project manager the default, and the bot uses the direct path
+  only when the person asks.
 - **#56 (Lineage misses started features).** In flight on
   `bosun/bot-thread-lineage-shows-started-feature-549f0e`, uncommitted, with migration `099`. It puts
   `requesterThreadId` on the lead's feature tag so Lineage can list features a thread started. **It
@@ -73,7 +81,8 @@ Migration numbers: `098` is the newest on staging, #56 takes `099`, and task-iss
               ▼
         Project manager   one per project, lives with the project (standing thread)
          │        │            │
-         │ task   │ feature    │ milestone (Epic parent feature)
+         │ task   │ feature    │ milestone: led by the PM itself (features per part),
+         │        │            │            or handed to an Epic, as drawn here
          ▼        ▼            ▼
       Task     Feature      Feature manager (Epic)
      thread    manager         │ t3_feature_start (children)
@@ -108,8 +117,9 @@ instructions, and the instructions are guidance, not authorization.
 **Bot.** It talks to people and to the Project managers of projects it owns, and it creates
 projects and manages the Library.
 
-- It does not start features or tasks inside a project. That moves to the Project manager after the
-  transition (Phase 5).
+- By default it hands project work to that project's Project manager. It starts a feature or task
+  in a project directly only when the person asks for that. The server keeps allowing both; this is
+  instruction, not a limit.
 
 **Project manager**
 
@@ -121,12 +131,13 @@ May:
   features) in **its own project**;
 - answer or redirect Feature managers (`t3_thread_send` to their lead threads);
 - stop a feature;
-- report to the bot, or ask the bot and person a question.
+- report to the bot, or ask the bot and person a question;
+- merge a pull request when the person asks it to, or when its instructions say so. By default
+  the person merges.
 
 May not:
 
 - edit, commit or push in the project checkout;
-- merge pull requests (merging stays with the person or bot);
 - hand work to a feature's crew directly (`crewMember` stays lead-only, as today);
 - touch other projects;
 - change bots, roles or workflows.
@@ -172,20 +183,25 @@ and calls `t3_feature_finish`.
 
 1. Steps 1–3 as above. The Project manager judges this as **big**: several reviewable PRs, several
    areas, needs sequencing or an integration check.
-2. It creates a GitHub **milestone** and a parent issue in it (Phase 3), then starts one **Epic**
-   feature with `issue` set to the parent issue and the milestone named in the brief.
-3. The Epic's Feature manager has its Planner propose the split, and asks for approval of it. The
-   Project manager approves when the request already settles the split; otherwise it asks the bot.
-4. For each child, the Epic's Feature manager:
-   - creates an issue in the milestone, as a sub-issue of the parent;
-   - starts the child with `t3_feature_start({ issue, baseBranch? })`.
+2. It creates a GitHub **milestone** and a parent issue in it (Phase 3). Then it picks who leads
+   the milestone, depending on the work:
+   - **It leads the milestone itself** when the parts are clear and mostly independent. It creates
+     an issue per part in the milestone, as sub-issues of the parent. It starts each part as a
+     feature with `issue` (and `baseBranch` to stack on another part). Each part reports to the
+     Project manager as its requester. When an integration check is needed, it starts one as a task
+     or a feature.
+   - **It hands the milestone to an Epic** when the split needs planning or the parts are tangled.
+     It starts one Epic feature with `issue` set to the parent issue and the milestone named in the
+     brief. The Epic's Feature manager has its Planner propose the split and asks for approval; the
+     Project manager approves when the request already settles it, otherwise it asks the bot. For
+     each child, the Epic's Feature manager creates an issue in the milestone, as a sub-issue of the
+     parent, and starts the child with `t3_feature_start({ issue, baseBranch? })`. Children report
+     to the Epic's Feature manager, which runs the integration check, then calls
+     `t3_feature_finish` with the PRs in merge order. The Project manager hears it.
 
-   The Epic's Feature manager sequences children within the milestone. The Project manager sets the
-   limits across milestones, such as how many builders run at once in the project, and tells the
-   Epic's Feature manager.
-5. Children report to the Epic's Feature manager. It runs the integration check, then calls
-   `t3_feature_finish` with the PRs in merge order. The Project manager hears it.
-6. As each child PR merges into `staging`, the Project manager closes that child's issue. When the
+   Either way, the Project manager can add a child feature later, such as a follow-up the Epic
+   missed, with `t3_feature_start({ parentFeatureId })` (Phase 3).
+3. As each part's PR merges into `staging`, the Project manager closes that part's issue. When the
    last one closes, it closes the parent issue and the milestone, and tells the bot.
 
 ### Guidelines for the Project manager's judgement
@@ -213,8 +229,9 @@ These go in the role's instructions. They are not hard rules.
   needs another's API or decision.
 - Before starting, look at what is running: open features, their branches and changed files
   (`t3_worktree_status`), and open PRs. Prefer queuing over a likely merge conflict.
-- Mind the machine: each Builder runs installs, checks and dev servers. Keep only a few builders
-  running in a project at once, about two on a laptop, unless the person says otherwise.
+- There is no cap on how many run at once. The Project manager, and an Epic's Feature manager
+  within its milestone, judge it from the work. Today's "Run at most two children at once" in
+  `EPIC_INSTRUCTIONS` goes too (Phase 1).
 
 **Answer or escalate**
 
@@ -233,23 +250,31 @@ These go in the role's instructions. They are not hard rules.
 
 ### Phase 1: rename "Project manager" → "Feature manager"
 
-The data keeps its IDs. Only names, default text and code identifiers change.
+The role ID moves, so `role:project-manager` is free for the new role in Phase 2. Older client
+builds don't need to keep working with the old ID (the person's call), so there is no
+compatibility shim.
+
+**Role ID migration** (one transaction, the same way `070_CrewRoles` re-pointed role IDs):
+
+- `roles.id`: `role:project-manager` → `role:feature-manager`.
+- `workflows.lead_role_id`, and any `crew_role_ids_json` entry, from the old ID to the new one.
+- `crew_members.role_id` from the old ID to the new one.
+- The retired engine's tables (`workflow_definition_*`, `feature_workflows`) are read by nothing,
+  so leave them.
 
 **Keep these stored IDs:**
 
-- `role:project-manager`: workflows' `leadRoleId`, members' `role_id`, and older mobile builds that
-  hard-code it as the default lead.
-- `bot-manager:<projectId>`: the member every feature-lead run ID is hashed from.
+- `bot-manager:<projectId>`: the Feature manager's member. Every feature-lead run ID is hashed from
+  it, and the run ID is part of the lead's thread ID (`bot-run:feature-lead:<hash>`). Thread IDs are
+  event-sourced and can't be renamed, and a new member ID would start a second lead the next time a
+  feature starts or reopens. Comment it the way `bot-captain` already is ("predates the rename").
 - `feature-lead:` run IDs.
-
-Reusing `role:project-manager` for the new role would silently give old data and old clients the
-new meaning, and renaming the member would start a second lead for any feature started again. The
-same precedent applies as `bot-captain` and `bot-manager:`, which "predate the Roles rename". Add a
-one-line comment on the constant.
 
 **Contracts:**
 
-- `PROJECT_MANAGER_ROLE_ID` → `FEATURE_MANAGER_ROLE_ID` (value unchanged).
+- `PROJECT_MANAGER_ROLE_ID` becomes `FEATURE_MANAGER_ROLE_ID = "role:feature-manager"`.
+  `PROJECT_MANAGER_ROLE_ID` comes back in Phase 2 for the new role, so Phase 1 must not leave the
+  old name pointing at the old value.
 - Fix the doc comment ("which Captain delegates to" is stale).
 
 **Server:**
@@ -266,13 +291,15 @@ one-line comment on the constant.
   by `client-runtime/state/roles.ts`; check whether that path is still live, and delete it if it
   isn't.
 
-**Migration:**
+**Names and text (same migration):**
 
-- Set `roles.name` to 'Feature manager' where the id is `role:project-manager` and the name is
-  still 'Project manager'. Bump its revision so open editors re-read it.
+- Set `roles.name` to 'Feature manager' where the name is still 'Project manager'. Bump its revision
+  so open editors re-read it.
 - Make the same name change for `crew_members` with that role and the old name.
 - Replace the old default instructions with the new ones only where they are unchanged. This follows
   `095_LeadWorkflows`, which replaced the manager text the same way.
+- Drop "Run at most two children at once" from the Epic workflow's instructions where they are
+  unchanged.
 - Edited names and instructions stay as the person left them.
 
 **Open lead threads:**
@@ -293,21 +320,28 @@ one-line comment on the constant.
 - Mobile: role and workflow panels (constant rename only).
 
 **Docs:** `docs/user/bots.md`, `docs/user/features.md` and `docs/internals/crew.md`. The internals
-doc says the stored IDs keep the old name, and why.
+doc says why `bot-manager:` keeps its old name.
 
 **Evals:** this changes model-facing text, so run the `evals/mcp-tool-use` features cases per
 `evals/README.md`. The repo `.env` had no `ANTHROPIC_API_KEY` last time. Rename the "project
 manager" wording in `features.ndjson`.
 
-**Risk:** low. It is labels and default text. A person who renamed or edited the role keeps their
-edits.
+**Risks**
+
+- A missed reference to the old role ID leaves a workflow without a lead. Test that the migration
+  re-points every workflow and member, and grep code, tests, evals and fixtures for
+  `role:project-manager`.
+- Phase 1 can ship alone. `ensureDefaults` creates missing roles by ID, and after Phase 1 its list
+  has `role:feature-manager`, so nothing creates `role:project-manager` until Phase 2 does.
+  Downgrading to an older server would recreate the old role as a second lead role.
+- A person who renamed or edited the role keeps their edits.
 
 ### Phase 2: the Project manager's standing thread
 
 **Role**
 
-- A new default role "Project manager", id `role:project-hq`. That is a new ID, so nothing old picks
-  it up.
+- A new default role "Project manager", id `role:project-manager` (freed in Phase 1). It holds the
+  defaults every project's manager starts from.
 - Its instructions hold the guidelines above.
 - Grants: `orchestration` (`delegate_task`, `t3_thread_send`/`read`) and `pull-requests`. Not
   `crew.workflows`.
@@ -316,8 +350,20 @@ edits.
 
 **Member and run**
 
-- Member `project-hq:<projectId>` and run `project-hq:<projectId>`, with the fixed thread
-  `bot-run:project-hq:<projectId>`, created on first use.
+- Member `project-manager:<projectId>`, made from the role on first use. Run
+  `project-hq:<projectId>`, with the fixed thread `bot-run:project-hq:<projectId>`.
+
+**Per-project settings** (the person's call: like a bot, but for one project)
+
+- Each project's manager has its own instructions, model, access and long-conversation setting. A
+  member already carries its own copy of these, so this edits the member and adds no new storage.
+- New projects start from the role's defaults. Editing the role changes managers created later,
+  the same way roles already behave.
+- Where: a **Project manager** section in **Settings → Project** on web and desktop, and in the
+  project settings on mobile. Saving re-syncs the standing thread, as `syncHeadquarters` does for a
+  bot. New instructions reach it on its next new session, as they do for a bot's headquarters.
+- An RPC `crew.updateProjectManager({ projectId, instructions, modelSelection, runtimeMode,
+  longConversation })`, guarded in `CLIENT_GUARDED_RPC_SCOPES`.
 - Generalize `ensureHeadquarters` (lock, restore, pin, `syncSettings`, fresh start, `startNewSession`)
   to "standing runs" for bots and projects, rather than copying it.
 - The thread lives in the project, listed and pinned. Its workspace is the project checkout.
@@ -349,7 +395,8 @@ tool.
   board like features.
 
 **Bot HQ text:** "Hand each request for a project to its Project manager with `t3_project_send`; it
-picks task, feature or milestone and reports back here."
+picks task, feature or milestone and reports back here. Start a feature or task in the project
+yourself only when the person asks you to."
 
 **Reads:** `t3_project_list` and `t3_project_read` gain `managerThreadId` (null until created).
 
@@ -388,6 +435,10 @@ and the reply reactor.
 
 - `t3_feature_start` gains `issue` (URL, `#N` or `T-N`, the same shape as task-issue-links'
   `delegate_task` field).
+- `t3_feature_start` gains `parentFeatureId`, allowed from that project's Project manager. Today a
+  feature is a child only when a thread of its parent starts it. This lets the Project manager add a
+  child to an Epic, such as a follow-up. The child reports to the parent's lead, as children already
+  do.
 - `FeatureService.create` links it inside the create transaction, before the lead starts. Today a
   link from the brief is forked and lands later.
 
@@ -435,7 +486,8 @@ issue creation has today. Check it on a GitHub App token.
 **Closing**
 
 - The Project manager closes the issue (`crew_update_todo state: closed`, reason completed) with a
-  comment linking the PR.
+  comment linking the PR. A PR that targets `main` needs nothing: GitHub closes its "Closes #N"
+  issues on merge.
 - When every issue in a milestone is closed, it closes the parent issue and the milestone.
 - On each fresh session it reconciles: features whose PR merged while their issue is still open.
 
@@ -450,26 +502,31 @@ finds the issue already closed and does nothing.
 **Risk:** PR-watch quota. The watch sweeps every 2 minutes, and more watched PRs mean more host
 calls. Use the existing fingerprint path.
 
-### Phase 5: bots go through Project managers; cleanup
+### Phase 5: cleanup
 
-- Remove the HQ exception in `t3_feature_start` that lets a bot target an owned project. Bots use
-  `t3_project_send`.
-- Change `delegate_task` from an HQ into an owned project so it is refused with a hint to
-  `t3_project_send`, or keep it as an escape hatch (open question 3).
+- Bots keep both ways into a project: the HQ exception in `t3_feature_start` for owned projects, and
+  `delegate_task` with `target.projectId`. The HQ instructions from Phase 2 make the Project manager
+  the default, and the bot starts work directly only when the person asks. There is no server limit.
+- A feature or task a bot starts directly still belongs to the project. Its requester is the bot's
+  HQ, so the Project manager doesn't hear its reports. `t3_feature_list` still shows it, so the
+  Project manager sees it when judging overlap and when closing issues after a merge.
 - Delete what is dead: `bot-builder:<projectId>` and its delegation grant, which nothing reads since
   lead-and-crew, and `startRequest` and the `crewStart` RPC if Phase 1 found them unused.
 - #56's Lineage on a bot HQ then shows the Project manager threads it messaged. The Project
   manager's Lineage shows its features and tasks.
 
+This phase is small; fold it into Phase 4 if that PR has room.
+
 ## Migration and compatibility
 
-- **Stored IDs:** none change (see Phase 1). New IDs are only added (`role:project-hq` and
-  `project-hq:*`).
+- **Stored IDs:** only the role ID moves (`role:project-manager` → `role:feature-manager`, Phase 1),
+  and `role:project-manager` then names the new role. Member, run and thread IDs stay. New IDs are
+  added for the Project manager (`project-manager:*` members and `project-hq:*` runs).
 - **Running features:** unaffected. Their lead runs keep their task text, instructions and
-  requester. Features started from a bot HQ before Phase 2 keep reporting to the HQ, which is fine.
-- **Older clients:** they see the new role as an ordinary role. An old mobile build could offer it as
-  a workflow lead, and the server refuses that. Old clients don't know `t3_project_send` (MCP is
-  server-side) or the `managerThreadId` field (optional, ignored).
+  requester, and their member keeps its ID. Features started from a bot HQ before Phase 2 keep
+  reporting to the HQ, which is fine.
+- **Older clients:** not supported across the role ID change (the person's call). Builds made after
+  Phase 1 use the new constants.
 - **Remote and tunnel:** everything is server state and MCP, and no client-only state is involved.
   The Project manager thread is an ordinary thread, so every surface sees it.
 - **Forks and custom workflows:** a workflow led by a custom role keeps its `bot-lead:` member. Only
@@ -477,29 +534,31 @@ calls. Use the existing fingerprint path.
 - **This document:** AGENTS.md says not to commit plans. It is committed here because the person
   asked for it. Delete it once Phase 2 lands, or move what lasts into `docs/internals/crew.md`.
 
-## Open questions for the person
+## Decisions
 
-1. **The new role's ID.** Recommendation: `role:project-hq`, keeping `role:project-manager` as the
-   Feature manager's stored ID. The other option is to migrate `role:project-manager` →
-   `role:feature-manager` and reuse `role:project-manager` for the new role. That reads better in
-   code, but older mobile builds and existing data would silently give the old ID its new meaning.
-2. **Who leads a milestone.** Recommendation: keep the Epic's Feature manager as the milestone's
-   lead. It splits, sequences children and runs the integration check, and the Project manager starts
-   the Epic and sets limits across the project. This is tested and keeps a milestone's chatter out of
-   the long-lived thread. The other option is for the Project manager to start and sequence children
-   itself, with the parent feature as a grouping record only. That gives it one less hop but makes its
-   context much busier.
-3. **Can bots still start work in a project directly?** Recommendation: no, after Phase 5. Every
-   request goes through the Project manager, so the backlog and parallelism stay in one place. The
-   other option is to keep `delegate_task` into owned projects as an escape hatch for emergencies.
-4. **Who closes issues after a merge.** Recommendation: the Project manager, prompted by the merge
-   notice (Phase 4), with "merged, issue open" visible on the board. The other option is for the
-   server to close the linked issue automatically on merge. That is more reliable, but it closes
-   issues the PR only partly covered.
-5. **Should every project get a Project manager?** Recommendation: create it on first use, the way
-   `bot-manager:` members are created today, with no setting. An idle thread costs nothing. Add a
-   per-project off switch only if someone asks.
-6. **Parallel cap.** Recommendation: a guideline of about two active builders per project in the
-   instructions, not a server limit. The person can change it in the role's instructions.
-7. **Who merges PRs.** Recommendation: the person, or the bot when the person asks. The Project
-   manager doesn't merge.
+The person answered the first round of open questions on 2026-11-04:
+
+1. **Role IDs.** Move the Feature manager to `role:feature-manager` and give `role:project-manager`
+   to the new role. Older client builds don't need to keep working across the change.
+2. **Who leads a milestone.** Either one, depending on the work. The Project manager leads it
+   itself, starting the parts as features, or hands it to an Epic's Feature manager. Child features
+   work under either.
+3. **Bots starting work directly.** No server limit. By default a bot asks the project's Project
+   manager, and it starts work directly only when the person asks.
+4. **Closing issues.** The Project manager closes them after a merge into `staging`. GitHub closes
+   them itself when a PR merges into `main`.
+5. **One Project manager per project.** Yes. It is configured like a bot, but for one project:
+   instructions, model and access per project.
+6. **Parallel cap.** None. The Project manager, and a Feature manager within its own milestone,
+   decide.
+7. **Merging.** The person merges by default. The Project manager merges when the person asks it
+   to.
+
+## Open questions
+
+- **Where the Project manager's settings live.** Recommendation: a section in **Settings → Project**,
+  since it belongs to one project. The other option is a row per project under **Bots** on the
+  rail, since it behaves like a bot.
+- **Merging as standing permission.** Recommendation: the Project manager merges only when asked in
+  the request, or when its per-project instructions say so (for example "merge to staging once
+  review passes"). This needs no new setting.
