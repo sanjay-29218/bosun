@@ -298,3 +298,54 @@ it.effect(
       assert.deepStrictEqual(yield* sent, []);
     }).pipe(Effect.provide(sqlite)),
 );
+
+it.effect("recovers a later turn's fallback at startup when an earlier turn replied", () =>
+  Effect.gen(function* () {
+    const { requests, sent, clear, turns, active } = yield* setup;
+    const sql = yield* SqlClient.SqlClient;
+    yield* requests.send({ projectId, requesterThreadId: hq, key: "one", message: "one" });
+    yield* clear;
+    yield* sql`
+      INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
+        allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+      VALUES (${`project-hq:${projectId}`}, 'project-manager:web', ${projectId},
+        ${managerThreadId}, 'Manage', 'Project manager', '', '[]', 1, '{}', 'full-access',
+        '2026-11-05')
+    `;
+    const prompt = JSON.stringify({ userMessageId: `message:project-request:${projectId}:R-1` });
+    yield* sql`
+      INSERT INTO orchestration_v2_projection_runs
+        (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json)
+      VALUES
+        ('run-1', ${managerThreadId}, 1, 'codex', 'completed', '2026-11-05', '2026-11-05', ${prompt}),
+        ('run-2', ${managerThreadId}, 2, 'codex', 'completed', '2026-11-05', '2026-11-05', ${prompt})
+    `;
+    // The first turn replied without closing R-1; the second ended silent before a restart.
+    yield* sql`
+      INSERT INTO project_request_turns (project_id, request_id, run_id, replied, fallback_sent)
+      VALUES (${projectId}, 'R-1', 'run-1', 1, 0)
+    `;
+    turns.set("run-2", [
+      requestMessage("R-1"),
+      {
+        id: "message:later",
+        role: "assistant",
+        text: "Opened the pull request.",
+        streaming: false,
+      },
+    ]);
+    active.run = managerRun("run-2");
+
+    yield* requests.catchUp();
+    const recovered = yield* sent;
+    assert.deepStrictEqual(
+      recovered.map((message) => [message.threadId, message.id]),
+      [[hq, `message:project-request:${projectId}:R-1:fallback:run-2`]],
+    );
+    assert.include(recovered[0]!.text, "Opened the pull request.");
+
+    yield* clear;
+    yield* requests.catchUp();
+    assert.deepStrictEqual(yield* sent, []);
+  }).pipe(Effect.provide(sqlite)),
+);
