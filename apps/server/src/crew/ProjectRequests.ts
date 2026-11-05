@@ -473,42 +473,47 @@ const make = Effect.gen(function* () {
 
   const catchUp: ProjectRequestsShape["catchUp"] = Effect.fn("ProjectRequests.catchUp")(
     function* () {
-      // Each turn that took an open request, by the message's run or the run's own prompt,
-      // unless that turn already replied to it or sent its fallback.
+      // Each ended turn that took an open request nobody has answered yet, by the message's
+      // run or the run's own prompt. Runs are read once per manager thread, by its index.
       const pending = yield* sql<{
         readonly runId: string;
         readonly threadId: string;
         readonly status: string;
         readonly userMessageId: string | null;
       }>`
-        WITH managers AS (
-          SELECT project_id, thread_id FROM crew_runs WHERE id LIKE 'project-hq:%'
+        WITH waiting AS MATERIALIZED (
+          SELECT managers.thread_id,
+            'message:project-request:' || r.project_id || ':' || r.id AS message_id
+          FROM crew_runs managers
+          JOIN project_requests r ON r.project_id = managers.project_id AND r.status = 'open'
+          WHERE managers.id LIKE 'project-hq:%'
+            AND NOT EXISTS (
+              SELECT 1 FROM project_request_turns turn
+              WHERE turn.project_id = r.project_id AND turn.request_id = r.id
+                AND (turn.replied = 1 OR turn.fallback_sent = 1)
+            )
+        ),
+        prompted AS MATERIALIZED (
+          SELECT run_id, thread_id,
+            json_extract(payload_json, '$.userMessageId') AS user_message_id
+          FROM orchestration_v2_projection_runs
+          WHERE thread_id IN (SELECT thread_id FROM waiting)
+            AND status IN ('completed', 'failed', 'interrupted', 'cancelled')
         ),
         taken AS (
-          SELECT r.project_id, r.id AS request_id, m.run_id
-          FROM managers
-          JOIN project_requests r ON r.project_id = managers.project_id AND r.status = 'open'
-          JOIN orchestration_v2_projection_messages m
-            ON m.thread_id = managers.thread_id
-            AND m.message_id = 'message:project-request:' || r.project_id || ':' || r.id
+          SELECT m.run_id FROM waiting
+          JOIN orchestration_v2_projection_messages m ON m.message_id = waiting.message_id
           WHERE m.run_id IS NOT NULL
           UNION
-          SELECT r.project_id, r.id, run.run_id
-          FROM managers
-          JOIN project_requests r ON r.project_id = managers.project_id AND r.status = 'open'
-          JOIN orchestration_v2_projection_runs run
-            ON run.thread_id = managers.thread_id
-            AND json_extract(run.payload_json, '$.userMessageId')
-              = 'message:project-request:' || r.project_id || ':' || r.id
+          SELECT prompted.run_id FROM waiting
+          JOIN prompted ON prompted.thread_id = waiting.thread_id
+            AND prompted.user_message_id = waiting.message_id
         )
-        SELECT DISTINCT run.run_id AS runId, run.thread_id AS threadId, run.status,
+        SELECT run.run_id AS runId, run.thread_id AS threadId, run.status,
           json_extract(run.payload_json, '$.userMessageId') AS userMessageId
         FROM taken
-        JOIN orchestration_v2_projection_runs run ON run.run_id = taken.run_id
-        LEFT JOIN project_request_turns turn
-          ON turn.project_id = taken.project_id AND turn.request_id = taken.request_id
-          AND turn.run_id = taken.run_id
-        WHERE COALESCE(turn.replied, 0) = 0 AND COALESCE(turn.fallback_sent, 0) = 0
+        CROSS JOIN orchestration_v2_projection_runs run ON run.run_id = taken.run_id
+        WHERE run.status IN ('completed', 'failed', 'interrupted', 'cancelled')
         ORDER BY run.thread_id, run.ordinal
       `.pipe(Effect.mapError(queryError));
       for (const run of pending) {
