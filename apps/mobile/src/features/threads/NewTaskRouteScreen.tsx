@@ -11,7 +11,7 @@ import {
 } from "@react-navigation/native";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { isHiddenProject } from "@t3tools/client-runtime/state/projects";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -178,7 +178,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const listScopes = pickableProjectGroups(projectScopes).filter(
     (scope) =>
       !scope.projects.every((project) =>
-        isScratchProject(project, serverConfigs.get(project.environmentId)?.scratchWorkspaceRoot),
+        isHiddenProject(project, serverConfigs.get(project.environmentId)),
       ),
   );
   const visibleScopes = filterProjectScopes(listScopes, searchText);

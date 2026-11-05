@@ -367,7 +367,10 @@ function ProjectOverviewContent(props: {
         const environment = props.environments.find(
           (entry) => entry.environmentId === member.environmentId,
         );
-        return environment?.serverConfig.environment.capabilities.workflows === true ? (
+        // Scratch and bots' homes have no Project manager.
+        return environment?.serverConfig.environment.capabilities.workflows === true &&
+          member.isScratch !== true &&
+          member.isBotHome !== true ? (
           <MobileProjectManagerSection
             key={`manager:${member.environmentId}:${member.id}`}
             project={member}

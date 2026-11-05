@@ -1,6 +1,6 @@
 import { useAtomSet } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { isHiddenProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { AsyncResult } from "effect/reactivity";
 import { useCallback } from "react";
@@ -15,9 +15,7 @@ export function useRememberThreadProject(project: EnvironmentProject | null) {
   const environmentId = project?.environmentId;
   const projectId = project?.id;
   const remember =
-    project !== null &&
-    serverConfig !== null &&
-    !isScratchProject(project, serverConfig.scratchWorkspaceRoot);
+    project !== null && serverConfig !== null && !isHiddenProject(project, serverConfig);
 
   useFocusEffect(
     useCallback(() => {

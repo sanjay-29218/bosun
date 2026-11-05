@@ -1,5 +1,5 @@
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { isHiddenProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { ProjectReadFileResult } from "@t3tools/contracts";
 import { DEFAULT_SERVER_SETTINGS, T3_PROJECT_FILE_NAME } from "@t3tools/contracts";
@@ -21,8 +21,8 @@ import { environmentSession } from "../../state/session";
  */
 export function useNewTaskProjectDefaults(project: EnvironmentProject | null) {
   const serverConfig = useEnvironmentServerConfig(project?.environmentId ?? null);
-  const isScratch =
-    project !== null && isScratchProject(project, serverConfig?.scratchWorkspaceRoot);
+  // Scratch and bots' homes are plain folders, so their tasks work in the root.
+  const isScratch = project !== null && isHiddenProject(project, serverConfig);
   const hasWorkspace = project !== null && project.workspaceRoot !== "";
   const fileAccessSession = useEnvironmentQuery(
     hasWorkspace ? environmentSession.sessionStateAtom(project.environmentId) : null,

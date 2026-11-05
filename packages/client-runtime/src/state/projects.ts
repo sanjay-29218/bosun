@@ -1,3 +1,4 @@
+import type { ServerConfig } from "@t3tools/contracts";
 import {
   isExplicitRelativePath,
   isUncPath,
@@ -141,6 +142,28 @@ export function isScratchProject(
 ): boolean {
   return (
     scratchWorkspaceRoot != null && findProjectByPath([project], scratchWorkspaceRoot) !== undefined
+  );
+}
+
+/** A bot's home: a project rooted in a folder directly inside the environment's `botHomesRoot`. */
+export function isBotHomeProject(
+  project: { readonly workspaceRoot: string },
+  botHomesRoot: string | null | undefined,
+): boolean {
+  if (botHomesRoot == null) return false;
+  const root = normalizeProjectPathForComparison(botHomesRoot);
+  const parent = getBrowseParentPath(project.workspaceRoot);
+  return root.length > 0 && parent !== null && normalizeProjectPathForComparison(parent) === root;
+}
+
+/** Scratch or a bot's home: never listed as a project, and never given a Project manager. */
+export function isHiddenProject(
+  project: { readonly workspaceRoot: string },
+  config: Pick<ServerConfig, "scratchWorkspaceRoot" | "botHomesRoot"> | null | undefined,
+): boolean {
+  return (
+    isScratchProject(project, config?.scratchWorkspaceRoot) ||
+    isBotHomeProject(project, config?.botHomesRoot)
   );
 }
 

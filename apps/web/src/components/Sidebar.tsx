@@ -1266,8 +1266,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // With nowhere to move it (one bot), right-click opens settings as before.
   const moveProjectToBotMenu = useMoveProjectToBotMenu();
   const openProjectManager = useOpenProjectManager();
-  /** A project's manager runs on Bosun servers, for people who may start its thread. */
+  /** A project's manager runs on Bosun servers, for people who may start its thread; Scratch has none. */
   const canOpenProjectManager = (group: SidebarProjectSnapshot) =>
+    group.isScratch !== true &&
     serverConfigs.get(group.environmentId)?.environment.capabilities.workflows === true &&
     appAtomRegistry.get(rolesEnvironment.openProjectManager.permissionAtom(group.environmentId));
   const openGroupProjectManager = (group: SidebarProjectSnapshot) =>

@@ -13,9 +13,18 @@ describe("resolveProjectChipIcon", () => {
   const favicon = () => "https://env.example/favicon.png";
   const noFavicon = () => null;
 
-  it("shows the chat bubble for unknown threads and the no-project folder", () => {
-    expect(resolveProjectChipIcon(null, "/scratch", favicon)).toBeNull();
-    expect(resolveProjectChipIcon(project("scratch"), "/work/scratch", favicon)).toBeNull();
+  it("shows the chat bubble for unknown threads, the no-project folder and bots' homes", () => {
+    expect(resolveProjectChipIcon(null, { scratchWorkspaceRoot: "/scratch" }, favicon)).toBeNull();
+    expect(
+      resolveProjectChipIcon(
+        project("scratch"),
+        { scratchWorkspaceRoot: "/work/scratch" },
+        favicon,
+      ),
+    ).toBeNull();
+    expect(
+      resolveProjectChipIcon(project("bot-captain"), { botHomesRoot: "/work" }, favicon),
+    ).toBeNull();
   });
 
   it("prefers a custom icon over the favicon", () => {

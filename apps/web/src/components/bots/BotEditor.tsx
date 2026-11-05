@@ -29,6 +29,7 @@ import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { WizardTabs } from "../ui/wizard";
+import { BotHomeField } from "./BotHomeField";
 import { BotAvatarPicker, BotColorPicker } from "./BotLook";
 
 type BotChange = Partial<
@@ -301,8 +302,11 @@ export function BotEditor({
               </EditorField>
             </div>
           </>
-        ) : tab === "projects" ? (
-          projects
+        ) : tab === "projects" && bot ? (
+          <>
+            <BotHomeField environmentId={environmentId} homePath={bot.homePath ?? null} />
+            {projects}
+          </>
         ) : tab === "tools" ? (
           <CrewToolPicker value={tools} onChange={setTools} forBot />
         ) : (

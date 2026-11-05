@@ -23,6 +23,8 @@ import { formatSubagentDisplayTitle } from "./subagentDisplay.ts";
 export interface EnvironmentProject extends OrchestrationProjectShell {
   readonly environmentId: EnvironmentId;
   readonly isScratch?: true;
+  /** A bot's home, where its headquarters works. Project lists leave it out. */
+  readonly isBotHome?: true;
 }
 
 /**

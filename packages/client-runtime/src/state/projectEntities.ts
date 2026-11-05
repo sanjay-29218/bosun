@@ -10,7 +10,7 @@ import { Atom } from "effect/reactivity";
 
 import type { EnvironmentProject } from "./models.ts";
 import { scopeProject } from "./models.ts";
-import { isScratchProject } from "./projects.ts";
+import { isBotHomeProject, isScratchProject } from "./projects.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import { arrayElementsEqual, parseProjectKey, projectKey, projectRefsEqual } from "./entities.ts";
 
@@ -24,7 +24,7 @@ export function createEnvironmentProjectAtoms(input: {
   ) => Atom.Atom<OrchestrationV2ShellSnapshot | null>;
   readonly serverConfigValueAtom?: (
     environmentId: EnvironmentId,
-  ) => Atom.Atom<Pick<ServerConfig, "scratchWorkspaceRoot"> | null>;
+  ) => Atom.Atom<Pick<ServerConfig, "scratchWorkspaceRoot" | "botHomesRoot"> | null>;
 }) {
   const environmentProjectsAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make(
@@ -62,28 +62,33 @@ export function createEnvironmentProjectAtoms(input: {
     const ref = parseProjectKey(key);
     let previousSource: OrchestrationProjectShell | null = null;
     let previousIsScratch = false;
+    let previousIsBotHome = false;
     let previousValue: EnvironmentProject | null = null;
     return Atom.make((get) => {
       const source = get(environmentProjectIndexAtom(ref.environmentId)).get(ref.projectId) ?? null;
-      const scratch =
-        source !== null &&
-        isScratchProject(
-          source,
-          input.serverConfigValueAtom
-            ? get(input.serverConfigValueAtom(ref.environmentId))?.scratchWorkspaceRoot
-            : null,
-        );
-      if (source === previousSource && scratch === previousIsScratch) {
+      const config =
+        source !== null && input.serverConfigValueAtom
+          ? get(input.serverConfigValueAtom(ref.environmentId))
+          : null;
+      const scratch = source !== null && isScratchProject(source, config?.scratchWorkspaceRoot);
+      const botHome = source !== null && isBotHomeProject(source, config?.botHomesRoot);
+      if (
+        source === previousSource &&
+        scratch === previousIsScratch &&
+        botHome === previousIsBotHome
+      ) {
         return previousValue;
       }
       previousSource = source;
       previousIsScratch = scratch;
+      previousIsBotHome = botHome;
       previousValue =
         source === null
           ? null
           : {
               ...scopeProject(ref.environmentId, source),
               ...(scratch ? { isScratch: true as const } : {}),
+              ...(botHome ? { isBotHome: true as const } : {}),
             };
       return previousValue;
     }).pipe(Atom.withLabel(`environment-project:${key}`));
@@ -103,10 +108,11 @@ export function createEnvironmentProjectAtoms(input: {
   }).pipe(Atom.withLabel("environment-project-refs"));
 
   let previousProjects: ReadonlyArray<EnvironmentProject> = [];
+  /** Every listable project; bots' homes are left out, though `projectAtom` still finds them. */
   const projectsAtom = Atom.make((get) => {
     const next = get(projectRefsAtom).flatMap((ref) => {
       const project = get(projectAtomFamily(projectKey(ref)));
-      return project === null ? [] : [project];
+      return project === null || project.isBotHome ? [] : [project];
     });
     if (arrayElementsEqual(previousProjects, next)) {
       return previousProjects;

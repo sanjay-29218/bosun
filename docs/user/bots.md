@@ -23,8 +23,9 @@ another bot, or bring one over; work that already started keeps running as the b
 it. A project on another environment goes to the bot with the same name there, which is created
 there if that environment doesn't have it yet. Projects on an environment that runs T3 Code
 without Bosun are listed but can't be given to a bot until Bosun is installed there. You can also change a
-project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects,
-and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
+project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects
+(its home folder doesn't count, and stays behind), and Captain can't be deleted. Deleting a bot
+also deletes the automations that run as it.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
 the rail opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
@@ -51,6 +52,16 @@ A **New session** divider in the thread shows where it began. A long conversatio
 its provider; set **Long conversations** to **Start a new session** on the bot to do this instead,
 once the bot has been quiet for half an hour. Opening the thread also brings back a deleted or
 archived headquarters.
+
+Each bot has a **home folder** of its own on its environment, where its headquarters works and
+keeps its notes: `~/.bosun/bots/<bot id>`, a plain folder rather than a Git repository. It's made
+when you add the bot, or when the bot first opens its headquarters or gets a scheduled task. It
+isn't a project, so it doesn't show in project lists and has no Project manager. The bot's
+**Projects** tab shows its path, with **Copy** and **Open** (Open uses your editor on that
+environment); on mobile, long press the bot and choose **Copy home folder**. Headquarters that
+lived in **No project** before move into their bot's home when the server starts, without running
+anything. Their next turn starts a new session there that has neither the earlier conversation nor
+the bot's instructions, so pick **Start new session…** once after the move to brief the bot again.
 
 ### Project managers
 
