@@ -25,6 +25,7 @@ const projectId = ProjectId.make("project:web");
 const managerThreadId = projectHeadquartersThreadId(projectId);
 const hq = ThreadId.make("bot-run:bot-hq:bot-captain");
 const other = ThreadId.make("thread:person");
+const botHome = ProjectId.make("project:bot-home");
 
 const managerRun = (id: string, status = "completed") =>
   ({ id: RunId.make(id), threadId: managerThreadId, status, ordinal: 1 }) as OrchestrationV2Run;
@@ -64,6 +65,8 @@ const setup = Effect.gen(function* () {
         }),
         Layer.mock(CrewService)({
           ensureProjectManager: () => Effect.succeed({ threadId: managerThreadId } as never),
+          requireManagedProject: (id) =>
+            id === botHome ? Effect.fail(new Error("No Project manager") as never) : Effect.void,
         }),
       ),
     ),
@@ -108,6 +111,14 @@ it.effect("sends a request once per key, numbering requests per project", () =>
     );
     assert.include(posted[0]!.text, "Request R-1 from thread");
     assert.include(posted[0]!.text, "Add CSV export");
+
+    // Scratch and bots' homes have no manager, so nothing is stored to retry on every start.
+    yield* requests
+      .send({ projectId: botHome, requesterThreadId: hq, key: "home", message: "Notes" })
+      .pipe(Effect.flip);
+    const sql = yield* SqlClient.SqlClient;
+    const stored = yield* sql`SELECT 1 FROM project_requests WHERE project_id = ${botHome}`;
+    assert.lengthOf(stored, 0);
   }).pipe(Effect.provide(sqlite)),
 );
 

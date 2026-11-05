@@ -297,21 +297,25 @@ export interface CrewServiceShape {
   readonly createRun: (input: CreateCrewRunInput) => Effect.Effect<CrewRun, CrewServiceError>;
   /**
    * The bot's headquarters run, created and pinned on first use, and restored if its thread
-   * was deleted or archived. It lives in the Scratch project, or where there is none (a data
-   * dir inside a checkout) in `fallbackProjectId` or another project the bot owns. It only
-   * delegates into projects the bot owns, wherever it lives.
+   * was deleted or archived. It lives in the bot's home, which it moves into from elsewhere.
+   * It only delegates into projects the bot owns.
    */
-  readonly ensureHeadquarters: (
-    botId: string,
-    fallbackProjectId?: ProjectId,
-  ) => Effect.Effect<CrewRun, CrewServiceError>;
+  readonly ensureHeadquarters: (botId: string) => Effect.Effect<CrewRun, CrewServiceError>;
+  /**
+   * Moves every bot's headquarters that lives outside its home into it, with a fresh provider
+   * session for its next turn. Starts no turn, and skips one that works until it is next opened.
+   */
+  readonly rehomeHeadquarters: () => Effect.Effect<void, CrewServiceError>;
   /** Points an open headquarters at its bot's current runtime mode and model. */
   readonly syncHeadquarters: (botId: string) => Effect.Effect<void, CrewServiceError>;
   /**
    * The project's standing manager run, made with its member on first use, pinned in the
    * project and restored if its thread was deleted or archived. It works in the checkout.
+   * Scratch and bots' homes have none.
    */
   readonly ensureProjectManager: (projectId: ProjectId) => Effect.Effect<CrewRun, CrewServiceError>;
+  /** Fails for a missing project, Scratch and a bot's home: the ones with no Project manager. */
+  readonly requireManagedProject: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
   /** The project's manager settings, or the role's before the project has one. */
   readonly projectManagerSettings: (
     projectId: ProjectId,
@@ -761,12 +765,24 @@ export const CrewServiceLive = Layer.effect(
     });
 
     /** The project's manager member, made from the Project manager role on first use. */
-    const projectManagerMember = Effect.fn("CrewService.projectManagerMember")(function* (
+    /** Fails for a missing project, Scratch and a bot's home. */
+    const requireManagedProject = Effect.fn("CrewService.requireManagedProject")(function* (
       projectId: ProjectId,
     ) {
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
+      if (yield* runtime.isHiddenProject(projectId)) {
+        return yield* Effect.fail(
+          new CrewValidationError("Scratch and bot homes have no Project manager"),
+        );
+      }
+    });
+
+    const projectManagerMember = Effect.fn("CrewService.projectManagerMember")(function* (
+      projectId: ProjectId,
+    ) {
+      yield* requireManagedProject(projectId);
       const { member } = yield* projectMemberFromRole(
         projectManagerMemberId(projectId),
         projectId,
@@ -778,9 +794,7 @@ export const CrewServiceLive = Layer.effect(
     const projectManagerSettings: CrewServiceShape["projectManagerSettings"] = Effect.fn(
       "CrewService.projectManagerSettings",
     )(function* (projectId) {
-      if (!(yield* runtime.projectExists(projectId))) {
-        return yield* Effect.fail(new CrewValidationError("Project does not exist"));
-      }
+      yield* requireManagedProject(projectId);
       const run = yield* store.getRun(projectHeadquartersRunId(projectId));
       const threadId = run === null ? null : run.threadId;
       const member = yield* store.getMember(projectManagerMemberId(projectId));
@@ -826,6 +840,7 @@ export const CrewServiceLive = Layer.effect(
       const stale = new CrewValidationError(
         "The project manager changed; reload its settings and try again",
       );
+      yield* requireManagedProject(projectId);
       const existing = yield* store.getMember(projectManagerMemberId(projectId));
       if ((existing?.revision ?? 0) !== expectedRevision) return yield* Effect.fail(stale);
       const member = existing ?? (yield* projectManagerMember(projectId));
@@ -1019,27 +1034,36 @@ export const CrewServiceLive = Layer.effect(
       readonly runtimeMode: RuntimeMode;
       readonly longConversation: BotLongConversation;
       readonly taskText: string;
-      /** The project its thread lives in; a bot's headquarters moves if that one is deleted. */
+      /** The project its thread lives in: a bot's home, made again if it was deleted. */
       readonly home: Effect.Effect<ProjectId, CrewServiceError>;
     }
 
-    const botOwner = Effect.fn("CrewService.botOwner")(function* (
-      botId: string,
-      fallbackProjectId?: ProjectId,
-    ) {
+    /**
+     * The bot's home, with its headquarters run and thread moved in from wherever they were.
+     * A headquarters that works stays put until it is next opened.
+     */
+    const rehome = Effect.fn("CrewService.rehome")(function* (bot: {
+      readonly id: string;
+      readonly name: string;
+    }) {
+      const home = yield* runtime
+        .botHome(bot)
+        .pipe(Effect.mapError((error) => new CrewValidationError(error.message)));
+      const run = yield* store.getRun(botHeadquartersRunId(bot.id));
+      if (run === null || run.projectId === home) return home;
+      const moved = yield* runtime.moveThread({
+        threadId: run.threadId,
+        projectId: home,
+        key: `bot-home:${bot.id}:${run.projectId}`,
+      });
+      if (moved) yield* store.moveRun(run.id, home);
+      return home;
+    });
+
+    const botOwner = Effect.fn("CrewService.botOwner")(function* (botId: string) {
       const bot = yield* bots.get(botId);
       if (bot === null) return null;
-      const home = Effect.gen(function* () {
-        const ownedProject = yield* bots.firstOwnedProject(bot.id);
-        const projectId =
-          (yield* runtime.headquartersProjectId) ??
-          fallbackProjectId ??
-          (ownedProject === null ? null : ProjectId.make(ownedProject));
-        if (projectId === null) {
-          return yield* Effect.fail(new CrewValidationError(`Give ${bot.name} a project first`));
-        }
-        return projectId;
-      });
+      const home = rehome(bot);
       return {
         runId: botHeadquartersRunId(bot.id),
         threadId: botHeadquartersThreadId(bot.id),
@@ -1103,15 +1127,16 @@ export const CrewServiceLive = Layer.effect(
       // The run keeps its last model for decoding, so an owner without one is refused here.
       const modelSelection = yield* modelFor(owner, undefined);
       const existing = yield* store.getRun(id);
+      const home = yield* owner.home;
       // A standing run whose project was deleted moves, and `restore` restarts it there.
       if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
-        yield* store.moveRun(id, yield* owner.home);
+        yield* store.moveRun(id, home);
       }
       if (existing === null) {
         yield* store.insertRun({
           id,
           memberId: owner.actorId,
-          projectId: yield* owner.home,
+          projectId: home,
           threadId: owner.threadId,
           taskText: owner.taskText,
           title: owner.name,
@@ -1148,10 +1173,28 @@ export const CrewServiceLive = Layer.effect(
 
     const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = Effect.fn(
       "CrewService.ensureHeadquarters",
-    )(function* (botId, fallbackProjectId) {
-      const owner = yield* botOwner(botId, fallbackProjectId);
+    )(function* (botId) {
+      const owner = yield* botOwner(botId);
       if (owner === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
       return yield* ensureStanding(owner);
+    });
+
+    const rehomeHeadquarters: CrewServiceShape["rehomeHeadquarters"] = Effect.fn(
+      "CrewService.rehomeHeadquarters",
+    )(function* () {
+      for (const bot of yield* bots.list) {
+        if ((yield* store.getRun(botHeadquartersRunId(bot.id))) === null) continue;
+        yield* standingLock
+          .withPermits(1)(rehome(bot))
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Bot headquarters stayed outside its home", {
+                botId: bot.id,
+                error,
+              }),
+            ),
+          );
+      }
     });
 
     const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
@@ -1405,8 +1448,10 @@ export const CrewServiceLive = Layer.effect(
       allowDelegation,
       createRun,
       ensureHeadquarters,
+      rehomeHeadquarters,
       syncHeadquarters,
       ensureProjectManager,
+      requireManagedProject,
       projectManagerSettings,
       updateProjectManager,
       resetProjectManager,

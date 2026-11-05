@@ -1,7 +1,13 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, ProjectId, ThreadId, VcsProcessSpawnError } from "@t3tools/contracts";
+import {
+  CAPTAIN_BOT_ID,
+  CommandId,
+  ProjectId,
+  ThreadId,
+  VcsProcessSpawnError,
+} from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -11,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Scope from "effect/Scope";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as GitManager from "../git/GitManager.ts";
@@ -88,6 +95,7 @@ const withScratch = <A, E>(
     E,
     | ManagedProjectFolders.ManagedProjectFolders
     | ProjectService.ProjectService
+    | SqlClient.SqlClient
     | NodeServices.NodeServices
     | Scope.Scope
   >,
@@ -125,6 +133,9 @@ it.effect("keeps Scratch outside the Git checkout the data dir sits in", () =>
         fileSystem.remove(root, { recursive: true }).pipe(Effect.ignore),
       );
       assert.isTrue(path.relative(checkout, root).startsWith(".."));
+      const botsRoot = Option.getOrThrow(yield* scratch.botHomesRoot);
+      assert.isTrue(path.relative(checkout, botsRoot).startsWith(".."));
+      assert.notEqual(botsRoot, root);
       const { projectId } = yield* scratch.ensureScratchProject;
       assert.isTrue(yield* scratch.isScratchProject(projectId));
       assert.isTrue(yield* fileSystem.exists(root));
@@ -185,6 +196,75 @@ it.effect("creates one Scratch project, even for concurrent first requests", () 
         name: "message-square-dashed",
         color: "gray",
       });
+    }),
+  ),
+);
+
+const insertBot = (id: string, name: string) =>
+  SqlClient.SqlClient.pipe(
+    Effect.flatMap(
+      (sql) => sql`
+        INSERT INTO bots (
+          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+          model_selection_json, position, revision, created_at, updated_at
+        ) VALUES (
+          ${id}, ${name},
+          '{"head":"round","eyes":"round","face":"visor","top":"ball","cheeks":false,"smile":false}',
+          'blue', 'Coordinate.', '[]', 'approval-required', NULL, 1, 1, '2026-11-05', '2026-11-05'
+        )
+      `,
+    ),
+  );
+
+it.effect("gives each bot one home, even for concurrent first requests, apart from Scratch", () =>
+  withScratch(({ baseDir }) =>
+    Effect.gen(function* () {
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      const projects = yield* ProjectService.ProjectService;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* insertBot("bot:nepse", "NEPSE Desk");
+      const root = Option.getOrThrow(yield* folders.botHomesRoot);
+      assert.equal(root, path.resolve(baseDir, "bots"));
+
+      const racers = yield* Effect.all(
+        Array.from({ length: 8 }, () => folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" })),
+        { concurrency: "unbounded" },
+      );
+      const again = yield* folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" });
+      assert.deepEqual(new Set(racers.map((home) => home.projectId)), new Set([again.projectId]));
+      assert.equal(path.dirname(again.workspaceRoot), root);
+      assert.match(path.basename(again.workspaceRoot), /^bot-nepse-[0-9a-f]{8}$/);
+      assert.equal(Option.getOrThrow(yield* folders.botHomePath("bot:nepse")), again.workspaceRoot);
+      assert.isTrue(yield* fileSystem.exists(again.workspaceRoot));
+      // A plain folder: no checkpoints or worktrees.
+      assert.isFalse(yield* fileSystem.exists(path.join(again.workspaceRoot, ".git")));
+      const project = Option.getOrThrow(yield* projects.getById(again.projectId));
+      assert.equal(project.botId, "bot:nepse");
+      assert.deepEqual(project.projectIcon, { kind: "lucide", name: "bot", color: "gray" });
+
+      const captain = yield* folders.ensureBotHome({ id: CAPTAIN_BOT_ID, name: "Captain" });
+      assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_BOT_ID));
+      const scratch = yield* folders.ensureScratchProject;
+      const plain = yield* projects.create({
+        commandId: CommandId.make("plain-project"),
+        projectId: ProjectId.make("plain-project"),
+        title: "Plain",
+        workspaceRoot: baseDir,
+      });
+      assert.deepEqual(
+        yield* Effect.forEach(
+          [again.projectId, captain.projectId, scratch.projectId, plain.id],
+          (projectId) =>
+            Effect.all([folders.isBotHome(projectId), folders.isHiddenProject(projectId)]),
+        ),
+        [
+          [true, true],
+          [true, true],
+          [false, true],
+          [false, false],
+        ],
+      );
     }),
   ),
 );

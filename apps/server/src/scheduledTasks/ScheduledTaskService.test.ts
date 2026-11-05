@@ -210,7 +210,7 @@ it.effect(
                 }),
                 Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
                   namedProjectsRoot: "/projects",
-                  isScratchProject: () => Effect.succeed(false),
+                  isHiddenProject: () => Effect.succeed(false),
                 }),
                 Layer.mock(ThreadManagementService.ThreadManagementService)({}),
                 Layer.mock(SecretRequests.SecretRequests)({}),
@@ -308,7 +308,7 @@ it.effect(
                 }),
                 Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
                   namedProjectsRoot: "/projects",
-                  isScratchProject: () => Effect.succeed(false),
+                  isHiddenProject: () => Effect.succeed(false),
                 }),
                 Layer.mock(ThreadManagementService.ThreadManagementService)({}),
                 Layer.mock(SecretRequests.SecretRequests)({}),
@@ -365,7 +365,7 @@ it.effect("thread cleanup notifies subscribers and a finishing run cannot recrea
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
             namedProjectsRoot: "/projects",
-            isScratchProject: () => Effect.succeed(false),
+            isHiddenProject: () => Effect.succeed(false),
           }),
           NodeCrypto.layer,
           Scheduler.layer,
@@ -446,7 +446,12 @@ const botTaskLayer = (
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
           namedProjectsRoot: "/projects",
-          isScratchProject: () => Effect.succeed(false),
+          isHiddenProject: () => Effect.succeed(false),
+          ensureBotHome: (bot) =>
+            Effect.succeed({
+              projectId: ProjectId.make(`home:${bot.id}`),
+              workspaceRoot: `/bots/${bot.id}`,
+            }),
         }),
         NodeCrypto.layer,
         Scheduler.layer,
@@ -472,6 +477,8 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
       const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
       assert.strictEqual(task.botId, CAPTAIN_BOT_ID);
       assert.isNull(task.threadId);
+      // Filed in the bot's home, whatever project the client passed.
+      assert.strictEqual(task.projectId, `home:${CAPTAIN_BOT_ID}`);
 
       const run = yield* service.runNow({ id: task.id });
       assert.strictEqual(run.threadId, headquarters);
@@ -500,6 +507,36 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
         threadId: null,
       });
       assert.isUndefined(plain.botId);
+    }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("files only bots' tasks in their homes, once", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
+      [],
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const { task: botTask } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      const { task: plain } = yield* service.upsert({
+        ...botTaskInput(CAPTAIN_BOT_ID),
+        id: ScheduledTaskId.make("task:plain"),
+        botId: null,
+        threadId: null,
+      });
+      // Filed in Scratch before bots had homes.
+      yield* sql`UPDATE scheduled_tasks SET project_id = 'project:scratch'`;
+
+      yield* service.rehomeBotTasks();
+      yield* service.rehomeBotTasks();
+
+      const projects = new Map(
+        (yield* service.list()).tasks.map((task) => [task.id, task.projectId]),
+      );
+      assert.strictEqual(projects.get(botTask.id), `home:${CAPTAIN_BOT_ID}`);
+      assert.strictEqual(projects.get(plain.id), "project:scratch");
     }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
@@ -568,7 +605,7 @@ it.effect("a bound run follows its thread when promotion moves it mid-send", () 
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
             namedProjectsRoot: "/projects",
-            isScratchProject: () => Effect.succeed(false),
+            isHiddenProject: () => Effect.succeed(false),
           }),
           NodeCrypto.layer,
           Scheduler.layer,
@@ -620,7 +657,7 @@ it.effect("refuses saving an enabled task above the policy ceiling", () =>
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
             namedProjectsRoot: "/projects",
-            isScratchProject: () => Effect.succeed(false),
+            isHiddenProject: () => Effect.succeed(false),
           }),
           NodeCrypto.layer,
           Scheduler.layer,
@@ -688,7 +725,7 @@ it.effect("a run interrupted right after it reserves the task does not block the
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
             namedProjectsRoot: "/projects",
-            isScratchProject: () => Effect.succeed(false),
+            isHiddenProject: () => Effect.succeed(false),
           }),
           NodeCrypto.layer,
           Layer.succeed(Scheduler.Scheduler, { register: () => Effect.void }),

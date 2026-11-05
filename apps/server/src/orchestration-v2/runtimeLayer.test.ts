@@ -7459,6 +7459,67 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       assert.equal(stayed?.projectId, scratchProjectId);
     }),
   );
+
+  it.effect("moves a root thread into another project once", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const fromProjectId = ProjectId.make("runtime-layer-move-from");
+      const homeProjectId = ProjectId.make("runtime-layer-move-home");
+      for (const projectId of [fromProjectId, homeProjectId]) {
+        yield* projects.create({
+          commandId: CommandId.make(`${projectId}-create`),
+          projectId,
+          title: projectId,
+          workspaceRoot: `/tmp/${projectId}`,
+        });
+      }
+      const createThread = (threadId: ThreadId, worktreePath: string | null) =>
+        orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`${threadId}-create`),
+          threadId,
+          projectId: fromProjectId,
+          title: "Headquarters",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath,
+        });
+      const move = (threadId: ThreadId, projectId: ProjectId, suffix: string) =>
+        orchestrator.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`${threadId}-move-${suffix}`),
+          threadId,
+          projectId,
+        });
+      const rootThreadId = ThreadId.make("runtime-layer-move-root");
+      const worktreeThreadId = ThreadId.make("runtime-layer-move-worktree");
+      yield* createThread(rootThreadId, null);
+      yield* createThread(worktreeThreadId, "/tmp/runtime-layer-move-from/feature");
+
+      const missing = yield* move(rootThreadId, ProjectId.make("missing"), "missing").pipe(
+        Effect.flip,
+      );
+      assert.equal(missing.cause, `Thread ${rootThreadId} cannot move to missing project missing.`);
+      const worktree = yield* move(worktreeThreadId, homeProjectId, "worktree").pipe(Effect.flip);
+      assert.equal(
+        worktree.cause,
+        `Thread ${worktreeThreadId} works in a worktree or on a branch, so it can't move.`,
+      );
+
+      assert.lengthOf((yield* move(rootThreadId, homeProjectId, "home")).storedEvents, 1);
+      assert.lengthOf((yield* move(rootThreadId, homeProjectId, "again")).storedEvents, 0);
+      const shell = yield* orchestrator.getShellSnapshot();
+      assert.equal(
+        shell.threads.find((thread) => thread.id === rootThreadId)?.projectId,
+        homeProjectId,
+      );
+    }),
+  );
 });
 
 it.layer(layerSharedApplicationDataPlaneTest)("visited projection", (it) => {

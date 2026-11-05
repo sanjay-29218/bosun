@@ -237,6 +237,7 @@ const make = Effect.gen(function* () {
   const send: ProjectRequestsShape["send"] = Effect.fn("ProjectRequests.send")(function* (input) {
     const message = yield* text(input.message, "the request", 16_000);
     const key = yield* text(input.key, "a key", 200);
+    yield* crew.requireManagedProject(input.projectId);
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     const row = yield* sql
       .withTransaction(

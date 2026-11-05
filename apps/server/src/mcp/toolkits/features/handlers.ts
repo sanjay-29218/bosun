@@ -126,6 +126,11 @@ const make = Effect.gen(function* () {
             }
           }
           const parentFeatureId = namedParent ?? shell.feature?.id;
+          if (input.projectId === undefined && headquartersBotId(scope.thread.threadId) !== null) {
+            return yield* invalid(
+              "Pass projectId: your home isn't a project. t3_bot_projects lists your projects.",
+            );
+          }
           // A bot's headquarters lives outside its projects, so it may start features in the ones
           // it owns; anyone else needs full access to reach another project.
           if (input.projectId !== undefined && input.projectId !== shell.projectId) {

@@ -37,6 +37,7 @@ import {
   linkTo,
   servePeer,
 } from "../peer/PeerLinks.testkit.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { TicketService } from "../tickets/TicketService.ts";
@@ -166,6 +167,10 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
       ] as never),
     }),
     Layer.mock(GitWorkflowService)({ currentBranch: () => Effect.succeed("main") }),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/projects",
+      isHiddenProject: (id) => Effect.succeed(id.endsWith(":hidden")),
+    }),
   );
 
 /** The crew toolkits and what they read besides BotReach's data. */
@@ -241,7 +246,11 @@ const makeLaptop = Effect.gen(function* () {
       layerData(
         {
           bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)],
-          projects: [project("project:laptop", "laptop-app", CAPTAIN_BOT_ID)],
+          projects: [
+            project("project:laptop", "laptop-app", CAPTAIN_BOT_ID),
+            project("project:scratch:hidden", "No project", CAPTAIN_BOT_ID),
+            project("project:captain-home:hidden", "Captain", CAPTAIN_BOT_ID),
+          ],
           workflowRevision: 3,
         },
         seen,

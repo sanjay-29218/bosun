@@ -12,7 +12,7 @@ import { RuntimeMode } from "./providerPolicy.ts";
 export const CAPTAIN_BOT_ID = "bot-captain";
 
 /**
- * Every bot has one headquarters: a crew run in the Scratch project, created when first needed.
+ * Every bot has one headquarters: a crew run in the bot's home, created when first needed.
  * It sees all the bot's projects and leads their features, so clients can find its thread by id.
  */
 export const BOT_HEADQUARTERS_RUN_PREFIX = "bot-hq:";
@@ -131,6 +131,11 @@ export const Bot = Schema.Struct({
   revision: Schema.Int,
   createdAt: Schema.String,
   updatedAt: Schema.String,
+  /**
+   * The bot's own folder on its environment, where its headquarters works. Null until the
+   * home exists: a bot gets one when it is created, or first opens or schedules work.
+   */
+  homePath: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type Bot = typeof Bot.Type;
 

@@ -29,6 +29,7 @@ import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
 import {
+  CREW_TEST_BOT_HOMES,
   CrewTestOrchestration,
   makeCrewTestOrchestration,
   seedCrewProject,
@@ -331,32 +332,76 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("keeps a bot's headquarters in a project it owns where Scratch is off", () =>
+  effectIt.effect("keeps a bot's headquarters in its home, and moves one in once", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-hq-")),
       );
-      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine, sql }) =>
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine, sql, store }) =>
         Effect.gen(function* () {
           // A bot without a model has no headquarters.
           expect(
             (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
           ).toContain("Choose a default model for Captain");
           yield* bots.ensureDefaults(modelSelection);
-          // No managed folders here, like a dev server whose data dir is inside a checkout.
-          expect(
-            (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
-          ).toContain("Give Captain a project first");
-          yield* createProject(engine);
+          // A bot that owns no project still gets its headquarters, in its own home.
           const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID);
-          expect(headquarters.projectId).toBe(projectId);
+          const home = headquarters.projectId;
+          const workspaceRoot = `${CREW_TEST_BOT_HOMES}/${CAPTAIN_BOT_ID}`;
+          const homeRow = yield* sql<{ readonly workspaceRoot: string; readonly botId: string }>`
+            SELECT workspace_root AS "workspaceRoot", bot_id AS "botId" FROM projection_projects
+            WHERE project_id = ${home}
+          `;
+          expect(homeRow).toEqual([{ workspaceRoot, botId: CAPTAIN_BOT_ID }]);
+          expect((yield* engine.getThreadShell(headquarters.threadId))?.projectId).toBe(home);
           expect(yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID)).toEqual(headquarters);
+          // Homes never get a Project manager.
+          expect((yield* bots.ensureProjectManager(home).pipe(Effect.flip)).message).toBe(
+            "Scratch and bot homes have no Project manager",
+          );
 
-          // Deleting the project it lives in sends it looking for another home.
-          yield* sql`UPDATE projection_projects SET deleted_at = '2026-10-14T00:00:00.000Z'`;
+          // One that lives elsewhere, as in Scratch before bots had homes, moves in.
+          yield* createProject(engine);
+          // Its first turn ended (no effect worker runs in tests).
+          yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'completed',
+            payload_json = json_set(payload_json, '$.status', 'completed')
+            WHERE thread_id = ${headquarters.threadId}`;
+          yield* engine.dispatch({
+            type: "thread.project.move",
+            commandId: CommandId.make("test:hq-to-scratch"),
+            threadId: headquarters.threadId,
+            projectId,
+          });
+          yield* store.moveRun(headquarters.id, projectId);
+          const messages = (yield* engine.getThreadRecords(headquarters.threadId, ["messages"]))
+            .messages.length;
+          yield* bots.rehomeHeadquarters();
+          expect((yield* store.getRun(headquarters.id))?.projectId).toBe(home);
+          expect((yield* engine.getThreadShell(headquarters.threadId))?.projectId).toBe(home);
+          // Its provider conversation was retired, so its next turn starts a fresh one there.
+          const restarted = yield* sql<{ readonly status: string }>`
+            SELECT status FROM orchestration_command_receipts
+            WHERE command_id = ${`bot-home:${CAPTAIN_BOT_ID}:${projectId}:restart`}
+          `;
+          expect(restarted).toEqual([{ status: "accepted" }]);
+          // It starts no turn: its next turn is the person's.
           expect(
-            (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
-          ).toContain("Give Captain a project first");
+            (yield* engine.getThreadRecords(headquarters.threadId, ["messages"])).messages.length,
+          ).toBe(messages);
+          const sequence = yield* engine.getThreadEventSequence(headquarters.threadId);
+          yield* bots.rehomeHeadquarters();
+          expect(yield* engine.getThreadEventSequence(headquarters.threadId)).toBe(sequence);
+
+          // A deleted home is made again, and the headquarters restored there.
+          yield* sql`UPDATE projection_projects SET deleted_at = '2026-11-05T00:00:00.000Z'
+            WHERE project_id = ${home}`;
+          const restored = yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID);
+          expect(restored.projectId).not.toBe(home);
+          expect(
+            yield* sql`SELECT 1 FROM projection_projects
+              WHERE project_id = ${restored.projectId} AND workspace_root = ${workspaceRoot}
+                AND deleted_at IS NULL`,
+          ).toHaveLength(1);
         }),
       ).pipe(
         Effect.ensuring(
@@ -441,7 +486,9 @@ describe("Bot foundation", () => {
       let attempts = 0;
       const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
         projectExists: () => Effect.succeed(true),
-        headquartersProjectId: Effect.succeed(null),
+        isHiddenProject: () => Effect.succeed(false),
+        botHome: () => Effect.die("unused"),
+        moveThread: () => Effect.die("unused"),
         restore: () => Effect.void,
         syncSettings: () => Effect.void,
         completedRuns: Stream.empty,
@@ -519,7 +566,9 @@ describe("Bot foundation", () => {
         }>();
         const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
           projectExists: () => Effect.succeed(true),
-          headquartersProjectId: Effect.succeed(null),
+          isHiddenProject: () => Effect.succeed(false),
+          botHome: () => Effect.die("unused"),
+          moveThread: () => Effect.die("unused"),
           restore: () => Effect.void,
           syncSettings: () => Effect.void,
           completedRuns: Stream.fromQueue(completions),

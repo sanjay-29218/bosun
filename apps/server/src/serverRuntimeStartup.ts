@@ -590,6 +590,12 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
       "crew.headquarters.watch",
       crew.watchHeadquarters().pipe(Scope.provide(crewScope)),
     );
+    yield* runStartupPhase("crew.headquarters.rehome", crew.rehomeHeadquarters()).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Bot headquarters stayed outside homes", { cause }),
+      ),
+      forkParked,
+    );
 
     const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(
       Effect.tap((summary) =>

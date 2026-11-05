@@ -31,7 +31,7 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
 import type { CrewWorkspace } from "./CrewStore.ts";
-import type { FreshStartRecords } from "./headquartersFreshStart.ts";
+import { headquartersIdle, type FreshStartRecords } from "./headquartersFreshStart.ts";
 type OrchestrationDispatchError = Orchestrator.OrchestratorV2Error;
 type CrewReadError = PersistenceSqlError;
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
@@ -64,8 +64,23 @@ export interface CrewThreadStart {
 
 export interface CrewThreadRuntimeShape {
   readonly projectExists: (projectId: ProjectId) => Effect.Effect<boolean, CrewReadError>;
-  /** The Scratch project bots keep their headquarters in, or null where there is none. */
-  readonly headquartersProjectId: Effect.Effect<ProjectId | null>;
+  /** Scratch or a bot's home, which never get a Project manager. */
+  readonly isHiddenProject: (projectId: ProjectId) => Effect.Effect<boolean>;
+  /** The bot's home project, made on first use; its headquarters works there. */
+  readonly botHome: (bot: {
+    readonly id: string;
+    readonly name: string;
+  }) => Effect.Effect<ProjectId, ManagedProjectFolders.BotHomeError>;
+  /**
+   * Moves an idle thread into `projectId` and retires its provider conversation, so its next
+   * turn starts a fresh session there. Starts no turn. False while the thread works. `key`
+   * names the move, so repeating it changes nothing.
+   */
+  readonly moveThread: (input: {
+    readonly threadId: ThreadId;
+    readonly projectId: ProjectId;
+    readonly key: string;
+  }) => Effect.Effect<boolean, OrchestrationDispatchError>;
   /** Pins a crew thread once; the fixed command ID makes an unpin stick. */
   readonly pin: (
     threadId: ThreadId,
@@ -314,15 +329,38 @@ export const CrewThreadRuntimeV2 = Layer.effect(
             Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectExists")),
           ),
       ),
-      headquartersProjectId: Option.match(folders, {
-        onNone: () => Effect.succeed(null),
-        onSome: (managed) =>
-          managed.ensureScratchProject.pipe(
-            Effect.map(({ projectId }) => projectId),
-            Effect.catch((error) =>
-              Effect.logWarning("Scratch project unavailable", { error }).pipe(Effect.as(null)),
-            ),
-          ),
+      isHiddenProject: Effect.fn("CrewThreadRuntime.isHiddenProject")((projectId) =>
+        Option.match(folders, {
+          onNone: () => Effect.succeed(false),
+          onSome: (managed) => managed.isHiddenProject(projectId),
+        }),
+      ),
+      botHome: Effect.fn("CrewThreadRuntime.botHome")(function* (bot) {
+        if (Option.isNone(folders)) {
+          return yield* new ManagedProjectFolders.BotHomeError({
+            botId: bot.id,
+            cause: "Bot homes are not available on this environment.",
+          });
+        }
+        return (yield* folders.value.ensureBotHome(bot)).projectId;
+      }),
+      moveThread: Effect.fn("CrewThreadRuntime.moveThread")(function* (input) {
+        const shell = yield* engine.getThreadShell(input.threadId);
+        if (shell === null || shell.deletedAt !== null) return true;
+        const records = yield* engine.getThreadRecords(input.threadId, ["runs", "runtimeRequests"]);
+        if (!headquartersIdle(records)) return false;
+        yield* engine.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`${input.key}:move`),
+          threadId: input.threadId,
+          projectId: input.projectId,
+        });
+        yield* engine.dispatch({
+          type: "thread.conversation.restart",
+          commandId: CommandId.make(`${input.key}:restart`),
+          threadId: input.threadId,
+        });
+        return true;
       }),
       pin: Effect.fn("CrewThreadRuntime.pin")((threadId, commandId) =>
         engine

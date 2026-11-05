@@ -305,7 +305,12 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       const page = yield* projects
         .listPage({ cursor: input.cursor ?? 0, limit: input.limit ?? 20 })
         .pipe(Effect.mapError(unavailable));
-      return { ...page, projects: yield* Effect.forEach(page.projects, withManager) };
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      // Scratch and bots' homes are where threads without a project work, not projects.
+      const listed = yield* Effect.filter(page.projects, (project) =>
+        Effect.map(folders.isHiddenProject(project.id), (hidden) => !hidden),
+      );
+      return { ...page, projects: yield* Effect.forEach(listed, withManager) };
     }),
   ),
   t3_project_read: McpToolAccess.reads((input) =>

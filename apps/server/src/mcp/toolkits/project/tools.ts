@@ -56,6 +56,7 @@ const ProjectWithManager = Schema.Struct({
 });
 const ProjectListTool = Tool.make("t3_project_list", {
   ...shared,
+  dependencies: [...shared.dependencies, ManagedProjectFolders.ManagedProjectFolders],
   description: "List projects. Pages can shift.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,

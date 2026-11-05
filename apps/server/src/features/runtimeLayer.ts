@@ -18,19 +18,27 @@ import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { forkParked } from "../serverActivation.ts";
 
-/** Automations that run as a bot post into its headquarters, which the crew opens or restores. */
+/**
+ * Automations that run as a bot post into its headquarters, which the crew opens or restores.
+ * Bot tasks filed before bots had homes move into them.
+ */
 const BotAutomationsLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const crew = yield* CrewService;
     const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
+    yield* scheduledTasks.rehomeBotTasks().pipe(
+      Effect.catch((cause) => Effect.logWarning("Bot tasks stayed outside homes", { cause })),
+      forkParked,
+    );
     yield* scheduledTasks.connectBotHeadquarters((botId) =>
       crew.ensureHeadquarters(botId).pipe(
         Effect.map((run) => ({ threadId: run.threadId, projectId: run.projectId })),
         Effect.mapError(
           (cause) =>
             new ScheduledTaskError({
-              // Crew refusals, such as a bot without a project, are written for the user.
+              // Crew refusals, such as a bot without a model, are written for the user.
               message:
                 cause._tag === "CrewValidationError"
                   ? `Could not open the bot's headquarters: ${cause.message}`

@@ -29,7 +29,7 @@ const dependencies = Layer.mergeAll(
   }),
   Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
     namedProjectsRoot: "/projects",
-    isScratchProject: () => Effect.succeed(false),
+    isHiddenProject: () => Effect.succeed(false),
   }),
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
@@ -221,7 +221,7 @@ it.effect.each([
           const sql = yield* SqlClient.SqlClient;
           return Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
             namedProjectsRoot: "/projects",
-            isScratchProject: () =>
+            isHiddenProject: () =>
               sql`UPDATE scheduled_tasks SET next_run_at = ${MOVED}, enabled = ${pause ? 0 : 1}`.pipe(
                 Effect.as(false),
                 Effect.orDie,

@@ -1677,6 +1677,12 @@ it.effect(
         expect(yield* start(crew, "project:owned")).toContain("the bot that owns it");
         expect(yield* start(headquarters, "project:other")).toContain("the bot that owns it");
         expect(yield* start(headquarters, "project:owned")).toContain("feature:x");
+        // Its own thread lives in its home, which is no project to start a feature in.
+        expect(
+          JSON.stringify(
+            yield* headquarters.call("t3_feature_start", { title: "Dark mode", brief: "Add it" }),
+          ),
+        ).toContain("Pass projectId: your home isn't a project.");
         expect(launched).toEqual([
           expect.objectContaining({
             projectId: "project:owned",

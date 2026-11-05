@@ -11,6 +11,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
@@ -33,6 +34,45 @@ import * as BotService from "./BotService.ts";
 import { CrewChanges, CrewChangesLive } from "../crew/CrewChanges.ts";
 import * as BotStore from "./BotStore.ts";
 
+/** Each bot's home is a project at `/bots/<botId>`; `ManagedProjectFolders.test.ts` covers the real one. */
+const layerBotHomes = Layer.effect(
+  ManagedProjectFolders.ManagedProjectFolders,
+  Effect.gen(function* () {
+    const projects = yield* ProjectService.ProjectService;
+    const isHome = (projectId: ProjectId) =>
+      projects
+        .getById(projectId)
+        .pipe(
+          Effect.map(Option.exists((project) => project.workspaceRoot.startsWith("/bots/"))),
+          Effect.orDie,
+        );
+    return ManagedProjectFolders.ManagedProjectFolders.of({
+      namedProjectsRoot: "/projects",
+      botHomesRoot: Effect.succeedSome("/bots"),
+      botHomePath: (botId: string) => Effect.succeedSome(`/bots/${botId}`),
+      isScratchProject: () => Effect.succeed(false),
+      isBotHome: isHome,
+      isHiddenProject: isHome,
+      ensureBotHome: (bot: { readonly id: string; readonly name: string }) =>
+        projects
+          .bootstrap({
+            commandId: CommandId.make(`command:home:${bot.id}`),
+            projectId: ProjectId.make(`project:home:${bot.id}`),
+            title: bot.name,
+            workspaceRoot: `/bots/${bot.id}`,
+            botId: bot.id,
+          })
+          .pipe(
+            Effect.map(({ project }) => ({
+              projectId: project.id,
+              workspaceRoot: project.workspaceRoot,
+            })),
+            Effect.orDie,
+          ),
+    } as unknown as ManagedProjectFolders.ManagedProjectFolders["Service"]);
+  }),
+);
+
 const layer = BotService.layer.pipe(
   Layer.provideMerge(CrewChangesLive),
   Layer.provideMerge(
@@ -43,15 +83,12 @@ const layer = BotService.layer.pipe(
           Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
           Layer.mock(ThreadManagementService.ThreadManagementService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
-          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-            namedProjectsRoot: "/projects",
-            isScratchProject: () => Effect.succeed(false),
-          }),
           Scheduler.layer,
         ),
       ),
     ),
   ),
+  Layer.provideMerge(layerBotHomes),
   Layer.provideMerge(RuntimeLayer.layerProjectService),
   Layer.provideMerge(BotStore.layer),
   Layer.provideMerge(ProjectEnrichmentService.layer),
@@ -161,6 +198,10 @@ it.layer(layer)("BotService", (it) => {
       const renamed = yield* bots.update({ id: bot.id, expectedRevision: 1, name: "Socials" });
       assert.strictEqual(renamed.name, "Socials");
       assert.deepStrictEqual(renamed.avatar, social.avatar);
+      // Its home is titled after it.
+      const projects = yield* ProjectService.ProjectService;
+      const home = yield* projects.getById(ProjectId.make("project:home:bot:update"));
+      assert.strictEqual(Option.getOrUndefined(home)?.title, "Socials");
       assert.strictEqual(renamed.revision, 2);
       const stale = yield* Effect.exit(bots.update({ id: bot.id, expectedRevision: 1, name: "X" }));
       assert.isTrue(Exit.isFailure(stale));
@@ -172,6 +213,15 @@ it.layer(layer)("BotService", (it) => {
       const bots = yield* BotService.BotService;
       const projects = yield* ProjectService.ProjectService;
       const bot = yield* bots.create({ ...social, id: "bot:owner" });
+      // A new bot gets its home, which is never moved to another bot.
+      assert.strictEqual(bot.homePath, "/bots/bot:owner");
+      const home = ProjectId.make("project:home:bot:owner");
+      assert.strictEqual((yield* bots.get(bot.id))?.homePath, "/bots/bot:owner");
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(bots.moveProject({ projectId: home, botId: CAPTAIN_BOT_ID })),
+        ),
+      );
       const captainProject = yield* projects.create({
         commandId: CommandId.make("command:captain-project"),
         projectId: ProjectId.make("project:captain"),
@@ -204,9 +254,11 @@ it.layer(layer)("BotService", (it) => {
       assert.strictEqual(moved.botId, CAPTAIN_BOT_ID);
       const shell = yield* projects.getShell(owned.id);
       assert.strictEqual(shell._tag === "Some" ? shell.value.botId : null, CAPTAIN_BOT_ID);
+      // Its home doesn't hold the delete up, and stays for a restore to find.
       yield* bots.delete(bot.id);
       assert.strictEqual(yield* bots.get(bot.id), null);
       assert.isFalse((yield* bots.list).some((listed) => listed.id === bot.id));
+      assert.isTrue(Option.isSome(yield* projects.getById(home)));
       // The row stays, so runs it already started can still act, and its ID stays taken.
       const store = yield* BotStore.BotStore;
       assert.isTrue(yield* store.idTaken(bot.id));
@@ -257,6 +309,8 @@ it.layer(layer)("BotService", (it) => {
       );
       const writers = (yield* bots.list).filter((bot) => bot.name === "Writer");
       assert.lengthOf(writers, 1);
+      // A copy gets its home when it first needs one.
+      assert.isNull(writers[0]!.homePath);
       assert.notStrictEqual(writers[0]!.id, "bot:writer");
       assert.deepStrictEqual(
         moved.map((each) => each.botId),

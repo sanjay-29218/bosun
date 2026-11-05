@@ -141,6 +141,44 @@ const TestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
+/** Where crew tests keep bots' homes. */
+export const CREW_TEST_BOT_HOMES = "/tmp/crew-test-bots";
+
+/** Scratch is off; each bot's home is a project at `CREW_TEST_BOT_HOMES/<botId>`, made again once deleted. */
+const CrewTestManagedFolders = Layer.effect(
+  ManagedProjectFolders.ManagedProjectFolders,
+  Effect.gen(function* () {
+    const projects = yield* ProjectStore.ProjectStoreV2;
+    let made = 0;
+    const isBotHome = (projectId: ProjectId) =>
+      projects
+        .get(projectId)
+        .pipe(
+          Effect.map(
+            Option.exists((row) => row.workspaceRoot.startsWith(`${CREW_TEST_BOT_HOMES}/`)),
+          ),
+          Effect.orDie,
+        );
+    return ManagedProjectFolders.ManagedProjectFolders.of({
+      namedProjectsRoot: "/unused",
+      isScratchProject: () => Effect.succeed(false),
+      folderForThread: () => Effect.succeedNone,
+      isBotHome,
+      isHiddenProject: isBotHome,
+      ensureBotHome: (bot: { readonly id: string; readonly name: string }) =>
+        Effect.gen(function* () {
+          const workspaceRoot = `${CREW_TEST_BOT_HOMES}/${bot.id}`;
+          const existing = yield* projects.findActiveByWorkspaceRoot(workspaceRoot);
+          if (Option.isSome(existing))
+            return { projectId: existing.value.projectId, workspaceRoot };
+          const projectId = ProjectId.make(`home:${bot.id}:${++made}`);
+          yield* seedCrewProject({ projectId, title: bot.name, workspaceRoot, botId: bot.id });
+          return { projectId, workspaceRoot };
+        }).pipe(Effect.orDie),
+    } as unknown as ManagedProjectFolders.ManagedProjectFolders["Service"]);
+  }),
+);
+
 /** Crew threads launch like any thread; `runSetup` sees each setup script they would run. */
 export const makeCrewTestOrchestration = (
   options: {
@@ -166,14 +204,11 @@ export const makeCrewTestOrchestration = (
           }),
           Layer.mock(TextGeneration.TextGeneration)({}),
           ProviderRegistryMock.layer(),
-          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-            namedProjectsRoot: "/unused",
-            isScratchProject: () => Effect.succeed(false),
-            folderForThread: () => Effect.succeedNone,
-          }),
+          CrewTestManagedFolders.pipe(Layer.provide(ProjectStore.layer)),
         ),
       ),
     ),
+    CrewTestManagedFolders.pipe(Layer.provide(ProjectStore.layer)),
   ).pipe(
     Layer.provide(McpSessionRegistryTestkit.layer),
     Layer.provide(McpProviderSessions.layer),
