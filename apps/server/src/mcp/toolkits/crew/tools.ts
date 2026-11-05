@@ -93,7 +93,7 @@ const TodoRef = Schema.String.annotate({
 
 const CreateTodo = Tool.make("crew_create_todo", {
   description:
-    "Create a todo in the project this thread works in. `as: ticket` (the default) keeps it in Bosun as `T-<number>`; `as: issue` files a GitHub issue, which needs a GitHub remote. The description is Markdown. An issue can go in a `milestone` (an open one's title, or its number) and under a `parent` issue number, as its sub-issue.",
+    "Create a todo in the project this thread works in. `as: ticket` (the default) keeps it in Bosun as `T-<number>`; `as: issue` files a GitHub issue, which needs a GitHub remote. The description is Markdown. An issue can take a `milestone` (an open one's title or number) and a `parent` issue number.",
   parameters: Schema.Struct({
     title: Schema.String,
     description: Schema.optional(Schema.String),
@@ -148,7 +148,7 @@ const Milestone = Schema.Struct({
 
 const CreateMilestone = Tool.make("crew_create_milestone", {
   description:
-    "Open a GitHub milestone in the project this thread works in, for work that ships as several issues. File its issues into it with crew_create_todo `milestone`.",
+    "Open a GitHub milestone in this thread's project, for work that ships as several issues.",
   parameters: Schema.Struct({ title: Schema.String, description: Schema.optional(Schema.String) }),
   success: Milestone,
   failure,
@@ -156,8 +156,7 @@ const CreateMilestone = Tool.make("crew_create_milestone", {
 }).annotate(Tool.Destructive, false);
 
 const UpdateMilestone = Tool.make("crew_update_milestone", {
-  description:
-    "Close or reopen a milestone of the project this thread works in, named by its title or number.",
+  description: "Close or reopen a milestone of this thread's project, by title or number.",
   parameters: Schema.Struct({
     milestone: Schema.String,
     state: Schema.Literals(["open", "closed"]),

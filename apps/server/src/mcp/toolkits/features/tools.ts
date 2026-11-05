@@ -88,17 +88,17 @@ const StartFeature = Tool.make("t3_feature_start", {
     baseBranch: Schema.optional(Schema.String),
     requestId: Schema.optional(
       Schema.String.annotate({
-        description: "A Project manager's request (R-<number>) this feature answers.",
+        description: "Managers: the request (R-n) it answers.",
       }),
     ),
     issue: Schema.optional(
       Schema.String.annotate({
-        description: "The issue it works on: a link, `#56` or `T-14`. Linked as it starts.",
+        description: "Its issue: a link, `#56` or `T-14`.",
       }),
     ),
     parentFeatureId: Schema.optional(
       Schema.String.annotate({
-        description: "Project managers: an Epic or other feature of this project to add it under.",
+        description: "Managers: a feature of this project to add it under.",
       }),
     ),
   }),
@@ -130,7 +130,7 @@ const FinishFeature = Tool.make("t3_feature_finish", {
 const ListFeatures = Tool.make("t3_feature_list", {
   ...shared,
   description:
-    "List this thread's project's features, newest first: each one's lead thread, branch and base branch, parent feature, issue, pull request and its last known state, the thread it reports to, the project request it answers, and how its lead last reported. status keeps open or closed ones; parentFeatureId keeps one feature's children.",
+    "This project's features, newest first: lead thread, branches, parent, issue, pull request and state, requester, request, and last report. Filter by status or parentFeatureId.",
   parameters: Schema.Struct({
     status: Schema.optional(Schema.Literals(["open", "closed"])),
     parentFeatureId: Schema.optional(Schema.String),

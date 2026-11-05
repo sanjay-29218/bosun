@@ -8,7 +8,7 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { fullAccessCaller } from "../features/access.ts";
-import { ProjectReplyToolkit, ProjectRequestsToolkit } from "./tools.ts";
+import { ProjectRequestsToolkit } from "./tools.ts";
 
 const isMcpFailure = Schema.is(OrchestratorMcpFailure);
 const asMcpFailure = (error: unknown) =>
@@ -86,9 +86,6 @@ export const layer = McpToolAccess.toLayer(ProjectRequestsToolkit, {
         return { requests: listed.map(view) };
       }).pipe(Effect.mapError(asMcpFailure)),
   ),
-});
-
-export const replyLayer = McpToolAccess.toLayer(ProjectReplyToolkit, {
   t3_project_reply: McpToolAccess.actsAsCaller(
     (input: {
       readonly requestId: string;

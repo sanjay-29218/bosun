@@ -1613,6 +1613,8 @@ it.effect(
           "t3_feature_list",
           "t3_feature_start",
           "t3_project_reply",
+          "t3_project_requests",
+          "t3_project_send",
           "upstream",
         ].sort();
         const plainTools = ["upstream"];
@@ -1622,6 +1624,7 @@ it.effect(
 
         // A tool a thread isn't listed is refused before its handler runs.
         expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
+        expect((yield* plain.call("t3_project_send")).error?.message).toContain("t3_project_send");
         expect((yield* crew.call("t3_role_list")).error?.message).toContain("t3_role_list");
         expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
 

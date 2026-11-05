@@ -30,7 +30,7 @@ export const projectRequestText = (request: {
   readonly requesterThreadId: string;
   readonly text: string;
 }) =>
-  `Request ${request.id} from thread ${request.requesterThreadId}:\n\n${request.text}\n\nAnswer it with t3_project_reply, requestId "${request.id}".`;
+  `Request ${request.id} from thread ${request.requesterThreadId}:\n\n${request.text}\n\nAnswer it with t3_project_reply, requestId "${request.id}". Pass the same requestId to the delegate_task or t3_feature_start that does its work.`;
 
 /** The built-in workflow's instructions, which people can edit. */
 export const FEATURE_DELIVERY_INSTRUCTIONS =

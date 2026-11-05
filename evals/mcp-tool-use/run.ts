@@ -77,10 +77,7 @@ import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/too
 import { FeaturesToolkit } from "../../apps/server/src/mcp/toolkits/features/tools.ts";
 import { BotsToolkit } from "../../apps/server/src/mcp/toolkits/bots/tools.ts";
 import { CrewToolkit } from "../../apps/server/src/mcp/toolkits/crew/tools.ts";
-import {
-  ProjectReplyToolkit,
-  ProjectRequestsToolkit,
-} from "../../apps/server/src/mcp/toolkits/projectRequests/tools.ts";
+import { ProjectRequestsToolkit } from "../../apps/server/src/mcp/toolkits/projectRequests/tools.ts";
 import { LinkBotProjects, LinkBotTask } from "../../apps/server/src/mcp/toolkits/bots/linkTools.ts";
 import {
   CLAUDE_PROVIDER,
@@ -456,7 +453,6 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   BotsToolkit,
   CrewToolkit,
   ProjectRequestsToolkit,
-  ProjectReplyToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -511,14 +507,14 @@ const botTools = new Set(
 );
 /** The project a Project manager case's thread manages. */
 const EVAL_PROJECT_ID = "project:acme-app";
-// T3 lists the crew's todo tools to crew threads: here a headquarters or a project's manager.
+// T3 lists the crew's todo and request tools to crew threads: here a headquarters or a manager.
 const crewTools = new Set(
-  Object.values(CrewToolkit.tools).map((tool) => `${T3_PREFIX}${tool.name}`),
+  [...Object.values(CrewToolkit.tools), ...Object.values(ProjectRequestsToolkit.tools)].map(
+    (tool) => `${T3_PREFIX}${tool.name}`,
+  ),
 );
-// Only a project's manager thread is listed t3_project_reply.
-const replyTools = new Set(
-  Object.values(ProjectReplyToolkit.tools).map((tool) => `${T3_PREFIX}${tool.name}`),
-);
+// Only a project's manager answers requests, so only its cases list t3_project_reply.
+const replyTools = new Set([`${T3_PREFIX}${ProjectRequestsToolkit.tools.t3_project_reply.name}`]);
 const linkOnlyTools = new Set(
   [LinkBotProjects, LinkBotTask].map((tool) => `${T3_PREFIX}${tool.name}`),
 );

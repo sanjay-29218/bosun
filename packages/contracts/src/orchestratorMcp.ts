@@ -182,15 +182,11 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
         "Issue it works on: a link, `#56`, `T-14`, or a key like `LIN-123`. Its thread shows it; the child cites it in its PR.",
     }),
   ),
-  requestId: Schema.optional(
-    Schema.String.annotate({
-      description: "Project managers: the request (R-n) this answers.",
-    }),
-  ),
+  requestId: Schema.optional(Schema.String),
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:
-        "'shared' (default): parent checkout. 'worktree': new prepared checkout from the parent commit, for a separate checkout or PR per child. Uncommitted edits stay out.",
+        "'shared' (default): parent checkout. 'worktree': new prepared checkout from the parent commit. Uncommitted edits stay out.",
     }),
   ),
   mode: Schema.optional(

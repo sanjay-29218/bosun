@@ -76,7 +76,6 @@ import * as BotsHandlers from "./toolkits/bots/handlers.ts";
 import * as CrewHandlers from "./toolkits/crew/handlers.ts";
 import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
 import * as ProjectRequestsHandlers from "./toolkits/projectRequests/handlers.ts";
-import { ProjectRequestsToolkit } from "./toolkits/projectRequests/tools.ts";
 import { CrewGatedToolkits } from "./crewToolGrants.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
@@ -1185,13 +1184,7 @@ export const layerCrewTools = Layer.mergeAll(
   toolkitRegistration(CrewGatedToolkits.bots, BotsHandlers.layer),
   toolkitRegistration(CrewGatedToolkits.crew, CrewHandlers.layer),
   toolkitRegistration(CrewGatedToolkits.features, FeaturesHandlers.layer),
-  toolkitRegistration(CrewGatedToolkits.projectReplies, ProjectRequestsHandlers.replyLayer),
-);
-
-/** Requests to a project's manager: any thread may try, and each handler checks the caller. */
-const layerProjectRequestsToolkit = toolkitRegistration(
-  ProjectRequestsToolkit,
-  ProjectRequestsHandlers.layer,
+  toolkitRegistration(CrewGatedToolkits.projectRequests, ProjectRequestsHandlers.layer),
 );
 
 /**
@@ -1235,7 +1228,6 @@ export const layerTools = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   layerCrewTools,
-  layerProjectRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
 );
