@@ -128,17 +128,20 @@ person" and 60 "[completed]". One feature sent its HQ 12 reports, another 10. Fe
 - Accept: a feature whose lead stops 5 times and finishes once reports once (plus any
   needs-you notices).
 
-### B3. Long HQ and lead threads start over
+### B3. Long HQ and lead threads: a default plus a choice
 
 - The automatic fresh start exists (`headquartersFreshStart.ts:8`: 100k tokens, after 30 quiet
-  minutes; `CrewService.ts:1184`). It is opt-in, and all 4 bots are set to `compact`, so it
-  never runs. Project managers are standing threads and default to compact too. Leads end with
-  their feature.
-- Fix: default HQ and Project manager threads to `new-session`. Existing bots stay as they are
-  unless the person switches. Leave leads on provider compaction.
-- Size S, task. After #69, which moves HQ working folders and sessions.
-- Accept: a standing thread above the threshold starts a briefed new session after the quiet
-  period. The setting shows the new default.
+  minutes; `CrewService.ts:1184`). All 4 bots are set to `compact`, so it never runs.
+- Person's decision (2026-11-05): keep one **default mode** per bot and Project manager
+  (Compact or New session), but never force it silently. When a standing thread crosses the
+  threshold, show both actions in the thread: **Compact** and **Start new session**, with the
+  default highlighted. Apply the default only if the person doesn't choose within the quiet
+  period. Both buttons are also available on demand at any time (the `/new` from #55 plus a
+  matching compact action).
+- Leave leads on provider compaction.
+- Size S–M, task. After #69, which moves HQ working folders and sessions.
+- Accept: the setting picks the default; crossing the threshold shows both buttons; choosing
+  either one runs it; the default runs only when no choice is made; existing bots keep `compact`.
 
 ### B4. Size the process to the work
 
