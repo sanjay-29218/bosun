@@ -257,9 +257,15 @@ These go in the role's instructions. They are not hard rules.
 
 - Close #49 and PR #52 as superseded by lead-and-crew.
 - Land #56 and task-issue-links first. Phases 2–3 build on both.
-- Fix #61 (its own small PR, or the first commit of Phase 1). Project-level members (`bot-manager:`,
-  `bot-builder:`) follow their role's current revision when reused, through a revision-checked
-  `CrewStore.updateMember`. Phase 2's follow-the-role behavior builds on it.
+- Fix #61 in its own small PR. Project-level members (`bot-manager:`, `bot-builder:`, and Phase 2's
+  `project-manager:`) follow their role's current revision. Two triggers:
+  - `updateRole` refreshes every project-level member of that role in the same transaction, so a
+    standing thread that is already open follows the edit too.
+  - Reuse through the ensure path checks again, as a safety net.
+
+  Each refresh goes through a revision-checked `CrewStore.updateMember` whose `WHERE` skips
+  customized members (`customized_at IS NOT NULL`, from Phase 2). A customize or reset racing a role
+  edit then never loses the person's settings. Phase 2's follow-the-role behavior builds on this.
 
 ### Phase 1: rename "Project manager" → "Feature manager"
 
@@ -271,7 +277,12 @@ compatibility shim.
 
 - `roles.id`: `role:project-manager` → `role:feature-manager`.
 - `workflows.lead_role_id`, and any `crew_role_ids_json` entry, from the old ID to the new one.
-- `crew_members.role_id` from the old ID to the new one.
+- `crew_members.role_id` from the old ID to the new one, for project-level members (`bot-manager:*`)
+  only. Feature-scoped members keep `role:project-manager` and their names. They are snapshots,
+  and `FeatureService.crewMember` looks them up by name **or role ID**, within the feature's own
+  assignments only. So a running custom workflow's `crewMember: "role:project-manager"` keeps
+  resolving to its own member, even after Phase 2 gives the ID a new meaning. The migration test
+  covers name-based and role-ID-based delegation in such a feature.
 - The retired engine's tables (`workflow_definition_*`, `feature_workflows`) are read by nothing,
   so leave them.
 
@@ -387,9 +398,11 @@ manager" wording in `features.ndjson`.
   from the member. Otherwise MCP authorization keeps the standing run's grants from when it was
   created. Feature and task runs keep their snapshots.
 - **Follows its role until customized.** A project's manager follows the role's current revision
-  (the #61 sync, Phase 0) until someone saves its settings in the project. From then on it keeps
-  them (`customized_at` on the member). **Reset to role defaults** clears that and takes the role's
-  current settings again, which is the way back out.
+  (the #61 sync, Phase 0, which also runs on role edits) until someone saves its settings in the
+  project. From then on it keeps them (`customized_at` on the member). **Reset to role defaults**
+  clears that and takes the role's current settings again, which is the way back out. Both write
+  with the member's revision check. After any member change, the standing thread re-syncs its model
+  and mode, and its grants are read live.
 - Where: a **Project manager** section in **Settings → Project** on web and desktop, and in the
   project settings on mobile. It sits beside the project's bot. Saving re-syncs the standing
   thread. New instructions reach it on its next new session, as they do for a bot's headquarters.
@@ -410,24 +423,69 @@ Results come back long after the turn that took the request. A feature finishes 
 as a server report with no sender. So the link from request to requester is stored, not inferred
 from a turn's messages.
 
-- A `project_requests` table: `id` (R-n per project), `project_id`, `requester_thread_id`, `text`,
-  `status` (open or done), `created_at` and `closed_at`. The request record links to its work only
-  through its issue and the Project manager's own notes. The issue is the durable link, so there is
-  no table joining requests to features.
-- `t3_project_send({ projectId, message, requestId? })` ensures the Project manager exists, stores
-  the request, and queues the message headed with its ID and requester. It returns the request ID
-  and the thread link. A retry with the same `requestId` returns the same request. It is allowed for
-  the HQ of the owning bot, or for a full-access caller.
-- `t3_project_reply({ requestId, message, done? })`, Project manager only, posts to the requester
-  thread with a fixed message ID per reply. `done: true` closes the request.
-- `t3_project_requests({ status? })` lists the project's requests, so a fresh session finds what it
-  still owes.
-- Server notices (feature reports, merge notices) carry no request and never need a reply. The
-  instructions say so.
-- Fallback: when a Project manager turn that took a request message ends with no reply to that
-  request, the server posts the turn's last message to the requester once, as an interim reply. Key
-  it by request and run, so a restart doesn't repeat it.
-- A matching client RPC lets the person send from the UI later; that isn't needed in this phase.
+**Storage**
+
+- A `project_requests` table:
+  - `id` (R-n per project);
+  - `project_id`;
+  - `requester_thread_id`;
+  - `send_key`, the caller's operation key, unique per requester thread;
+  - `text`;
+  - `issue_ref`, the issue or ticket it is tracked by, null until the Project manager picks one;
+  - `status` (open or done);
+  - `delivered_at`, `created_at` and `closed_at`.
+- A `project_request_turns` table: `request_id`, `run_id`, `replied`, `fallback_sent`. This is what
+  the fallback reads after a restart.
+
+**Linking work to a request**
+
+- `t3_feature_start` and `delegate_task` take an optional `requestId`. It is stored on the feature
+  (`features.request_id`) or the task thread's tag. `FeatureReportReactor` and task results name it,
+  so a fresh session knows which request a report answers.
+- Several requests can share one issue. Each keeps its own `issue_ref` and gets its own reply.
+- There is no join table: a piece of work answers at most one request.
+
+**Sending** with `t3_project_send({ projectId, message, key })`
+
+- `key` is required, like `clientRequestId`.
+- In one transaction it allocates R-n (or finds the existing row for that requester and `key`) and
+  stores it. It then dispatches the message with a command ID and message ID derived from the
+  request (`project-request:<id>`), and sets `delivered_at`.
+- A retry with the same `key` returns the same R-n and dispatches again if the request isn't
+  delivered yet. The fixed command ID makes that harmless.
+- On startup, requests with no `delivered_at` are dispatched again.
+- The caller and project come from the authenticated caller: the HQ of the bot that owns the
+  project, or a full-access caller.
+
+**Replying** with `t3_project_reply({ requestId, message, key, issue?, done? })`
+
+- Only that project's standing thread may call it. The caller's thread must be exactly
+  `bot-run:project-hq:<projectId>`, and the project comes from that.
+- It dispatches to the requester with a message ID derived from the request and `key`, so retries
+  and separate progress replies stay distinct. Then it records `issue_ref` and marks the turn as
+  replied.
+- With `done`, it closes the request after the dispatch. A retry dispatches again, which is
+  harmless, then closes.
+
+**Listing** with `t3_project_requests({ status? })`
+
+- The standing thread sees all of its project's requests.
+- A requester thread sees only its own.
+
+**Server notices** (feature reports, merge notices) carry no request and never need a reply. The
+instructions say so.
+
+**Fallback.** When a Project manager turn that took request messages ends, the server looks for
+requests it didn't reply to.
+
+- If the turn took exactly one request, it forwards the turn's last message to that requester as an
+  interim reply.
+- If the turn took several requests, it sends a short acknowledgement naming each unanswered
+  request ("R-7 received; the Project manager is on it"). It doesn't guess which text answers
+  which.
+- Either way it is recorded on `project_request_turns`, so a restart doesn't repeat it.
+
+A matching client RPC lets the person send from the UI later; that isn't needed in this phase.
 
 **Questions**
 
@@ -539,10 +597,17 @@ issue creation has today. Check it on a GitHub App token.
   no requester, and work a bot started directly has the bot's HQ as requester; the Project manager
   owns closing issues either way. The PR has to be linked to a thread of a feature or of a task in
   the project.
-- Key it by host, repository and PR number, with a fixed message ID, so restarts and
-  several threads linking the same PR don't repeat it. On startup, reconcile merged snapshots that
-  have no notice yet.
+- Key it by **project plus normalized PR identity** (host, repository, number), with a command ID and
+  message ID derived from that key. Two projects that track the same PR each get their own notice.
+  Within one project, collect every linked feature and task first, then send one notice naming all
+  their issues. On startup, reconcile merged snapshots that have no notice yet.
 - The notice names the feature, issue, milestone and target branch.
+- **Keep refreshing until the PR ends.** Today `PullRequestSyncReactor` stops refreshing once every
+  linked thread is settled: `active` is empty, so `active.every(isFinal)` is true. Also,
+  `getThreadsWithPullRequests` skips archived threads. A task thread settled while its PR is open
+  would then never see the merge. Keep a PR due, at the quiet interval, until its snapshot is merged
+  or closed, whatever the thread's settled or archived state, for threads of features and Project
+  manager tasks.
 
 **Closing**
 
@@ -560,8 +625,9 @@ it. A visible state guards against a missed close: the board shows "merged, issu
 **`main` merges:** when `staging` later merges into `main`, GitHub's auto-close of "Closes #N"
 finds the issue already closed and does nothing.
 
-**Risk:** none on host quota. The notice reads snapshots the sync reactor already keeps, and adds
-no host calls.
+**Risk:** host quota. Settled and archived threads with open PRs now keep refreshing, at the quiet
+interval, until their PRs merge or close. That is a few extra calls per open PR, through the
+existing batched and fingerprinted path.
 
 ### Phase 5: cleanup
 
@@ -577,7 +643,10 @@ no host calls.
   won't show the Project manager, because a sent message isn't a Lineage edge. A bot reaches it
   through the link in its reply and **Open project manager**. No new Lineage edge.
 
-This phase is small; fold it into Phase 4 if that PR has room.
+This phase ships as its own PR, like every other phase.
+
+**Merge order:** #61 (Phase 0), then Phase 1. #56 and task-issue-links land before Phase 2. Then
+Phases 2, 3, 4 and 5.
 
 ## Migration and compatibility
 
