@@ -4,7 +4,9 @@ import * as NodeCrypto from "node:crypto";
 import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  CAPTAIN_BOT_ID,
   type ManagedPolicyDocument,
+  ProjectId,
   ScheduledTaskUpsertInput,
   ScheduledTaskWebhookDeliveryId,
   SecretRequestError,
@@ -239,11 +241,17 @@ const withService = <A, E>(
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
         isHiddenProject: () => Effect.succeed(false),
+        ensureBotHome: (bot) =>
+          Effect.succeed({
+            projectId: ProjectId.make(`home:${bot.id}`),
+            workspaceRoot: `/bots/${bot.id}`,
+          }),
       }),
       Layer.mock(ThreadManagementService.ThreadManagementService)({}),
       Layer.mock(SecretRequests.SecretRequests)({
-        consume: ({ ref }) => {
-          const value = secretsByRef.get(ref);
+        // As the real service does, a ref resolves only in the project it was requested in.
+        consume: ({ ref, projectId }) => {
+          const value = projectId === "project-webhook" ? secretsByRef.get(ref) : undefined;
           secretsByRef.delete(ref);
           return value === undefined
             ? Effect.fail(new SecretRequestError({ reason: "ref_unavailable" }))
@@ -842,6 +850,19 @@ it.effect("a signature can take the user's secret by ref, which works only once"
         )
         .pipe(Effect.flip);
       assert.include(reused.message, "already used");
+
+      // A bot's webhook is filed in the bot's home, but the secret was asked for in the
+      // caller's project.
+      secretsByRef.set("secret-ref:00000000000000000000000000000003", "bot-secret");
+      const { task: botTask } = yield* service.upsert(
+        yield* webhookTaskInput({
+          id: "scheduled-task:bot-webhook",
+          botId: CAPTAIN_BOT_ID,
+          schedule: githubSchedule("secret-ref:00000000000000000000000000000003"),
+        }),
+      );
+      assert.equal(botTask.projectId, `home:${CAPTAIN_BOT_ID}`);
+      assert.isTrue(botTask.webhook!.hasSecret);
     }),
   ),
 );

@@ -1383,7 +1383,11 @@ export const layer = Layer.effect(
                 signature?.secretRef === undefined
                   ? undefined
                   : yield* secretRequests
-                      .consume({ ref: signature.secretRef, projectId })
+                      // Asked for in the caller's project, which a bot task isn't filed in.
+                      .consume({
+                        ref: signature.secretRef,
+                        projectId: input.projectId ?? projectId,
+                      })
                       .pipe(
                         Effect.catch((error) =>
                           replay
