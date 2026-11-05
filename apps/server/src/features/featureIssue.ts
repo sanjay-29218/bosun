@@ -16,11 +16,13 @@ export const featureTag = (feature: {
   readonly title: string;
   readonly issue: FeatureIssue | null;
   readonly requesterThreadId?: ThreadId | null | undefined;
+  readonly parentFeatureId?: string | null | undefined;
 }): ThreadFeatureTag => ({
   id: feature.id,
   title: feature.title,
   ...(feature.issue ? { issue: feature.issue } : {}),
   ...(feature.requesterThreadId ? { requesterThreadId: feature.requesterThreadId } : {}),
+  ...(feature.parentFeatureId ? { parentFeatureId: feature.parentFeatureId } : {}),
 });
 
 /** The issue number in an issue link: GitHub's /owner/repo/issues/N or GitLab's /-/issues/N. */

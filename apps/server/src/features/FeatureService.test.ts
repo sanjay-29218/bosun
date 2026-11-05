@@ -339,6 +339,10 @@ describe("feature lead and crew", () => {
           (entry) => entry.featureId === child.feature.id,
         );
         expect(card?.parentFeatureId).toBe(parent.feature.id);
+        const childShell = yield* (yield* OrchestrationEngineService).getThreadShell(
+          child.leadThreadId,
+        );
+        expect(childShell?.feature?.parentFeatureId).toBe(parent.feature.id);
         // The child's lead knows whose work it is part of, and how to report back.
         const opening = (yield* userTexts(child.leadThreadId))[0]!;
         expect(opening).toContain(`Parent feature: "Port to Mac" (${parent.feature.id})`);

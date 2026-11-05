@@ -276,9 +276,10 @@ const syncFeatureThreads = Effect.fn("FeatureService.syncFeatureThreads")(functi
     readonly title: string;
     readonly issueJson: string | null;
     readonly requesterThreadId: ThreadId | null;
+    readonly parentFeatureId: string | null;
   }>`
       SELECT project_id AS projectId, title, issue_json AS issueJson,
-        requester_thread_id AS requesterThreadId
+        requester_thread_id AS requesterThreadId, parent_feature_id AS parentFeatureId
       FROM features WHERE id = ${featureId}
     `;
   if (!feature) return;
@@ -287,6 +288,7 @@ const syncFeatureThreads = Effect.fn("FeatureService.syncFeatureThreads")(functi
     title: feature.title,
     issue: decodeFeatureIssue(feature.issueJson),
     requesterThreadId: feature.requesterThreadId,
+    parentFeatureId: feature.parentFeatureId,
   });
   const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
       SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
