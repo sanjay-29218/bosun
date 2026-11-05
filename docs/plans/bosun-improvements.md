@@ -171,15 +171,12 @@ person" and 60 "[completed]". One feature sent its HQ 12 reports, another 10. Fe
 - Accept: opening a new PM or HQ creates no run. The first message runs with the instructions
   applied.
 
-### C2. Ordinary threads can't reach the Project manager
+### C2. Who reaches the Project manager: dropped
 
-- `projectRequests` is gated with `null` needs (`crewToolGrants.ts:94`), which still requires
-  crew grants (`:33`). A plain thread in the project never sees `t3_project_send`.
-- Fix: list the three tools to any thread in a project with a PM. The handler limits it to that
-  project.
-- Size S, task, with C5 (same settings and gates). After A3. Run the MCP tool-use evals: the
-  tool list changes.
-- Accept: a plain thread can send, list and reply to requests for its own project only.
+- Person's decision (2026-11-05): no change. The Project manager is reached by
+  (1) bots, which hand it requests and delegate tasks to it; (2) its own children, since tasks it
+  delegates and features it starts report back to its thread; and (3) the person, through "Open
+  project manager". Ordinary threads don't get the request tools, which also saves tool text.
 
 ### C3. Linked environments can't reach their Project manager
 
@@ -187,7 +184,7 @@ person" and 60 "[completed]". One feature sent its HQ 12 reports, another 10. Fe
   (`crewToolGrants.ts:30`, `:94`). #66 added bot reach but not request reach; #48 stays open.
 - Fix: add the tools to `forLinks`. The handler checks the link's project access and routes to
   that environment's PM.
-- Size M, task. After C2. Test through the linked-environment fixtures from #66.
+- Size M, task. Test through the linked-environment fixtures from #66.
 - Accept: a bot on environment A sends a request to a project on B and gets the reply. A link
   without access is refused.
 
@@ -206,7 +203,7 @@ person" and 60 "[completed]". One feature sent its HQ 12 reports, another 10. Fe
 - Fix (recommended): a per-project switch in Project settings (`ProjectManagerSettings.tsx`) and
   a global default. When it's off, requests and features go to the requester directly, and the
   PM thread is archived. Turning it back on unarchives the same thread.
-- Size M, feature, with C2.
+- Size M, feature.
 - Accept: with the switch off, no PM thread or run is created, and `t3_project_send` says the
   project has no manager. Turning it back on restores the old thread.
 
@@ -220,15 +217,15 @@ person" and 60 "[completed]". One feature sent its HQ 12 reports, another 10. Fe
 
 ## Suggested waves (at most 2 at a time)
 
-| Wave | Slot 1                            | Slot 2                                     |
-| ---- | --------------------------------- | ------------------------------------------ |
-| 0    | Merge PR #70                      | C1 + C4 (task)                             |
-| 1    | B1 + B2, fewer wake-ups (feature) | A2, dead code (task)                       |
-| 2    | #69, bot home (feature)           | A3, RPC move (task)                        |
-| 3    | B3, auto new session (task)       | C2 + C5, PM reach and off switch (feature) |
-| 4    | A4, stock prompts (feature)       | C3, linked PM (task)                       |
-| 5    | B4, quick workflow (task)         | A5, delegate hook (task)                   |
-| 6    | A6, extensions (feature)          | none                                       |
-| 7    | A7 web (feature)                  | then A7 mobile                             |
+| Wave | Slot 1                            | Slot 2                      |
+| ---- | --------------------------------- | --------------------------- |
+| 0    | Merge PR #70                      | C1 + C4 (task)              |
+| 1    | B1 + B2, fewer wake-ups (feature) | A2, dead code (task)        |
+| 2    | #69, bot home (feature)           | A3, RPC move (task)         |
+| 3    | B3, auto new session (task)       | C5, PM off switch (feature) |
+| 4    | A4, stock prompts (feature)       | C3, linked PM (task)        |
+| 5    | B4, quick workflow (task)         | A5, delegate hook (task)    |
+| 6    | A6, extensions (feature)          | none                        |
+| 7    | A7 web (feature)                  | then A7 mobile              |
 
 Each PR reports the new count of modified upstream files against `935818e422`.
