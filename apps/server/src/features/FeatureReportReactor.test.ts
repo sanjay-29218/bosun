@@ -17,11 +17,17 @@ import { FeatureService } from "./FeatureService.ts";
 const leadThreadId = ThreadId.make("thread:lead");
 const headquartersId = ThreadId.make("bot-run:bot-hq:bot-captain");
 
+const run = (status: string, threadId = leadThreadId) => ({
+  id: RunId.make(`run:${threadId}:1`),
+  threadId,
+  status,
+  userMessageId: "message:prompt",
+});
 const runUpdated = (status: string, threadId = leadThreadId) =>
   ({
     type: "run.updated",
     threadId,
-    payload: { id: RunId.make(`run:${threadId}:1`), threadId, status },
+    payload: run(status, threadId),
   }) as unknown as OrchestrationV2DomainEvent;
 
 const requestUpdated = (status: string, kind = "user_input") =>
@@ -33,9 +39,14 @@ const requestUpdated = (status: string, kind = "user_input") =>
 
 const setup = (input: {
   readonly member?: string;
-  readonly subagent?: boolean;
+  /** How the thread with the feature tag relates to a parent; the lead has none. */
+  readonly parent?: "subagent" | "fork" | "sideChat";
   readonly openTask?: boolean;
+  /** The run was a silent idle /compact. */
+  readonly compaction?: boolean;
   readonly requester?: ThreadId | null;
+  /** Message ids already in the requester's thread. */
+  readonly reported?: ReadonlyArray<string>;
 }) =>
   Effect.gen(function* () {
     const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
@@ -47,17 +58,51 @@ const setup = (input: {
               Ref.update(dispatched, (all) => [...all, command]).pipe(Effect.as({} as never)),
           }),
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
-            getThreadRecords: () =>
-              Effect.succeed({
-                subagents: input.openTask ? [{ status: "running" }] : [{ status: "completed" }],
-                messages: [{ text: "The plan is ready. Approve it?", streaming: false }],
-              } as never),
+            getThreadRecords: (threadId, _fields, filter) =>
+              Effect.succeed(
+                (threadId === headquartersId
+                  ? {
+                      messages: (filter?.messageIds ?? []).flatMap((id) =>
+                        input.reported?.includes(id) ? [{ id }] : [],
+                      ),
+                    }
+                  : {
+                      subagents: input.openTask
+                        ? [{ status: "running" }]
+                        : [{ status: "completed" }],
+                      runs: [run("completed")],
+                      runtimeRequests: [
+                        { id: "request:plan", status: "pending", kind: "user_input" },
+                      ],
+                      messages: [
+                        {
+                          id: "message:prompt",
+                          role: "user",
+                          text: input.compaction ? "/compact" : "Plan dark mode",
+                          ...(input.compaction ? { idleCompaction: "beforeCacheExpires" } : {}),
+                        },
+                        {
+                          role: "assistant",
+                          text: "The plan is ready. Approve it?",
+                          streaming: false,
+                        },
+                      ],
+                    }) as never,
+              ),
             getThread: (threadId) =>
               Effect.succeed(
                 (threadId === leadThreadId
                   ? {
                       id: leadThreadId,
-                      lineage: { relationshipToParent: input.subagent ? "subagent" : null },
+                      lineage:
+                        input.parent === undefined
+                          ? { parentThreadId: null, relationshipToParent: null }
+                          : {
+                              parentThreadId: ThreadId.make("thread:other"),
+                              relationshipToParent:
+                                input.parent === "subagent" ? "subagent" : "fork",
+                              ...(input.parent === "sideChat" ? { sideChat: true } : {}),
+                            },
                       feature: {
                         id: "feature:dark",
                         title: "Dark mode",
@@ -70,6 +115,7 @@ const setup = (input: {
           Layer.mock(FeatureService)({
             requesterThreadId: () =>
               Effect.succeed(input.requester === undefined ? headquartersId : input.requester),
+            reportingLeads: Effect.succeed([leadThreadId]),
           }),
         ),
       ),
@@ -98,8 +144,12 @@ it.effect("stays quiet while the crew works, for crew threads, and with no one t
     for (const [input, status] of [
       [{ openTask: true }, "completed"],
       [{ member: "Builder" }, "completed"],
-      // A lead's or crew member's own subagent carries the feature but isn't its lead.
-      [{ subagent: true }, "completed"],
+      // A lead's own subagent, a fork of it and a side chat carry the feature but don't lead it.
+      [{ parent: "subagent" }, "completed"],
+      [{ parent: "fork" }, "completed"],
+      [{ parent: "sideChat" }, "completed"],
+      // An idle /compact is upkeep, not something the lead said.
+      [{ compaction: true }, "completed"],
       [{ requester: null }, "completed"],
       [{}, "running"],
       [{}, "interrupted"],
@@ -124,5 +174,24 @@ it.effect("tells the thread that started a feature when its lead waits on the pe
     assert.equal(report.threadId, headquartersId);
     assert.include(report.text, "waiting on the person: a question");
     assert.equal(report.commandId, "server:feature-report:request:request:plan");
+  }),
+);
+
+it.effect("catches up on stops no event reported, such as one before a restart", () =>
+  Effect.gen(function* () {
+    const fresh = yield* setup({});
+    yield* fresh.reactor.catchUp();
+    assert.deepEqual(
+      (yield* Ref.get(fresh.dispatched)).map((command) => command.commandId),
+      [`server:feature-report:run:${leadThreadId}:1`, "server:feature-report:request:request:plan"],
+    );
+    const reported = yield* setup({
+      reported: [
+        `message:feature-report:run:${leadThreadId}:1`,
+        "message:feature-report:request:request:plan",
+      ],
+    });
+    yield* reported.reactor.catchUp();
+    assert.deepEqual(yield* Ref.get(reported.dispatched), []);
   }),
 );

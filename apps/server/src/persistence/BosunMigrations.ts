@@ -53,8 +53,9 @@ import LeadWorkflows from "./Migrations/095_LeadWorkflows.ts";
 import FeatureParents from "./Migrations/096_FeatureParents.ts";
 import FeatureReports from "./Migrations/097_FeatureReports.ts";
 import ProjectHandoffs from "./Migrations/098_ProjectHandoffs.ts";
-import LinkedProjects from "./Migrations/099_LinkedProjects.ts";
-import LinkedWorkflows from "./Migrations/100_LinkedWorkflows.ts";
+import FeatureLeadRequester from "./Migrations/099_FeatureLeadRequester.ts";
+import LinkedProjects from "./Migrations/100_LinkedProjects.ts";
+import LinkedWorkflows from "./Migrations/101_LinkedWorkflows.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -100,8 +101,9 @@ const migrationEntries = [
   [96, "FeatureParents", FeatureParents],
   [97, "FeatureReports", FeatureReports],
   [98, "ProjectHandoffs", ProjectHandoffs],
-  [99, "LinkedProjects", LinkedProjects],
-  [100, "LinkedWorkflows", LinkedWorkflows],
+  [99, "FeatureLeadRequester", FeatureLeadRequester],
+  [100, "LinkedProjects", LinkedProjects],
+  [101, "LinkedWorkflows", LinkedWorkflows],
 ] as const;
 
 const legacyNames = new Set([

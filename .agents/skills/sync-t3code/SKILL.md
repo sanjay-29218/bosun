@@ -1,6 +1,6 @@
 ---
 name: sync-t3code
-description: Merge upstream T3 Code (pingdotgg/t3code main) into Bosun's main so Bosun keeps building on the latest upstream. Use for the daily upstream sync, "pull in T3 Code", "update from t3code", or resolving conflicts between Bosun features and upstream changes.
+description: Merge upstream T3 Code (pingdotgg/t3code main) into Bosun's staging so Bosun keeps building on the latest upstream. Use for the daily upstream sync, "pull in T3 Code", "update from t3code", or resolving conflicts between Bosun features and upstream changes.
 ---
 
 # Sync upstream T3 Code into Bosun
@@ -9,6 +9,9 @@ The goal of a sync is to take every upstream change while keeping every Bosun fe
 working: no behavior lost on either side, no refactors, no fixes beyond what the merge
 needs. Sync often (daily); small merges have small conflicts. Remotes, branding scope and
 the "keep Bosun edits localized" rule live in [BOSUN.md](../../../BOSUN.md).
+
+The sync targets Bosun's `staging`, not `main`. `main` is updated only by promoting
+`staging`, never directly by this sync.
 
 ## What Bosun is
 
@@ -54,7 +57,7 @@ Upstream files Bosun edits most (expect conflicts here): `contracts/src/rpc.ts`,
 `threadActionMenu.logic.ts`, `uiStateStore.ts`, `server` `ScheduledTaskService.ts` and
 `ProjectService.ts`, `mobile` `thread-list-v2-items.tsx`, `ThreadNavigationSidebar.tsx` and
 `HomeRouteScreen.tsx`, and `README.md`. For the current list, run
-`git diff --numstat $(git merge-base origin/main t3code/main) origin/main | sort -rn | head -30`.
+`git diff --numstat $(git merge-base origin/staging t3code/main) origin/staging | sort -rn | head -30`.
 
 Migration numbers overlap on purpose: upstream and Bosun both have files numbered 055 and up
 in `persistence/Migrations/`, kept apart by the two ledgers. New upstream migrations belong
@@ -62,47 +65,48 @@ only in `Migrations.ts`; Bosun's only in `BosunMigrations.ts`, at the next free 
 
 ## Rules
 
-- **Merge, never rebase.** `main` is published, and other branches build on it. Merge
-  `t3code/main` into a sync branch and fast-forward `origin/main` to it. Never force-push.
+- **Merge, never rebase.** `staging` is published, and other branches build on it. Merge
+  `t3code/main` into a sync branch and fast-forward `origin/staging` to it. Never force-push.
 - **Work in a temporary worktree** outside the repo. Never in the main checkout or another
   thread's worktree; either may be in use.
 - Never push to `t3code` (its push URL is disabled on purpose).
 - Follow AGENTS.md: no dev servers, no browsers, no repo-wide checks, never touch
   `~/.t3/userdata` or `~/.bosun`.
-- Don't merge into `crew/*`, `bots2/*` or feature branches. They pick up the new `main`
+- Don't merge into `crew/*`, `bots2/*` or feature branches. They pick up the new `staging`
   themselves.
 
 ## Steps
 
 1. Fetch and check whether there is anything to do:
    ```sh
-   git fetch t3code main && git fetch origin main
-   git merge-base --is-ancestor t3code/main origin/main && echo "already up to date"
-   git rev-list --count origin/main..t3code/main   # upstream commits to merge
+   git fetch t3code main && git fetch origin staging
+   git merge-base --is-ancestor t3code/main origin/staging && echo "already up to date"
+   git rev-list --count origin/staging..t3code/main   # upstream commits to merge
    ```
    Also check that no other sync is in flight: `git worktree list | grep -i sync`. If
    another thread is syncing, stop and say so.
 2. Create the worktree and merge:
    ```sh
    D=/tmp/bosun-sync-$(date +%Y%m%d)
-   git worktree add "$D" origin/main -B sync/t3code-main
+   git worktree add "$D" origin/staging -B sync/t3code-staging
    cd "$D" && git merge --no-ff t3code/main -m "chore: merge T3 Code main (YYYY-MM-DD)"
    ```
 3. Install with `pnpm install --frozen-lockfile` (see Tooling gotchas if pnpm fails).
 4. Resolve conflicts (below). List them with `git diff --name-only --diff-filter=U`.
 5. Verify (below), then commit. The commit hooks run fmt, lint and knip.
-6. Push: `git fetch origin main`, confirm `git merge-base --is-ancestor origin/main HEAD`,
-   then `git push origin sync/t3code-main:main`. If `main` moved, `git merge origin/main`
-   into the sync branch (don't rebase), rerun the tests, then push.
-7. Clean up: `git worktree remove --force "$D"` and `git branch -D sync/t3code-main`.
+6. Push: `git fetch origin staging`, confirm `git merge-base --is-ancestor origin/staging HEAD`,
+   then `git push origin sync/t3code-staging:staging` (a fast-forward; never force). If
+   `staging` moved, `git merge origin/staging` into the sync branch (don't rebase), rerun the
+   tests, then push.
+7. Clean up: `git worktree remove --force "$D"` and `git branch -D sync/t3code-staging`.
 
 ## Resolving conflicts
 
 Before each file, look at what each side meant to do, not just the hunk:
 
 ```sh
-BASE=$(git merge-base origin/main t3code/main)
-git diff $BASE origin/main -- <file>      # Bosun's intent
+BASE=$(git merge-base origin/staging t3code/main)
+git diff $BASE origin/staging -- <file>   # Bosun's intent
 git log --oneline $BASE..t3code/main -- <file>
 git diff $BASE t3code/main -- <file>      # upstream's intent
 git checkout --conflict=zdiff3 -- <file>  # re-show hunks with the base version
@@ -186,4 +190,4 @@ Run checks on what you touched, not the repo:
 - Each conflicted file: what each side did and how you combined them.
 - Anything ported by hand, upstream tests that didn't carry over, and tests you adapted.
 - The tests, typechecks and lint you ran, with results and any upstream-only failures.
-- The pushed SHA, or why you stopped. Note that `crew/*` and `bots2/*` can pick up `main`.
+- The pushed SHA, or why you stopped. Note that `crew/*` and `bots2/*` can pick up `staging`.

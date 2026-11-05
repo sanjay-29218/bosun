@@ -82,7 +82,8 @@ On web and desktop, scheduled tasks live in **Automations**, in the bot rail or
 at the bottom of the sidebar. On mobile, open **Settings → Scheduled tasks**, or
 **Automations** in the bot button's menu, and use the settings filter to narrow
 the list by environment or project. Each task runs on the environment you choose,
-using its project, model, and workspace settings. Fixed-time schedules use that
+using its project, model, and workspace settings; the model picker also sets
+its reasoning, speed and access. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's. Choose **Once**
 to run a task a single time at a date and time in your own time zone. If the
 environment is offline then, the task runs when it is back.

@@ -5,14 +5,14 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as BosunMigrations from "../BosunMigrations.ts";
 import { runMigrations } from "../Migrations.ts";
-import { HEADQUARTERS_REWRITE } from "./099_LinkedProjects.ts";
+import { HEADQUARTERS_REWRITE } from "./100_LinkedProjects.ts";
 
 it.effect("tells stock headquarters about their projects on linked environments", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* runMigrations({ toMigrationInclusive: 69 });
     yield* BosunMigrations.reconcileLegacyHistory();
-    yield* BosunMigrations.runMigrations(98);
+    yield* BosunMigrations.runMigrations(99);
     const run = (id: string, taskText: string) => sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
         allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
@@ -26,7 +26,7 @@ it.effect("tells stock headquarters about their projects on linked environments"
     // A run's task is its identity, so a project manager's keeps its words.
     yield* run("bot-handoff:h1", HEADQUARTERS_REWRITE[0]);
 
-    yield* BosunMigrations.runMigrations(99);
+    yield* BosunMigrations.runMigrations(100);
 
     const task = (id: string) =>
       sql<{ readonly text: string }>`SELECT task_text AS text FROM crew_runs WHERE id = ${id}`.pipe(
@@ -40,8 +40,8 @@ it.effect("tells stock headquarters about their projects on linked environments"
     assert.strictEqual(yield* task("bot-hq:edited"), "Hand everything to me first.");
     assert.strictEqual(yield* task("bot-handoff:h1"), HEADQUARTERS_REWRITE[0]);
 
-    // 100: a link's request keeps the workflow it brought, and its features their own copy.
-    yield* BosunMigrations.runMigrations(100);
+    // 101: a link's request keeps the workflow it brought, and its features their own copy.
+    yield* BosunMigrations.runMigrations(101);
     const featureColumns = yield* sql<{ readonly name: string; readonly notnull: number }>`
       SELECT name, "notnull" FROM pragma_table_info('features')
     `;

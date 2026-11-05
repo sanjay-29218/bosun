@@ -140,6 +140,8 @@ export interface FeatureServiceShape {
   readonly requesterThreadId: (
     featureId: string,
   ) => Effect.Effect<ThreadId | null, PersistenceSqlError>;
+  /** The lead threads of open features that a thread started, which report to that thread. */
+  readonly reportingLeads: Effect.Effect<ReadonlyArray<ThreadId>, PersistenceSqlError>;
   /**
    * The lead in `threadId` reports its feature done: its parent's lead gets `summary` with the
    * feature's branch and pull request. Closing a child that hasn't reported does the same.
@@ -293,15 +295,18 @@ const syncFeatureThreads = Effect.fn("FeatureService.syncFeatureThreads")(functi
     readonly projectId: string;
     readonly title: string;
     readonly issueJson: string | null;
+    readonly requesterThreadId: ThreadId | null;
   }>`
-      SELECT project_id AS projectId, title, issue_json AS issueJson FROM features
-      WHERE id = ${featureId}
+      SELECT project_id AS projectId, title, issue_json AS issueJson,
+        requester_thread_id AS requesterThreadId
+      FROM features WHERE id = ${featureId}
     `;
   if (!feature) return;
   const tag = featureTag({
     id: featureId,
     title: feature.title,
     issue: decodeFeatureIssue(feature.issueJson),
+    requesterThreadId: feature.requesterThreadId,
   });
   const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
       SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
@@ -547,8 +552,10 @@ export const FeatureServiceLive = Layer.effect(
       const [brief] = yield* sql<{
         readonly messageJson: string | null;
         readonly baseBranch: string | null;
+        readonly requesterThreadId: ThreadId | null;
       }>`
-        SELECT brief_message_json AS messageJson, base_branch AS baseBranch
+        SELECT brief_message_json AS messageJson, base_branch AS baseBranch,
+          requester_thread_id AS requesterThreadId
         FROM features WHERE id = ${feature.id}
       `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.startLead")));
       const runId = hashed(FEATURE_LEAD_RUN_PREFIX, feature.id, manager.id);
@@ -576,7 +583,10 @@ export const FeatureServiceLive = Layer.effect(
           type: "thread.crew-stage.set",
           commandId: CommandId.make(`feature-lead:${run.id}:feature`),
           threadId: run.threadId,
-          feature: featureTag(feature),
+          feature: featureTag({
+            ...feature,
+            requesterThreadId: brief?.requesterThreadId ?? null,
+          }),
         })
         .pipe(
           Effect.catch((error) =>
@@ -1293,6 +1303,13 @@ export const FeatureServiceLive = Layer.effect(
       setIssue: bumped(setIssue),
       launch: bumped(launch),
       requesterThreadId,
+      reportingLeads: sql<{ readonly id: string }>`
+        SELECT id FROM features WHERE requester_thread_id IS NOT NULL AND status = 'open'
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.flatMap((rows) => Effect.forEach(rows, (row) => leadThreadOf(row.id))),
+        Effect.map((leads) => leads.filter(Predicate.isNotNull)),
+      ),
       projectBot: bots.projectOwner,
       reportIfQuiet,
       reconcileChildren,

@@ -26,6 +26,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
+import { featureRequesterThreadId } from "@t3tools/client-runtime/state/thread-relationships";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
@@ -406,8 +407,6 @@ export function selectThreadRelationshipShells(
 ): ReadonlyArray<OrchestrationV2ThreadShell> {
   const named = new Set<string>([threadId]);
   if (projection !== null) {
-    const parentThreadId = shellParentThreadId(projection.thread);
-    if (parentThreadId !== null) named.add(parentThreadId);
     for (const subagent of projection.subagents) {
       if (subagent.childThreadId !== null) named.add(subagent.childThreadId);
       for (const agent of subagent.workflow?.agents ?? []) {
@@ -420,10 +419,18 @@ export function selectThreadRelationshipShells(
     }
   }
   const current = threads.find((thread) => thread.id === threadId);
-  const currentParentId = current === undefined ? null : shellParentThreadId(current);
-  if (currentParentId !== null) named.add(currentParentId);
+  for (const thread of [projection?.thread, current]) {
+    if (thread === undefined) continue;
+    const parentId = shellParentThreadId(thread);
+    if (parentId !== null) named.add(parentId);
+    const requesterId = featureRequesterThreadId(thread);
+    if (requesterId !== null) named.add(requesterId);
+  }
   return threads.filter(
-    (thread) => named.has(thread.id) || shellParentThreadId(thread) === threadId,
+    (thread) =>
+      named.has(thread.id) ||
+      shellParentThreadId(thread) === threadId ||
+      featureRequesterThreadId(thread) === threadId,
   );
 }
 
