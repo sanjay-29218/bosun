@@ -27,19 +27,13 @@ import {
 } from "../../modelSelection";
 import { useEnvironmentProviders } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { TraitsPicker } from "../chat/TraitsPicker";
+import { SettingsModelPicker } from "./SettingsModelPicker";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { Button } from "../ui/button";
-import {
-  SETTINGS_PICKER_TRIGGER_CLASSNAME,
-  SettingResetButton,
-  SettingsRow,
-  SettingsSection,
-} from "./settingsLayout";
+import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { searchableSetting } from "./settingsSearch";
 
@@ -146,9 +140,6 @@ export function SourceControlWritingSettingsSection() {
     activeSelection.model,
   );
   const writerModelDisabledReason = useScopedModelDisabledReason(settings, instanceEntries);
-  const writerInstanceEntry = instanceEntries.find(
-    (entry) => entry.instanceId === activeSelection.instanceId,
-  );
   const usesReviewGuideModel = settings.reviewGuideModelSelection !== null;
   const reviewGuideSelection = resolveAppModelSelectionState(
     {
@@ -166,9 +157,6 @@ export function SourceControlWritingSettingsSection() {
     textGenerationProviders,
     reviewGuideSelection.instanceId,
     reviewGuideSelection.model,
-  );
-  const reviewGuideInstanceEntry = instanceEntries.find(
-    (entry) => entry.instanceId === reviewGuideSelection.instanceId,
   );
 
   return (
@@ -321,14 +309,13 @@ export function SourceControlWritingSettingsSection() {
               ) : (
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {(usesReviewGuideModel || mixedReviewGuideModel) && canEnableDedicatedModel ? (
-                    <ProviderModelPicker
+                    <SettingsModelPicker
                       environmentId={environmentId}
                       activeInstanceId={reviewGuideSelection.instanceId}
                       model={reviewGuideSelection.model}
                       lockedProvider={null}
                       instanceEntries={instanceEntries}
                       modelOptionsByInstance={reviewGuideModelOptionsByInstance}
-                      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                       triggerAriaLabel="Review guide model"
                       {...(mixedReviewGuideModel ? { triggerLabel: "Mixed" } : {})}
                       getModelDisabledReason={writerModelDisabledReason}
@@ -346,30 +333,23 @@ export function SourceControlWritingSettingsSection() {
                           reviewGuideModelSelection: createModelSelection(instanceId, model),
                         });
                       }}
-                    />
-                  ) : null}
-                  {usesReviewGuideModel &&
-                  canEnableDedicatedModel &&
-                  !mixedReviewGuideModel &&
-                  reviewGuideInstanceEntry ? (
-                    <TraitsPicker
-                      provider={reviewGuideInstanceEntry.driverKind}
-                      models={reviewGuideInstanceEntry.models}
-                      model={reviewGuideSelection.model}
-                      modelOptions={reviewGuideSelection.options ?? []}
-                      allowPromptInjectedEffort={false}
-                      planModeEnabled={
-                        settings.planModeEnabled || selectsPlanAgent(reviewGuideSelection.options)
-                      }
-                      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                      onModelOptionsChange={(options) =>
-                        updateSettings({
-                          reviewGuideModelSelection: createModelSelection(
-                            reviewGuideSelection.instanceId,
-                            reviewGuideSelection.model,
-                            options,
-                          ),
-                        })
+                      traits={
+                        usesReviewGuideModel && !mixedReviewGuideModel
+                          ? {
+                              options: reviewGuideSelection.options,
+                              planModeEnabled:
+                                settings.planModeEnabled ||
+                                selectsPlanAgent(reviewGuideSelection.options),
+                              onChange: (options) =>
+                                updateSettings({
+                                  reviewGuideModelSelection: createModelSelection(
+                                    reviewGuideSelection.instanceId,
+                                    reviewGuideSelection.model,
+                                    options,
+                                  ),
+                                }),
+                            }
+                          : null
                       }
                     />
                   ) : null}
@@ -512,14 +492,13 @@ export function SourceControlWritingSettingsSection() {
                   </span>
                 ) : null}
                 {usesDedicatedModel && canEnableDedicatedModel ? (
-                  <ProviderModelPicker
+                  <SettingsModelPicker
                     environmentId={environmentId}
                     activeInstanceId={activeSelection.instanceId}
                     model={activeSelection.model}
                     lockedProvider={null}
                     instanceEntries={instanceEntries}
                     modelOptionsByInstance={modelOptionsByInstance}
-                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                     triggerAriaLabel="Source control writer model"
                     {...(mixedWriterModel ? { triggerLabel: "Mixed" } : {})}
                     {...(environmentId
@@ -547,30 +526,22 @@ export function SourceControlWritingSettingsSection() {
                         sourceControlWriterModelSelection: createModelSelection(instanceId, model),
                       });
                     }}
-                  />
-                ) : null}
-                {usesDedicatedModel &&
-                canEnableDedicatedModel &&
-                !mixedWriterModel &&
-                writerInstanceEntry ? (
-                  <TraitsPicker
-                    provider={writerInstanceEntry.driverKind}
-                    models={writerInstanceEntry.models}
-                    model={activeSelection.model}
-                    modelOptions={activeSelection.options ?? []}
-                    allowPromptInjectedEffort={false}
-                    planModeEnabled={
-                      settings.planModeEnabled || selectsPlanAgent(activeSelection.options)
-                    }
-                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                    onModelOptionsChange={(options) =>
-                      updateSettings({
-                        sourceControlWriterModelSelection: createModelSelection(
-                          activeSelection.instanceId,
-                          activeSelection.model,
-                          options,
-                        ),
-                      })
+                    traits={
+                      !mixedWriterModel
+                        ? {
+                            options: activeSelection.options,
+                            planModeEnabled:
+                              settings.planModeEnabled || selectsPlanAgent(activeSelection.options),
+                            onChange: (options) =>
+                              updateSettings({
+                                sourceControlWriterModelSelection: createModelSelection(
+                                  activeSelection.instanceId,
+                                  activeSelection.model,
+                                  options,
+                                ),
+                              }),
+                          }
+                        : null
                     }
                   />
                 ) : null}

@@ -20,7 +20,7 @@ import { botsEnvironment } from "../../state/bots";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
-import { RoleModelPicker, RuntimeModeSelect } from "../library/RoleEditor";
+import { RoleModelPicker } from "../library/RoleEditor";
 import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { Button } from "../ui/button";
@@ -265,8 +265,10 @@ export function BotEditor({
                     <RoleModelPicker
                       environmentId={environmentId}
                       selection={modelSelection}
+                      runtimeMode={runtimeMode}
                       disabled={saving || !canEdit}
                       onChange={setModelSelection}
+                      onRuntimeModeChange={setRuntimeMode}
                     />
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -275,16 +277,6 @@ export function BotEditor({
                   )}
                 </div>
               </EditorField>
-              <EditorField label="Access">
-                <RuntimeModeSelect
-                  label="Access"
-                  value={runtimeMode}
-                  disabled={saving || !canEdit}
-                  onChange={setRuntimeMode}
-                />
-              </EditorField>
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
               <EditorField label="Long conversations">
                 <Select
                   value={longConversation}

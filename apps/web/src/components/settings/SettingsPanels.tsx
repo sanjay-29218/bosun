@@ -10,7 +10,6 @@ import {
   globalIdleCompaction,
   managedUpdatesDenial,
   managedUpdatesMessage,
-  ProviderDriverKind,
   type ProviderInstanceId,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
@@ -40,8 +39,7 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { TraitsPicker } from "../chat/TraitsPicker";
+import { SettingsModelPicker } from "./SettingsModelPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import {
@@ -91,7 +89,6 @@ import {
   rememberEnabledProjectGroupingMode,
 } from "./SettingsPanels.logic";
 import {
-  SETTINGS_PICKER_TRIGGER_CLASSNAME,
   SettingResetButton,
   SettingsPageContainer,
   SettingsRow,
@@ -144,7 +141,6 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
   "double-click": "Double press",
 };
 
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
   const [switchChannel, setSwitchChannel] = useState<DesktopUpdateChannel | null>(null);
@@ -1533,11 +1529,6 @@ export function ThreadsSettingsPanel() {
   const hasTextGenerationProvider = textGenerationModelInstanceEntries.some(
     (entry) => entry.enabled && entry.isAvailable,
   );
-  const textGenInstanceEntry = textGenerationModelInstanceEntries.find(
-    (entry) => entry.instanceId === textGenInstanceId,
-  );
-  const textGenProvider: ProviderDriverKind =
-    textGenInstanceEntry?.driverKind ?? DEFAULT_DRIVER_KIND;
   const textGenerationModelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     textGenerationProviders,
@@ -1787,14 +1778,13 @@ export function ThreadsSettingsPanel() {
               </span>
             ) : (
               <div className="flex flex-wrap items-center justify-end gap-1.5">
-                <ProviderModelPicker
+                <SettingsModelPicker
                   environmentId={environmentId}
                   activeInstanceId={textGenInstanceId}
                   model={textGenModel}
                   lockedProvider={null}
                   instanceEntries={textGenerationModelInstanceEntries}
                   modelOptionsByInstance={textGenerationModelOptionsByInstance}
-                  triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                   {...(mixedTextGenerationModel ? { triggerLabel: "Mixed" } : {})}
                   getModelDisabledReason={textGenerationModelDisabledReason}
                   {...(environmentId
@@ -1827,19 +1817,11 @@ export function ThreadsSettingsPanel() {
                       ),
                     });
                   }}
-                />
-                {textGenInstanceEntry ? (
-                  <TraitsPicker
-                    provider={textGenProvider}
-                    models={textGenInstanceEntry?.models ?? []}
-                    model={textGenModel}
-                    modelOptions={textGenModelOptions}
-                    allowPromptInjectedEffort={false}
-                    planModeEnabled={
-                      settings.planModeEnabled || selectsPlanAgent(textGenModelOptions)
-                    }
-                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                    onModelOptionsChange={(nextOptions) => {
+                  traits={{
+                    options: textGenModelOptions,
+                    planModeEnabled:
+                      settings.planModeEnabled || selectsPlanAgent(textGenModelOptions),
+                    onChange: (nextOptions) => {
                       updateSettings({
                         textGenerationModelSelection: resolveAppModelSelectionState(
                           {
@@ -1853,9 +1835,9 @@ export function ThreadsSettingsPanel() {
                           textGenerationProviders,
                         ),
                       });
-                    }}
-                  />
-                ) : null}
+                    },
+                  }}
+                />
               </div>
             )
           }

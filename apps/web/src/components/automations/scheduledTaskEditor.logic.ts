@@ -347,3 +347,12 @@ export function defaultScheduledTaskProjectId<
   const open = projects.filter((project) => project.archivedAt == null);
   return (open.find((project) => project.pinnedAt != null) ?? open[0])?.id ?? "";
 }
+
+/** The saved selection, options included, while the task still uses its model. */
+export function keepSavedOptions(saved: ModelSelection | null, selection: ModelSelection) {
+  return saved !== null &&
+    saved.instanceId === selection.instanceId &&
+    saved.model === selection.model
+    ? saved
+    : selection;
+}

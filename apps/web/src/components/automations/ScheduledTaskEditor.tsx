@@ -45,6 +45,7 @@ import {
 
 import { formatRelativeTime } from "../../timestampFormat";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { createModelSelection } from "@t3tools/shared/model";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { providerInstanceEntriesFor } from "../../providerInstances";
 import { usePrimaryCloudLinkState } from "../../cloud/cloudLinkState";
@@ -88,6 +89,7 @@ import {
   runTargetFromDraft,
   scheduleFromDraft,
   scheduledTaskDefaultModel,
+  keepSavedOptions,
   taskToDraft,
   type DraftState,
   type ScheduleMode,
@@ -96,7 +98,7 @@ import {
 import { Label } from "../ui/label";
 import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { ToggleGroup, Toggle } from "../ui/toggle-group";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { SettingsModelPicker } from "../settings/SettingsModelPicker";
 import { Badge } from "../ui/badge";
 import { DisclosureSection } from "../DisclosureSection";
 import { Button } from "../ui/button";
@@ -115,7 +117,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
 
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -815,7 +816,8 @@ export function ScheduledTaskEditorForm({
   const upsertTask = useAtomCommand(serverEnvironment.upsertScheduledTask, {
     label: "scheduled task upsert",
   });
-  const webhookDenial = managedCapabilityDenial(useManagedPolicy(environmentId), "webhookTasks");
+  const managedPolicy = useManagedPolicy(environmentId);
+  const webhookDenial = managedCapabilityDenial(managedPolicy, "webhookTasks");
   const [draft, setDraft] = useState<DraftState>(() =>
     task
       ? taskToDraft(task)
@@ -861,6 +863,12 @@ export function ScheduledTaskEditorForm({
   const activeInstanceId =
     activeSelection?.instanceId ?? firstInstance?.instanceId ?? ("" as ProviderInstanceId);
   const activeModel = activeSelection?.model ?? "";
+  // A mode above the administrator's ceiling would fail every run, so the picker shows what saves.
+  const runtimeMode =
+    clampManagedRuntimeMode(managedPolicy, draft.runtimeMode) ?? draft.runtimeMode;
+  const savedModelSelection = activeSelection
+    ? keepSavedOptions(draft.baseModelSelection, activeSelection)
+    : null;
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     providers,
@@ -944,12 +952,7 @@ export function ScheduledTaskEditorForm({
       reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
       return;
     }
-    const modelSelection =
-      draft.baseModelSelection !== null &&
-      draft.baseModelSelection.instanceId === selection.instanceId &&
-      draft.baseModelSelection.model === selection.model
-        ? draft.baseModelSelection
-        : selection;
+    const modelSelection = keepSavedOptions(draft.baseModelSelection, selection);
     const workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy =
       draft.workspaceMode === "root"
         ? { type: "root" }
@@ -973,10 +976,7 @@ export function ScheduledTaskEditorForm({
         workspaceStrategy,
       }),
       modelSelection,
-      // Tasks have no mode picker; a mode above the administrator's ceiling would fail every run.
-      runtimeMode:
-        clampManagedRuntimeMode(environment?.serverConfig?.managedPolicy, draft.runtimeMode) ??
-        draft.runtimeMode,
+      runtimeMode,
       interactionMode: draft.interactionMode,
       creationSource: "web",
     };
@@ -1238,7 +1238,7 @@ export function ScheduledTaskEditorForm({
         {runsAsBot ? null : (
           <Field label="Model">
             <div>
-              <ProviderModelPicker
+              <SettingsModelPicker
                 environmentId={environmentId}
                 disabled={saving || !connected}
                 activeInstanceId={activeInstanceId}
@@ -1246,11 +1246,33 @@ export function ScheduledTaskEditorForm({
                 lockedProvider={null}
                 instanceEntries={instanceEntries}
                 modelOptionsByInstance={modelOptionsByInstance}
-                isComposerOwned={false}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                triggerAriaLabel="Model"
                 onInstanceModelChange={(instanceId, model) =>
                   setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
                 }
+                traits={
+                  activeSelection
+                    ? {
+                        options: savedModelSelection?.options,
+                        planModeEnabled: settings.planModeEnabled,
+                        onChange: (options) =>
+                          setDraft((current) => ({
+                            ...current,
+                            modelKey: `${activeSelection.instanceId}:${activeSelection.model}`,
+                            baseModelSelection: createModelSelection(
+                              activeSelection.instanceId,
+                              activeSelection.model,
+                              options,
+                            ),
+                          })),
+                      }
+                    : null
+                }
+                access={{
+                  runtimeMode,
+                  managedPolicy,
+                  onChange: (runtimeMode) => setDraft((current) => ({ ...current, runtimeMode })),
+                }}
               />
             </div>
           </Field>
