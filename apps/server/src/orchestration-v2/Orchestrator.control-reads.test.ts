@@ -1146,6 +1146,7 @@ it.effect("lists a project manager's delegated task in its project", () =>
       parentRunId: managerRun.id,
       parentNodeId: managerRun.rootNodeId!,
       task: "Fix the copy",
+      projectRequestId: "R-1",
       modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -1156,7 +1157,11 @@ it.effect("lists a project manager's delegated task in its project", () =>
     const child = yield* projections.getThreadProjection(task.childThreadId!);
     // Its manager's tasks are the project's work, listed and on the board like features.
     assert.isTrue(isListedThreadLineage(child.thread.lineage));
+    // It names the request it answers, as features do.
+    assert.strictEqual(child.thread.projectRequestId, "R-1");
     assert.equal(child.thread.lineage.parentThreadId, managerThreadId);
+    // It names the request it answers, as features do.
+    assert.strictEqual(child.thread.projectRequestId, "R-1");
   }).pipe(Effect.provide(layerTest)),
 );
 
