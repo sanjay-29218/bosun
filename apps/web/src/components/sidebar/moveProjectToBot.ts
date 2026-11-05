@@ -4,11 +4,19 @@ import {
   projectBotId,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
-import type { ContextMenuItem, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  CAPTAIN_BOT_ID,
+  logicalBotKey,
+  type ContextMenuItem,
+  type EnvironmentId,
+  type ProjectId,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 
+import { randomUUID } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { botsEnvironment } from "../../state/bots";
 import { logicalBotsAtom, useBotEnvironmentIds } from "../../state/botRail";
@@ -83,6 +91,26 @@ export function parseMoveToBotMenuId(
 }
 
 /**
+ * Which bot on `environmentId` a move to `bot` goes to: the one there with its logical key, or a
+ * new one to create. `botsThere` is that environment's current list (null when it couldn't be
+ * read). A new bot gets a fresh id: the source's id may belong to another bot there, such as a
+ * namesake renamed only there. Captain is never created; every environment has it.
+ */
+export function botMoveTarget(
+  bot: LogicalBot,
+  environmentId: EnvironmentId,
+  botsThere: ReadonlyArray<{ readonly id: string; readonly name: string }> | null,
+  newBotId: () => string,
+): { readonly botId: string } | { readonly create: string } {
+  const there =
+    botsThere?.find((candidate) => logicalBotKey(candidate) === bot.key)?.id ??
+    (botsThere === null ? logicalBotMemberOn(bot, environmentId) : null);
+  if (there !== null && there !== undefined) return { botId: there };
+  if (bot.key === logicalBotKey({ id: CAPTAIN_BOT_ID, name: "" })) return { botId: CAPTAIN_BOT_ID };
+  return { create: newBotId() };
+}
+
+/**
  * Moves a project to a rail entry's bot on the project's own environment. Bots are
  * environment-local, so one that environment doesn't have yet is created there first, with the
  * entry's name, look and model. Returns an error description, or null once moved.
@@ -94,8 +122,13 @@ export function useMoveProjectToLogicalBot() {
     project: { readonly environmentId: EnvironmentId; readonly id: ProjectId },
     bot: LogicalBot,
   ): Promise<string | null> => {
-    let botId = logicalBotMemberOn(bot, project.environmentId);
-    if (botId === null) {
+    let target = botMoveTarget(
+      bot,
+      project.environmentId,
+      await currentBots(project.environmentId),
+      () => `bot-${randomUUID()}`,
+    );
+    if ("create" in target) {
       // Every entry has a bot somewhere; the first one is the copy's source.
       const source = bot.members[0]!;
       const definition = Option.getOrNull(
@@ -108,23 +141,45 @@ export function useMoveProjectToLogicalBot() {
       const created = await createBot({
         environmentId: project.environmentId,
         input: {
-          id: source.botId,
+          id: target.create,
           name: bot.name,
           avatar: bot.avatar,
           color: bot.color,
           ...(definition?.modelSelection ? { modelSelection: definition.modelSelection } : {}),
         },
       });
-      if (created._tag !== "Success") return formatEnvironmentQueryError(created.cause);
-      botId = created.value.id;
+      if (created._tag === "Success") target = { botId: created.value.id };
+      else {
+        // Someone may have made it there meanwhile; that one is the bot to move to.
+        const again = botMoveTarget(
+          bot,
+          project.environmentId,
+          await currentBots(project.environmentId),
+          () => "",
+        );
+        if ("create" in again) return formatEnvironmentQueryError(created.cause);
+        target = again;
+      }
     }
     const moved = await moveProject({
       environmentId: project.environmentId,
-      input: { projectId: project.id, botId },
+      input: { projectId: project.id, botId: target.botId },
     });
     return moved._tag === "Success" ? null : formatEnvironmentQueryError(moved.cause);
   };
 }
+
+/** An environment's bots as its server lists them now, or null when they can't be read. */
+const currentBots = (environmentId: EnvironmentId) => {
+  const list = botsEnvironment.list({ environmentId, input: {} });
+  appAtomRegistry.refresh(list);
+  return Effect.runPromise(
+    AtomRegistry.getResult(appAtomRegistry, list, { suspendOnWaiting: true }).pipe(
+      Effect.timeout("10 seconds"),
+      Effect.orElseSucceed(() => null),
+    ),
+  );
+};
 
 /**
  * Builds and runs the "Move to bot" menu item. `run` returns false for ids that aren't
