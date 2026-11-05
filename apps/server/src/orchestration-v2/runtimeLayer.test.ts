@@ -7511,7 +7511,38 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
         `Thread ${worktreeThreadId} works in a worktree or on a branch, so it can't move.`,
       );
 
-      assert.lengthOf((yield* move(rootThreadId, homeProjectId, "home")).storedEvents, 1);
+      // A thread at work is refused, and the refusal doesn't hold up a later attempt.
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-layer-move-busy-message"),
+        threadId: rootThreadId,
+        messageId: MessageId.make("runtime-layer-move-busy-message"),
+        text: "Keep this run active.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+      const busy = yield* move(rootThreadId, homeProjectId, "busy").pipe(Effect.flip);
+      assert.equal(
+        busy.cause,
+        `Thread ${rootThreadId} still has work in progress. Finish or stop it first.`,
+      );
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'completed',
+        payload_json = json_set(payload_json, '$.status', 'completed')
+        WHERE thread_id = ${rootThreadId}`;
+
+      // The move and the end of its provider conversation are one decision.
+      const moved = yield* move(rootThreadId, homeProjectId, "home");
+      assert.deepEqual(
+        moved.storedEvents.map((stored) => stored.event.type),
+        ["thread.metadata-updated", "provider-thread.updated", "thread.provider-switched"],
+      );
+      const records = yield* orchestrator.getThreadRecords(rootThreadId, ["providerThreads"]);
+      assert.isNull(records.thread.activeProviderThreadId);
+      assert.isTrue(records.providerThreads.every((thread) => thread.status === "archived"));
       assert.lengthOf((yield* move(rootThreadId, homeProjectId, "again")).storedEvents, 0);
       const shell = yield* orchestrator.getShellSnapshot();
       assert.equal(

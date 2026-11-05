@@ -363,9 +363,11 @@ describe("Bot foundation", () => {
           // One that lives elsewhere, as in Scratch before bots had homes, moves in.
           yield* createProject(engine);
           // Its first turn ended (no effect worker runs in tests).
-          yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'completed',
-            payload_json = json_set(payload_json, '$.status', 'completed')
-            WHERE thread_id = ${headquarters.threadId}`;
+          const setRuns = (status: string) =>
+            sql`UPDATE orchestration_v2_projection_runs SET status = ${status},
+              payload_json = json_set(payload_json, '$.status', ${status})
+              WHERE thread_id = ${headquarters.threadId}`;
+          yield* setRuns("completed");
           yield* engine.dispatch({
             type: "thread.project.move",
             commandId: CommandId.make("test:hq-to-scratch"),
@@ -375,15 +377,30 @@ describe("Bot foundation", () => {
           yield* store.moveRun(headquarters.id, projectId);
           const messages = (yield* engine.getThreadRecords(headquarters.threadId, ["messages"]))
             .messages.length;
+          const placed = Effect.all([
+            store.getRun(headquarters.id).pipe(Effect.map((run) => run?.projectId)),
+            engine
+              .getThreadShell(headquarters.threadId)
+              .pipe(Effect.map((shell) => shell?.projectId)),
+          ]);
+          // While it works, the move is refused and both stay where they are.
+          yield* setRuns("running");
           yield* bots.rehomeHeadquarters();
-          expect((yield* store.getRun(headquarters.id))?.projectId).toBe(home);
-          expect((yield* engine.getThreadShell(headquarters.threadId))?.projectId).toBe(home);
-          // Its provider conversation was retired, so its next turn starts a fresh one there.
-          const restarted = yield* sql<{ readonly status: string }>`
+          expect(yield* placed).toEqual([projectId, projectId]);
+          // Once it's quiet, the next sweep moves both, and its conversation ends with the move.
+          yield* setRuns("completed");
+          yield* bots.rehomeHeadquarters();
+          expect(yield* placed).toEqual([home, home]);
+          expect(
+            (yield* engine.getThreadRecords(headquarters.threadId, ["providerThreads"])).thread
+              .activeProviderThreadId,
+          ).toBeNull();
+          const moves = yield* sql<{ readonly status: string }>`
             SELECT status FROM orchestration_command_receipts
-            WHERE command_id = ${`bot-home:${CAPTAIN_BOT_ID}:${projectId}:restart`}
+            WHERE command_id LIKE ${`bot-home:${CAPTAIN_BOT_ID}:${projectId}:%`}
+            ORDER BY accepted_at
           `;
-          expect(restarted).toEqual([{ status: "accepted" }]);
+          expect(moves.map((move) => move.status)).toEqual(["rejected", "accepted"]);
           // It starts no turn: its next turn is the person's.
           expect(
             (yield* engine.getThreadRecords(headquarters.threadId, ["messages"])).messages.length,

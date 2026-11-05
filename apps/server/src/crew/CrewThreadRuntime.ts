@@ -72,9 +72,10 @@ export interface CrewThreadRuntimeShape {
     readonly name: string;
   }) => Effect.Effect<ProjectId, ManagedProjectFolders.BotHomeError>;
   /**
-   * Moves an idle thread into `projectId` and retires its provider conversation, so its next
-   * turn starts a fresh session there. Starts no turn. False while the thread works. `key`
-   * names the move, so repeating it changes nothing.
+   * Moves an idle thread into `projectId` and retires its provider conversation in one
+   * decision, so its next turn starts a fresh session there. Starts no turn. False while the
+   * thread works; a later call tries again. Moving a thread that is already there changes
+   * nothing.
    */
   readonly moveThread: (input: {
     readonly threadId: ThreadId;
@@ -347,20 +348,27 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       moveThread: Effect.fn("CrewThreadRuntime.moveThread")(function* (input) {
         const shell = yield* engine.getThreadShell(input.threadId);
         if (shell === null || shell.deletedAt !== null) return true;
-        const records = yield* engine.getThreadRecords(input.threadId, ["runs", "runtimeRequests"]);
-        if (!headquartersIdle(records)) return false;
-        yield* engine.dispatch({
-          type: "thread.project.move",
-          commandId: CommandId.make(`${input.key}:move`),
-          threadId: input.threadId,
-          projectId: input.projectId,
-        });
-        yield* engine.dispatch({
-          type: "thread.conversation.restart",
-          commandId: CommandId.make(`${input.key}:restart`),
-          threadId: input.threadId,
-        });
-        return true;
+        // A fresh ID per attempt: a refusal while the thread works is recorded under its
+        // command ID, and must not refuse the next attempt.
+        return yield* engine
+          .dispatch({
+            type: "thread.project.move",
+            commandId: CommandId.make(`${input.key}:${yield* freshId}`),
+            threadId: input.threadId,
+            projectId: input.projectId,
+          })
+          .pipe(
+            Effect.as(true),
+            Effect.catch((error) =>
+              engine
+                .getThreadRecords(input.threadId, ["runs", "runtimeRequests"])
+                .pipe(
+                  Effect.flatMap((records) =>
+                    headquartersIdle(records) ? Effect.fail(error) : Effect.succeed(false),
+                  ),
+                ),
+            ),
+          );
       }),
       pin: Effect.fn("CrewThreadRuntime.pin")((threadId, commandId) =>
         engine

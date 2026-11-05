@@ -3444,8 +3444,9 @@ const OrchestrationV2InternalCommand = Schema.Union([
     projectId: ProjectId,
   }),
   /**
-   * Moves a thread without a worktree or branch into another project, where it works in that
-   * project's root from its next turn. A no-op when it is already there.
+   * Moves an idle thread without a worktree or branch into another project and retires its
+   * provider conversations, so its next turn starts fresh in that project's root. A no-op when
+   * it is already there.
    */
   Schema.Struct({
     type: Schema.Literal("thread.project.move"),
