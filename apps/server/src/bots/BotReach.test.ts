@@ -4,6 +4,7 @@ import {
   type Bot,
   botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
+  FEATURE_DELIVERY_WORKFLOW_ID,
   type Project,
   ProjectId,
   ProviderInstanceId,
@@ -75,6 +76,7 @@ const project = (id: string, title: string, botId: string) =>
 interface Environment {
   readonly bots: ReadonlyArray<Bot>;
   readonly projects: ReadonlyArray<Project>;
+  readonly workflowRevision?: number;
 }
 
 /** What one environment's services were asked to change. */
@@ -120,6 +122,26 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
         ),
     }),
     Layer.mock(CrewService)({
+      // Each environment's Feature delivery: the laptop's is at revision 3 with an extra role.
+      getWorkflow: () =>
+        Effect.succeed({
+          id: FEATURE_DELIVERY_WORKFLOW_ID,
+          name: "Feature delivery",
+          instructions: `Revision ${data.workflowRevision ?? 1}.`,
+          leadRoleId: "role:project-manager",
+          crewRoleIds: ["role:builder", "role:security-reviewer"],
+          revision: data.workflowRevision ?? 1,
+        } as never),
+      getRole: (id) =>
+        Effect.succeed({
+          id,
+          name: id,
+          instructions: `You are ${id}.`,
+          allowedTools: [],
+          modelSelection,
+          runtimeMode: "full-access",
+          enabled: true,
+        } as never),
       ensureProjectManager: (projectId) =>
         Effect.succeed({ id: `bot-manager:${projectId}` } as never),
       createRun: (input) =>
@@ -217,6 +239,7 @@ const makeLaptop = Effect.gen(function* () {
         {
           bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)],
           projects: [project("project:laptop", "laptop-app", CAPTAIN_BOT_ID)],
+          workflowRevision: 3,
         },
         seen,
       ),
@@ -349,6 +372,23 @@ it.effect("starts the project manager there, or says before starting anything wh
           taskText: "Start a feature: dark mode.",
           carried: { runtimeMode: "full-access", modelSelection },
           workspace: { branch: expect.stringMatching(/^bosun\/dark-mode-/), baseRef: "main" },
+          // The laptop's workflow goes along by value, for the features this request starts.
+          workflow: {
+            here: "Box",
+            from: "T3 Code · Laptop",
+            snapshot: {
+              workflow: {
+                id: FEATURE_DELIVERY_WORKFLOW_ID,
+                revision: 3,
+                instructions: "Revision 3.",
+              },
+              roles: [
+                { id: "role:project-manager" },
+                { id: "role:builder" },
+                { id: "role:security-reviewer", instructions: "You are role:security-reviewer." },
+              ],
+            },
+          },
         },
       ]);
 

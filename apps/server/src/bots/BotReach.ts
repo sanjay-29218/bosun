@@ -4,6 +4,7 @@ import * as NodeCrypto from "node:crypto";
 import {
   CAPTAIN_BOT_ID,
   type EnvironmentId,
+  FEATURE_DELIVERY_WORKFLOW_ID,
   headquartersBotId,
   isProviderAvailable,
   logicalBotKey,
@@ -13,6 +14,7 @@ import {
   type RunId,
   type RuntimeMode,
   type ThreadId,
+  type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -53,6 +55,13 @@ export interface ProjectManagerLaunch {
   readonly clientRequestId: string;
 }
 
+/** What a linked environment's headquarters asks for: a launch, with its bot and workflow. */
+export interface LinkedProjectManagerLaunch extends ProjectManagerLaunch {
+  readonly botKey: string;
+  readonly botName: string;
+  readonly workflow?: WorkflowSnapshot | undefined;
+}
+
 export interface LaunchedProjectManager {
   readonly threadId: ThreadId;
   readonly runId: RunId | null;
@@ -89,7 +98,7 @@ export class BotReach extends Context.Service<
     /** For a linked environment's headquarters: starts the request here, or says why not. */
     readonly startForLink: (
       scope: Scope,
-      input: ProjectManagerLaunch & { readonly botKey: string; readonly botName: string },
+      input: LinkedProjectManagerLaunch,
     ) => Effect.Effect<LaunchedProjectManager, OrchestratorMcpFailure>;
   }
 >()("t3/bots/BotReach") {}
@@ -262,6 +271,45 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /**
+   * The workflow a feature for a request runs on, sent by value: Feature delivery at its
+   * revision here, with its lead and enabled crew roles. Nothing when it's gone.
+   */
+  const workflowSnapshot = Effect.fn("BotReach.workflowSnapshot")(function* () {
+    const workflow = yield* crew
+      .getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)
+      .pipe(Effect.mapError(unavailable));
+    if (workflow === null) return undefined;
+    const roles = yield* Effect.forEach([workflow.leadRoleId, ...workflow.crewRoleIds], (id) =>
+      crew.getRole(id).pipe(Effect.mapError(unavailable)),
+    );
+    const snapshot: WorkflowSnapshot = {
+      workflow: {
+        id: workflow.id,
+        name: workflow.name,
+        instructions: workflow.instructions,
+        leadRoleId: workflow.leadRoleId,
+        crewRoleIds: workflow.crewRoleIds,
+        revision: workflow.revision,
+      },
+      roles: roles.flatMap((role) =>
+        role !== null && (role.enabled || role.id === workflow.leadRoleId)
+          ? [
+              {
+                id: role.id,
+                name: role.name,
+                instructions: role.instructions,
+                allowedTools: role.allowedTools,
+                modelSelection: role.modelSelection,
+                runtimeMode: role.runtimeMode,
+              },
+            ]
+          : [],
+      ),
+    };
+    return snapshot;
+  });
+
   const launchProjectManager: BotReach["Service"]["launchProjectManager"] = Effect.fn(
     "BotReach.launchProjectManager",
   )(function* (scope, environmentId, botId, input) {
@@ -282,11 +330,13 @@ const make = Effect.gen(function* () {
     yield* links
       .resolve(environmentId)
       .pipe(Effect.catch((error) => (error.reason === "unreachable" ? unreachable : Effect.void)));
+    const workflow = yield* workflowSnapshot();
     return yield* forwarding
       .call(scope, LinkBotTask, environmentId, {
         ...input,
         botKey: logicalBotKey(bot),
         botName: bot.name,
+        ...(workflow === undefined ? {} : { workflow }),
       })
       .pipe(
         Effect.catchIf(
@@ -352,6 +402,15 @@ const make = Effect.gen(function* () {
           `${input.botName}'s project manager runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${input.botName}'s model.`,
         );
       }
+      // Its features run on these roles, so each must be able to run here too.
+      for (const role of input.workflow?.roles ?? []) {
+        if (!(yield* modelAvailable(role.modelSelection))) {
+          return yield* failure(
+            "invalid_request",
+            `${input.workflow!.workflow.name}'s ${role.name} runs on ${role.modelSelection.model} (${role.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change the role's model.`,
+          );
+        }
+      }
       const manager = yield* crew
         .ensureProjectManager(project.id)
         .pipe(Effect.mapError(unavailable));
@@ -368,6 +427,9 @@ const make = Effect.gen(function* () {
           taskText: input.task,
           title: input.title,
           carried: { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection },
+          ...(input.workflow === undefined
+            ? {}
+            : { workflow: { snapshot: input.workflow, here: self.label, from: client.label } }),
           ...(base === null
             ? {}
             : {

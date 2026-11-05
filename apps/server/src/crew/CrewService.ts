@@ -49,6 +49,7 @@ import {
 } from "./headquartersFreshStart.ts";
 import { crewChangeNotifier } from "./CrewChanges.ts";
 import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
+import type { LinkedWorkflow } from "./linkedWorkflow.ts";
 import {
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
@@ -165,6 +166,11 @@ export interface CreateCrewRunInput {
   /** The worktree the thread opens in; the project's checkout when absent. */
   readonly workspace?: CrewWorkspace;
   readonly openingMessage?: OpeningMessage | null;
+  /**
+   * The workflow a linked environment's bot sent with this request, kept before the run starts
+   * so a feature its thread starts finds it. Not part of the request's identity.
+   */
+  readonly workflow?: LinkedWorkflow;
 }
 
 export interface CrewRunView {
@@ -752,6 +758,7 @@ export const CrewServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
         }
         const member = yield* runActor(input.memberId, input.projectId);
+        if (input.workflow !== undefined) yield* store.setRunWorkflow(id, input.workflow);
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const run: CrewRun = {
           id,

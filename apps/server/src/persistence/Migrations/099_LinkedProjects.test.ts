@@ -39,5 +39,19 @@ it.effect("tells stock headquarters about their projects on linked environments"
     assert.include(HEADQUARTERS_REWRITE[1], "target.environmentId");
     assert.strictEqual(yield* task("bot-hq:edited"), "Hand everything to me first.");
     assert.strictEqual(yield* task("bot-handoff:h1"), HEADQUARTERS_REWRITE[0]);
+
+    // 100: a link's request keeps the workflow it brought, and its features their own copy.
+    yield* BosunMigrations.runMigrations(100);
+    const featureColumns = yield* sql<{ readonly name: string; readonly notnull: number }>`
+      SELECT name, "notnull" FROM pragma_table_info('features')
+    `;
+    assert.deepInclude(featureColumns, { name: "workflow_snapshot_json", notnull: 0 });
+    const runWorkflowColumns = yield* sql<{ readonly name: string }>`
+      SELECT name FROM pragma_table_info('crew_run_workflows')
+    `;
+    assert.deepStrictEqual(
+      runWorkflowColumns.map((column) => column.name),
+      ["run_id", "workflow_json"],
+    );
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

@@ -6,6 +6,7 @@ import {
   RunId,
   RuntimeMode,
   ThreadId,
+  WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
@@ -77,6 +78,8 @@ export const LinkBotTask = Tool.make("t3_bot_link_task", {
     modelSelection: ModelSelection,
     runtimeMode: RuntimeMode,
     clientRequestId: Schema.String,
+    /** The workflow a feature for this request runs on, by value. */
+    workflow: Schema.optional(WorkflowSnapshot),
   }),
   success: Schema.Struct({
     threadId: ThreadId,
