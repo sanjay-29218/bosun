@@ -12,6 +12,7 @@ import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { dismissRetiredWorkflowQuestions } from "../crew/retiredWorkflowQuestions.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import * as ProjectRequests from "../crew/ProjectRequests.ts";
+import * as MergeNotices from "../crew/MergeNotices.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
@@ -96,6 +97,14 @@ const ProjectRequestsWatchLive = Layer.effectDiscard(
   ProjectRequests.ProjectRequests.pipe(Effect.flatMap((requests) => requests.start())),
 );
 
+/** A project's manager hears once when its tracked work's pull request merges. */
+const MergeNoticesLive = Layer.effectDiscard(
+  MergeNotices.MergeNotices.pipe(Effect.flatMap((notices) => notices.start())),
+).pipe(
+  Layer.provide(MergeNotices.layer),
+  Layer.provide(Layer.merge(FeatureServiceLive, ProjectionStore.layer)),
+);
+
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
   TicketService.layer.pipe(
@@ -109,6 +118,7 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   RetiredWorkflowQuestionsLive,
   FeatureManagerTitlesLive,
   ProjectRequestsWatchLive.pipe(Layer.provideMerge(ProjectRequestsLive)),
+  MergeNoticesLive,
 ).pipe(
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),

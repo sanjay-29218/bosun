@@ -60,6 +60,9 @@ then decides how the work runs: a task for a small, clear change, a feature for 
 pull request, or several features for bigger work, run one after another when they would collide.
 It answers a feature's questions when the brief or the issue settles them, asks the bot otherwise,
 and replies in the headquarters when the work starts, when it needs an answer, and when it's done.
+When a pull request of its work merges into `staging`, it hears about it and closes the issues the
+pull request resolves, and the milestone once all of its issues are closed; GitHub closes issues
+itself for pull requests into `main`.
 It reads the project's checkout but doesn't change it, and merges a pull request only when the
 request or its instructions say to.
 

@@ -229,7 +229,7 @@ const makeHarness = Effect.fn("makePullRequestSyncHarness")(function* (options: 
       subscribePullRequestStateChanges: Effect.succeed(Stream.empty),
     }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({
-      getThreadsWithPullRequests: (threadId) =>
+      getThreadsWithPullRequests: (threadId, readOptions) =>
         Queue.offer(snapshotReads, undefined).pipe(
           Effect.andThen(Ref.get(snapshots)),
           Effect.map((snapshot) =>
@@ -237,19 +237,27 @@ const makeHarness = Effect.fn("makePullRequestSyncHarness")(function* (options: 
               .filter(
                 (thread) =>
                   (threadId === undefined || thread.id === threadId) &&
-                  thread.archivedAt === null &&
+                  (thread.archivedAt === null ||
+                    (readOptions?.includeArchivedWork === true &&
+                      (thread.feature != null ||
+                        thread.lineage?.parentThreadId?.startsWith("bot-run:project-hq:")))) &&
                   thread.pullRequests.length > 0,
               )
               .map((thread) => ({
                 id: thread.id,
                 projectId: thread.projectId,
-                lineage: {
+                title: thread.title,
+                lineage: thread.lineage ?? {
                   parentThreadId: null,
                   relationshipToParent: null,
                   rootThreadId: thread.id,
                 },
                 settledOverride: thread.settledOverride,
                 settledAt: thread.settledAt === null ? null : DateTime.makeUnsafe(thread.settledAt),
+                archivedAt:
+                  thread.archivedAt === null ? null : DateTime.makeUnsafe(thread.archivedAt),
+                feature: thread.feature ?? null,
+                issue: null,
                 pullRequests: thread.pullRequests,
               })),
           ),
@@ -1288,6 +1296,56 @@ describe("PullRequestSyncReactor", () => {
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),
+  );
+
+  it.effect(
+    "keeps reading a feature's or a manager's task's open pull request once it settles",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse(NOW));
+          const quiet = { state: "open" as const, updatedAt: "2026-08-20T00:00:00.000Z" };
+          const fixture = yield* makeHarness({
+            snapshot: makeSnapshot([
+              makeThread("feature-lead", {
+                settledOverride: "settled",
+                settledAt: "2026-08-21T00:00:00.000Z",
+                feature: { id: "feature:export", title: "Export" },
+                pullRequests: [makeLink(7, quiet)],
+              }),
+              // A task a project's manager delegated, archived once its result came back.
+              makeThread("manager-task", {
+                archivedAt: "2026-08-22T00:00:00.000Z",
+                lineage: {
+                  rootThreadId: ThreadId.make("bot-run:project-hq:sync-project"),
+                  parentThreadId: ThreadId.make("bot-run:project-hq:sync-project"),
+                  relationshipToParent: "subagent",
+                },
+                pullRequests: [makeLink(8, quiet)],
+              }),
+              makeThread("plain", {
+                settledOverride: "settled",
+                settledAt: "2026-08-21T00:00:00.000Z",
+                pullRequests: [makeLink(9, quiet)],
+              }),
+            ]),
+          });
+
+          yield* Effect.gen(function* () {
+            const reactor = yield* startAndSweep(fixture);
+            const read = () =>
+              Ref.get(fixture.summaryCalls).pipe(
+                Effect.map((calls) => calls.map((call) => call.number).toSorted()),
+              );
+            // Until it merges or closes, so the project's manager hears when it does.
+            assert.deepStrictEqual(yield* read(), [7, 8]);
+            for (let index = 0; index < 4; index += 1) yield* sweepAgain(fixture, reactor);
+            assert.deepStrictEqual(yield* read(), [7, 8]);
+            yield* sweepAgain(fixture, reactor);
+            assert.deepStrictEqual(yield* read(), [7, 7, 8, 8]);
+          }).pipe(Effect.provide(fixture.layer));
+        }),
+      ),
   );
 
   it.effect("auto-links missing native stack layers on active threads only", () =>

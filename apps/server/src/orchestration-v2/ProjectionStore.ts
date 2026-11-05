@@ -189,7 +189,16 @@ export type ProjectionLimitRecoveryCandidate = Pick<
 
 export type ProjectionThreadPullRequests = Pick<
   OrchestrationV2AppThread,
-  "id" | "projectId" | "lineage" | "settledOverride" | "settledAt" | "pullRequests"
+  | "id"
+  | "projectId"
+  | "title"
+  | "lineage"
+  | "settledOverride"
+  | "settledAt"
+  | "archivedAt"
+  | "feature"
+  | "issue"
+  | "pullRequests"
 >;
 
 export type ProjectionSettlementCandidate = Pick<
@@ -564,6 +573,13 @@ export interface ProjectionStoreV2Shape {
   ) => Effect.Effect<ReadonlyArray<ProjectionSettlementCandidate>, ProjectionStoreV2Error>;
   readonly getThreadsWithPullRequests: (
     threadId?: ThreadId,
+    options?: {
+      /**
+       * Also archived threads of tracked work, a feature's or a task a project's manager
+       * delegated, whose merges its manager still needs to hear about.
+       */
+      readonly includeArchivedWork?: boolean;
+    },
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadPullRequests>, ProjectionStoreV2Error>;
   /** Titles of the given threads that exist, archived ones included. */
   readonly getThreadTitles: (
@@ -6689,12 +6705,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     const getThreadsWithPullRequests: ProjectionStoreV2Shape["getThreadsWithPullRequests"] =
       Effect.fn("ProjectionStore.getThreadsWithPullRequests")(
-        function* (threadId) {
+        function* (threadId, options) {
+          const archivedWork =
+            options?.includeArchivedWork === true
+              ? sql`OR json_extract(payload_json, '$.feature.id') IS NOT NULL
+                  OR json_extract(payload_json, '$.lineage.parentThreadId') LIKE 'bot-run:project-hq:%'`
+              : sql``;
           const rows = yield* sql<PayloadRow>`
           SELECT payload_json
           FROM orchestration_v2_projection_threads
           WHERE deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND thread_id = ${threadId}`}
-            AND json_extract(payload_json, '$.archivedAt') IS NULL
+            AND (json_extract(payload_json, '$.archivedAt') IS NULL ${archivedWork})
             AND json_array_length(payload_json, '$.pullRequests') > 0
           ORDER BY updated_at ASC, thread_id ASC
         `;
@@ -6703,9 +6724,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               Effect.map((thread): ProjectionThreadPullRequests => ({
                 id: thread.id,
                 projectId: thread.projectId,
+                title: thread.title,
                 lineage: thread.lineage,
                 settledOverride: thread.settledOverride,
                 settledAt: thread.settledAt,
+                archivedAt: thread.archivedAt,
+                feature: thread.feature ?? null,
+                issue: thread.issue ?? null,
                 pullRequests: thread.pullRequests ?? [],
               })),
             ),
