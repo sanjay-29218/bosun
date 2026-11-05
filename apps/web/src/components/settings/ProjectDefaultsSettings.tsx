@@ -23,22 +23,16 @@ import { useEnvironmentProviders, useEnvironments } from "../../state/environmen
 import { firstManagedDenial } from "../../state/managedPolicy";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { SettingsModelPicker } from "./SettingsModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
-import { TraitsPicker } from "../chat/TraitsPicker";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
 import type { ProjectSettingsCategory } from "./ProjectSettingsPanel";
 import { searchableSetting } from "./settingsSearch";
 import { useSettingsScope } from "./SettingsScopeContext";
-import {
-  SETTINGS_PICKER_TRIGGER_CLASSNAME,
-  SettingResetButton,
-  SettingsRow,
-  SettingsSection,
-} from "./settingsLayout";
+import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import {
   useScopedSettings,
@@ -95,7 +89,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     targets.every((candidate) => candidate.settings.defaultModelSelection === null);
   const mixedFallback = useScopedSettingsMixed(["fallbackModelSelection"]);
   const fallbackSelection = settings.fallbackModelSelection ?? selection;
-  const fallbackEntry = entries.find((entry) => entry.instanceId === fallbackSelection?.instanceId);
   const fallbackModelOptions = getCustomModelOptionsByInstance(
     settings,
     providers,
@@ -156,14 +149,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       control={
         selection && activeEntry ? (
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-            <ProviderModelPicker
+            <SettingsModelPicker
               environmentId={representative?.environmentId ?? null}
               activeInstanceId={selection.instanceId}
               model={selection.model}
               lockedProvider={null}
               instanceEntries={entries}
               modelOptionsByInstance={modelOptions}
-              triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
               {...(mixedModel
                 ? { triggerLabel: automaticModel ? "Automatic (mixed)" : "Mixed" }
                 : {})}
@@ -178,21 +170,19 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               onInstanceModelChange={(instanceId, model) =>
                 setModel(createModelSelection(instanceId, model))
               }
+              traits={
+                !mixedModel && !effortDisabledReason
+                  ? {
+                      options: selection.options,
+                      planModeEnabled: settings.planModeEnabled,
+                      onChange: (options) =>
+                        setModel(
+                          createModelSelection(selection.instanceId, selection.model, options),
+                        ),
+                    }
+                  : null
+              }
             />
-            {!mixedModel && !effortDisabledReason ? (
-              <TraitsPicker
-                provider={activeEntry.driverKind}
-                models={activeEntry.models}
-                model={selection.model}
-                modelOptions={selection.options ?? []}
-                allowPromptInjectedEffort={false}
-                planModeEnabled={settings.planModeEnabled}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onModelOptionsChange={(options) =>
-                  setModel(createModelSelection(selection.instanceId, selection.model, options))
-                }
-              />
-            ) : null}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">
@@ -268,14 +258,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       control={
         fallbackSelection ? (
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-            <ProviderModelPicker
+            <SettingsModelPicker
               environmentId={representative?.environmentId ?? null}
               activeInstanceId={fallbackSelection.instanceId}
               model={fallbackSelection.model}
               lockedProvider={null}
               instanceEntries={entries}
               modelOptionsByInstance={fallbackModelOptions}
-              triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
               triggerAriaLabel="Fallback model"
               {...(mixedFallback
                 ? { triggerLabel: "Mixed" }
@@ -295,27 +284,23 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 }
                 updateSettings({ fallbackModelSelection: createModelSelection(instanceId, model) });
               }}
+              traits={
+                settings.fallbackModelSelection !== null && !mixedFallback
+                  ? {
+                      options: fallbackSelection.options,
+                      planModeEnabled: settings.planModeEnabled,
+                      onChange: (options) =>
+                        updateSettings({
+                          fallbackModelSelection: createModelSelection(
+                            fallbackSelection.instanceId,
+                            fallbackSelection.model,
+                            options,
+                          ),
+                        }),
+                    }
+                  : null
+              }
             />
-            {settings.fallbackModelSelection !== null && fallbackEntry && !mixedFallback ? (
-              <TraitsPicker
-                provider={fallbackEntry.driverKind}
-                models={fallbackEntry.models}
-                model={fallbackSelection.model}
-                modelOptions={fallbackSelection.options ?? []}
-                allowPromptInjectedEffort={false}
-                planModeEnabled={settings.planModeEnabled}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onModelOptionsChange={(options) =>
-                  updateSettings({
-                    fallbackModelSelection: createModelSelection(
-                      fallbackSelection.instanceId,
-                      fallbackSelection.model,
-                      options,
-                    ),
-                  })
-                }
-              />
-            ) : null}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">No providers available</span>

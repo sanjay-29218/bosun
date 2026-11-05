@@ -23,17 +23,11 @@ import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
-import {
-  SETTINGS_PICKER_TRIGGER_CLASSNAME,
-  SettingsRow,
-  SettingsSection,
-} from "../settings/settingsLayout";
+import { SettingsModelPicker } from "../settings/SettingsModelPicker";
+import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
@@ -53,28 +47,32 @@ function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelect
   return { settings, providers, entries, modelOptions };
 }
 
+/** A role's or bot's model, reasoning, speed and access, in the composer's picker. */
 export function RoleModelPicker({
   environmentId,
   selection,
+  runtimeMode,
   disabled,
   onChange,
+  onRuntimeModeChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly selection: ModelSelection;
+  readonly runtimeMode: RuntimeMode;
   readonly disabled?: boolean;
   readonly onChange: (selection: ModelSelection) => void;
+  readonly onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
-  const { entries, modelOptions } = useModelPickerData(environmentId, selection);
+  const { settings, entries, modelOptions } = useModelPickerData(environmentId, selection);
   return (
-    <ProviderModelPicker
+    <SettingsModelPicker
       environmentId={environmentId}
       activeInstanceId={selection.instanceId}
       model={selection.model}
       lockedProvider={null}
       instanceEntries={entries}
       modelOptionsByInstance={modelOptions}
-      isComposerOwned={false}
-      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+      triggerAriaLabel="Model"
       {...(disabled ? { disabled } : {})}
       onInstanceModelChange={(instanceId: ProviderInstanceId, model: string) =>
         onChange(
@@ -83,61 +81,14 @@ export function RoleModelPicker({
             : createModelSelection(instanceId, model),
         )
       }
-    />
-  );
-}
-
-/**
- * How freely a role's or bot's threads act: the same access levels, names and descriptions as
- * the composer's, from asking before every change to full access.
- */
-export function RuntimeModeSelect({
-  value,
-  disabled,
-  label,
-  size,
-  onChange,
-}: {
-  readonly value: RuntimeMode;
-  readonly disabled?: boolean;
-  readonly label: string;
-  readonly size?: "sm";
-  readonly onChange: (mode: RuntimeMode) => void;
-}) {
-  const current = runtimeModeConfig[value];
-  return (
-    <Select
-      value={value}
-      {...(disabled ? { disabled } : {})}
-      onValueChange={(next) => {
-        if (typeof next === "string" && next in runtimeModeConfig) onChange(next as RuntimeMode);
+      traits={{
+        options: selection.options,
+        planModeEnabled: settings.planModeEnabled,
+        onChange: (options) =>
+          onChange(createModelSelection(selection.instanceId, selection.model, options)),
       }}
-    >
-      <SelectTrigger {...(size ? { size } : {})} aria-label={label}>
-        <SelectValue>
-          <span className="flex min-w-0 items-center gap-2">
-            <current.icon className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{current.label}</span>
-          </span>
-        </SelectValue>
-      </SelectTrigger>
-      <SelectPopup align="end" alignItemWithTrigger={false}>
-        {runtimeModeOptions.map((mode) => {
-          const option = runtimeModeConfig[mode];
-          return (
-            <SelectItem key={mode} value={mode}>
-              <span className="flex min-w-0 items-start gap-2">
-                <option.icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex min-w-0 flex-col">
-                  <span>{option.label}</span>
-                  <span className="text-xs text-muted-foreground">{option.description}</span>
-                </span>
-              </span>
-            </SelectItem>
-          );
-        })}
-      </SelectPopup>
-    </Select>
+      access={{ runtimeMode, onChange: onRuntimeModeChange }}
+    />
   );
 }
 
@@ -244,8 +195,7 @@ export function RoleEditorForm({
     ? fields.name !== role.name ||
       fields.instructions !== role.instructions ||
       fields.allowedTools.join("\n") !== role.allowedTools.join("\n") ||
-      fields.modelSelection.instanceId !== role.modelSelection.instanceId ||
-      fields.modelSelection.model !== role.modelSelection.model ||
+      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection) ||
       fields.runtimeMode !== role.runtimeMode ||
       enabled !== role.enabled
     : fields.name.length > 0 || fields.instructions.length > 0 || tools.length > 0;
@@ -315,23 +265,15 @@ export function RoleEditorForm({
         <SettingsSection title="Runs with">
           <SettingsRow
             title="Model"
+            description="Model, reasoning, speed and access for this role's threads."
             control={
               <RoleModelPicker
                 environmentId={environmentId}
                 selection={modelSelection}
+                runtimeMode={runtimeMode}
                 disabled={saving || !canEdit}
                 onChange={setModelSelection}
-              />
-            }
-          />
-          <SettingsRow
-            title="Access"
-            control={
-              <RuntimeModeSelect
-                label="Access"
-                value={runtimeMode}
-                disabled={saving || !canEdit}
-                onChange={setRuntimeMode}
+                onRuntimeModeChange={setRuntimeMode}
               />
             }
           />
