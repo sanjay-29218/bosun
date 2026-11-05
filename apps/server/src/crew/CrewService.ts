@@ -71,6 +71,20 @@ export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${p
 /** The member that leads a workflow led by a role other than the project manager. */
 const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
   `bot-lead:${projectId}:${roleId}`;
+
+/**
+ * What a project-level member adds to its role's instructions, or null for a member that isn't
+ * one of the project's own (an instantiated or feature member), which role edits don't reach.
+ */
+const projectMemberContext = (id: string, projectId: ProjectId | null) => {
+  if (projectId === null) return null;
+  if (id === projectManagerMemberId(projectId)) {
+    return `You manage project ${projectId}. Its builder is crew member ${projectBuilderMemberId(projectId)}.`;
+  }
+  if (id === projectBuilderMemberId(projectId)) return `You work on project ${projectId}.`;
+  if (id.startsWith(`bot-lead:${projectId}:`)) return `You lead work in project ${projectId}.`;
+  return null;
+};
 const BUILDER_ROLE_ID = "role:builder";
 
 /** How a bot's headquarters briefs the project manager it starts for one request. */
@@ -517,6 +531,31 @@ export const CrewServiceLive = Layer.effect(
       },
     );
 
+    /**
+     * Brings a project-level member up to its role's revision. A member someone customized, or
+     * one that changed under us, keeps what is stored.
+     */
+    const followRole = Effect.fn("CrewService.followRole")(function* (
+      member: CrewMember,
+      role: Role,
+    ) {
+      const context = projectMemberContext(member.id, member.projectId);
+      if (context === null || member.roleRevision === role.revision) return member;
+      const updated: CrewMember = {
+        ...member,
+        roleRevision: role.revision,
+        name: role.name,
+        instructions: `${role.instructions}\n\n${context}`,
+        allowedTools: role.allowedTools,
+        modelSelection: role.modelSelection,
+        runtimeMode: role.runtimeMode,
+        revision: member.revision + 1,
+        updatedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+      if (yield* store.updateMember(updated, member.revision)) return updated;
+      return (yield* store.getMember(member.id)) ?? member;
+    });
+
     const updateRole: CrewServiceShape["updateRole"] = Effect.fn("CrewService.updateRole")(
       function* (input) {
         const previous = yield* store.getRole(input.id);
@@ -556,9 +595,18 @@ export const CrewServiceLive = Layer.effect(
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
         };
-        if (!(yield* store.updateRole(updated, previous.revision))) {
-          return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
-        }
+        // Project-level members follow in the same transaction, so a standing run never sees
+        // the new role with an old member.
+        yield* store.transaction(
+          Effect.gen(function* () {
+            if (!(yield* store.updateRole(updated, previous.revision))) {
+              return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
+            }
+            for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
+              yield* followRole(member, updated);
+            }
+          }),
+        );
         return updated;
       },
     );
@@ -636,12 +684,14 @@ export const CrewServiceLive = Layer.effect(
       id: string,
       projectId: ProjectId,
       roleId: string,
-      context: string,
     ) {
-      // An existing member keeps working even if its role was turned off since.
       const existing = yield* store.getMember(id);
-      if (existing?.projectId === projectId) return { member: existing, created: false };
       const role = yield* store.getRole(roleId);
+      // An existing member keeps working even if its role was turned off since.
+      if (existing?.projectId === projectId) {
+        if (role === null) return { member: existing, created: false };
+        return { member: yield* followRole(existing, role), created: false };
+      }
       if (!role?.enabled) {
         return yield* Effect.fail(
           new CrewValidationError("Set up the crew before handing it project work"),
@@ -652,7 +702,7 @@ export const CrewServiceLive = Layer.effect(
         projectId,
         roleId,
         name: role.name,
-        instructions: `${role.instructions}\n\n${context}`,
+        instructions: `${role.instructions}\n\n${projectMemberContext(id, projectId)}`,
         allowedTools: role.allowedTools,
         modelSelection: role.modelSelection,
         runtimeMode: role.runtimeMode,
@@ -669,18 +719,8 @@ export const CrewServiceLive = Layer.effect(
       const builderId = projectBuilderMemberId(projectId);
       // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
       // disabled role) is completed by the next request once the role is back.
-      const manager = yield* projectMemberFromRole(
-        managerId,
-        projectId,
-        PROJECT_MANAGER_ROLE_ID,
-        `You manage project ${projectId}. Its builder is crew member ${builderId}.`,
-      );
-      const builder = yield* projectMemberFromRole(
-        builderId,
-        projectId,
-        BUILDER_ROLE_ID,
-        `You work on project ${projectId}.`,
-      );
+      const manager = yield* projectMemberFromRole(managerId, projectId, PROJECT_MANAGER_ROLE_ID);
+      const builder = yield* projectMemberFromRole(builderId, projectId, BUILDER_ROLE_ID);
       // The project's bot may delegate to the manager because it owns the project.
       yield* store.grantDelegation(managerId, builderId);
       if (builder.created) yield* store.setParent(builderId, managerId, 0);
@@ -698,7 +738,6 @@ export const CrewServiceLive = Layer.effect(
         projectLeadMemberId(projectId, roleId),
         projectId,
         roleId,
-        `You lead work in project ${projectId}.`,
       );
       return lead.member;
     });

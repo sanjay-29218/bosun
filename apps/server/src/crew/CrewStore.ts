@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlError from "effect/sql/SqlError";
 
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import {
@@ -252,6 +253,21 @@ export interface CrewStoreShape {
   readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
   readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
   readonly insertMember: (member: CrewMember) => Effect.Effect<void, PersistenceSqlError>;
+  /**
+   * Writes `member` over the stored row while it is still at `expectedRevision` and nobody
+   * customized it in its project. False when either check stopped the write.
+   */
+  readonly updateMember: (
+    member: CrewMember,
+    expectedRevision: number,
+  ) => Effect.Effect<boolean, PersistenceSqlError>;
+  /** Members of `roleId` that belong to a project but not to one feature. */
+  readonly listProjectMembersOfRole: (
+    roleId: string,
+  ) => Effect.Effect<ReadonlyArray<CrewMember>, PersistenceSqlError>;
+  readonly transaction: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | PersistenceSqlError, R>;
   readonly getMember: (id: string) => Effect.Effect<CrewMember | null, PersistenceSqlError>;
   readonly listMembersForProject: (
     projectId: ProjectId,
@@ -497,6 +513,45 @@ export const CrewStoreLive = Layer.effect(
             ${member.createdAt}, ${member.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+      updateMember: (member, expectedRevision) =>
+        sql<{ readonly id: string }>`
+          UPDATE crew_members SET
+            role_revision = ${member.roleRevision}, name = ${member.name},
+            instructions = ${member.instructions},
+            allowed_tools_json = ${JSON.stringify(member.allowedTools)},
+            model_selection_json = ${JSON.stringify(member.modelSelection)},
+            runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
+            revision = ${member.revision}, updated_at = ${member.updatedAt}
+          WHERE id = ${member.id} AND revision = ${expectedRevision} AND customized_at IS NULL
+          RETURNING id
+        `.pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
+      listProjectMembersOfRole: (roleId) =>
+        sql<CrewMemberRow>`
+          SELECT id, project_id AS projectId, feature_id AS featureId,
+            role_id AS roleId, role_revision AS roleRevision, name, instructions,
+            allowed_tools_json AS allowedToolsJson,
+            model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
+            enabled,
+            revision, created_at AS createdAt, updated_at AS updatedAt
+          FROM crew_members
+          WHERE role_id = ${roleId} AND project_id IS NOT NULL AND feature_id IS NULL
+            AND customized_at IS NULL
+          ORDER BY id
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.flatMap((rows) =>
+            Effect.try({ try: () => rows.map(decodeMember), catch: decodeError }),
+          ),
+        ),
+      transaction: (effect) =>
+        sql
+          .withTransaction(effect)
+          .pipe(
+            Effect.mapError((error) => (SqlError.isSqlError(error) ? queryError(error) : error)),
+          ),
       getMember,
       listMembersForProject: (projectId) =>
         sql<CrewMemberRow>`

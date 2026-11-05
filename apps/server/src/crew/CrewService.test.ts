@@ -270,6 +270,73 @@ describe("Bot foundation", () => {
     }),
   );
 
+  effectIt.effect("project-level members follow their role's edits until customized", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-follows-")),
+      );
+      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine, sql }) =>
+        Effect.gen(function* () {
+          yield* createProject(engine);
+          yield* bots.ensureDefaults(modelSelection);
+          yield* bots.ensureProjectManager(projectId);
+          const managerRole = (yield* store.getRole(PROJECT_MANAGER_ROLE_ID))!;
+          const otherModel = { ...modelSelection, model: "gpt-5.5" };
+          yield* bots.updateRole({
+            ...managerRole,
+            name: "Lead",
+            instructions: "Lead the work, edited.",
+            modelSelection: otherModel,
+            expectedRevision: managerRole.revision,
+          });
+          const manager = (yield* store.getMember(projectManagerMemberId(projectId)))!;
+          expect(manager).toMatchObject({
+            name: "Lead",
+            roleRevision: managerRole.revision + 1,
+            modelSelection: otherModel,
+            revision: 2,
+          });
+          expect(manager.instructions).toBe(
+            `Lead the work, edited.\n\nYou manage project ${projectId}. Its builder is crew member ${projectBuilderMemberId(projectId)}.`,
+          );
+
+          // The ensure path catches a role row that changed without the refresh.
+          const builderRole = (yield* store.getRole("role:builder"))!;
+          yield* store.updateRole(
+            {
+              ...builderRole,
+              instructions: "Build, edited.",
+              revision: builderRole.revision + 1,
+            },
+            builderRole.revision,
+          );
+          yield* bots.ensureProjectManager(projectId);
+          const builder = (yield* store.getMember(projectBuilderMemberId(projectId)))!;
+          expect(builder.instructions).toBe(`Build, edited.\n\nYou work on project ${projectId}.`);
+          expect(builder.roleRevision).toBe(builderRole.revision + 1);
+
+          // A customized member keeps its settings.
+          yield* sql`
+            UPDATE crew_members SET customized_at = '2026-11-05'
+            WHERE id = ${projectManagerMemberId(projectId)}
+          `;
+          const lead = (yield* store.getRole(PROJECT_MANAGER_ROLE_ID))!;
+          yield* bots.updateRole({
+            ...lead,
+            instructions: "Lead, edited again.",
+            expectedRevision: lead.revision,
+          });
+          yield* bots.ensureProjectManager(projectId);
+          expect(yield* store.getMember(projectManagerMemberId(projectId))).toEqual(manager);
+        }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        ),
+      );
+    }),
+  );
+
   effectIt.effect("runs as the project's owning bot, which may delegate to its manager", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
