@@ -252,3 +252,49 @@ it.effect("answers for a manager's turn that ended without replying, once", () =
     assert.deepStrictEqual(yield* sent, []);
   }).pipe(Effect.provide(sqlite)),
 );
+
+it.effect(
+  "recovers an earlier unanswered turn's fallback at startup, behind a newer run, once",
+  () =>
+    Effect.gen(function* () {
+      const { requests, sent, clear, turns, active } = yield* setup;
+      const sql = yield* SqlClient.SqlClient;
+      yield* requests.send({ projectId, requesterThreadId: hq, key: "one", message: "one" });
+      yield* clear;
+      // The turn that took R-1 ended, then the server stopped before its fallback went out.
+      yield* sql`
+      INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
+        allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+      VALUES (${`project-hq:${projectId}`}, 'project-manager:web', ${projectId},
+        ${managerThreadId}, 'Manage', 'Project manager', '', '[]', 1, '{}', 'full-access',
+        '2026-11-05')
+    `;
+      const run = (id: string, ordinal: number, userMessageId: string) => sql`
+      INSERT INTO orchestration_v2_projection_runs
+        (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json)
+      VALUES (${id}, ${managerThreadId}, ${ordinal}, 'codex', 'completed', '2026-11-05',
+        '2026-11-05', ${JSON.stringify({ userMessageId })})
+    `;
+      yield* run("run-1", 1, `message:project-request:${projectId}:R-1`);
+      turns.set("run-1", [
+        requestMessage("R-1"),
+        { id: "message:answer", role: "assistant", text: "Started feature F-3.", streaming: false },
+      ]);
+      // A newer turn, on something else, is now the latest.
+      yield* run("run-2", 2, "message:other");
+      active.run = managerRun("run-2");
+
+      yield* requests.catchUp();
+      const recovered = yield* sent;
+      assert.deepStrictEqual(
+        recovered.map((message) => [message.threadId, message.id]),
+        [[hq, `message:project-request:${projectId}:R-1:fallback:run-1`]],
+      );
+      assert.include(recovered[0]!.text, "Started feature F-3.");
+
+      // A second restart finds nothing left to send.
+      yield* clear;
+      yield* requests.catchUp();
+      assert.deepStrictEqual(yield* sent, []);
+    }).pipe(Effect.provide(sqlite)),
+);

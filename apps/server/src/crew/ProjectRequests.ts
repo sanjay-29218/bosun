@@ -3,6 +3,7 @@ import {
   headquartersProjectId,
   MessageId,
   ProjectId,
+  RunId,
   ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
@@ -90,8 +91,16 @@ export interface ProjectRequestsShape {
   /** Posts each request that was stored but never reached its manager, as after a restart. */
   readonly deliverPending: () => Effect.Effect<void>;
   /** Replies for the manager when its turn took requests and ended without answering them. */
-  readonly handleRunEnded: (run: OrchestrationV2Run) => Effect.Effect<void>;
-  /** Checks each manager's latest turn, which may have ended while nothing was watching. */
+  readonly handleRunEnded: (
+    run: Pick<OrchestrationV2Run, "id" | "threadId"> & {
+      readonly status: string;
+      readonly userMessageId?: string | undefined;
+    },
+  ) => Effect.Effect<void>;
+  /**
+   * Answers for every ended manager turn that took an open request and has no reply or fallback
+   * recorded for it, such as one that ended just before a restart, newer turns or not.
+   */
   readonly catchUp: () => Effect.Effect<void>;
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
 }
@@ -393,14 +402,17 @@ const make = Effect.gen(function* () {
         messageRunIds: [run.id],
       });
       const prefix = `message:project-request:${projectId}:`;
+      const requestOf = (messageId: string) => {
+        if (!messageId.startsWith(prefix)) return [];
+        const id = messageId.slice(prefix.length);
+        return REQUEST_ID.test(id) ? [id] : [];
+      };
+      // A run's own prompt may not carry its run ID on the message, so the run names it too.
       const taken = [
-        ...new Set(
-          messages.flatMap((message) => {
-            if (message.role !== "user" || !message.id.startsWith(prefix)) return [];
-            const id = message.id.slice(prefix.length);
-            return REQUEST_ID.test(id) ? [id] : [];
-          }),
-        ),
+        ...new Set([
+          ...messages.flatMap((message) => (message.role === "user" ? requestOf(message.id) : [])),
+          ...(run.userMessageId === undefined ? [] : requestOf(run.userMessageId)),
+        ]),
       ];
       if (taken.length === 0) return;
       const turns = yield* sql<{
@@ -461,15 +473,51 @@ const make = Effect.gen(function* () {
 
   const catchUp: ProjectRequestsShape["catchUp"] = Effect.fn("ProjectRequests.catchUp")(
     function* () {
-      const managers = yield* sql<{ readonly threadId: string }>`
-        SELECT thread_id AS threadId FROM crew_runs WHERE id LIKE 'project-hq:%'
+      // Each turn that took an open request, by the message's run or the run's own prompt,
+      // unless that turn already replied to it or sent its fallback.
+      const pending = yield* sql<{
+        readonly runId: string;
+        readonly threadId: string;
+        readonly status: string;
+        readonly userMessageId: string | null;
+      }>`
+        WITH managers AS (
+          SELECT project_id, thread_id FROM crew_runs WHERE id LIKE 'project-hq:%'
+        ),
+        taken AS (
+          SELECT r.project_id, r.id AS request_id, m.run_id
+          FROM managers
+          JOIN project_requests r ON r.project_id = managers.project_id AND r.status = 'open'
+          JOIN orchestration_v2_projection_messages m
+            ON m.thread_id = managers.thread_id
+            AND m.message_id = 'message:project-request:' || r.project_id || ':' || r.id
+          WHERE m.run_id IS NOT NULL
+          UNION
+          SELECT r.project_id, r.id, run.run_id
+          FROM managers
+          JOIN project_requests r ON r.project_id = managers.project_id AND r.status = 'open'
+          JOIN orchestration_v2_projection_runs run
+            ON run.thread_id = managers.thread_id
+            AND json_extract(run.payload_json, '$.userMessageId')
+              = 'message:project-request:' || r.project_id || ':' || r.id
+        )
+        SELECT DISTINCT run.run_id AS runId, run.thread_id AS threadId, run.status,
+          json_extract(run.payload_json, '$.userMessageId') AS userMessageId
+        FROM taken
+        JOIN orchestration_v2_projection_runs run ON run.run_id = taken.run_id
+        LEFT JOIN project_request_turns turn
+          ON turn.project_id = taken.project_id AND turn.request_id = taken.request_id
+          AND turn.run_id = taken.run_id
+        WHERE COALESCE(turn.replied, 0) = 0 AND COALESCE(turn.fallback_sent, 0) = 0
+        ORDER BY run.thread_id, run.ordinal
       `.pipe(Effect.mapError(queryError));
-      for (const { threadId } of managers) {
-        const { runs } = yield* projections.getThreadRecords(ThreadId.make(threadId), ["runs"], {
-          runStatuses: [],
-          includeLatestRun: true,
+      for (const run of pending) {
+        yield* handleRunEnded({
+          id: RunId.make(run.runId),
+          threadId: ThreadId.make(run.threadId),
+          status: run.status,
+          ...(run.userMessageId === null ? {} : { userMessageId: run.userMessageId }),
         });
-        for (const run of runs) yield* handleRunEnded(run);
       }
     },
     Effect.catchCause((cause) =>
@@ -490,7 +538,8 @@ const make = Effect.gen(function* () {
         ),
       ),
     );
-    yield* forkParked(deliverPending().pipe(Effect.andThen(catchUp())));
+    // Answer for turns that ended before a restart first; a delivery can start a newer turn.
+    yield* forkParked(catchUp().pipe(Effect.andThen(deliverPending())));
   });
 
   return ProjectRequests.of({
