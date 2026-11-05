@@ -5,6 +5,7 @@ import {
   type IssueList,
   type ProjectId,
   type RepositoryIssue,
+  type RepositoryMilestone,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -36,11 +37,28 @@ export class IssueService extends Context.Service<
       projectId: ProjectId,
       number: number,
     ) => Effect.Effect<IssueDetail, IssueOperationError>;
+    /**
+     * Files an issue, in `milestone` (an open milestone's title or number) and as a sub-issue of
+     * `parent` (an issue number) when given.
+     */
     readonly create: (input: {
       readonly projectId: ProjectId;
       readonly title: string;
       readonly body: string;
+      readonly milestone?: string | undefined;
+      readonly parent?: number | undefined;
     }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
+    readonly createMilestone: (input: {
+      readonly projectId: ProjectId;
+      readonly title: string;
+      readonly description?: string | undefined;
+    }) => Effect.Effect<RepositoryMilestone, IssueOperationError>;
+    /** Closes or reopens a milestone, named by its title or number. */
+    readonly setMilestoneState: (input: {
+      readonly projectId: ProjectId;
+      readonly milestone: string;
+      readonly state: "open" | "closed";
+    }) => Effect.Effect<RepositoryMilestone, IssueOperationError>;
     readonly setState: (input: {
       readonly projectId: ProjectId;
       readonly number: number;
@@ -134,12 +152,43 @@ const make = Effect.gen(function* () {
     return { ...detail, readAt: DateTime.formatIso(yield* DateTime.now) };
   });
 
+  /**
+   * A milestone's number from its number or title. Titles match the open milestones the list
+   * reads, case aside; a closed one is named by its number.
+   */
+  const milestoneNumber = Effect.fn("IssueService.milestoneNumber")(function* (
+    projectId: ProjectId,
+    ref: string,
+  ) {
+    const number = /^#?([1-9]\d*)$/u.exec(ref.trim());
+    if (number) return Number(number[1]);
+    const wanted = ref.trim().toLowerCase();
+    const list = yield* Cache.get(listCache, projectId);
+    const match = list.milestones.find((milestone) => milestone.title.toLowerCase() === wanted);
+    if (match === undefined) {
+      return yield* new IssueOperationError({
+        reason: `No open milestone is called "${ref.trim()}". Create it first, or name a milestone by its number.`,
+      });
+    }
+    return match.number;
+  });
+
   const create: IssueService["Service"]["create"] = Effect.fn("IssueService.create")(
     function* (input) {
       const { cwd, provider } = yield* requireIssueHost(input.projectId);
       if (provider.createIssue === undefined) return yield* unsupported;
+      const milestone =
+        input.milestone === undefined
+          ? undefined
+          : yield* milestoneNumber(input.projectId, input.milestone);
       const issue = yield* provider
-        .createIssue({ cwd, title: input.title, body: input.body })
+        .createIssue({
+          cwd,
+          title: input.title,
+          body: input.body,
+          ...(milestone === undefined ? {} : { milestone }),
+          ...(input.parent === undefined ? {} : { parent: input.parent }),
+        })
         .pipe(Effect.catch(hostFailure("create", input.projectId)));
       yield* Cache.invalidate(listCache, input.projectId);
       return issue;
@@ -163,10 +212,41 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const createMilestone: IssueService["Service"]["createMilestone"] = Effect.fn(
+    "IssueService.createMilestone",
+  )(function* (input) {
+    const { cwd, provider } = yield* requireIssueHost(input.projectId);
+    if (provider.createMilestone === undefined) return yield* unsupported;
+    const milestone = yield* provider
+      .createMilestone({
+        cwd,
+        title: input.title,
+        ...(input.description === undefined ? {} : { description: input.description }),
+      })
+      .pipe(Effect.catch(hostFailure("milestone create", input.projectId)));
+    yield* Cache.invalidate(listCache, input.projectId);
+    return milestone;
+  });
+
+  const setMilestoneState: IssueService["Service"]["setMilestoneState"] = Effect.fn(
+    "IssueService.setMilestoneState",
+  )(function* (input) {
+    const { cwd, provider } = yield* requireIssueHost(input.projectId);
+    if (provider.setMilestoneState === undefined) return yield* unsupported;
+    const number = yield* milestoneNumber(input.projectId, input.milestone);
+    const milestone = yield* provider
+      .setMilestoneState({ cwd, number, state: input.state })
+      .pipe(Effect.catch(hostFailure("milestone state change", input.projectId)));
+    yield* Cache.invalidate(listCache, input.projectId);
+    return milestone;
+  });
+
   return IssueService.of({
     get,
     create,
     setState,
+    createMilestone,
+    setMilestoneState,
     // A reader can join a lookup still finishing a previous reader's cancellation.
     list: Effect.fn("IssueService.list")((projectId) =>
       Cache.get(listCache, projectId).pipe(

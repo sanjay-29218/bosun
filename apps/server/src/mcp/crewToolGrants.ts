@@ -78,6 +78,8 @@ export const CrewGatedToolkits = {
     crew_create_todo: null,
     crew_read_todo: null,
     crew_update_todo: null,
+    crew_create_milestone: null,
+    crew_update_milestone: null,
   }),
   features: gated(FeaturesToolkit, {
     t3_role_list: "crew.workflows",

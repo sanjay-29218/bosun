@@ -998,6 +998,41 @@ describe("feature lead and crew", () => {
     ),
   );
 
+  effectIt.effect("links the issue a feature names as it is made, before its lead starts", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const started = yield* features.launch({
+          projectId,
+          title: "Dark mode",
+          brief: "Add dark mode",
+          workspace: "local",
+          issue: "#42",
+        });
+        expect(started.feature.issue).toMatchObject({ number: 42, title: "Dark mode toggle" });
+        // The lead's first tag already carries it, with nothing left to arrive later.
+        const shell = yield* engine.getThreadShell(started.leadThreadId);
+        expect(shell?.feature?.issue).toMatchObject({ number: 42 });
+        expect((yield* features.get(started.feature.id))?.issue).toMatchObject({ number: 42 });
+        // An issue that can't be read leaves no feature behind.
+        const before = (yield* features.listByProject(projectId)).length;
+        expect(
+          (yield* Effect.flip(
+            features.launch({
+              projectId,
+              title: "Bad",
+              brief: "Bad",
+              workspace: "local",
+              issue: "https://github.com/owner/repo/pull/7",
+            }),
+          )).message,
+        ).toBe("Paste a link to an issue");
+        expect(yield* features.listByProject(projectId)).toHaveLength(before);
+      }),
+    ),
+  );
+
   effectIt.effect("links an issue that the feature's threads show, and unlinks it", () =>
     withSystem(
       Effect.gen(function* () {

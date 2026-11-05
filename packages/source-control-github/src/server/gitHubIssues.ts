@@ -2,6 +2,7 @@ import type {
   RepositoryIssue,
   RepositoryIssueComment,
   RepositoryIssueDetail,
+  RepositoryMilestone,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
@@ -12,6 +13,8 @@ export const ISSUE_COMMENTS_PAGE = 50;
 const RestUser = Schema.NullOr(Schema.Struct({ login: Schema.String, avatar_url: Schema.String }));
 
 const RestIssue = Schema.Struct({
+  /** The database ID, which the sub-issue API takes. */
+  id: Schema.optional(Schema.Int),
   number: Schema.Int,
   title: Schema.String,
   html_url: Schema.String,
@@ -53,6 +56,24 @@ const RestComment = Schema.Struct({
 });
 
 export const decodeRestIssue = decodeJsonResult(RestIssue);
+
+const RestMilestone = Schema.Struct({
+  number: Schema.Int,
+  title: Schema.String,
+  html_url: Schema.String,
+  due_on: Schema.optional(Schema.NullOr(Schema.String)),
+  open_issues: Schema.optional(Schema.Int),
+  closed_issues: Schema.optional(Schema.Int),
+});
+export const decodeRestMilestone = decodeJsonResult(RestMilestone);
+export const restMilestone = (milestone: typeof RestMilestone.Type): RepositoryMilestone => ({
+  number: milestone.number,
+  title: milestone.title,
+  url: milestone.html_url,
+  dueOn: milestone.due_on ?? null,
+  openIssues: milestone.open_issues ?? 0,
+  closedIssues: milestone.closed_issues ?? 0,
+});
 export const decodeRestComments = decodeJsonResult(Schema.Array(RestComment));
 
 const toUser = (user: typeof RestUser.Type | undefined) =>

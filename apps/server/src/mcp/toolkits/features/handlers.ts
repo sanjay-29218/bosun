@@ -93,6 +93,8 @@ const make = Effect.gen(function* () {
         readonly workflowId?: string | undefined;
         readonly baseBranch?: string | undefined;
         readonly requestId?: string | undefined;
+        readonly issue?: string | undefined;
+        readonly parentFeatureId?: string | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(
@@ -105,6 +107,25 @@ const make = Effect.gen(function* () {
           if (requestId !== undefined) {
             yield* requireOwnRequest(scope.thread.threadId, input.projectId, requestId);
           }
+          // A feature's own threads start its children; a project's manager may add one to any
+          // feature of its project, such as a follow-up to an Epic.
+          const namedParent = input.parentFeatureId?.trim() || undefined;
+          if (namedParent !== undefined) {
+            const managed = headquartersProjectId(scope.thread.threadId);
+            const parent = managed === null ? null : yield* features.get(namedParent);
+            if (
+              managed === null ||
+              (input.projectId !== undefined && input.projectId !== managed)
+            ) {
+              return yield* invalid(
+                "Only a project's manager names a parent feature, in its own project. A feature's threads start its children without one.",
+              );
+            }
+            if (parent === null || parent.projectId !== managed) {
+              return yield* invalid(`This project has no feature ${namedParent}.`);
+            }
+          }
+          const parentFeatureId = namedParent ?? shell.feature?.id;
           // A bot's headquarters lives outside its projects, so it may start features in the ones
           // it owns; anyone else needs full access to reach another project.
           if (input.projectId !== undefined && input.projectId !== shell.projectId) {
@@ -122,10 +143,10 @@ const make = Effect.gen(function* () {
             requestId,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
-            // A feature's thread starts its feature's children, which report to their parent's
-            // lead; any other thread hears from the lead each time it stops.
-            ...(shell.feature
-              ? { parentFeatureId: shell.feature.id }
+            // A child reports to its parent's lead; any other feature to the thread that started
+            // it, each time its lead stops.
+            ...(parentFeatureId !== undefined
+              ? { parentFeatureId }
               : {
                   // A subagent, such as a bot's delegated task, has already reported back; its
                   // top thread is the one to keep posted.

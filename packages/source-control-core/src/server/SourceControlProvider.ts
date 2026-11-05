@@ -178,13 +178,32 @@ export class SourceControlProvider extends Context.Service<
       readonly number: number;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryIssueDetail, SourceControlProviderError>;
-    /** Files an issue with a Markdown body. Present when `listIssues` is. */
+    /**
+     * Files an issue with a Markdown body, in `milestone` (its number) and as a sub-issue of
+     * `parent` (its number) when given. Present when `listIssues` is.
+     */
     readonly createIssue?: (input: {
       readonly cwd: string;
       readonly title: string;
       readonly body: string;
+      readonly milestone?: number | undefined;
+      readonly parent?: number | undefined;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
+    /** Opens a milestone. Absent means the host has none. */
+    readonly createMilestone?: (input: {
+      readonly cwd: string;
+      readonly title: string;
+      readonly description?: string | undefined;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<RepositoryMilestone, SourceControlProviderError>;
+    /** Closes or reopens a milestone by its number. Present when `createMilestone` is. */
+    readonly setMilestoneState?: (input: {
+      readonly cwd: string;
+      readonly number: number;
+      readonly state: "open" | "closed";
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<RepositoryMilestone, SourceControlProviderError>;
     /** Closes or reopens an issue. Present when `listIssues` is. */
     readonly setIssueState?: (input: {
       readonly cwd: string;

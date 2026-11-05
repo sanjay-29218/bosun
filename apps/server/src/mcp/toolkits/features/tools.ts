@@ -91,6 +91,16 @@ const StartFeature = Tool.make("t3_feature_start", {
         description: "A Project manager's request (R-<number>) this feature answers.",
       }),
     ),
+    issue: Schema.optional(
+      Schema.String.annotate({
+        description: "The issue it works on: a link, `#56` or `T-14`. Linked as it starts.",
+      }),
+    ),
+    parentFeatureId: Schema.optional(
+      Schema.String.annotate({
+        description: "Project managers: an Epic or other feature of this project to add it under.",
+      }),
+    ),
   }),
   success: Schema.Struct({
     featureId: Schema.String,

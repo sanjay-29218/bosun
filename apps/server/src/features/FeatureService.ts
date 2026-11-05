@@ -76,6 +76,8 @@ export type FeatureRecord = typeof FeatureRecordSchema.Type;
 export type CreateFeatureInput = typeof FeatureCreateInput.Type & {
   /** The feature whose lead starts this one; leads start children, not clients. */
   readonly parentFeatureId?: string | undefined;
+  /** The issue it works on, as `setIssue` reads one; linked when the feature is made. */
+  readonly issue?: string | undefined;
   /**
    * The workflow a linked environment's bot sent with the request, which the feature keeps and
    * runs on, with its roles, instead of the library here.
@@ -136,6 +138,8 @@ export interface FeatureServiceShape {
     readonly requesterThreadId?: ThreadId | undefined;
     /** The project request this feature answers, R-<number> in its project. */
     readonly requestId?: string | undefined;
+    /** The issue it works on, linked before its lead starts. */
+    readonly issue?: string | undefined;
   }) => Effect.Effect<FeatureStartResult, FeatureServiceError>;
   /** The project request the feature answers, or null. */
   readonly requestIdOf: (featureId: string) => Effect.Effect<string | null, PersistenceSqlError>;
@@ -768,6 +772,9 @@ export const FeatureServiceLive = Layer.effect(
         if (input.parentFeatureId !== undefined && (yield* get(input.parentFeatureId)) === null) {
           return yield* Effect.fail(new FeatureValidationError("Parent feature not found"));
         }
+        // Read before the transaction, which mustn't wait on the host; stored with the feature.
+        const issue =
+          input.issue === undefined ? null : yield* resolveIssue(input.projectId, input.issue);
         // The brief's files belong to the feature, so they are claimed under its ID.
         const sent = input.briefAttachments ?? [];
         const claimed = yield* AttachmentClaims.claimPendingAttachments({
@@ -810,9 +817,9 @@ export const FeatureServiceLive = Layer.effect(
               const createdAt = DateTime.formatIso(yield* DateTime.now);
               // The number is taken in the insert itself, so concurrent creates cannot share one.
               const [inserted] = yield* sql<{ readonly number: number }>`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id, parent_feature_id, workflow_snapshot_json)
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id, parent_feature_id, workflow_snapshot_json, issue_json)
               VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null},
-                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id}, ${input.parentFeatureId ?? null}, ${input.workflowSnapshot === undefined ? null : encodeWorkflowSnapshot(input.workflowSnapshot)})
+                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id}, ${input.parentFeatureId ?? null}, ${input.workflowSnapshot === undefined ? null : encodeWorkflowSnapshot(input.workflowSnapshot)}, ${issue === null ? null : encodeFeatureIssue(issue)})
               RETURNING number
             `;
               const {
@@ -823,6 +830,7 @@ export const FeatureServiceLive = Layer.effect(
                 briefContext: _briefContext,
                 workflowId: _workflowId,
                 workflowSnapshot: _workflowSnapshot,
+                issue: _issue,
                 parentFeatureId,
                 ...fields
               } = input;
@@ -830,7 +838,7 @@ export const FeatureServiceLive = Layer.effect(
                 ...fields,
                 briefAttachments: claimed.attachments,
                 crewAssignments,
-                issue: null,
+                issue,
                 workflowId: workflow.id,
                 ...(parentFeatureId === undefined ? {} : { parentFeatureId }),
                 createdAt,
@@ -851,8 +859,9 @@ export const FeatureServiceLive = Layer.effect(
             Effect.tapError(() => AttachmentClaims.releaseClaimedAttachments(claimed.claimedPaths)),
             Effect.provideContext(claimServices),
           );
-        // An issue linked in the brief comes first, so a generated title can read it.
-        const issueUrl = created ? firstIssueRef(feature.brief) : null;
+        // Without one named, an issue linked in the brief is read after, so a generated title can
+        // read it too.
+        const issueUrl = created && issue === null ? firstIssueRef(feature.brief) : null;
         if (issueUrl !== null || (input.autoTitle && created)) {
           yield* Effect.gen(function* () {
             if (issueUrl !== null) {
@@ -1054,6 +1063,7 @@ export const FeatureServiceLive = Layer.effect(
             : {}),
           ...(baseBranch ? { baseBranch } : {}),
           ...(input.parentFeatureId ? { parentFeatureId: input.parentFeatureId } : {}),
+          ...(input.issue ? { issue: input.issue } : {}),
         });
         // Before the lead starts, so its first stop finds who to tell; a retry keeps the first.
         if (input.requesterThreadId !== undefined) {

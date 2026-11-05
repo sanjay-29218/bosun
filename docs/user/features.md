@@ -118,6 +118,12 @@ description, status and comments as GitHub has them; close or reopen it there, a
 GitHub. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
 create and close todos too.
 
+A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for
+a request no todo tracks, and a feature it starts is linked to that issue from its first message.
+For work that ships as several pull requests it opens a GitHub milestone with a parent issue, files
+each part's issue into the milestone as a sub-issue of the parent, and adds a missed part under an
+Epic later. Milestones and sub-issues need the same GitHub access as filing issues.
+
 ## Needs you
 
 Features waiting on you collect in the board's Needs you column. Threads waiting on a tool

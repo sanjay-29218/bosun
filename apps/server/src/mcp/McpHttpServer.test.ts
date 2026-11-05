@@ -1446,6 +1446,8 @@ it.effect(
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
           readonly requestId?: string | undefined;
+          readonly parentFeatureId?: string | undefined;
+          readonly issue?: string | undefined;
         }> = [];
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
@@ -1519,6 +1521,14 @@ it.effect(
               }),
               Layer.mock(BotReach.BotReach)({}),
               Layer.mock(FeatureService)({
+                get: (id) =>
+                  Effect.succeed(
+                    id === "feature:epic"
+                      ? ({ id, projectId: "project:mcp-test" } as never)
+                      : id === "feature:elsewhere"
+                        ? ({ id, projectId: "project:other" } as never)
+                        : null,
+                  ),
                 projectBot: (projectId) =>
                   Effect.succeed(projectId === "project:owned" ? "captain" : null),
                 launch: (input) => {
@@ -1590,10 +1600,12 @@ it.effect(
         const crew = yield* sessionFor("crewToken");
         // Crew threads and their subagents get the crew's todo, issue and feature tools.
         const anyCrew = [
+          "crew_create_milestone",
           "crew_create_todo",
           "crew_link_issue",
           "crew_list_issues",
           "crew_read_todo",
+          "crew_update_milestone",
           "crew_update_todo",
           "t3_bot_list",
           "t3_bot_projects",
@@ -1683,6 +1695,28 @@ it.effect(
           projectId: "project:mcp-test",
           requestId: "R-7",
         });
+
+        // Only a project's manager adds a feature under another, one of its own project's.
+        const under = (session: typeof crew, parentFeatureId: string) =>
+          session
+            .call("t3_feature_start", {
+              title: "Follow-up",
+              brief: "Finish the export menu",
+              parentFeatureId,
+              issue: "#14",
+            })
+            .pipe(Effect.map((body) => JSON.stringify(body)));
+        expect(yield* under(headquarters, "feature:epic")).toContain("Only a project's manager");
+        expect(yield* under(manager, "feature:elsewhere")).toContain(
+          "no feature feature:elsewhere",
+        );
+        expect(yield* under(manager, "feature:epic")).toContain("feature:x");
+        expect(launched.at(-1)).toMatchObject({
+          projectId: "project:mcp-test",
+          parentFeatureId: "feature:epic",
+          issue: "#14",
+        });
+        expect(launched.at(-1)).not.toHaveProperty("requesterThreadId");
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
