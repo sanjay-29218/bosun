@@ -2019,6 +2019,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.succeed(
           CrewDelegation,
           CrewDelegation.of({
+            hasRequest: () => Effect.succeed(false),
             member: () => Effect.succeed(null),
             names: () => Effect.succeed([]),
             resolveIssue: (projectId, ref) =>
@@ -2214,6 +2215,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           Layer.succeed(
             CrewDelegation,
             CrewDelegation.of({
+              hasRequest: () => Effect.succeed(false),
               member: (feature, name) =>
                 Effect.succeed(
                   feature === "feature:dark" && name === "Planner"

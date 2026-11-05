@@ -7,6 +7,7 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
+import { ProjectReplyToolkit } from "./toolkits/projectRequests/tools.ts";
 
 type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
 
@@ -75,4 +76,5 @@ export const CrewGatedToolkits = {
     t3_feature_finish: null,
     t3_feature_list: null,
   }),
+  projectReplies: gated(ProjectReplyToolkit, { t3_project_reply: null }),
 };

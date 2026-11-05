@@ -12,6 +12,8 @@ import {
   CAPTAIN_BOT_ID,
   CommandId,
   FEATURE_MANAGER_ROLE_ID,
+  projectHeadquartersRunId,
+  projectHeadquartersThreadId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -657,6 +659,54 @@ describe("Bot foundation", () => {
           yield* TestClock.adjust("1 minute");
           expect(yield* Queue.take(fresh)).toMatchObject({ threadId: freshThreadId, key: runId });
           expect(yield* Queue.size(fresh)).toBe(0);
+
+          // A project's manager takes the same path, by its member's setting.
+          yield* store.insertMember({
+            id: `project-manager:${projectId}`,
+            projectId,
+            featureId: null,
+            roleId: null,
+            roleRevision: null,
+            name: "Project manager",
+            instructions: "Manage the project.",
+            allowedTools: [],
+            modelSelection,
+            runtimeMode: "full-access",
+            enabled: true,
+            longConversation: "new-session",
+            customizedAt: null,
+            revision: 1,
+            createdAt: "2026-10-30T00:00:00.000Z",
+            updatedAt: "2026-10-30T00:00:00.000Z",
+          });
+          const managerThreadId = projectHeadquartersThreadId(projectId);
+          yield* store.insertRun({
+            id: projectHeadquartersRunId(projectId),
+            memberId: `project-manager:${projectId}`,
+            projectId,
+            threadId: managerThreadId,
+            taskText: "Manage the project.",
+            title: "Project manager",
+            instructions: "Manage the project.",
+            allowedTools: [],
+            memberRevision: 1,
+            modelSelection,
+            runtimeMode: "full-access",
+            dispatchState: "started",
+            recoveryAttempt: 0,
+            lastError: null,
+            createdAt: "2026-10-30T00:00:00.000Z",
+            dispatchedAt: "2026-10-30T00:00:00.000Z",
+            workspace: null,
+          });
+          // The bot's check after its quiet spell is done with.
+          yield* Queue.takeAll(checks);
+          yield* Queue.offer(completions, { threadId: managerThreadId, runId });
+          expect(yield* Queue.take(checks)).toBe(managerThreadId);
+          yield* TestClock.adjust("30 minutes");
+          expect(yield* Queue.take(fresh)).toMatchObject({ threadId: managerThreadId, key: runId });
+          yield* crew.startNewSession(managerThreadId);
+          expect((yield* Queue.take(fresh)).key).toMatch(/^manual:/);
         }).pipe(Effect.provide(layer), Effect.scoped);
       }),
   );

@@ -182,6 +182,11 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
         "Issue it works on: a link, `#56`, `T-14`, or a key like `LIN-123`. Its thread shows it; the child cites it in its PR.",
     }),
   ),
+  requestId: Schema.optional(
+    Schema.String.annotate({
+      description: "Project managers: the request (R-<number>) this task answers.",
+    }),
+  ),
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:

@@ -102,7 +102,7 @@ const projectMemberContext = (id: string, projectId: ProjectId | null) => {
 };
 const BUILDER_ROLE_ID = "role:builder";
 
-/** How a bot's headquarters briefs the task it starts for one request. */
+/** How a bot's headquarters briefs a task it starts itself, when the person asks for one. */
 const TASK_BRIEF =
   "You do one request in this worktree. Do small work yourself, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
 
@@ -114,7 +114,7 @@ const projectManagerTask = (projectId: ProjectId) =>
 const headquartersTask = (botId: string) =>
   [
     `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
-    `Hand each request to its project, where it runs as one of that project's threads and its result wakes you. For small, clear work, start a task: delegate_task with target.projectId set to that project and isolation "worktree". Begin its task with: "${TASK_BRIEF}" Then the request, with everything the task needs to know. For work that needs planning, design or several steps, or when the person asks for a feature, start one with t3_feature_start and that projectId: its lead runs it with its crew and reports here each time it stops. Link the thread you started in your reply, then end your turn.`,
+    `Hand each request for a project to its Project manager with t3_project_send: that projectId, the request with everything it needs to know, and a key you choose for the request (send the same key again on a retry). The Project manager picks a task, a feature or several, and replies here as the work moves. Start a task or a feature in a project yourself only when the person asks you to: a task with delegate_task, target.projectId set to that project and isolation "worktree", beginning its task with: "${TASK_BRIEF}"; a feature with t3_feature_start and that projectId. Link the thread the request went to, or the one you started, in your reply, then end your turn.`,
     `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
     "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
     "Tell the person only what they must decide.",

@@ -1,5 +1,7 @@
 import {
   headquartersBotId,
+  headquartersProjectId,
+  type ThreadId,
   OrchestratorMcpFailure,
   ProjectId,
   type FeatureWorkspace,
@@ -12,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { CrewService } from "../../../crew/CrewService.ts";
+import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -35,6 +38,22 @@ const invalid = (message: string) =>
 /** Passes service errors on as messages an agent can act on. */
 const asMcpFailure = (error: unknown) =>
   isMcpFailure(error) ? error : invalid(error instanceof Error ? error.message : String(error));
+
+/** A request ID is the caller's own: a project's manager naming a request of its project. */
+const requireOwnRequest = Effect.fn("FeaturesToolkit.requireOwnRequest")(function* (
+  callerThreadId: ThreadId,
+  targetProjectId: string | undefined,
+  requestId: string,
+) {
+  const projectId = headquartersProjectId(callerThreadId);
+  if (projectId === null || (targetProjectId !== undefined && targetProjectId !== projectId)) {
+    return yield* invalid("Only a project's manager names a request, for work in its project.");
+  }
+  const requests = yield* ProjectRequests;
+  if ((yield* requests.get(projectId, requestId)) === null) {
+    return yield* invalid(`This project has no request ${requestId}.`);
+  }
+});
 
 /** Runs `effect` after `check`. */
 const guarded =
@@ -73,6 +92,7 @@ const make = Effect.gen(function* () {
         readonly workspace?: FeatureWorkspace | undefined;
         readonly workflowId?: string | undefined;
         readonly baseBranch?: string | undefined;
+        readonly requestId?: string | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(
@@ -81,6 +101,10 @@ const make = Effect.gen(function* () {
           );
           const shell = yield* threads.getThreadShell(scope.thread.threadId);
           if (shell === null) return yield* invalid("This thread has no project");
+          const requestId = input.requestId?.trim() || undefined;
+          if (requestId !== undefined) {
+            yield* requireOwnRequest(scope.thread.threadId, input.projectId, requestId);
+          }
           // A bot's headquarters lives outside its projects, so it may start features in the ones
           // it owns; anyone else needs full access to reach another project.
           if (input.projectId !== undefined && input.projectId !== shell.projectId) {
@@ -95,6 +119,7 @@ const make = Effect.gen(function* () {
           }
           const { feature, leadThreadId, branch } = yield* features.launch({
             ...input,
+            requestId,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
             // A feature's thread starts its feature's children, which report to their parent's

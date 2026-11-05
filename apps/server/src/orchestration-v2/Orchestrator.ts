@@ -7974,6 +7974,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         // The parent's feature belongs to the parent's project, not the one this works in.
         ...(otherProject ? { feature: null } : {}),
         ...(command.issue === undefined ? {} : { issue: command.issue }),
+        ...(command.projectRequestId === undefined
+          ? {}
+          : { projectRequestId: command.projectRequestId }),
       };
       const task: OrchestrationV2Subagent = {
         id: taskNodeId,

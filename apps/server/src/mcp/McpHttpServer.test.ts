@@ -31,6 +31,7 @@ import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http
 
 import * as BotService from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
@@ -1507,6 +1508,7 @@ it.effect(
               }),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
+              Layer.mock(ProjectRequests)({}),
               Layer.mock(FeatureService)({
                 projectBot: (projectId) =>
                   Effect.succeed(projectId === "project:owned" ? "captain" : null),

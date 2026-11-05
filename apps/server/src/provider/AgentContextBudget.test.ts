@@ -12,6 +12,7 @@ import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { IssueService } from "../issues/IssueService.ts";
@@ -92,6 +93,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(BotService)({}),
   Layer.mock(CrewService)({}),
   Layer.mock(CrewStore)({}),
+  Layer.mock(ProjectRequests)({}),
   Layer.mock(FeatureService)({}),
   Layer.mock(IssueService)({}),
   Layer.mock(TicketService)({}),

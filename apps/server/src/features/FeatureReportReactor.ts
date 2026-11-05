@@ -92,6 +92,15 @@ const make = Effect.gen(function* () {
     return parentLead === null ? null : { feature, requesterId: parentLead };
   });
 
+  /** How a report names the feature, with the project request it answers. */
+  const featureLabel = Effect.fnUntraced(function* (
+    feature: { readonly id: string; readonly title: string },
+    leadThreadId: ThreadId,
+  ) {
+    const requestId = yield* features.requestIdOf(feature.id);
+    return `Feature "${feature.title}" (lead thread ${leadThreadId}${requestId === null ? "" : `, request ${requestId}`})`;
+  });
+
   const reportKey = (key: string) => ({
     commandId: CommandId.make(`server:feature-report:${key}`),
     messageId: MessageId.make(`message:feature-report:${key}`),
@@ -135,7 +144,7 @@ const make = Effect.gen(function* () {
       key: `request:${request.id}`,
       requesterId: target.requesterId,
       leadThreadId: threadId,
-      text: `Feature "${target.feature.title}" (lead thread ${threadId}) is waiting on the person: ${asks} in its lead's thread.`,
+      text: `${yield* featureLabel(target.feature, threadId)} is waiting on the person: ${asks} in its lead's thread.`,
       failed: false,
       summary: `Feature "${target.feature.title}" is waiting on you`,
     });
@@ -174,7 +183,7 @@ const make = Effect.gen(function* () {
       key: run.id,
       requesterId: target.requesterId,
       leadThreadId: run.threadId,
-      text: `Feature "${target.feature.title}" (lead thread ${run.threadId}) [${run.status}]:\n${text}`,
+      text: `${yield* featureLabel(target.feature, run.threadId)} [${run.status}]:\n${text}`,
       failed: run.status === "failed",
       summary: `Feature "${target.feature.title}" reported back`,
     });

@@ -127,7 +127,11 @@ export interface FeatureServiceShape {
     readonly baseBranch?: string | undefined;
     readonly parentFeatureId?: string | undefined;
     readonly requesterThreadId?: ThreadId | undefined;
+    /** The project request this feature answers, R-<number> in its project. */
+    readonly requestId?: string | undefined;
   }) => Effect.Effect<FeatureStartResult, FeatureServiceError>;
+  /** The project request the feature answers, or null. */
+  readonly requestIdOf: (featureId: string) => Effect.Effect<string | null, PersistenceSqlError>;
   /** The bot that owns `projectId`, or null. */
   readonly projectBot: (projectId: ProjectId) => Effect.Effect<string | null, PersistenceSqlError>;
   /** The thread that started the feature and hears from its lead, or null. */
@@ -234,6 +238,7 @@ export interface FeatureListEntry {
     readonly state: "open" | "closed" | "merged" | null;
   } | null;
   readonly requesterThreadId: string | null;
+  readonly requestId: string | null;
   readonly report: "finished" | "closed" | "stopped" | "failed" | "interrupted" | null;
 }
 
@@ -952,6 +957,12 @@ export const FeatureServiceLive = Layer.effect(
             WHERE id = ${feature.id} AND requester_thread_id IS NULL AND parent_feature_id IS NULL
           `.pipe(Effect.mapError(queryError));
         }
+        if (input.requestId !== undefined) {
+          yield* sql`
+            UPDATE features SET request_id = ${input.requestId}
+            WHERE id = ${feature.id} AND request_id IS NULL
+          `.pipe(Effect.mapError(queryError));
+        }
         return yield* start(feature.id, input.projectId).pipe(
           Effect.mapError(
             (error) =>
@@ -962,6 +973,14 @@ export const FeatureServiceLive = Layer.effect(
         );
       },
     );
+
+    const requestIdOf: FeatureServiceShape["requestIdOf"] = (featureId) =>
+      sql<{ readonly requestId: string | null }>`
+        SELECT request_id AS requestId FROM features WHERE id = ${featureId}
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.map((rows) => rows[0]?.requestId ?? null),
+      );
 
     const requesterThreadId: FeatureServiceShape["requesterThreadId"] = (featureId) =>
       sql<{ readonly threadId: string | null }>`
@@ -1308,8 +1327,9 @@ export const FeatureServiceLive = Layer.effect(
           readonly id: string;
           readonly baseBranch: string | null;
           readonly requesterThreadId: string | null;
+          readonly requestId: string | null;
         }>`
-        SELECT id, base_branch AS baseBranch, requester_thread_id AS requesterThreadId
+        SELECT id, base_branch AS baseBranch, requester_thread_id AS requesterThreadId, request_id AS requestId
         FROM features WHERE project_id = ${projectId}
       `.pipe(Effect.mapError(queryError));
         const featureById = new Map(features.map((row) => [row.id, row]));
@@ -1346,6 +1366,7 @@ export const FeatureServiceLive = Layer.effect(
                 : { ref: featureIssueRef(card.issue), title: card.issue.title },
             pullRequest: leadPullRequest(lead?.pullRequestsJson ?? null),
             requesterThreadId: feature?.requesterThreadId ?? null,
+            requestId: feature?.requestId ?? null,
             report: card.report?.outcome ?? null,
           };
         });
@@ -1357,6 +1378,7 @@ export const FeatureServiceLive = Layer.effect(
       setIssue: bumped(setIssue),
       launch: bumped(launch),
       requesterThreadId,
+      requestIdOf,
       reportingLeads: sql<{ readonly id: string }>`
         SELECT id FROM features
         WHERE (requester_thread_id IS NOT NULL OR parent_feature_id IS NOT NULL) AND status = 'open'

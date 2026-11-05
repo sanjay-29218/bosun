@@ -48,6 +48,8 @@ const setup = (input: {
   readonly requester?: ThreadId | null;
   /** The lead of the feature this one is a child of. */
   readonly parentLead?: ThreadId | null;
+  /** The project request the feature answers. */
+  readonly requestId?: string;
   /** Message ids already in the requester's thread. */
   readonly reported?: ReadonlyArray<string>;
 }) =>
@@ -119,6 +121,7 @@ const setup = (input: {
             requesterThreadId: () =>
               Effect.succeed(input.requester === undefined ? headquartersId : input.requester),
             parentLeadThreadId: () => Effect.succeed(input.parentLead ?? null),
+            requestIdOf: () => Effect.succeed(input.requestId ?? null),
             reportingLeads: Effect.succeed([leadThreadId]),
           }),
         ),
@@ -140,6 +143,21 @@ it.effect("tells the thread that started a feature what its lead said when it st
     assert.include(report.text, "The plan is ready. Approve it?");
     // One report per lead run, however often the run is updated.
     assert.equal(report.commandId, `server:feature-report:run:${leadThreadId}:1`);
+  }),
+);
+
+it.effect("names the project request a feature answers in its reports", () =>
+  Effect.gen(function* () {
+    const { reactor, dispatched } = yield* setup({ requestId: "R-7" });
+    yield* reactor.handle(runUpdated("completed"));
+    yield* reactor.handle(requestUpdated("pending"));
+    const texts = (yield* Ref.get(dispatched)).map((command) =>
+      command.type === "message.dispatch" ? command.text : "",
+    );
+    assert.lengthOf(texts, 2);
+    for (const text of texts) {
+      assert.include(text, `Feature "Dark mode" (lead thread ${leadThreadId}, request R-7)`);
+    }
   }),
 );
 

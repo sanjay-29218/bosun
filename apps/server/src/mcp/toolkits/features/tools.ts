@@ -13,6 +13,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import { CrewService } from "../../../crew/CrewService.ts";
+import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -25,6 +26,7 @@ const shared = {
     ThreadManagementService.ThreadManagementService,
     CrewService,
     FeatureService,
+    ProjectRequests,
   ],
 };
 
@@ -84,6 +86,11 @@ const StartFeature = Tool.make("t3_feature_start", {
     workspace: Schema.optional(FeatureWorkspace),
     workflowId: Schema.optional(Schema.String),
     baseBranch: Schema.optional(Schema.String),
+    requestId: Schema.optional(
+      Schema.String.annotate({
+        description: "A Project manager's request (R-<number>) this feature answers.",
+      }),
+    ),
   }),
   success: Schema.Struct({
     featureId: Schema.String,
@@ -113,7 +120,7 @@ const FinishFeature = Tool.make("t3_feature_finish", {
 const ListFeatures = Tool.make("t3_feature_list", {
   ...shared,
   description:
-    "List this thread's project's features, newest first: each one's lead thread, branch and base branch, parent feature, issue, pull request and its last known state, the thread it reports to, and how its lead last reported. status keeps open or closed ones; parentFeatureId keeps one feature's children.",
+    "List this thread's project's features, newest first: each one's lead thread, branch and base branch, parent feature, issue, pull request and its last known state, the thread it reports to, the project request it answers, and how its lead last reported. status keeps open or closed ones; parentFeatureId keeps one feature's children.",
   parameters: Schema.Struct({
     status: Schema.optional(Schema.Literals(["open", "closed"])),
     parentFeatureId: Schema.optional(Schema.String),
@@ -138,6 +145,7 @@ const ListFeatures = Tool.make("t3_feature_list", {
           }),
         ),
         requesterThreadId: Schema.NullOr(Schema.String),
+        requestId: Schema.NullOr(Schema.String),
         report: Schema.NullOr(
           Schema.Literals(["finished", "closed", "stopped", "failed", "interrupted"]),
         ),
