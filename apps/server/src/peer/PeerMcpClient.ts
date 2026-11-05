@@ -65,6 +65,9 @@ const decodeFailure = Schema.decodeUnknownOption(
   ),
 );
 
+/** What a call hears when the linked environment can't be reached at all. */
+export const LINKED_ENVIRONMENT_STOPPED_ANSWERING = "The linked environment stopped answering.";
+
 /** A peer link problem, as the agent that asked hears it. */
 const fromLinkError = (error: PeerLinkError) =>
   new OrchestratorMcpFailure({
@@ -264,7 +267,7 @@ const make = Effect.gen(function* () {
             Effect.fail(
               new OrchestratorMcpFailure({
                 code: "orchestration_error",
-                message: "The linked environment stopped answering.",
+                message: LINKED_ENVIRONMENT_STOPPED_ANSWERING,
               }),
             ),
         }),

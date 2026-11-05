@@ -233,6 +233,47 @@ it.layer(layer)("BotService", (it) => {
     }),
   );
 
+  it.effect("moves projects to a bot it creates once, however many moves ask at once", () =>
+    Effect.gen(function* () {
+      const bots = yield* BotService.BotService;
+      const projects = yield* ProjectService.ProjectService;
+      const project = (id: string) =>
+        projects.create({
+          commandId: CommandId.make(`command:${id}`),
+          projectId: ProjectId.make(id),
+          title: id,
+          workspaceRoot: `/work/${id}`,
+        });
+      const drafts = [yield* project("project:draft-a"), yield* project("project:draft-b")];
+      // The bot's ID where it came from is taken here by a namesake renamed since.
+      yield* bots.create({ ...social, id: "bot:writer", name: "Not the writer" });
+      const writer = { name: "Writer", avatar: social.avatar, color: social.color };
+
+      const moved = yield* Effect.forEach(
+        drafts,
+        (draft) =>
+          bots.moveProject({ projectId: draft.id, botId: "bot:writer", ensureBot: writer }),
+        { concurrency: "unbounded" },
+      );
+      const writers = (yield* bots.list).filter((bot) => bot.name === "Writer");
+      assert.lengthOf(writers, 1);
+      assert.notStrictEqual(writers[0]!.id, "bot:writer");
+      assert.deepStrictEqual(
+        moved.map((each) => each.botId),
+        [writers[0]!.id, writers[0]!.id],
+      );
+
+      // Captain is never created: every environment has it, whatever it's called there.
+      const toCaptain = yield* bots.moveProject({
+        projectId: drafts[0]!.id,
+        botId: CAPTAIN_BOT_ID,
+        ensureBot: { ...writer, name: "Skipper" },
+      });
+      assert.strictEqual(toCaptain.botId, CAPTAIN_BOT_ID);
+      assert.isFalse((yield* bots.list).some((bot) => bot.name === "Skipper"));
+    }),
+  );
+
   it.effect("deleting a bot deletes the automations that run as it, and only those", () =>
     Effect.gen(function* () {
       const bots = yield* BotService.BotService;

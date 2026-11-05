@@ -37,7 +37,7 @@ it.effect("tags every thread of an existing child feature with its parent", () =
         '2026-11-01', '{"id":"plain"}')
     `;
 
-    yield* BosunMigrations.runMigrations(100);
+    yield* BosunMigrations.runMigrations(102);
 
     assert.deepStrictEqual(
       yield* sql`

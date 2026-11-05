@@ -53,3 +53,21 @@ export const featureLeadTask = (
     // Last, so a lead still has it in mind when the work is done.
     `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board then shows it ready for review."}`,
   ].join("\n\n");
+
+/** What a new bot is told, until a person edits it. */
+export const BOT_DEFAULT_INSTRUCTIONS =
+  "Coordinate the person's requests for your projects. Hand each request to its project, as a task with delegate_task or a feature with t3_feature_start; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
+
+/** How a bot's headquarters briefs the project manager it starts for one request. */
+const PROJECT_MANAGER_BRIEF =
+  "You are this project's manager for one request. Do small work yourself in this worktree, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
+
+/** What a bot's headquarters does; its runs keep the text they started with. */
+export const headquartersTask = (botId: string) =>
+  [
+    `You run this bot's work across the projects it owns: t3_bot_projects lists them, here and on linked environments, each with its environmentId.`,
+    `Hand each request to its project, where it runs as one of that project's threads and its result wakes you. For small, clear work, start a task: delegate_task with target.projectId set to that project and isolation "worktree", plus target.environmentId when the project is on a linked environment. Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. For work that needs planning, design or several steps, or when the person asks for a feature, start one with t3_feature_start and that projectId: its lead runs it with its crew and reports here each time it stops. A project on a linked environment gets its feature from its manager there: ask for the feature in the task. Link the thread you started in your reply, then end your turn.`,
+    `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
+    "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
+    "Tell the person only what they must decide.",
+  ].join("\n\n");

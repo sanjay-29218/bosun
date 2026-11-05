@@ -2,6 +2,7 @@ import {
   botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   headquartersBotId,
+  logicalBotKey,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
@@ -40,10 +41,6 @@ export interface LogicalBot {
 }
 
 const CAPTAIN_KEY = `id:${CAPTAIN_BOT_ID}`;
-
-export function logicalBotKey(bot: { readonly id: string; readonly name: string }): string {
-  return bot.id === CAPTAIN_BOT_ID ? CAPTAIN_KEY : `name:${bot.name.trim().toLocaleLowerCase()}`;
-}
 
 /**
  * Rail entries across environments, given in priority order (primary first). The first
@@ -145,6 +142,45 @@ export function logicalBotProjectKeys(
     }
   }
   return keys;
+}
+
+/**
+ * A rail entry's projects on every connected environment: the ones it owns, the ones it can
+ * take, and the ones on environments without bots (`botEnvironmentIds` leaves them out), which
+ * no bot can take until that environment runs Bosun. Moving a project goes to the entry's bot on
+ * the project's own environment, which `logicalBotMemberOn` finds or a move creates.
+ */
+export function logicalBotProjectLists<
+  Project extends {
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+    readonly botId?: string | undefined;
+  },
+>(
+  bot: LogicalBot,
+  bots: ReadonlyArray<LogicalBot>,
+  projects: ReadonlyArray<Project>,
+  botEnvironmentIds: ReadonlySet<EnvironmentId>,
+): {
+  readonly owned: ReadonlyArray<Project>;
+  readonly available: ReadonlyArray<Project>;
+  readonly withoutBots: ReadonlyArray<Project>;
+} {
+  const resolve = createLogicalBotResolver(bots);
+  const owned: Project[] = [];
+  const available: Project[] = [];
+  const withoutBots: Project[] = [];
+  for (const project of projects) {
+    if (!botEnvironmentIds.has(project.environmentId)) withoutBots.push(project);
+    else if (resolve(project.environmentId, projectBotId(project)) === bot.key) owned.push(project);
+    else available.push(project);
+  }
+  return { owned, available, withoutBots };
+}
+
+/** The entry's bot on `environmentId`, or null when moving a project there creates it first. */
+export function logicalBotMemberOn(bot: LogicalBot, environmentId: EnvironmentId): string | null {
+  return bot.members.find((member) => member.environmentId === environmentId)?.botId ?? null;
 }
 
 /**
