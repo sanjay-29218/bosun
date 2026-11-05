@@ -297,7 +297,7 @@ export class OrchestratorHeadquartersThreadDeleteError extends Schema.TaggedErro
   { commandId: CommandId, threadId: ThreadId },
 ) {
   override get message(): string {
-    return "A bot's headquarters can't be deleted. Archive it to hide it instead.";
+    return "This standing thread can't be deleted. Archive it to hide it instead.";
   }
 }
 

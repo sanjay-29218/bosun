@@ -6,6 +6,7 @@ import {
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
+import { workflowRoles } from "@t3tools/client-runtime/state/library";
 import { useBlocker } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -62,9 +63,10 @@ export function WorkflowEditorForm({
     ),
   );
   const canDelete = useAtomValue(rolesEnvironment.deleteWorkflow.permissionAtom(environmentId));
+  const choices = workflowRoles(roles);
   const defaultLead =
-    roles.find((role) => role.id === FEATURE_MANAGER_ROLE_ID && role.enabled) ??
-    roles.find((role) => role.enabled);
+    choices.find((role) => role.id === FEATURE_MANAGER_ROLE_ID && role.enabled) ??
+    choices.find((role) => role.enabled);
   const [name, setName] = useState(workflow?.name ?? "");
   const [instructions, setInstructions] = useState(workflow?.instructions ?? "");
   const [leadRoleId, setLeadRoleId] = useState(workflow?.leadRoleId ?? defaultLead?.id ?? "");
@@ -91,8 +93,8 @@ export function WorkflowEditorForm({
     fields.instructions.length > 0 &&
     fields.leadRoleId.length > 0 &&
     !busy;
-  const leadOptions = roles.filter((role) => pickable(role, role.id === leadRoleId));
-  const crewOptions = roles.filter(
+  const leadOptions = choices.filter((role) => pickable(role, role.id === leadRoleId));
+  const crewOptions = choices.filter(
     (role) => role.id !== leadRoleId && pickable(role, crewRoleIds.includes(role.id)),
   );
   const leadName = roles.find((role) => role.id === leadRoleId)?.name ?? "Pick a role";

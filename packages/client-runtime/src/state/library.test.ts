@@ -8,7 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { libraryRoleEntries, roleAvailabilityNote } from "./library.ts";
+import { libraryRoleEntries, roleAvailabilityNote, workflowRoles } from "./library.ts";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -41,6 +41,20 @@ describe("roleAvailabilityNote", () => {
     expect(roleAvailabilityNote(role("role:builder", { enabled: false }), [delivery])).toBe("Off");
     expect(roleAvailabilityNote(role("role:helper"), [delivery])).toBe("Not in a workflow");
     expect(roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID), [delivery])).toBeNull();
+  });
+});
+
+describe("workflowRoles", () => {
+  it("leaves the Project manager out of a workflow's lead and crew choices", () => {
+    const roles = [
+      role(FEATURE_MANAGER_ROLE_ID),
+      role(PROJECT_MANAGER_ROLE_ID),
+      role("role:builder"),
+    ];
+    expect(workflowRoles(roles).map((each) => each.id)).toEqual([
+      FEATURE_MANAGER_ROLE_ID,
+      "role:builder",
+    ]);
   });
 });
 

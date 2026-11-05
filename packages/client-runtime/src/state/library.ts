@@ -22,6 +22,10 @@ export function roleAvailabilityNote(
   return used ? null : "Not in a workflow";
 }
 
+/** The roles a workflow can name as lead or crew; the Project manager works outside workflows. */
+export const workflowRoles = (roles: ReadonlyArray<RoleConfig>) =>
+  roles.filter((role) => role.id !== PROJECT_MANAGER_ROLE_ID);
+
 export interface EnvironmentLibrary {
   readonly environmentId: EnvironmentId;
   readonly roles: ReadonlyArray<RoleConfig>;
