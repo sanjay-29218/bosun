@@ -2,6 +2,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   type Bot,
+  type BotMoveProjectInput,
   botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
@@ -81,7 +82,7 @@ interface Environment {
 
 /** What one environment's services were asked to change. */
 interface Seen {
-  readonly moves: ReadonlyArray<{ readonly projectId: string; readonly botId: string }>;
+  readonly moves: ReadonlyArray<BotMoveProjectInput>;
   readonly runs: ReadonlyArray<CreateCrewRunInput>;
 }
 
@@ -336,8 +337,18 @@ it.effect("Captain here lists, sees and takes its projects on a linked environme
         botId: CAPTAIN_BOT_ID,
       });
       expect(moved.isError, JSON.stringify(moved.content)).toBe(false);
+      // A bot the box doesn't have is made there by the same move, by its logical key.
+      const ensureBot = { name: "Writer", avatar: boxData.bots[0]!.avatar, color: "blue" };
+      const ensured = yield* a.call("t3_bot_move_project", {
+        environmentId: box.environmentId,
+        projectId: "project:omni",
+        botId: "bot:writer",
+        ensureBot,
+      });
+      expect(ensured.isError, JSON.stringify(ensured.content)).toBe(false);
       expect((yield* Ref.get(boxSeen)).moves).toEqual([
         { projectId: "project:blog", botId: CAPTAIN_BOT_ID },
+        { projectId: "project:omni", botId: "bot:writer", ensureBot },
       ]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

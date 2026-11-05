@@ -4,9 +4,10 @@ import {
   type Bot,
   type BotAvatar,
   type BotCreateInput,
+  type BotMoveProjectInput,
+  logicalBotKey,
   type BotUpdateInput,
   type Project,
-  type ProjectId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -16,6 +17,7 @@ import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import { CrewService } from "../crew/CrewService.ts";
@@ -55,10 +57,13 @@ export class BotService extends Context.Service<
       botIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
     /** Gives a project to another bot. Runs already started keep the bot that started them. */
-    readonly moveProject: (input: {
-      readonly projectId: ProjectId;
-      readonly botId: string;
-    }) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
+    /**
+     * Gives a project to another bot. With `ensureBot`, that's the bot with the same logical key
+     * as `botId`'s, created here once however many moves ask for it at the same time.
+     */
+    readonly moveProject: (
+      input: BotMoveProjectInput,
+    ) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
   }
 >()("t3/bots/BotService") {}
 
@@ -103,6 +108,34 @@ const make = Effect.gen(function* () {
           () => new BotValidationError({ reason: "Bot not found" }),
         ),
       );
+
+  // One find-or-create at a time, so moves racing for a missing bot make it once.
+  const ensuring = yield* Semaphore.make(1);
+
+  /** The bot here with `botId`'s logical key, made from `template` when there's none. */
+  const ensureBot = (
+    botId: string,
+    template: NonNullable<BotMoveProjectInput["ensureBot"]>,
+    create: (input: BotCreateInput) => Effect.Effect<Bot, BotServiceError>,
+  ) =>
+    ensuring.withPermits(1)(
+      Effect.gen(function* () {
+        const key = logicalBotKey({ id: botId, name: template.name });
+        if (key === logicalBotKey({ id: CAPTAIN_BOT_ID, name: "" })) return CAPTAIN_BOT_ID;
+        const here = (yield* store.list).find((bot) => logicalBotKey(bot) === key);
+        if (here) return here.id;
+        const made = yield* create({
+          id: `bot-${yield* random.uuidV4()}`,
+          name: template.name,
+          avatar: template.avatar,
+          color: template.color,
+          ...(template.modelSelection === undefined
+            ? {}
+            : { modelSelection: template.modelSelection }),
+        });
+        return made.id;
+      }),
+    );
 
   const service = BotService.of({
     list: store.list,
@@ -219,8 +252,12 @@ const make = Effect.gen(function* () {
       yield* store.setPositions(botIds, DateTime.formatIso(yield* DateTime.now));
       return yield* store.list;
     }),
-    moveProject: Effect.fn("BotService.moveProject")(function* ({ projectId, botId }) {
-      yield* requireBot(botId);
+    moveProject: Effect.fn("BotService.moveProject")(function* (input) {
+      const { projectId } = input;
+      const botId =
+        input.ensureBot === undefined
+          ? (yield* requireBot(input.botId)).id
+          : yield* ensureBot(input.botId, input.ensureBot, service.create);
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),

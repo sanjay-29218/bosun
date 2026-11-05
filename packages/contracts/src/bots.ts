@@ -153,7 +153,27 @@ export type BotUpdateInput = typeof BotUpdateInput.Type;
 export const BotDeleteInput = Schema.Struct({ id: Schema.String });
 /** The whole rail order: every bot exactly once. */
 export const BotReorderInput = Schema.Struct({ botIds: Schema.Array(Schema.String) });
-export const BotMoveProjectInput = Schema.Struct({ projectId: ProjectId, botId: Schema.String });
+/**
+ * Gives a project to `botId`. With `ensureBot`, `botId` names the bot where it came from instead:
+ * the project goes to the bot here with the same logical key (Captain: Captain), made from
+ * `ensureBot` under a new ID when this environment doesn't have it yet.
+ */
+export const BotMoveProjectInput = Schema.Struct({
+  projectId: ProjectId,
+  botId: Schema.String,
+  ensureBot: Schema.optionalKey(
+    Schema.Struct({
+      name: Schema.String,
+      avatar: BotAvatar,
+      color: ProjectIconColor,
+      modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+    }).annotate({
+      description:
+        "The bot from another environment, made here under a new ID if no bot here has its name (Captain: always Captain).",
+    }),
+  ),
+});
+export type BotMoveProjectInput = typeof BotMoveProjectInput.Type;
 
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",
