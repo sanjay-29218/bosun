@@ -128,20 +128,25 @@ person" and 60 "[completed]". One feature sent its HQ 12 reports, another 10. Fe
 - Accept: a feature whose lead stops 5 times and finishes once reports once (plus any
   needs-you notices).
 
-### B3. Long HQ and lead threads: a default plus a choice
+### B3. Long HQ and lead threads: auto-compact, new session only on request
 
 - The automatic fresh start exists (`headquartersFreshStart.ts:8`: 100k tokens, after 30 quiet
-  minutes; `CrewService.ts:1184`). All 4 bots are set to `compact`, so it never runs.
-- Person's decision (2026-11-05): keep one **default mode** per bot and Project manager
-  (Compact or New session), but never force it silently. When a standing thread crosses the
-  threshold, show both actions in the thread: **Compact** and **Start new session**, with the
-  default highlighted. Apply the default only if the person doesn't choose within the quiet
-  period. Both buttons are also available on demand at any time (the `/new` from #55 plus a
-  matching compact action).
-- Leave leads on provider compaction.
-- Size S–M, task. After #69, which moves HQ working folders and sessions.
-- Accept: the setting picks the default; crossing the threshold shows both buttons; choosing
-  either one runs it; the default runs only when no choice is made; existing bots keep `compact`.
+  minutes; `CrewService.ts:1184`). All 4 bots are set to `compact`.
+- Person's decision (2026-11-05):
+  - **Compaction may happen automatically.** This is the default for every bot, Project manager
+    and lead.
+  - **A new session never starts automatically.** It starts only when the person clicks **Start
+    new session** or types `/new` (#55).
+  - When a standing thread crosses the threshold, show a quiet hint with both actions, **Compact
+    now** and **Start new session**. Auto-compaction still runs if nothing is chosen.
+- Fix: remove or disable the automatic `new-session` path (`headquartersFreshStart`) and the
+  "new-session" option as an automatic mode. Keep the on-demand new session. Migrate any bot set
+  to `new-session` to `compact` and say so in the PR.
+- Size S, task. After #69, which moves HQ working folders and sessions.
+- Accept:
+  - Long threads auto-compact.
+  - No code path starts a new session without a person's click or `/new`.
+  - Both buttons are visible past the threshold and work on demand.
 
 ### B4. Size the process to the work
 
