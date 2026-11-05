@@ -1940,6 +1940,7 @@ it.effect("SQL list older settled threads below a cursor", () =>
       readonly settledDay: number | null;
       readonly project?: string;
       readonly subagent?: boolean;
+      readonly listed?: boolean;
       readonly archived?: boolean;
       readonly snoozedUntilDay?: number;
     }) =>
@@ -1965,6 +1966,7 @@ it.effect("SQL list older settled threads below a cursor", () =>
             parentThreadId: input.subagent === true ? id("b") : null,
             relationshipToParent: input.subagent === true ? "subagent" : null,
             rootThreadId: input.subagent === true ? id("b") : id(input.name),
+            ...(input.listed === true ? { listed: true } : {}),
           },
           forkedFrom: null,
           createdAt: now,
@@ -1985,6 +1987,14 @@ it.effect("SQL list older settled threads below a cursor", () =>
     yield* createThread({ name: "recent", settledDay: 20 });
     yield* createThread({ name: "unsettled", settledDay: null });
     yield* createThread({ name: "child", settledDay: 1, subagent: true });
+    // A bot's task for project b is listed there like its own threads.
+    yield* createThread({
+      name: "handed-off",
+      settledDay: 3,
+      project: "project:b",
+      subagent: true,
+      listed: true,
+    });
     yield* createThread({ name: "archived", settledDay: 1, archived: true });
 
     const list = (
@@ -1999,7 +2009,7 @@ it.effect("SQL list older settled threads below a cursor", () =>
       [...(yield* list(before, 0)).counts],
       [
         { projectId: ProjectId.make("project:a"), count: 4 },
-        { projectId: ProjectId.make("project:b"), count: 1 },
+        { projectId: ProjectId.make("project:b"), count: 2 },
       ],
     );
     // A cursor without an id is strict, as the snapshot's cut is: the day-4 tie is not counted.
@@ -2007,18 +2017,18 @@ it.effect("SQL list older settled threads below a cursor", () =>
       [...(yield* list({ settledAt: DateTime.formatIso(at(4)) }, 0)).counts],
       [
         { projectId: ProjectId.make("project:a"), count: 1 },
-        { projectId: ProjectId.make("project:b"), count: 1 },
+        { projectId: ProjectId.make("project:b"), count: 2 },
       ],
     );
     // The cursor is the last row: the tie on day 4 continues by id.
     const next = yield* list({ settledAt: DateTime.formatIso(at(4)), threadId: id("b") }, 10);
-    assert.deepEqual(next.threadIds, [id("c"), id("d"), id("snoozed")]);
+    assert.deepEqual(next.threadIds, [id("c"), id("d"), id("handed-off"), id("snoozed")]);
     assert.deepEqual(yield* list(before, 25, []), { threadIds: [], counts: [] });
     yield* assertShellIndexCoversShells();
     const scoped = yield* list(before, 0, [ProjectId.make("project:b")]);
     assert.deepEqual(scoped, {
       threadIds: [],
-      counts: [{ projectId: ProjectId.make("project:b"), count: 1 }],
+      counts: [{ projectId: ProjectId.make("project:b"), count: 2 }],
     });
   }).pipe(Effect.provide(layerTest)),
 );

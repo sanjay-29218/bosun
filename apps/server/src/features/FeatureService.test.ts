@@ -228,6 +228,8 @@ describe("feature lead and crew", () => {
           url: "https://github.com/owner/repo/issues/42",
         });
         expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-captain");
+        // Its lead is caught up on after a restart.
+        expect(yield* features.reportingLeads).toEqual([first.leadThreadId]);
       }),
     ),
   );

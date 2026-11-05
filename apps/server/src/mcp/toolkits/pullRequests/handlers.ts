@@ -1,5 +1,6 @@
 import {
   CommandId,
+  isNestedSubagentLineage,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type SourceControlProviderKind,
@@ -271,7 +272,7 @@ const make = Effect.gen(function* () {
       threadPullRequestsOf(shell).find(
         (link) => link.source !== "stack-dismissed" && threadPullRequestKeysEqual(link, target),
       );
-    if (watching && thread.lineage.relationshipToParent === "subagent") {
+    if (watching && isNestedSubagentLineage(thread.lineage)) {
       return yield* new PullRequestWatchFromSubagentError();
     }
     const before = watchedLink(thread);
