@@ -1,7 +1,10 @@
 import {
   CommandId,
+  idleCompactionOf,
   MessageId,
   type OrchestrationV2DomainEvent,
+  type OrchestrationV2Run,
+  type OrchestrationV2RuntimeRequest,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -38,6 +41,7 @@ export class FeatureReportReactor extends Context.Service<
   {
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
+    readonly catchUp: () => Effect.Effect<void>;
   }
 >()("t3/features/FeatureReportReactor") {}
 
@@ -50,12 +54,8 @@ const make = Effect.gen(function* () {
   const requesterOf = Effect.fnUntraced(function* (threadId: ThreadId) {
     const lead = yield* projections.getThread(threadId);
     const feature = lead.feature;
-    // A lead's and its crew's own subagents carry the feature too; only the lead reports.
-    if (
-      !feature ||
-      feature.member !== undefined ||
-      lead.lineage.relationshipToParent === "subagent"
-    ) {
+    // Subagents, forks and side chats of the lead carry the feature too; only the lead reports.
+    if (!feature || feature.member !== undefined || lead.lineage.parentThreadId !== null) {
       return null;
     }
     const requesterId = yield* features.requesterThreadId(feature.id);
@@ -63,6 +63,11 @@ const make = Effect.gen(function* () {
     const requester = yield* projections.getThread(requesterId);
     if (requester.archivedAt !== null || requester.deletedAt !== null) return null;
     return { feature, requesterId };
+  });
+
+  const reportKey = (key: string) => ({
+    commandId: CommandId.make(`server:feature-report:${key}`),
+    messageId: MessageId.make(`message:feature-report:${key}`),
   });
 
   const post = (input: {
@@ -75,9 +80,8 @@ const make = Effect.gen(function* () {
   }) =>
     engine.dispatch({
       type: "message.dispatch",
-      commandId: CommandId.make(`server:feature-report:${input.key}`),
+      ...reportKey(input.key),
       threadId: input.requesterId,
-      messageId: MessageId.make(`message:feature-report:${input.key}`),
       text: input.text,
       notification: {
         source: { kind: "subagent", childThreadId: input.leadThreadId },
@@ -90,58 +94,74 @@ const make = Effect.gen(function* () {
       creationSource: "server",
     });
 
+  /** Tells the requester the lead waits on the person; `request` is pending on `threadId`. */
+  const reportRequest = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    request: OrchestrationV2RuntimeRequest,
+  ) {
+    if (request.status !== "pending" || !ASKING_KINDS.has(request.kind)) return;
+    if (request.owner !== undefined) return;
+    const target = yield* requesterOf(threadId);
+    if (target === null) return;
+    const asks = request.kind === "user_input" ? "a question" : "an approval";
+    yield* post({
+      key: `request:${request.id}`,
+      requesterId: target.requesterId,
+      leadThreadId: threadId,
+      text: `Feature "${target.feature.title}" (lead thread ${threadId}) is waiting on the person: ${asks} in its lead's thread.`,
+      failed: false,
+      summary: `Feature "${target.feature.title}" is waiting on you`,
+    });
+  });
+
+  /** Tells the requester what the lead said when `run` stopped, unless its crew still works. */
+  const reportRun = Effect.fnUntraced(function* (run: OrchestrationV2Run) {
+    if (!REPORTED_STATUSES.has(run.status)) return;
+    const target = yield* requesterOf(run.threadId);
+    if (target === null) return;
+    const lead = yield* projections.getThreadRecords(run.threadId, ["subagents", "messages"], {
+      messageRunIds: [run.id],
+    });
+    // A silent /compact run is upkeep, not something the lead said.
+    const prompt = lead.messages.find((message) => message.id === run.userMessageId);
+    if (prompt !== undefined && idleCompactionOf(prompt) !== undefined) return;
+    // The crew's result wakes the lead again; it reports once that turn stops.
+    if (
+      lead.subagents.some(
+        (task) =>
+          OPEN_TASK_STATUSES.has(task.status) ||
+          UNDELIVERED_RESULT_STATES.has(task.completionDelivery?.state ?? ""),
+      )
+    ) {
+      return;
+    }
+    const said =
+      lead.messages
+        .findLast((message) => message.role === "assistant" && !message.streaming)
+        ?.text.trim() ?? "";
+    const text =
+      said.length > MAX_REPORT_CHARS
+        ? `${said.slice(0, MAX_REPORT_CHARS)}… (read the rest in the lead's thread)`
+        : said || "(no message)";
+    yield* post({
+      key: run.id,
+      requesterId: target.requesterId,
+      leadThreadId: run.threadId,
+      text: `Feature "${target.feature.title}" (lead thread ${run.threadId}) [${run.status}]:\n${text}`,
+      failed: run.status === "failed",
+      summary: `Feature "${target.feature.title}" reported back`,
+    });
+  });
+
   // Runs for every domain event; most return before reading anything.
   const handle: FeatureReportReactor["Service"]["handle"] = Effect.fnUntraced(
     function* (event) {
       // A lead waiting on the person won't stop until they answer, so say so now.
       if (event.type === "runtime-request.updated") {
-        const request = event.payload;
-        if (request.status !== "pending" || !ASKING_KINDS.has(request.kind)) return;
-        if (request.owner !== undefined) return;
-        const target = yield* requesterOf(event.threadId);
-        if (target === null) return;
-        const asks = request.kind === "user_input" ? "a question" : "an approval";
-        yield* post({
-          key: `request:${request.id}`,
-          requesterId: target.requesterId,
-          leadThreadId: event.threadId,
-          text: `Feature "${target.feature.title}" (lead thread ${event.threadId}) is waiting on the person: ${asks} in its lead's thread.`,
-          failed: false,
-          summary: `Feature "${target.feature.title}" is waiting on you`,
-        });
-        return;
+        yield* reportRequest(event.threadId, event.payload);
+      } else if (event.type === "run.updated") {
+        yield* reportRun(event.payload);
       }
-      if (event.type !== "run.updated" || !REPORTED_STATUSES.has(event.payload.status)) return;
-      const run = event.payload;
-      const target = yield* requesterOf(run.threadId);
-      if (target === null) return;
-      const lead = yield* projections.getThreadRecords(run.threadId, ["subagents", "messages"], {
-        messageRoles: ["assistant"],
-        messageRunIds: [run.id],
-      });
-      // The crew's result wakes the lead again; it reports once that turn stops.
-      if (
-        lead.subagents.some(
-          (task) =>
-            OPEN_TASK_STATUSES.has(task.status) ||
-            UNDELIVERED_RESULT_STATES.has(task.completionDelivery?.state ?? ""),
-        )
-      ) {
-        return;
-      }
-      const said = lead.messages.findLast((message) => !message.streaming)?.text.trim() ?? "";
-      const text =
-        said.length > MAX_REPORT_CHARS
-          ? `${said.slice(0, MAX_REPORT_CHARS)}… (read the rest in the lead's thread)`
-          : said || "(no message)";
-      yield* post({
-        key: run.id,
-        requesterId: target.requesterId,
-        leadThreadId: run.threadId,
-        text: `Feature "${target.feature.title}" (lead thread ${run.threadId}) [${run.status}]:\n${text}`,
-        failed: run.status === "failed",
-        summary: `Feature "${target.feature.title}" reported back`,
-      });
     },
     (effect, event) =>
       effect.pipe(
@@ -154,16 +174,61 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  const start: FeatureReportReactor["Service"]["start"] = () =>
-    forkParked(
-      Stream.runForEach(engine.streamDomainEvents, handle).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("feature report event stream failed", { cause }),
-        ),
-      ),
-    );
+  /**
+   * Reports a lead's latest stop and pending requests that no event reached, such as one that
+   * committed just before a restart. A report already in the requester's thread is skipped.
+   */
+  const catchUp: FeatureReportReactor["Service"]["catchUp"] = Effect.fnUntraced(
+    function* () {
+      for (const leadThreadId of yield* features.reportingLeads) {
+        const target = yield* requesterOf(leadThreadId);
+        if (target === null) continue;
+        const lead = yield* projections.getThreadRecords(
+          leadThreadId,
+          ["runs", "runtimeRequests"],
+          { runStatuses: [], includeLatestRun: true, runtimeRequestStatuses: ["pending"] },
+        );
+        const unreported = Effect.fnUntraced(function* (key: string) {
+          const { messageId } = reportKey(key);
+          const { messages } = yield* projections.getThreadRecords(
+            target.requesterId,
+            ["messages"],
+            { messageIds: [messageId] },
+          );
+          return messages.length === 0;
+        });
+        for (const run of lead.runs) {
+          if (REPORTED_STATUSES.has(run.status) && (yield* unreported(run.id))) {
+            yield* reportRun(run);
+          }
+        }
+        for (const request of lead.runtimeRequests) {
+          if (yield* unreported(`request:${request.id}`)) {
+            yield* reportRequest(leadThreadId, request);
+          }
+        }
+      }
+    },
+    Effect.catchCause((cause) =>
+      Effect.logWarning("catching up feature reports failed", { cause }),
+    ),
+  );
 
-  return { start, handle } satisfies FeatureReportReactor["Service"];
+  // Catch-up covers stops that committed before the stream subscribed; a repeat is one command.
+  const start: FeatureReportReactor["Service"]["start"] = Effect.fn("FeatureReportReactor.start")(
+    function* () {
+      yield* forkParked(
+        Stream.runForEach(engine.streamDomainEvents, handle).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("feature report event stream failed", { cause }),
+          ),
+        ),
+      );
+      yield* forkParked(catchUp());
+    },
+  );
+
+  return { start, handle, catchUp } satisfies FeatureReportReactor["Service"];
 });
 
 export const layer = Layer.effect(FeatureReportReactor, make);

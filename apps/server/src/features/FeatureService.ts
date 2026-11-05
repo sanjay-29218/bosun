@@ -133,6 +133,8 @@ export interface FeatureServiceShape {
   readonly requesterThreadId: (
     featureId: string,
   ) => Effect.Effect<ThreadId | null, PersistenceSqlError>;
+  /** The lead threads of open features that a thread started, which report to that thread. */
+  readonly reportingLeads: Effect.Effect<ReadonlyArray<ThreadId>, PersistenceSqlError>;
   /**
    * The lead in `threadId` reports its feature done: its parent's lead gets `summary` with the
    * feature's branch and pull request. Closing a child that hasn't reported does the same.
@@ -1196,6 +1198,13 @@ export const FeatureServiceLive = Layer.effect(
       setIssue: bumped(setIssue),
       launch: bumped(launch),
       requesterThreadId,
+      reportingLeads: sql<{ readonly id: string }>`
+        SELECT id FROM features WHERE requester_thread_id IS NOT NULL AND status = 'open'
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.flatMap((rows) => Effect.forEach(rows, (row) => leadThreadOf(row.id))),
+        Effect.map((leads) => leads.filter(Predicate.isNotNull)),
+      ),
       projectBot: bots.projectOwner,
       reportIfQuiet,
       reconcileChildren,

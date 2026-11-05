@@ -64,6 +64,7 @@ import {
   orchestrationV2WorktreePending,
   ProviderInstanceId,
   ProviderInteractionMode,
+  isNestedSubagentLineage,
   isRuntimeModeAbove,
   resolveProviderInstanceEnabled,
   resolveProjectProviderInstanceEnabled,
@@ -3230,7 +3231,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&
-      thread.lineage.relationshipToParent === "subagent"
+      isNestedSubagentLineage(thread.lineage)
     ) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
@@ -7967,6 +7968,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.crewMember !== undefined && parentProjection.thread.feature
           ? { feature: { ...parentProjection.thread.feature, member: command.crewMember } }
           : {}),
+        // The parent's feature belongs to the parent's project, not the one this works in.
+        ...(otherProject ? { feature: null } : {}),
         ...(command.issue === undefined ? {} : { issue: command.issue }),
       };
       const task: OrchestrationV2Subagent = {

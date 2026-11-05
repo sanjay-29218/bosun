@@ -973,6 +973,13 @@ it.effect("runs a delegated child in the project it names, at that project's che
       createdBy: "user",
       creationSource: "web",
     });
+    // A feature's lead can hand another project work too; that feature stays in its own project.
+    yield* orchestrator.dispatch({
+      type: "thread.crew-stage.set",
+      commandId: CommandId.make("tag-cross-project-parent"),
+      threadId: parentThreadId,
+      feature: { id: "feature:login", title: "Login" },
+    });
     yield* orchestrator.dispatch({
       type: "message.dispatch",
       commandId: CommandId.make("start-cross-project-parent"),
@@ -1008,6 +1015,21 @@ it.effect("runs a delegated child in the project it names, at that project's che
     // The app project lists it; the headquarters still gets its result.
     assert.isTrue(isListedThreadLineage(child.thread.lineage));
     assert.equal(child.thread.lineage.relationshipToParent, "subagent");
+    assert.isNotOk(child.thread.feature);
+    // Listed in its project, it watches the pull request it opens there.
+    yield* orchestrator.dispatch({
+      type: "thread.pull-request.watch",
+      commandId: CommandId.make("cross-project-child-watch"),
+      threadId: child.thread.id,
+      host: "github.com",
+      repository: "example/app",
+      number: 7,
+      watching: true,
+      link: { url: "https://github.com/example/app/pull/7", source: "agent" },
+    });
+    assert.isDefined(
+      (yield* orchestrator.getThreadShell(child.thread.id))?.pullRequests?.[0]?.watch,
+    );
   }).pipe(Effect.provide(layerTest)),
 );
 
