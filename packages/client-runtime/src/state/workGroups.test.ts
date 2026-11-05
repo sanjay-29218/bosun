@@ -4,8 +4,15 @@ import { describe, expect, it } from "vite-plus/test";
 import { sortInboxThreadsByReturn } from "./threadInbox.ts";
 import {
   boardChatThreads,
+  childFeatureFinished,
+  childFeatureSummary,
   featureRows,
   groupWorkThreads,
+  nestChildFeatureGroups,
+  resolveWorkGroupRouteRowKey,
+  routeChildFeature,
+  waitingWorkGroupEntry,
+  workGroupAllThreads,
   workGroupInbox,
   workGroupLead,
   workGroupOf,
@@ -221,5 +228,140 @@ describe("workThreadLabel", () => {
       ),
     ).toBe("Triage · Builder");
     expect(workThreadLabel(thread("plain", "1"))).toBe("plain");
+  });
+});
+
+describe("nestChildFeatureGroups", () => {
+  const tag = (id: string, parentFeatureId?: string, memberName?: string) => ({
+    id,
+    title: id,
+    ...(parentFeatureId ? { parentFeatureId } : {}),
+    ...(memberName ? { member: memberName } : {}),
+  });
+  const shell = (
+    id: string,
+    createdAt: string,
+    featureTag: ReturnType<typeof tag> | null,
+    fields: { hasPendingUserInput?: boolean; settledOverride?: "settled" | null } = {},
+  ) => ({
+    ...inboxThread(id, createdAt),
+    feature: featureTag,
+    hasPendingUserInput: fields.hasPendingUserInput ?? false,
+    settledOverride: fields.settledOverride ?? null,
+  });
+  const nest = (
+    threads: ReadonlyArray<ReturnType<typeof shell>>,
+    options?: Parameters<typeof nestChildFeatureGroups<ReturnType<typeof shell>>>[2],
+  ) => {
+    const grouped = groupWorkThreads(threads);
+    return nestChildFeatureGroups(grouped.primaries, grouped.groupByThreadKey, options);
+  };
+  const rows = (nested: ReturnType<typeof nest>) =>
+    nested.primaries.map((row) => [
+      row.id,
+      (nested.groupByThreadKey.get(`local:${row.id}`)?.childFeatures ?? []).map(
+        (child) => child.primary.id,
+      ),
+    ]);
+
+  it.each([
+    {
+      name: "folds children and grandchildren under the top row, finished ones last",
+      threads: [
+        shell("epic", "0", tag("epic")),
+        shell("done", "1", tag("done", "epic"), { settledOverride: "settled" }),
+        shell("child", "2", tag("child", "epic")),
+        shell("child-crew", "3", tag("child", "epic", "Builder")),
+        shell("grandchild", "4", tag("grandchild", "child")),
+      ],
+      expected: [["epic", ["child", "grandchild", "done"]]],
+    },
+    {
+      name: "keeps a child whose parent isn't listed, and a separate feature, as rows",
+      threads: [
+        shell("orphan", "1", tag("orphan", "archived-epic")),
+        shell("separate", "2", tag("separate")),
+        shell("chat", "3", null),
+      ],
+      expected: [
+        ["orphan", []],
+        ["separate", []],
+        ["chat", []],
+      ],
+    },
+    {
+      name: "keeps features whose parents form a cycle as rows",
+      threads: [shell("a", "1", tag("a", "b")), shell("b", "2", tag("b", "a"))],
+      expected: [
+        ["a", []],
+        ["b", []],
+      ],
+    },
+  ])("$name", ({ threads, expected }) => {
+    expect(rows(nest(threads))).toEqual(expected);
+  });
+
+  it("lets a child stand alone when the caller says so", () => {
+    const nested = nest(
+      [
+        shell("epic", "0", tag("epic"), { settledOverride: "settled" }),
+        shell("asking", "1", tag("asking", "epic"), { hasPendingUserInput: true }),
+        shell("quiet", "2", tag("quiet", "epic")),
+      ],
+      {
+        standsAlone: (child, parent) =>
+          parent.settledOverride === "settled" &&
+          workGroupAllThreads(child).some((thread) => thread.hasPendingUserInput),
+      },
+    );
+    expect(rows(nested)).toEqual([
+      ["epic", ["quiet"]],
+      ["asking", []],
+    ]);
+  });
+
+  it("waits on you, works, opens and marks the parent row through its children", () => {
+    const epic = shell("epic", "0", tag("epic"));
+    const done = shell("done", "1", tag("done", "epic"), { settledOverride: "settled" });
+    const child = shell("child", "2", tag("child", "epic"));
+    const asking = shell("child-crew", "3", tag("child", "epic", "Builder"), {
+      hasPendingUserInput: true,
+    });
+    const nested = nest([epic, done, child, asking]);
+    const group = nested.groupByThreadKey.get("local:epic")!;
+
+    expect(waitingWorkGroupEntry(group)).toEqual({ thread: asking, label: "child · Builder" });
+    expect(waitingWorkGroupEntry(group, "own")).toBeUndefined();
+    const inbox = workGroupInbox(nested.groupByThreadKey, {
+      isWorking: (row) => row.id === "child",
+      returnedAt: () => undefined,
+    });
+    expect(inbox.isWorking(epic)).toBe(false);
+    expect(inbox.returnedAt(epic)).toBeGreaterThan(1e15);
+    expect(childFeatureSummary(group, (row) => row.id === "child").label).toBe(
+      "2 children · 1 needs you",
+    );
+    expect(childFeatureFinished(group.childFeatures![1]!)).toBe(true);
+    expect(routeChildFeature(group, "local:child")?.primary.id).toBe("child");
+    // The waiting thread marks itself; any other child thread marks the row.
+    expect(resolveWorkGroupRouteRowKey(nested.groupByThreadKey, "local:child")).toBe("local:epic");
+    expect(resolveWorkGroupRouteRowKey(nested.groupByThreadKey, "local:child-crew")).toBeNull();
+  });
+
+  it.each([
+    { running: [], waiting: [], label: "2 children" },
+    { running: ["b"], waiting: [], label: "2 children · 1 running" },
+    { running: ["a", "b"], waiting: ["a"], label: "2 children · 1 needs you · 1 running" },
+  ])("summarizes children as $label", ({ running, waiting, label }) => {
+    const nested = nest([
+      shell("epic", "0", tag("epic")),
+      ...["a", "b"].map((id, index) =>
+        shell(id, String(index + 1), tag(id, "epic"), {
+          hasPendingUserInput: waiting.includes(id),
+        }),
+      ),
+    ]);
+    const group = nested.groupByThreadKey.get("local:epic")!;
+    expect(childFeatureSummary(group, (row) => running.includes(row.id)).label).toBe(label);
   });
 });

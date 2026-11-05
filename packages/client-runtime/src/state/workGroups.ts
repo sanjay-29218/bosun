@@ -18,6 +18,7 @@ export interface WorkGroupThread {
     readonly id: string;
     readonly title: string;
     readonly member?: string | undefined;
+    readonly parentFeatureId?: string | undefined;
   } | null;
   readonly crewRequest?: ThreadCrewRequestTag | null;
   readonly lineage?: { readonly relationshipToParent: "fork" | "subagent" | null };
@@ -36,6 +37,8 @@ export interface WorkGroup<T> {
   readonly primary: T;
   /** The group's other threads, oldest first. */
   readonly children: ReadonlyArray<WorkGroupEntry<T>>;
+  /** Child features folded under this feature's row by `nestChildFeatureGroups`. */
+  readonly childFeatures?: ReadonlyArray<WorkGroup<T>>;
 }
 
 /** The key a thread groups under, or null for a thread outside any work. */
@@ -196,6 +199,124 @@ export const workGroupThreads = <T>(group: WorkGroup<T>) => [
   ...group.children.map((entry) => entry.thread),
 ];
 
+/** A group's threads and its child features' threads. */
+export const workGroupAllThreads = <T>(group: WorkGroup<T>): T[] => [
+  ...workGroupThreads(group),
+  ...(group.childFeatures ?? []).flatMap(workGroupAllThreads),
+];
+
+type SettlingThread = WorkGroupThread & { readonly settledOverride?: string | null };
+
+/** A child feature is finished once its lead is settled, as Lineage reads it. */
+export function childFeatureFinished<T extends SettlingThread>(group: WorkGroup<T>): boolean {
+  return (workGroupLead(group) ?? group.primary).settledOverride === "settled";
+}
+
+/**
+ * Folds each child feature's row under its top ancestor's row, when that row is listed. A child
+ * whose ancestors aren't listed, or for which `standsAlone` holds, stays its own row. Children
+ * list open ones first, then finished ones, each oldest first.
+ */
+export function nestChildFeatureGroups<T extends SettlingThread>(
+  primaries: ReadonlyArray<T>,
+  groupByThreadKey: ReadonlyMap<string, WorkGroup<T>>,
+  options: { readonly standsAlone?: (child: WorkGroup<T>, parent: T) => boolean } = {},
+): { readonly primaries: T[]; readonly groupByThreadKey: Map<string, WorkGroup<T>> } {
+  const featureKey = (environmentId: string, featureId: string) => `${environmentId}:${featureId}`;
+  const rowKeyByFeature = new Map<string, string>();
+  for (const thread of primaries) {
+    const group = groupByThreadKey.get(threadKey(thread));
+    if (group?.kind === "feature" && thread.feature) {
+      rowKeyByFeature.set(featureKey(thread.environmentId, thread.feature.id), threadKey(thread));
+    }
+  }
+  const parentRowKey = (rowKey: string) => {
+    const primary = groupByThreadKey.get(rowKey)!.primary;
+    const parentId = primary.feature?.parentFeatureId;
+    return parentId === undefined
+      ? undefined
+      : rowKeyByFeature.get(featureKey(primary.environmentId, parentId));
+  };
+  // A cycle has no top, so its features stay their own rows.
+  const rootRowKey = (rowKey: string) => {
+    const seen = new Set([rowKey]);
+    let root = rowKey;
+    for (let parent = parentRowKey(root); parent !== undefined; parent = parentRowKey(root)) {
+      if (seen.has(parent)) return rowKey;
+      seen.add(parent);
+      root = parent;
+    }
+    return root;
+  };
+  const childrenByRoot = new Map<string, WorkGroup<T>[]>();
+  for (const rowKey of rowKeyByFeature.values()) {
+    const root = rootRowKey(rowKey);
+    if (root === rowKey) continue;
+    const child = groupByThreadKey.get(rowKey)!;
+    if (options.standsAlone?.(child, groupByThreadKey.get(root)!.primary)) continue;
+    childrenByRoot.set(root, [...(childrenByRoot.get(root) ?? []), child]);
+  }
+  if (childrenByRoot.size === 0) {
+    return { primaries: [...primaries], groupByThreadKey: new Map(groupByThreadKey) };
+  }
+  const folded = new Set<string>();
+  const nested = new Map(groupByThreadKey);
+  for (const [root, children] of childrenByRoot) {
+    for (const child of children) {
+      folded.add(threadKey(child.primary));
+      nested.delete(threadKey(child.primary));
+    }
+    nested.set(root, {
+      ...groupByThreadKey.get(root)!,
+      childFeatures: [...children].sort(
+        (left, right) =>
+          Number(childFeatureFinished(left)) - Number(childFeatureFinished(right)) ||
+          byCreated(left.primary, right.primary),
+      ),
+    });
+  }
+  return {
+    primaries: primaries.filter((thread) => !folded.has(threadKey(thread))),
+    groupByThreadKey: nested,
+  };
+}
+
+const threadWaitsOnYou = (thread: WorkGroupThread & NeedsYouShell) =>
+  threadNeedsYouKind(thread) !== null;
+
+/** What a parent row's chip says about its child features, the same on every client. */
+export function childFeatureSummary<T extends WorkGroupThread & NeedsYouShell>(
+  group: WorkGroup<T>,
+  isRunning: (thread: T) => boolean,
+) {
+  const children = group.childFeatures ?? [];
+  const needsYou = children.filter((child) =>
+    workGroupThreads(child).some(threadWaitsOnYou),
+  ).length;
+  const running = children.filter(
+    (child) =>
+      !workGroupThreads(child).some(threadWaitsOnYou) && workGroupThreads(child).some(isRunning),
+  ).length;
+  const total = children.length;
+  const label = [
+    `${total} ${total === 1 ? "child" : "children"}`,
+    ...(needsYou > 0 ? [`${needsYou} needs you`] : []),
+    ...(running > 0 ? [`${running} running`] : []),
+  ].join(" · ");
+  return { total, running, needsYou, label, compactLabel: String(total) };
+}
+
+/** The child feature `routeThreadKey` belongs to, if it is folded under `group`. */
+export function routeChildFeature<T extends WorkGroupThread>(
+  group: WorkGroup<T>,
+  routeThreadKey: string | null,
+): WorkGroup<T> | undefined {
+  if (routeThreadKey === null) return undefined;
+  return group.childFeatures?.find((child) =>
+    workGroupThreads(child).some((thread) => threadKey(thread) === routeThreadKey),
+  );
+}
+
 /** Who a group answers to: a bot request's first role, or a feature's lead (its project manager). */
 export function workGroupLead<T extends WorkGroupThread>(group: WorkGroup<T>): T | null {
   if (group.kind === "request") return group.primary;
@@ -228,11 +349,22 @@ export function workGroupOf<T extends WorkGroupThread>(
   );
 }
 
-/** The one thread of a feature or request that shows under its row: the first waiting on you. */
+/**
+ * The one thread of a feature or request that shows under its row: the first waiting on you,
+ * among its own threads and then, unless `own`, its child features', named by the child.
+ */
 export function waitingWorkGroupEntry<T extends WorkGroupThread & NeedsYouShell>(
   group: WorkGroup<T>,
-) {
-  return group.children.find((entry) => threadNeedsYouKind(entry.thread) !== null);
+  scope: "all" | "own" = "all",
+): WorkGroupEntry<T> | undefined {
+  const own = group.children.find((entry) => threadWaitsOnYou(entry.thread));
+  if (own || scope === "own") return own;
+  for (const child of group.childFeatures ?? []) {
+    if (threadWaitsOnYou(child.primary)) return { thread: child.primary, label: child.title };
+    const entry = child.children.find((candidate) => threadWaitsOnYou(candidate.thread));
+    if (entry) return { thread: entry.thread, label: `${child.title} · ${entry.label}` };
+  }
+  return undefined;
 }
 
 /**
@@ -246,10 +378,10 @@ export function resolveWorkGroupRouteRowKey<T extends WorkGroupThread & NeedsYou
   if (routeThreadKey === null) return null;
   for (const [rowKey, group] of workGroups) {
     const waiting = waitingWorkGroupEntry(group)?.thread;
-    const open = group.children.find(
-      (entry) => `${entry.thread.environmentId}:${entry.thread.id}` === routeThreadKey,
+    const open = workGroupAllThreads(group).find(
+      (thread) => thread !== group.primary && threadKey(thread) === routeThreadKey,
     );
-    if (open && open.thread !== waiting) return rowKey;
+    if (open && open !== waiting) return rowKey;
   }
   return null;
 }
@@ -258,8 +390,8 @@ export function resolveWorkGroupRouteRowKey<T extends WorkGroupThread & NeedsYou
 const WAITING_ON_YOU_LIFT = 1e15;
 
 /**
- * Inbox placement for a list of rows, where a row stands for its group. A row waits on you when
- * any of its threads does: it never counts as working and stays at the top of the inbox until
+ * Inbox placement for a list of rows, where a row stands for its group and its child features.
+ * A row waits on you when any of its threads does: it never counts as working and stays at the top of the inbox until
  * you answer. Otherwise it works while any of its threads does, and comes back whenever any does.
  */
 export function workGroupInbox<T extends WorkGroupThread & NeedsYouShell & InboxThreadInput>(
@@ -269,10 +401,10 @@ export function workGroupInbox<T extends WorkGroupThread & NeedsYouShell & Inbox
     readonly returnedAt: (thread: T) => number | undefined;
   },
 ) {
-  const threadsOf = (thread: T) => [
-    thread,
-    ...(groupByThreadKey.get(threadKey(thread))?.children ?? []).map((entry) => entry.thread),
-  ];
+  const threadsOf = (thread: T) => {
+    const group = groupByThreadKey.get(threadKey(thread));
+    return group ? workGroupAllThreads(group) : [thread];
+  };
   const waitsOnYou = (thread: T) =>
     threadsOf(thread).some((member) => threadNeedsYouKind(member) !== null);
   return {
