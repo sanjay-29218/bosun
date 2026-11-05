@@ -8,7 +8,7 @@ import {
   headquartersBotId,
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   ProjectId,
   ThreadId,
   type CrewTurnState,
@@ -52,7 +52,7 @@ import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
 import {
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
-  PROJECT_MANAGER_INSTRUCTIONS,
+  FEATURE_MANAGER_INSTRUCTIONS,
   crewRunPrompt,
 } from "./crewPrompts.ts";
 
@@ -64,11 +64,14 @@ class CrewValidationError extends Error {
  * Member IDs below predate the Roles rename. They stay as they are because stored runs,
  * handoffs, grants and feature bindings reference them.
  */
-/** The member made from the project manager role for one project, created on first use. */
-export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
-/** The builder a project manager hands direct requests to, created with the manager. */
+/**
+ * The member made from the Feature manager role for one project, created on first use. Its ID
+ * predates the rename: every feature lead's run and thread ID is hashed from it.
+ */
+export const featureManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
+/** The builder a feature manager hands direct requests to, created with the manager. */
 export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
-/** The member that leads a workflow led by a role other than the project manager. */
+/** The member that leads a workflow led by a role other than the Feature manager. */
 const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
   `bot-lead:${projectId}:${roleId}`;
 
@@ -78,7 +81,7 @@ const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
  */
 const projectMemberContext = (id: string, projectId: ProjectId | null) => {
   if (projectId === null) return null;
-  if (id === projectManagerMemberId(projectId)) {
+  if (id === featureManagerMemberId(projectId)) {
     return `You manage project ${projectId}. Its builder is crew member ${projectBuilderMemberId(projectId)}.`;
   }
   if (id === projectBuilderMemberId(projectId)) return `You work on project ${projectId}.`;
@@ -87,15 +90,15 @@ const projectMemberContext = (id: string, projectId: ProjectId | null) => {
 };
 const BUILDER_ROLE_ID = "role:builder";
 
-/** How a bot's headquarters briefs the project manager it starts for one request. */
-const PROJECT_MANAGER_BRIEF =
-  "You are this project's manager for one request. Do small work yourself in this worktree, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
+/** How a bot's headquarters briefs the task it starts for one request. */
+const TASK_BRIEF =
+  "You do one request in this worktree. Do small work yourself, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
 
 /** What a bot's headquarters does; its runs keep the text they started with. */
 const headquartersTask = (botId: string) =>
   [
     `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
-    `Hand each request to its project, where it runs as one of that project's threads and its result wakes you. For small, clear work, start a task: delegate_task with target.projectId set to that project and isolation "worktree". Begin its task with: "${PROJECT_MANAGER_BRIEF}" Then the request, with everything the manager needs to know. For work that needs planning, design or several steps, or when the person asks for a feature, start one with t3_feature_start and that projectId: its lead runs it with its crew and reports here each time it stops. Link the thread you started in your reply, then end your turn.`,
+    `Hand each request to its project, where it runs as one of that project's threads and its result wakes you. For small, clear work, start a task: delegate_task with target.projectId set to that project and isolation "worktree". Begin its task with: "${TASK_BRIEF}" Then the request, with everything the task needs to know. For work that needs planning, design or several steps, or when the person asks for a feature, start one with t3_feature_start and that projectId: its lead runs it with its crew and reports here each time it stops. Link the thread you started in your reply, then end your turn.`,
     `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
     "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
     "Tell the person only what they must decide.",
@@ -118,10 +121,10 @@ const PLANNER_INSTRUCTIONS = `${crewInstructions("Planner")} ${PLANNER_SPLIT}`;
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
   {
-    id: PROJECT_MANAGER_ROLE_ID,
-    name: "Project manager",
+    id: FEATURE_MANAGER_ROLE_ID,
+    name: "Feature manager",
     allowedTools: [],
-    instructions: PROJECT_MANAGER_INSTRUCTIONS,
+    instructions: FEATURE_MANAGER_INSTRUCTIONS,
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
@@ -209,13 +212,13 @@ export interface CrewServiceShape {
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, CrewServiceError>;
   /**
-   * The project's manager, made from the project manager role on first use together with the
+   * The project's Feature manager, made from its role on first use together with the
    * builder it delegates to. Captain may delegate to it.
    */
-  readonly ensureProjectManager: (
+  readonly ensureFeatureManager: (
     projectId: ProjectId,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
-  /** A person's request to the project's bot, which hands it to the project's manager. */
+  /** A person's request to the project's bot, which hands it to the project's Feature manager. */
   readonly startRequest: (input: {
     readonly id: string;
     readonly projectId: ProjectId;
@@ -241,7 +244,7 @@ export interface CrewServiceShape {
   readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
   readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
   /**
-   * The project's member of a workflow's lead role: its manager for the project manager role,
+   * The project's member of a workflow's lead role: its Feature manager for that role,
    * else one made from the role on first use.
    */
   readonly ensureProjectLead: (
@@ -709,17 +712,17 @@ export const CrewServiceLive = Layer.effect(
       });
     });
 
-    const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
-      "CrewService.ensureProjectManager",
+    const ensureFeatureManager: CrewServiceShape["ensureFeatureManager"] = Effect.fn(
+      "CrewService.ensureFeatureManager",
     )(function* (projectId) {
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
-      const managerId = projectManagerMemberId(projectId);
+      const managerId = featureManagerMemberId(projectId);
       const builderId = projectBuilderMemberId(projectId);
       // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
       // disabled role) is completed by the next request once the role is back.
-      const manager = yield* projectMemberFromRole(managerId, projectId, PROJECT_MANAGER_ROLE_ID);
+      const manager = yield* projectMemberFromRole(managerId, projectId, FEATURE_MANAGER_ROLE_ID);
       const builder = yield* projectMemberFromRole(builderId, projectId, BUILDER_ROLE_ID);
       // The project's bot may delegate to the manager because it owns the project.
       yield* store.grantDelegation(managerId, builderId);
@@ -730,7 +733,7 @@ export const CrewServiceLive = Layer.effect(
     const ensureProjectLead: CrewServiceShape["ensureProjectLead"] = Effect.fn(
       "CrewService.ensureProjectLead",
     )(function* (projectId, roleId) {
-      if (roleId === PROJECT_MANAGER_ROLE_ID) return yield* ensureProjectManager(projectId);
+      if (roleId === FEATURE_MANAGER_ROLE_ID) return yield* ensureFeatureManager(projectId);
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
@@ -1027,16 +1030,16 @@ export const CrewServiceLive = Layer.effect(
             id: FEATURE_DELIVERY_WORKFLOW_ID,
             name: "Feature delivery",
             instructions: FEATURE_DELIVERY_INSTRUCTIONS,
-            leadRoleId: PROJECT_MANAGER_ROLE_ID,
+            leadRoleId: FEATURE_MANAGER_ROLE_ID,
             crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
-              role.id === PROJECT_MANAGER_ROLE_ID ? [] : [role.id],
+              role.id === FEATURE_MANAGER_ROLE_ID ? [] : [role.id],
             ),
           },
           {
             id: EPIC_WORKFLOW_ID,
             name: "Epic",
             instructions: EPIC_INSTRUCTIONS,
-            leadRoleId: PROJECT_MANAGER_ROLE_ID,
+            leadRoleId: FEATURE_MANAGER_ROLE_ID,
             crewRoleIds: ["role:planner", "role:qa-tester"],
           },
         ];
@@ -1060,12 +1063,12 @@ export const CrewServiceLive = Layer.effect(
           );
         }
       }),
-      ensureProjectManager,
+      ensureFeatureManager,
       ensureProjectLead,
       startRequest: Effect.fn("CrewService.startRequest")(function* (input) {
         const existing = yield* store.getRun(input.id);
         // A retry of an accepted request must not depend on today's crew or owner.
-        if (existing === null) yield* ensureProjectManager(input.projectId);
+        if (existing === null) yield* ensureFeatureManager(input.projectId);
         const memberId = existing?.memberId ?? (yield* bots.projectOwner(input.projectId));
         if (memberId === null) {
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
@@ -1074,7 +1077,7 @@ export const CrewServiceLive = Layer.effect(
           id: input.id,
           memberId,
           projectId: input.projectId,
-          taskText: `Project: ${input.projectId}. Project manager: ${projectManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
+          taskText: `Project: ${input.projectId}. Feature manager: ${featureManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
           modelSelection: input.modelSelection,
         });
       }),

@@ -1043,7 +1043,7 @@ it.effect("names a crew member's child after its feature lead's crew", () =>
       commandId: CommandId.make("create-feature-lead"),
       threadId: parentThreadId,
       projectId: ProjectId.make("project:app"),
-      title: "Project manager",
+      title: "Feature manager",
       modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",

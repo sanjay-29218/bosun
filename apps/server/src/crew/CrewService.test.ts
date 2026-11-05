@@ -11,7 +11,7 @@ import {
   botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   CommandId,
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -43,7 +43,7 @@ import {
   CrewService,
   CrewServiceLive,
   projectBuilderMemberId,
-  projectManagerMemberId,
+  featureManagerMemberId,
 } from "./CrewService.ts";
 import { CrewStore, CrewStoreLive } from "./CrewStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
@@ -132,8 +132,8 @@ describe("Bot foundation", () => {
           );
           const defaultRoleIds = defaultRoles.map((role) => role.id);
           expect(new Set(defaultRoleIds).size).toBe(defaultRoleIds.length);
-          expect(defaultRoleIds).toContain(PROJECT_MANAGER_ROLE_ID);
-          const manager = yield* bots.ensureProjectManager(projectId);
+          expect(defaultRoleIds).toContain(FEATURE_MANAGER_ROLE_ID);
+          const manager = yield* bots.ensureFeatureManager(projectId);
           const role = yield* bots.createRole({
             id: "role:custom",
             name: "Researcher",
@@ -204,10 +204,10 @@ describe("Bot foundation", () => {
             expectedRevision: builderRole.revision,
             enabled: false,
           });
-          const failed = yield* Effect.exit(bots.ensureProjectManager(projectId));
+          const failed = yield* Effect.exit(bots.ensureFeatureManager(projectId));
           expect(failed._tag).toBe("Failure");
           // The manager was made; the builder and its grant were not.
-          expect(yield* store.getMember(projectManagerMemberId(projectId))).not.toBeNull();
+          expect(yield* store.getMember(featureManagerMemberId(projectId))).not.toBeNull();
           expect(yield* store.getMember(projectBuilderMemberId(projectId))).toBeNull();
 
           yield* bots.updateRole({
@@ -215,7 +215,7 @@ describe("Bot foundation", () => {
             expectedRevision: disabled.revision,
             enabled: true,
           });
-          const manager = yield* bots.ensureProjectManager(projectId);
+          const manager = yield* bots.ensureFeatureManager(projectId);
           expect(yield* store.getMember(projectBuilderMemberId(projectId))).not.toBeNull();
           expect(
             yield* store.canDelegate(manager.id, projectBuilderMemberId(projectId), projectId),
@@ -229,45 +229,47 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("creates a project's manager once, and its owning bot may delegate to it", () =>
-    Effect.gen(function* () {
-      const directory = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-")),
-      );
-      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
-        Effect.gen(function* () {
-          yield* createProject(engine);
-          yield* bots.ensureDefaults(modelSelection);
-          expect(yield* store.getMember(CAPTAIN_BOT_ID)).toBeNull();
-          expect(yield* store.getMember(projectManagerMemberId(projectId))).toBeNull();
-          const first = yield* bots.ensureProjectManager(projectId);
-          const second = yield* bots.ensureProjectManager(projectId);
-          expect(first.id).toBe(projectManagerMemberId(projectId));
-          expect(first.roleId).toBe(PROJECT_MANAGER_ROLE_ID);
-          expect(second).toEqual(first);
-          const members = (yield* store.listMembersForProject(projectId)).filter(
-            (member) => member.projectId === projectId,
-          );
-          expect(members.map((member) => member.id).toSorted()).toEqual(
-            [projectBuilderMemberId(projectId), projectManagerMemberId(projectId)].toSorted(),
-          );
-          expect(yield* store.canDelegate(CAPTAIN_BOT_ID, first.id, projectId)).toBe(true);
-          expect(
-            yield* store.canDelegate(first.id, projectBuilderMemberId(projectId), projectId),
-          ).toBe(true);
-          // Captain's permission follows from owning the project, not a stored grant.
-          expect(
-            (yield* store.listDelegationGrantsForProject(projectId)).map(
-              (grant) => grant.sourceMemberId,
-            ),
-          ).not.toContain(CAPTAIN_BOT_ID);
-        }),
-      ).pipe(
-        Effect.ensuring(
-          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
-        ),
-      );
-    }),
+  effectIt.effect(
+    "creates a project's Feature manager once, and its owning bot may delegate to it",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-")),
+        );
+        yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
+          Effect.gen(function* () {
+            yield* createProject(engine);
+            yield* bots.ensureDefaults(modelSelection);
+            expect(yield* store.getMember(CAPTAIN_BOT_ID)).toBeNull();
+            expect(yield* store.getMember(featureManagerMemberId(projectId))).toBeNull();
+            const first = yield* bots.ensureFeatureManager(projectId);
+            const second = yield* bots.ensureFeatureManager(projectId);
+            expect(first.id).toBe(featureManagerMemberId(projectId));
+            expect(first.roleId).toBe(FEATURE_MANAGER_ROLE_ID);
+            expect(second).toEqual(first);
+            const members = (yield* store.listMembersForProject(projectId)).filter(
+              (member) => member.projectId === projectId,
+            );
+            expect(members.map((member) => member.id).toSorted()).toEqual(
+              [projectBuilderMemberId(projectId), featureManagerMemberId(projectId)].toSorted(),
+            );
+            expect(yield* store.canDelegate(CAPTAIN_BOT_ID, first.id, projectId)).toBe(true);
+            expect(
+              yield* store.canDelegate(first.id, projectBuilderMemberId(projectId), projectId),
+            ).toBe(true);
+            // Captain's permission follows from owning the project, not a stored grant.
+            expect(
+              (yield* store.listDelegationGrantsForProject(projectId)).map(
+                (grant) => grant.sourceMemberId,
+              ),
+            ).not.toContain(CAPTAIN_BOT_ID);
+          }),
+        ).pipe(
+          Effect.ensuring(
+            Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+          ),
+        );
+      }),
   );
 
   effectIt.effect("project-level members follow their role's edits until customized", () =>
@@ -279,8 +281,8 @@ describe("Bot foundation", () => {
         Effect.gen(function* () {
           yield* createProject(engine);
           yield* bots.ensureDefaults(modelSelection);
-          yield* bots.ensureProjectManager(projectId);
-          const managerRole = (yield* store.getRole(PROJECT_MANAGER_ROLE_ID))!;
+          yield* bots.ensureFeatureManager(projectId);
+          const managerRole = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
           const otherModel = { ...modelSelection, model: "gpt-5.5" };
           yield* bots.updateRole({
             ...managerRole,
@@ -289,7 +291,7 @@ describe("Bot foundation", () => {
             modelSelection: otherModel,
             expectedRevision: managerRole.revision,
           });
-          const manager = (yield* store.getMember(projectManagerMemberId(projectId)))!;
+          const manager = (yield* store.getMember(featureManagerMemberId(projectId)))!;
           expect(manager).toMatchObject({
             name: "Lead",
             roleRevision: managerRole.revision + 1,
@@ -310,7 +312,7 @@ describe("Bot foundation", () => {
             },
             builderRole.revision,
           );
-          yield* bots.ensureProjectManager(projectId);
+          yield* bots.ensureFeatureManager(projectId);
           const builder = (yield* store.getMember(projectBuilderMemberId(projectId)))!;
           expect(builder.instructions).toBe(`Build, edited.\n\nYou work on project ${projectId}.`);
           expect(builder.roleRevision).toBe(builderRole.revision + 1);
@@ -318,16 +320,16 @@ describe("Bot foundation", () => {
           // A customized member keeps its settings.
           yield* sql`
             UPDATE crew_members SET customized_at = '2026-11-05'
-            WHERE id = ${projectManagerMemberId(projectId)}
+            WHERE id = ${featureManagerMemberId(projectId)}
           `;
-          const lead = (yield* store.getRole(PROJECT_MANAGER_ROLE_ID))!;
+          const lead = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
           yield* bots.updateRole({
             ...lead,
             instructions: "Lead, edited again.",
             expectedRevision: lead.revision,
           });
-          yield* bots.ensureProjectManager(projectId);
-          expect(yield* store.getMember(projectManagerMemberId(projectId))).toEqual(manager);
+          yield* bots.ensureFeatureManager(projectId);
+          expect(yield* store.getMember(featureManagerMemberId(projectId))).toEqual(manager);
         }),
       ).pipe(
         Effect.ensuring(
@@ -371,7 +373,7 @@ describe("Bot foundation", () => {
           expect(
             yield* store.canDelegate(
               CAPTAIN_BOT_ID,
-              projectManagerMemberId(projectId),
+              featureManagerMemberId(projectId),
               ProjectId.make("other-project"),
             ),
           ).toBe(false);
@@ -428,7 +430,7 @@ describe("Bot foundation", () => {
         Effect.gen(function* () {
           yield* createProject(engine);
           yield* bots.ensureDefaults(modelSelection);
-          const manager = yield* bots.ensureProjectManager(projectId);
+          const manager = yield* bots.ensureFeatureManager(projectId);
           const before = yield* bots.createRun({
             id: "captain-before-move",
             memberId: CAPTAIN_BOT_ID,

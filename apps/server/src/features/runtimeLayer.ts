@@ -10,6 +10,7 @@ import * as TicketService from "../tickets/TicketService.ts";
 import { CrewChangesLive } from "../crew/CrewChanges.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { dismissRetiredWorkflowQuestions } from "../crew/retiredWorkflowQuestions.ts";
+import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
@@ -77,6 +78,12 @@ const RetiredWorkflowQuestionsLive = Layer.effectDiscard(
   ),
 );
 
+const FeatureManagerTitlesLive = Layer.effectDiscard(
+  retitleFeatureManagerLeads().pipe(
+    Effect.catchCause((cause) => Effect.logWarning("Could not retitle feature leads", { cause })),
+  ),
+);
+
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
   TicketService.layer.pipe(
@@ -88,6 +95,7 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   BotAutomationsLive,
   FeatureReportsLive,
   RetiredWorkflowQuestionsLive,
+  FeatureManagerTitlesLive,
 ).pipe(
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),

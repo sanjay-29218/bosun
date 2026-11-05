@@ -28,7 +28,7 @@ the rail opens it the first time, clicking the bot you're on opens it again, and
 (Ctrl-clicking) a bot always opens it. You can also open it from the bot at the top of the sidebar (or the thread list on
 mobile), or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
-questions. It hands a project small, clear work as a **task**: a fresh project manager that works
+questions. It hands a project small, clear work as a **task**: a fresh agent that works
 in its own worktree of that project and opens a pull request. Work that needs planning or several
 steps, or that you ask to be a feature, it starts as a [feature](./features.md), which a lead runs
 with its crew. Either way the work is one of that project's threads, listed and on the board with
@@ -90,14 +90,14 @@ one. **Feature delivery** is the default and can be edited but not deleted. A ro
 uses says **Not in a workflow**.
 
 The **Library**'s Roles are who leads a feature and who its lead can hand work to. **+ New**
-beside Roles adds one, and offers **Add the starter roles** for a Project manager, Planner,
+beside Roles adds one, and offers **Add the starter roles** for a Feature manager, Planner,
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research; give any
 role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
 default model, whose picker also sets reasoning, speed and **Access**, from **Supervised** to
 **Full access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
-on. Each project gets its own project manager the first time a request or feature needs one;
+on. Each project gets its own Feature manager the first time a request or feature needs one;
 editing a role changes the crews of features started later, not existing ones.
 
 Editing bots, workflows and roles is available on web and desktop.
@@ -106,7 +106,7 @@ Editing bots, workflows and roles is available on web and desktop.
 
 A feature shows in the sidebar as one row, titled by the feature, with the crew members its lead
 has handed work to on its third line. Clicking the row opens the thread waiting on you if there is
-one, otherwise the feature's lead (its project manager's thread). A thread of the feature that
+one, otherwise the feature's lead (its Feature manager's thread). A thread of the feature that
 waits on you also shows under the row. The **Crew** tab in the right panel lists the lead and each
 crew member's thread with its state, plus the feature's branch and pull request; a member handed
 work twice shows as **Planner · try 2**. Subagents a crew member starts stay inside its thread.

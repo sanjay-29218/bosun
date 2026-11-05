@@ -1,6 +1,6 @@
 # Features
 
-A feature is a brief that a project's manager leads to done with a crew of roles. The board shows
+A feature is a brief that a Feature manager leads to done with a crew of roles. The board shows
 every feature across your projects and everything waiting on you. Click the board button at the
 top right of a thread, press `mod+alt+shift+b`, or choose **Switch to Board** in the command
 palette; the same button returns to your threads. The toggle appears when a connected environment
@@ -44,7 +44,7 @@ child to open its lead; its menu closes or reopens it.
 
 A feature follows a workflow from the **Library** (from the bot rail or the bottom of the
 sidebar): the role that leads it, the crew roles it hands work to, and instructions for the lead.
-**Feature delivery** is led by the Project manager with a Planner, Designer, Builder, QA Tester
+**Feature delivery** is led by the Feature manager with a Planner, Designer, Builder, QA Tester
 and Reviewer; you can edit it but not delete it. Crew roles that are turned off are skipped. The
 lead hands a crew member a task, such as a plan for the Planner, and
 the member's thread shows under the lead in the thread's **Crew** tab, named by the member. Each

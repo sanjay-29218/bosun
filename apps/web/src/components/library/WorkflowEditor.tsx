@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   type EnvironmentId,
   type RoleConfig,
   type WorkflowConfig,
@@ -63,7 +63,7 @@ export function WorkflowEditorForm({
   );
   const canDelete = useAtomValue(rolesEnvironment.deleteWorkflow.permissionAtom(environmentId));
   const defaultLead =
-    roles.find((role) => role.id === PROJECT_MANAGER_ROLE_ID && role.enabled) ??
+    roles.find((role) => role.id === FEATURE_MANAGER_ROLE_ID && role.enabled) ??
     roles.find((role) => role.enabled);
   const [name, setName] = useState(workflow?.name ?? "");
   const [instructions, setInstructions] = useState(workflow?.instructions ?? "");

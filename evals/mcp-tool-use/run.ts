@@ -39,7 +39,7 @@ import {
   crewRunPrompt,
   FEATURE_DELIVERY_INSTRUCTIONS,
   featureLeadTask,
-  PROJECT_MANAGER_INSTRUCTIONS,
+  FEATURE_MANAGER_INSTRUCTIONS,
 } from "../../apps/server/src/crew/crewPrompts.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
@@ -1021,7 +1021,7 @@ export const buildMessages = (sample: Sample) => {
     const lead = testCase.setup.featureLead;
     if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
     return crewRunPrompt({
-      instructions: PROJECT_MANAGER_INSTRUCTIONS,
+      instructions: FEATURE_MANAGER_INSTRUCTIONS,
       taskText: featureLeadTask(
         { id: "feature:eval", title: lead.title, brief: prompt },
         { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },

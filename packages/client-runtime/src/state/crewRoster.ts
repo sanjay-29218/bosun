@@ -20,7 +20,7 @@ export type CrewRosterTone = "done" | "working" | "waiting" | "failed" | "idle";
 export interface CrewRosterEntry {
   readonly key: string;
   readonly kind: "lead" | "member";
-  /** "Project manager", "Planner", "Planner · try 2". */
+  /** "Feature manager", "Planner", "Planner · try 2". */
   readonly name: string;
   readonly threadId: ThreadId;
   readonly status: string;

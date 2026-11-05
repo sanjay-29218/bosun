@@ -5,7 +5,7 @@ import { ModelSelection } from "./modelSelection.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
- * Crew mode: global Roles (planner, designer, builder, reviewer, project manager...) and the
+ * Crew mode: global Roles (planner, designer, builder, reviewer, feature manager...) and the
  * crew members a project or feature instantiates from them. Runs are the durable work those
  * members do. "Bot" is reserved for the top-level bots that own projects.
  */
@@ -26,8 +26,8 @@ export const CREW_DISPATCH_STATE = {
 } as const;
 export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_DISPATCH_STATE];
 
-/** The global role every project's manager is made from, which Captain delegates to. */
-export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
+/** The role that leads a feature in the built-in workflows; each project's lead is made from it. */
+export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
 
 /**
  * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.

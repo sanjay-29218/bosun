@@ -11,6 +11,7 @@ import {
   CommandId,
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
+  FEATURE_MANAGER_ROLE_ID,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -41,6 +42,8 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
+import FeatureManagerMigration from "../persistence/Migrations/101_FeatureManager.ts";
+import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
 
 const projectId = ProjectId.make("workflow-feature-project");
@@ -658,6 +661,98 @@ describe("feature lead and crew", () => {
             }),
           ),
         ).toMatchObject({ message: "Branch no-such-branch doesn't exist in this project" });
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "keeps delegating to a custom workflow's old manager by name after the rename",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const features = yield* FeatureService;
+          const sql = yield* SqlClient.SqlClient;
+          const workflow = yield* crew.createWorkflow({
+            id: "workflow:managed",
+            name: "Managed",
+            instructions: "Plan it, then have the manager run it.",
+            leadRoleId: "role:planner",
+            crewRoleIds: [FEATURE_MANAGER_ROLE_ID],
+          });
+          yield* features.create({
+            id: "managed-feature",
+            projectId,
+            title: "Managed",
+            brief: "Run it",
+            workspace: "local",
+            workflowId: workflow.id,
+          });
+          // Back to the shape a feature started before the rename has.
+          yield* sql`
+          INSERT INTO roles (
+            id, name, instructions, allowed_tools_json, model_selection_json, runtime_mode,
+            enabled, auto_create_for_feature, revision, created_at, updated_at
+          )
+          SELECT 'role:project-manager', 'Project manager', instructions, allowed_tools_json,
+            model_selection_json, runtime_mode, enabled, auto_create_for_feature, revision,
+            created_at, updated_at
+          FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}
+        `;
+          yield* sql`
+          UPDATE crew_members SET role_id = 'role:project-manager', name = 'Project manager'
+          WHERE role_id = ${FEATURE_MANAGER_ROLE_ID}
+        `;
+          yield* sql`
+          UPDATE workflows SET
+            lead_role_id = replace(lead_role_id, ${FEATURE_MANAGER_ROLE_ID}, 'role:project-manager'),
+            crew_role_ids_json = replace(crew_role_ids_json, ${FEATURE_MANAGER_ROLE_ID}, 'role:project-manager')
+        `;
+          yield* sql`DELETE FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}`;
+          expect(
+            (yield* features.crewMember("managed-feature", "role:project-manager"))?.name,
+          ).toBe("Project manager");
+
+          yield* FeatureManagerMigration;
+
+          expect((yield* features.crewMember("managed-feature", "Project manager"))?.name).toBe(
+            "Project manager",
+          );
+          expect(yield* features.crewMember("managed-feature", "role:project-manager")).toBeNull();
+          expect((yield* crew.getWorkflow(workflow.id))?.crewRoleIds).toEqual([
+            FEATURE_MANAGER_ROLE_ID,
+          ]);
+        }),
+      ),
+  );
+
+  effectIt.effect("retitles open features' leads still called Project manager, once", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const sql = yield* SqlClient.SqlClient;
+        const lead = Effect.fnUntraced(function* (id: string) {
+          yield* features.create({ id, projectId, title: id, brief: "Brief", workspace: "local" });
+          const { leadThreadId } = yield* features.start(id, projectId);
+          expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Feature manager");
+          yield* engine.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make(`old-title:${id}`),
+            threadId: leadThreadId,
+            title: "Project manager",
+          });
+          return leadThreadId;
+        });
+        const open = yield* lead("open-feature");
+        const closed = yield* lead("closed-feature");
+        yield* sql`UPDATE features SET status = 'closed' WHERE id = 'closed-feature'`;
+
+        yield* retitleFeatureManagerLeads();
+        yield* retitleFeatureManagerLeads();
+
+        expect((yield* engine.getThreadShell(open))?.title).toBe("Feature manager");
+        expect((yield* engine.getThreadShell(closed))?.title).toBe("Project manager");
       }),
     ),
   );

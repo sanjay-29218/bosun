@@ -102,7 +102,7 @@ const make = Effect.gen(function* () {
             ...(shell.feature
               ? { parentFeatureId: shell.feature.id }
               : {
-                  // A subagent, such as a bot's project manager, has already reported back; its
+                  // A subagent, such as a bot's delegated task, has already reported back; its
                   // top thread is the one to keep posted.
                   requesterThreadId:
                     shell.lineage.relationshipToParent === "subagent"

@@ -55,6 +55,7 @@ import FeatureReports from "./Migrations/097_FeatureReports.ts";
 import ProjectHandoffs from "./Migrations/098_ProjectHandoffs.ts";
 import FeatureLeadRequester from "./Migrations/099_FeatureLeadRequester.ts";
 import CrewMemberCustomized from "./Migrations/100_CrewMemberCustomized.ts";
+import FeatureManager from "./Migrations/101_FeatureManager.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -102,6 +103,7 @@ const migrationEntries = [
   [98, "ProjectHandoffs", ProjectHandoffs],
   [99, "FeatureLeadRequester", FeatureLeadRequester],
   [100, "CrewMemberCustomized", CrewMemberCustomized],
+  [101, "FeatureManager", FeatureManager],
 ] as const;
 
 const legacyNames = new Set([

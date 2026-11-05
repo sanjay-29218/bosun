@@ -1464,7 +1464,7 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:crew:new-feature",
-      searchTerms: ["new feature", "crew", "brief", "project manager"],
+      searchTerms: ["new feature", "crew", "brief", "feature manager"],
       title: "New feature…",
       description: "A new thread whose first message is the brief",
       icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
@@ -1708,7 +1708,7 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:library",
-    searchTerms: ["library", "roles", "crew", "project manager"],
+    searchTerms: ["library", "roles", "crew", "feature manager"],
     title: "Open library",
     icon: <LayersIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "library.open",

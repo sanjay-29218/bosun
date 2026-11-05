@@ -1,6 +1,6 @@
 import {
   EnvironmentId,
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
   type WorkflowConfig,
@@ -28,7 +28,7 @@ const delivery: WorkflowConfig = {
   id: "workflow:feature-delivery",
   name: "Feature delivery",
   instructions: "Plan, build, QA.",
-  leadRoleId: PROJECT_MANAGER_ROLE_ID,
+  leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: ["role:builder"],
   revision: 1,
 };
@@ -36,7 +36,7 @@ const delivery: WorkflowConfig = {
 describe("roleAvailabilityNote", () => {
   it("says when a role is off or no workflow leads or uses it", () => {
     expect(roleAvailabilityNote(role("role:builder"), [delivery])).toBeNull();
-    expect(roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID), [delivery])).toBeNull();
+    expect(roleAvailabilityNote(role(FEATURE_MANAGER_ROLE_ID), [delivery])).toBeNull();
     expect(roleAvailabilityNote(role("role:builder", { enabled: false }), [delivery])).toBe("Off");
     expect(roleAvailabilityNote(role("role:helper"), [delivery])).toBe("Not in a workflow");
   });

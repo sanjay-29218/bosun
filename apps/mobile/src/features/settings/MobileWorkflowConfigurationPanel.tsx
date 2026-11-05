@@ -1,6 +1,6 @@
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   type EnvironmentId,
   type RoleConfig,
   type WorkflowConfig,
@@ -36,8 +36,8 @@ function Editor(props: {
   const [instructions, setInstructions] = useState(props.workflow?.instructions ?? "");
   const [leadRoleId, setLeadRoleId] = useState(
     props.workflow?.leadRoleId ??
-      (props.roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID)
-        ? PROJECT_MANAGER_ROLE_ID
+      (props.roles.some((role) => role.id === FEATURE_MANAGER_ROLE_ID)
+        ? FEATURE_MANAGER_ROLE_ID
         : ""),
   );
   const [crewRoleIds, setCrewRoleIds] = useState<ReadonlyArray<string>>(
