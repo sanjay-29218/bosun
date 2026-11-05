@@ -38,6 +38,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { MobileProjectBotSection } from "./MobileProjectBotSection";
+import { MobileProjectManagerSection } from "./MobileProjectManagerSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import {
   useSettingsEnvironmentMenu,
@@ -357,6 +358,18 @@ function ProjectOverviewContent(props: {
         return environment?.serverConfig.environment.capabilities.bots === true ? (
           <MobileProjectBotSection
             key={`bot:${member.environmentId}:${member.id}`}
+            project={member}
+            environmentLabel={environment.label}
+          />
+        ) : null;
+      })}
+      {props.members.map((member) => {
+        const environment = props.environments.find(
+          (entry) => entry.environmentId === member.environmentId,
+        );
+        return environment?.serverConfig.environment.capabilities.workflows === true ? (
+          <MobileProjectManagerSection
+            key={`manager:${member.environmentId}:${member.id}`}
             project={member}
             environmentLabel={environment.label}
           />

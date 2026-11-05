@@ -61,11 +61,11 @@ import {
 import {
   AuthOrchestrationOperateScope,
   featureIssueRef,
-  headquartersBotId,
+  isStandingThread,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { startBotNewSession } from "./bots/startBotNewSession";
+import { startStandingNewSession } from "./bots/startStandingNewSession";
 
 import {
   CheckIcon,
@@ -131,6 +131,7 @@ import {
   useVisibleLogicalBots,
 } from "../state/botRail";
 import { useMoveProjectToBotMenu } from "./sidebar/moveProjectToBot";
+import { OPEN_PROJECT_MANAGER_ITEM, useOpenProjectManager } from "./sidebar/openProjectManager";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -179,6 +180,7 @@ import { useThreadSearch } from "../state/queries";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { rolesEnvironment } from "../state/roles";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import {
@@ -1263,11 +1265,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // Right-click on a project in the picker: its settings, and moving it to another bot.
   // With nowhere to move it (one bot), right-click opens settings as before.
   const moveProjectToBotMenu = useMoveProjectToBotMenu();
+  const openProjectManager = useOpenProjectManager();
+  /** A project's manager runs on Bosun servers, for people who may start its thread. */
+  const canOpenProjectManager = (group: SidebarProjectSnapshot) =>
+    serverConfigs.get(group.environmentId)?.environment.capabilities.workflows === true &&
+    appAtomRegistry.get(rolesEnvironment.openProjectManager.permissionAtom(group.environmentId));
+  const openGroupProjectManager = (group: SidebarProjectSnapshot) =>
+    void openProjectManager({
+      environmentId: group.environmentId,
+      projectId: group.id,
+      title: group.displayName,
+    });
   const handleProjectContextMenu = useStableCallback(
     (event: ReactMouseEvent<HTMLElement>, projectGroup: SidebarProjectSnapshot) => {
       const api = readLocalApi();
       const moveItem = moveProjectToBotMenu.build(projectGroup.memberProjects);
-      if (!api || moveItem === null) {
+      const managerItem = canOpenProjectManager(projectGroup) ? OPEN_PROJECT_MANAGER_ITEM : null;
+      if (!api || (moveItem === null && managerItem === null)) {
         handleProjectSettings(event, projectGroup);
         return;
       }
@@ -1278,7 +1292,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       void (async () => {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            [{ id: "project-settings", label: "Project settings", icon: "settings" }, moveItem],
+            [
+              { id: "project-settings", label: "Project settings", icon: "settings" },
+              ...(managerItem ? [managerItem] : []),
+              ...(moveItem ? [moveItem] : []),
+            ],
             position,
           ),
         );
@@ -1286,6 +1304,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         if (clicked.value === "project-settings") {
           dispatchProjectScopeMenu({ type: "project-settings-opened" });
           openProjectSettings(projectGroup);
+          return;
+        }
+        if (clicked.value === OPEN_PROJECT_MANAGER_ITEM.id) {
+          openGroupProjectManager(projectGroup);
           return;
         }
         moveProjectToBotMenu.run(clicked.value, projectGroup.memberProjects);
@@ -1315,6 +1337,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   ]
                 : []),
               { id: "project-settings", label: "Project settings", icon: "settings" },
+              ...(canOpenProjectManager(group) ? [OPEN_PROJECT_MANAGER_ITEM] : []),
               ...(moveItem ? [moveItem] : []),
             ],
             position,
@@ -1335,6 +1358,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "project-settings":
             openProjectSettings(group);
+            return;
+          case OPEN_PROJECT_MANAGER_ITEM.id:
+            openGroupProjectManager(group);
             return;
         }
       })();
@@ -2714,7 +2740,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
-              isHeadquarters: headquartersBotId(thread.id) !== null,
+              isStanding: isStandingThread(thread.id),
               feature: thread.feature
                 ? { issueRef: thread.feature.issue ? featureIssueRef(thread.feature.issue) : null }
                 : null,
@@ -2894,9 +2920,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "feature":
             return;
           case "new-session": {
-            const botId = headquartersBotId(thread.id);
-            if (botId !== null) {
-              await startBotNewSession(thread.environmentId, { id: botId, name: thread.title });
+            if (isStandingThread(thread.id)) {
+              await startStandingNewSession(thread.environmentId, {
+                threadId: thread.id,
+                name: thread.title,
+              });
             }
             return;
           }

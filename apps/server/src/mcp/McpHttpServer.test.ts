@@ -1445,6 +1445,7 @@ it.effect(
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
+          readonly requestId?: string | undefined;
         }> = [];
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
@@ -1462,6 +1463,7 @@ it.effect(
           ["plainToken", scopeFor("thread-plain")],
           ["crewToken", scopeFor("bot-run:builder")],
           ["hqToken", scopeFor("bot-run:bot-hq:captain")],
+          ["managerToken", scopeFor("bot-run:project-hq:project:mcp-test")],
         ]);
         const UpstreamToolkit = Toolkit.make(
           Tool.make("upstream", {
@@ -1509,7 +1511,12 @@ it.effect(
               }),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
-              Layer.mock(ProjectRequests)({}),
+              Layer.mock(ProjectRequests)({
+                get: (projectId, requestId) =>
+                  Effect.succeed(
+                    projectId === "project:mcp-test" && requestId === "R-7" ? ({} as never) : null,
+                  ),
+              }),
               Layer.mock(BotReach.BotReach)({}),
               Layer.mock(FeatureService)({
                 projectBot: (projectId) =>
@@ -1661,6 +1668,21 @@ it.effect(
             requesterThreadId: "bot-run:bot-hq:captain",
           }),
         ]);
+
+        // Only a project's manager names the request a feature answers, one its project has.
+        const answering = (session: typeof crew, requestId: string) =>
+          session
+            .call("t3_feature_start", { title: "Dark mode", brief: "Add dark mode", requestId })
+            .pipe(Effect.map((body) => JSON.stringify(body)));
+        const manager = yield* sessionFor("managerToken");
+        expect(yield* answering(headquarters, "R-7")).toContain("Only a project's manager");
+        expect(yield* answering(crew, "R-7")).toContain("Only a project's manager");
+        expect(yield* answering(manager, "R-9")).toContain("no request R-9");
+        expect(yield* answering(manager, "R-7")).toContain("feature:x");
+        expect(launched.at(-1)).toMatchObject({
+          projectId: "project:mcp-test",
+          requestId: "R-7",
+        });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

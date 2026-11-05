@@ -63,6 +63,7 @@ import {
   FEATURE_DELIVERY_INSTRUCTIONS,
   FEATURE_MANAGER_INSTRUCTIONS,
   PROJECT_MANAGER_INSTRUCTIONS,
+  projectManagerTask,
   crewRunPrompt,
   headquartersTask,
 } from "./crewPrompts.ts";
@@ -103,10 +104,6 @@ const projectMemberContext = (id: string, projectId: ProjectId | null) => {
   return null;
 };
 const BUILDER_ROLE_ID = "role:builder";
-
-/** What a project's standing manager does; its run keeps the text it started with. */
-const projectManagerTask = (projectId: ProjectId) =>
-  `You are project ${projectId}'s manager. Each request arrives as its own message; until one does, there is nothing to do.`;
 
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";

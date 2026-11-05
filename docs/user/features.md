@@ -16,7 +16,10 @@ the workflow's lead, which has the workflow's instructions, the brief and the na
 its first message. The first
 time the board opens, **Start a feature** adds the starter roles first.
 
-Ask a full-access bot to start a feature in a project, and it does the same.
+Most features start from a bot's request: the bot hands it to the project's
+[Project manager](./bots.md#project-managers), which starts a feature when the work needs one,
+links the issue it tracks, and hears from the feature's lead each time it stops. Ask a bot to start
+the feature itself, and it does the same as **New feature** without the Project manager.
 
 Attach images or files to the brief to send them to the lead with it.
 

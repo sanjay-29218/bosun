@@ -24,6 +24,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { forkParked } from "../serverActivation.ts";
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
+import { projectRequestText } from "./crewPrompts.ts";
 
 class ProjectRequestError extends Error {
   readonly _tag = "ProjectRequestError";
@@ -169,7 +170,7 @@ const make = Effect.gen(function* () {
       commandId: ids.commandId,
       messageId: ids.messageId,
       threadId: managerThreadId,
-      text: `Request ${request.id} from thread ${request.requesterThreadId}:\n\n${request.text}\n\nAnswer it with t3_project_reply, requestId "${request.id}".`,
+      text: projectRequestText(request),
       attachments: [],
       dispatchMode: { type: "queue_after_active" },
       createdBy: "agent",
@@ -432,9 +433,9 @@ const make = Effect.gen(function* () {
           ? `${said.slice(0, MAX_FORWARD_CHARS)}… (read the rest in its thread)`
           : said || "(no message)";
       for (const request of unanswered) {
-        // With one request the turn's last message answers it; with several, nothing says which.
+        // With one request the turn's last message answers it; with several, it may answer another.
         const message =
-          unanswered.length === 1
+          taken.length === 1
             ? `${name}'s project manager ended its turn on ${request.id} without replying. Its last message:\n\n${forwarded}`
             : `${request.id} reached ${name}'s project manager, which is on it.`;
         yield* tellRequester(

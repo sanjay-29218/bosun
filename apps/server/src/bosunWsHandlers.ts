@@ -165,6 +165,15 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
           crew
             .resetProjectManager(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewOpenProjectManager]: (input) =>
+          crew.ensureProjectManager(input.projectId).pipe(
+            Effect.map((run) => ({ threadId: run.threadId })),
+            Effect.mapError((error) => new CrewOperationError({ reason: error.message })),
+          ),
+        [WS_METHODS.crewStartNewSession]: (input) =>
+          crew
+            .startNewSession(input.threadId)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.crewStart]: (input) =>
           crew.startRequest(input).pipe(
             Effect.map((run) => ({ runId: run.id, threadId: run.threadId })),

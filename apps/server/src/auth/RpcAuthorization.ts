@@ -69,6 +69,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.crewProjectManager]: AuthOrchestrationReadScope,
   [WS_METHODS.crewUpdateProjectManager]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewResetProjectManager]: AuthOrchestrationOperateScope,
+  [WS_METHODS.crewOpenProjectManager]: AuthOrchestrationOperateScope,
+  [WS_METHODS.crewStartNewSession]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.getNativeChildWork]: AuthOrchestrationReadScope,

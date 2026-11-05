@@ -11,7 +11,7 @@ import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/threa
 import {
   AuthOrchestrationOperateScope,
   featureIssueRef,
-  headquartersBotId,
+  isStandingThread,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -19,7 +19,7 @@ import { useRouter } from "@tanstack/react-router";
 
 import { runFeatureIssueAction } from "../components/crew/FeatureIssue";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
-import { startBotNewSession } from "../components/bots/startBotNewSession";
+import { startStandingNewSession } from "../components/bots/startStandingNewSession";
 import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
@@ -152,7 +152,7 @@ export function useThreadActionMenu(input: {
         supports,
         snoozePresets,
         canShareWithGuest,
-        isHeadquarters: headquartersBotId(thread.id) !== null,
+        isStanding: isStandingThread(thread.id),
         feature: thread.feature
           ? { issueRef: thread.feature.issue ? featureIssueRef(thread.feature.issue) : null }
           : null,
@@ -268,9 +268,11 @@ export function useThreadActionMenu(input: {
         case "feature":
           return;
         case "new-session": {
-          const botId = headquartersBotId(thread.id);
-          if (botId !== null) {
-            await startBotNewSession(threadRef.environmentId, { id: botId, name: thread.title });
+          if (isStandingThread(thread.id)) {
+            await startStandingNewSession(threadRef.environmentId, {
+              threadId: thread.id,
+              name: thread.title,
+            });
           }
           return;
         }

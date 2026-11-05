@@ -26,8 +26,6 @@ const view = (request: ProjectRequest) => ({
   text: request.text,
   issue: request.issueRef,
   status: request.status,
-  createdAt: request.createdAt,
-  closedAt: request.closedAt,
 });
 
 /** The thread that hears back: a subagent's top thread, since the subagent has already ended. */
@@ -71,7 +69,6 @@ export const layer = McpToolAccess.toLayer(ProjectRequestsToolkit, {
         });
         return {
           requestId: request.id,
-          projectId: request.projectId,
           managerThreadId,
           link: McpInvocationContext.threadLinkFor(scope, managerThreadId),
         };

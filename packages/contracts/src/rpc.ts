@@ -58,7 +58,9 @@ import {
   CrewSetHierarchyInput,
   CrewStartInput,
   CrewStartResult,
+  CrewStartNewSessionInput,
   ProjectManagerResetInput,
+  ProjectManagerThread,
   ProjectManagerSettings,
   ProjectManagerUpdateInput,
   RoleConfig,
@@ -507,6 +509,8 @@ export const WS_METHODS = {
   crewProjectManager: "crew.projectManager",
   crewUpdateProjectManager: "crew.updateProjectManager",
   crewResetProjectManager: "crew.resetProjectManager",
+  crewOpenProjectManager: "crew.openProjectManager",
+  crewStartNewSession: "crew.startNewSession",
   projectsListEntries: "projects.listEntries",
   projectsListIgnoredFiles: "projects.listIgnoredFiles",
   projectsReadFile: "projects.readFile",
@@ -1308,6 +1312,15 @@ const WsCrewUpdateProjectManagerRpc = Rpc.make(WS_METHODS.crewUpdateProjectManag
 const WsCrewResetProjectManagerRpc = Rpc.make(WS_METHODS.crewResetProjectManager, {
   payload: ProjectManagerResetInput,
   success: ProjectManagerSettings,
+  error: CrewRpcError,
+});
+const WsCrewOpenProjectManagerRpc = Rpc.make(WS_METHODS.crewOpenProjectManager, {
+  payload: CrewProjectInput,
+  success: ProjectManagerThread,
+  error: CrewRpcError,
+});
+const WsCrewStartNewSessionRpc = Rpc.make(WS_METHODS.crewStartNewSession, {
+  payload: CrewStartNewSessionInput,
   error: CrewRpcError,
 });
 const WsCrewStartRpc = Rpc.make(WS_METHODS.crewStart, {
@@ -2347,6 +2360,8 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsCrewProjectManagerRpc,
   WsCrewUpdateProjectManagerRpc,
   WsCrewResetProjectManagerRpc,
+  WsCrewOpenProjectManagerRpc,
+  WsCrewStartNewSessionRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const T3WsRpcGroup = RpcGroup.make(

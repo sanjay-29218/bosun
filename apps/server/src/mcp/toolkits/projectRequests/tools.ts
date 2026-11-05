@@ -23,17 +23,10 @@ const RequestStatus = Schema.Literals(["open", "done"]);
 const SendRequest = Tool.make("t3_project_send", {
   ...shared,
   description:
-    "Hand a request to a project's Project manager, which runs that project's work: it picks a task, a feature or several, and replies to this thread as the work moves. key names the request for you: sending again with the same key returns the same request rather than a second one. Allowed from the headquarters of the bot that owns the project, or a full-access thread.",
-  parameters: Schema.Struct({
-    projectId: ProjectId,
-    message: Schema.String.annotate({
-      description: "The request, with everything the Project manager needs to know.",
-    }),
-    key: Schema.String,
-  }),
+    "Hand a request to a project's Project manager; it picks the work and replies to this thread. The same key returns the same request. Needs the owning bot's headquarters or full access.",
+  parameters: Schema.Struct({ projectId: ProjectId, message: Schema.String, key: Schema.String }),
   success: Schema.Struct({
     requestId: Schema.String,
-    projectId: ProjectId,
     managerThreadId: ThreadId,
     link: Schema.String,
   }),
@@ -42,7 +35,7 @@ const SendRequest = Tool.make("t3_project_send", {
 const ListRequests = Tool.make("t3_project_requests", {
   ...shared,
   description:
-    "List project requests: in a Project manager's thread, every request of its project; in any other thread, the ones it sent. status keeps open or done ones.",
+    "List project requests: a Project manager's thread sees its project's, others those they sent.",
   parameters: Schema.Struct({ status: Schema.optional(RequestStatus) }),
   success: Schema.Struct({
     requests: Schema.Array(
@@ -53,8 +46,6 @@ const ListRequests = Tool.make("t3_project_requests", {
         text: Schema.String,
         issue: Schema.NullOr(Schema.String),
         status: RequestStatus,
-        createdAt: Schema.String,
-        closedAt: Schema.NullOr(Schema.String),
       }),
     ),
   }),

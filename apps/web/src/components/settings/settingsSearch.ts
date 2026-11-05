@@ -1063,6 +1063,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["owner move project to another bot captain"],
   },
   {
+    id: "project-manager",
+    title: "Project manager",
+    to: "/settings/projects",
+    searchTerms: ["requests backlog instructions model access tools reset role defaults"],
+  },
+  {
     id: "environment-icon",
     title: "Environment icon",
     to: "/settings/access",

@@ -211,18 +211,25 @@ it.effect("answers for a manager's turn that ended without replying, once", () =
       requestMessage("R-1"),
       { id: "message:answer", role: "assistant", text: "Started feature F-3.", streaming: false },
     ]);
-    turns.set("run-2", [requestMessage("R-2"), requestMessage("R-3")]);
+    turns.set("run-2", [
+      requestMessage("R-2"),
+      requestMessage("R-3"),
+      { id: "message:reply", role: "assistant", text: "R-2 is a task now.", streaming: false },
+    ]);
     turns.set("run-3", [requestMessage("R-4")]);
 
-    // The manager replies to R-4 during its turn, so that request needs nothing more.
+    // The manager replies to R-2 during its turn, so R-2 needs nothing more.
+    active.run = managerRun("run-2", "running");
+    yield* requests.reply({ managerThreadId, requestId: "R-2", key: "k", message: "On it." });
     active.run = managerRun("run-3", "running");
     yield* requests.reply({ managerThreadId, requestId: "R-4", key: "k", message: "On it." });
     yield* clear;
 
     // One request: its sender gets what the manager said last.
     yield* requests.handleRunEnded(managerRun("run-1"));
-    // Several: each gets an acknowledgement, since nothing says which text answers which.
+    // Several: the last message may answer another of them, so R-3 only hears it arrived.
     yield* requests.handleRunEnded(managerRun("run-2"));
+    // One request it replied to: nothing more.
     yield* requests.handleRunEnded(managerRun("run-3"));
     // A turn still running isn't over yet.
     yield* requests.handleRunEnded(managerRun("run-1", "running"));
@@ -232,12 +239,12 @@ it.effect("answers for a manager's turn that ended without replying, once", () =
       answered.map((message) => [message.threadId, message.id]),
       [
         [hq, `message:project-request:${projectId}:R-1:fallback:run-1`],
-        [other, `message:project-request:${projectId}:R-2:fallback:run-2`],
         [hq, `message:project-request:${projectId}:R-3:fallback:run-2`],
       ],
     );
     assert.include(answered[0]!.text, "Started feature F-3.");
-    assert.include(answered[1]!.text, "R-2 reached Web's project manager");
+    assert.include(answered[1]!.text, "R-3 reached Web's project manager");
+    assert.notInclude(answered[1]!.text, "R-2 is a task now.");
 
     // After a restart, catching up on the same turns sends nothing again.
     yield* clear;

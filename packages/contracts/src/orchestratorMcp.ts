@@ -184,7 +184,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   ),
   requestId: Schema.optional(
     Schema.String.annotate({
-      description: "Project managers: the request (R-<number>) this task answers.",
+      description: "Project managers: the request (R-n) this answers.",
     }),
   ),
   isolation: Schema.optional(

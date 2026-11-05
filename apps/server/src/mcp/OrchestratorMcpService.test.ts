@@ -26,6 +26,7 @@ import {
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
   type ServerProvider,
+  projectHeadquartersThreadId,
 } from "@t3tools/contracts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
@@ -1947,6 +1948,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const resolvedIn = yield* Ref.make<ReadonlyArray<string>>([]);
       const issuesReadIn = yield* Ref.make<ReadonlyArray<string>>([]);
+      const managerThreadId = projectHeadquartersThreadId(projectId);
       const task = {
         id: taskId,
         threadId: parentThreadId,
@@ -1975,7 +1977,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           getThreadRecords: (threadId) =>
             Ref.get(dispatched).pipe(
               Effect.map((commands) =>
-                threadId === parentThreadId
+                threadId === parentThreadId || threadId === managerThreadId
                   ? parentProjection(commands.length > 0 ? [task] : [])
                   : childProjection,
               ),
@@ -2019,7 +2021,8 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.succeed(
           CrewDelegation,
           CrewDelegation.of({
-            hasRequest: () => Effect.succeed(false),
+            hasRequest: (inProject, requestId) =>
+              Effect.succeed(inProject === projectId && requestId === "R-7"),
             member: () => Effect.succeed(null),
             names: () => Effect.succeed([]),
             resolveIssue: (projectId, ref) =>
@@ -2101,6 +2104,30 @@ describe("OrchestratorMcpService provider resolution", () => {
           })
           .pipe(Effect.flip);
         assert.include(missing.message, "project:gone");
+
+        // Only a project's manager names a request, and only one its project has.
+        const managerScope = {
+          ...scope,
+          thread: { ...scope.thread!, threadId: managerThreadId },
+        };
+        const answers = (from: McpInvocationScope, requestId: string, key: string) =>
+          mcp.delegateTask(from, { task: "Fix the copy.", requestId, clientRequestId: key });
+        assert.include(
+          (yield* answers(scope, "R-7", "request-1").pipe(Effect.flip)).message,
+          "Only a project's manager",
+        );
+        assert.include(
+          (yield* answers(managerScope, "R-9", "request-2").pipe(Effect.flip)).message,
+          "no request R-9",
+        );
+        // The harness's task belongs to the other thread, so only the dispatch is checked.
+        yield* answers(managerScope, "R-7", "request-3").pipe(Effect.exit);
+        const answering = (yield* Ref.get(dispatched)).at(-1) as {
+          readonly projectRequestId?: string;
+          readonly title?: string;
+        };
+        assert.equal(answering.projectRequestId, "R-7");
+        assert.equal(answering.title, "R-7: Fix the copy.");
       }).pipe(Effect.provide(service));
     }),
   );

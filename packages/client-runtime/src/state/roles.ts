@@ -47,10 +47,55 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
     },
     registry: AtomRegistry.AtomRegistry,
   ) => Effect.sync(() => registry.refresh(configuration(target)));
+  const projectManager = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:crew:project-manager",
+    tag: WS_METHODS.crewProjectManager,
+    staleTimeMs: 5_000,
+    idleTtlMs: 60_000,
+  });
+  const refreshProjectManager = (
+    target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly projectId: ProjectId };
+    },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() =>
+      registry.refresh(
+        projectManager({
+          environmentId: target.environmentId,
+          input: { projectId: target.input.projectId },
+        }),
+      ),
+    );
   return {
     roles,
     workflows,
     configuration,
+    /** A project's manager settings, or its role's before the project has one. */
+    projectManager,
+    /** Saves the project's own settings; the role's edits stop reaching it until a reset. */
+    updateProjectManager: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:crew:update-project-manager",
+      tag: WS_METHODS.crewUpdateProjectManager,
+      onSuccess: refreshProjectManager,
+    }),
+    resetProjectManager: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:crew:reset-project-manager",
+      tag: WS_METHODS.crewResetProjectManager,
+      onSuccess: refreshProjectManager,
+    }),
+    /** Makes the project's manager thread on first use, and returns it to open. */
+    openProjectManager: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:crew:open-project-manager",
+      tag: WS_METHODS.crewOpenProjectManager,
+      onSuccess: refreshProjectManager,
+    }),
+    /** Starts a bot's headquarters or a project's manager over in a new session. */
+    startNewSession: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:crew:start-new-session",
+      tag: WS_METHODS.crewStartNewSession,
+    }),
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:roles:create",
       tag: WS_METHODS.rolesCreate,

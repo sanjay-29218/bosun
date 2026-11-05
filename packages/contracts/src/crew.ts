@@ -235,6 +235,11 @@ export const ProjectManagerResetInput = Schema.Struct({
 });
 export type ProjectManagerResetInput = typeof ProjectManagerResetInput.Type;
 
+/** A project's manager thread, made and opened on first use. */
+export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });
+/** Starts a standing thread (a bot's headquarters or a project's manager) over in a new session. */
+export const CrewStartNewSessionInput = Schema.Struct({ threadId: ThreadId });
+
 export const CrewStartInput = Schema.Struct({
   id: Schema.String,
   projectId: ProjectId,

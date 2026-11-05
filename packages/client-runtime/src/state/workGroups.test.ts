@@ -1,4 +1,9 @@
-import { botHeadquartersThreadId, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  botHeadquartersThreadId,
+  EnvironmentId,
+  projectHeadquartersThreadId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { sortInboxThreadsByReturn } from "./threadInbox.ts";
@@ -54,6 +59,19 @@ describe("groupWorkThreads", () => {
       "Planner · try 2",
       "Builder",
     ]);
+  });
+
+  it("keeps a project's manager and the tasks it hands out as rows of their own", () => {
+    const manager = thread(projectHeadquartersThreadId("web"), "0", { title: "Project manager" });
+    const task = thread("task", "1", {
+      lineage: { relationshipToParent: "subagent" },
+    });
+    const lead = thread("lead", "2", { feature, title: "Feature manager" });
+
+    const { primaries, groupByThreadKey } = groupWorkThreads([manager, task, lead], []);
+
+    expect(primaries.map((item) => item.id)).toEqual([manager.id, "task", "lead"]);
+    expect(groupByThreadKey.has(`local:${manager.id}`)).toBe(false);
   });
 
   it("keeps a feature's history out of the list when none of its threads are visible", () => {

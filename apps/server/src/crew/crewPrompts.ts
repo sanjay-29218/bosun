@@ -19,6 +19,18 @@ export const PROJECT_MANAGER_INSTRUCTIONS = [
   "Read this project's code and git state, but never edit, commit or push in this checkout: tasks and features do the work in their own worktrees. Merge a pull request only when the request or these instructions say to.",
 ].join("\n\n");
 
+/** What a project's standing manager does; its run keeps the text it started with. */
+export const projectManagerTask = (projectId: string) =>
+  `You are project ${projectId}'s manager. Each request arrives as its own message; until one does, there is nothing to do.`;
+
+/** How a request reaches a project's manager. */
+export const projectRequestText = (request: {
+  readonly id: string;
+  readonly requesterThreadId: string;
+  readonly text: string;
+}) =>
+  `Request ${request.id} from thread ${request.requesterThreadId}:\n\n${request.text}\n\nAnswer it with t3_project_reply, requestId "${request.id}".`;
+
 /** The built-in workflow's instructions, which people can edit. */
 export const FEATURE_DELIVERY_INSTRUCTIONS =
   "Have the Planner plan it, then ask the person to approve the plan. Have the Designer design it if it needs one. Have the Builder build it, then the QA Tester check it and the Reviewer review the diff; send what they find back to the Builder until both pass. Then have the Builder commit, push and open the pull request. Skip what the work doesn't need.";
