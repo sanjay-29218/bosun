@@ -257,6 +257,9 @@ These go in the role's instructions. They are not hard rules.
 
 - Close #49 and PR #52 as superseded by lead-and-crew.
 - Land #56 and task-issue-links first. Phases 2–3 build on both.
+- Fix #61 (its own small PR, or the first commit of Phase 1). Project-level members (`bot-manager:`,
+  `bot-builder:`) follow their role's current revision when reused, through a revision-checked
+  `CrewStore.updateMember`. Phase 2's follow-the-role behavior builds on it.
 
 ### Phase 1: rename "Project manager" → "Feature manager"
 
@@ -383,11 +386,17 @@ manager" wording in `features.ndjson`.
   `bot-hq:` runs) and model and mode (`syncHeadquarters`). Extend both to `project-hq:` runs, read
   from the member. Otherwise MCP authorization keeps the standing run's grants from when it was
   created. Feature and task runs keep their snapshots.
-- New projects start from the role's defaults. Editing the role changes managers created later,
-  the same way roles already behave.
+- **Follows its role until customized.** A project's manager follows the role's current revision
+  (the #61 sync, Phase 0) until someone saves its settings in the project. From then on it keeps
+  them (`customized_at` on the member). **Reset to role defaults** clears that and takes the role's
+  current settings again, which is the way back out.
 - Where: a **Project manager** section in **Settings → Project** on web and desktop, and in the
-  project settings on mobile. Saving re-syncs the standing thread. New instructions reach it on its
-  next new session, as they do for a bot's headquarters.
+  project settings on mobile. It sits beside the project's bot. Saving re-syncs the standing
+  thread. New instructions reach it on its next new session, as they do for a bot's headquarters.
+  The Library's "Project manager" role is the template every project starts from.
+- **Merging** is an instruction, not a setting. The default text says "Merge only when the request
+  or these instructions say to." A project that should merge on its own says so in its manager's
+  instructions, such as "merge into staging once review passes".
 - Contracts: a read of the project's manager settings, and an RPC
   `crew.updateProjectManager({ projectId, instructions, modelSelection, runtimeMode, allowedTools,
   longConversation })`, guarded in `CLIENT_GUARDED_RPC_SCOPES`.
@@ -607,11 +616,11 @@ The person answered the first round of open questions on 2026-11-04:
 7. **Merging.** The person merges by default. The Project manager merges when the person asks it
    to.
 
-## Open questions
+Second round, 2026-11-05:
 
-- **Where the Project manager's settings live.** Recommendation: a section in **Settings → Project**,
-  since it belongs to one project. The other option is a row per project under **Bots** on the
-  rail, since it behaves like a bot.
-- **Merging as standing permission.** Recommendation: the Project manager merges only when asked in
-  the request, or when its per-project instructions say so (for example "merge to staging once
-  review passes"). This needs no new setting.
+8. **Settings location.** **Settings → Project**, in a Project manager section beside the project's
+   bot. The Library role is the template.
+9. **Role edits.** A project's manager follows its role until it is customized in the project, and
+   **Reset to role defaults** undoes that. #61 is fixed first, in Phase 0.
+10. **Merging.** By instruction only: the default text merges only when asked, and a project's own
+    instructions can say otherwise. There is no setting.
