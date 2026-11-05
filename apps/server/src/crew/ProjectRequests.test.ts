@@ -10,7 +10,6 @@ import {
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -42,7 +41,7 @@ const requestMessage = (requestId: string) => ({
 const setup = Effect.gen(function* () {
   yield* runMigrations({ toMigrationInclusive: 79 });
   yield* BosunMigrations.reconcileLegacyHistory();
-  yield* BosunMigrations.runMigrations(103);
+  yield* BosunMigrations.runMigrations(105);
   const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
   const turns = new Map<string, ReadonlyArray<object>>();
   const active: { run: OrchestrationV2Run | null } = { run: null };
@@ -61,7 +60,7 @@ const setup = Effect.gen(function* () {
             } as never),
         }),
         Layer.mock(ProjectStore.ProjectStoreV2)({
-          get: () => Effect.succeed(Option.some({ title: "Web" } as never)),
+          get: () => Effect.succeedSome({ title: "Web" } as never),
         }),
         Layer.mock(CrewService)({
           ensureProjectManager: () => Effect.succeed({ threadId: managerThreadId } as never),

@@ -39,7 +39,9 @@ import {
   crewRunPrompt,
   FEATURE_DELIVERY_INSTRUCTIONS,
   featureLeadTask,
+  BOT_DEFAULT_INSTRUCTIONS,
   FEATURE_MANAGER_INSTRUCTIONS,
+  headquartersTask,
 } from "../../apps/server/src/crew/crewPrompts.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
@@ -70,6 +72,8 @@ import {
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import { FeaturesToolkit } from "../../apps/server/src/mcp/toolkits/features/tools.ts";
+import { BotsToolkit } from "../../apps/server/src/mcp/toolkits/bots/tools.ts";
+import { LinkBotProjects, LinkBotTask } from "../../apps/server/src/mcp/toolkits/bots/linkTools.ts";
 import {
   CLAUDE_PROVIDER,
   makeClaudeQueryOptions,
@@ -277,7 +281,13 @@ export const McpToolUseCase = Schema.Struct({
   rule: Schema.optional(Schema.String),
   privacy: Schema.optional(Schema.Literals(["commit-safe", "private"])),
   setup: Schema.Struct({
-    role: Schema.Literals(["top", "delegated-child", "native-subagent", "feature-lead"]),
+    role: Schema.Literals([
+      "top",
+      "delegated-child",
+      "native-subagent",
+      "feature-lead",
+      "headquarters",
+    ]),
     /** Runs only on this harness, for cases whose right answer depends on it. */
     harness: Schema.optional(Schema.Literals(["claude", "codex"])),
     /** The Linked environments beta is on, so T3 lists its link tools. */
@@ -434,6 +444,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   DeviceToolkit,
   HtmlToolkit,
   FeaturesToolkit,
+  BotsToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -481,11 +492,25 @@ const pastedSecret = (name: string, input: Readonly<Record<string, unknown>>) =>
 const hiddenFromSubagents = enabledWhen(McpInvocationContext.hiddenFromSubagents);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
-const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?: boolean }) =>
+// T3 lists the bot tools only to a bot's crew threads; these cases run its headquarters. The
+// tools only linked environments call are never listed to an agent.
+const botTools = new Set(
+  Object.values(BotsToolkit.tools).map((tool) => `${T3_PREFIX}${tool.name}`),
+);
+const linkOnlyTools = new Set(
+  [LinkBotProjects, LinkBotTask].map((tool) => `${T3_PREFIX}${tool.name}`),
+);
+const visibleT3Tools = (options: {
+  readonly subagent?: boolean;
+  readonly links?: boolean;
+  readonly headquarters?: boolean;
+}) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
-      !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
+      !(options.subagent === true && hiddenFromSubagents.has(tool.name)) &&
+      (options.headquarters === true || !botTools.has(tool.name)) &&
+      !linkOnlyTools.has(tool.name),
   );
 
 /**
@@ -592,6 +617,7 @@ export const buildBase = (
     readonly keepUserInstructions: boolean;
     readonly subagent?: boolean;
     readonly links?: boolean;
+    readonly headquarters?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -684,6 +710,7 @@ const buildCodexBase = (
     readonly effort?: string | undefined;
     readonly subagent?: boolean;
     readonly links?: boolean;
+    readonly headquarters?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
   },
@@ -1029,6 +1056,20 @@ export const buildMessages = (sample: Sample) => {
       ),
     });
   };
+  // A headquarters thread opens with its bot's task, and its first turn ends before the person
+  // writes, so the request is its own message.
+  if (role === "headquarters" && testCase.prompt !== "") {
+    push(
+      "user",
+      text(
+        crewRunPrompt({
+          instructions: BOT_DEFAULT_INSTRUCTIONS,
+          taskText: headquartersTask(Contracts.CAPTAIN_BOT_ID),
+        }),
+      ),
+    );
+    push("assistant", text("Ready for the person's requests."));
+  }
   if (testCase.prompt !== "")
     push(
       "user",
@@ -2384,6 +2425,7 @@ const main = Effect.gen(function* () {
               keepUserInstructions,
               effort: flags.effort,
               subagent: role === "delegated-child",
+              headquarters: role === "headquarters",
               links,
               deviceAccess,
             }),
@@ -2395,6 +2437,7 @@ const main = Effect.gen(function* () {
               model: flags.model,
               keepUserInstructions,
               subagent: role === "delegated-child",
+              headquarters: role === "headquarters",
               nativeSubagent: role === "native-subagent",
               links,
               deviceAccess,

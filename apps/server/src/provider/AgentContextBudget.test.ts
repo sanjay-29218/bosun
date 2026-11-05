@@ -11,6 +11,7 @@ import { McpSchema, McpServer } from "effect/ai";
 import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
+import { BotReach } from "../bots/BotReach.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -66,6 +67,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(McpProviderSessions)({}),
   Layer.mock(OrchestratorV2)({}),
   Layer.mock(PeerForwarding)({}),
+  Layer.mock(BotReach)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),
@@ -203,10 +205,13 @@ it.effect("agent context matches the committed budget", () =>
   }).pipe(Effect.provide(layerAllTools)),
 );
 
-it.effect("a crew thread holding every grant is listed every tool", () =>
+it.effect("a crew thread holding every grant is listed every tool but the links' own", () =>
   Effect.gen(function* () {
     const mcp = yield* McpServer.McpServer;
     const listed = yield* listedTo(threadScope(CREW_TOOL_GRANTS.map((grant) => grant.id)));
-    expect(listed.map(({ tool }) => tool.name)).toEqual(mcp.tools.map(({ tool }) => tool.name));
+    const linkOnly = new Set(["t3_bot_link_projects", "t3_bot_link_task"]);
+    expect(listed.map(({ tool }) => tool.name)).toEqual(
+      mcp.tools.map(({ tool }) => tool.name).filter((name) => !linkOnly.has(name)),
+    );
   }).pipe(Effect.provide(layerAllTools)),
 );

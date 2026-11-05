@@ -18,8 +18,11 @@ Use **+ New** for another bot. A bot has a name, a robot avatar you build from p
 the browser, worktrees and pull requests; tick some under **T3 Code** only to limit it to those.
 They are offered only the crew tools its ticked crew tools allow. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
-A bot's **Projects** tab lists the projects it owns. Move one to another bot, or bring one over;
-work that already started keeps running as the bot that started it. You can also change a
+A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
+another bot, or bring one over; work that already started keeps running as the bot that started
+it. A project on another environment goes to the bot with the same name there, which is created
+there if that environment doesn't have it yet. Projects on an environment that runs T3 Code
+without Bosun are listed but can't be given to a bot until Bosun is installed there. You can also change a
 project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects,
 and Captain can't be deleted. Deleting a bot also deletes the automations that run as it.
 

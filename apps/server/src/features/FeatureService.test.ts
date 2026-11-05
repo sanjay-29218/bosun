@@ -17,6 +17,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -45,7 +46,7 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
-import FeatureManagerMigration from "../persistence/Migrations/101_FeatureManager.ts";
+import FeatureManagerMigration from "../persistence/Migrations/103_FeatureManager.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
 
@@ -300,6 +301,100 @@ describe("feature lead and crew", () => {
         );
       }),
     ),
+  );
+
+  effectIt.effect(
+    "a feature a linked environment's request starts runs on the workflow it brought",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const features = yield* FeatureService;
+          const library = yield* crew.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID);
+          expect(library?.revision).toBe(1);
+          const role = (id: string, name: string) => ({
+            id,
+            name,
+            instructions: `You are the laptop's ${name}.`,
+            allowedTools: [],
+            modelSelection,
+            runtimeMode: "full-access" as const,
+          });
+          // Feature delivery as the laptop has it at revision 3, with a role this box lacks.
+          const snapshot: WorkflowSnapshot = {
+            workflow: {
+              id: FEATURE_DELIVERY_WORKFLOW_ID,
+              name: "Feature delivery v3",
+              instructions: "Have the Security reviewer check the diff before the Builder pushes.",
+              leadRoleId: "role:feature-manager",
+              crewRoleIds: ["role:builder", "role:security-reviewer"],
+              revision: 3,
+            },
+            roles: [
+              role("role:feature-manager", "Feature manager"),
+              role("role:builder", "Builder"),
+              role("role:security-reviewer", "Security reviewer"),
+            ],
+          };
+          // The Feature manager a link's request started here, which keeps that workflow.
+          const manager = yield* crew.ensureFeatureManager(projectId);
+          const requested = yield* crew.createRun({
+            id: "link-task:dark-mode",
+            memberId: manager.id,
+            projectId,
+            taskText: "Start a feature: dark mode.",
+            workflow: { snapshot, here: "Box", from: "T3 Code · Laptop" },
+          });
+          const launch = (featureId: string, workflowId?: string) =>
+            features.launch({
+              projectId,
+              featureId,
+              title: "Dark mode",
+              brief: "Add a dark mode toggle to settings",
+              workspace: "local",
+              requesterThreadId: requested.threadId,
+              ...(workflowId === undefined ? {} : { workflowId }),
+            });
+
+          const started = yield* launch("linked-feature");
+          expect(Object.keys(started.feature.crewAssignments).toSorted()).toEqual([
+            "role:builder",
+            "role:security-reviewer",
+          ]);
+          const reviewer = yield* (yield* CrewStore).getMember(
+            started.feature.crewAssignments["role:security-reviewer"]!,
+          );
+          expect(reviewer).toMatchObject({
+            name: "Security reviewer",
+            instructions: "You are the laptop's Security reviewer.",
+          });
+          const opening = (yield* userTexts(started.leadThreadId))[0]!;
+          expect(opening).toContain("You are the laptop's Feature manager.");
+          expect(opening).toContain(
+            "Workflow: Feature delivery v3\nHave the Security reviewer check the diff before the Builder pushes.",
+          );
+          expect(opening).toMatch(/^Crew: Builder, Security reviewer\. /m);
+
+          // Naming the workflow it brought is the same; one this box lacks is refused.
+          expect(
+            (yield* launch("named-feature", "feature delivery v3")).feature.crewAssignments,
+          ).toHaveProperty("role:security-reviewer");
+          expect((yield* Effect.flip(launch("other-feature", "workflow:release"))).message).toBe(
+            "Workflow workflow:release isn't on Box. This request from T3 Code · Laptop brought Feature delivery v3 (workflow:feature-delivery); leave workflowId out to run on it.",
+          );
+          // A feature this box's own threads start keeps using its library.
+          const local = yield* features.launch({
+            projectId,
+            title: "Local work",
+            brief: "Local work",
+            workspace: "local",
+            requesterThreadId: ThreadId.make("bot-run:bot-hq:bot-captain"),
+          });
+          expect(Object.keys(local.feature.crewAssignments)).not.toContain(
+            "role:security-reviewer",
+          );
+        }),
+      ),
   );
 
   effectIt.effect("starts child features that report back to their parent's lead once", () =>
@@ -673,6 +768,7 @@ describe("feature lead and crew", () => {
                 state: "merged",
               },
               requesterThreadId: null,
+              requestId: null,
               report: null,
             },
           ]);

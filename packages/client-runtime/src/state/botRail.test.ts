@@ -18,7 +18,9 @@ import {
   combineBotActivity,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
+  logicalBotMemberOn,
   logicalBotProjectKeys,
+  logicalBotProjectLists,
   projectBotId,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
@@ -150,6 +152,20 @@ describe("logicalBotProjectKeys", () => {
   it("selects the projects each entry owns across environments", () => {
     expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual(["local:a", "remote:b"]);
     expect([...logicalBotProjectKeys(bots[0]!, bots, projects)]).toEqual(["remote:c", "local:d"]);
+  });
+
+  it("splits an entry's projects into owned, takeable, and on environments without bots", () => {
+    const vps = EnvironmentId.make("vps");
+    const withVps = [...projects, { environmentId: vps, id: "omni" }];
+    const social = bots[1]!;
+    const lists = logicalBotProjectLists(social, bots, withVps, new Set([local, remote]));
+    expect(lists.owned.map((project) => project.id)).toEqual(["a", "b"]);
+    expect(lists.available.map((project) => project.id)).toEqual(["c", "d"]);
+    expect(lists.withoutBots.map((project) => project.id)).toEqual(["omni"]);
+    // Finance has no bot here, so a move here creates it first.
+    const finance = bots.find((entry) => entry.name === "Finance")!;
+    expect(logicalBotMemberOn(finance, remote)).toBe("bot-finance");
+    expect(logicalBotMemberOn(finance, local)).toBeNull();
   });
 });
 

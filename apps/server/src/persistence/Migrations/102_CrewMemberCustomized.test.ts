@@ -13,7 +13,7 @@ it.effect(
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 79 });
       yield* BosunMigrations.reconcileLegacyHistory();
-      yield* BosunMigrations.runMigrations(99);
+      yield* BosunMigrations.runMigrations(101);
       yield* sql`
       INSERT INTO roles (
         id, name, instructions, allowed_tools_json, model_selection_json, runtime_mode,
@@ -31,17 +31,17 @@ it.effect(
       )
     `;
 
-      yield* BosunMigrations.runMigrations(100);
-      yield* BosunMigrations.runMigrations(100);
+      yield* BosunMigrations.runMigrations(102);
+      yield* BosunMigrations.runMigrations(102);
 
       assert.deepStrictEqual(
         yield* sql`SELECT id, customized_at AS customizedAt FROM crew_members`,
         [{ id: "bot-manager:web", customizedAt: null }],
       );
 
-      // 102: every member compacts a long conversation until its project says otherwise.
-      yield* BosunMigrations.runMigrations(102);
-      yield* BosunMigrations.runMigrations(102);
+      // 104: every member compacts a long conversation until its project says otherwise.
+      yield* BosunMigrations.runMigrations(104);
+      yield* BosunMigrations.runMigrations(104);
       assert.deepStrictEqual(
         yield* sql`SELECT long_conversation AS longConversation FROM crew_members`,
         [{ longConversation: "compact" }],

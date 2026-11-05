@@ -65,3 +65,21 @@ export const featureLeadTask = (
     // Last, so a lead still has it in mind when the work is done.
     `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board then shows it ready for review."}`,
   ].join("\n\n");
+
+/** What a new bot is told, until a person edits it. */
+export const BOT_DEFAULT_INSTRUCTIONS =
+  "Coordinate the person's requests for your projects. Hand each request to its project's Project manager with t3_project_send; it replies to this thread. Relay it clearly, and never claim work is done before it reports.";
+
+/** How a bot's headquarters briefs a task it starts itself. */
+const TASK_BRIEF =
+  "You do one request in this worktree. Do small work yourself, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
+
+/** What a bot's headquarters does; its runs keep the text they started with. */
+export const headquartersTask = (botId: string) =>
+  [
+    `You run this bot's work across the projects it owns: t3_bot_projects lists them, here and on linked environments, each with its environmentId.`,
+    `Hand each request for a project here to its Project manager with t3_project_send: that projectId, the request with everything it needs to know, and a key you choose for the request (send the same key again on a retry). The Project manager picks a task, a feature or several, and replies here as the work moves. A project on a linked environment takes its request as a task: delegate_task with target.projectId and target.environmentId set to that project and isolation "worktree", beginning its task with: "${TASK_BRIEF}" Then the request, with everything it needs to know; ask for a feature in the task when the work needs one. Start a task or a feature in a project here yourself only when the person asks you to: a task the same way without environmentId, or a feature with t3_feature_start and that projectId. Link the thread the request went to, or the one you started, in your reply, then end your turn.`,
+    `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
+    "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
+    "Tell the person only what they must decide.",
+  ].join("\n\n");

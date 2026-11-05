@@ -3,17 +3,19 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import { BOT_DEFAULT_INSTRUCTIONS, headquartersTask } from "../../crew/crewPrompts.ts";
 import * as BosunMigrations from "../BosunMigrations.ts";
 import { runMigrations } from "../Migrations.ts";
-import { BOT_REWRITE, HEADQUARTERS_REWRITE } from "./098_ProjectHandoffs.ts";
-import { BOT_HANDOFF, HEADQUARTERS_HANDOFF } from "./104_ProjectManagerHandoffs.ts";
+import { BOT_REWRITE } from "./098_ProjectHandoffs.ts";
+import { HEADQUARTERS_REWRITE } from "./100_LinkedProjects.ts";
+import { BOT_HANDOFF, HEADQUARTERS_HANDOFF } from "./106_ProjectManagerHandoffs.ts";
 
 it.effect("routes stock bot and headquarters text to the Project manager, keeping edits", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* runMigrations({ toMigrationInclusive: 69 });
     yield* BosunMigrations.reconcileLegacyHistory();
-    yield* BosunMigrations.runMigrations(103);
+    yield* BosunMigrations.runMigrations(105);
     const bot = (id: string, instructions: string) => sql`
       INSERT INTO bots (
         id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode, position,
@@ -34,7 +36,7 @@ it.effect("routes stock bot and headquarters text to the Project manager, keepin
     // A task's text is its identity, so one a headquarters started keeps its words.
     yield* run("task", HEADQUARTERS_REWRITE[1]);
 
-    yield* BosunMigrations.runMigrations(104);
+    yield* BosunMigrations.runMigrations(106);
 
     const text = (table: "bots" | "crew_runs", id: string) =>
       (table === "bots"
@@ -51,3 +53,8 @@ it.effect("routes stock bot and headquarters text to the Project manager, keepin
     assert.strictEqual(yield* text("crew_runs", "task"), HEADQUARTERS_REWRITE[1]);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
+
+it("rewrites to the text new bots and headquarters start with", () => {
+  assert.include(BOT_DEFAULT_INSTRUCTIONS, BOT_HANDOFF);
+  assert.include(headquartersTask("bot-captain"), HEADQUARTERS_HANDOFF);
+});

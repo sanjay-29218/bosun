@@ -54,11 +54,13 @@ import FeatureParents from "./Migrations/096_FeatureParents.ts";
 import FeatureReports from "./Migrations/097_FeatureReports.ts";
 import ProjectHandoffs from "./Migrations/098_ProjectHandoffs.ts";
 import FeatureLeadRequester from "./Migrations/099_FeatureLeadRequester.ts";
-import CrewMemberCustomized from "./Migrations/100_CrewMemberCustomized.ts";
-import FeatureManager from "./Migrations/101_FeatureManager.ts";
-import ProjectManagers from "./Migrations/102_ProjectManagers.ts";
-import ProjectRequests from "./Migrations/103_ProjectRequests.ts";
-import ProjectManagerHandoffs from "./Migrations/104_ProjectManagerHandoffs.ts";
+import LinkedProjects from "./Migrations/100_LinkedProjects.ts";
+import LinkedWorkflows from "./Migrations/101_LinkedWorkflows.ts";
+import CrewMemberCustomized from "./Migrations/102_CrewMemberCustomized.ts";
+import FeatureManager from "./Migrations/103_FeatureManager.ts";
+import ProjectManagers from "./Migrations/104_ProjectManagers.ts";
+import ProjectRequests from "./Migrations/105_ProjectRequests.ts";
+import ProjectManagerHandoffs from "./Migrations/106_ProjectManagerHandoffs.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -105,11 +107,13 @@ const migrationEntries = [
   [97, "FeatureReports", FeatureReports],
   [98, "ProjectHandoffs", ProjectHandoffs],
   [99, "FeatureLeadRequester", FeatureLeadRequester],
-  [100, "CrewMemberCustomized", CrewMemberCustomized],
-  [101, "FeatureManager", FeatureManager],
-  [102, "ProjectManagers", ProjectManagers],
-  [103, "ProjectRequests", ProjectRequests],
-  [104, "ProjectManagerHandoffs", ProjectManagerHandoffs],
+  [100, "LinkedProjects", LinkedProjects],
+  [101, "LinkedWorkflows", LinkedWorkflows],
+  [102, "CrewMemberCustomized", CrewMemberCustomized],
+  [103, "FeatureManager", FeatureManager],
+  [104, "ProjectManagers", ProjectManagers],
+  [105, "ProjectRequests", ProjectRequests],
+  [106, "ProjectManagerHandoffs", ProjectManagerHandoffs],
 ] as const;
 
 const legacyNames = new Set([

@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
+import * as BotReach from "../../../bots/BotReach.ts";
 import * as BotService from "../../../bots/BotService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -48,6 +49,7 @@ const reorder = (
             Layer.mock(ThreadManagement.ThreadManagementService)({
               getThreadShell: (id) => Effect.succeed(liveThreadShell(id, { runtimeMode })),
             }),
+            Layer.mock(BotReach.BotReach)({}),
             Layer.mock(BotService.BotService)({
               reorder: (botIds) => {
                 reordered.push(botIds);

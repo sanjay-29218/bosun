@@ -26,7 +26,7 @@ it.effect("moves the feature lead role to role:feature-manager, renaming only st
     yield* role("role:planner", "Planner", "Plan.");
     yield* role("role:qa-tester", "QA Tester", "Test.");
     // 095 and 096 make Feature delivery and Epic from these roles.
-    yield* BosunMigrations.runMigrations(100);
+    yield* BosunMigrations.runMigrations(102);
     yield* sql`
       INSERT INTO workflows
         (id, name, instructions, lead_role_id, crew_role_ids_json, created_at, updated_at)
@@ -45,7 +45,7 @@ it.effect("moves the feature lead role to role:feature-manager, renaming only st
     yield* member("bot-manager:web", null, `${MANAGER}\n\nYou manage project web.`);
     yield* member("feature:custom:role:project-manager", "custom", MANAGER);
 
-    yield* BosunMigrations.runMigrations(101);
+    yield* BosunMigrations.runMigrations(103);
 
     assert.deepStrictEqual(
       yield* sql`SELECT id, name, instructions, revision FROM roles WHERE id LIKE '%manager'`,
@@ -108,8 +108,8 @@ it.effect("moves the feature lead role to role:feature-manager, renaming only st
       ],
     );
 
-    // 102 gives the freed ID to the new Project manager, on the Feature manager's model.
-    yield* BosunMigrations.runMigrations(102);
+    // 104 gives the freed ID to the new Project manager, on the Feature manager's model.
+    yield* BosunMigrations.runMigrations(104);
     const [projectManager] = yield* sql<{
       readonly name: string;
       readonly instructions: string;
@@ -139,12 +139,12 @@ it.effect("keeps a renamed or rewritten role, and an edited Epic, as the person 
         ('role:planner', 'Planner', 'Plan.', '[]',
         '{"instanceId":"codex","model":"gpt-5"}', 'full-access', 1, 0, 1, '2026-10-01', '2026-10-01')
     `;
-    yield* BosunMigrations.runMigrations(100);
+    yield* BosunMigrations.runMigrations(102);
     yield* sql`
       UPDATE workflows SET instructions = instructions || ' Keep it small.' WHERE id = 'workflow:epic'
     `;
 
-    yield* BosunMigrations.runMigrations(101);
+    yield* BosunMigrations.runMigrations(103);
 
     assert.deepStrictEqual(
       yield* sql`SELECT id, name, instructions FROM roles WHERE id LIKE '%manager'`,

@@ -57,12 +57,14 @@ import {
 } from "./headquartersFreshStart.ts";
 import { crewChangeNotifier } from "./CrewChanges.ts";
 import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
+import type { LinkedWorkflow } from "./linkedWorkflow.ts";
 import {
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
   FEATURE_MANAGER_INSTRUCTIONS,
   PROJECT_MANAGER_INSTRUCTIONS,
   crewRunPrompt,
+  headquartersTask,
 } from "./crewPrompts.ts";
 
 class CrewValidationError extends Error {
@@ -102,23 +104,9 @@ const projectMemberContext = (id: string, projectId: ProjectId | null) => {
 };
 const BUILDER_ROLE_ID = "role:builder";
 
-/** How a bot's headquarters briefs a task it starts itself, when the person asks for one. */
-const TASK_BRIEF =
-  "You do one request in this worktree. Do small work yourself, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
-
 /** What a project's standing manager does; its run keeps the text it started with. */
 const projectManagerTask = (projectId: ProjectId) =>
   `You are project ${projectId}'s manager. Each request arrives as its own message; until one does, there is nothing to do.`;
-
-/** What a bot's headquarters does; its runs keep the text they started with. */
-const headquartersTask = (botId: string) =>
-  [
-    `You run this bot's work across the projects it owns: the ones t3_project_list shows with botId "${botId}".`,
-    `Hand each request for a project to its Project manager with t3_project_send: that projectId, the request with everything it needs to know, and a key you choose for the request (send the same key again on a retry). The Project manager picks a task, a feature or several, and replies here as the work moves. Start a task or a feature in a project yourself only when the person asks you to: a task with delegate_task, target.projectId set to that project and isolation "worktree", beginning its task with: "${TASK_BRIEF}"; a feature with t3_feature_start and that projectId. Link the thread the request went to, or the one you started, in your reply, then end your turn.`,
-    `Start a new project with t3_project_create, or t3_project_clone then t3_project_create, with botId "${botId}".`,
-    "When the person asks to create or change a role, do it with the t3_role_* tools if you're allowed to, then say what changed.",
-    "Tell the person only what they must decide.",
-  ].join("\n\n");
 
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
@@ -217,6 +205,11 @@ export interface CreateCrewRunInput {
   /** The worktree the thread opens in; the project's checkout when absent. */
   readonly workspace?: CrewWorkspace;
   readonly openingMessage?: OpeningMessage | null;
+  /**
+   * The workflow a linked environment's bot sent with this request, kept before the run starts
+   * so a feature its thread starts finds it. Not part of the request's identity.
+   */
+  readonly workflow?: LinkedWorkflow;
 }
 
 export interface CrewRunView {
@@ -995,6 +988,7 @@ export const CrewServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
         }
         const member = yield* runActor(input.memberId, input.projectId);
+        if (input.workflow !== undefined) yield* store.setRunWorkflow(id, input.workflow);
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const run: CrewRun = {
           id,

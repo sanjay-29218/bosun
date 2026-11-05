@@ -39,6 +39,15 @@ export const headquartersProjectId = (threadId: string): ProjectId | null =>
 /** A thread that lives as long as its owner: a bot's headquarters or a project's manager. */
 export const isStandingThread = (threadId: string) =>
   headquartersBotId(threadId) !== null || headquartersProjectId(threadId) !== null;
+/**
+ * Which bots across environments are the same bot: Captain by id, the rest by name. Bots stay
+ * environment-local; this key is how clients merge them in the rail and how one environment
+ * finds its bot's counterpart on a linked one.
+ */
+export const logicalBotKey = (bot: { readonly id: string; readonly name: string }): string =>
+  bot.id === CAPTAIN_BOT_ID
+    ? `id:${CAPTAIN_BOT_ID}`
+    : `name:${bot.name.trim().toLocaleLowerCase()}`;
 
 /** A bot's avatar: a small robot built from these parts and tinted with the bot's color. */
 export const BOT_HEADS = [
@@ -158,7 +167,27 @@ export type BotUpdateInput = typeof BotUpdateInput.Type;
 export const BotDeleteInput = Schema.Struct({ id: Schema.String });
 /** The whole rail order: every bot exactly once. */
 export const BotReorderInput = Schema.Struct({ botIds: Schema.Array(Schema.String) });
-export const BotMoveProjectInput = Schema.Struct({ projectId: ProjectId, botId: Schema.String });
+/**
+ * Gives a project to `botId`. With `ensureBot`, `botId` names the bot where it came from instead:
+ * the project goes to the bot here with the same logical key (Captain: Captain), made from
+ * `ensureBot` under a new ID when this environment doesn't have it yet.
+ */
+export const BotMoveProjectInput = Schema.Struct({
+  projectId: ProjectId,
+  botId: Schema.String,
+  ensureBot: Schema.optionalKey(
+    Schema.Struct({
+      name: Schema.String,
+      avatar: BotAvatar,
+      color: ProjectIconColor,
+      modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+    }).annotate({
+      description:
+        "The bot from another environment, made here under a new ID if no bot here has its name (Captain: always Captain).",
+    }),
+  ),
+});
+export type BotMoveProjectInput = typeof BotMoveProjectInput.Type;
 
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",
