@@ -308,6 +308,19 @@ describe("nestChildFeatureGroups", () => {
       ],
     },
     {
+      name: "folds a manager-started child under its parent feature, not beside it",
+      threads: [
+        shell(projectHeadquartersThreadId("web"), "0", null),
+        shell("epic", "1", tag("epic")),
+        shell("part", "2", tag("part", "epic")),
+        shell("part-crew", "3", tag("part", "epic", "Builder")),
+      ],
+      expected: [
+        [projectHeadquartersThreadId("web"), []],
+        ["epic", ["part"]],
+      ],
+    },
+    {
       name: "keeps features whose parents form a cycle as rows",
       threads: [shell("a", "1", tag("a", "b")), shell("b", "2", tag("b", "a"))],
       expected: [
