@@ -570,8 +570,8 @@ export function ThreadRelationshipsPanel(props: {
     return FINISHED_STATUSES.includes(edge.status ?? "") ? "previous" : "active";
   });
   // A feature is finished once its lead is settled; a lead that stopped unsettled waits on you.
-  const finishedHandoffIds = new Set(
-    handedOff
+  const finishedRowIds = new Set(
+    [...handedOff, ...previous]
       .filter(({ threadId, edge }) => {
         const settled = graph.nodes.get(threadId)?.thread?.settledOverride === "settled";
         return edge.kind === "feature"
@@ -713,7 +713,7 @@ export function ThreadRelationshipsPanel(props: {
     const isSubagent = edge.kind === "subagent";
     const isMergeTarget = threadId === mergeTargetThreadId;
     const isParent = isParentThreadRelationship(edge, props.threadId);
-    const finished = finishedHandoffIds.has(threadId);
+    const finished = finishedRowIds.has(threadId);
     const featureLead =
       edge.kind === "feature" && !isParent && node?.thread
         ? presentThreadShell(props.environmentId, node.thread)

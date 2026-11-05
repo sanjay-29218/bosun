@@ -28,6 +28,7 @@ it.effect("tags existing feature leads with the thread that started them", () =>
     `;
     yield* thread("lead", { id: "started", title: "Started" }, null);
     yield* thread("crew", { id: "started", title: "Started", member: "Builder" }, "subagent");
+    yield* thread("fork", { id: "started", title: "Started" }, "fork");
     yield* thread("other-lead", { id: "unclaimed", title: "Unclaimed" }, null);
 
     yield* BosunMigrations.runMigrations(99);
@@ -40,6 +41,7 @@ it.effect("tags existing feature leads with the thread that started them", () =>
       `,
       [
         { threadId: "crew", requester: null },
+        { threadId: "fork", requester: null },
         { threadId: "lead", requester: "hq" },
         { threadId: "other-lead", requester: null },
       ],

@@ -21,6 +21,6 @@ export default Effect.gen(function* () {
         SELECT id FROM features WHERE requester_thread_id IS NOT NULL
       )
       AND json_extract(payload_json, '$.feature.member') IS NULL
-      AND coalesce(json_extract(payload_json, '$.lineage.relationshipToParent'), '') <> 'subagent'
+      AND json_extract(payload_json, '$.lineage.relationshipToParent') IS NULL
   `;
 });

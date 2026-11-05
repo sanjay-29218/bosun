@@ -211,6 +211,7 @@ describe("thread relationships", () => {
     const starter = ThreadId.make("thread-hq");
     const lead = ThreadId.make("thread-lead");
     const crew = ThreadId.make("thread-crew");
+    const fork = ThreadId.make("thread-lead-fork");
     const feature = { id: "feature-1", title: "Dark mode", requesterThreadId: starter };
     const graph = deriveThreadRelationshipGraph({
       threads: [
@@ -226,6 +227,12 @@ describe("thread relationships", () => {
           status: "running",
           feature: { ...feature, member: "Builder" },
           lineage: { parentThreadId: lead, relationshipToParent: "subagent" },
+        },
+        {
+          id: fork,
+          status: "running",
+          feature,
+          lineage: { parentThreadId: lead, relationshipToParent: "fork" },
         },
       ] as never,
       projection: null,

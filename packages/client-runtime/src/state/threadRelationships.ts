@@ -8,13 +8,13 @@ import * as DateTime from "effect/DateTime";
 
 export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer" | "feature";
 
-/** The thread that started the feature this thread leads; crew threads share the tag. */
+/** The thread that started the feature this thread leads; crew threads and forks share the tag. */
 export function featureRequesterThreadId(
   thread: Pick<OrchestrationV2ThreadShell, "feature" | "lineage">,
 ): ThreadId | null {
   const feature = thread.feature;
   if (!feature?.requesterThreadId || feature.member !== undefined) return null;
-  if (thread.lineage.relationshipToParent === "subagent") return null;
+  if (thread.lineage.relationshipToParent != null) return null;
   return feature.requesterThreadId;
 }
 
