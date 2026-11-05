@@ -3627,7 +3627,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             <SidebarWorkGroupEntry
                               key={`${threadKey}:${entryKey}`}
                               entry={waiting}
-                              isActive={routeThreadKey === entryKey}
+                              // A collapsed parent marks itself for an open child, so one row is.
+                              isActive={
+                                routeThreadKey === entryKey && routeGroupRowKey !== threadKey
+                              }
                               onOpen={navigateToThread}
                             />,
                           );

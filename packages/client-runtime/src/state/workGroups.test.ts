@@ -343,9 +343,34 @@ describe("nestChildFeatureGroups", () => {
     );
     expect(childFeatureFinished(group.childFeatures![1]!)).toBe(true);
     expect(routeChildFeature(group, "local:child")?.primary.id).toBe("child");
-    // The waiting thread marks itself; any other child thread marks the row.
-    expect(resolveWorkGroupRouteRowKey(nested.groupByThreadKey, "local:child")).toBe("local:epic");
-    expect(resolveWorkGroupRouteRowKey(nested.groupByThreadKey, "local:child-crew")).toBeNull();
+  });
+
+  it.each([
+    { name: "a child's lead", route: "child", waiting: [], row: "local:epic" },
+    // Opened directly, then collapsed: the parent row still stands for it.
+    {
+      name: "a waiting child's thread",
+      route: "child-crew",
+      waiting: ["child-crew"],
+      row: "local:epic",
+    },
+    // The parent's own waiting crew shows under its row and marks itself.
+    {
+      name: "the parent's own waiting crew",
+      route: "epic-crew",
+      waiting: ["epic-crew"],
+      row: null,
+    },
+    { name: "the parent itself", route: "epic", waiting: [], row: null },
+  ])("marks the row for $name", ({ route, waiting, row }) => {
+    const asks = (id: string) => ({ hasPendingUserInput: waiting.includes(id) });
+    const nested = nest([
+      shell("epic", "0", tag("epic")),
+      shell("epic-crew", "1", tag("epic", undefined, "Planner"), asks("epic-crew")),
+      shell("child", "2", tag("child", "epic")),
+      shell("child-crew", "3", tag("child", "epic", "Builder"), asks("child-crew")),
+    ]);
+    expect(resolveWorkGroupRouteRowKey(nested.groupByThreadKey, `local:${route}`)).toBe(row);
   });
 
   it.each([

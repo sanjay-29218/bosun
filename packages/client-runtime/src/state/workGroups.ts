@@ -368,8 +368,8 @@ export function waitingWorkGroupEntry<T extends WorkGroupThread & NeedsYouShell>
 }
 
 /**
- * The row to mark while one of a feature's or request's threads is open. The waiting thread
- * shown under the row marks itself instead.
+ * The row to mark while one of a feature's or request's threads, or its child features', is
+ * open. The row's own waiting thread, shown under it, marks itself instead.
  */
 export function resolveWorkGroupRouteRowKey<T extends WorkGroupThread & NeedsYouShell>(
   workGroups: ReadonlyMap<string, WorkGroup<T>>,
@@ -377,7 +377,7 @@ export function resolveWorkGroupRouteRowKey<T extends WorkGroupThread & NeedsYou
 ): string | null {
   if (routeThreadKey === null) return null;
   for (const [rowKey, group] of workGroups) {
-    const waiting = waitingWorkGroupEntry(group)?.thread;
+    const waiting = waitingWorkGroupEntry(group, "own")?.thread;
     const open = workGroupAllThreads(group).find(
       (thread) => thread !== group.primary && threadKey(thread) === routeThreadKey,
     );
