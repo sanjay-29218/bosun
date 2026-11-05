@@ -421,7 +421,7 @@ it.effect("starts the project manager there, or says before starting anything wh
         )
         .pipe(Effect.flip);
       expect(asleep.message).toMatch(
-        /project:couch is on Couch, which isn't reachable \(last reached/,
+        /Project project:couch is on Couch, which isn't reachable \(last reached/,
       );
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

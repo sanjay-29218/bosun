@@ -222,7 +222,7 @@ const make = Effect.gen(function* () {
               environment: entry(
                 false,
                 link.status === "expired"
-                  ? "The link expired; link it again in Settings → Labs."
+                  ? "The link expired; link it again in Settings → Environments → Linked environments."
                   : (link.lastError ?? `Not reachable (${sinceText(link.lastReachedAt, now)}).`),
               ),
               projects: [] as ReadonlyArray<BotProject>,
@@ -324,7 +324,7 @@ const make = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
       return yield* failure(
         "orchestration_error",
-        `${input.projectId} is on ${label}, which isn't reachable (${sinceText(reached, yield* DateTime.now)}). Nothing was started there.`,
+        `Project ${input.projectId} is on ${label}, which isn't reachable (${sinceText(reached, yield* DateTime.now)}). Nothing was started there.`,
       );
     });
     yield* links
@@ -375,7 +375,7 @@ const make = Effect.gen(function* () {
       if (client.access !== "full-access") {
         return yield* failure(
           "capability_denied",
-          `${self.label} is linked with ${client.access} access, and a bot's project work there needs full access. Link ${self.label} again with full access in Settings → Labs.`,
+          `${self.label} is linked with ${client.access} access, and a bot's project work there needs full access. Link ${self.label} again with full access in Settings → Environments → Linked environments.`,
         );
       }
       const project = Option.getOrUndefined(
