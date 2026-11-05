@@ -234,7 +234,7 @@ it.effect("gives each bot one home, even for concurrent first requests, apart fr
       const again = yield* folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" });
       assert.deepEqual(new Set(racers.map((home) => home.projectId)), new Set([again.projectId]));
       assert.equal(path.dirname(again.workspaceRoot), root);
-      assert.match(path.basename(again.workspaceRoot), /^bot-nepse-[0-9a-f]{8}$/);
+      assert.match(path.basename(again.workspaceRoot), /^bot-nepse@[0-9a-f]{16}$/);
       assert.equal(Option.getOrThrow(yield* folders.botHomePath("bot:nepse")), again.workspaceRoot);
       assert.isTrue(yield* fileSystem.exists(again.workspaceRoot));
       // A plain folder: no checkpoints or worktrees.
@@ -245,6 +245,29 @@ it.effect("gives each bot one home, even for concurrent first requests, apart fr
 
       const captain = yield* folders.ensureBotHome({ id: CAPTAIN_BOT_ID, name: "Captain" });
       assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_BOT_ID));
+      // An ID that is already a plain folder name never shares a home with an encoded one.
+      yield* insertBot("bot-nepse-06258b94", "Lookalike");
+      const lookalike = yield* folders.ensureBotHome({
+        id: "bot-nepse-06258b94",
+        name: "Lookalike",
+      });
+      assert.equal(lookalike.workspaceRoot, path.join(root, "bot-nepse-06258b94"));
+      assert.notEqual(lookalike.workspaceRoot, again.workspaceRoot);
+      assert.notEqual(lookalike.projectId, again.projectId);
+      // A project another bot owns at a bot's home path is never taken over.
+      yield* insertBot("bot-squatted", "Squatted");
+      const squattedRoot = path.join(root, "bot-squatted");
+      yield* fileSystem.makeDirectory(squattedRoot, { recursive: true });
+      yield* projects.create({
+        commandId: CommandId.make("squatter"),
+        projectId: ProjectId.make("squatter"),
+        title: "Squatter",
+        workspaceRoot: squattedRoot,
+      });
+      const refused = yield* folders
+        .ensureBotHome({ id: "bot-squatted", name: "Squatted" })
+        .pipe(Effect.flip);
+      assert.equal(refused._tag, "BotHomeError");
       const scratch = yield* folders.ensureScratchProject;
       const plain = yield* projects.create({
         commandId: CommandId.make("plain-project"),

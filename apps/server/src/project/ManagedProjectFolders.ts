@@ -1,4 +1,5 @@
 import {
+  CAPTAIN_BOT_ID,
   CommandId,
   type GitManagerServiceError,
   ProjectId,
@@ -364,7 +365,8 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  // An ID that isn't a plain folder name gets a hash, so two such IDs never share a home.
+  // An ID that isn't a plain folder name gets "@" and a hash, which no plain name contains, so
+  // no two IDs share a home.
   const botHomePath: ManagedProjectFolders["Service"]["botHomePath"] = Effect.fn(
     "ManagedProjectFolders.botHomePath",
   )(function* (botId) {
@@ -377,7 +379,7 @@ const make = Effect.gen(function* () {
       .digest(Digest.sha256, new TextEncoder().encode(botId))
       .pipe(Effect.orDie);
     const readable = botId.replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 64);
-    return Option.some(path.join(root.value, `${readable}-${Hex.encode(hash).slice(0, 8)}`));
+    return Option.some(path.join(root.value, `${readable}@${Hex.encode(hash).slice(0, 16)}`));
   });
 
   const ensureBotHome: ManagedProjectFolders["Service"]["ensureBotHome"] = Effect.fn(
@@ -404,6 +406,13 @@ const make = Effect.gen(function* () {
         }),
         Effect.mapError(fail),
       );
+    if (!bootstrapped.created) {
+      const existing = yield* projects.getById(bootstrapped.project.id).pipe(Effect.mapError(fail));
+      const owner = Option.getOrUndefined(existing)?.botId ?? CAPTAIN_BOT_ID;
+      if (owner !== bot.id) {
+        return yield* fail(`${workspaceRoot} already belongs to another bot's project.`);
+      }
+    }
     if (bootstrapped.created) {
       yield* projects
         .update({
