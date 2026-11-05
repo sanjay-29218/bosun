@@ -31,6 +31,7 @@ import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http
 
 import * as BotService from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import * as BotReach from "../bots/BotReach.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
@@ -1479,7 +1480,7 @@ it.effect(
             ),
           ),
         ).pipe(
-          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
           Layer.provide(
             Layer.mock(McpSessionRegistry.McpSessionRegistry)({
               resolve: (token) => Effect.succeed(scopes.get(token)),
@@ -1506,6 +1507,7 @@ it.effect(
               }),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
+              Layer.mock(BotReach.BotReach)({}),
               Layer.mock(FeatureService)({
                 projectBot: (projectId) =>
                   Effect.succeed(projectId === "project:owned" ? "captain" : null),
@@ -1584,6 +1586,7 @@ it.effect(
           "crew_read_todo",
           "crew_update_todo",
           "t3_bot_list",
+          "t3_bot_projects",
           "t3_feature_finish",
           "t3_feature_start",
           "upstream",

@@ -3,10 +3,13 @@ import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
   CommandId,
   EventId,
   MessageId,
   NodeId,
+  OrchestratorMcpFailure,
   type OrchestrationV2Run,
   ProjectId,
   ProviderDriverKind,
@@ -34,6 +37,7 @@ import * as Tracer from "effect/Tracer";
 import type * as SqlClient from "effect/sql/SqlClient";
 import { McpSchema, McpServer } from "effect/ai";
 
+import * as BotReach from "../bots/BotReach.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
@@ -540,6 +544,8 @@ const makeLaptop = (
   >,
   /** The laptop's links from before a restart, which keep their sessions there. */
   kept?: Context.Context<Layer.Success<ReturnType<typeof layerLinkingEnvironment>>>,
+  /** How a bot's headquarters here starts a project manager there. */
+  botReach: Partial<BotReach.BotReach["Service"]> = {},
 ) =>
   Effect.gen(function* () {
     const linking = kept ?? (yield* layerLinkingEnvironment(laptop).pipe(Layer.build));
@@ -569,6 +575,7 @@ const makeLaptop = (
       Layer.provideMerge(
         RemoteDelegation.layer.pipe(
           Layer.provideMerge(PeerForwarding.layer),
+          Layer.provide(Layer.mock(BotReach.BotReach)(botReach)),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
               // A cold enrichment cache: the project itself reports no identity yet.
@@ -642,7 +649,10 @@ const parentScope: McpInvocationContext.McpInvocationScope = {
 };
 
 /** The laptop's parent thread, mid-turn when its agent delegates. */
-const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+const seedParent = (
+  laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>,
+  threadId: ThreadId = parentThreadId,
+) =>
   Effect.gen(function* () {
     const now = yield* DateTime.now;
     const providerThreadId = ProviderThreadId.make("provider-thread:laptop-parent");
@@ -651,7 +661,7 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
       createdBy: "user",
       creationSource: "web",
       commandId: CommandId.make("command:create:laptop-parent"),
-      threadId: parentThreadId,
+      threadId,
       projectId: ProjectId.make("project:laptop"),
       title: "Laptop parent",
       modelSelection,
@@ -666,7 +676,7 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
         {
           id: EventId.make("event:seed-provider-thread:laptop-parent"),
           type: "provider-thread.updated",
-          threadId: parentThreadId,
+          threadId,
           driver,
           providerInstanceId: instanceId,
           occurredAt: now,
@@ -675,7 +685,7 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
             driver,
             providerInstanceId: instanceId,
             providerSessionId: null,
-            appThreadId: parentThreadId,
+            appThreadId: threadId,
             ownerNodeId: parentRootNode,
             nativeThreadRef: { driver, nativeId: "native:laptop-parent", strength: "strong" },
             nativeConversationHeadRef: null,
@@ -691,7 +701,7 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
         {
           id: EventId.make("event:seed-node:laptop-parent"),
           type: "node.updated",
-          threadId: parentThreadId,
+          threadId,
           runId: parentRunId,
           nodeId: parentRootNode,
           driver,
@@ -699,7 +709,7 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
           occurredAt: now,
           payload: {
             id: parentRootNode,
-            threadId: parentThreadId,
+            threadId,
             runId: parentRunId,
             parentNodeId: null,
             rootNodeId: parentRootNode,
@@ -718,14 +728,14 @@ const seedParent = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
         {
           id: EventId.make("event:seed-run:laptop-parent"),
           type: "run.updated",
-          threadId: parentThreadId,
+          threadId,
           runId: parentRunId,
           nodeId: parentRootNode,
           providerInstanceId: instanceId,
           occurredAt: now,
           payload: {
             id: parentRunId,
-            threadId: parentThreadId,
+            threadId,
             ordinal: 1,
             providerInstanceId: instanceId,
             modelSelection,
@@ -1135,6 +1145,62 @@ it.effect("refuses worktree isolation for a task there before launching anything
       });
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain("isolation");
+      expect(yield* Ref.get(thread.launched)).toBeNull();
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a bot's headquarters hands a project there to its project manager, in a worktree", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const asked = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      const a = yield* makeLaptop(database, offers, undefined, {
+        launchProjectManager: (_scope, environmentId, botId, input) =>
+          Ref.update(asked, (seen) => [...seen, { environmentId, botId, input }]).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new OrchestratorMcpFailure({ code: "invalid_request", message: "Refused there." }),
+              ),
+            ),
+          ),
+      });
+      yield* linkTo(a.links, b, "full-access");
+      const headquarters = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+      yield* seedParent(a, headquarters);
+
+      const result = yield* a.call(
+        "delegate_task",
+        {
+          task: "Start a feature: dark mode.",
+          target: { environmentId: box.environmentId, projectId: boxProject },
+          isolation: "worktree",
+          clientRequestId: "dark-mode",
+        },
+        {
+          ...parentScope,
+          thread: { ...parentScope.thread!, threadId: headquarters },
+        },
+      );
+      expect(JSON.stringify(result.content)).toContain("Refused there.");
+      expect(yield* Ref.get(asked)).toMatchObject([
+        {
+          environmentId: box.environmentId,
+          botId: CAPTAIN_BOT_ID,
+          input: {
+            projectId: boxProject,
+            task: "Start a feature: dark mode.",
+            modelSelection,
+            runtimeMode: "full-access",
+          },
+        },
+      ]);
+      // Nothing ran there as an ordinary thread.
       expect(yield* Ref.get(thread.launched)).toBeNull();
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

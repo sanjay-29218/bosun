@@ -4,9 +4,10 @@ import {
   type Bot,
   type BotAvatar,
   type BotCreateInput,
+  type BotMoveProjectInput,
+  logicalBotKey,
   type BotUpdateInput,
   type Project,
-  type ProjectId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -16,9 +17,11 @@ import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { BOT_DEFAULT_INSTRUCTIONS } from "../crew/crewPrompts.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -54,10 +57,13 @@ export class BotService extends Context.Service<
       botIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
     /** Gives a project to another bot. Runs already started keep the bot that started them. */
-    readonly moveProject: (input: {
-      readonly projectId: ProjectId;
-      readonly botId: string;
-    }) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
+    /**
+     * Gives a project to another bot. With `ensureBot`, that's the bot with the same logical key
+     * as `botId`'s, created here once however many moves ask for it at the same time.
+     */
+    readonly moveProject: (
+      input: BotMoveProjectInput,
+    ) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
   }
 >()("t3/bots/BotService") {}
 
@@ -71,9 +77,6 @@ const tools = (value: ReadonlyArray<string>) =>
   value.length <= 32 && value.every((tool) => tool.trim().length > 0 && tool.length <= 100)
     ? Effect.succeed([...new Set(value.map((tool) => tool.trim()))])
     : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
-
-const DEFAULT_INSTRUCTIONS =
-  "Coordinate the person's requests for your projects. Hand each request to its project, as a task with delegate_task or a feature with t3_feature_start; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
 
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&
@@ -106,43 +109,72 @@ const make = Effect.gen(function* () {
         ),
       );
 
+  const createUnlocked = Effect.fn("BotService.insertBot")(function* (input: BotCreateInput) {
+    const id = yield* text(input.id, "Bot ID", 128);
+    const existing = yield* store.get(id);
+    if (existing) {
+      if (sameCreate(existing, input)) return existing;
+      return yield* new BotValidationError({ reason: "Bot ID belongs to another bot" });
+    }
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const all = yield* store.list;
+    const bot: Bot = {
+      id,
+      name: yield* text(input.name, "Bot name", 80),
+      avatar: input.avatar,
+      color: input.color,
+      instructions: yield* text(
+        input.instructions ?? BOT_DEFAULT_INSTRUCTIONS,
+        "Bot instructions",
+        16_000,
+      ),
+      allowedTools: yield* tools(input.allowedTools ?? []),
+      runtimeMode: input.runtimeMode ?? "approval-required",
+      modelSelection: input.modelSelection ?? null,
+      longConversation: input.longConversation ?? "compact",
+      position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (yield* store.insert(bot)) return bot;
+    // A concurrent create with the same ID won, or a crew member already has the ID.
+    const winner = yield* store.get(id);
+    if (winner && sameCreate(winner, input)) return winner;
+    return yield* new BotValidationError({ reason: "Bot ID is already in use" });
+  });
+
+  // Creates and find-or-creates run one at a time, so a move never adds a copy of a bot
+  // that a racing move or create already made.
+  const creating = yield* Semaphore.make(1);
+
+  /** The bot here with `botId`'s logical key, made from `template` when there's none. */
+  const ensureBot = (botId: string, template: NonNullable<BotMoveProjectInput["ensureBot"]>) =>
+    creating.withPermits(1)(
+      Effect.gen(function* () {
+        const key = logicalBotKey({ id: botId, name: template.name });
+        if (key === logicalBotKey({ id: CAPTAIN_BOT_ID, name: "" })) return CAPTAIN_BOT_ID;
+        const here = (yield* store.list).find((bot) => logicalBotKey(bot) === key);
+        if (here) return here.id;
+        const made = yield* createUnlocked({
+          id: `bot-${yield* random.uuidV4()}`,
+          name: template.name,
+          avatar: template.avatar,
+          color: template.color,
+          ...(template.modelSelection === undefined
+            ? {}
+            : { modelSelection: template.modelSelection }),
+        });
+        return made.id;
+      }),
+    );
+
   const service = BotService.of({
     list: store.list,
     get: store.get,
-    create: Effect.fn("BotService.create")(function* (input) {
-      const id = yield* text(input.id, "Bot ID", 128);
-      const existing = yield* store.get(id);
-      if (existing) {
-        if (sameCreate(existing, input)) return existing;
-        return yield* new BotValidationError({ reason: "Bot ID belongs to another bot" });
-      }
-      const now = DateTime.formatIso(yield* DateTime.now);
-      const all = yield* store.list;
-      const bot: Bot = {
-        id,
-        name: yield* text(input.name, "Bot name", 80),
-        avatar: input.avatar,
-        color: input.color,
-        instructions: yield* text(
-          input.instructions ?? DEFAULT_INSTRUCTIONS,
-          "Bot instructions",
-          16_000,
-        ),
-        allowedTools: yield* tools(input.allowedTools ?? []),
-        runtimeMode: input.runtimeMode ?? "approval-required",
-        modelSelection: input.modelSelection ?? null,
-        longConversation: input.longConversation ?? "compact",
-        position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
-        revision: 1,
-        createdAt: now,
-        updatedAt: now,
-      };
-      if (yield* store.insert(bot)) return bot;
-      // A concurrent create with the same ID won, or a crew member already has the ID.
-      const winner = yield* store.get(id);
-      if (winner && sameCreate(winner, input)) return winner;
-      return yield* new BotValidationError({ reason: "Bot ID is already in use" });
-    }),
+    create: Effect.fn("BotService.create")((input) =>
+      creating.withPermits(1)(createUnlocked(input)),
+    ),
     update: Effect.fn("BotService.update")(function* (input) {
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
@@ -221,8 +253,12 @@ const make = Effect.gen(function* () {
       yield* store.setPositions(botIds, DateTime.formatIso(yield* DateTime.now));
       return yield* store.list;
     }),
-    moveProject: Effect.fn("BotService.moveProject")(function* ({ projectId, botId }) {
-      yield* requireBot(botId);
+    moveProject: Effect.fn("BotService.moveProject")(function* (input) {
+      const { projectId } = input;
+      const botId =
+        input.ensureBot === undefined
+          ? (yield* requireBot(input.botId)).id
+          : yield* ensureBot(input.botId, input.ensureBot);
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),

@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { botAutomationsDeleteWarning } from "@t3tools/client-runtime/state/automations";
-import { logicalBotKey } from "@t3tools/client-runtime/state/bot-rail";
-import type { Bot, EnvironmentId } from "@t3tools/contracts";
+import { logicalBotProjectLists } from "@t3tools/client-runtime/state/bot-rail";
+import { logicalBotKey, type Bot, type EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
@@ -17,8 +17,13 @@ import { useState } from "react";
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useEnvironmentScheduledTasks } from "../../state/automations";
 import { botsEnvironment } from "../../state/bots";
-import { useShownBotEnvironmentIds } from "../../state/botRail";
+import {
+  logicalBotsAtom,
+  useBotEnvironmentIds,
+  useShownBotEnvironmentIds,
+} from "../../state/botRail";
 import { useProjects } from "../../state/entities";
+import { useEnvironmentIdentities } from "../../state/environments";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { LibraryFrame } from "../library/LibraryFrame";
@@ -93,9 +98,15 @@ function EnvironmentBotPage({
   const navigate = useNavigate();
   const botsQuery = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
   const defaultModel = useEnvironmentDefaultModel(environmentId);
-  const projects = useProjects()
-    .filter((project) => project.environmentId === environmentId)
-    .toSorted((left, right) => left.title.localeCompare(right.title));
+  const allProjects = useProjects().toSorted((left, right) =>
+    left.title.localeCompare(right.title),
+  );
+  const projects = allProjects.filter((project) => project.environmentId === environmentId);
+  const logicalBots = useAtomValue(logicalBotsAtom);
+  const botEnvironmentIds = new Set(useBotEnvironmentIds());
+  const environmentLabels = new Map(
+    useEnvironmentIdentities().map((environment) => [environment.environmentId, environment.label]),
+  );
   // Bumped to remount the form, which discards its draft.
   const [formRevision, setFormRevision] = useState(0);
   const bots = botsQuery.data ?? [];
@@ -131,6 +142,28 @@ function EnvironmentBotPage({
   }
 
   const ownedProjects = bot ? (groupProjectsByBot(projects).get(bot.id) ?? []) : [];
+  // The same bot on other environments; one the rail hasn't merged yet stands alone.
+  const logicalBot = bot
+    ? (logicalBots.find((candidate) =>
+        candidate.members.some(
+          (member) => member.environmentId === environmentId && member.botId === bot.id,
+        ),
+      ) ?? {
+        key: logicalBotKey(bot),
+        name: bot.name,
+        avatar: bot.avatar,
+        color: bot.color,
+        members: [{ environmentId, botId: bot.id }],
+      })
+    : null;
+  const projectLists = logicalBot
+    ? logicalBotProjectLists(
+        logicalBot,
+        logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot],
+        allProjects,
+        botEnvironmentIds,
+      )
+    : null;
   return (
     <LibraryFrame
       root="Bots"
@@ -154,15 +187,17 @@ function EnvironmentBotPage({
           bot={bot}
           defaultModel={defaultModel}
           usedAvatars={bots.map((candidate) => candidate.avatar)}
-          projectCount={ownedProjects.length}
+          projectCount={projectLists?.owned.length ?? 0}
           projects={
-            bot ? (
+            logicalBot && projectLists ? (
               <BotProjectList
                 environmentId={environmentId}
-                bot={bot}
-                bots={bots}
-                ownedProjects={ownedProjects}
-                allProjects={projects}
+                bot={logicalBot}
+                bots={logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot]}
+                ownedProjects={projectLists.owned}
+                availableProjects={projectLists.available}
+                projectsWithoutBots={projectLists.withoutBots}
+                environmentLabels={environmentLabels}
               />
             ) : null
           }

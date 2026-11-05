@@ -15,6 +15,11 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import {
+  decodeLinkedWorkflow,
+  encodeLinkedWorkflow,
+  type LinkedWorkflow,
+} from "./linkedWorkflow.ts";
+import {
   decodeOpeningMessage,
   encodeOpeningMessage,
   type OpeningMessage,
@@ -300,6 +305,15 @@ export interface CrewStoreShape {
     threadId: ThreadId,
   ) => Effect.Effect<CrewRun | null, PersistenceSqlError>;
   readonly listQueuedRuns: () => Effect.Effect<ReadonlyArray<CrewRun>, PersistenceSqlError>;
+  /** Keeps the workflow a linked environment sent with run `runId`; the first one stays. */
+  readonly setRunWorkflow: (
+    runId: string,
+    workflow: LinkedWorkflow,
+  ) => Effect.Effect<void, PersistenceSqlError>;
+  /** The workflow a linked environment sent with the run behind `threadId`, if any. */
+  readonly getThreadWorkflow: (
+    threadId: ThreadId,
+  ) => Effect.Effect<LinkedWorkflow | null, PersistenceSqlError>;
   readonly markStarted: (
     id: string,
     dispatchedAt: string,
@@ -599,6 +613,20 @@ export const CrewStoreLive = Layer.effect(
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
       getRun,
+      setRunWorkflow: (runId, workflow) =>
+        sql`
+          INSERT OR IGNORE INTO crew_run_workflows (run_id, workflow_json)
+          VALUES (${runId}, ${encodeLinkedWorkflow(workflow)})
+        `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+      getThreadWorkflow: (threadId) =>
+        sql<{ readonly json: string }>`
+          SELECT w.workflow_json AS json
+          FROM crew_run_workflows AS w JOIN crew_runs AS r ON r.id = w.run_id
+          WHERE r.thread_id = ${threadId}
+        `.pipe(
+          Effect.mapError(queryError),
+          Effect.map((rows) => decodeLinkedWorkflow(rows[0]?.json)),
+        ),
       getRunByThread: (threadId) =>
         sql<{ readonly id: string }>`SELECT id FROM crew_runs WHERE thread_id = ${threadId}`.pipe(
           Effect.mapError(queryError),

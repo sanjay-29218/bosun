@@ -16,6 +16,7 @@ import {
   type ProjectId,
   type RuntimeMode,
   ThreadId,
+  type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -55,6 +56,7 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { featureLeadTask } from "../crew/crewPrompts.ts";
+import { decodeWorkflowSnapshot, encodeWorkflowSnapshot } from "../crew/linkedWorkflow.ts";
 import {
   decodeFeatureIssue,
   encodeFeatureIssue,
@@ -73,6 +75,11 @@ export type FeatureRecord = typeof FeatureRecordSchema.Type;
 export type CreateFeatureInput = typeof FeatureCreateInput.Type & {
   /** The feature whose lead starts this one; leads start children, not clients. */
   readonly parentFeatureId?: string | undefined;
+  /**
+   * The workflow a linked environment's bot sent with the request, which the feature keeps and
+   * runs on, with its roles, instead of the library here.
+   */
+  readonly workflowSnapshot?: WorkflowSnapshot | undefined;
 };
 
 export type FeatureServiceError =
@@ -243,6 +250,19 @@ const hashed = (prefix: string, featureId: string, id: string) =>
     .update(JSON.stringify([featureId, id]))
     .digest("hex")
     .slice(0, 32)}`;
+/** Agents name a workflow loosely: its ID, its ID without the prefix, or its name. */
+const namesWorkflow = (named: string, workflow: { readonly id: string; readonly name: string }) => {
+  const wanted = named
+    .trim()
+    .toLowerCase()
+    .replace(/^workflow:/, "");
+  return (
+    workflow.id === named ||
+    workflow.id.replace(/^workflow:/, "") === wanted ||
+    workflow.name.trim().toLowerCase() === wanted
+  );
+};
+
 /** The "feature-bot" prefix predates the Roles rename; existing member IDs keep it. */
 const featureMemberId = (featureId: string, slot: string) => hashed("feature-bot", featureId, slot);
 
@@ -456,17 +476,8 @@ export const FeatureServiceLive = Layer.effect(
     ) {
       const exact = yield* crew.getWorkflow(workflowId);
       if (exact) return exact;
-      // Agents name a workflow loosely: its ID without the prefix, or its name.
-      const wanted = workflowId
-        .trim()
-        .toLowerCase()
-        .replace(/^workflow:/, "");
       const workflows = yield* crew.listWorkflows();
-      const match = workflows.find(
-        (workflow) =>
-          workflow.id.replace(/^workflow:/, "") === wanted ||
-          workflow.name.trim().toLowerCase() === wanted,
-      );
+      const match = workflows.find((workflow) => namesWorkflow(workflowId, workflow));
       if (match) return match;
       const known = workflows.map((workflow) => `${workflow.id} (${workflow.name})`).join(", ");
       return yield* Effect.fail(
@@ -476,14 +487,62 @@ export const FeatureServiceLive = Layer.effect(
       );
     });
 
+    /** The workflow a feature keeps as its own copy, sent by a linked environment's bot. */
+    const featureSnapshot = (featureId: string) =>
+      sql<{ readonly json: string | null }>`
+        SELECT workflow_snapshot_json AS json FROM features WHERE id = ${featureId}
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.map((rows) => decodeWorkflowSnapshot(rows[0]?.json)),
+      );
+
+    /**
+     * A snapshot feature's lead: a member of its own, made from the snapshot's lead role, which
+     * this environment may not have.
+     */
+    const ensureSnapshotLead = Effect.fn("FeatureService.ensureSnapshotLead")(function* (
+      featureId: string,
+      projectId: ProjectId,
+      snapshot: WorkflowSnapshot,
+    ) {
+      const id = featureMemberId(featureId, `lead:${snapshot.workflow.leadRoleId}`);
+      const existing = yield* crewStore.getMember(id);
+      if (existing) return existing;
+      const role = snapshot.roles.find(
+        (candidate) => candidate.id === snapshot.workflow.leadRoleId,
+      );
+      if (!role) {
+        return yield* Effect.fail(
+          new FeatureValidationError(`${snapshot.workflow.name} has no lead role to run`),
+        );
+      }
+      return yield* crew.createMember({
+        id,
+        projectId,
+        featureId,
+        roleId: null,
+        name: role.name,
+        instructions: role.instructions,
+        allowedTools: role.allowedTools,
+        modelSelection: role.modelSelection,
+        runtimeMode: role.runtimeMode,
+      });
+    });
+
     /**
      * The feature's lead: its workflow's lead role, in a run of its own in the feature's
      * worktree, with the workflow and brief as its first message. The run ID is fixed, so
      * starting again reuses it.
      */
     const startLead = Effect.fn("FeatureService.startLead")(function* (feature: FeatureRecord) {
-      const workflow = yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID);
-      const manager = yield* crew.ensureProjectLead(feature.projectId, workflow.leadRoleId);
+      const snapshot = yield* featureSnapshot(feature.id);
+      const workflow =
+        snapshot?.workflow ??
+        (yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID));
+      const manager =
+        snapshot === null
+          ? yield* crew.ensureProjectLead(feature.projectId, workflow.leadRoleId)
+          : yield* ensureSnapshotLead(feature.id, feature.projectId, snapshot);
       if (!manager.enabled) {
         return yield* Effect.fail(new FeatureValidationError(`${manager.name} is unavailable`));
       }
@@ -544,14 +603,25 @@ export const FeatureServiceLive = Layer.effect(
     const assembleCrew = Effect.fn("FeatureService.assembleCrew")(function* (
       featureId: string,
       projectId: ProjectId,
-      workflow: Workflow,
+      workflow: Pick<Workflow, "leadRoleId" | "crewRoleIds">,
+      snapshot: WorkflowSnapshot | undefined,
     ) {
-      const roles = (yield* Effect.forEach(workflow.crewRoleIds, (id) => crewStore.getRole(id)))
-        .filter(Predicate.isNotNull)
-        .filter((role) => role.enabled);
-      const manager = yield* crew
-        .ensureProjectLead(projectId, workflow.leadRoleId)
-        .pipe(Effect.catchTags({ CrewValidationError: () => Effect.succeed(null) }));
+      // A snapshot's roles stand in for the library's, including ones this environment lacks.
+      const roles =
+        snapshot === undefined
+          ? (yield* Effect.forEach(workflow.crewRoleIds, (id) => crewStore.getRole(id)))
+              .filter(Predicate.isNotNull)
+              .filter((role) => role.enabled)
+          : workflow.crewRoleIds.flatMap((id) => {
+              const role = snapshot.roles.find((candidate) => candidate.id === id);
+              return role ? [role] : [];
+            });
+      const manager =
+        snapshot === undefined
+          ? yield* crew
+              .ensureProjectLead(projectId, workflow.leadRoleId)
+              .pipe(Effect.catchTags({ CrewValidationError: () => Effect.succeed(null) }))
+          : yield* ensureSnapshotLead(featureId, projectId, snapshot);
       const bindings = new Map<string, string>();
       for (const [position, role] of roles.entries()) {
         const id = featureMemberId(featureId, role.id);
@@ -564,7 +634,8 @@ export const FeatureServiceLive = Layer.effect(
           id,
           projectId,
           featureId,
-          roleId: role.id,
+          // The library here may not have a snapshot's role.
+          roleId: snapshot === undefined ? role.id : null,
           name: role.name,
           instructions: role.instructions,
           allowedTools: role.allowedTools,
@@ -635,7 +706,9 @@ export const FeatureServiceLive = Layer.effect(
           }
           return earlier;
         }
-        const workflow = yield* requireWorkflow(input.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID);
+        const workflow =
+          input.workflowSnapshot?.workflow ??
+          (yield* requireWorkflow(input.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID));
         if (input.parentFeatureId !== undefined && (yield* get(input.parentFeatureId)) === null) {
           return yield* Effect.fail(new FeatureValidationError("Parent feature not found"));
         }
@@ -672,13 +745,18 @@ export const FeatureServiceLive = Layer.effect(
                 return { feature: existing, created: false };
               }
 
-              const crewAssignments = yield* assembleCrew(input.id, input.projectId, workflow);
+              const crewAssignments = yield* assembleCrew(
+                input.id,
+                input.projectId,
+                workflow,
+                input.workflowSnapshot,
+              );
               const createdAt = DateTime.formatIso(yield* DateTime.now);
               // The number is taken in the insert itself, so concurrent creates cannot share one.
               const [inserted] = yield* sql<{ readonly number: number }>`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id, parent_feature_id)
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id, parent_feature_id, workflow_snapshot_json)
               VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null},
-                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id}, ${input.parentFeatureId ?? null})
+                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id}, ${input.parentFeatureId ?? null}, ${input.workflowSnapshot === undefined ? null : encodeWorkflowSnapshot(input.workflowSnapshot)})
               RETURNING number
             `;
               const {
@@ -688,6 +766,7 @@ export const FeatureServiceLive = Layer.effect(
                 briefAttachments: _briefAttachments,
                 briefContext: _briefContext,
                 workflowId: _workflowId,
+                workflowSnapshot: _workflowSnapshot,
                 parentFeatureId,
                 ...fields
               } = input;
@@ -882,8 +961,31 @@ export const FeatureServiceLive = Layer.effect(
             .requireBranch(input.projectId, baseBranch)
             .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
         }
+        // A linked environment's bot sent its workflow with this request: the feature runs on it,
+        // unless the request names another workflow this library has.
+        const linked =
+          input.requesterThreadId === undefined || input.parentFeatureId !== undefined
+            ? null
+            : yield* crewStore.getThreadWorkflow(input.requesterThreadId);
+        const workflowSnapshot =
+          linked !== null &&
+          (input.workflowId === undefined ||
+            namesWorkflow(input.workflowId, linked.snapshot.workflow))
+            ? linked.snapshot
+            : undefined;
         // The stored ID, however the caller named it, so a retry is the same request.
-        const workflow = input.workflowId ? yield* requireWorkflow(input.workflowId) : null;
+        const workflow =
+          workflowSnapshot !== undefined || !input.workflowId
+            ? null
+            : yield* requireWorkflow(input.workflowId).pipe(
+                Effect.mapError((error) =>
+                  linked === null
+                    ? error
+                    : new FeatureValidationError(
+                        `Workflow ${input.workflowId} isn't on ${linked.here}. This request from ${linked.from} brought ${linked.snapshot.workflow.name} (${linked.snapshot.workflow.id}); leave workflowId out to run on it.`,
+                      ),
+                ),
+              );
         const feature = yield* create({
           id: input.featureId ?? `feature:${NodeCrypto.randomUUID()}`,
           projectId: input.projectId,
@@ -891,6 +993,9 @@ export const FeatureServiceLive = Layer.effect(
           brief: input.brief.trim(),
           ...(input.workspace ? { workspace: input.workspace } : {}),
           ...(workflow ? { workflowId: workflow.id } : {}),
+          ...(workflowSnapshot
+            ? { workflowId: workflowSnapshot.workflow.id, workflowSnapshot }
+            : {}),
           ...(baseBranch ? { baseBranch } : {}),
           ...(input.parentFeatureId ? { parentFeatureId: input.parentFeatureId } : {}),
         });

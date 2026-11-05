@@ -108,6 +108,32 @@ export const RoleUpdateInput = Schema.Struct({
 });
 /** The workflow a feature follows when none is chosen. People can edit it but not delete it. */
 export const FEATURE_DELIVERY_WORKFLOW_ID = "workflow:feature-delivery";
+/**
+ * A workflow sent by value with a bot's request from a linked environment: the workflow at its
+ * revision there, and the roles it names. A feature started for that request runs on these
+ * instead of the library where it runs, which never gains them.
+ */
+export const WorkflowSnapshot = Schema.Struct({
+  workflow: Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    instructions: Schema.String,
+    leadRoleId: Schema.String,
+    crewRoleIds: Schema.Array(Schema.String),
+    revision: Schema.Int,
+  }),
+  roles: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      instructions: Schema.String,
+      allowedTools: Schema.Array(Schema.String),
+      modelSelection: ModelSelection,
+      runtimeMode: RuntimeMode,
+    }),
+  ),
+});
+export type WorkflowSnapshot = typeof WorkflowSnapshot.Type;
 /** The built-in workflow whose lead splits big work into child features. */
 export const EPIC_WORKFLOW_ID = "workflow:epic";
 

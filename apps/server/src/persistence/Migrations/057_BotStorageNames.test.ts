@@ -29,6 +29,7 @@ fresh("new bot storage", (it) => {
           "crew_handoffs",
           "crew_hierarchy",
           "crew_members",
+          "crew_run_workflows",
           "crew_runs",
           "roles",
         ],
