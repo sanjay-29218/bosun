@@ -13,6 +13,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import { CrewService } from "../../../crew/CrewService.ts";
+import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -25,6 +26,7 @@ const shared = {
     ThreadManagementService.ThreadManagementService,
     CrewService,
     FeatureService,
+    ProjectRequests,
   ],
 };
 
@@ -84,6 +86,21 @@ const StartFeature = Tool.make("t3_feature_start", {
     workspace: Schema.optional(FeatureWorkspace),
     workflowId: Schema.optional(Schema.String),
     baseBranch: Schema.optional(Schema.String),
+    requestId: Schema.optional(
+      Schema.String.annotate({
+        description: "Managers: the request (R-n) it answers.",
+      }),
+    ),
+    issue: Schema.optional(
+      Schema.String.annotate({
+        description: "Its issue: a link, `#56` or `T-14`.",
+      }),
+    ),
+    parentFeatureId: Schema.optional(
+      Schema.String.annotate({
+        description: "Managers: a feature of this project to add it under.",
+      }),
+    ),
   }),
   success: Schema.Struct({
     featureId: Schema.String,
@@ -110,6 +127,45 @@ const FinishFeature = Tool.make("t3_feature_finish", {
   }),
 }).annotate(Tool.Destructive, false);
 
+const ListFeatures = Tool.make("t3_feature_list", {
+  ...shared,
+  description:
+    "This project's features, newest first: lead thread, branches, parent, issue, pull request and state, requester, request, and last report. Filter by status or parentFeatureId.",
+  parameters: Schema.Struct({
+    status: Schema.optional(Schema.Literals(["open", "closed"])),
+    parentFeatureId: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    features: Schema.Array(
+      Schema.Struct({
+        featureId: Schema.String,
+        number: Schema.optional(Schema.Number),
+        title: Schema.String,
+        status: Schema.Literals(["open", "closed"]),
+        leadThreadId: Schema.NullOr(ThreadId),
+        branch: Schema.NullOr(Schema.String),
+        baseBranch: Schema.NullOr(Schema.String),
+        parentFeatureId: Schema.NullOr(Schema.String),
+        issue: Schema.NullOr(Schema.Struct({ ref: Schema.String, title: Schema.String })),
+        pullRequest: Schema.NullOr(
+          Schema.Struct({
+            url: Schema.String,
+            number: Schema.Number,
+            state: Schema.NullOr(Schema.Literals(["open", "closed", "merged"])),
+          }),
+        ),
+        requesterThreadId: Schema.NullOr(Schema.String),
+        requestId: Schema.NullOr(Schema.String),
+        report: Schema.NullOr(
+          Schema.Literals(["finished", "closed", "stopped", "failed", "interrupted"]),
+        ),
+      }),
+    ),
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
 export const FeaturesToolkit = Toolkit.make(
   ListRoles,
   CreateRole,
@@ -118,4 +174,5 @@ export const FeaturesToolkit = Toolkit.make(
   UpdateWorkflow,
   StartFeature,
   FinishFeature,
+  ListFeatures,
 );

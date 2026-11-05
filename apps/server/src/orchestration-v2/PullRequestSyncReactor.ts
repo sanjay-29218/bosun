@@ -1,5 +1,6 @@
 import {
   CommandId,
+  headquartersProjectId,
   isOrchestrationV2WorkActive,
   type OrchestrationV2TurnItem,
   type PullRequestSummary,
@@ -317,7 +318,16 @@ function rateLimitRetryAt(cause: Cause.Cause<unknown>): number | undefined {
 }
 
 function isUnsettled(thread: ProjectionStore.ProjectionThreadPullRequests): boolean {
-  return thread.settledOverride !== "settled" && thread.settledAt === null;
+  return (
+    thread.settledOverride !== "settled" && thread.settledAt === null && thread.archivedAt == null
+  );
+}
+
+/** A feature's thread, or a task a project's manager delegated: work its manager answers for. */
+function tracksWork(thread: ProjectionStore.ProjectionThreadPullRequests): boolean {
+  return (
+    thread.feature != null || headquartersProjectId(thread.lineage.parentThreadId ?? "") !== null
+  );
 }
 
 export class PullRequestSyncReactor extends Context.Service<
@@ -359,9 +369,16 @@ export const make = Effect.gen(function* () {
         ? snapshot.mergedAt != null
         : snapshot?.state === "closed" &&
           nowMs - Date.parse(snapshot.closedAt ?? "") >= CLOSED_FINAL_AFTER_MS;
-    if (active.every(isFinal)) return false;
     const last = lastSyncedAt.get(key);
     const sinceLastMs = last === undefined ? Number.POSITIVE_INFINITY : nowMs - last;
+    if (active.every(isFinal)) {
+      // Tracked work stays due on the quiet cadence until its pull request ends, settled or
+      // archived, so a merge still reaches the project's manager.
+      return (
+        entries.some((entry) => tracksWork(entry.thread) && !isFinal(entry)) &&
+        sinceLastMs >= QUIET_SYNC_INTERVAL_MS
+      );
+    }
     const open = active.filter((entry) => entry.link.snapshot?.state === "open");
     if (open.length > 0) {
       const quiet = open.every((entry) => {
@@ -379,7 +396,9 @@ export const make = Effect.gen(function* () {
       Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.logWarning(message, fields);
 
   const sweep = Effect.fn("PullRequestSyncReactor.sweep")(function* (scope: "all" | "requested") {
-    const threads = yield* projections.getThreadsWithPullRequests();
+    const threads = yield* projections.getThreadsWithPullRequests(undefined, {
+      includeArchivedWork: true,
+    });
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
     const nowIso = DateTime.formatIso(now);

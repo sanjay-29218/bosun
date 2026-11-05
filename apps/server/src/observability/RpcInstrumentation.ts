@@ -258,7 +258,11 @@ const RPC_AGGREGATES = {
   [WS_METHODS.crewInstantiate]: "crew",
   [WS_METHODS.crewSetHierarchy]: "crew",
   [WS_METHODS.crewSetDelegation]: "crew",
-  [WS_METHODS.crewStart]: "crew",
+  [WS_METHODS.crewProjectManager]: "crew",
+  [WS_METHODS.crewUpdateProjectManager]: "crew",
+  [WS_METHODS.crewResetProjectManager]: "crew",
+  [WS_METHODS.crewOpenProjectManager]: "crew",
+  [WS_METHODS.crewStartNewSession]: "crew",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

@@ -1,11 +1,12 @@
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { BotLongConversation } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
- * Crew mode: global Roles (planner, designer, builder, reviewer, project manager...) and the
+ * Crew mode: global Roles (planner, designer, builder, reviewer, feature manager...) and the
  * crew members a project or feature instantiates from them. Runs are the durable work those
  * members do. "Bot" is reserved for the top-level bots that own projects.
  */
@@ -26,7 +27,12 @@ export const CREW_DISPATCH_STATE = {
 } as const;
 export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_DISPATCH_STATE];
 
-/** The global role every project's manager is made from, which Captain delegates to. */
+/** The role that leads a feature in the built-in workflows; each project's lead is made from it. */
+export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
+/**
+ * The role each project's standing manager starts from. It leads no workflow and joins no crew;
+ * a project's manager follows it until someone customizes it in the project.
+ */
 export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 
 /**
@@ -197,16 +203,43 @@ export const CrewSetDelegationInput = Schema.Struct({
   allowed: Schema.Boolean,
 });
 
-export const CrewStartInput = Schema.Struct({
-  id: Schema.String,
+/** A project's manager as it is now, or as the role would make it before its first use. */
+export const ProjectManagerSettings = Schema.Struct({
   projectId: ProjectId,
+  instructions: Schema.String,
+  allowedTools: Schema.Array(Schema.String),
   modelSelection: ModelSelection,
-  taskText: Schema.String,
+  runtimeMode: RuntimeMode,
+  longConversation: BotLongConversation,
+  /** Saved in the project, so role edits no longer reach it until it is reset. */
+  customized: Schema.Boolean,
+  /** The member's revision; 0 before the project has one. */
+  revision: Schema.Int,
+  /** Its standing thread, null until it is first opened. */
+  threadId: Schema.NullOr(ThreadId),
 });
-export const CrewStartResult = Schema.Struct({
-  runId: Schema.String,
-  threadId: ThreadId,
+export type ProjectManagerSettings = typeof ProjectManagerSettings.Type;
+export const ProjectManagerUpdateInput = Schema.Struct({
+  projectId: ProjectId,
+  instructions: Schema.String,
+  allowedTools: Schema.Array(Schema.String),
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  longConversation: BotLongConversation,
+  expectedRevision: Schema.Int,
 });
+export type ProjectManagerUpdateInput = typeof ProjectManagerUpdateInput.Type;
+export const ProjectManagerResetInput = Schema.Struct({
+  projectId: ProjectId,
+  expectedRevision: Schema.Int,
+});
+export type ProjectManagerResetInput = typeof ProjectManagerResetInput.Type;
+
+/** A project's manager thread, made and opened on first use. */
+export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });
+/** Starts a standing thread (a bot's headquarters or a project's manager) over in a new session. */
+export const CrewStartNewSessionInput = Schema.Struct({ threadId: ThreadId });
+
 export class CrewOperationError extends Schema.TaggedError<CrewOperationError>()(
   "CrewOperationError",
   { reason: Schema.String },

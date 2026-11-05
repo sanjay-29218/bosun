@@ -50,19 +50,55 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const features = yield* FeatureService;
 
-  /** The feature `threadId` leads and the thread to tell, or null when there's none to tell. */
-  const requesterOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+  /** The feature `threadId` leads, or null when it isn't a feature's lead. */
+  const featureLedBy = Effect.fnUntraced(function* (threadId: ThreadId) {
     const lead = yield* projections.getThread(threadId);
     const feature = lead.feature;
     // Subagents, forks and side chats of the lead carry the feature too; only the lead reports.
     if (!feature || feature.member !== undefined || lead.lineage.parentThreadId !== null) {
       return null;
     }
-    const requesterId = yield* features.requesterThreadId(feature.id);
-    if (requesterId === null || requesterId === lead.id) return null;
-    const requester = yield* projections.getThread(requesterId);
-    if (requester.archivedAt !== null || requester.deletedAt !== null) return null;
-    return { feature, requesterId };
+    return feature;
+  });
+
+  /** `threadId` when it is another live thread than the lead's. */
+  const reachable = Effect.fnUntraced(function* (
+    threadId: ThreadId | null,
+    leadThreadId: ThreadId,
+  ) {
+    if (threadId === null || threadId === leadThreadId) return null;
+    const thread = yield* projections.getThread(threadId);
+    return thread.archivedAt !== null || thread.deletedAt !== null ? null : threadId;
+  });
+
+  /** The feature `threadId` leads and the thread that started it, or null with none to tell. */
+  const requesterOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const feature = yield* featureLedBy(threadId);
+    if (feature === null) return null;
+    const requesterId = yield* reachable(yield* features.requesterThreadId(feature.id), threadId);
+    return requesterId === null ? null : { feature, requesterId };
+  });
+
+  /**
+   * Who hears that the lead waits: the thread that started the feature, else a child's parent
+   * lead, which can answer it. A child reports its stops to its parent another way.
+   */
+  const askedOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const requester = yield* requesterOf(threadId);
+    if (requester !== null) return requester;
+    const feature = yield* featureLedBy(threadId);
+    if (feature === null) return null;
+    const parentLead = yield* reachable(yield* features.parentLeadThreadId(feature.id), threadId);
+    return parentLead === null ? null : { feature, requesterId: parentLead };
+  });
+
+  /** How a report names the feature, with the project request it answers. */
+  const featureLabel = Effect.fnUntraced(function* (
+    feature: { readonly id: string; readonly title: string },
+    leadThreadId: ThreadId,
+  ) {
+    const requestId = yield* features.requestIdOf(feature.id);
+    return `Feature "${feature.title}" (lead thread ${leadThreadId}${requestId === null ? "" : `, request ${requestId}`})`;
   });
 
   const reportKey = (key: string) => ({
@@ -101,14 +137,14 @@ const make = Effect.gen(function* () {
   ) {
     if (request.status !== "pending" || !ASKING_KINDS.has(request.kind)) return;
     if (request.owner !== undefined) return;
-    const target = yield* requesterOf(threadId);
+    const target = yield* askedOf(threadId);
     if (target === null) return;
     const asks = request.kind === "user_input" ? "a question" : "an approval";
     yield* post({
       key: `request:${request.id}`,
       requesterId: target.requesterId,
       leadThreadId: threadId,
-      text: `Feature "${target.feature.title}" (lead thread ${threadId}) is waiting on the person: ${asks} in its lead's thread.`,
+      text: `${yield* featureLabel(target.feature, threadId)} is waiting on the person: ${asks} in its lead's thread.`,
       failed: false,
       summary: `Feature "${target.feature.title}" is waiting on you`,
     });
@@ -147,7 +183,7 @@ const make = Effect.gen(function* () {
       key: run.id,
       requesterId: target.requesterId,
       leadThreadId: run.threadId,
-      text: `Feature "${target.feature.title}" (lead thread ${run.threadId}) [${run.status}]:\n${text}`,
+      text: `${yield* featureLabel(target.feature, run.threadId)} [${run.status}]:\n${text}`,
       failed: run.status === "failed",
       summary: `Feature "${target.feature.title}" reported back`,
     });
@@ -180,30 +216,34 @@ const make = Effect.gen(function* () {
    */
   const catchUp: FeatureReportReactor["Service"]["catchUp"] = Effect.fnUntraced(
     function* () {
+      const unreported = Effect.fnUntraced(function* (target: ThreadId, key: string) {
+        const { messageId } = reportKey(key);
+        const { messages } = yield* projections.getThreadRecords(target, ["messages"], {
+          messageIds: [messageId],
+        });
+        return messages.length === 0;
+      });
       for (const leadThreadId of yield* features.reportingLeads) {
-        const target = yield* requesterOf(leadThreadId);
-        if (target === null) continue;
+        const asked = yield* askedOf(leadThreadId);
+        if (asked === null) continue;
+        const requester = yield* requesterOf(leadThreadId);
         const lead = yield* projections.getThreadRecords(
           leadThreadId,
           ["runs", "runtimeRequests"],
           { runStatuses: [], includeLatestRun: true, runtimeRequestStatuses: ["pending"] },
         );
-        const unreported = Effect.fnUntraced(function* (key: string) {
-          const { messageId } = reportKey(key);
-          const { messages } = yield* projections.getThreadRecords(
-            target.requesterId,
-            ["messages"],
-            { messageIds: [messageId] },
-          );
-          return messages.length === 0;
-        });
-        for (const run of lead.runs) {
-          if (REPORTED_STATUSES.has(run.status) && (yield* unreported(run.id))) {
-            yield* reportRun(run);
+        if (requester !== null) {
+          for (const run of lead.runs) {
+            if (
+              REPORTED_STATUSES.has(run.status) &&
+              (yield* unreported(requester.requesterId, run.id))
+            ) {
+              yield* reportRun(run);
+            }
           }
         }
         for (const request of lead.runtimeRequests) {
-          if (yield* unreported(`request:${request.id}`)) {
+          if (yield* unreported(asked.requesterId, `request:${request.id}`)) {
             yield* reportRequest(leadThreadId, request);
           }
         }

@@ -1,4 +1,8 @@
-import { BOT_HEADQUARTERS_RUN_PREFIX, ThreadId } from "@t3tools/contracts";
+import {
+  BOT_HEADQUARTERS_RUN_PREFIX,
+  PROJECT_HEADQUARTERS_RUN_PREFIX,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -10,13 +14,19 @@ const decodeGrants = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Arr
 const isCrewThread = (threadId: string) =>
   threadId.startsWith("bot-run:") || threadId.startsWith("bosun-run:");
 
-/** The grants saved on a crew thread's run; a bot's headquarters uses the bot's current ones. */
+/**
+ * The grants saved on a crew thread's run. Standing threads use their owner's current ones: a
+ * bot's headquarters its bot's, a project's manager its member's.
+ */
 const runGrants = (sql: SqlClient.SqlClient, threadId: string) =>
   sql<{ readonly allowedTools: string }>`
-    SELECT COALESCE(b.allowed_tools_json, r.allowed_tools_json) AS allowedTools
+    SELECT COALESCE(b.allowed_tools_json, m.allowed_tools_json, r.allowed_tools_json)
+      AS allowedTools
     FROM crew_runs AS r
     LEFT JOIN bots AS b
       ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
+    LEFT JOIN crew_members AS m
+      ON r.id LIKE ${`${PROJECT_HEADQUARTERS_RUN_PREFIX}%`} AND m.id = r.member_id
     WHERE r.thread_id = ${threadId}
   `.pipe(
     Effect.orElseSucceed(() => []),
@@ -64,8 +74,9 @@ export const crewThreadGrants = Effect.fn("crewThreadGrants")(function* (threadI
 const T3_TOOL_GRANTS = ["preview", "device", "pull-requests", "orchestration", "worktree"] as const;
 
 /**
- * A crew thread gets the T3 toolkits an ordinary thread gets (`defaults`), plus `crew` for any
- * `crew.*` grant. Grants that name T3 toolkits are an opt-in limit to those toolkits.
+ * A crew thread gets the T3 toolkits an ordinary thread gets (`defaults`), plus `crew`, whose
+ * tools each check their own grant. Its subagents don't get `crew`: they aren't crew members.
+ * Grants that name T3 toolkits are an opt-in limit to those toolkits.
  */
 export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (
   threadId: ThreadId,
@@ -77,6 +88,6 @@ export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (
   const capabilities = new Set<McpCapability>(
     limit.length === 0 ? defaults : limit.filter((grant) => defaults.has(grant)),
   );
-  if (grants.some((grant) => grant.startsWith("crew."))) capabilities.add("crew");
+  if (isCrewThread(threadId)) capabilities.add("crew");
   return capabilities;
 });

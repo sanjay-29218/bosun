@@ -13,6 +13,10 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import { crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -98,7 +102,12 @@ const ticket: Ticket = {
   closedAt: null,
 };
 
-const layerAs = (threadId: ThreadId, features: Partial<FeatureService["Service"]> = {}) =>
+const layerAs = (
+  threadId: ThreadId,
+  features: Partial<FeatureService["Service"]> = {},
+  capabilities: ReadonlySet<McpInvocationContext.McpCapability> = new Set(["crew"]),
+  issues: Partial<IssueService.IssueService["Service"]> = {},
+) =>
   McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -111,7 +120,7 @@ const layerAs = (threadId: ThreadId, features: Partial<FeatureService["Service"]
             providerInstanceId: ProviderInstanceId.make("codex"),
           },
           client: undefined,
-          capabilities: new Set(["crew" as const]),
+          capabilities,
           issuedAt: 0,
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -130,6 +139,7 @@ const layerAs = (threadId: ThreadId, features: Partial<FeatureService["Service"]
             project === projectId
               ? Effect.succeed(issueList)
               : Effect.fail(new IssueOperationError({ reason: "Project not found." })),
+          ...issues,
         }),
         Layer.mock(TicketService)({
           list: () => Effect.succeed([ticket]),
@@ -188,6 +198,108 @@ it.effect("lists the issues of the calling thread's project as compact rows", ()
     const first = yield* call({ state: "all", limit: 1 });
     expect(first.issues.map((issue) => issue.number)).toEqual([1]);
   }).pipe(Effect.provide(layerAs(stageThread))),
+);
+
+it.effect("lets every crew thread list issues without a crew grant, but not its subagents", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+    `;
+    yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+    yield* sql`
+      CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)
+    `;
+    yield* sql`
+      CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)
+    `;
+    // Default roles grant no crew.* tools.
+    yield* sql`INSERT INTO crew_runs VALUES
+      ('feature-lead:x', 'bot-manager:p', 'bot-run:feature-lead:x', '[]'),
+      ('project-hq:p', 'project-manager:p', 'bot-run:project-hq:p', '[]')`;
+    yield* sql`INSERT INTO crew_members VALUES ('project-manager:p', '[]')`;
+    const lineage = (parent: string) =>
+      JSON.stringify({ lineage: { parentThreadId: parent, relationshipToParent: "subagent" } });
+    yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES
+      ('helper', ${lineage("bot-run:feature-lead:x")}),
+      ('helper-of-helper', ${lineage("helper")})`;
+    const listIssues = (thread: string) =>
+      Effect.gen(function* () {
+        const capabilities = yield* crewMcpCapabilities(
+          ThreadId.make(thread),
+          new Set(["orchestration"]),
+        );
+        return yield* Effect.gen(function* () {
+          const toolkit = yield* CrewToolkit;
+          return yield* toolkit
+            .handle("crew_list_issues", {})
+            .pipe(Stream.unwrap, Stream.runCollect);
+        }).pipe(Effect.provide(layerAs(ThreadId.make(thread), {}, capabilities)), Effect.result);
+      });
+
+    for (const lead of ["bot-run:feature-lead:x", "bot-run:project-hq:p"]) {
+      const listed = yield* listIssues(lead);
+      expect(listed._tag).toBe("Success");
+    }
+    for (const helper of ["helper", "helper-of-helper"]) {
+      const refused = yield* listIssues(helper);
+      expect(refused._tag).toBe("Failure");
+    }
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it.effect("files an issue in a milestone and under a parent, and opens and closes milestones", () =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<ReadonlyArray<unknown>>([]);
+    const record = <A>(call: unknown, value: A) =>
+      Ref.update(calls, (all) => [...all, call]).pipe(Effect.as(value));
+    const milestone = {
+      number: 4,
+      title: "Exports",
+      url: "https://github.com/acme/web/milestone/4",
+      dueOn: null,
+      openIssues: 0,
+      closedIssues: 0,
+    };
+    const layer = layerAs(stageThread, {}, new Set(["crew"]), {
+      create: (input) => record(input, { ...issueList.issues[0]!, number: 12 }),
+      createMilestone: (input) => record(input, milestone),
+      setMilestoneState: (input) => record(input, milestone),
+    });
+    const handle = (name: string, params: object) =>
+      Effect.gen(function* () {
+        const toolkit = yield* CrewToolkit;
+        const chunks = yield* toolkit
+          .handle(name as never, params as never)
+          .pipe(Stream.unwrap, Stream.runCollect);
+        return chunks.at(-1)?.result;
+      }).pipe(Effect.provide(layer));
+
+    expect(
+      yield* handle("crew_create_todo", {
+        title: "CSV export",
+        as: "issue",
+        milestone: "Exports",
+        parent: 3,
+      }),
+    ).toMatchObject({ ref: "#12" });
+    expect(yield* handle("crew_create_milestone", { title: "Exports" })).toEqual({
+      number: 4,
+      title: "Exports",
+      url: "https://github.com/acme/web/milestone/4",
+    });
+    yield* handle("crew_update_milestone", { milestone: "Exports", state: "closed" });
+    expect(yield* Ref.get(calls)).toEqual([
+      { projectId, title: "CSV export", body: "", milestone: "Exports", parent: 3 },
+      { projectId, title: "Exports" },
+      { projectId, milestone: "Exports", state: "closed" },
+    ]);
+    // A ticket lives in Bosun, which has no milestones or sub-issues.
+    const refused = yield* Effect.flip(
+      handle("crew_create_todo", { title: "CSV", milestone: "Exports" }),
+    );
+    expect(refused.message).toContain("Tickets have no milestone or parent");
+  }),
 );
 
 it.effect("reads a todo as a ticket for T-<number> and refuses an unnamed one", () =>

@@ -1,15 +1,23 @@
 import {
   botHeadquartersRunId,
   botHeadquartersThreadId,
-  type Bot,
+  type BotLongConversation,
   CREW_DISPATCH_STATE,
   CREW_TOOL_GRANTS,
   CREW_TURN_STATE,
   headquartersBotId,
+  headquartersProjectId,
+  isStandingThread,
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
+  FEATURE_MANAGER_ROLE_ID,
   PROJECT_MANAGER_ROLE_ID,
   ProjectId,
+  projectHeadquartersRunId,
+  projectHeadquartersThreadId,
+  type ProjectManagerResetInput,
+  type ProjectManagerSettings,
+  type ProjectManagerUpdateInput,
   ThreadId,
   type CrewTurnState,
   type ModelSelection,
@@ -53,7 +61,9 @@ import type { LinkedWorkflow } from "./linkedWorkflow.ts";
 import {
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
+  FEATURE_MANAGER_INSTRUCTIONS,
   PROJECT_MANAGER_INSTRUCTIONS,
+  projectManagerTask,
   crewRunPrompt,
   headquartersTask,
 } from "./crewPrompts.ts";
@@ -66,14 +76,28 @@ class CrewValidationError extends Error {
  * Member IDs below predate the Roles rename. They stay as they are because stored runs,
  * handoffs, grants and feature bindings reference them.
  */
-/** The member made from the project manager role for one project, created on first use. */
-export const projectManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
-/** The builder a project manager hands direct requests to, created with the manager. */
-export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
-/** The member that leads a workflow led by a role other than the project manager. */
+/**
+ * The member made from the Feature manager role for one project, created on first use. Its ID
+ * predates the rename: every feature lead's run and thread ID is hashed from it.
+ */
+export const featureManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
+/** A project's standing manager, made from the Project manager role on first use. */
+const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
+/** The member that leads a workflow led by a role other than the Feature manager. */
 const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
   `bot-lead:${projectId}:${roleId}`;
-const BUILDER_ROLE_ID = "role:builder";
+
+/**
+ * What a project-level member adds to its role's instructions, or null for a member that isn't
+ * one of the project's own (an instantiated or feature member), which role edits don't reach.
+ */
+const projectMemberContext = (id: string, projectId: ProjectId | null) => {
+  if (projectId === null) return null;
+  if (id === featureManagerMemberId(projectId)) return `You manage project ${projectId}.`;
+  if (id === projectManagerMemberId(projectId)) return `Your project is ${projectId}.`;
+  if (id.startsWith(`bot-lead:${projectId}:`)) return `You lead work in project ${projectId}.`;
+  return null;
+};
 
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
@@ -92,6 +116,12 @@ const PLANNER_INSTRUCTIONS = `${crewInstructions("Planner")} ${PLANNER_SPLIT}`;
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
   {
+    id: FEATURE_MANAGER_ROLE_ID,
+    name: "Feature manager",
+    allowedTools: [],
+    instructions: FEATURE_MANAGER_INSTRUCTIONS,
+  },
+  {
     id: PROJECT_MANAGER_ROLE_ID,
     name: "Project manager",
     allowedTools: [],
@@ -100,7 +130,7 @@ const DEFAULT_ROLES = [
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
   {
-    id: BUILDER_ROLE_ID,
+    id: "role:builder",
     name: "Builder",
     instructions: BUILDER_INSTRUCTIONS,
   },
@@ -188,19 +218,12 @@ export interface CrewServiceShape {
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, CrewServiceError>;
   /**
-   * The project's manager, made from the project manager role on first use together with the
-   * builder it delegates to. Captain may delegate to it.
+   * The project's Feature manager, made from its role on first use; every feature lead of the
+   * Feature manager role runs as it. The project's bot may delegate to it.
    */
-  readonly ensureProjectManager: (
+  readonly ensureFeatureManager: (
     projectId: ProjectId,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
-  /** A person's request to the project's bot, which hands it to the project's manager. */
-  readonly startRequest: (input: {
-    readonly id: string;
-    readonly projectId: ProjectId;
-    readonly modelSelection: ModelSelection;
-    readonly taskText: string;
-  }) => Effect.Effect<CrewRun, CrewServiceError>;
   readonly createMember: (
     input: CreateCrewMemberInput,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
@@ -220,7 +243,7 @@ export interface CrewServiceShape {
   readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
   readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
   /**
-   * The project's member of a workflow's lead role: its manager for the project manager role,
+   * The project's member of a workflow's lead role: its Feature manager for that role,
    * else one made from the role on first use.
    */
   readonly ensureProjectLead: (
@@ -284,6 +307,23 @@ export interface CrewServiceShape {
   ) => Effect.Effect<CrewRun, CrewServiceError>;
   /** Points an open headquarters at its bot's current runtime mode and model. */
   readonly syncHeadquarters: (botId: string) => Effect.Effect<void, CrewServiceError>;
+  /**
+   * The project's standing manager run, made with its member on first use, pinned in the
+   * project and restored if its thread was deleted or archived. It works in the checkout.
+   */
+  readonly ensureProjectManager: (projectId: ProjectId) => Effect.Effect<CrewRun, CrewServiceError>;
+  /** The project's manager settings, or the role's before the project has one. */
+  readonly projectManagerSettings: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
+  /** Saves the project's manager settings; role edits stop reaching it until it is reset. */
+  readonly updateProjectManager: (
+    input: ProjectManagerUpdateInput,
+  ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
+  /** Takes the role's current settings again, and follows the role from then on. */
+  readonly resetProjectManager: (
+    input: ProjectManagerResetInput,
+  ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
   readonly getRun: (
     id: string,
   ) => Effect.Effect<CrewRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
@@ -293,8 +333,8 @@ export interface CrewServiceShape {
    * long and it has been quiet a while. Other bots leave it to the provider's compaction.
    */
   readonly watchHeadquarters: () => Effect.Effect<void, never, Scope.Scope>;
-  /** Starts the bot's headquarters over in a fresh session now; refused while it works. */
-  readonly startNewSession: (botId: string) => Effect.Effect<void, CrewServiceError>;
+  /** Starts a standing thread over in a fresh session now; refused while it works. */
+  readonly startNewSession: (threadId: ThreadId) => Effect.Effect<void, CrewServiceError>;
 }
 
 export type CrewServiceError =
@@ -435,6 +475,8 @@ export const CrewServiceLive = Layer.effect(
           instructions,
           allowedTools,
           enabled: true,
+          longConversation: "compact",
+          customizedAt: null,
           revision: 1,
           createdAt: now,
           updatedAt: now,
@@ -510,6 +552,31 @@ export const CrewServiceLive = Layer.effect(
       },
     );
 
+    /**
+     * Brings a project-level member up to its role's revision. A member someone customized, or
+     * one that changed under us, keeps what is stored.
+     */
+    const followRole = Effect.fn("CrewService.followRole")(function* (
+      member: CrewMember,
+      role: Role,
+    ) {
+      const context = projectMemberContext(member.id, member.projectId);
+      if (context === null || member.roleRevision === role.revision) return member;
+      const updated: CrewMember = {
+        ...member,
+        roleRevision: role.revision,
+        name: role.name,
+        instructions: `${role.instructions}\n\n${context}`,
+        allowedTools: role.allowedTools,
+        modelSelection: role.modelSelection,
+        runtimeMode: role.runtimeMode,
+        revision: member.revision + 1,
+        updatedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+      if (yield* store.updateMember(updated, member.revision)) return updated;
+      return (yield* store.getMember(member.id)) ?? member;
+    });
+
     const updateRole: CrewServiceShape["updateRole"] = Effect.fn("CrewService.updateRole")(
       function* (input) {
         const previous = yield* store.getRole(input.id);
@@ -549,8 +616,24 @@ export const CrewServiceLive = Layer.effect(
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
         };
-        if (!(yield* store.updateRole(updated, previous.revision))) {
-          return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
+        // Project-level members follow in the same transaction, so a standing run never sees
+        // the new role with an old member.
+        yield* store.transaction(
+          Effect.gen(function* () {
+            if (!(yield* store.updateRole(updated, previous.revision))) {
+              return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
+            }
+            for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
+              yield* followRole(member, updated);
+            }
+          }),
+        );
+        // A project's open manager thread takes the role's new model and mode.
+        if (updated.id === PROJECT_MANAGER_ROLE_ID) {
+          for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
+            if (member.projectId !== null)
+              yield* syncStanding(yield* projectOwner(member.projectId));
+          }
         }
         return updated;
       },
@@ -569,6 +652,15 @@ export const CrewServiceLive = Layer.effect(
       });
       if (!(yield* store.getRole(input.leadRoleId))) {
         return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.leadRoleId}`));
+      }
+      // It manages a project from its own standing thread, never one feature.
+      if (
+        input.leadRoleId === PROJECT_MANAGER_ROLE_ID ||
+        input.crewRoleIds.includes(PROJECT_MANAGER_ROLE_ID)
+      ) {
+        return yield* Effect.fail(
+          new CrewValidationError("The Project manager can't lead a workflow or join its crew"),
+        );
       }
       const crewRoleIds = [...new Set(input.crewRoleIds)].filter((id) => id !== input.leadRoleId);
       for (const id of crewRoleIds) {
@@ -629,12 +721,14 @@ export const CrewServiceLive = Layer.effect(
       id: string,
       projectId: ProjectId,
       roleId: string,
-      context: string,
     ) {
-      // An existing member keeps working even if its role was turned off since.
       const existing = yield* store.getMember(id);
-      if (existing?.projectId === projectId) return { member: existing, created: false };
       const role = yield* store.getRole(roleId);
+      // An existing member keeps working even if its role was turned off since.
+      if (existing?.projectId === projectId) {
+        if (role === null) return { member: existing, created: false };
+        return { member: yield* followRole(existing, role), created: false };
+      }
       if (!role?.enabled) {
         return yield* Effect.fail(
           new CrewValidationError("Set up the crew before handing it project work"),
@@ -645,45 +739,162 @@ export const CrewServiceLive = Layer.effect(
         projectId,
         roleId,
         name: role.name,
-        instructions: `${role.instructions}\n\n${context}`,
+        instructions: `${role.instructions}\n\n${projectMemberContext(id, projectId)}`,
         allowedTools: role.allowedTools,
         modelSelection: role.modelSelection,
         runtimeMode: role.runtimeMode,
       });
     });
 
-    const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
-      "CrewService.ensureProjectManager",
+    const ensureFeatureManager: CrewServiceShape["ensureFeatureManager"] = Effect.fn(
+      "CrewService.ensureFeatureManager",
     )(function* (projectId) {
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
-      const managerId = projectManagerMemberId(projectId);
-      const builderId = projectBuilderMemberId(projectId);
-      // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
-      // disabled role) is completed by the next request once the role is back.
       const manager = yield* projectMemberFromRole(
-        managerId,
+        featureManagerMemberId(projectId),
+        projectId,
+        FEATURE_MANAGER_ROLE_ID,
+      );
+      return manager.member;
+    });
+
+    /** The project's manager member, made from the Project manager role on first use. */
+    const projectManagerMember = Effect.fn("CrewService.projectManagerMember")(function* (
+      projectId: ProjectId,
+    ) {
+      if (!(yield* runtime.projectExists(projectId))) {
+        return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+      }
+      const { member } = yield* projectMemberFromRole(
+        projectManagerMemberId(projectId),
         projectId,
         PROJECT_MANAGER_ROLE_ID,
-        `You manage project ${projectId}. Its builder is crew member ${builderId}.`,
       );
-      const builder = yield* projectMemberFromRole(
-        builderId,
+      return member;
+    });
+
+    const projectManagerSettings: CrewServiceShape["projectManagerSettings"] = Effect.fn(
+      "CrewService.projectManagerSettings",
+    )(function* (projectId) {
+      if (!(yield* runtime.projectExists(projectId))) {
+        return yield* Effect.fail(new CrewValidationError("Project does not exist"));
+      }
+      const run = yield* store.getRun(projectHeadquartersRunId(projectId));
+      const threadId = run === null ? null : run.threadId;
+      const member = yield* store.getMember(projectManagerMemberId(projectId));
+      if (member !== null) {
+        return {
+          projectId,
+          instructions: member.instructions,
+          allowedTools: member.allowedTools,
+          modelSelection: member.modelSelection,
+          runtimeMode: member.runtimeMode,
+          longConversation: member.longConversation,
+          customized: member.customizedAt !== null,
+          revision: member.revision,
+          threadId,
+        };
+      }
+      const role = yield* store.getRole(PROJECT_MANAGER_ROLE_ID);
+      if (role === null) {
+        return yield* Effect.fail(new CrewValidationError("Add the starter roles first"));
+      }
+      return {
         projectId,
-        BUILDER_ROLE_ID,
-        `You work on project ${projectId}.`,
+        instructions: `${role.instructions}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`,
+        allowedTools: role.allowedTools,
+        modelSelection: role.modelSelection,
+        runtimeMode: role.runtimeMode,
+        longConversation: "compact",
+        customized: false,
+        revision: 0,
+        threadId,
+      };
+    });
+
+    /**
+     * Writes the project's manager while it is at `expectedRevision` (0 before it exists), then
+     * points its open thread at the new model and mode.
+     */
+    const saveProjectManager = Effect.fn("CrewService.saveProjectManager")(function* (
+      projectId: ProjectId,
+      expectedRevision: number,
+      change: (member: CrewMember, now: string) => Effect.Effect<CrewMember, CrewServiceError>,
+    ) {
+      const stale = new CrewValidationError(
+        "The project manager changed; reload its settings and try again",
       );
-      // The project's bot may delegate to the manager because it owns the project.
-      yield* store.grantDelegation(managerId, builderId);
-      if (builder.created) yield* store.setParent(builderId, managerId, 0);
-      return manager.member;
+      const existing = yield* store.getMember(projectManagerMemberId(projectId));
+      if ((existing?.revision ?? 0) !== expectedRevision) return yield* Effect.fail(stale);
+      const member = existing ?? (yield* projectManagerMember(projectId));
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const updated = yield* change(member, now);
+      if (!(yield* store.saveMember(updated, member.revision))) return yield* Effect.fail(stale);
+      yield* syncStanding(yield* projectOwner(projectId));
+      return yield* projectManagerSettings(projectId);
+    });
+
+    const updateProjectManager: CrewServiceShape["updateProjectManager"] = Effect.fn(
+      "CrewService.updateProjectManager",
+    )(function* (input) {
+      const instructions = yield* Effect.try({
+        try: () => nonEmpty(input.instructions, "Instructions", 16_000),
+        catch: () => new CrewValidationError("Give the project manager instructions"),
+      });
+      const allowedTools = yield* Effect.try({
+        try: () => validRoleTools(input.allowedTools),
+        catch: (cause) =>
+          cause instanceof CrewValidationError
+            ? cause
+            : new CrewValidationError("Invalid tool grants"),
+      });
+      return yield* saveProjectManager(input.projectId, input.expectedRevision, (member, now) =>
+        Effect.succeed({
+          ...member,
+          instructions,
+          allowedTools,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          longConversation: input.longConversation,
+          customizedAt: now,
+          revision: member.revision + 1,
+          updatedAt: now,
+        }),
+      );
+    });
+
+    const resetProjectManager: CrewServiceShape["resetProjectManager"] = Effect.fn(
+      "CrewService.resetProjectManager",
+    )(function* (input) {
+      return yield* saveProjectManager(input.projectId, input.expectedRevision, (member, now) =>
+        store.getRole(PROJECT_MANAGER_ROLE_ID).pipe(
+          Effect.flatMap((role) =>
+            role === null
+              ? Effect.fail(new CrewValidationError("Add the starter roles first"))
+              : Effect.succeed({
+                  ...member,
+                  roleRevision: role.revision,
+                  name: role.name,
+                  instructions: `${role.instructions}\n\n${projectMemberContext(member.id, member.projectId)}`,
+                  allowedTools: role.allowedTools,
+                  modelSelection: role.modelSelection,
+                  runtimeMode: role.runtimeMode,
+                  longConversation: "compact" as const,
+                  customizedAt: null,
+                  revision: member.revision + 1,
+                  updatedAt: now,
+                }),
+          ),
+        ),
+      );
     });
 
     const ensureProjectLead: CrewServiceShape["ensureProjectLead"] = Effect.fn(
       "CrewService.ensureProjectLead",
     )(function* (projectId, roleId) {
-      if (roleId === PROJECT_MANAGER_ROLE_ID) return yield* ensureProjectManager(projectId);
+      if (roleId === FEATURE_MANAGER_ROLE_ID) return yield* ensureFeatureManager(projectId);
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
@@ -691,7 +902,6 @@ export const CrewServiceLive = Layer.effect(
         projectLeadMemberId(projectId, roleId),
         projectId,
         roleId,
-        `You lead work in project ${projectId}.`,
       );
       return lead.member;
     });
@@ -793,16 +1003,32 @@ export const CrewServiceLive = Layer.effect(
       },
     );
 
-    // One at a time, so two opens of a deleted headquarters restore it once.
-    const headquartersLock = yield* Semaphore.make(1);
-    const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = Effect.fn(
-      "CrewService.ensureHeadquarters",
-    )(function* (botId, fallbackProjectId) {
-      const id = botHeadquartersRunId(botId);
+    /**
+     * Who a standing thread runs as: a bot for its headquarters, a project's manager member for
+     * the project's. Its settings are read live, so an edit reaches the open thread.
+     */
+    interface StandingOwner {
+      readonly runId: string;
+      readonly threadId: ThreadId;
+      readonly actorId: string;
+      readonly name: string;
+      readonly instructions: string;
+      readonly allowedTools: ReadonlyArray<string>;
+      readonly revision: number;
+      readonly modelSelection: ModelSelection | null;
+      readonly runtimeMode: RuntimeMode;
+      readonly longConversation: BotLongConversation;
+      readonly taskText: string;
+      /** The project its thread lives in; a bot's headquarters moves if that one is deleted. */
+      readonly home: Effect.Effect<ProjectId, CrewServiceError>;
+    }
+
+    const botOwner = Effect.fn("CrewService.botOwner")(function* (
+      botId: string,
+      fallbackProjectId?: ProjectId,
+    ) {
       const bot = yield* bots.get(botId);
-      if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
-      // The run keeps its last model for decoding, so a bot without one is refused here.
-      const modelSelection = yield* modelFor(bot, undefined);
+      if (bot === null) return null;
       const home = Effect.gen(function* () {
         const ownedProject = yield* bots.firstOwnedProject(bot.id);
         const projectId =
@@ -814,30 +1040,92 @@ export const CrewServiceLive = Layer.effect(
         }
         return projectId;
       });
+      return {
+        runId: botHeadquartersRunId(bot.id),
+        threadId: botHeadquartersThreadId(bot.id),
+        actorId: bot.id,
+        name: bot.name,
+        instructions: bot.instructions,
+        allowedTools: bot.allowedTools,
+        revision: bot.revision,
+        modelSelection: bot.modelSelection,
+        runtimeMode: bot.runtimeMode,
+        longConversation: bot.longConversation,
+        taskText: headquartersTask(bot.id),
+        home,
+      } satisfies StandingOwner;
+    });
+
+    const projectOwner = Effect.fn("CrewService.projectOwner")(function* (projectId: ProjectId) {
+      const member = yield* store.getMember(projectManagerMemberId(projectId));
+      if (member === null) return null;
+      return {
+        runId: projectHeadquartersRunId(projectId),
+        threadId: projectHeadquartersThreadId(projectId),
+        actorId: member.id,
+        name: "Project manager",
+        instructions: member.instructions,
+        allowedTools: member.allowedTools,
+        revision: member.revision,
+        modelSelection: member.modelSelection,
+        runtimeMode: member.runtimeMode,
+        longConversation: member.longConversation,
+        taskText: projectManagerTask(projectId),
+        home: runtime
+          .projectExists(projectId)
+          .pipe(
+            Effect.flatMap((exists) =>
+              exists
+                ? Effect.succeed(projectId)
+                : Effect.fail(new CrewValidationError("Project does not exist")),
+            ),
+          ),
+      } satisfies StandingOwner;
+    });
+
+    const ownerOfThread = (threadId: ThreadId) => {
+      const botId = headquartersBotId(threadId);
+      if (botId !== null) return botOwner(botId);
+      const projectId = headquartersProjectId(threadId);
+      return projectId === null ? Effect.succeed(null) : projectOwner(projectId);
+    };
+
+    // One at a time, so two opens of a deleted standing thread restore it once.
+    const standingLock = yield* Semaphore.make(1);
+    /**
+     * A standing run, created and pinned on first use, and restored if its thread was deleted
+     * or archived. It restarts with its owner's instructions as they are then.
+     */
+    const ensureStanding = Effect.fn("CrewService.ensureStanding")(function* (
+      owner: StandingOwner,
+    ) {
+      const id = owner.runId;
+      // The run keeps its last model for decoding, so an owner without one is refused here.
+      const modelSelection = yield* modelFor(owner, undefined);
       const existing = yield* store.getRun(id);
-      // A headquarters whose project was deleted moves, and `restore` restarts it there.
+      // A standing run whose project was deleted moves, and `restore` restarts it there.
       if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
-        yield* store.moveRun(id, yield* home);
+        yield* store.moveRun(id, yield* owner.home);
       }
       if (existing === null) {
-        const projectId = yield* home;
         yield* store.insertRun({
           id,
-          memberId: bot.id,
-          projectId,
-          threadId: botHeadquartersThreadId(bot.id),
-          taskText: headquartersTask(bot.id),
-          title: bot.name,
-          instructions: bot.instructions,
-          allowedTools: bot.allowedTools,
-          memberRevision: bot.revision,
+          memberId: owner.actorId,
+          projectId: yield* owner.home,
+          threadId: owner.threadId,
+          taskText: owner.taskText,
+          title: owner.name,
+          instructions: owner.instructions,
+          allowedTools: owner.allowedTools,
+          memberRevision: owner.revision,
           modelSelection,
-          runtimeMode: bot.runtimeMode,
+          runtimeMode: owner.runtimeMode,
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
           lastError: null,
           createdAt: DateTime.formatIso(yield* DateTime.now),
           dispatchedAt: null,
+          // A project's manager works in the project's checkout.
           workspace: null,
           openingMessage: null,
         });
@@ -846,40 +1134,63 @@ export const CrewServiceLive = Layer.effect(
       if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
         yield* dispatch(run);
       } else {
-        // A deleted thread restarts with the bot's instructions as they are now.
         yield* runtime.restore({
           ...threadInput(run),
-          prompt: `${bot.instructions}\n\nTask:\n${run.taskText}`,
+          prompt: `${owner.instructions}\n\nTask:\n${run.taskText}`,
         });
-        yield* runtime.syncSettings(run.threadId, bot.runtimeMode, modelSelection);
+        yield* runtime.syncSettings(run.threadId, owner.runtimeMode, modelSelection);
       }
       yield* runtime
         .pin(run.threadId, `${id}:pin`)
-        .pipe(Effect.catch((error) => Effect.logWarning("Headquarters pin failed", { id, error })));
+        .pipe(Effect.catch((error) => Effect.logWarning("Standing pin failed", { id, error })));
       return (yield* store.getRun(id))!;
-    }, headquartersLock.withPermits(1));
+    }, standingLock.withPermits(1));
 
-    const startFresh = (bot: Bot, run: CrewRun, records: FreshStartRecords, key: string) =>
+    const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = Effect.fn(
+      "CrewService.ensureHeadquarters",
+    )(function* (botId, fallbackProjectId) {
+      const owner = yield* botOwner(botId, fallbackProjectId);
+      if (owner === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
+      return yield* ensureStanding(owner);
+    });
+
+    const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
+      "CrewService.ensureProjectManager",
+    )(function* (projectId) {
+      yield* projectManagerMember(projectId);
+      const owner = yield* projectOwner(projectId);
+      if (owner === null) {
+        return yield* Effect.fail(new CrewValidationError("Project manager is unavailable"));
+      }
+      return yield* ensureStanding(owner);
+    });
+
+    const startFresh = (
+      owner: StandingOwner,
+      run: CrewRun,
+      records: FreshStartRecords,
+      key: string,
+    ) =>
       runtime.startFresh({
         threadId: run.threadId,
         runId: run.id,
         key,
         prompt: freshStartBriefing(
-          `${bot.instructions}\n\nTask:\n${run.taskText}`,
+          `${owner.instructions}\n\nTask:\n${run.taskText}`,
           records.messages,
         ),
       });
 
     // A newer completed turn replaces the wait, so the quiet period restarts with each turn.
     const startFreshWhenQuiet = Effect.fn("CrewService.startFreshWhenQuiet")(
-      function* (botId: string, threadId: ThreadId, completedRunId: RunId) {
-        const bot = yield* bots.get(botId);
-        if (bot?.longConversation !== "new-session") return;
+      function* (threadId: ThreadId, completedRunId: RunId) {
+        const owner = yield* ownerOfThread(threadId);
+        if (owner?.longConversation !== "new-session") return;
         if (!freshStartDue(yield* runtime.freshStartRecords(threadId), completedRunId)) return;
         yield* Effect.sleep(Duration.minutes(FRESH_START_QUIET_MINUTES));
         const records = yield* runtime.freshStartRecords(threadId);
-        const current = yield* bots.get(botId);
-        const run = yield* store.getRun(botHeadquartersRunId(botId));
+        const current = yield* ownerOfThread(threadId);
+        const run = yield* store.getRun(owner.runId);
         if (
           current?.longConversation !== "new-session" ||
           run?.threadId !== threadId ||
@@ -888,40 +1199,49 @@ export const CrewServiceLive = Layer.effect(
           return;
         yield* startFresh(current, run, records, completedRunId);
       },
-      (effect, botId) =>
+      (effect, threadId) =>
         effect.pipe(
           Effect.catch((cause) =>
-            Effect.logWarning("Headquarters fresh start skipped", { botId, cause }),
+            Effect.logWarning("Standing thread fresh start skipped", { threadId, cause }),
           ),
         ),
     );
 
     const startNewSession: CrewServiceShape["startNewSession"] = Effect.fn(
       "CrewService.startNewSession",
-    )(function* (botId) {
-      const bot = yield* bots.get(botId);
-      if (bot === null) return yield* Effect.fail(new CrewValidationError("Bot not found"));
-      const run = yield* store.getRun(botHeadquartersRunId(botId));
+    )(function* (threadId) {
+      const owner = yield* ownerOfThread(threadId);
+      if (owner === null) {
+        return yield* Effect.fail(new CrewValidationError("Only a standing thread starts over"));
+      }
+      const run = yield* store.getRun(owner.runId);
       if (run === null || run.dispatchState !== CREW_DISPATCH_STATE.STARTED) {
-        return yield* Effect.fail(new CrewValidationError(`${bot.name} has no thread yet`));
+        return yield* Effect.fail(new CrewValidationError(`${owner.name} has no thread yet`));
       }
       const records = yield* runtime.freshStartRecords(run.threadId);
       if (!headquartersIdle(records)) {
         return yield* Effect.fail(
-          new CrewValidationError(`${bot.name} is working. Try again when it finishes.`),
+          new CrewValidationError(`${owner.name} is working. Try again when it finishes.`),
         );
       }
       const now = DateTime.toEpochMillis(yield* DateTime.now);
-      yield* startFresh(bot, run, records, `manual:${now}`);
+      yield* startFresh(owner, run, records, `manual:${now}`);
+    });
+
+    /** Points an open standing thread at its owner's current runtime mode and model. */
+    const syncStanding = Effect.fn("CrewService.syncStanding")(function* (
+      owner: StandingOwner | null,
+    ) {
+      if (owner?.modelSelection == null) return;
+      const run = yield* store.getRun(owner.runId);
+      if (run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
+      yield* runtime.syncSettings(run.threadId, owner.runtimeMode, owner.modelSelection);
     });
 
     const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(
       "CrewService.syncHeadquarters",
     )(function* (botId) {
-      const bot = yield* bots.get(botId);
-      const run = yield* store.getRun(botHeadquartersRunId(botId));
-      if (!bot?.modelSelection || run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
-      yield* runtime.syncSettings(run.threadId, bot.runtimeMode, bot.modelSelection);
+      yield* syncStanding(yield* botOwner(botId));
     });
 
     const setHierarchyParent: CrewServiceShape["setHierarchyParent"] = Effect.fn(
@@ -982,16 +1302,18 @@ export const CrewServiceLive = Layer.effect(
             id: FEATURE_DELIVERY_WORKFLOW_ID,
             name: "Feature delivery",
             instructions: FEATURE_DELIVERY_INSTRUCTIONS,
-            leadRoleId: PROJECT_MANAGER_ROLE_ID,
+            leadRoleId: FEATURE_MANAGER_ROLE_ID,
             crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
-              role.id === PROJECT_MANAGER_ROLE_ID ? [] : [role.id],
+              role.id === FEATURE_MANAGER_ROLE_ID || role.id === PROJECT_MANAGER_ROLE_ID
+                ? []
+                : [role.id],
             ),
           },
           {
             id: EPIC_WORKFLOW_ID,
             name: "Epic",
             instructions: EPIC_INSTRUCTIONS,
-            leadRoleId: PROJECT_MANAGER_ROLE_ID,
+            leadRoleId: FEATURE_MANAGER_ROLE_ID,
             crewRoleIds: ["role:planner", "role:qa-tester"],
           },
         ];
@@ -1015,24 +1337,8 @@ export const CrewServiceLive = Layer.effect(
           );
         }
       }),
-      ensureProjectManager,
+      ensureFeatureManager,
       ensureProjectLead,
-      startRequest: Effect.fn("CrewService.startRequest")(function* (input) {
-        const existing = yield* store.getRun(input.id);
-        // A retry of an accepted request must not depend on today's crew or owner.
-        if (existing === null) yield* ensureProjectManager(input.projectId);
-        const memberId = existing?.memberId ?? (yield* bots.projectOwner(input.projectId));
-        if (memberId === null) {
-          return yield* Effect.fail(new CrewValidationError("Project does not exist"));
-        }
-        return yield* createRun({
-          id: input.id,
-          memberId,
-          projectId: input.projectId,
-          taskText: `Project: ${input.projectId}. Project manager: ${projectManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
-          modelSelection: input.modelSelection,
-        });
-      }),
       createMember,
       createRole,
       updateRole,
@@ -1100,6 +1406,10 @@ export const CrewServiceLive = Layer.effect(
       createRun,
       ensureHeadquarters,
       syncHeadquarters,
+      ensureProjectManager,
+      projectManagerSettings,
+      updateProjectManager,
+      resetProjectManager,
       getRun: (id) =>
         store.getRun(id).pipe(
           Effect.flatMap((run) =>
@@ -1151,12 +1461,11 @@ export const CrewServiceLive = Layer.effect(
       watchHeadquarters: Effect.fn("CrewService.watchHeadquarters")(function* () {
         const waiting = yield* FiberMap.make<ThreadId>();
         yield* runtime.completedRuns.pipe(
-          Stream.runForEach(({ threadId, runId }) => {
-            const botId = headquartersBotId(threadId);
-            return botId === null
-              ? Effect.void
-              : FiberMap.run(waiting, threadId, startFreshWhenQuiet(botId, threadId, runId));
-          }),
+          Stream.runForEach(({ threadId, runId }) =>
+            isStandingThread(threadId)
+              ? FiberMap.run(waiting, threadId, startFreshWhenQuiet(threadId, runId))
+              : Effect.void,
+          ),
           Effect.catch((cause) => Effect.logWarning("Headquarters watch stopped", { cause })),
           Effect.forkScoped,
         );

@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  FEATURE_MANAGER_ROLE_ID,
   PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
@@ -7,7 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { libraryRoleEntries, roleAvailabilityNote } from "./library.ts";
+import { libraryRoleEntries, roleAvailabilityNote, workflowRoles } from "./library.ts";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -28,7 +29,7 @@ const delivery: WorkflowConfig = {
   id: "workflow:feature-delivery",
   name: "Feature delivery",
   instructions: "Plan, build, QA.",
-  leadRoleId: PROJECT_MANAGER_ROLE_ID,
+  leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: ["role:builder"],
   revision: 1,
 };
@@ -36,9 +37,24 @@ const delivery: WorkflowConfig = {
 describe("roleAvailabilityNote", () => {
   it("says when a role is off or no workflow leads or uses it", () => {
     expect(roleAvailabilityNote(role("role:builder"), [delivery])).toBeNull();
-    expect(roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID), [delivery])).toBeNull();
+    expect(roleAvailabilityNote(role(FEATURE_MANAGER_ROLE_ID), [delivery])).toBeNull();
     expect(roleAvailabilityNote(role("role:builder", { enabled: false }), [delivery])).toBe("Off");
     expect(roleAvailabilityNote(role("role:helper"), [delivery])).toBe("Not in a workflow");
+    expect(roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID), [delivery])).toBeNull();
+  });
+});
+
+describe("workflowRoles", () => {
+  it("leaves the Project manager out of a workflow's lead and crew choices", () => {
+    const roles = [
+      role(FEATURE_MANAGER_ROLE_ID),
+      role(PROJECT_MANAGER_ROLE_ID),
+      role("role:builder"),
+    ];
+    expect(workflowRoles(roles).map((each) => each.id)).toEqual([
+      FEATURE_MANAGER_ROLE_ID,
+      "role:builder",
+    ]);
   });
 });
 

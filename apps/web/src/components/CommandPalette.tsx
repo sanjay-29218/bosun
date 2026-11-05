@@ -45,6 +45,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   AuthFilesystemReadScope,
+  botHeadquartersThreadId,
   type DesktopWslState,
   type EnvironmentId,
   type FilesystemBrowseResult,
@@ -89,7 +90,8 @@ import {
 } from "lucide-react";
 import { openNewTodoDialog } from "./features/todoDialogs";
 import { headquartersMember, useOpenBotHeadquarters } from "./sidebar/openBotHeadquarters";
-import { startBotNewSession } from "./bots/startBotNewSession";
+import { startStandingNewSession } from "./bots/startStandingNewSession";
+import { useOpenProjectManager } from "./sidebar/openProjectManager";
 import { BotAvatar } from "./BotAvatar";
 import { useEnvironmentRunsFeatures } from "../state/features";
 import { openThreadFind } from "./chat/threadFindStore";
@@ -127,6 +129,7 @@ import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
+import { rolesEnvironment } from "../state/roles";
 import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
@@ -747,6 +750,10 @@ function OpenCommandPaletteDialog(props: {
     currentProjectId,
   );
   const currentProjectCwd = currentProject?.workspaceRoot ?? null;
+  const openProjectManager = useOpenProjectManager();
+  const canOpenProjectManager = useAtomValue(
+    rolesEnvironment.openProjectManager.permissionAtom(currentProjectEnvironmentId),
+  );
   const currentProjectCwdForBrowse =
     browseEnvironmentId && currentProjectEnvironmentId === browseEnvironmentId
       ? currentProjectCwd
@@ -1464,7 +1471,7 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:crew:new-feature",
-      searchTerms: ["new feature", "crew", "brief", "project manager"],
+      searchTerms: ["new feature", "crew", "brief", "feature manager"],
       title: "New feature…",
       description: "A new thread whose first message is the brief",
       icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
@@ -1472,6 +1479,22 @@ function OpenCommandPaletteDialog(props: {
         await handleNewThread(projectRef, { envMode: "worktree", feature: true });
       },
     });
+    if (canOpenProjectManager) {
+      const project = {
+        environmentId: currentProjectEnvironmentId,
+        projectId: currentProjectId,
+        title: currentProject?.title ?? "This project",
+      };
+      actionItems.push({
+        kind: "action",
+        value: "action:crew:open-project-manager",
+        searchTerms: ["project manager", "manager", "requests", "backlog"],
+        title: "Open project manager",
+        description: "The thread that runs this project's requests",
+        icon: <BotIcon className={ITEM_ICON_CLASS} />,
+        run: () => openProjectManager(project),
+      });
+    }
   }
 
   if (activeThread !== null && canShareActiveThreadWithGuest) {
@@ -1708,7 +1731,7 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:library",
-    searchTerms: ["library", "roles", "crew", "project manager"],
+    searchTerms: ["library", "roles", "crew", "feature manager"],
     title: "Open library",
     icon: <LayersIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "library.open",
@@ -1900,7 +1923,10 @@ function OpenCommandPaletteDialog(props: {
         description: "It keeps the conversation and starts again from its instructions",
         icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
         run: async () =>
-          startBotNewSession(member.environmentId, { id: member.botId, name: bot.name }),
+          startStandingNewSession(member.environmentId, {
+            threadId: botHeadquartersThreadId(member.botId),
+            name: bot.name,
+          }),
       });
     }
   }

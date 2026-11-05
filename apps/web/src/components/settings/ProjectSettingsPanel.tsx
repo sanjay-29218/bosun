@@ -50,6 +50,7 @@ import {
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { ProjectBotSection } from "./BotsSettings";
+import { ProjectManagerSection } from "./ProjectManagerSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import {
   defaultProjectIcon,
@@ -661,6 +662,13 @@ function ProjectDetail({
             (member) =>
               environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
                 .bots === true,
+          )}
+        />
+        <ProjectManagerSection
+          members={group.memberProjects.filter(
+            (member) =>
+              environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+                .workflows === true,
           )}
         />
         {checkoutChoices}

@@ -31,12 +31,12 @@ the rail opens it the first time, clicking the bot you're on opens it again, and
 (Ctrl-clicking) a bot always opens it. You can also open it from the bot at the top of the sidebar (or the thread list on
 mobile), or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
-questions. It hands a project small, clear work as a **task**: a fresh project manager that works
-in its own worktree of that project and opens a pull request. Work that needs planning or several
-steps, or that you ask to be a feature, it starts as a [feature](./features.md), which a lead runs
-with its crew. Either way the work is one of that project's threads, listed and on the board with
-its other work, and the bot links it in its reply. A task's result, and what a feature's lead says
-each time it stops, come back to the headquarters. Each crew member runs with its role's model and **Access**. The bot can also start
+questions. It hands each request to the project's [Project manager](#project-managers), which
+replies in the headquarters as the work moves. When you ask the bot to do it itself, it starts
+the work in the project directly instead: small, clear work as a **task**, a fresh agent in its
+own worktree that opens a pull request, or a [feature](./features.md), which a lead runs with its
+crew. Either way the work is one of that project's threads, listed and on the board with its other
+work, and the bot links it in its reply. Each crew member runs with its role's model and **Access**. The bot can also start
 projects from a name or by cloning a Git URL. With **Manage bots and roles**, which Captain has
 from the start, it can create and edit bots and roles when you ask, such as "add a Security
 reviewer role"; they show up like ones you made. A feature's threads, its lead's and its crew's,
@@ -51,6 +51,32 @@ A **New session** divider in the thread shows where it began. A long conversatio
 its provider; set **Long conversations** to **Start a new session** on the bot to do this instead,
 once the bot has been quiet for half an hour. Opening the thread also brings back a deleted or
 archived headquarters.
+
+### Project managers
+
+Each project has a **Project manager**: one pinned thread in the project that takes the requests
+its bot hands it. It checks the project's issues and creates one when none tracks the request,
+then decides how the work runs: a task for a small, clear change, a feature for one reviewable
+pull request, or several features for bigger work, run one after another when they would collide.
+It answers a feature's questions when the brief or the issue settles them, asks the bot otherwise,
+and replies in the headquarters when the work starts, when it needs an answer, and when it's done.
+When a pull request of its work merges into `staging`, it hears about it and closes the issues the
+pull request resolves, and the milestone once all of its issues are closed; GitHub closes issues
+itself for pull requests into `main`.
+It reads the project's checkout but doesn't change it, and merges a pull request only when the
+request or its instructions say to.
+
+Open it with **Open project manager** in the project's right-click menu or the command palette,
+or from the link in the bot's reply; the thread is made the first time. A bot's **Lineage** lists
+the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
+back if it was archived, and **/new** or **Start new session…** starts it over.
+
+Its settings are in **Settings → Project → Project manager**: instructions, model and **Access**,
+tools and **Long conversations**. Until you save changes there it follows the **Project manager**
+role in the Library, so editing that role changes every project's manager. Once you save, the
+project keeps its own settings; **Reset to role defaults** goes back to following the role. New
+instructions reach the thread when it next starts a new session; model, **Access** and tools apply
+right away.
 
 ### The bot rail
 
@@ -93,15 +119,17 @@ one. **Feature delivery** is the default and can be edited but not deleted. A ro
 uses says **Not in a workflow**.
 
 The **Library**'s Roles are who leads a feature and who its lead can hand work to. **+ New**
-beside Roles adds one, and offers **Add the starter roles** for a Project manager, Planner,
+beside Roles adds one, and offers **Add the starter roles** for a Feature manager, Planner,
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research; give any
 role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
 default model, whose picker also sets reasoning, speed and **Access**, from **Supervised** to
 **Full access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
-on. Each project gets its own project manager the first time a request or feature needs one;
-editing a role changes the crews of features started later, not existing ones.
+on. Each project gets its own Feature manager the first time a feature needs one; editing a role
+changes the crews of features started later, not existing ones. The **Project manager** role is
+the template for each project's manager (see [Project managers](#project-managers)); it doesn't
+lead workflows or join a crew.
 
 Editing bots, workflows and roles is available on web and desktop.
 
@@ -109,7 +137,7 @@ Editing bots, workflows and roles is available on web and desktop.
 
 A feature shows in the sidebar as one row, titled by the feature, with the crew members its lead
 has handed work to on its third line. Clicking the row opens the thread waiting on you if there is
-one, otherwise the feature's lead (its project manager's thread). A thread of the feature that
+one, otherwise the feature's lead (its Feature manager's thread). A thread of the feature that
 waits on you also shows under the row. The **Crew** tab in the right panel lists the lead and each
 crew member's thread with its state, plus the feature's branch and pull request; a member handed
 work twice shows as **Planner · try 2**. Subagents a crew member starts stay inside its thread.
@@ -123,7 +151,8 @@ switches bots, and its menu shows how many threads wait on you under each one. T
 button beside it flips to the bot's features, with the ones waiting on you first. Choose
 **Feature** under **Start as** in the new task sheet to start a feature with your prompt as its
 brief. **Library** in the bot button's menu opens **Settings → Roles**. **Settings → Project**
-shows and changes the project's bot.
+shows and changes the project's bot and its Project manager's settings, and opens the Project
+manager's thread.
 
 The project checkout and provider account belong to the connected environment shown in Settings.
 If that environment is offline, reconnect it to see current crew status or send an action.

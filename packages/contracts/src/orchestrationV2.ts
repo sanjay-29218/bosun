@@ -525,6 +525,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The issue a delegated task works on, apart from any feature's. */
   issue: Schema.optional(Schema.NullOr(FeatureIssue)),
+  /** The project request (R-<number>) a project manager's task answers. */
+  projectRequestId: Schema.optional(Schema.NullOr(Schema.String)),
   /** The bot request a crew handoff thread works on; absent outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -2170,6 +2172,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   feature: Schema.optional(Schema.NullOr(ThreadFeatureTag)),
   /** The issue a delegated task works on; omitted when it has none. */
   issue: Schema.optional(Schema.NullOr(FeatureIssue)),
+  /** The project request a project manager's task answers; omitted when it has none. */
+  projectRequestId: Schema.optional(Schema.NullOr(Schema.String)),
   /** The bot request this handoff thread works on; omitted outside a handoff chain. */
   crewRequest: Schema.optional(Schema.NullOr(ThreadCrewRequestTag)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -3356,6 +3360,8 @@ export const OrchestrationV2Command = Schema.Union([
     crewMember: Schema.optional(TrimmedNonEmptyString),
     /** The issue the child works on, shown with its thread. */
     issue: Schema.optional(FeatureIssue),
+    /** The project request the child answers, for a project manager's task. */
+    projectRequestId: Schema.optional(Schema.String),
     modelSelection: ModelSelection,
     runtimeMode: RuntimeMode,
     interactionMode: ProviderInteractionMode,

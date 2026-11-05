@@ -1,10 +1,11 @@
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   type EnvironmentId,
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
+import { workflowRoles } from "@t3tools/client-runtime/state/library";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -32,12 +33,13 @@ function Editor(props: {
   readonly onSave: (value: WorkflowFields) => Promise<boolean>;
   readonly onDelete: (workflow: WorkflowConfig) => void;
 }) {
+  const choices = workflowRoles(props.roles);
   const [name, setName] = useState(props.workflow?.name ?? "");
   const [instructions, setInstructions] = useState(props.workflow?.instructions ?? "");
   const [leadRoleId, setLeadRoleId] = useState(
     props.workflow?.leadRoleId ??
-      (props.roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID)
-        ? PROJECT_MANAGER_ROLE_ID
+      (props.roles.some((role) => role.id === FEATURE_MANAGER_ROLE_ID)
+        ? FEATURE_MANAGER_ROLE_ID
         : ""),
   );
   const [crewRoleIds, setCrewRoleIds] = useState<ReadonlyArray<string>>(
@@ -49,8 +51,8 @@ function Editor(props: {
   const roleName = (id: string) => props.roles.find((role) => role.id === id)?.name ?? id;
   // Roles that are off or gone stay listed while the workflow names them, so they can be removed.
   const crewChoices = [
-    ...props.roles.filter((role) => role.enabled).map((role) => role.id),
-    ...crewRoleIds.filter((id) => !props.roles.some((role) => role.enabled && role.id === id)),
+    ...choices.filter((role) => role.enabled).map((role) => role.id),
+    ...crewRoleIds.filter((id) => !choices.some((role) => role.enabled && role.id === id)),
   ].filter((id) => id !== leadRoleId);
 
   return (
@@ -67,7 +69,7 @@ function Editor(props: {
       />
       <Text className="text-xs text-foreground-muted">Lead</Text>
       <View className="flex-row flex-wrap gap-1.5">
-        {props.roles
+        {choices
           .filter((role) => role.enabled || role.id === leadRoleId)
           .map((role) => (
             <Action

@@ -686,6 +686,103 @@ describe("GitHubSourceControlProvider writes", () => {
     }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
   });
 
+  it.effect("files an issue in a milestone and attaches it under its parent by database ID", () => {
+    const requests: Array<GitHubRest.GitHubRestInput> = [];
+    const restIssue = {
+      id: 9001,
+      number: 12,
+      title: "Export as CSV",
+      html_url: "https://github.com/acme/web/issues/12",
+      state: "open",
+      created_at: "2026-11-05T00:00:00Z",
+      updated_at: "2026-11-05T00:00:00Z",
+      closed_at: null,
+      milestone: { number: 4, title: "Exports" },
+    };
+    const { layer } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      api: {
+        rest: (input) =>
+          Effect.sync(() => {
+            requests.push(input);
+            return input.path.endsWith("/sub_issues")
+              ? restResponse({ ...restIssue, number: 3 }, 201)
+              : restResponse(restIssue, 201);
+          }),
+      },
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const issue = yield* gh.createIssue!({
+        cwd: "/repo",
+        title: "Export as CSV",
+        body: "Columns as the table shows them.",
+        milestone: 4,
+        parent: 3,
+      });
+      assert.deepStrictEqual(
+        requests.map((request) => [request.method, request.path, request.body]),
+        [
+          [
+            "POST",
+            "repos/acme/web/issues",
+            { title: "Export as CSV", body: "Columns as the table shows them.", milestone: 4 },
+          ],
+          ["POST", "repos/acme/web/issues/3/sub_issues", { sub_issue_id: 9001 }],
+        ],
+      );
+      assert.deepStrictEqual(
+        [issue.number, issue.parent, issue.milestone],
+        [12, 3, { number: 4, title: "Exports" }],
+      );
+    }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
+  });
+
+  it.effect("opens a milestone and closes it by number", () => {
+    const requests: Array<GitHubRest.GitHubRestInput> = [];
+    const { layer } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      api: {
+        rest: (input) =>
+          Effect.sync(() => {
+            requests.push(input);
+            return restResponse({
+              number: 4,
+              title: "Exports",
+              html_url: "https://github.com/acme/web/milestone/4",
+              due_on: null,
+              open_issues: 2,
+              closed_issues: 1,
+            });
+          }),
+      },
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const opened = yield* gh.createMilestone!({
+        cwd: "/repo",
+        title: "Exports",
+        description: "CSV and PDF",
+      });
+      yield* gh.setMilestoneState!({ cwd: "/repo", number: 4, state: "closed" });
+      assert.deepStrictEqual(
+        requests.map((request) => [request.method, request.path, request.body]),
+        [
+          ["POST", "repos/acme/web/milestones", { title: "Exports", description: "CSV and PDF" }],
+          ["PATCH", "repos/acme/web/milestones/4", { state: "closed" }],
+        ],
+      );
+      assert.deepStrictEqual(opened, {
+        number: 4,
+        title: "Exports",
+        url: "https://github.com/acme/web/milestone/4",
+        dueOn: null,
+        openIssues: 2,
+        closedIssues: 1,
+      });
+    }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
+  });
+
   it.effect("creates a repository under an organization the viewer is not", () => {
     const requests: Array<string> = [];
     const { layer } = harness({

@@ -31,6 +31,7 @@ import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http
 
 import * as BotService from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -1436,6 +1437,7 @@ it.effect(
         CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
       `;
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+        yield* sql`CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
         ('builder', 'role', 'bot-run:builder', '["worktree"]'),
         ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]')`;
@@ -1443,6 +1445,9 @@ it.effect(
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
+          readonly requestId?: string | undefined;
+          readonly parentFeatureId?: string | undefined;
+          readonly issue?: string | undefined;
         }> = [];
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
@@ -1460,6 +1465,7 @@ it.effect(
           ["plainToken", scopeFor("thread-plain")],
           ["crewToken", scopeFor("bot-run:builder")],
           ["hqToken", scopeFor("bot-run:bot-hq:captain")],
+          ["managerToken", scopeFor("bot-run:project-hq:project:mcp-test")],
         ]);
         const UpstreamToolkit = Toolkit.make(
           Tool.make("upstream", {
@@ -1507,8 +1513,22 @@ it.effect(
               }),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
+              Layer.mock(ProjectRequests)({
+                get: (projectId, requestId) =>
+                  Effect.succeed(
+                    projectId === "project:mcp-test" && requestId === "R-7" ? ({} as never) : null,
+                  ),
+              }),
               Layer.mock(BotReach.BotReach)({}),
               Layer.mock(FeatureService)({
+                get: (id) =>
+                  Effect.succeed(
+                    id === "feature:epic"
+                      ? ({ id, projectId: "project:mcp-test" } as never)
+                      : id === "feature:elsewhere"
+                        ? ({ id, projectId: "project:other" } as never)
+                        : null,
+                  ),
                 projectBot: (projectId) =>
                   Effect.succeed(projectId === "project:owned" ? "captain" : null),
                 launch: (input) => {
@@ -1580,15 +1600,21 @@ it.effect(
         const crew = yield* sessionFor("crewToken");
         // Crew threads and their subagents get the crew's todo, issue and feature tools.
         const anyCrew = [
+          "crew_create_milestone",
           "crew_create_todo",
           "crew_link_issue",
           "crew_list_issues",
           "crew_read_todo",
+          "crew_update_milestone",
           "crew_update_todo",
           "t3_bot_list",
           "t3_bot_projects",
           "t3_feature_finish",
+          "t3_feature_list",
           "t3_feature_start",
+          "t3_project_reply",
+          "t3_project_requests",
+          "t3_project_send",
           "upstream",
         ].sort();
         const plainTools = ["upstream"];
@@ -1598,6 +1624,7 @@ it.effect(
 
         // A tool a thread isn't listed is refused before its handler runs.
         expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
+        expect((yield* plain.call("t3_project_send")).error?.message).toContain("t3_project_send");
         expect((yield* crew.call("t3_role_list")).error?.message).toContain("t3_role_list");
         expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
 
@@ -1656,6 +1683,43 @@ it.effect(
             requesterThreadId: "bot-run:bot-hq:captain",
           }),
         ]);
+
+        // Only a project's manager names the request a feature answers, one its project has.
+        const answering = (session: typeof crew, requestId: string) =>
+          session
+            .call("t3_feature_start", { title: "Dark mode", brief: "Add dark mode", requestId })
+            .pipe(Effect.map((body) => JSON.stringify(body)));
+        const manager = yield* sessionFor("managerToken");
+        expect(yield* answering(headquarters, "R-7")).toContain("Only a project's manager");
+        expect(yield* answering(crew, "R-7")).toContain("Only a project's manager");
+        expect(yield* answering(manager, "R-9")).toContain("no request R-9");
+        expect(yield* answering(manager, "R-7")).toContain("feature:x");
+        expect(launched.at(-1)).toMatchObject({
+          projectId: "project:mcp-test",
+          requestId: "R-7",
+        });
+
+        // Only a project's manager adds a feature under another, one of its own project's.
+        const under = (session: typeof crew, parentFeatureId: string) =>
+          session
+            .call("t3_feature_start", {
+              title: "Follow-up",
+              brief: "Finish the export menu",
+              parentFeatureId,
+              issue: "#14",
+            })
+            .pipe(Effect.map((body) => JSON.stringify(body)));
+        expect(yield* under(headquarters, "feature:epic")).toContain("Only a project's manager");
+        expect(yield* under(manager, "feature:elsewhere")).toContain(
+          "no feature feature:elsewhere",
+        );
+        expect(yield* under(manager, "feature:epic")).toContain("feature:x");
+        expect(launched.at(-1)).toMatchObject({
+          projectId: "project:mcp-test",
+          parentFeatureId: "feature:epic",
+          issue: "#14",
+        });
+        expect(launched.at(-1)).not.toHaveProperty("requesterThreadId");
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

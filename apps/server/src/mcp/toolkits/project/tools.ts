@@ -49,6 +49,11 @@ const shared = {
     SecureRandom.SecureRandom,
   ],
 };
+/** A project as an agent reads it, with its standing manager's thread once it has one. */
+const ProjectWithManager = Schema.Struct({
+  ...Project.fields,
+  managerThreadId: Schema.NullOr(ThreadId),
+});
 const ProjectListTool = Tool.make("t3_project_list", {
   ...shared,
   description: "List projects. Pages can shift.",
@@ -58,7 +63,7 @@ const ProjectListTool = Tool.make("t3_project_list", {
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
   }),
   success: Schema.Struct({
-    projects: Schema.Array(Project),
+    projects: Schema.Array(ProjectWithManager),
     nextCursor: Schema.NullOr(NonNegativeInt),
   }),
 })
@@ -71,6 +76,7 @@ const ProjectReadTool = Tool.make("t3_project_read", {
     environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: ProjectId,
   }),
+  success: ProjectWithManager,
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);

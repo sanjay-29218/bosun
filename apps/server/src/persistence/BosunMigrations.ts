@@ -56,6 +56,13 @@ import ProjectHandoffs from "./Migrations/098_ProjectHandoffs.ts";
 import FeatureLeadRequester from "./Migrations/099_FeatureLeadRequester.ts";
 import LinkedProjects from "./Migrations/100_LinkedProjects.ts";
 import LinkedWorkflows from "./Migrations/101_LinkedWorkflows.ts";
+import CrewMemberCustomized from "./Migrations/102_CrewMemberCustomized.ts";
+import FeatureManager from "./Migrations/103_FeatureManager.ts";
+import ProjectManagers from "./Migrations/104_ProjectManagers.ts";
+import ProjectRequests from "./Migrations/105_ProjectRequests.ts";
+import ProjectManagerHandoffs from "./Migrations/106_ProjectManagerHandoffs.ts";
+import ProjectMergeNotices from "./Migrations/107_ProjectMergeNotices.ts";
+import RemoveProjectBuilders from "./Migrations/108_RemoveProjectBuilders.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -104,6 +111,13 @@ const migrationEntries = [
   [99, "FeatureLeadRequester", FeatureLeadRequester],
   [100, "LinkedProjects", LinkedProjects],
   [101, "LinkedWorkflows", LinkedWorkflows],
+  [102, "CrewMemberCustomized", CrewMemberCustomized],
+  [103, "FeatureManager", FeatureManager],
+  [104, "ProjectManagers", ProjectManagers],
+  [105, "ProjectRequests", ProjectRequests],
+  [106, "ProjectManagerHandoffs", ProjectManagerHandoffs],
+  [107, "ProjectMergeNotices", ProjectMergeNotices],
+  [108, "RemoveProjectBuilders", RemoveProjectBuilders],
 ] as const;
 
 const legacyNames = new Set([

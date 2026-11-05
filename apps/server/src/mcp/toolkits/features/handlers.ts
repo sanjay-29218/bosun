@@ -1,5 +1,7 @@
 import {
   headquartersBotId,
+  headquartersProjectId,
+  type ThreadId,
   OrchestratorMcpFailure,
   ProjectId,
   type FeatureWorkspace,
@@ -12,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { CrewService } from "../../../crew/CrewService.ts";
+import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -35,6 +38,22 @@ const invalid = (message: string) =>
 /** Passes service errors on as messages an agent can act on. */
 const asMcpFailure = (error: unknown) =>
   isMcpFailure(error) ? error : invalid(error instanceof Error ? error.message : String(error));
+
+/** A request ID is the caller's own: a project's manager naming a request of its project. */
+const requireOwnRequest = Effect.fn("FeaturesToolkit.requireOwnRequest")(function* (
+  callerThreadId: ThreadId,
+  targetProjectId: string | undefined,
+  requestId: string,
+) {
+  const projectId = headquartersProjectId(callerThreadId);
+  if (projectId === null || (targetProjectId !== undefined && targetProjectId !== projectId)) {
+    return yield* invalid("Only a project's manager names a request, for work in its project.");
+  }
+  const requests = yield* ProjectRequests;
+  if ((yield* requests.get(projectId, requestId)) === null) {
+    return yield* invalid(`This project has no request ${requestId}.`);
+  }
+});
 
 /** Runs `effect` after `check`. */
 const guarded =
@@ -73,6 +92,9 @@ const make = Effect.gen(function* () {
         readonly workspace?: FeatureWorkspace | undefined;
         readonly workflowId?: string | undefined;
         readonly baseBranch?: string | undefined;
+        readonly requestId?: string | undefined;
+        readonly issue?: string | undefined;
+        readonly parentFeatureId?: string | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(
@@ -81,6 +103,29 @@ const make = Effect.gen(function* () {
           );
           const shell = yield* threads.getThreadShell(scope.thread.threadId);
           if (shell === null) return yield* invalid("This thread has no project");
+          const requestId = input.requestId?.trim() || undefined;
+          if (requestId !== undefined) {
+            yield* requireOwnRequest(scope.thread.threadId, input.projectId, requestId);
+          }
+          // A feature's own threads start its children; a project's manager may add one to any
+          // feature of its project, such as a follow-up to an Epic.
+          const namedParent = input.parentFeatureId?.trim() || undefined;
+          if (namedParent !== undefined) {
+            const managed = headquartersProjectId(scope.thread.threadId);
+            const parent = managed === null ? null : yield* features.get(namedParent);
+            if (
+              managed === null ||
+              (input.projectId !== undefined && input.projectId !== managed)
+            ) {
+              return yield* invalid(
+                "Only a project's manager names a parent feature, in its own project. A feature's threads start its children without one.",
+              );
+            }
+            if (parent === null || parent.projectId !== managed) {
+              return yield* invalid(`This project has no feature ${namedParent}.`);
+            }
+          }
+          const parentFeatureId = namedParent ?? shell.feature?.id;
           // A bot's headquarters lives outside its projects, so it may start features in the ones
           // it owns; anyone else needs full access to reach another project.
           if (input.projectId !== undefined && input.projectId !== shell.projectId) {
@@ -95,14 +140,15 @@ const make = Effect.gen(function* () {
           }
           const { feature, leadThreadId, branch } = yield* features.launch({
             ...input,
+            requestId,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
-            // A feature's thread starts its feature's children, which report to their parent's
-            // lead; any other thread hears from the lead each time it stops.
-            ...(shell.feature
-              ? { parentFeatureId: shell.feature.id }
+            // A child reports to its parent's lead; any other feature to the thread that started
+            // it, each time its lead stops.
+            ...(parentFeatureId !== undefined
+              ? { parentFeatureId }
               : {
-                  // A subagent, such as a bot's project manager, has already reported back; its
+                  // A subagent, such as a bot's delegated task, has already reported back; its
                   // top thread is the one to keep posted.
                   requesterThreadId:
                     shell.lineage.relationshipToParent === "subagent"
@@ -117,6 +163,28 @@ const make = Effect.gen(function* () {
             leadThreadId,
             branch,
             parentFeatureId: feature.parentFeatureId ?? null,
+          };
+        }).pipe(Effect.mapError(asMcpFailure)),
+    ),
+    t3_feature_list: McpToolAccess.reads(
+      (input: {
+        readonly status?: "open" | "closed" | undefined;
+        readonly parentFeatureId?: string | undefined;
+      }) =>
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.requireThreadScope(
+            yield* McpInvocationContext.McpInvocationContext,
+            "t3_feature_list",
+          );
+          const shell = yield* threads.getThreadShell(scope.thread.threadId);
+          if (shell === null) return yield* invalid("This thread has no project");
+          return {
+            features: yield* features.list(shell.projectId, {
+              ...(input.status === undefined ? {} : { status: input.status }),
+              ...(input.parentFeatureId === undefined
+                ? {}
+                : { parentFeatureId: input.parentFeatureId }),
+            }),
           };
         }).pipe(Effect.mapError(asMcpFailure)),
     ),
