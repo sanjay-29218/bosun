@@ -20,7 +20,11 @@ import {
 import { memo } from "react";
 
 import { cn } from "../../lib/utils";
-import { FINISHED_ROW_ICON_CLASS, FINISHED_ROW_TITLE_CLASS } from "../finishedRowClasses";
+import {
+  FINISHED_ROW_GROUP_CLASS,
+  FINISHED_ROW_ICON_CLASS,
+  FINISHED_ROW_TITLE_CLASS,
+} from "../finishedRowClasses";
 import { InlineButton } from "../ui/button";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar.logic";
 
@@ -139,7 +143,8 @@ export const SidebarWorkGroupEntry = memo(function SidebarWorkGroupEntry(props: 
         aria-current={props.isActive ? "page" : undefined}
         onClick={() => props.onOpen(scopeThreadRef(thread.environmentId, thread.id))}
         className={cn(
-          "group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-xs outline-hidden ring-ring hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset",
+          FINISHED_ROW_GROUP_CLASS,
+          "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-xs outline-hidden ring-ring hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset",
           props.isActive && "bg-accent",
         )}
       >

@@ -105,7 +105,11 @@ import {
   THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./threadDetailsPanelStyles";
-import { FINISHED_ROW_ICON_CLASS, FINISHED_ROW_TITLE_CLASS } from "../finishedRowClasses";
+import {
+  FINISHED_ROW_GROUP_CLASS,
+  FINISHED_ROW_ICON_CLASS,
+  FINISHED_ROW_TITLE_CLASS,
+} from "../finishedRowClasses";
 
 const THREAD_LINEAGE_INITIAL_COUNT = 6;
 const THREAD_LINEAGE_PAGE_COUNT = 12;
@@ -293,7 +297,7 @@ function RemoteSubagentRow(props: {
     isSubagent: true,
   });
   return (
-    <li className="group relative flex h-8 items-center rounded-lg">
+    <li className={cn("group relative flex h-8 items-center rounded-lg", FINISHED_ROW_GROUP_CLASS)}>
       <Tooltip>
         <TooltipTrigger
           delay={200}
@@ -918,7 +922,10 @@ export function ThreadRelationshipsPanel(props: {
       );
     }
     return (
-      <li key={threadId} className="group relative flex h-8 items-center rounded-lg">
+      <li
+        key={threadId}
+        className={cn("group relative flex h-8 items-center rounded-lg", FINISHED_ROW_GROUP_CLASS)}
+      >
         {isMergeTarget ? (
           <div className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}>
             <Tooltip>
