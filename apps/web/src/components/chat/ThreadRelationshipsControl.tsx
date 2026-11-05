@@ -105,6 +105,7 @@ import {
   THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./threadDetailsPanelStyles";
+import { FINISHED_ROW_ICON_CLASS, FINISHED_ROW_TITLE_CLASS } from "../finishedRowClasses";
 
 const THREAD_LINEAGE_INITIAL_COUNT = 6;
 const THREAD_LINEAGE_PAGE_COUNT = 12;
@@ -195,11 +196,6 @@ function ThreadLineageGroup(props: {
 }
 
 const FINISHED_STATUSES = ["completed", "failed", "error", "cancelled", "interrupted", "idle"];
-
-const FINISHED_ROW_ICON_CLASS =
-  "opacity-40 grayscale group-focus-within:opacity-100 group-focus-within:grayscale-0 group-hover:opacity-100 group-hover:grayscale-0";
-const FINISHED_ROW_TITLE_CLASS =
-  "font-normal text-secondary-label/70 group-focus-within:text-foreground group-hover:text-foreground";
 
 /** A feature lead's status as its sidebar row reads it: a lead whose crew is working waits. */
 function featureLeadStatus(lead: EnvironmentThreadShell): string {

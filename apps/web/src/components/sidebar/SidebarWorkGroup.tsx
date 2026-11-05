@@ -1,9 +1,16 @@
 import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { WorkGroup, WorkGroupEntry } from "@t3tools/client-runtime/state/work-groups";
+import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
+import {
+  childFeatureSummary,
+  type WorkGroup,
+  type WorkGroupEntry,
+} from "@t3tools/client-runtime/state/work-groups";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
+  ChevronDownIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -13,6 +20,8 @@ import {
 import { memo } from "react";
 
 import { cn } from "../../lib/utils";
+import { FINISHED_ROW_ICON_CLASS, FINISHED_ROW_TITLE_CLASS } from "../finishedRowClasses";
+import { InlineButton } from "../ui/button";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar.logic";
 
 export type SidebarWorkGroup = WorkGroup<EnvironmentThreadShell>;
@@ -76,11 +85,49 @@ function StatusIcon({ status }: { readonly status: SidebarThreadStatus }) {
   }
 }
 
-/** One of a group's other threads, listed under its row: a crew member, or an attempt. */
+/** The id of the list of child features under a row, for its chip's `aria-controls`. */
+export const childFeatureListId = (rowKey: string) => `sidebar-child-features:${rowKey}`;
+
+/**
+ * A parent feature row's toggle for its child features: "2 children · 1 running", or just the
+ * count where the row has no meta line.
+ */
+export function SidebarChildFeatureChip(props: {
+  readonly group: SidebarWorkGroup;
+  readonly rowKey: string;
+  readonly expanded: boolean;
+  readonly compact: boolean;
+  readonly onToggle: (rowKey: string) => void;
+}) {
+  const summary = childFeatureSummary(props.group, isThreadWorking);
+  const Icon = props.expanded ? ChevronDownIcon : ChevronRightIcon;
+  const noun = summary.total === 1 ? "child feature" : "child features";
+  return (
+    <InlineButton
+      tone="muted"
+      aria-expanded={props.expanded}
+      aria-controls={childFeatureListId(props.rowKey)}
+      aria-label={`${props.expanded ? "Hide" : "Show"} ${summary.total} ${noun} (${summary.label})`}
+      onClick={(event) => {
+        // The row behind the chip opens its thread; the chip only folds.
+        event.preventDefault();
+        event.stopPropagation();
+        props.onToggle(props.rowKey);
+      }}
+    >
+      <Icon aria-hidden className="size-3" />
+      <span className="tabular-nums">{props.compact ? summary.compactLabel : summary.label}</span>
+    </InlineButton>
+  );
+}
+
+/** One of a group's other threads, listed under its row: a crew member, an attempt or a child. */
 export const SidebarWorkGroupEntry = memo(function SidebarWorkGroupEntry(props: {
   readonly entry: WorkGroupEntry<EnvironmentThreadShell>;
   readonly isActive: boolean;
   readonly onOpen: (threadRef: ScopedThreadRef) => void;
+  /** A finished child feature, dimmed as Lineage dims it. */
+  readonly finished?: boolean;
 }) {
   const { thread, label } = props.entry;
   const status = resolveSidebarThreadStatus(thread);
@@ -92,15 +139,21 @@ export const SidebarWorkGroupEntry = memo(function SidebarWorkGroupEntry(props: 
         aria-current={props.isActive ? "page" : undefined}
         onClick={() => props.onOpen(scopeThreadRef(thread.environmentId, thread.id))}
         className={cn(
-          "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-xs outline-hidden ring-ring hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset",
+          "group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-xs outline-hidden ring-ring hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset",
           props.isActive && "bg-accent",
         )}
       >
-        <StatusIcon status={status} />
+        <span className={cn("flex shrink-0", props.finished && FINISHED_ROW_ICON_CLASS)}>
+          <StatusIcon status={status} />
+        </span>
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            statusLabel ? "text-sidebar-foreground" : "text-sidebar-muted-foreground",
+            props.finished
+              ? FINISHED_ROW_TITLE_CLASS
+              : statusLabel
+                ? "text-sidebar-foreground"
+                : "text-sidebar-muted-foreground",
           )}
         >
           {label}

@@ -33,12 +33,18 @@ import {
   isThreadWorking,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
+import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import {
+  childFeatureFinished,
   groupWorkThreads,
+  nestChildFeatureGroups,
   resolveWorkGroupRouteRowKey,
+  routeChildFeature,
   waitingWorkGroupEntry,
+  workGroupAllThreads,
   workGroupInbox,
   workGroupOpenThread,
+  workGroupThreads,
 } from "@t3tools/client-runtime/state/work-groups";
 import {
   nextShownOrder,
@@ -271,7 +277,11 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
-import { SidebarWorkGroupEntry, type SidebarWorkGroup } from "./sidebar/SidebarWorkGroup";
+import {
+  childFeatureListId,
+  SidebarWorkGroupEntry,
+  type SidebarWorkGroup,
+} from "./sidebar/SidebarWorkGroup";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider } from "./ui/tooltip";
@@ -559,9 +569,10 @@ function useSidebarThreads(input: {
       ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
-      // Threads folded into a feature's or request's row still turn up in search.
+      // Threads folded into a feature's or request's row, or its child features', still turn up
+      // in search.
       ...[...partition.workGroups.values()].flatMap((group) =>
-        group.children.map((entry) => entry.thread),
+        workGroupAllThreads(group).filter((thread) => thread !== group.primary),
       ),
     ],
     settledVisibleCount,
@@ -621,9 +632,21 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     delegatedUnderParent,
   );
   // A feature's or bot request's threads fold into one row; crew threads show only inside it.
-  const { primaries: visible, groupByThreadKey: workGroups } = groupWorkThreads(
+  const grouped = groupWorkThreads(
     scopedThreads,
     filterSidebarCrewThreads(threads, scopedProjectKeys),
+  );
+  // Child features fold under their parent's row, except one waiting on you while its parent sits
+  // in a shelf, which a collapsed shelf would hide.
+  const { primaries: visible, groupByThreadKey: workGroups } = nestChildFeatureGroups(
+    grouped.primaries,
+    grouped.groupByThreadKey,
+    {
+      standsAlone: (child, parent) =>
+        serverConfigs.has(parent.environmentId) &&
+        (parent.settledOverride === "settled" || effectiveSnoozed(parent, { now: preciseNow })) &&
+        workGroupAllThreads(child).some((thread) => threadNeedsYouKind(thread) !== null),
+    },
   );
   const inboxObservation = workGroupInbox(
     workGroups,
@@ -1036,6 +1059,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
   const [renamingThreadRef, setRenamingThreadRef] = useState<ScopedThreadRef | null>(null);
+  // Child features start folded on every load; only explicit toggles are kept, by row key.
+  const [childFeatureToggles, setChildFeatureToggles] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
+  );
   const canOperateRenamingThread = useEnvironmentScope(
     renamingThreadRef?.environmentId ?? null,
     AuthOrchestrationOperateScope,
@@ -1620,7 +1647,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     })();
   };
 
-  const routeGroupRowKey = resolveWorkGroupRouteRowKey(workGroups, routeThreadKey);
+  // A row's child features list under it while it is toggled open, or while one of them is open.
+  const isChildFeaturesExpanded = (rowKey: string) => {
+    const group = workGroups.get(rowKey);
+    return (
+      childFeatureToggles.get(rowKey) ??
+      (group !== undefined && routeChildFeature(group, routeThreadKey) !== undefined)
+    );
+  };
+  const toggleChildFeatures = (rowKey: string) =>
+    setChildFeatureToggles((toggles) =>
+      new Map(toggles).set(rowKey, !(toggles.get(rowKey) ?? isChildFeaturesExpanded(rowKey))),
+    );
+  const routeWorkGroupRowKey = resolveWorkGroupRouteRowKey(workGroups, routeThreadKey);
+  // An open child feature's own row is marked while its parent lists it.
+  const routeGroupRowKey =
+    routeWorkGroupRowKey !== null &&
+    isChildFeaturesExpanded(routeWorkGroupRowKey) &&
+    routeChildFeature(workGroups.get(routeWorkGroupRowKey)!, routeThreadKey) !== undefined
+      ? null
+      : routeWorkGroupRowKey;
   // A feature's or request's row opens the thread waiting on you, else its lead.
   const rowOpenRef = (threadRef: ScopedThreadRef): ScopedThreadRef => {
     const group = workGroups.get(scopedThreadKey(threadRef));
@@ -3539,6 +3585,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}
                             workGroup={workGroup ?? null}
+                            childFeaturesExpanded={
+                              workGroup?.childFeatures ? isChildFeaturesExpanded(threadKey) : false
+                            }
+                            onToggleChildFeatures={toggleChildFeatures}
                           />
                         );
                       };
@@ -3563,16 +3613,42 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         const threadKey = threadShellKey(thread);
                         const workGroup = workGroups.get(threadKey);
                         items.push(renderThreadRow(thread, section, workGroup, folderRow));
-                        const waiting = workGroup ? waitingWorkGroupEntry(workGroup) : undefined;
-                        if (!waiting) return;
-                        const entryKey = threadShellKey(waiting.thread);
+                        // Listed child features show their own question, so only the row's own
+                        // crew's shows above them.
+                        const expanded =
+                          workGroup?.childFeatures !== undefined &&
+                          isChildFeaturesExpanded(threadKey);
+                        const waiting = workGroup
+                          ? waitingWorkGroupEntry(workGroup, expanded ? "own" : "all")
+                          : undefined;
+                        if (waiting) {
+                          const entryKey = threadShellKey(waiting.thread);
+                          items.push(
+                            <SidebarWorkGroupEntry
+                              key={`${threadKey}:${entryKey}`}
+                              entry={waiting}
+                              isActive={routeThreadKey === entryKey}
+                              onOpen={navigateToThread}
+                            />,
+                          );
+                        }
+                        if (!expanded) return;
                         items.push(
-                          <SidebarWorkGroupEntry
-                            key={`${threadKey}:${entryKey}`}
-                            entry={waiting}
-                            isActive={routeThreadKey === entryKey}
-                            onOpen={navigateToThread}
-                          />,
+                          <li key={`${threadKey}:child-features`} className="list-none">
+                            <ul id={childFeatureListId(threadKey)}>
+                              {workGroup.childFeatures!.map((child) => (
+                                <SidebarWorkGroupEntry
+                                  key={child.key}
+                                  entry={{ thread: workGroupOpenThread(child), label: child.title }}
+                                  isActive={workGroupThreads(child).some(
+                                    (member) => threadShellKey(member) === routeThreadKey,
+                                  )}
+                                  finished={childFeatureFinished(child)}
+                                  onOpen={navigateToThread}
+                                />
+                              ))}
+                            </ul>
+                          </li>,
                         );
                       };
                       for (const item of sidebarListItems) {
