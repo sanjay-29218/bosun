@@ -10,7 +10,9 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
     parameters: Schema.Struct({
       threadId: Schema.optional(Schema.NullOr(Schema.String)),
       beforeRunId: Schema.NullOr(Schema.String),
-      parentFeatureId: Schema.optional(Schema.Null),
+      separate: Schema.optional(Schema.Null),
+      // A described NullOr keeps its null: omitted, a string and null each mean something.
+      parentFeatureId: Schema.optional(Schema.NullOr(Schema.String).annotate({ description: "d" })),
       limit: Schema.optional(Schema.Int),
       every: Schema.Union([Every, Schema.fromJsonString(Every)]),
       target: Schema.optional(
@@ -30,7 +32,8 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
       threadId: { type: "string" },
       beforeRunId: { anyOf: [{ type: "string" }, { type: "null" }] },
       // An optional property whose only value is null keeps it.
-      parentFeatureId: { type: "null" },
+      separate: { type: "null" },
+      parentFeatureId: { description: "d", anyOf: [{ type: "string" }, { type: "null" }] },
       limit: { type: "integer" },
       every: { type: "object", properties: { ms: { type: "integer" } }, required: ["ms"] },
       target: {
