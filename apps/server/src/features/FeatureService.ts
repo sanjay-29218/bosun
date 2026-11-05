@@ -273,15 +273,18 @@ const syncFeatureThreads = Effect.fn("FeatureService.syncFeatureThreads")(functi
     readonly projectId: string;
     readonly title: string;
     readonly issueJson: string | null;
+    readonly requesterThreadId: ThreadId | null;
   }>`
-      SELECT project_id AS projectId, title, issue_json AS issueJson FROM features
-      WHERE id = ${featureId}
+      SELECT project_id AS projectId, title, issue_json AS issueJson,
+        requester_thread_id AS requesterThreadId
+      FROM features WHERE id = ${featureId}
     `;
   if (!feature) return;
   const tag = featureTag({
     id: featureId,
     title: feature.title,
     issue: decodeFeatureIssue(feature.issueJson),
+    requesterThreadId: feature.requesterThreadId,
   });
   const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
       SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
@@ -488,8 +491,10 @@ export const FeatureServiceLive = Layer.effect(
       const [brief] = yield* sql<{
         readonly messageJson: string | null;
         readonly baseBranch: string | null;
+        readonly requesterThreadId: ThreadId | null;
       }>`
-        SELECT brief_message_json AS messageJson, base_branch AS baseBranch
+        SELECT brief_message_json AS messageJson, base_branch AS baseBranch,
+          requester_thread_id AS requesterThreadId
         FROM features WHERE id = ${feature.id}
       `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.startLead")));
       const runId = hashed(FEATURE_LEAD_RUN_PREFIX, feature.id, manager.id);
@@ -517,7 +522,10 @@ export const FeatureServiceLive = Layer.effect(
           type: "thread.crew-stage.set",
           commandId: CommandId.make(`feature-lead:${run.id}:feature`),
           threadId: run.threadId,
-          feature: featureTag(feature),
+          feature: featureTag({
+            ...feature,
+            requesterThreadId: brief?.requesterThreadId ?? null,
+          }),
         })
         .pipe(
           Effect.catch((error) =>

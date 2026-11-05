@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
+import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
@@ -12,7 +13,12 @@ import {
   projectedSubagentsToRuntime,
   type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import {
+  type EnvironmentThreadShell,
+  presentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
+import { workThreadLabel } from "@t3tools/client-runtime/state/work-groups";
 import { deriveProviderSubagentStatus } from "@t3tools/client-runtime/state/thread-execution";
 import {
   deriveThreadRelationshipGraph,
@@ -57,6 +63,7 @@ import {
   PlusIcon,
   SquareIcon,
   UnplugIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
@@ -187,8 +194,33 @@ function ThreadLineageGroup(props: {
   );
 }
 
+const FINISHED_STATUSES = ["completed", "failed", "error", "cancelled", "interrupted", "idle"];
+
+const FINISHED_ROW_ICON_CLASS =
+  "opacity-40 grayscale group-focus-within:opacity-100 group-focus-within:grayscale-0 group-hover:opacity-100 group-hover:grayscale-0";
+const FINISHED_ROW_TITLE_CLASS =
+  "font-normal text-secondary-label/70 group-focus-within:text-foreground group-hover:text-foreground";
+
+/** A feature lead's status as its sidebar row reads it: a lead whose crew is working waits. */
+function featureLeadStatus(lead: EnvironmentThreadShell): string {
+  switch (resolveSidebarThreadStatus(lead)) {
+    case "working":
+      return "running";
+    case "failed":
+    case "limited":
+      return "failed";
+    case "ready":
+      return "completed";
+    default:
+      return "waiting";
+  }
+}
+
 function relationshipLabel(edge: ThreadRelationshipEdge, currentThreadId: ThreadId) {
   if (edge.kind === "transfer") return "Context transfer";
+  if (edge.kind === "feature") {
+    return edge.sourceThreadId === currentThreadId ? "Feature" : "Starting thread";
+  }
   if (edge.kind === "subagent") {
     return edge.sourceThreadId === currentThreadId ? "Subagent" : "Parent agent";
   }
@@ -259,6 +291,7 @@ function RemoteSubagentRow(props: {
   const { remoteChild } = props.agent;
   const status = props.agent.status;
   const failed = status === "failed";
+  const finished = FINISHED_STATUSES.includes(status);
   const title = relationshipThreadTitle({
     title: props.agent.title ?? "Subagent",
     isSubagent: true,
@@ -286,15 +319,27 @@ function RemoteSubagentRow(props: {
             />
           }
         >
-          <ThreadRelationshipIcon
-            // The task's own driver here is only a "remote" label.
-            driver={props.provider?.driver}
-            provider={props.provider}
-            fallbackIcon={BotIcon}
-            status={status}
-          />
+          <span
+            className={cn(
+              "inline-flex shrink-0 transition-opacity",
+              finished && FINISHED_ROW_ICON_CLASS,
+            )}
+          >
+            <ThreadRelationshipIcon
+              // The task's own driver here is only a "remote" label.
+              driver={props.provider?.driver}
+              provider={props.provider}
+              fallbackIcon={BotIcon}
+              status={status}
+            />
+          </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-left text-sm font-medium leading-4 text-foreground/85">
+            <span
+              className={cn(
+                "block truncate text-left text-sm leading-4",
+                finished ? FINISHED_ROW_TITLE_CLASS : "font-medium text-foreground/85",
+              )}
+            >
               {title}
             </span>
           </span>
@@ -546,15 +591,23 @@ export function ThreadRelationshipsPanel(props: {
     const isParent = isParentThreadRelationship(edge, props.threadId);
     const lineage = graph.nodes.get(threadId)?.thread?.lineage;
     if (!isParent && lineage?.sideChat === true) return "sideChats";
+    if (edge.kind === "feature" && !isParent) return "handedOff";
     if (edge.kind !== "subagent" || isParent) return "related";
     // Work handed to another project lives in that project's list; this is the link to it.
     if (lineage?.listed === true) return "handedOff";
-    return ["completed", "failed", "error", "cancelled", "interrupted", "idle"].includes(
-      edge.status ?? "",
-    )
-      ? "previous"
-      : "active";
+    return FINISHED_STATUSES.includes(edge.status ?? "") ? "previous" : "active";
   });
+  // A feature is finished once its lead is settled; a lead that stopped unsettled waits on you.
+  const finishedRowIds = new Set(
+    [...handedOff, ...previous]
+      .filter(({ threadId, edge }) => {
+        const settled = graph.nodes.get(threadId)?.thread?.settledOverride === "settled";
+        return edge.kind === "feature"
+          ? settled
+          : settled || FINISHED_STATUSES.includes(edge.status ?? "");
+      })
+      .map(({ threadId }) => threadId),
+  );
   const groups = [
     { id: "related", label: null, rows: related, expanded: true },
     { id: "active", label: null, rows: active, expanded: true },
@@ -688,17 +741,25 @@ export function ThreadRelationshipsPanel(props: {
     const isSubagent = edge.kind === "subagent";
     const isMergeTarget = threadId === mergeTargetThreadId;
     const isParent = isParentThreadRelationship(edge, props.threadId);
-    const rowStatus =
-      (isParent && threadId === parentRef?.threadId
-        ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
-        : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge });
+    const finished = finishedRowIds.has(threadId);
+    const featureLead =
+      edge.kind === "feature" && !isParent && node?.thread
+        ? presentThreadShell(props.environmentId, node.thread)
+        : undefined;
+    const rowStatus = featureLead
+      ? featureLeadStatus(featureLead)
+      : ((isParent && threadId === parentRef?.threadId
+          ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
+          : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }));
     const RelationshipIcon = isParent
       ? CornerLeftUpIcon
       : isSubagent
         ? BotIcon
-        : node?.thread?.lineage.sideChat === true
-          ? MessagesSquareIcon
-          : GitForkIcon;
+        : edge.kind === "feature"
+          ? WorkflowIcon
+          : node?.thread?.lineage.sideChat === true
+            ? MessagesSquareIcon
+            : GitForkIcon;
     const relationship =
       node?.thread?.lineage.sideChat === true && !isParent
         ? "Side chat"
@@ -722,6 +783,7 @@ export function ThreadRelationshipsPanel(props: {
     const threadTitle = relationshipThreadTitle({
       title:
         workflowGroup?.workflow.workflowName ??
+        (featureLead ? workThreadLabel(featureLead) : undefined) ??
         // Fresher than an archived snapshot's copy.
         (Object.hasOwn(resolvedThreadTitles, threadId)
           ? resolvedThreadTitles[threadId]
@@ -771,15 +833,27 @@ export function ThreadRelationshipsPanel(props: {
     );
     const relationshipContent = (
       <>
-        <ThreadRelationshipIcon
-          driver={isSubagent && !isParent ? providerDriver : undefined}
-          provider={provider}
-          providerEntries={providerEntries}
-          fallbackIcon={RelationshipIcon}
-          status={rowStatus}
-        />
+        <span
+          className={cn(
+            "inline-flex shrink-0 transition-opacity",
+            finished && FINISHED_ROW_ICON_CLASS,
+          )}
+        >
+          <ThreadRelationshipIcon
+            driver={isSubagent && !isParent ? providerDriver : undefined}
+            provider={provider}
+            providerEntries={providerEntries}
+            fallbackIcon={RelationshipIcon}
+            status={rowStatus}
+          />
+        </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-left text-sm font-medium leading-4 text-foreground/85">
+          <span
+            className={cn(
+              "block truncate text-left text-sm leading-4",
+              finished ? FINISHED_ROW_TITLE_CLASS : "font-medium text-foreground/85",
+            )}
+          >
             {threadTitle}
           </span>
         </span>

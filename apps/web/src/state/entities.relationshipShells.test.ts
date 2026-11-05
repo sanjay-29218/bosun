@@ -56,6 +56,26 @@ describe("selectThreadRelationshipShells", () => {
     ]);
   });
 
+  it("keeps the leads of features a thread started, and a lead keeps its starter", () => {
+    const lead = (id: string, requesterThreadId: string, member?: string) =>
+      ({
+        ...shell(id),
+        feature: { id: `feature-${id}`, title: id, requesterThreadId, member },
+      }) as unknown as OrchestrationV2ThreadShell;
+    const threads = [
+      shell("current"),
+      lead("started-lead", "current"),
+      lead("crew", "current", "Builder"),
+      lead("other-lead", "elsewhere"),
+    ];
+    const ids = (id: string) =>
+      selectThreadRelationshipShells(id as typeof threadId, null as Projection, threads).map(
+        (thread) => thread.id,
+      );
+    expect(ids("current")).toEqual(["current", "started-lead"]);
+    expect(ids("started-lead")).toEqual(["current", "started-lead"]);
+  });
+
   it("finds the parent from the shell before the projection loads", () => {
     const threads = [shell("current", "parent"), shell("parent"), shell("unrelated")];
     expect(
