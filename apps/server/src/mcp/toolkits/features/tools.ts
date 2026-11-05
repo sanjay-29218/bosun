@@ -75,7 +75,7 @@ const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
 const StartFeature = Tool.make("t3_feature_start", {
   ...shared,
   description:
-    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): the workflow's lead gets its instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch, made from baseBranch when set (an existing branch, such as another feature's, to stack on it) and otherwise from the project's current branch; set workspace to local only when the person asks to work in the project's checkout. Started from a feature's thread, the new feature is that feature's child: its lead reports back to that feature's lead when it finishes. Started from any other thread, each time the lead stops with its crew idle, what it said comes back to this thread. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
+    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): the workflow's lead gets its instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch, made from baseBranch when set (an existing branch, such as another feature's, to stack on it) and otherwise from the project's current branch; set workspace to local only when the person asks to work in the project's checkout. Started from a feature's thread, the new feature is that feature's child by default: its lead reports back to that feature's lead when it finishes. For work outside that feature's scope, set parentFeatureId to null: the new feature stands on its own. Started with no parent, or from any other thread, each time the lead stops with its crew idle, what it said comes back to this thread. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
   parameters: Schema.Struct({
     projectId: Schema.optional(Schema.String),
     title: Schema.String,
@@ -84,6 +84,10 @@ const StartFeature = Tool.make("t3_feature_start", {
     workspace: Schema.optional(FeatureWorkspace),
     workflowId: Schema.optional(Schema.String),
     baseBranch: Schema.optional(Schema.String),
+    parentFeatureId: Schema.optional(Schema.Null).annotate({
+      description:
+        "Omit to make a feature's thread's new feature its child. null starts a separate feature that reports back to this thread.",
+    }),
   }),
   success: Schema.Struct({
     featureId: Schema.String,

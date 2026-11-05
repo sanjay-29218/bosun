@@ -73,6 +73,7 @@ const make = Effect.gen(function* () {
         readonly workspace?: FeatureWorkspace | undefined;
         readonly workflowId?: string | undefined;
         readonly baseBranch?: string | undefined;
+        readonly parentFeatureId?: null | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(
@@ -93,13 +94,15 @@ const make = Effect.gen(function* () {
               );
             }
           }
+          const { parentFeatureId: _parent, ...request } = input;
           const { feature, leadThreadId, branch } = yield* features.launch({
-            ...input,
+            ...request,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),
             // A feature's thread starts its feature's children, which report to their parent's
-            // lead; any other thread hears from the lead each time it stops.
-            ...(shell.feature
+            // lead, unless it asks for no parent; any other starter hears from the lead each time
+            // it stops.
+            ...(shell.feature && input.parentFeatureId === undefined
               ? { parentFeatureId: shell.feature.id }
               : {
                   // A subagent, such as a bot's project manager, has already reported back; its

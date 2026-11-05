@@ -1437,11 +1437,14 @@ it.effect(
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
         ('builder', 'role', 'bot-run:builder', '["worktree"]'),
-        ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]')`;
+        ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]'),
+        ('lead:dark', 'lead', 'bot-run:lead:dark', '[]'),
+        ('planner:dark', 'planner', 'bot-run:planner:dark', '[]')`;
         const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
+          readonly parentFeatureId?: string | undefined;
         }> = [];
         const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
           environmentId,
@@ -1459,7 +1462,10 @@ it.effect(
           ["plainToken", scopeFor("thread-plain")],
           ["crewToken", scopeFor("bot-run:builder")],
           ["hqToken", scopeFor("bot-run:bot-hq:captain")],
+          ["leadToken", scopeFor("bot-run:lead:dark")],
+          ["plannerToken", scopeFor("bot-run:planner:dark")],
         ]);
+        const darkMode = { id: "feature:dark", title: "Dark mode" };
         const UpstreamToolkit = Toolkit.make(
           Tool.make("upstream", {
             description: "Stands in for T3 Code's own tools.",
@@ -1490,12 +1496,24 @@ it.effect(
               Layer.succeedContext(sqlContext),
               // Without full access, only ownership lets a headquarters reach another project.
               Layer.mock(ThreadManagementService.ThreadManagementService)({
-                getThreadShell: (threadId) =>
-                  Effect.succeed(
-                    McpToolAccessTestkit.liveThreadShell(threadId, {
-                      runtimeMode: "approval-required",
-                    }),
-                  ),
+                getThreadShell: (threadId) => {
+                  const shell = McpToolAccessTestkit.liveThreadShell(threadId, {
+                    runtimeMode: "approval-required",
+                  });
+                  if (threadId === "bot-run:lead:dark")
+                    return Effect.succeed({ ...shell, feature: darkMode });
+                  if (threadId !== "bot-run:planner:dark") return Effect.succeed(shell);
+                  // The lead's crew member, a subagent of the lead's thread.
+                  return Effect.succeed({
+                    ...shell,
+                    feature: { ...darkMode, member: "Planner" },
+                    lineage: {
+                      rootThreadId: ThreadId.make("bot-run:lead:dark"),
+                      parentThreadId: ThreadId.make("bot-run:lead:dark"),
+                      relationshipToParent: "subagent" as const,
+                    },
+                  });
+                },
               }),
               Layer.mock(BotService.BotService)({
                 list: Effect.succeed([]),
@@ -1653,6 +1671,32 @@ it.effect(
             requesterThreadId: "bot-run:bot-hq:captain",
           }),
         ]);
+
+        // A feature's thread starts a child by default; parentFeatureId null starts a separate
+        // feature that reports to the feature's lead, even when a crew subagent starts it.
+        launched.length = 0;
+        const fromFeature = (token: string, args: object) =>
+          sessionFor(token).pipe(
+            Effect.flatMap((session) =>
+              session.call("t3_feature_start", { title: "Fix login", brief: "Fix it", ...args }),
+            ),
+          );
+        yield* fromFeature("leadToken", {});
+        yield* fromFeature("leadToken", { parentFeatureId: null });
+        yield* fromFeature("plannerToken", { parentFeatureId: null });
+        expect(
+          launched.map(({ parentFeatureId, requesterThreadId }) => ({
+            parentFeatureId,
+            requesterThreadId,
+          })),
+        ).toEqual([
+          { parentFeatureId: "feature:dark", requesterThreadId: undefined },
+          { parentFeatureId: undefined, requesterThreadId: "bot-run:lead:dark" },
+          { parentFeatureId: undefined, requesterThreadId: "bot-run:lead:dark" },
+        ]);
+        expect(
+          JSON.stringify(yield* fromFeature("leadToken", { parentFeatureId: "feature:dark" })),
+        ).toContain("parentFeatureId");
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

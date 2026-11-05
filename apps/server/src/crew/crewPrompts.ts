@@ -49,6 +49,7 @@ export const featureLeadTask = (
       ? `Crew: ${crew.join(", ")}. Give one a task with delegate_task, setting crewMember to their name; their result comes back here.`
       : "Crew: none. Do the work yourself.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
+    "Work outside this feature's scope is its own feature: start it with t3_feature_start and parentFeatureId null, and it reports back to this thread.",
     // Last, so a lead still has it in mind when the work is done.
     `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board then shows it ready for review."}`,
   ].join("\n\n");
