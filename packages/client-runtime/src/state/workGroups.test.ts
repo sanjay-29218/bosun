@@ -1,4 +1,9 @@
-import { botHeadquartersThreadId, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  botHeadquartersThreadId,
+  EnvironmentId,
+  projectHeadquartersThreadId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { sortInboxThreadsByReturn } from "./threadInbox.ts";
@@ -36,7 +41,7 @@ const member = (id: string, createdAt: string, name: string) =>
 
 describe("groupWorkThreads", () => {
   it("folds a feature into its lead's row, with its crew's threads from history", () => {
-    const lead = thread("lead", "0", { feature, title: "Project manager" });
+    const lead = thread("lead", "0", { feature, title: "Feature manager" });
     const plan = member("plan", "1", "Planner");
     const replan = member("replan", "2", "Planner");
     const build = member("build", "3", "Builder");
@@ -63,6 +68,19 @@ describe("groupWorkThreads", () => {
     ]);
   });
 
+  it("keeps a project's manager and the tasks it hands out as rows of their own", () => {
+    const manager = thread(projectHeadquartersThreadId("web"), "0", { title: "Project manager" });
+    const task = thread("task", "1", {
+      lineage: { relationshipToParent: "subagent" },
+    });
+    const lead = thread("lead", "2", { feature, title: "Feature manager" });
+
+    const { primaries, groupByThreadKey } = groupWorkThreads([manager, task, lead], []);
+
+    expect(primaries.map((item) => item.id)).toEqual([manager.id, "task", "lead"]);
+    expect(groupByThreadKey.has(`local:${manager.id}`)).toBe(false);
+  });
+
   it("keeps a feature's history out of the list when none of its threads are visible", () => {
     const { primaries, groupByThreadKey } = groupWorkThreads([], [member("plan", "1", "Planner")]);
     expect(primaries).toEqual([]);
@@ -71,9 +89,9 @@ describe("groupWorkThreads", () => {
 
   it("rows a request chain on the latest attempt of the thread it started with", () => {
     const request = (member: string) => ({ id: "triage", title: "Triage open issues", member });
-    const manager = thread("pm", "1", { crewRequest: request("Project manager") });
+    const manager = thread("pm", "1", { crewRequest: request("Feature manager") });
     const builder = thread("builder", "2", { crewRequest: request("Builder") });
-    const retry = thread("pm-retry", "3", { crewRequest: request("Project manager") });
+    const retry = thread("pm-retry", "3", { crewRequest: request("Feature manager") });
 
     const { primaries, groupByThreadKey } = groupWorkThreads([builder, manager, retry]);
 
@@ -81,7 +99,7 @@ describe("groupWorkThreads", () => {
     const group = groupByThreadKey.get("local:pm-retry")!;
     expect(group.kind).toBe("request");
     expect(group.title).toBe("Triage open issues");
-    expect(group.children.map((entry) => entry.label)).toEqual(["Project manager", "Builder"]);
+    expect(group.children.map((entry) => entry.label)).toEqual(["Feature manager", "Builder"]);
   });
 });
 
@@ -141,7 +159,7 @@ describe("boardChatThreads", () => {
       row("archived", {}, { archivedAt: "2026-10-01" }),
       row("stage", { feature }),
       row(botHeadquartersThreadId("captain")),
-      row("pm", { createdAt: "0", crewRequest: request("Project manager") }),
+      row("pm", { createdAt: "0", crewRequest: request("Feature manager") }),
       row("builder", { crewRequest: request("Builder") }),
     ]);
     expect(chats.map((item) => item.id)).toEqual(["chat", "fork", "handed-off", "pm"]);
@@ -152,7 +170,7 @@ describe("workGroupInbox", () => {
   it("keeps rows that wait on you out of Working and above newer rows", () => {
     const request = (member: string) => ({ id: "triage", title: "Triage", member });
     const manager = inboxThread("pm", "2026-10-28T10:00:00.000Z", {
-      crewRequest: request("Project manager"),
+      crewRequest: request("Feature manager"),
     });
     const builder = inboxThread("builder", "2026-10-28T12:00:00.000Z", {
       crewRequest: request("Builder"),

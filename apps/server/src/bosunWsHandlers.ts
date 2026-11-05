@@ -1,5 +1,6 @@
 import {
   BotOperationError,
+  botHeadquartersThreadId,
   CrewOperationError,
   BosunWsRpcGroup,
   FeatureOperationError,
@@ -102,7 +103,7 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
           ),
         [WS_METHODS.botsStartNewSession]: (input) =>
           crew
-            .startNewSession(input.botId)
+            .startNewSession(botHeadquartersThreadId(input.botId))
             .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.rolesList]: () =>
           crew
@@ -152,11 +153,27 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
           crew
             .setDelegationInProject(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
-        [WS_METHODS.crewStart]: (input) =>
-          crew.startRequest(input).pipe(
-            Effect.map((run) => ({ runId: run.id, threadId: run.threadId })),
-            Effect.mapError((error) => new CrewOperationError({ reason: String(error) })),
+        [WS_METHODS.crewProjectManager]: (input) =>
+          crew
+            .projectManagerSettings(input.projectId)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewUpdateProjectManager]: (input) =>
+          crew
+            .updateProjectManager(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewResetProjectManager]: (input) =>
+          crew
+            .resetProjectManager(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewOpenProjectManager]: (input) =>
+          crew.ensureProjectManager(input.projectId).pipe(
+            Effect.map((run) => ({ threadId: run.threadId })),
+            Effect.mapError((error) => new CrewOperationError({ reason: error.message })),
           ),
+        [WS_METHODS.crewStartNewSession]: (input) =>
+          crew
+            .startNewSession(input.threadId)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
       };
     }),
   );

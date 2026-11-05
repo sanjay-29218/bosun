@@ -28,6 +28,7 @@ export interface PullRequestTestThread {
   readonly archivedAt: string | null;
   readonly settledOverride: OrchestrationV2ThreadShell["settledOverride"];
   readonly settledAt: string | null;
+  readonly feature?: OrchestrationV2ThreadShell["feature"];
 }
 
 export function v2PullRequestThread(thread: PullRequestTestThread): OrchestrationV2ThreadShell {

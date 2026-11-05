@@ -1,5 +1,6 @@
 import {
   botHeadquartersThreadId,
+  headquartersProjectId,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -1090,6 +1091,28 @@ const make = Effect.gen(function* () {
           failure("invalid_request", `Unable to link issue ${ref}: ${error.message}`),
         ),
       );
+  });
+  /** The request a project's manager names for its task, which must be its project's. */
+  const resolveTaskRequest = Effect.fn("OrchestratorMcpService.resolveTaskRequest")(function* (
+    callerThreadId: ThreadId,
+    otherProjectId: ProjectId | undefined,
+    ref: string,
+  ) {
+    const requestId = ref.trim();
+    const projectId = headquartersProjectId(callerThreadId);
+    if (projectId === null || otherProjectId !== undefined || Option.isNone(crewDelegation)) {
+      return yield* failure(
+        "invalid_request",
+        "Only a project's manager names a request, for a task in its project. Omit requestId.",
+      );
+    }
+    const found = yield* crewDelegation.value
+      .hasRequest(projectId, requestId)
+      .pipe(Effect.mapError(() => failure("invalid_request", "Unable to read project requests.")));
+    if (!found) {
+      return yield* failure("invalid_request", `This project has no request ${requestId}.`);
+    }
+    return requestId;
   });
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
@@ -2494,6 +2517,10 @@ const make = Effect.gen(function* () {
         input.issue === undefined
           ? undefined
           : yield* resolveTaskIssue(otherProjectId ?? parent.thread.projectId, input.issue);
+      const projectRequestId =
+        input.requestId === undefined
+          ? undefined
+          : yield* resolveTaskRequest(scope.thread.threadId, otherProjectId, input.requestId);
       const parentRun = parent.runs
         .filter(ThreadManagementService.isActiveRun)
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];
@@ -2670,12 +2697,18 @@ const make = Effect.gen(function* () {
           ...(input.title !== undefined
             ? { title: input.title }
             : crewMember === null
-              ? {}
+              ? projectRequestId === undefined
+                ? {}
+                : // Its result names the request, so a fresh session knows what it answers.
+                  {
+                    title: `${projectRequestId}: ${input.task.trim().split("\n")[0]!}`.slice(0, 80),
+                  }
               : {
                   title: `${crewMember.name}: ${input.task.trim().split("\n")[0]!}`.slice(0, 80),
                 }),
           ...(crewMember === null ? {} : { crewMember: crewMember.name }),
           ...(issue === undefined ? {} : { issue }),
+          ...(projectRequestId === undefined ? {} : { projectRequestId }),
           modelSelection: target.modelSelection,
           runtimeMode,
           interactionMode,

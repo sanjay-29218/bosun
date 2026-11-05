@@ -5,6 +5,7 @@ import {
   FEATURE_DELIVERY_WORKFLOW_ID,
   CommandId,
   MessageId,
+  featureIssueRef,
   idleCompactionOf,
   type FeatureBoardCard,
   type FeatureIssue,
@@ -75,6 +76,8 @@ export type FeatureRecord = typeof FeatureRecordSchema.Type;
 export type CreateFeatureInput = typeof FeatureCreateInput.Type & {
   /** The feature whose lead starts this one; leads start children, not clients. */
   readonly parentFeatureId?: string | undefined;
+  /** The issue it works on, as `setIssue` reads one; linked when the feature is made. */
+  readonly issue?: string | undefined;
   /**
    * The workflow a linked environment's bot sent with the request, which the feature keeps and
    * runs on, with its roles, instead of the library here.
@@ -133,15 +136,25 @@ export interface FeatureServiceShape {
     readonly baseBranch?: string | undefined;
     readonly parentFeatureId?: string | undefined;
     readonly requesterThreadId?: ThreadId | undefined;
+    /** The project request this feature answers, R-<number> in its project. */
+    readonly requestId?: string | undefined;
+    /** The issue it works on, linked before its lead starts. */
+    readonly issue?: string | undefined;
   }) => Effect.Effect<FeatureStartResult, FeatureServiceError>;
+  /** The project request the feature answers, or null. */
+  readonly requestIdOf: (featureId: string) => Effect.Effect<string | null, PersistenceSqlError>;
   /** The bot that owns `projectId`, or null. */
   readonly projectBot: (projectId: ProjectId) => Effect.Effect<string | null, PersistenceSqlError>;
   /** The thread that started the feature and hears from its lead, or null. */
   readonly requesterThreadId: (
     featureId: string,
   ) => Effect.Effect<ThreadId | null, PersistenceSqlError>;
-  /** The lead threads of open features that a thread started, which report to that thread. */
+  /** Lead threads of open features that report to a requester, or whose parent hears questions. */
   readonly reportingLeads: Effect.Effect<ReadonlyArray<ThreadId>, PersistenceSqlError>;
+  /** The lead thread of the open feature `featureId` is a child of, or null. */
+  readonly parentLeadThreadId: (
+    featureId: string,
+  ) => Effect.Effect<ThreadId | null, PersistenceSqlError>;
   /**
    * The lead in `threadId` reports its feature done: its parent's lead gets `summary` with the
    * feature's branch and pull request. Closing a child that hasn't reported does the same.
@@ -213,7 +226,54 @@ export interface FeatureServiceShape {
   readonly board: (
     projectId: ProjectId,
   ) => Effect.Effect<ReadonlyArray<FeatureBoardCard>, PersistenceSqlError>;
+  /** The project's features as an agent reads them: branches, issue, pull request, reports. */
+  readonly list: (
+    projectId: ProjectId,
+    filter: { readonly status?: "open" | "closed"; readonly parentFeatureId?: string },
+  ) => Effect.Effect<ReadonlyArray<FeatureListEntry>, PersistenceSqlError>;
 }
+
+export interface FeatureListEntry {
+  readonly featureId: string;
+  readonly number?: number;
+  readonly title: string;
+  readonly status: "open" | "closed";
+  readonly leadThreadId: ThreadId | null;
+  readonly branch: string | null;
+  readonly baseBranch: string | null;
+  readonly parentFeatureId: string | null;
+  readonly issue: { readonly ref: string; readonly title: string } | null;
+  readonly pullRequest: {
+    readonly url: string;
+    readonly number: number;
+    readonly state: "open" | "closed" | "merged" | null;
+  } | null;
+  readonly requesterThreadId: string | null;
+  readonly requestId: string | null;
+  readonly report: "finished" | "closed" | "stopped" | "failed" | "interrupted" | null;
+}
+
+const PullRequestLinks = Schema.Array(
+  Schema.Struct({
+    url: Schema.String,
+    number: Schema.Number,
+    source: Schema.String,
+    snapshot: Schema.NullOr(
+      Schema.Struct({ state: Schema.Literals(["open", "closed", "merged"]) }),
+    ),
+  }),
+);
+const decodePullRequestLinks = Schema.decodeUnknownOption(Schema.fromJsonString(PullRequestLinks));
+
+/** The lead's first linked pull request, with its last known state. */
+const leadPullRequest = (json: string | null): FeatureListEntry["pullRequest"] => {
+  if (json === null) return null;
+  const links = Option.getOrElse(decodePullRequestLinks(json), () => []);
+  const link = links.find((entry) => entry.source !== "stack-dismissed");
+  return link === undefined
+    ? null
+    : { url: link.url, number: link.number, state: link.snapshot?.state ?? null };
+};
 
 export class FeatureService extends Context.Service<FeatureService, FeatureServiceShape>()(
   "t3/features/FeatureService",
@@ -714,6 +774,9 @@ export const FeatureServiceLive = Layer.effect(
         if (input.parentFeatureId !== undefined && (yield* get(input.parentFeatureId)) === null) {
           return yield* Effect.fail(new FeatureValidationError("Parent feature not found"));
         }
+        // Read before the transaction, which mustn't wait on the host; stored with the feature.
+        const issue =
+          input.issue === undefined ? null : yield* resolveIssue(input.projectId, input.issue);
         // The brief's files belong to the feature, so they are claimed under its ID.
         const sent = input.briefAttachments ?? [];
         const claimed = yield* AttachmentClaims.claimPendingAttachments({
@@ -756,9 +819,9 @@ export const FeatureServiceLive = Layer.effect(
               const createdAt = DateTime.formatIso(yield* DateTime.now);
               // The number is taken in the insert itself, so concurrent creates cannot share one.
               const [inserted] = yield* sql<{ readonly number: number }>`
-              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id, parent_feature_id, workflow_snapshot_json)
+              INSERT INTO features (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json, workspace, base_branch, number, brief_message_json, brief_request_hash, workflow_id, parent_feature_id, workflow_snapshot_json, issue_json)
               VALUES (${input.id}, ${input.projectId}, ${input.title}, ${input.brief}, ${createdAt}, ${createdAt}, 'open', ${encodeAssignments(crewAssignments)}, ${input.workspace ?? "worktree"}, ${input.baseBranch?.trim() || null},
-                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id}, ${input.parentFeatureId ?? null}, ${input.workflowSnapshot === undefined ? null : encodeWorkflowSnapshot(input.workflowSnapshot)})
+                (SELECT COALESCE(MAX(number), 0) + 1 FROM features WHERE project_id = ${input.projectId}), ${encodeOpeningMessage(openingMessage)}, ${requestHash}, ${workflow.id}, ${input.parentFeatureId ?? null}, ${input.workflowSnapshot === undefined ? null : encodeWorkflowSnapshot(input.workflowSnapshot)}, ${issue === null ? null : encodeFeatureIssue(issue)})
               RETURNING number
             `;
               const {
@@ -769,6 +832,7 @@ export const FeatureServiceLive = Layer.effect(
                 briefContext: _briefContext,
                 workflowId: _workflowId,
                 workflowSnapshot: _workflowSnapshot,
+                issue: _issue,
                 parentFeatureId,
                 ...fields
               } = input;
@@ -776,7 +840,7 @@ export const FeatureServiceLive = Layer.effect(
                 ...fields,
                 briefAttachments: claimed.attachments,
                 crewAssignments,
-                issue: null,
+                issue,
                 workflowId: workflow.id,
                 ...(parentFeatureId === undefined ? {} : { parentFeatureId }),
                 createdAt,
@@ -797,8 +861,9 @@ export const FeatureServiceLive = Layer.effect(
             Effect.tapError(() => AttachmentClaims.releaseClaimedAttachments(claimed.claimedPaths)),
             Effect.provideContext(claimServices),
           );
-        // An issue linked in the brief comes first, so a generated title can read it.
-        const issueUrl = created ? firstIssueRef(feature.brief) : null;
+        // Without one named, an issue linked in the brief is read after, so a generated title can
+        // read it too.
+        const issueUrl = created && issue === null ? firstIssueRef(feature.brief) : null;
         if (issueUrl !== null || (input.autoTitle && created)) {
           yield* Effect.gen(function* () {
             if (issueUrl !== null) {
@@ -1000,12 +1065,19 @@ export const FeatureServiceLive = Layer.effect(
             : {}),
           ...(baseBranch ? { baseBranch } : {}),
           ...(input.parentFeatureId ? { parentFeatureId: input.parentFeatureId } : {}),
+          ...(input.issue ? { issue: input.issue } : {}),
         });
         // Before the lead starts, so its first stop finds who to tell; a retry keeps the first.
         if (input.requesterThreadId !== undefined) {
           yield* sql`
             UPDATE features SET requester_thread_id = ${input.requesterThreadId}
             WHERE id = ${feature.id} AND requester_thread_id IS NULL AND parent_feature_id IS NULL
+          `.pipe(Effect.mapError(queryError));
+        }
+        if (input.requestId !== undefined) {
+          yield* sql`
+            UPDATE features SET request_id = ${input.requestId}
+            WHERE id = ${feature.id} AND request_id IS NULL
           `.pipe(Effect.mapError(queryError));
         }
         return yield* start(feature.id, input.projectId).pipe(
@@ -1018,6 +1090,14 @@ export const FeatureServiceLive = Layer.effect(
         );
       },
     );
+
+    const requestIdOf: FeatureServiceShape["requestIdOf"] = (featureId) =>
+      sql<{ readonly requestId: string | null }>`
+        SELECT request_id AS requestId FROM features WHERE id = ${featureId}
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.map((rows) => rows[0]?.requestId ?? null),
+      );
 
     const requesterThreadId: FeatureServiceShape["requesterThreadId"] = (featureId) =>
       sql<{ readonly threadId: string | null }>`
@@ -1300,18 +1380,135 @@ export const FeatureServiceLive = Layer.effect(
       }
     });
 
+    const board: FeatureServiceShape["board"] = Effect.fn("FeatureService.board")(
+      function* (projectId) {
+        const records = yield* listByProject(projectId);
+        // A feature's lead is its lead run's thread; features from before leads use their
+        // first top-level thread. Crew threads hang under the lead.
+        const leads = yield* sql<{ readonly featureId: string; readonly threadId: ThreadId }>`
+        SELECT featureId, threadId FROM (
+          SELECT json_extract(payload_json, '$.feature.id') AS featureId, thread_id AS threadId,
+            ROW_NUMBER() OVER (
+              PARTITION BY json_extract(payload_json, '$.feature.id')
+              ORDER BY thread_id LIKE ${`bot-run:${FEATURE_LEAD_RUN_PREFIX}:%`} DESC,
+                created_at, thread_id
+            ) AS rank
+          FROM orchestration_v2_projection_threads
+          WHERE project_id = ${projectId} AND deleted_at IS NULL
+            AND json_extract(payload_json, '$.feature.id') IS NOT NULL
+            AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
+        ) WHERE rank = 1
+      `.pipe(Effect.mapError(queryError));
+        const leadByFeature = new Map(leads.map((lead) => [lead.featureId, lead.threadId]));
+        const reports = yield* sql<{
+          readonly id: string;
+          readonly outcome: keyof typeof REPORT_HEADLINES;
+          readonly runId: string | null;
+        }>`
+        SELECT id, report_outcome AS outcome, reported_run_id AS runId FROM features
+        WHERE project_id = ${projectId} AND report_outcome IS NOT NULL
+      `.pipe(Effect.mapError(queryError));
+        const reportByFeature = new Map(
+          reports.map((report) => [report.id, { outcome: report.outcome, runId: report.runId }]),
+        );
+        return records.map((feature): FeatureBoardCard => {
+          const report = reportByFeature.get(feature.id);
+          return {
+            featureId: feature.id,
+            projectId: feature.projectId,
+            title: feature.title,
+            ...(feature.number === undefined ? {} : { number: feature.number }),
+            issue: feature.issue,
+            status: feature.status,
+            leadThreadId: leadByFeature.get(feature.id) ?? null,
+            ...(feature.parentFeatureId === undefined
+              ? {}
+              : { parentFeatureId: feature.parentFeatureId }),
+            ...(report ? { report } : {}),
+            createdAt: feature.createdAt,
+            updatedAt: feature.updatedAt,
+          };
+        });
+      },
+    );
+
+    const list: FeatureServiceShape["list"] = Effect.fn("FeatureService.list")(
+      function* (projectId, filter) {
+        const cards = (yield* board(projectId)).filter(
+          (card) =>
+            (filter.status === undefined || card.status === filter.status) &&
+            (filter.parentFeatureId === undefined ||
+              card.parentFeatureId === filter.parentFeatureId),
+        );
+        const features = yield* sql<{
+          readonly id: string;
+          readonly baseBranch: string | null;
+          readonly requesterThreadId: string | null;
+          readonly requestId: string | null;
+        }>`
+        SELECT id, base_branch AS baseBranch, requester_thread_id AS requesterThreadId, request_id AS requestId
+        FROM features WHERE project_id = ${projectId}
+      `.pipe(Effect.mapError(queryError));
+        const featureById = new Map(features.map((row) => [row.id, row]));
+        const leadIds = cards.flatMap((card) => (card.leadThreadId ? [card.leadThreadId] : []));
+        const leads =
+          leadIds.length === 0
+            ? []
+            : yield* sql<{
+                readonly threadId: string;
+                readonly branch: string | null;
+                readonly pullRequestsJson: string | null;
+              }>`
+              SELECT thread_id AS threadId, json_extract(payload_json, '$.branch') AS branch,
+                json_extract(payload_json, '$.pullRequests') AS pullRequestsJson
+              FROM orchestration_v2_projection_threads
+              WHERE ${sql.in("thread_id", leadIds)}
+            `.pipe(Effect.mapError(queryError));
+        const leadById = new Map(leads.map((lead) => [lead.threadId, lead]));
+        return cards.map((card): FeatureListEntry => {
+          const feature = featureById.get(card.featureId);
+          const lead = card.leadThreadId ? leadById.get(card.leadThreadId) : undefined;
+          return {
+            featureId: card.featureId,
+            ...(card.number === undefined ? {} : { number: card.number }),
+            title: card.title,
+            status: card.status,
+            leadThreadId: card.leadThreadId,
+            branch: lead?.branch ?? null,
+            baseBranch: feature?.baseBranch ?? null,
+            parentFeatureId: card.parentFeatureId ?? null,
+            issue:
+              card.issue === null
+                ? null
+                : { ref: featureIssueRef(card.issue), title: card.issue.title },
+            pullRequest: leadPullRequest(lead?.pullRequestsJson ?? null),
+            requesterThreadId: feature?.requesterThreadId ?? null,
+            requestId: feature?.requestId ?? null,
+            report: card.report?.outcome ?? null,
+          };
+        });
+      },
+    );
+
     return FeatureService.of({
       start,
       setIssue: bumped(setIssue),
       launch: bumped(launch),
       requesterThreadId,
+      requestIdOf,
       reportingLeads: sql<{ readonly id: string }>`
-        SELECT id FROM features WHERE requester_thread_id IS NOT NULL AND status = 'open'
+        SELECT id FROM features
+        WHERE (requester_thread_id IS NOT NULL OR parent_feature_id IS NOT NULL) AND status = 'open'
       `.pipe(
         Effect.mapError(queryError),
         Effect.flatMap((rows) => Effect.forEach(rows, (row) => leadThreadOf(row.id))),
         Effect.map((leads) => leads.filter(Predicate.isNotNull)),
       ),
+      parentLeadThreadId: Effect.fn("FeatureService.parentLeadThreadId")(function* (featureId) {
+        const feature = yield* get(featureId);
+        const parent = feature?.parentFeatureId ? yield* get(feature.parentFeatureId) : null;
+        return parent?.status === "open" ? yield* leadThreadOf(parent.id) : null;
+      }),
       projectBot: bots.projectOwner,
       reportIfQuiet,
       reconcileChildren,
@@ -1488,55 +1685,8 @@ export const FeatureServiceLive = Layer.effect(
         return feature;
       }),
       listByProject,
-      board: Effect.fn("FeatureService.board")(function* (projectId) {
-        const records = yield* listByProject(projectId);
-        // A feature's lead is its lead run's thread; features from before leads use their
-        // first top-level thread. Crew threads hang under the lead.
-        const leads = yield* sql<{ readonly featureId: string; readonly threadId: ThreadId }>`
-          SELECT featureId, threadId FROM (
-            SELECT json_extract(payload_json, '$.feature.id') AS featureId, thread_id AS threadId,
-              ROW_NUMBER() OVER (
-                PARTITION BY json_extract(payload_json, '$.feature.id')
-                ORDER BY thread_id LIKE ${`bot-run:${FEATURE_LEAD_RUN_PREFIX}:%`} DESC,
-                  created_at, thread_id
-              ) AS rank
-            FROM orchestration_v2_projection_threads
-            WHERE project_id = ${projectId} AND deleted_at IS NULL
-              AND json_extract(payload_json, '$.feature.id') IS NOT NULL
-              AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
-          ) WHERE rank = 1
-        `.pipe(Effect.mapError(queryError));
-        const leadByFeature = new Map(leads.map((lead) => [lead.featureId, lead.threadId]));
-        const reports = yield* sql<{
-          readonly id: string;
-          readonly outcome: keyof typeof REPORT_HEADLINES;
-          readonly runId: string | null;
-        }>`
-          SELECT id, report_outcome AS outcome, reported_run_id AS runId FROM features
-          WHERE project_id = ${projectId} AND report_outcome IS NOT NULL
-        `.pipe(Effect.mapError(queryError));
-        const reportByFeature = new Map(
-          reports.map((report) => [report.id, { outcome: report.outcome, runId: report.runId }]),
-        );
-        return records.map((feature): FeatureBoardCard => {
-          const report = reportByFeature.get(feature.id);
-          return {
-            featureId: feature.id,
-            projectId: feature.projectId,
-            title: feature.title,
-            ...(feature.number === undefined ? {} : { number: feature.number }),
-            issue: feature.issue,
-            status: feature.status,
-            leadThreadId: leadByFeature.get(feature.id) ?? null,
-            ...(feature.parentFeatureId === undefined
-              ? {}
-              : { parentFeatureId: feature.parentFeatureId }),
-            ...(report ? { report } : {}),
-            createdAt: feature.createdAt,
-            updatedAt: feature.updatedAt,
-          };
-        });
-      }),
+      board,
+      list,
       create: bumped(create),
     });
   }),

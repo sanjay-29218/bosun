@@ -93,11 +93,13 @@ const TodoRef = Schema.String.annotate({
 
 const CreateTodo = Tool.make("crew_create_todo", {
   description:
-    "Create a todo in the project this thread works in. `as: ticket` (the default) keeps it in Bosun as `T-<number>`; `as: issue` files a GitHub issue, which needs a GitHub remote. The description is Markdown.",
+    "Create a todo in the project this thread works in. `as: ticket` (the default) keeps it in Bosun as `T-<number>`; `as: issue` files a GitHub issue, which needs a GitHub remote. The description is Markdown. An issue can take a `milestone` (an open one's title or number) and a `parent` issue number.",
   parameters: Schema.Struct({
     title: Schema.String,
     description: Schema.optional(Schema.String),
     as: Schema.optional(Schema.Literals(["ticket", "issue"])),
+    milestone: Schema.optional(Schema.String),
+    parent: Schema.optional(Schema.Int),
   }),
   success: Schema.Struct({
     ref: Schema.String,
@@ -138,4 +140,38 @@ const UpdateTodo = Tool.make("crew_update_todo", {
   dependencies: [...dependencies, IssueService.IssueService, TicketService],
 }).annotate(Tool.Destructive, false);
 
-export const CrewToolkit = Toolkit.make(LinkIssue, ListIssues, CreateTodo, ReadTodo, UpdateTodo);
+const Milestone = Schema.Struct({
+  number: Schema.Int,
+  title: Schema.String,
+  url: Schema.String,
+});
+
+const CreateMilestone = Tool.make("crew_create_milestone", {
+  description:
+    "Open a GitHub milestone in this thread's project, for work that ships as several issues.",
+  parameters: Schema.Struct({ title: Schema.String, description: Schema.optional(Schema.String) }),
+  success: Milestone,
+  failure,
+  dependencies: [...dependencies, IssueService.IssueService],
+}).annotate(Tool.Destructive, false);
+
+const UpdateMilestone = Tool.make("crew_update_milestone", {
+  description: "Close or reopen a milestone of this thread's project, by title or number.",
+  parameters: Schema.Struct({
+    milestone: Schema.String,
+    state: Schema.Literals(["open", "closed"]),
+  }),
+  success: Milestone,
+  failure,
+  dependencies: [...dependencies, IssueService.IssueService],
+}).annotate(Tool.Destructive, false);
+
+export const CrewToolkit = Toolkit.make(
+  LinkIssue,
+  ListIssues,
+  CreateTodo,
+  ReadTodo,
+  UpdateTodo,
+  CreateMilestone,
+  UpdateMilestone,
+);

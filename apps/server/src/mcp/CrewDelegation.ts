@@ -13,7 +13,7 @@ export interface CrewMemberRun {
 /**
  * Looks up a feature's crew member by name, for `delegate_task` with `crewMember`, and reads the
  * issue `delegate_task` links, as features link theirs. Bosun's feature runtime provides it;
- * without it, `crewMember` and `issue` are refused.
+ * without it, `crewMember`, `issue` and `requestId` are refused.
  */
 export class CrewDelegation extends Context.Service<
   CrewDelegation,
@@ -28,5 +28,7 @@ export class CrewDelegation extends Context.Service<
       projectId: ProjectId,
       ref: string,
     ) => Effect.Effect<FeatureIssue, Error>;
+    /** Whether the project has the request a project manager names for its task. */
+    readonly hasRequest: (projectId: ProjectId, requestId: string) => Effect.Effect<boolean, Error>;
   }
 >()("t3/mcp/CrewDelegation") {}

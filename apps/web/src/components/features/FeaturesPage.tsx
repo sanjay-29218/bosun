@@ -644,7 +644,7 @@ export function FeaturesPage(props: {
         <div className="flex flex-col items-center gap-2">
           <h2 className="text-lg font-medium">Nothing on the board yet</h2>
           <p className="max-w-md text-sm text-muted-foreground">
-            Add a todo, then start a feature from it. Its project manager hands the work to your
+            Add a todo, then start a feature from it. Its feature manager hands the work to your
             crew, and anything that needs your answer waits under Needs you.
           </p>
         </div>

@@ -194,7 +194,8 @@ function bindProviderContext(
     return provider;
   }
 
-  const { listIssues, getIssue, createIssue, setIssueState } = provider;
+  const { listIssues, getIssue, createIssue, setIssueState, createMilestone, setMilestoneState } =
+    provider;
   return SourceControlProvider.SourceControlProvider.of({
     ...provider,
     ...(listIssues === undefined
@@ -212,6 +213,18 @@ function bindProviderContext(
       ? {}
       : {
           setIssueState: (input) => setIssueState({ ...input, context: input.context ?? context }),
+        }),
+    ...(createMilestone === undefined
+      ? {}
+      : {
+          createMilestone: (input) =>
+            createMilestone({ ...input, context: input.context ?? context }),
+        }),
+    ...(setMilestoneState === undefined
+      ? {}
+      : {
+          setMilestoneState: (input) =>
+            setMilestoneState({ ...input, context: input.context ?? context }),
         }),
     listChangeRequests: Effect.fnUntraced(function* (input) {
       return yield* provider.listChangeRequests({

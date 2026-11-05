@@ -135,3 +135,50 @@ it.effect("shares a project's read for a while, and drops failures at once", () 
     ),
   );
 });
+
+it.effect("files an issue in an open milestone named by title or number, under its parent", () => {
+  const created: Array<{
+    readonly milestone?: number | undefined;
+    readonly parent?: number | undefined;
+  }> = [];
+  const github = {
+    ...provider("github", () =>
+      Effect.succeed({
+        repository: "acme/web",
+        issues: [],
+        milestones: [
+          {
+            number: 4,
+            title: "Exports",
+            url: "https://github.com/acme/web/milestone/4",
+            dueOn: null,
+            openIssues: 0,
+            closedIssues: 0,
+          },
+        ],
+        truncated: false,
+      }),
+    ),
+    createIssue: (input: {
+      readonly milestone?: number | undefined;
+      readonly parent?: number | undefined;
+    }) =>
+      Effect.sync(() => {
+        created.push({ milestone: input.milestone, parent: input.parent });
+        return issue;
+      }),
+  } as SourceControlProvider.SourceControlProvider["Service"];
+  return Effect.gen(function* () {
+    const issues = yield* IssueService.IssueService;
+    const file = (milestone: string) =>
+      issues.create({ projectId, title: "CSV", body: "", milestone, parent: 3 });
+    yield* file("exports");
+    yield* file("#9");
+    const missing = yield* file("Imports").pipe(Effect.flip);
+    assert.include(missing.reason, 'No open milestone is called "Imports"');
+    assert.deepStrictEqual(created, [
+      { milestone: 4, parent: 3 },
+      { milestone: 9, parent: 3 },
+    ]);
+  }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
+});

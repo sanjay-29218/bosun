@@ -16,6 +16,7 @@ import { FeatureService } from "./FeatureService.ts";
 
 const leadThreadId = ThreadId.make("thread:lead");
 const headquartersId = ThreadId.make("bot-run:bot-hq:bot-captain");
+const parentLeadId = ThreadId.make("thread:epic-lead");
 
 const run = (status: string, threadId = leadThreadId) => ({
   id: RunId.make(`run:${threadId}:1`),
@@ -45,6 +46,10 @@ const setup = (input: {
   /** The run was a silent idle /compact. */
   readonly compaction?: boolean;
   readonly requester?: ThreadId | null;
+  /** The lead of the feature this one is a child of. */
+  readonly parentLead?: ThreadId | null;
+  /** The project request the feature answers. */
+  readonly requestId?: string;
   /** Message ids already in the requester's thread. */
   readonly reported?: ReadonlyArray<string>;
 }) =>
@@ -115,6 +120,8 @@ const setup = (input: {
           Layer.mock(FeatureService)({
             requesterThreadId: () =>
               Effect.succeed(input.requester === undefined ? headquartersId : input.requester),
+            parentLeadThreadId: () => Effect.succeed(input.parentLead ?? null),
+            requestIdOf: () => Effect.succeed(input.requestId ?? null),
             reportingLeads: Effect.succeed([leadThreadId]),
           }),
         ),
@@ -136,6 +143,21 @@ it.effect("tells the thread that started a feature what its lead said when it st
     assert.include(report.text, "The plan is ready. Approve it?");
     // One report per lead run, however often the run is updated.
     assert.equal(report.commandId, `server:feature-report:run:${leadThreadId}:1`);
+  }),
+);
+
+it.effect("names the project request a feature answers in its reports", () =>
+  Effect.gen(function* () {
+    const { reactor, dispatched } = yield* setup({ requestId: "R-7" });
+    yield* reactor.handle(runUpdated("completed"));
+    yield* reactor.handle(requestUpdated("pending"));
+    const texts = (yield* Ref.get(dispatched)).map((command) =>
+      command.type === "message.dispatch" ? command.text : "",
+    );
+    assert.lengthOf(texts, 2);
+    for (const text of texts) {
+      assert.include(text, `Feature "Dark mode" (lead thread ${leadThreadId}, request R-7)`);
+    }
   }),
 );
 
@@ -175,6 +197,22 @@ it.effect("tells the thread that started a feature when its lead waits on the pe
     assert.include(report.text, "waiting on the person: a question");
     assert.equal(report.commandId, "server:feature-report:request:request:plan");
   }),
+);
+
+it.effect(
+  "tells an Epic child's parent lead when the child's lead waits, but not when it stops",
+  () =>
+    Effect.gen(function* () {
+      const { reactor, dispatched } = yield* setup({ requester: null, parentLead: parentLeadId });
+      yield* reactor.handle(requestUpdated("pending"));
+      yield* reactor.handle(runUpdated("completed"));
+      const reports = yield* Ref.get(dispatched);
+      assert.lengthOf(reports, 1);
+      const [report] = reports;
+      if (report?.type !== "message.dispatch") return assert.fail("expected a message");
+      assert.equal(report.threadId, parentLeadId);
+      assert.include(report.text, "waiting on the person: a question");
+    }),
 );
 
 it.effect("catches up on stops no event reported, such as one before a restart", () =>

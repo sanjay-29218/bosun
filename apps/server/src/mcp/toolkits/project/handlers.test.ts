@@ -11,6 +11,7 @@ import {
   type RuntimeMode,
   type OrchestrationV2ThreadShell,
   ThreadId,
+  projectHeadquartersThreadId,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -662,5 +663,56 @@ it.effect("deleting a project through MCP also discards its clone record", () =>
       .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
 
     expect(discarded).toEqual([harness.projectId]);
+  }),
+);
+
+it.effect("reads a project's manager thread once it exists", () =>
+  Effect.gen(function* () {
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const harness = clientLaunchHarness({ runtimeModeCeiling: "full-access", launched });
+    const record = {
+      id: harness.projectId,
+      title: "client-target",
+      workspaceRoot: "/projects/client-target",
+      repositoryIdentity: null,
+      faviconPath: null,
+      defaultModelSelection: null,
+      defaultThreadEnvMode: null,
+      autoPull: false,
+      projectIcon: null,
+      scripts: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      deletedAt: null,
+    };
+    const dependencies = Layer.merge(
+      harness.dependencies,
+      Layer.mock(Project.ProjectService)({
+        getById: () => Effect.succeedSome(record as unknown as ProjectRecord),
+      }),
+    );
+    const read = Effect.gen(function* () {
+      const toolkit = yield* ProjectToolkit;
+      const chunks = yield* toolkit
+        .handle("t3_project_read", { projectId: harness.projectId })
+        .pipe(Stream.unwrap, Stream.runCollect);
+      return chunks.at(-1)?.result;
+    }).pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provideMerge(dependencies),
+        ),
+      ),
+    );
+
+    expect(yield* read).toMatchObject({ id: harness.projectId, managerThreadId: null });
+    // The harness answers for the threads it launched.
+    launched.push({
+      threadId: projectHeadquartersThreadId(harness.projectId),
+      projectId: harness.projectId,
+    } as unknown as ThreadLaunch.ThreadLaunchInput);
+    expect(yield* read).toMatchObject({
+      managerThreadId: projectHeadquartersThreadId(harness.projectId),
+    });
   }),
 );

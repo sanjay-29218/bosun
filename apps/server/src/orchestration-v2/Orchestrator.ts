@@ -38,7 +38,8 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2ContextSourcePoint,
-  headquartersBotId,
+  headquartersProjectId,
+  isStandingThread,
   type OrchestrationV2ContextTransfer,
   type OrchestrationV2ContextTransferResolution,
   type OrchestrationV2ConversationMessage,
@@ -296,7 +297,7 @@ export class OrchestratorHeadquartersThreadDeleteError extends Schema.TaggedErro
   { commandId: CommandId, threadId: ThreadId },
 ) {
   override get message(): string {
-    return "A bot's headquarters can't be deleted. Archive it to hide it instead.";
+    return "This standing thread can't be deleted. Archive it to hide it instead.";
   }
 }
 
@@ -7962,8 +7963,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? {}
           : { branch: null, worktreePath: null }),
         ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
-        // Work handed to another project belongs to that project's lists.
-        ...(otherProject ? { lineage: { ...subagentThread.lineage, listed: true } } : {}),
+        // Work handed to another project, or by a project's manager, belongs to the project's lists.
+        ...(otherProject || headquartersProjectId(command.parentThreadId) !== null
+          ? { lineage: { ...subagentThread.lineage, listed: true } }
+          : {}),
         // A crew member's thread shows under its feature's lead by the member's name.
         ...(command.crewMember !== undefined && parentProjection.thread.feature
           ? { feature: { ...parentProjection.thread.feature, member: command.crewMember } }
@@ -7971,6 +7974,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         // The parent's feature belongs to the parent's project, not the one this works in.
         ...(otherProject ? { feature: null } : {}),
         ...(command.issue === undefined ? {} : { issue: command.issue }),
+        ...(command.projectRequestId === undefined
+          ? {}
+          : { projectRequestId: command.projectRequestId }),
       };
       const task: OrchestrationV2Subagent = {
         id: taskNodeId,
@@ -13402,8 +13408,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       }
       case "thread.delete": {
-        // Its id is fixed per bot, and a deleted thread's id can never be reused.
-        if (headquartersBotId(command.threadId) !== null) {
+        // Its id is fixed per bot or project, and a deleted thread's id can never be reused.
+        if (isStandingThread(command.threadId)) {
           return yield* new OrchestratorHeadquartersThreadDeleteError({
             commandId: command.commandId,
             threadId: command.threadId,

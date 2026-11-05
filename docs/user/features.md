@@ -1,6 +1,6 @@
 # Features
 
-A feature is a brief that a project's manager leads to done with a crew of roles. The board shows
+A feature is a brief that a Feature manager leads to done with a crew of roles. The board shows
 every feature across your projects and everything waiting on you. Click the board button at the
 top right of a thread, press `mod+alt+shift+b`, or choose **Switch to Board** in the command
 palette; the same button returns to your threads. The toggle appears when a connected environment
@@ -16,7 +16,10 @@ the workflow's lead, which has the workflow's instructions, the brief and the na
 its first message. The first
 time the board opens, **Start a feature** adds the starter roles first.
 
-Ask a full-access bot to start a feature in a project, and it does the same.
+Most features start from a bot's request: the bot hands it to the project's
+[Project manager](./bots.md#project-managers), which starts a feature when the work needs one,
+links the issue it tracks, and hears from the feature's lead each time it stops. Ask a bot to start
+the feature itself, and it does the same as **New feature** without the Project manager.
 
 Attach images or files to the brief to send them to the lead with it.
 
@@ -44,7 +47,7 @@ child to open its lead; its menu closes or reopens it.
 
 A feature follows a workflow from the **Library** (from the bot rail or the bottom of the
 sidebar): the role that leads it, the crew roles it hands work to, and instructions for the lead.
-**Feature delivery** is led by the Project manager with a Planner, Designer, Builder, QA Tester
+**Feature delivery** is led by the Feature manager with a Planner, Designer, Builder, QA Tester
 and Reviewer; you can edit it but not delete it. Crew roles that are turned off are skipped. The
 lead hands a crew member a task, such as a plan for the Planner, and
 the member's thread shows under the lead in the thread's **Crew** tab, named by the member. Each
@@ -114,6 +117,12 @@ GitHub, moves its features to the new issue and deletes the ticket. A GitHub iss
 description, status and comments as GitHub has them; close or reopen it there, and edit its text on
 GitHub. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
 create and close todos too.
+
+A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for
+a request no todo tracks, and a feature it starts is linked to that issue from its first message.
+For work that ships as several pull requests it opens a GitHub milestone with a parent issue, files
+each part's issue into the milestone as a sub-issue of the parent, and adds a missed part under an
+Epic later. Milestones and sub-issues need the same GitHub access as filing issues.
 
 ## Needs you
 

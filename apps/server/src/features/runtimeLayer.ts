@@ -10,6 +10,9 @@ import * as TicketService from "../tickets/TicketService.ts";
 import { CrewChangesLive } from "../crew/CrewChanges.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { dismissRetiredWorkflowQuestions } from "../crew/retiredWorkflowQuestions.ts";
+import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
+import * as ProjectRequests from "../crew/ProjectRequests.ts";
+import * as MergeNotices from "../crew/MergeNotices.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
@@ -45,10 +48,14 @@ const CrewDelegationLive = Layer.effect(
   CrewDelegation,
   Effect.gen(function* () {
     const features = yield* FeatureService;
+    const requests = yield* ProjectRequests.ProjectRequests;
     return CrewDelegation.of({
       member: features.crewMember,
       names: features.crewMemberNames,
       resolveIssue: features.resolveIssue,
+      hasRequest: Effect.fn("CrewDelegation.hasRequest")(function* (projectId, requestId) {
+        return (yield* requests.get(projectId, requestId)) !== null;
+      }),
     });
   }),
 );
@@ -77,17 +84,41 @@ const RetiredWorkflowQuestionsLive = Layer.effectDiscard(
   ),
 );
 
+const FeatureManagerTitlesLive = Layer.effectDiscard(
+  retitleFeatureManagerLeads().pipe(
+    Effect.catchCause((cause) => Effect.logWarning("Could not retitle feature leads", { cause })),
+  ),
+);
+
+const ProjectRequestsLive = ProjectRequests.layer.pipe(Layer.provide(ProjectionStore.layer));
+
+/** Requests post to their project's manager; its turns that end unanswered are answered. */
+const ProjectRequestsWatchLive = Layer.effectDiscard(
+  ProjectRequests.ProjectRequests.pipe(Effect.flatMap((requests) => requests.start())),
+);
+
+/** A project's manager hears once when its tracked work's pull request merges. */
+const MergeNoticesLive = Layer.effectDiscard(
+  MergeNotices.MergeNotices.pipe(Effect.flatMap((notices) => notices.start())),
+).pipe(
+  Layer.provide(MergeNotices.layer),
+  Layer.provide(Layer.merge(FeatureServiceLive, ProjectionStore.layer)),
+);
+
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */
 export const FeatureRuntimeLive = Layer.mergeAll(
   TicketService.layer.pipe(
     Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
   ),
-  CrewDelegationLive.pipe(Layer.provide(FeatureServiceLive)),
+  CrewDelegationLive.pipe(Layer.provide(Layer.merge(FeatureServiceLive, ProjectRequestsLive))),
   ChildFeatureWatchLive.pipe(Layer.provide(FeatureServiceLive)),
   BotService.layer,
   BotAutomationsLive,
   FeatureReportsLive,
   RetiredWorkflowQuestionsLive,
+  FeatureManagerTitlesLive,
+  ProjectRequestsWatchLive.pipe(Layer.provideMerge(ProjectRequestsLive)),
+  MergeNoticesLive,
 ).pipe(
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),

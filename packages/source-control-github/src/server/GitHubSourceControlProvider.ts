@@ -1026,6 +1026,8 @@ export const make = Effect.gen(function* () {
     readonly cwd: string;
     readonly title: string;
     readonly body: string;
+    readonly milestone?: number | undefined;
+    readonly parent?: number | undefined;
     readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
   }) {
     const locator = yield* issueRepository(input);
@@ -1036,12 +1038,92 @@ export const make = Effect.gen(function* () {
         method: "POST",
         allowReserve: true,
         path: issuePath(locator),
-        body: { title: input.title, body: input.body },
+        body: {
+          title: input.title,
+          body: input.body,
+          ...(input.milestone === undefined ? {} : { milestone: input.milestone }),
+        },
       },
       REPOSITORY_NOT_FOUND,
     );
-    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+    const created = yield* decodedIssue(response.body);
+    const issue = GitHubIssues.restIssueToRepositoryIssue(created);
+    if (input.parent === undefined) return issue;
+    if (created.id === undefined) {
+      return yield* failure(`GitHub didn't say which issue #${created.number} is, to attach it.`);
+    }
+    // The sub-issue API takes the child's database ID, not its number.
+    yield* rest(
+      {
+        host: locator.host,
+        operation: "addSubIssue",
+        method: "POST",
+        allowReserve: true,
+        path: `${issuePath(locator)}/${input.parent}/sub_issues`,
+        body: { sub_issue_id: created.id },
+      },
+      `Issue #${input.parent} was not found.`,
+    );
+    return { ...issue, parent: input.parent };
   });
+
+  const milestonePath = (locator: { readonly owner: string; readonly name: string }) =>
+    `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}/milestones`;
+  const decodedMilestone = (body: string) => {
+    const decoded = GitHubIssues.decodeRestMilestone(body);
+    return Result.isFailure(decoded)
+      ? Effect.fail(failure("GitHub returned an invalid milestone.", decoded.failure))
+      : Effect.succeed(GitHubIssues.restMilestone(decoded.success));
+  };
+
+  const createMilestone = Effect.fn("GitHubSourceControlProvider.createMilestone")(
+    function* (input: {
+      readonly cwd: string;
+      readonly title: string;
+      readonly description?: string | undefined;
+      readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+    }) {
+      const locator = yield* issueRepository(input);
+      const response = yield* rest(
+        {
+          host: locator.host,
+          operation: "createMilestone",
+          method: "POST",
+          allowReserve: true,
+          path: milestonePath(locator),
+          body: {
+            title: input.title,
+            ...(input.description === undefined ? {} : { description: input.description }),
+          },
+        },
+        REPOSITORY_NOT_FOUND,
+      );
+      return yield* decodedMilestone(response.body);
+    },
+  );
+
+  const setMilestoneState = Effect.fn("GitHubSourceControlProvider.setMilestoneState")(
+    function* (input: {
+      readonly cwd: string;
+      readonly number: number;
+      readonly state: "open" | "closed";
+      readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+    }) {
+      const locator = yield* issueRepository(input);
+      const response = yield* rest(
+        {
+          host: locator.host,
+          operation: "setMilestoneState",
+          method: "PATCH",
+          allowReserve: true,
+          path: `${milestonePath(locator)}/${input.number}`,
+          body: { state: input.state },
+        },
+        `Milestone ${input.number} was not found.`,
+      );
+      return yield* decodedMilestone(response.body);
+    },
+  );
 
   const setIssueState = Effect.fn("GitHubSourceControlProvider.setIssueState")(function* (input: {
     readonly cwd: string;
@@ -1227,6 +1309,20 @@ export const make = Effect.gen(function* () {
     createIssue: Effect.fn("GitHubSourceControlProvider.createIssueForCaller")(function (input) {
       return createIssue(input).pipe(Effect.mapError(providerError("createIssue", input.cwd)));
     }),
+    createMilestone: Effect.fn("GitHubSourceControlProvider.createMilestoneForCaller")(
+      function (input) {
+        return createMilestone(input).pipe(
+          Effect.mapError(providerError("createMilestone", input.cwd)),
+        );
+      },
+    ),
+    setMilestoneState: Effect.fn("GitHubSourceControlProvider.setMilestoneStateForCaller")(
+      function (input) {
+        return setMilestoneState(input).pipe(
+          Effect.mapError(providerError("setMilestoneState", input.cwd)),
+        );
+      },
+    ),
     setIssueState: Effect.fn("GitHubSourceControlProvider.setIssueStateForCaller")(
       function (input) {
         return setIssueState(input).pipe(

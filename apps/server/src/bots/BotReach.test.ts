@@ -21,6 +21,7 @@ import { McpSchema, McpServer } from "effect/ai";
 import type { CreateCrewRunInput } from "../crew/CrewService.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
+import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as IssueService from "../issues/IssueService.ts";
@@ -129,7 +130,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           id: FEATURE_DELIVERY_WORKFLOW_ID,
           name: "Feature delivery",
           instructions: `Revision ${data.workflowRevision ?? 1}.`,
-          leadRoleId: "role:project-manager",
+          leadRoleId: "role:feature-manager",
           crewRoleIds: ["role:builder", "role:security-reviewer"],
           revision: data.workflowRevision ?? 1,
         } as never),
@@ -143,7 +144,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           runtimeMode: "full-access",
           enabled: true,
         } as never),
-      ensureProjectManager: (projectId) =>
+      ensureFeatureManager: (projectId) =>
         Effect.succeed({ id: `bot-manager:${projectId}` } as never),
       createRun: (input) =>
         Ref.update(seen, (current) => ({ ...current, runs: [...current.runs, input] })).pipe(
@@ -170,6 +171,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
 /** The crew toolkits and what they read besides BotReach's data. */
 const layerToolServices = Layer.mergeAll(
   Layer.mock(CrewStore)({}),
+  Layer.mock(ProjectRequests)({}),
   Layer.mock(IssueService.IssueService)({}),
   Layer.mock(TicketService)({}),
   Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -394,7 +396,7 @@ it.effect("starts the project manager there, or says before starting anything wh
                 instructions: "Revision 3.",
               },
               roles: [
-                { id: "role:project-manager" },
+                { id: "role:feature-manager" },
                 { id: "role:builder" },
                 { id: "role:security-reviewer", instructions: "You are role:security-reviewer." },
               ],

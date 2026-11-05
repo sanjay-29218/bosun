@@ -7,6 +7,7 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
+import { ProjectRequestsToolkit } from "./toolkits/projectRequests/tools.ts";
 
 type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
 
@@ -77,6 +78,8 @@ export const CrewGatedToolkits = {
     crew_create_todo: null,
     crew_read_todo: null,
     crew_update_todo: null,
+    crew_create_milestone: null,
+    crew_update_milestone: null,
   }),
   features: gated(FeaturesToolkit, {
     t3_role_list: "crew.workflows",
@@ -86,5 +89,11 @@ export const CrewGatedToolkits = {
     t3_feature_workflow_update: "crew.workflows",
     t3_feature_start: null,
     t3_feature_finish: null,
+    t3_feature_list: null,
+  }),
+  projectRequests: gated(ProjectRequestsToolkit, {
+    t3_project_send: null,
+    t3_project_requests: null,
+    t3_project_reply: null,
   }),
 };

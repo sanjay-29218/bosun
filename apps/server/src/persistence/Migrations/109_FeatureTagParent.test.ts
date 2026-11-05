@@ -11,7 +11,7 @@ it.effect("tags every thread of an existing child feature with its parent", () =
     const sql = yield* SqlClient.SqlClient;
     yield* runMigrations({ toMigrationInclusive: 79 });
     yield* BosunMigrations.reconcileLegacyHistory();
-    yield* BosunMigrations.runMigrations(99);
+    yield* BosunMigrations.runMigrations(108);
     yield* sql`
       INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
       VALUES ('epic', 'web', 'Epic', 'Brief', '2026-11-01', NULL),
@@ -37,7 +37,7 @@ it.effect("tags every thread of an existing child feature with its parent", () =
         '2026-11-01', '{"id":"plain"}')
     `;
 
-    yield* BosunMigrations.runMigrations(102);
+    yield* BosunMigrations.runMigrations(109);
 
     assert.deepStrictEqual(
       yield* sql`

@@ -103,10 +103,10 @@ export interface ThreadActionMenuState {
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
   /**
-   * A bot's headquarters is permanent, so it can be archived but never deleted, and its long
-   * conversation can start over in a new session.
+   * A standing thread, a bot's headquarters or a project's manager, is permanent: it can be
+   * archived but never deleted, and its long conversation can start over in a new session.
    */
-  readonly isHeadquarters?: boolean;
+  readonly isStanding?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
 }
@@ -263,7 +263,7 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    ...(state.isHeadquarters
+    ...(state.isStanding
       ? [
           {
             id: "new-session" as const,
@@ -296,7 +296,7 @@ export function buildThreadActionMenuItems(
       disabled: state.isRunning,
       separatorBefore: true,
     },
-    ...(state.isHeadquarters
+    ...(state.isStanding
       ? []
       : [{ id: "delete" as const, label: "Delete", destructive: true, icon: "trash" }]),
   ];

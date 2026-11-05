@@ -56,8 +56,11 @@ import {
   CrewProjectInput,
   CrewSetDelegationInput,
   CrewSetHierarchyInput,
-  CrewStartInput,
-  CrewStartResult,
+  CrewStartNewSessionInput,
+  ProjectManagerResetInput,
+  ProjectManagerThread,
+  ProjectManagerSettings,
+  ProjectManagerUpdateInput,
   RoleConfig,
   WorkflowConfig,
   WorkflowCreateInput,
@@ -500,7 +503,11 @@ export const WS_METHODS = {
   crewInstantiate: "crew.instantiate",
   crewSetHierarchy: "crew.setHierarchy",
   crewSetDelegation: "crew.setDelegation",
-  crewStart: "crew.start",
+  crewProjectManager: "crew.projectManager",
+  crewUpdateProjectManager: "crew.updateProjectManager",
+  crewResetProjectManager: "crew.resetProjectManager",
+  crewOpenProjectManager: "crew.openProjectManager",
+  crewStartNewSession: "crew.startNewSession",
   projectsListEntries: "projects.listEntries",
   projectsListIgnoredFiles: "projects.listIgnoredFiles",
   projectsReadFile: "projects.readFile",
@@ -1289,9 +1296,28 @@ const WsCrewSetDelegationRpc = Rpc.make(WS_METHODS.crewSetDelegation, {
   success: Schema.Void,
   error: CrewRpcError,
 });
-const WsCrewStartRpc = Rpc.make(WS_METHODS.crewStart, {
-  payload: CrewStartInput,
-  success: CrewStartResult,
+const WsCrewProjectManagerRpc = Rpc.make(WS_METHODS.crewProjectManager, {
+  payload: CrewProjectInput,
+  success: ProjectManagerSettings,
+  error: CrewRpcError,
+});
+const WsCrewUpdateProjectManagerRpc = Rpc.make(WS_METHODS.crewUpdateProjectManager, {
+  payload: ProjectManagerUpdateInput,
+  success: ProjectManagerSettings,
+  error: CrewRpcError,
+});
+const WsCrewResetProjectManagerRpc = Rpc.make(WS_METHODS.crewResetProjectManager, {
+  payload: ProjectManagerResetInput,
+  success: ProjectManagerSettings,
+  error: CrewRpcError,
+});
+const WsCrewOpenProjectManagerRpc = Rpc.make(WS_METHODS.crewOpenProjectManager, {
+  payload: CrewProjectInput,
+  success: ProjectManagerThread,
+  error: CrewRpcError,
+});
+const WsCrewStartNewSessionRpc = Rpc.make(WS_METHODS.crewStartNewSession, {
+  payload: CrewStartNewSessionInput,
   error: CrewRpcError,
 });
 
@@ -2322,7 +2348,11 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsCrewInstantiateRpc,
   WsCrewSetHierarchyRpc,
   WsCrewSetDelegationRpc,
-  WsCrewStartRpc,
+  WsCrewProjectManagerRpc,
+  WsCrewUpdateProjectManagerRpc,
+  WsCrewResetProjectManagerRpc,
+  WsCrewOpenProjectManagerRpc,
+  WsCrewStartNewSessionRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const T3WsRpcGroup = RpcGroup.make(

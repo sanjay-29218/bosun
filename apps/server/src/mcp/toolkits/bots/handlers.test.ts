@@ -70,6 +70,7 @@ it.effect("bots change bots with Manage workflows; other threads need full acces
       CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
     `;
     yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+    yield* sql`CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)`;
     yield* sql`INSERT INTO crew_runs VALUES
       ('builder', 'role', 'bot-run:builder', '["orchestration"]'),
       ('manager', 'bot', 'bot-run:manager', '["crew.workflows"]')`;

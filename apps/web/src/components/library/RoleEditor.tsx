@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
-  PROJECT_MANAGER_ROLE_ID,
+  FEATURE_MANAGER_ROLE_ID,
   type RoleConfig,
   type EnvironmentId,
   type ModelSelection,
@@ -98,7 +98,7 @@ export function useEnvironmentDefaultModel(environmentId: EnvironmentId) {
   return resolveDefaultProviderModelSelection(providers, settings.defaultModelSelection);
 }
 
-/** Adds the Project manager, Planner, Designer, Builder, QA Tester and Reviewer when missing. */
+/** Adds the Feature manager, Planner, Designer, Builder, QA Tester and Reviewer when missing. */
 export function useAddStarterRoles(environmentId: EnvironmentId) {
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const initialize = useAtomCommand(rolesEnvironment.initialize);
@@ -119,7 +119,7 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
 }
 
 export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
-  roles.some((role) => role.id === PROJECT_MANAGER_ROLE_ID);
+  roles.some((role) => role.id === FEATURE_MANAGER_ROLE_ID);
 
 type RoleChange = Partial<
   Pick<

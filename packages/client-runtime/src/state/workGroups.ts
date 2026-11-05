@@ -317,7 +317,7 @@ export function routeChildFeature<T extends WorkGroupThread>(
   );
 }
 
-/** Who a group answers to: a bot request's first role, or a feature's lead (its project manager). */
+/** Who a group answers to: a bot request's first role, or a feature's lead (its Feature manager). */
 export function workGroupLead<T extends WorkGroupThread>(group: WorkGroup<T>): T | null {
   if (group.kind === "request") return group.primary;
   return featureLead(workGroupThreads(group)) ?? null;

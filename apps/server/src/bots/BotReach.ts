@@ -86,7 +86,7 @@ export class BotReach extends Context.Service<
       botKey: string,
     ) => Effect.Effect<ReadonlyArray<BotProject>, OrchestratorMcpFailure>;
     /**
-     * From a bot's headquarters here: starts a request as the project manager of a project on
+     * From a bot's headquarters here: starts a request as a task of the Feature manager of a project on
      * linked environment `environmentId`. Fails before anything starts when it can't run there.
      */
     readonly launchProjectManager: (
@@ -399,7 +399,7 @@ const make = Effect.gen(function* () {
       if (!(yield* modelAvailable(input.modelSelection))) {
         return yield* failure(
           "invalid_request",
-          `${input.botName}'s project manager runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${input.botName}'s model.`,
+          `${input.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${input.botName}'s model.`,
         );
       }
       // Its features run on these roles, so each must be able to run here too.
@@ -412,7 +412,7 @@ const make = Effect.gen(function* () {
         }
       }
       const manager = yield* crew
-        .ensureProjectManager(project.id)
+        .ensureFeatureManager(project.id)
         .pipe(Effect.mapError(unavailable));
       const key = hash(`${client.sessionId}\n${input.clientRequestId}`).slice(0, 24);
       // As a request here does: its own worktree, branched from the project's current branch.

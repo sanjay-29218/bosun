@@ -28,7 +28,7 @@ describe("buildCrewRoster", () => {
   it("lists a feature's lead, then the members it handed work to, numbering repeats", () => {
     // A finished turn: the member's part is done, and the lead has handed back to you.
     const finished = { latestRun: { status: "completed" } as CrewRosterThread["latestRun"] };
-    const lead = thread("lead", "1", { feature, title: "Project manager", ...finished });
+    const lead = thread("lead", "1", { feature, title: "Feature manager", ...finished });
     const plan = member("plan", "2", "Planner", finished);
     const replan = member("replan", "3", "Planner", { hasPendingUserInput: true });
     const build = member("build", "4", "Builder");
@@ -36,7 +36,7 @@ describe("buildCrewRoster", () => {
 
     expect(group.primary).toBe(lead);
     expect(buildCrewRoster(group).map((entry) => [entry.kind, entry.name, entry.status])).toEqual([
-      ["lead", "Project manager", "Your turn"],
+      ["lead", "Feature manager", "Your turn"],
       ["member", "Planner", "Done"],
       ["member", "Planner · try 2", "Input"],
       ["member", "Builder", "Idle"],
@@ -45,17 +45,17 @@ describe("buildCrewRoster", () => {
 
   it("leads a bot request with its first role's latest try", () => {
     const request = (member: string) => ({ id: "triage", title: "Triage", member });
-    const first = thread("pm", "1", { crewRequest: request("Project manager") });
+    const first = thread("pm", "1", { crewRequest: request("Feature manager") });
     const builder = thread("builder", "2", { crewRequest: request("Builder") });
     const retry = thread("pm-retry", "3", {
-      crewRequest: request("Project manager"),
+      crewRequest: request("Feature manager"),
       hasPendingApprovals: true,
     });
     const group = workGroupOf(first, [first, builder, retry])!;
 
     expect(buildCrewRoster(group).map((entry) => [entry.name, entry.status])).toEqual([
-      ["Project manager", "Approval"],
-      ["Project manager · earlier try", "Idle"],
+      ["Feature manager", "Approval"],
+      ["Feature manager · earlier try", "Idle"],
       ["Builder", "Idle"],
     ]);
   });

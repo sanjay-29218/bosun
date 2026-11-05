@@ -4,6 +4,7 @@ import {
   ThreadId,
   OrchestratorMcpFailure,
   ProjectId,
+  projectHeadquartersThreadId,
 } from "@t3tools/contracts";
 import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
@@ -13,6 +14,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
@@ -78,6 +80,15 @@ const launchCommandId = Effect.fn("mcp.launchCommandId")(function* (
   const digest = yield* crypto.digest(Digest.sha256, bytes).pipe(Effect.mapError(unavailable));
   return CommandId.make(`mcp:launch:${Hex.encode(digest)}`);
 });
+
+/** The project with its standing manager's thread, null until that thread exists. */
+const withManager = <P extends { readonly id: ProjectId }>(project: P) =>
+  ThreadManagement.ThreadManagementService.pipe(
+    Effect.flatMap((threads) => threads.getThreadShell(projectHeadquartersThreadId(project.id))),
+    Effect.map((shell) => (shell === null || shell.deletedAt !== null ? null : shell.id)),
+    Effect.orElseSucceed(() => null),
+    Effect.map((managerThreadId) => ({ ...project, managerThreadId })),
+  );
 
 const access = Effect.gen(function* () {
   yield* readCaller();
@@ -291,9 +302,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
     Effect.gen(function* () {
       const projects = yield* access;
       // Identities are resolved: linked environments find this side's project by repository.
-      return yield* projects
+      const page = yield* projects
         .listPage({ cursor: input.cursor ?? 0, limit: input.limit ?? 20 })
         .pipe(Effect.mapError(unavailable));
+      return { ...page, projects: yield* Effect.forEach(page.projects, withManager) };
     }),
   ),
   t3_project_read: McpToolAccess.reads((input) =>
@@ -305,7 +317,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           code: "invalid_request",
           message: "The project was not found.",
         });
-      return result.value;
+      return yield* withManager(result.value);
     }),
   ),
   t3_project_create: McpToolAccess.writesEnvironment(

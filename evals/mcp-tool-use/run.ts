@@ -41,8 +41,11 @@ import {
   FEATURE_DELIVERY_INSTRUCTIONS,
   featureLeadTask,
   BOT_DEFAULT_INSTRUCTIONS,
+  FEATURE_MANAGER_INSTRUCTIONS,
   headquartersTask,
   PROJECT_MANAGER_INSTRUCTIONS,
+  projectManagerTask,
+  projectRequestText,
 } from "../../apps/server/src/crew/crewPrompts.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
@@ -74,6 +77,8 @@ import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.t
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import { FeaturesToolkit } from "../../apps/server/src/mcp/toolkits/features/tools.ts";
 import { BotsToolkit } from "../../apps/server/src/mcp/toolkits/bots/tools.ts";
+import { CrewToolkit } from "../../apps/server/src/mcp/toolkits/crew/tools.ts";
+import { ProjectRequestsToolkit } from "../../apps/server/src/mcp/toolkits/projectRequests/tools.ts";
 import { LinkBotProjects, LinkBotTask } from "../../apps/server/src/mcp/toolkits/bots/linkTools.ts";
 import {
   CLAUDE_PROVIDER,
@@ -288,6 +293,7 @@ export const McpToolUseCase = Schema.Struct({
       "native-subagent",
       "feature-lead",
       "headquarters",
+      "project-manager",
     ]),
     /** Runs only on this harness, for cases whose right answer depends on it. */
     harness: Schema.optional(Schema.Literals(["claude", "codex"])),
@@ -451,6 +457,8 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   HtmlToolkit,
   FeaturesToolkit,
   BotsToolkit,
+  CrewToolkit,
+  ProjectRequestsToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -503,6 +511,16 @@ const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff
 const botTools = new Set(
   Object.values(BotsToolkit.tools).map((tool) => `${T3_PREFIX}${tool.name}`),
 );
+/** The project a Project manager case's thread manages. */
+const EVAL_PROJECT_ID = "project:acme-app";
+// T3 lists the crew's todo and request tools to crew threads: here a headquarters or a manager.
+const crewTools = new Set(
+  [...Object.values(CrewToolkit.tools), ...Object.values(ProjectRequestsToolkit.tools)].map(
+    (tool) => `${T3_PREFIX}${tool.name}`,
+  ),
+);
+// Only a project's manager answers requests, so only its cases list t3_project_reply.
+const replyTools = new Set([`${T3_PREFIX}${ProjectRequestsToolkit.tools.t3_project_reply.name}`]);
 const linkOnlyTools = new Set(
   [LinkBotProjects, LinkBotTask].map((tool) => `${T3_PREFIX}${tool.name}`),
 );
@@ -510,12 +528,17 @@ const visibleT3Tools = (options: {
   readonly subagent?: boolean;
   readonly links?: boolean;
   readonly headquarters?: boolean;
+  readonly projectManager?: boolean;
 }) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
       !(options.subagent === true && hiddenFromSubagents.has(tool.name)) &&
       (options.headquarters === true || !botTools.has(tool.name)) &&
+      (options.projectManager === true || !replyTools.has(tool.name)) &&
+      (options.headquarters === true ||
+        options.projectManager === true ||
+        !crewTools.has(tool.name)) &&
       !linkOnlyTools.has(tool.name),
   );
 
@@ -624,6 +647,7 @@ export const buildBase = (
     readonly subagent?: boolean;
     readonly links?: boolean;
     readonly headquarters?: boolean;
+    readonly projectManager?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -717,6 +741,7 @@ const buildCodexBase = (
     readonly subagent?: boolean;
     readonly links?: boolean;
     readonly headquarters?: boolean;
+    readonly projectManager?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
   },
@@ -1054,7 +1079,7 @@ export const buildMessages = (sample: Sample) => {
     const lead = testCase.setup.featureLead;
     if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
     return crewRunPrompt({
-      instructions: PROJECT_MANAGER_INSTRUCTIONS,
+      instructions: FEATURE_MANAGER_INSTRUCTIONS,
       taskText: featureLeadTask(
         { id: "feature:eval", title: lead.title, brief: prompt },
         lead.epic
@@ -1064,6 +1089,20 @@ export const buildMessages = (sample: Sample) => {
       ),
     });
   };
+  // A project's manager thread opens with its task, and each request reaches it as the server
+  // posts one: its own message, from the bot's headquarters.
+  if (role === "project-manager" && testCase.prompt !== "") {
+    push(
+      "user",
+      text(
+        crewRunPrompt({
+          instructions: `${PROJECT_MANAGER_INSTRUCTIONS}\n\nYour project is ${EVAL_PROJECT_ID}.`,
+          taskText: projectManagerTask(EVAL_PROJECT_ID),
+        }),
+      ),
+    );
+    push("assistant", text("Ready for requests."));
+  }
   // A headquarters thread opens with its bot's task, and its first turn ends before the person
   // writes, so the request is its own message.
   if (role === "headquarters" && testCase.prompt !== "") {
@@ -1086,7 +1125,13 @@ export const buildMessages = (sample: Sample) => {
           ? childPrompt()
           : role === "feature-lead"
             ? leadPrompt()
-            : prompt,
+            : role === "project-manager"
+              ? projectRequestText({
+                  id: "R-1",
+                  requesterThreadId: Contracts.botHeadquartersThreadId(Contracts.CAPTAIN_BOT_ID),
+                  text: prompt,
+                })
+              : prompt,
       ),
     );
   // Claude Code gives a subagent its SubagentStart hooks' context as a reminder after the task.
@@ -2434,6 +2479,7 @@ const main = Effect.gen(function* () {
               effort: flags.effort,
               subagent: role === "delegated-child",
               headquarters: role === "headquarters",
+              projectManager: role === "project-manager",
               links,
               deviceAccess,
             }),
@@ -2446,6 +2492,7 @@ const main = Effect.gen(function* () {
               keepUserInstructions,
               subagent: role === "delegated-child",
               headquarters: role === "headquarters",
+              projectManager: role === "project-manager",
               nativeSubagent: role === "native-subagent",
               links,
               deviceAccess,

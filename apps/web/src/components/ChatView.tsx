@@ -57,7 +57,7 @@ import {
   AuthTerminalOperateScope,
   type AssistantCitation,
   type ChatFileAttachment,
-  headquartersBotId,
+  isStandingThread,
   isProviderNativeSubagentThread,
   orchestrationV2WorktreePending,
   type EnvironmentId,
@@ -259,7 +259,7 @@ import {
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
-import { startBotNewSession } from "./bots/startBotNewSession";
+import { startStandingNewSession } from "./bots/startStandingNewSession";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
@@ -2904,11 +2904,14 @@ export default function ChatView(props: ChatViewProps) {
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const sendSideChatStable = useStableCallback((prompt: string) => sideChat.open(prompt));
-  const headquartersBot =
-    isServerThread && activeThread && canOperateThread ? headquartersBotId(activeThread.id) : null;
+  const standingThread =
+    isServerThread && activeThread && canOperateThread && isStandingThread(activeThread.id);
   const startNewSessionStable = useStableCallback(() => {
-    if (headquartersBot === null || !activeThread) return;
-    void startBotNewSession(environmentId, { id: headquartersBot, name: activeThread.title });
+    if (!standingThread || !activeThread) return;
+    void startStandingNewSession(environmentId, {
+      threadId: activeThread.id,
+      name: activeThread.title,
+    });
   });
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
@@ -3769,7 +3772,7 @@ export default function ChatView(props: ChatViewProps) {
                               sideChatAvailable={sideChat.available}
                               sideChatDisabledReason={sideChatDisabledReason}
                               onNewSessionCommand={
-                                headquartersBot === null ? undefined : startNewSessionStable
+                                standingThread ? startNewSessionStable : undefined
                               }
                               onUsageLimitsCommand={
                                 usageLimitsOffered &&

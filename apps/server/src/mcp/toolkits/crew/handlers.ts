@@ -179,6 +179,8 @@ const make = Effect.gen(function* () {
         readonly title: string;
         readonly description?: string | undefined;
         readonly as?: "ticket" | "issue" | undefined;
+        readonly milestone?: string | undefined;
+        readonly parent?: number | undefined;
       }) =>
         asCrewMember((threadId) =>
           Effect.gen(function* () {
@@ -189,11 +191,46 @@ const make = Effect.gen(function* () {
                 projectId,
                 title: input.title,
                 body: description,
+                ...(input.milestone === undefined ? {} : { milestone: input.milestone }),
+                ...(input.parent === undefined ? {} : { parent: input.parent }),
               });
               return { ref: `#${issue.number}`, title: issue.title, url: issue.url };
             }
+            if (input.milestone !== undefined || input.parent !== undefined) {
+              return yield* new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message:
+                  "Tickets have no milestone or parent. File it with `as: issue`, or leave them out.",
+              });
+            }
             const ticket = yield* tickets.create({ projectId, title: input.title, description });
             return { ref: ticketRef(ticket), title: ticket.title, url: null };
+          }),
+        ),
+    ),
+    crew_create_milestone: McpToolAccess.actsAsCaller(
+      (input: { readonly title: string; readonly description?: string | undefined }) =>
+        asCrewMember((threadId) =>
+          Effect.gen(function* () {
+            const milestone = yield* issues.createMilestone({
+              projectId: yield* threadProject(threadId),
+              title: input.title,
+              ...(input.description === undefined ? {} : { description: input.description }),
+            });
+            return { number: milestone.number, title: milestone.title, url: milestone.url };
+          }),
+        ),
+    ),
+    crew_update_milestone: McpToolAccess.actsAsCaller(
+      (input: { readonly milestone: string; readonly state: "open" | "closed" }) =>
+        asCrewMember((threadId) =>
+          Effect.gen(function* () {
+            const milestone = yield* issues.setMilestoneState({
+              projectId: yield* threadProject(threadId),
+              milestone: input.milestone,
+              state: input.state,
+            });
+            return { number: milestone.number, title: milestone.title, url: milestone.url };
           }),
         ),
     ),

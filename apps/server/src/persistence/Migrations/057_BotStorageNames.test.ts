@@ -128,9 +128,8 @@ legacy("legacy bot storage", (it) => {
         SELECT source_member_id AS sourceBotId, target_member_id AS targetBotId
         FROM crew_delegation_grants ORDER BY source_member_id
       `;
-      assert.deepStrictEqual(grants, [
-        { sourceBotId: "bot-manager:project", targetBotId: "bot-builder:project" },
-      ]);
+      // 108 retired the project builder's grant; the builder stays because a handoff names it.
+      assert.deepStrictEqual(grants, []);
       assert.deepStrictEqual(
         runs.map((row) => row.id),
         ["old-run"],
@@ -145,10 +144,8 @@ legacy("legacy bot storage", (it) => {
         SELECT member_id AS botId, parent_member_id AS parentBotId
         FROM crew_hierarchy ORDER BY member_id
       `;
-      assert.deepStrictEqual(hierarchy, [
-        { botId: "bot-builder:project", parentBotId: "bot-manager:project" },
-        { botId: "bot-manager:project", parentBotId: null },
-      ]);
+      // 108 took the retired builder out of the hierarchy too.
+      assert.deepStrictEqual(hierarchy, [{ botId: "bot-manager:project", parentBotId: null }]);
       assert.deepStrictEqual(foreignKeyErrors, []);
       assert.deepStrictEqual(oldNames, []);
     }),
