@@ -48,9 +48,11 @@ const member = (environmentId: EnvironmentId, botId?: string) => ({
   ...(botId ? { botId } : {}),
 });
 
+const botEnvironments = new Set([local, remote]);
+
 describe("buildMoveToBotMenuItem", () => {
-  it("lists the environment's bots with the owner checked", () => {
-    const item = buildMoveToBotMenuItem([member(local)], bots);
+  it("lists every bot with the owner checked", () => {
+    const item = buildMoveToBotMenuItem([member(local)], bots, botEnvironments);
     expect(item?.label).toBe("Move to bot");
     expect(item?.children?.map((child) => [child.label, child.checked ?? false])).toEqual([
       ["Captain", true],
@@ -59,14 +61,23 @@ describe("buildMoveToBotMenuItem", () => {
     expect(parseMoveToBotMenuId(item!.children![1]!.id)).toEqual({
       environmentId: local,
       projectId: "p",
-      botId: "bot-social",
+      botKey: "name:social",
     });
   });
 
-  it("splits by checkout and skips checkouts with nowhere to go", () => {
-    const item = buildMoveToBotMenuItem([member(local, "bot-social"), member(remote)], bots);
-    expect(item?.children?.map((child) => child.label)).toEqual(["This Mac"]);
-    expect(buildMoveToBotMenuItem([member(remote)], bots)).toBeNull();
+  it("offers bots an environment doesn't have yet, and nothing where bots don't run", () => {
+    // Social is only on this Mac; moving the server's checkout to it creates it there.
+    const item = buildMoveToBotMenuItem(
+      [member(local, "bot-social"), member(remote)],
+      bots,
+      botEnvironments,
+    );
+    expect(item?.children?.map((child) => child.label)).toEqual(["This Mac", "Server"]);
+    expect(item?.children?.[1]?.children?.map((child) => child.label)).toEqual([
+      "Captain",
+      "Social",
+    ]);
+    expect(buildMoveToBotMenuItem([member(remote)], bots, new Set([local]))).toBeNull();
   });
 
   it("ignores ids that aren't moves", () => {

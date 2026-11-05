@@ -1,6 +1,7 @@
 import {
   CommandId,
   type EnvironmentId,
+  headquartersBotId,
   NodeId,
   OrchestratorMcpFailure,
   type OrchestratorMcpDelegateTaskInput,
@@ -25,6 +26,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type * as Tool from "effect/ai/Tool";
 
+import * as BotReach from "../bots/BotReach.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { ProjectToolkit } from "../mcp/toolkits/project/tools.ts";
 import {
@@ -122,6 +124,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const random = yield* SecureRandom.SecureRandom;
+  const botReach = yield* BotReach.BotReach;
   const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
     Effect.flatMap((environment) => environment.getEnvironmentId),
   );
@@ -210,9 +213,12 @@ const make = Effect.gen(function* () {
       }
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
+      // A bot's headquarters hands a project its request as it does here: the child is that
+      // project's manager there, in a worktree it branches from its own checkout.
+      const headquartersOf = headquartersBotId(scope.thread.threadId);
       // A worktree there would branch from a commit this checkout has and the
       // other may not, so a remote task runs in that project's checkout.
-      if (input.isolation === "worktree") {
+      if (input.isolation === "worktree" && headquartersOf === null) {
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
           message:
@@ -258,26 +264,37 @@ const make = Effect.gen(function* () {
       // the forwarder scopes the launch's, and the record's names it.
       const key = input.clientRequestId ?? (yield* random.uuidV4());
       const task = taskPrompt(input);
-      const launched = yield* forwarding.call(
-        scope,
-        ProjectToolkit.tools.t3_thread_launch,
-        target.environmentId,
-        {
-          projectId,
-          title: input.title ?? parent.thread.title,
-          modelSelection: { instanceId, model, ...(options === undefined ? {} : { options }) },
-          ...(runtimeMode === undefined ? {} : { runtimeMode }),
-          ...(interactionMode === undefined ? {} : { interactionMode }),
-          message: task,
-          clientRequestId: `delegate:${scope.thread.threadId}:${key}`,
-          // The thread there shows it is this thread's subagent, with a way back.
-          delegatedFrom: {
-            environmentId: hereId,
-            threadId: parent.thread.id,
-            title: parent.thread.title,
-          },
-        },
-      );
+      const modelSelection = { instanceId, model, ...(options === undefined ? {} : { options }) };
+      const launched =
+        headquartersOf === null
+          ? yield* forwarding.call(
+              scope,
+              ProjectToolkit.tools.t3_thread_launch,
+              target.environmentId,
+              {
+                projectId,
+                title: input.title ?? parent.thread.title,
+                modelSelection,
+                ...(runtimeMode === undefined ? {} : { runtimeMode }),
+                ...(interactionMode === undefined ? {} : { interactionMode }),
+                message: task,
+                clientRequestId: `delegate:${scope.thread.threadId}:${key}`,
+                // The thread there shows it is this thread's subagent, with a way back.
+                delegatedFrom: {
+                  environmentId: hereId,
+                  threadId: parent.thread.id,
+                  title: parent.thread.title,
+                },
+              },
+            )
+          : yield* botReach.launchProjectManager(scope, target.environmentId, headquartersOf, {
+              projectId,
+              task,
+              title: input.title ?? task.trim().split("\n")[0]!.slice(0, 80),
+              modelSelection,
+              runtimeMode: runtimeMode ?? parent.thread.runtimeMode,
+              clientRequestId: `delegate:${scope.thread.threadId}:${key}`,
+            });
       const link = yield* links.get(target.environmentId).pipe(
         Effect.map(Option.getOrUndefined),
         Effect.orElseSucceed(() => undefined),

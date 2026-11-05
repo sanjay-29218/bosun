@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 
 import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { BOT_DEFAULT_INSTRUCTIONS } from "../crew/crewPrompts.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -72,9 +73,6 @@ const tools = (value: ReadonlyArray<string>) =>
     ? Effect.succeed([...new Set(value.map((tool) => tool.trim()))])
     : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
 
-const DEFAULT_INSTRUCTIONS =
-  "Coordinate the person's requests for your projects. Hand each request to its project, as a task with delegate_task or a feature with t3_feature_start; its result comes back to this thread. Relay it clearly, and never claim work is done before it reports.";
-
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&
   left.eyes === right.eyes &&
@@ -124,7 +122,7 @@ const make = Effect.gen(function* () {
         avatar: input.avatar,
         color: input.color,
         instructions: yield* text(
-          input.instructions ?? DEFAULT_INSTRUCTIONS,
+          input.instructions ?? BOT_DEFAULT_INSTRUCTIONS,
           "Bot instructions",
           16_000,
         ),

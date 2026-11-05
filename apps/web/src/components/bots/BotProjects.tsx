@@ -1,8 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
+import {
+  createLogicalBotResolver,
+  projectBotId,
+  type LogicalBot,
+} from "@t3tools/client-runtime/state/bot-rail";
 import type { Bot, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { ArrowRightLeftIcon, PlusIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { botsEnvironment } from "../../state/bots";
@@ -10,6 +14,7 @@ import type { useProjects } from "../../state/entities";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
+import { useMoveProjectToLogicalBot } from "../sidebar/moveProjectToBot";
 import { Button } from "../ui/button";
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -91,31 +96,65 @@ function BotOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "color
 
 export type EnvironmentProject = ReturnType<typeof useProjects>[number];
 
-/** A bot's projects, each movable to another bot, plus a way to bring one over. */
+/** Why a project on an environment without bots can't be given to one. */
+const withoutBosunReason = (environmentLabel: string) =>
+  `${environmentLabel} runs T3 Code without Bosun. Install Bosun there to give its projects to a bot.`;
+
+/**
+ * A bot's projects on every connected environment, each movable to another bot, plus a way to
+ * bring one over. A project on another environment goes to this bot's namesake there, which the
+ * move creates when that environment doesn't have it yet.
+ */
 export function BotProjectList({
   environmentId,
   bot,
   bots,
   ownedProjects,
-  allProjects,
+  availableProjects,
+  projectsWithoutBots,
+  environmentLabels,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly bot: Bot;
-  readonly bots: readonly Bot[];
+  readonly bot: LogicalBot;
+  readonly bots: readonly LogicalBot[];
   readonly ownedProjects: readonly EnvironmentProject[];
-  readonly allProjects: readonly EnvironmentProject[];
+  readonly availableProjects: readonly EnvironmentProject[];
+  readonly projectsWithoutBots: readonly EnvironmentProject[];
+  readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
 }) {
-  const { canMove, moving, move } = useMoveProject(environmentId);
-  const otherBots = bots.filter((candidate) => candidate.id !== bot.id);
-  const botNames = new Map(bots.map((candidate) => [candidate.id, candidate.name]));
-  const incoming = allProjects.filter((project) => projectBotId(project) !== bot.id);
-  const locked = moving || !canMove;
+  const moveToBot = useMoveProjectToLogicalBot();
+  const [moving, setMoving] = useState(false);
+  const otherBots = bots.filter((candidate) => candidate.key !== bot.key);
+  const ownerOf = createLogicalBotResolver(bots);
+  const botNames = new Map(bots.map((candidate) => [candidate.key, candidate.name]));
+  const labelOf = (id: EnvironmentId) => environmentLabels.get(id) ?? id;
+  // Only another environment's projects name theirs.
+  const elsewhere = (project: EnvironmentProject) =>
+    project.environmentId === environmentId ? null : labelOf(project.environmentId);
+  const move = async (project: EnvironmentProject, target: LogicalBot) => {
+    setMoving(true);
+    const error = await moveToBot(project, target);
+    if (error !== null)
+      toastManager.add({
+        type: "error",
+        title: `Could not move ${project.title}`,
+        description: error,
+      });
+    setMoving(false);
+  };
+  const withoutBotsByEnvironment = new Map<EnvironmentId, EnvironmentProject[]>();
+  for (const project of projectsWithoutBots) {
+    const group = withoutBotsByEnvironment.get(project.environmentId) ?? [];
+    group.push(project);
+    withoutBotsByEnvironment.set(project.environmentId, group);
+  }
+  const canAdd = availableProjects.length > 0 || projectsWithoutBots.length > 0;
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/60">
       {ownedProjects.map((project, index) => (
         <div
-          key={project.id}
+          key={`${project.environmentId}:${project.id}`}
           className={cn(
             "flex items-center gap-3 px-3 py-2",
             index > 0 && "border-t border-border/60",
@@ -123,27 +162,33 @@ export function BotProjectList({
         >
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-sm text-foreground">{project.title}</span>
-            <span className="truncate text-xs text-muted-foreground">{project.workspaceRoot}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {elsewhere(project) === null
+                ? project.workspaceRoot
+                : `${elsewhere(project)} · ${project.workspaceRoot}`}
+            </span>
           </span>
           {otherBots.length > 0 ? (
             <Menu>
-              <MenuTrigger
-                render={
+              <MoveTrigger
+                environmentId={project.environmentId}
+                moving={moving}
+                render={(disabled) => (
                   <Button
                     size="icon-sm"
                     variant="ghost"
-                    disabled={locked}
+                    disabled={disabled}
                     aria-label={`Move ${project.title} to another bot`}
                   />
-                }
+                )}
               >
                 <ArrowRightLeftIcon className="size-4" />
-              </MenuTrigger>
+              </MoveTrigger>
               <MenuPopup align="end">
                 <MenuGroup>
                   <MenuGroupLabel>Move to</MenuGroupLabel>
                   {otherBots.map((target) => (
-                    <MenuItem key={target.id} onClick={() => void move(project, target.id)}>
+                    <MenuItem key={target.key} onClick={() => void move(project, target)}>
                       <BotOption bot={target} />
                     </MenuItem>
                   ))}
@@ -153,7 +198,7 @@ export function BotProjectList({
           ) : null}
         </div>
       ))}
-      {ownedProjects.length === 0 || incoming.length > 0 ? (
+      {ownedProjects.length === 0 || canAdd ? (
         <div
           className={cn(
             "flex items-center gap-3 px-3 py-1.5",
@@ -163,31 +208,86 @@ export function BotProjectList({
           {ownedProjects.length === 0 ? (
             <span className="flex-1 text-xs text-muted-foreground">No projects yet.</span>
           ) : null}
-          {incoming.length > 0 ? (
+          {canAdd ? (
             <Menu>
-              <MenuTrigger render={<Button size="xs" variant="ghost-muted" disabled={locked} />}>
+              <MenuTrigger render={<Button size="xs" variant="ghost-muted" disabled={moving} />}>
                 <PlusIcon className="size-3" />
                 Add project
               </MenuTrigger>
               <MenuPopup align="start">
-                <MenuGroup>
-                  <MenuGroupLabel>Move to {bot.name}</MenuGroupLabel>
-                  {incoming.map((project) => (
-                    <MenuItem key={project.id} onClick={() => void move(project, bot.id)}>
-                      <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                {availableProjects.length > 0 ? (
+                  <MenuGroup>
+                    <MenuGroupLabel>Move to {bot.name}</MenuGroupLabel>
+                    {availableProjects.map((project) => (
+                      <AddProjectItem
+                        key={`${project.environmentId}:${project.id}`}
+                        project={project}
+                        detail={[
+                          elsewhere(project),
+                          botNames.get(ownerOf(project.environmentId, projectBotId(project))),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        onClick={() => void move(project, bot)}
+                      />
+                    ))}
+                  </MenuGroup>
+                ) : null}
+                {[...withoutBotsByEnvironment].map(([projectEnvironmentId, projects]) => (
+                  <MenuGroup key={projectEnvironmentId}>
+                    <MenuGroupLabel>{labelOf(projectEnvironmentId)}</MenuGroupLabel>
+                    {/* A disabled item can't show a tooltip, so the reason sits above them. */}
+                    <p className="max-w-64 px-2 pb-1 text-xs text-muted-foreground">
+                      {withoutBosunReason(labelOf(projectEnvironmentId))}
+                    </p>
+                    {projects.map((project) => (
+                      <MenuItem key={project.id} disabled>
                         <span className="truncate">{project.title}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {botNames.get(projectBotId(project))}
-                        </span>
-                      </span>
-                    </MenuItem>
-                  ))}
-                </MenuGroup>
+                      </MenuItem>
+                    ))}
+                  </MenuGroup>
+                ))}
               </MenuPopup>
             </Menu>
           ) : null}
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Moving needs permission on the project's own environment. */
+function MoveTrigger({
+  environmentId,
+  moving,
+  render,
+  children,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly moving: boolean;
+  readonly render: (disabled: boolean) => ReactElement;
+  readonly children: ReactNode;
+}) {
+  const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(environmentId));
+  return <MenuTrigger render={render(moving || !canMove)}>{children}</MenuTrigger>;
+}
+
+function AddProjectItem({
+  project,
+  detail,
+  onClick,
+}: {
+  readonly project: EnvironmentProject;
+  readonly detail: string;
+  readonly onClick: () => void;
+}) {
+  const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(project.environmentId));
+  return (
+    <MenuItem disabled={!canMove} onClick={onClick}>
+      <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
+        <span className="truncate">{project.title}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{detail}</span>
+      </span>
+    </MenuItem>
   );
 }

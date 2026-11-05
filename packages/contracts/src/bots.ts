@@ -25,6 +25,16 @@ export const headquartersBotId = (threadId: string): string | null =>
     ? threadId.slice(`bot-run:${BOT_HEADQUARTERS_RUN_PREFIX}`.length)
     : null;
 
+/**
+ * Which bots across environments are the same bot: Captain by id, the rest by name. Bots stay
+ * environment-local; this key is how clients merge them in the rail and how one environment
+ * finds its bot's counterpart on a linked one.
+ */
+export const logicalBotKey = (bot: { readonly id: string; readonly name: string }): string =>
+  bot.id === CAPTAIN_BOT_ID
+    ? `id:${CAPTAIN_BOT_ID}`
+    : `name:${bot.name.trim().toLocaleLowerCase()}`;
+
 /** A bot's avatar: a small robot built from these parts and tinted with the bot's color. */
 export const BOT_HEADS = [
   "squircle",
