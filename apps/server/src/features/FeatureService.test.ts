@@ -285,7 +285,8 @@ describe("feature lead and crew", () => {
         );
 
         const { leadThreadId } = yield* features.start(input.id, projectId);
-        expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Content lead");
+        // The lead reads as the feature, whatever its role.
+        expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Launch week");
         const { messages } = yield* engine.getThreadRecords(leadThreadId, ["messages"], {
           messageRoles: ["user"],
         });
@@ -901,32 +902,43 @@ describe("feature lead and crew", () => {
       ),
   );
 
-  effectIt.effect("retitles open features' leads still called Project manager, once", () =>
+  effectIt.effect("retitles open features' leads still called by their manager, once", () =>
     withSystem(
       Effect.gen(function* () {
         const features = yield* FeatureService;
         const engine = yield* OrchestrationEngineService;
         const sql = yield* SqlClient.SqlClient;
-        const lead = Effect.fnUntraced(function* (id: string) {
+        const lead = Effect.fnUntraced(function* (id: string, oldTitle: string) {
           yield* features.create({ id, projectId, title: id, brief: "Brief", workspace: "local" });
           const { leadThreadId } = yield* features.start(id, projectId);
-          expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Feature manager");
+          expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe(id);
           yield* engine.dispatch({
             type: "thread.metadata.update",
             commandId: CommandId.make(`old-title:${id}`),
             threadId: leadThreadId,
-            title: "Project manager",
+            title: oldTitle,
           });
           return leadThreadId;
         });
-        const open = yield* lead("open-feature");
-        const closed = yield* lead("closed-feature");
+        const older = yield* lead("older-feature", "Project manager");
+        const newer = yield* lead("newer-feature", "Feature manager");
+        const renamed = yield* lead("renamed-feature", "Launch thread");
+        const closed = yield* lead("closed-feature", "Project manager");
         yield* sql`UPDATE features SET status = 'closed' WHERE id = 'closed-feature'`;
 
         yield* retitleFeatureManagerLeads();
+        // Once: a person who names a lead "Feature manager" afterwards keeps that name.
+        yield* engine.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("named-again:newer-feature"),
+          threadId: newer,
+          title: "Feature manager",
+        });
         yield* retitleFeatureManagerLeads();
 
-        expect((yield* engine.getThreadShell(open))?.title).toBe("Feature manager");
+        expect((yield* engine.getThreadShell(older))?.title).toBe("older-feature");
+        expect((yield* engine.getThreadShell(newer))?.title).toBe("Feature manager");
+        expect((yield* engine.getThreadShell(renamed))?.title).toBe("Launch thread");
         expect((yield* engine.getThreadShell(closed))?.title).toBe("Project manager");
       }),
     ),
@@ -979,13 +991,8 @@ describe("feature lead and crew", () => {
         // A retry may send a different stand-in once the title was replaced.
         expect(yield* features.create({ ...input, title: "Dark mode" })).toEqual(feature);
         const { leadThreadId: managerThreadId } = yield* features.start(input.id, projectId);
-        // A thread named after the feature's stand-in follows its new title.
-        yield* engine.dispatch({
-          type: "thread.crew-stage.set",
-          commandId: CommandId.make("titled-feature:stage-title"),
-          threadId: managerThreadId,
-          title: standIn,
-        });
+        // The lead starts named after the feature's stand-in, so it follows the new title.
+        expect((yield* engine.getThreadShell(managerThreadId))?.title).toBe(standIn);
 
         yield* generateFeatureTitle(feature).pipe(
           Effect.provideService(TextGeneration.TextGeneration, {

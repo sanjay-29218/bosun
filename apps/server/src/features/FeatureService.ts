@@ -637,7 +637,8 @@ export const FeatureServiceLive = Layer.effect(
           }),
         ...(workspace ? { workspace } : {}),
         openingMessage: decodeOpeningMessage(brief?.messageJson ?? null) ?? { attachments: [] },
-        title: manager.name,
+        // The lead's row reads as the feature; a rename re-titles it (syncFeatureThreads).
+        title: feature.title,
       });
       // A fixed command ID tags the thread once.
       yield* engine
