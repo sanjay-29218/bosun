@@ -22,13 +22,15 @@ makes Bosun resolve to the T3 Code project and collide with it in the app.
 
 ## Branches
 
-- **`main`** — the product and default branch. All Bosun work and PRs land here.
+- **`main`** — the product and default branch. Updated by promoting `staging`.
+- **`staging`** — the integration branch. Bosun work and the upstream sync land here first.
 
 Upstream T3 Code is pulled from the `t3code` remote; there is no separate mirror branch.
 
 ## Syncing upstream
 
-Merge `t3code/main` into `main` (never rebase or force-push). Agents follow the
+Merge `t3code/main` into `staging` (never rebase or force-push). `main` picks it up when
+`staging` is promoted; the sync never pushes to `main` directly. Agents follow the
 [sync-t3code skill](.agents/skills/sync-t3code/SKILL.md), which covers the steps, conflict
 policy and checks.
 

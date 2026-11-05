@@ -13,6 +13,7 @@ import {
   runTargetFromDraft,
   scheduledTaskDefaultModel,
   defaultScheduledTaskProjectId,
+  keepSavedOptions,
   scheduleFromDraft,
   taskToDraft,
 } from "./scheduledTaskEditor.logic";
@@ -287,6 +288,13 @@ describe("scheduled task model defaults", () => {
         },
       }),
     ).toEqual(environmentSelection);
+  });
+  it("keeps saved options while the model stays, and drops them when it changes", () => {
+    const saved = { ...environmentSelection, options: [{ id: "fastMode", value: true }] };
+    expect(keepSavedOptions(saved, environmentSelection)).toBe(saved);
+    expect(keepSavedOptions(saved, projectSelection)).toBe(projectSelection);
+    const otherInstance = { ...environmentSelection, instanceId: ProviderInstanceId.make("other") };
+    expect(keepSavedOptions(saved, otherInstance)).toBe(otherInstance);
   });
 });
 

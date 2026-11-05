@@ -11,11 +11,9 @@ import {
   type ProjectId,
   type ThreadFeatureTag,
 } from "@t3tools/contracts";
-import { CircleCheckIcon, CircleDotIcon } from "lucide-react";
 import { Atom } from "effect/reactivity";
 import { useState } from "react";
 
-import { cn } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { featuresEnvironment } from "../../state/features";
 import { openFeatureIssue } from "../features/todoDialogs";
@@ -30,24 +28,6 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-
-/** Open issues in green and closed ones in the primary color, close to how GitHub shows them. */
-export function FeatureIssueIcon(props: {
-  readonly issue: Pick<FeatureIssue, "state">;
-  readonly className?: string;
-}) {
-  const Icon = props.issue.state === "open" ? CircleDotIcon : CircleCheckIcon;
-  return (
-    <Icon
-      aria-label={props.issue.state === "open" ? "Open issue" : "Closed issue"}
-      className={cn(
-        "shrink-0",
-        props.issue.state === "open" ? "text-success" : "text-primary",
-        props.className,
-      )}
-    />
-  );
-}
 
 /** "v0.4 · 1/3 sub-issues", or null when the issue has neither. */
 export function featureIssueMeta(issue: FeatureIssue): string | null {

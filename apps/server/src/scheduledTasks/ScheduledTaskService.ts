@@ -28,6 +28,8 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Digest from "effect/crypto/Digest";
+import * as Mac from "effect/crypto/Mac";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
@@ -465,6 +467,8 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const random = yield* SecureRandom.SecureRandom;
+    const digest = yield* Digest.Digest;
+    const mac = yield* Mac.Mac;
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
     const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
@@ -2041,7 +2045,9 @@ export const layer = Layer.effect(
       if (
         row === undefined ||
         row.webhook_token === null ||
-        !constantTimeEquals(request.token, row.webhook_token)
+        !(yield* constantTimeEquals(request.token, row.webhook_token).pipe(
+          Effect.provideService(Digest.Digest, digest),
+        ))
       ) {
         return yield* notFound;
       }
@@ -2156,12 +2162,12 @@ export const layer = Layer.effect(
           if (signature !== null) {
             const verified =
               row.webhook_secret !== null &&
-              verifyWebhookSignature({
+              (yield* verifyWebhookSignature({
                 signature,
                 secret: row.webhook_secret,
                 headers: request.headers,
                 body: request.body,
-              });
+              }).pipe(Effect.provideService(Mac.Mac, mac)));
             if (!verified) {
               yield* log("rejected_signature");
               yield* observe("rejected_signature");

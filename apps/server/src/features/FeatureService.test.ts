@@ -64,6 +64,21 @@ const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceContr
             subIssues: { completed: 1, total: 3 },
           })
         : undefined,
+    resolveHandle: () =>
+      Effect.succeed({
+        context: null,
+        provider: {
+          getIssue: ({ number }: { readonly number: number }) =>
+            Effect.succeed({
+              url: `https://github.com/owner/repo/issues/${number}`,
+              number,
+              title: "Dark mode toggle",
+              state: "open",
+              milestone: { number: 1, title: "v0.4" },
+              subIssues: { completed: 1, total: 3 },
+            }),
+        },
+      } as never),
   },
 );
 
@@ -755,6 +770,36 @@ describe("feature lead and crew", () => {
 
         expect((yield* features.setIssue({ ...target, url: null })).issue).toBeNull();
         expect(yield* tagOf()).toEqual({ id: target.id, title: "Dark mode" });
+
+        // A delegated task's thread links its own issue, apart from any feature's.
+        const threadIssue = () =>
+          engine.getThreadShell(leadThreadId).pipe(Effect.map((shell) => shell!.issue ?? null));
+        expect(yield* features.setThreadIssue(leadThreadId, "#42")).toEqual(issue);
+        expect(yield* threadIssue()).toEqual(issue);
+        expect(yield* tagOf()).toEqual({ id: target.id, title: "Dark mode" });
+        const linear = {
+          url: "https://linear.app/acme/issue/LIN-123",
+          key: "LIN-123",
+          number: 123,
+          title: "Fix login",
+          state: "open",
+          milestone: null,
+          subIssues: null,
+        };
+        expect(
+          yield* features.setThreadIssue(
+            leadThreadId,
+            "https://linear.app/acme/issue/lin-123/fix-login",
+          ),
+        ).toEqual(linear);
+        expect(yield* threadIssue()).toEqual(linear);
+        expect(yield* features.resolveIssue(projectId, " LIN-123 ")).toEqual({
+          ...linear,
+          url: "",
+          title: "",
+        });
+        expect(yield* features.setThreadIssue(leadThreadId, null)).toBeNull();
+        expect(yield* threadIssue()).toBeNull();
       }),
     ),
   );

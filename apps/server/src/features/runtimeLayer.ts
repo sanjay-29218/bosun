@@ -40,12 +40,16 @@ const BotAutomationsLive = Layer.effectDiscard(
   }),
 );
 
-/** `delegate_task` reaches a feature's crew through the feature service. */
+/** `delegate_task` reaches a feature's crew, and links issues, through the feature service. */
 const CrewDelegationLive = Layer.effect(
   CrewDelegation,
   Effect.gen(function* () {
     const features = yield* FeatureService;
-    return CrewDelegation.of({ member: features.crewMember, names: features.crewMemberNames });
+    return CrewDelegation.of({
+      member: features.crewMember,
+      names: features.crewMemberNames,
+      resolveIssue: features.resolveIssue,
+    });
   }),
 );
 

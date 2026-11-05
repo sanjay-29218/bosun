@@ -13,7 +13,7 @@ A new Captain starts with **Full access**. The pencil beside the bot's name at t
 top of the sidebar opens its page too.
 
 Use **+ New** for another bot. A bot has a name, a robot avatar you build from parts (or
-**Shuffle**), a color, instructions, tools and a default model. **Access** sets how freely it works, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
+**Shuffle**), a color, instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
 **Save**. A bot's threads, like a role's, get every T3 Code tool a thread you start gets, such as
 the browser, worktrees and pull requests; tick some under **T3 Code** only to limit it to those.
 They are offered only the crew tools its ticked crew tools allow. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
@@ -94,8 +94,8 @@ beside Roles adds one, and offers **Add the starter roles** for a Project manage
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research; give any
 role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
-default model. **Access** sets how freely its threads work, from **Supervised** to **Full
-access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
+default model, whose picker also sets reasoning, speed and **Access**, from **Supervised** to
+**Full access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
 on. Each project gets its own project manager the first time a request or feature needs one;
 editing a role changes the crews of features started later, not existing ones.

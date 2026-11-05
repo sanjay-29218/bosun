@@ -5,12 +5,15 @@ import { ChatAttachment } from "./chatAttachment.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 
 /**
- * The issue a feature works on, as it read when linked. A Bosun ticket has `ticketId` and an
- * empty `url`; `featureIssueRef` names either kind.
+ * The issue a feature or delegated task works on, as it read when linked. A Bosun ticket has
+ * `ticketId` and an empty `url`; a tracker outside the project's host, such as Linear, has `key`.
+ * `featureIssueRef` names every kind.
  */
 export const FeatureIssue = Schema.Struct({
   url: Schema.String,
   ticketId: Schema.optionalKey(Schema.String),
+  /** The tracker's own identifier, such as `LIN-123`; its title and state are not read. */
+  key: Schema.optionalKey(Schema.String),
   number: Schema.Int,
   title: Schema.String,
   state: Schema.Literals(["open", "closed"]),
@@ -20,9 +23,9 @@ export const FeatureIssue = Schema.Struct({
 });
 export type FeatureIssue = typeof FeatureIssue.Type;
 
-/** `#12` for an issue, `T-12` for a ticket. */
-export const featureIssueRef = (issue: Pick<FeatureIssue, "number" | "ticketId">) =>
-  issue.ticketId === undefined ? `#${issue.number}` : `T-${issue.number}`;
+/** `#12` for an issue, `T-12` for a ticket, the tracker's key such as `LIN-12` otherwise. */
+export const featureIssueRef = (issue: Pick<FeatureIssue, "number" | "ticketId" | "key">) =>
+  issue.key ?? (issue.ticketId === undefined ? `#${issue.number}` : `T-${issue.number}`);
 
 /** The feature a thread works on: its lead's thread and the crew threads the lead delegates. */
 export const ThreadFeatureTag = Schema.Struct({

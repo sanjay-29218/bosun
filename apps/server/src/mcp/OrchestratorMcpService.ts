@@ -64,6 +64,7 @@ import {
   ThreadId,
   isOrchestrationV2WorkActive,
   resolveProjectProviderInstanceEnabled,
+  SECRET_REQUEST_UNSAVED_NOTE,
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -1073,6 +1074,22 @@ const make = Effect.gen(function* () {
         ? "This feature has no crew. Omit crewMember to start a plain subagent."
         : `No crew member is called "${name}". The crew: ${names.join(", ")}.`,
     );
+  });
+  /** The issue `delegate_task` links to its child, read as features read theirs. */
+  const resolveTaskIssue = Effect.fn("OrchestratorMcpService.resolveTaskIssue")(function* (
+    projectId: ProjectId,
+    ref: string,
+  ) {
+    if (Option.isNone(crewDelegation)) {
+      return yield* failure("invalid_request", "This server can't link issues. Omit issue.");
+    }
+    return yield* crewDelegation.value
+      .resolveIssue(projectId, ref)
+      .pipe(
+        Effect.mapError((error) =>
+          failure("invalid_request", `Unable to link issue ${ref}: ${error.message}`),
+        ),
+      );
   });
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
@@ -2226,6 +2243,26 @@ const make = Effect.gen(function* () {
           "Asking for a secret requires an active run owned by this MCP provider session.",
         );
       }
+      // A secret the user already pasted needs no card: it goes straight to a file.
+      if (input.value !== undefined) {
+        if (input.delivery === "secretRef") {
+          return yield* failure(
+            "invalid_request",
+            'A pasted `value` is saved as a file. Leave out `delivery: "secretRef"`.',
+          );
+        }
+        const file = yield* secretRequests
+          .savePasted({
+            threadId,
+            requestNamespace: scope.requestNamespace,
+            requestKey: yield* requestKey(input.clientRequestId),
+            value: input.value,
+          })
+          .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+        yield* Effect.annotateCurrentSpan({ "secret_request.status": "saved_pasted" });
+        yield* Metrics.increment(Metrics.secretRequestsTotal, { status: "saved_pasted" });
+        return { status: "saved" as const, file };
+      }
       const runId = run.id;
       const nodeId = run.rootNodeId;
       const key = yield* requestKey(input.clientRequestId);
@@ -2326,7 +2363,7 @@ const make = Effect.gen(function* () {
             );
       yield* Effect.annotateCurrentSpan({ "secret_request.status": status });
       yield* Metrics.increment(Metrics.secretRequestsTotal, { status });
-      if (status !== "saved") return { status };
+      if (status !== "saved") return { status, note: SECRET_REQUEST_UNSAVED_NOTE[status] };
       if (input.delivery === "file") {
         const file = yield* secretRequests
           .saveToFile({ threadId, turnItemId })
@@ -2453,6 +2490,10 @@ const make = Effect.gen(function* () {
         input.target?.projectId !== undefined && input.target.projectId !== parent.thread.projectId
           ? input.target.projectId
           : undefined;
+      const issue =
+        input.issue === undefined
+          ? undefined
+          : yield* resolveTaskIssue(otherProjectId ?? parent.thread.projectId, input.issue);
       const parentRun = parent.runs
         .filter(ThreadManagementService.isActiveRun)
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];
@@ -2491,6 +2532,20 @@ const make = Effect.gen(function* () {
           );
         }
         const key = yield* requestKey(input.clientRequestId);
+        if (issue !== undefined) {
+          yield* threadManagement
+            .dispatch({
+              type: "thread.crew-stage.set",
+              commandId: stableCommandId({ scope, requestKey: key, operation: "crew-task-issue" }),
+              threadId: crewThreadId,
+              issue,
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("orchestrator-mcp.delegate-task.issue-link-failed", { error }),
+              ),
+            );
+        }
         const sent = yield* threadManagement
           .sendToThread({
             projectId: parent.thread.projectId,
@@ -2498,7 +2553,7 @@ const make = Effect.gen(function* () {
             threadId: crewThreadId,
             senderThreadId: parent.thread.id,
             messageId: stableOperationMessageId({ scope, requestKey: key, operation: "crew-task" }),
-            text: taskPrompt(input),
+            text: taskPrompt(input, issue),
             attachments: [],
             mode: "auto",
             createdBy: "agent",
@@ -2609,8 +2664,8 @@ const make = Effect.gen(function* () {
           ...(otherProjectId === undefined ? {} : { projectId: otherProjectId }),
           task:
             crewMember === null
-              ? taskPrompt(input)
-              : `${crewMember.instructions.trim()}\n\n${taskPrompt(input)}`,
+              ? taskPrompt(input, issue)
+              : `${crewMember.instructions.trim()}\n\n${taskPrompt(input, issue)}`,
           // A crew thread is named from the lead's task, not the instructions put before it.
           ...(input.title !== undefined
             ? { title: input.title }
@@ -2620,6 +2675,7 @@ const make = Effect.gen(function* () {
                   title: `${crewMember.name}: ${input.task.trim().split("\n")[0]!}`.slice(0, 80),
                 }),
           ...(crewMember === null ? {} : { crewMember: crewMember.name }),
+          ...(issue === undefined ? {} : { issue }),
           modelSelection: target.modelSelection,
           runtimeMode,
           interactionMode,

@@ -3,6 +3,7 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   RepositoryIssue,
+  ThreadId,
   Ticket,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -32,11 +33,16 @@ const failure = Schema.Union([
 ]);
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
-    "Link the issue the feature you work on tracks: an issue URL, such as one you just created, or a Bosun ticket as `T-14`. A feature has one issue: linking another replaces it, and null unlinks it. Every thread of the feature shows it.",
-  parameters: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
+    "Link the issue your work tracks: an issue URL, such as one you just created, `#56`, a Bosun ticket as `T-14`, or a tracker key or link such as `LIN-123`. On a feature it links the feature's issue, which every thread of the feature shows; otherwise it links this task's own. `threadId`: a task you delegated, to link its issue instead. One issue each: linking another replaces it, and null unlinks it.",
+  parameters: Schema.Struct({
+    url: Schema.NullOr(Schema.String),
+    threadId: Schema.optional(ThreadId),
+  }),
   success: Schema.Struct({
-    featureId: Schema.String,
-    issue: Schema.NullOr(Schema.Struct({ number: Schema.Int, title: Schema.String })),
+    /** Null when the issue went on a task rather than a feature. */
+    featureId: Schema.NullOr(Schema.String),
+    threadId: Schema.NullOr(Schema.String),
+    issue: Schema.NullOr(Schema.Struct({ ref: Schema.String, title: Schema.String })),
   }),
   failure,
   dependencies: [...dependencies, FeatureService],

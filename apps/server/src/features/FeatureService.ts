@@ -7,6 +7,7 @@ import {
   MessageId,
   idleCompactionOf,
   type FeatureBoardCard,
+  type FeatureIssue,
   type OrchestrationV2DomainEvent,
   type FeatureCreateInput,
   type FeatureRecord as FeatureRecordSchema,
@@ -60,6 +61,8 @@ import {
   featureTag,
   firstIssueRef,
   issueNumberFromUrl,
+  repositoryIssueNumber,
+  trackerIssue,
 } from "./featureIssue.ts";
 import { readTicketByNumber, ticketNumberFromRef } from "../tickets/ticketRows.ts";
 class FeatureValidationError extends Error {
@@ -180,6 +183,19 @@ export interface FeatureServiceShape {
     threadId: ThreadId,
     url: string | null,
   ) => Effect.Effect<FeatureRecord, FeatureServiceError>;
+  /**
+   * Reads the issue `ref` names for the project, as features link it: an issue link, `#56`, a
+   * ticket's `T-<number>`, or a tracker key or link such as Linear's `LIN-123`.
+   */
+  readonly resolveIssue: (
+    projectId: ProjectId,
+    ref: string,
+  ) => Effect.Effect<FeatureIssue, FeatureServiceError>;
+  /** Links the issue `ref` names to a delegated task's thread itself; null unlinks it. */
+  readonly setThreadIssue: (
+    threadId: ThreadId,
+    ref: string | null,
+  ) => Effect.Effect<FeatureIssue | null, FeatureServiceError>;
   readonly get: (id: string) => Effect.Effect<FeatureRecord | null, PersistenceSqlError>;
   readonly listByProject: (
     projectId: ProjectId,
@@ -727,64 +743,95 @@ export const FeatureServiceLive = Layer.effect(
       },
     );
 
+    const resolveIssue: FeatureServiceShape["resolveIssue"] = Effect.fn(
+      "FeatureService.resolveIssue",
+    )(function* (projectId, ref) {
+      const ticketNumber = ticketNumberFromRef(ref);
+      if (ticketNumber !== null) {
+        const ticket = yield* readTicketByNumber(projectId, ticketNumber).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Effect.mapError(queryError),
+        );
+        if (!ticket) {
+          return yield* Effect.fail(
+            new FeatureValidationError(`No ticket T-${ticketNumber} in this project`),
+          );
+        }
+        return {
+          url: "",
+          ticketId: ticket.id,
+          number: ticket.number,
+          title: ticket.title.slice(0, 300),
+          state: ticket.state,
+          milestone: null,
+          subIssues: null,
+        } satisfies FeatureIssue;
+      }
+      const tracked = trackerIssue(ref);
+      if (tracked !== null) return { ...tracked, title: tracked.title.slice(0, 300) };
+      const project = yield* projects
+        .get(projectId)
+        .pipe(Effect.mapError(toPersistenceSqlError("FeatureService.resolveIssue")));
+      const cwd = Option.isSome(project) ? project.value.workspaceRoot : null;
+      const repositoryNumber = repositoryIssueNumber(ref);
+      if (repositoryNumber !== null) {
+        const handle =
+          cwd === null
+            ? null
+            : yield* sourceControl.resolveHandle({ cwd }).pipe(Effect.orElseSucceed(() => null));
+        const getIssue = handle?.provider.getIssue;
+        if (cwd === null || getIssue === undefined) {
+          return yield* Effect.fail(
+            new FeatureValidationError("This project's host can't read issues. Paste a link"),
+          );
+        }
+        const detail = yield* getIssue({ cwd, number: repositoryNumber }).pipe(
+          Effect.mapError(
+            () => new FeatureValidationError(`Issue #${repositoryNumber} could not be read`),
+          ),
+        );
+        return {
+          url: detail.url,
+          number: detail.number,
+          title: detail.title.slice(0, 300),
+          state: detail.state,
+          milestone: detail.milestone?.title ?? null,
+          subIssues: detail.subIssues,
+        } satisfies FeatureIssue;
+      }
+      const candidate = ref.trim();
+      const url = URL.canParse(candidate) ? new URL(candidate) : null;
+      const number = url ? issueNumberFromUrl(url) : null;
+      if (!url || number === null) {
+        return yield* Effect.fail(new FeatureValidationError("Paste a link to an issue"));
+      }
+      url.hash = "";
+      url.search = "";
+      const lookup = cwd === null ? undefined : sourceControl.resolveLink({ cwd, url });
+      if (!lookup) {
+        return yield* Effect.fail(
+          new FeatureValidationError("Issues from this host can't be linked"),
+        );
+      }
+      const subject = yield* lookup.pipe(
+        Effect.mapError(
+          () => new FeatureValidationError("The issue could not be read. Check the link"),
+        ),
+      );
+      return {
+        url: url.href,
+        number,
+        title: subject.title.slice(0, 300),
+        state: subject.state ?? "open",
+        milestone: subject.milestone ?? null,
+        subIssues: subject.subIssues ?? null,
+      } satisfies FeatureIssue;
+    });
+
     const setIssue: FeatureServiceShape["setIssue"] = Effect.fn("FeatureService.setIssue")(
       function* (input) {
         const feature = yield* requireFeature(input.id, input.projectId);
-        let issue: FeatureRecord["issue"] = null;
-        const ticketNumber = input.url === null ? null : ticketNumberFromRef(input.url);
-        if (ticketNumber !== null) {
-          const ticket = yield* readTicketByNumber(feature.projectId, ticketNumber).pipe(
-            Effect.provideService(SqlClient.SqlClient, sql),
-            Effect.mapError(queryError),
-          );
-          if (!ticket) {
-            return yield* Effect.fail(
-              new FeatureValidationError(`No ticket T-${ticketNumber} in this project`),
-            );
-          }
-          issue = {
-            url: "",
-            ticketId: ticket.id,
-            number: ticket.number,
-            title: ticket.title.slice(0, 300),
-            state: ticket.state,
-            milestone: null,
-            subIssues: null,
-          };
-        } else if (input.url !== null) {
-          const candidate = input.url.trim();
-          const url = URL.canParse(candidate) ? new URL(candidate) : null;
-          const number = url ? issueNumberFromUrl(url) : null;
-          if (!url || number === null) {
-            return yield* Effect.fail(new FeatureValidationError("Paste a link to an issue"));
-          }
-          url.hash = "";
-          url.search = "";
-          const project = yield* projects
-            .get(feature.projectId)
-            .pipe(Effect.mapError(toPersistenceSqlError("FeatureService.setIssue")));
-          const lookup = Option.isSome(project)
-            ? sourceControl.resolveLink({ cwd: project.value.workspaceRoot, url })
-            : undefined;
-          if (!lookup) {
-            return yield* Effect.fail(
-              new FeatureValidationError("Issues from this host can't be linked"),
-            );
-          }
-          const subject = yield* lookup.pipe(
-            Effect.mapError(
-              () => new FeatureValidationError("The issue could not be read. Check the link"),
-            ),
-          );
-          issue = {
-            url: url.href,
-            number,
-            title: subject.title.slice(0, 300),
-            state: subject.state ?? "open",
-            milestone: subject.milestone ?? null,
-            subIssues: subject.subIssues ?? null,
-          };
-        }
+        const issue = input.url === null ? null : yield* resolveIssue(feature.projectId, input.url);
         const updatedAt = DateTime.formatIso(yield* DateTime.now);
         yield* sql`
           UPDATE features SET issue_json = ${issue ? encodeFeatureIssue(issue) : null},
@@ -1257,6 +1304,24 @@ export const FeatureServiceLive = Layer.effect(
           );
         }
         return yield* bumped(setIssue)({ id: thread.featureId, projectId: thread.projectId, url });
+      }),
+      resolveIssue,
+      setThreadIssue: Effect.fn("FeatureService.setThreadIssue")(function* (threadId, ref) {
+        const [thread] = yield* sql<{ readonly projectId: ProjectId }>`
+            SELECT project_id AS projectId FROM orchestration_v2_projection_threads
+            WHERE thread_id = ${threadId} AND deleted_at IS NULL
+          `.pipe(Effect.mapError(queryError));
+        if (!thread) return yield* Effect.fail(new FeatureValidationError("Thread not found"));
+        const issue = ref === null ? null : yield* resolveIssue(thread.projectId, ref);
+        yield* engine
+          .dispatch({
+            type: "thread.crew-stage.set",
+            commandId: CommandId.make(`task-issue:${NodeCrypto.randomUUID()}`),
+            threadId,
+            issue,
+          })
+          .pipe(Effect.mapError((error) => new FeatureValidationError(String(error))));
+        return issue;
       }),
       get,
       setStatus: Effect.fn("FeatureService.setStatus")(function* (id, projectId, status) {

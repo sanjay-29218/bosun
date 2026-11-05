@@ -1031,6 +1031,15 @@ it.effect("names a crew member's child after its feature lead's crew", () =>
       creationSource: "web",
     });
     const feature = { id: "feature:dark", title: "Dark mode" };
+    const issue = {
+      url: "https://linear.app/acme/issue/LIN-7",
+      key: "LIN-7",
+      number: 7,
+      title: "Plan dark mode",
+      state: "open" as const,
+      milestone: null,
+      subIssues: null,
+    };
     yield* orchestrator.dispatch({
       type: "thread.crew-stage.set",
       commandId: CommandId.make("tag-feature-lead"),
@@ -1057,6 +1066,7 @@ it.effect("names a crew member's child after its feature lead's crew", () =>
       parentNodeId: parentRun.rootNodeId!,
       task: "Plan dark mode",
       crewMember: "Planner",
+      issue,
       modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -1066,6 +1076,8 @@ it.effect("names a crew member's child after its feature lead's crew", () =>
     const task = (yield* projections.getThreadProjection(parentThreadId)).subagents[0]!;
     const child = yield* projections.getThreadProjection(task.childThreadId!);
     assert.deepEqual(child.thread.feature, { ...feature, member: "Planner" });
+    // The task's own issue rides on its thread, apart from the feature's.
+    assert.deepEqual(child.thread.issue, issue);
     // The crew works in the lead's feature checkout.
     assert.equal(child.thread.worktreePath, "/worktrees/dark-mode");
     assert.isFalse(isListedThreadLineage(child.thread.lineage));
