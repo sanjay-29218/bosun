@@ -56,8 +56,6 @@ import {
   CrewProjectInput,
   CrewSetDelegationInput,
   CrewSetHierarchyInput,
-  CrewStartInput,
-  CrewStartResult,
   CrewStartNewSessionInput,
   ProjectManagerResetInput,
   ProjectManagerThread,
@@ -505,7 +503,6 @@ export const WS_METHODS = {
   crewInstantiate: "crew.instantiate",
   crewSetHierarchy: "crew.setHierarchy",
   crewSetDelegation: "crew.setDelegation",
-  crewStart: "crew.start",
   crewProjectManager: "crew.projectManager",
   crewUpdateProjectManager: "crew.updateProjectManager",
   crewResetProjectManager: "crew.resetProjectManager",
@@ -1321,11 +1318,6 @@ const WsCrewOpenProjectManagerRpc = Rpc.make(WS_METHODS.crewOpenProjectManager, 
 });
 const WsCrewStartNewSessionRpc = Rpc.make(WS_METHODS.crewStartNewSession, {
   payload: CrewStartNewSessionInput,
-  error: CrewRpcError,
-});
-const WsCrewStartRpc = Rpc.make(WS_METHODS.crewStart, {
-  payload: CrewStartInput,
-  success: CrewStartResult,
   error: CrewRpcError,
 });
 
@@ -2356,7 +2348,6 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsCrewInstantiateRpc,
   WsCrewSetHierarchyRpc,
   WsCrewSetDelegationRpc,
-  WsCrewStartRpc,
   WsCrewProjectManagerRpc,
   WsCrewUpdateProjectManagerRpc,
   WsCrewResetProjectManagerRpc,

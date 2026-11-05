@@ -240,16 +240,6 @@ export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });
 /** Starts a standing thread (a bot's headquarters or a project's manager) over in a new session. */
 export const CrewStartNewSessionInput = Schema.Struct({ threadId: ThreadId });
 
-export const CrewStartInput = Schema.Struct({
-  id: Schema.String,
-  projectId: ProjectId,
-  modelSelection: ModelSelection,
-  taskText: Schema.String,
-});
-export const CrewStartResult = Schema.Struct({
-  runId: Schema.String,
-  threadId: ThreadId,
-});
 export class CrewOperationError extends Schema.TaggedError<CrewOperationError>()(
   "CrewOperationError",
   { reason: Schema.String },

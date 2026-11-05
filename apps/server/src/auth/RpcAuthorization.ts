@@ -65,7 +65,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.crewInstantiate]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewSetHierarchy]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewSetDelegation]: AuthOrchestrationOperateScope,
-  [WS_METHODS.crewStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewProjectManager]: AuthOrchestrationReadScope,
   [WS_METHODS.crewUpdateProjectManager]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewResetProjectManager]: AuthOrchestrationOperateScope,

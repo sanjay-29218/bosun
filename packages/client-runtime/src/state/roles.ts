@@ -155,9 +155,5 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
           registry,
         ),
     }),
-    start: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:crew:start",
-      tag: WS_METHODS.crewStart,
-    }),
   };
 }

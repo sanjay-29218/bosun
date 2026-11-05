@@ -66,8 +66,9 @@ itself for pull requests into `main`.
 It reads the project's checkout but doesn't change it, and merges a pull request only when the
 request or its instructions say to.
 
-Open it with **Open project manager** in the project's right-click menu or the command palette;
-the thread is made the first time. Like a headquarters, it can't be deleted, opening it brings it
+Open it with **Open project manager** in the project's right-click menu or the command palette,
+or from the link in the bot's reply; the thread is made the first time. A bot's **Lineage** lists
+the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
 back if it was archived, and **/new** or **Start new session…** starts it over.
 
 Its settings are in **Settings → Project → Project manager**: instructions, model and **Access**,

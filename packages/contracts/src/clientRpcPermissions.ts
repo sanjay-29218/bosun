@@ -76,7 +76,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.crewInstantiate]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewSetHierarchy]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewSetDelegation]: AuthOrchestrationOperateScope,
-  [WS_METHODS.crewStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewUpdateProjectManager]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewResetProjectManager]: AuthOrchestrationOperateScope,
   // Opening may create the manager's thread, as opening a bot's headquarters may.

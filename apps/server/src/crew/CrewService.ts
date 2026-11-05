@@ -81,8 +81,6 @@ class CrewValidationError extends Error {
  * predates the rename: every feature lead's run and thread ID is hashed from it.
  */
 export const featureManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
-/** The builder a feature manager hands direct requests to, created with the manager. */
-export const projectBuilderMemberId = (projectId: ProjectId) => `bot-builder:${projectId}`;
 /** A project's standing manager, made from the Project manager role on first use. */
 const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
 /** The member that leads a workflow led by a role other than the Feature manager. */
@@ -95,15 +93,11 @@ const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
  */
 const projectMemberContext = (id: string, projectId: ProjectId | null) => {
   if (projectId === null) return null;
-  if (id === featureManagerMemberId(projectId)) {
-    return `You manage project ${projectId}. Its builder is crew member ${projectBuilderMemberId(projectId)}.`;
-  }
-  if (id === projectBuilderMemberId(projectId)) return `You work on project ${projectId}.`;
+  if (id === featureManagerMemberId(projectId)) return `You manage project ${projectId}.`;
   if (id === projectManagerMemberId(projectId)) return `Your project is ${projectId}.`;
   if (id.startsWith(`bot-lead:${projectId}:`)) return `You lead work in project ${projectId}.`;
   return null;
 };
-const BUILDER_ROLE_ID = "role:builder";
 
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
@@ -136,7 +130,7 @@ const DEFAULT_ROLES = [
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
   {
-    id: BUILDER_ROLE_ID,
+    id: "role:builder",
     name: "Builder",
     instructions: BUILDER_INSTRUCTIONS,
   },
@@ -224,19 +218,12 @@ export interface CrewServiceShape {
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, CrewServiceError>;
   /**
-   * The project's Feature manager, made from its role on first use together with the
-   * builder it delegates to. Captain may delegate to it.
+   * The project's Feature manager, made from its role on first use; every feature lead of the
+   * Feature manager role runs as it. The project's bot may delegate to it.
    */
   readonly ensureFeatureManager: (
     projectId: ProjectId,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
-  /** A person's request to the project's bot, which hands it to the project's Feature manager. */
-  readonly startRequest: (input: {
-    readonly id: string;
-    readonly projectId: ProjectId;
-    readonly modelSelection: ModelSelection;
-    readonly taskText: string;
-  }) => Effect.Effect<CrewRun, CrewServiceError>;
   readonly createMember: (
     input: CreateCrewMemberInput,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
@@ -765,15 +752,11 @@ export const CrewServiceLive = Layer.effect(
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
-      const managerId = featureManagerMemberId(projectId);
-      const builderId = projectBuilderMemberId(projectId);
-      // Each part is ensured on every call, so a setup interrupted half way (or stopped by a
-      // disabled role) is completed by the next request once the role is back.
-      const manager = yield* projectMemberFromRole(managerId, projectId, FEATURE_MANAGER_ROLE_ID);
-      const builder = yield* projectMemberFromRole(builderId, projectId, BUILDER_ROLE_ID);
-      // The project's bot may delegate to the manager because it owns the project.
-      yield* store.grantDelegation(managerId, builderId);
-      if (builder.created) yield* store.setParent(builderId, managerId, 0);
+      const manager = yield* projectMemberFromRole(
+        featureManagerMemberId(projectId),
+        projectId,
+        FEATURE_MANAGER_ROLE_ID,
+      );
       return manager.member;
     });
 
@@ -1356,22 +1339,6 @@ export const CrewServiceLive = Layer.effect(
       }),
       ensureFeatureManager,
       ensureProjectLead,
-      startRequest: Effect.fn("CrewService.startRequest")(function* (input) {
-        const existing = yield* store.getRun(input.id);
-        // A retry of an accepted request must not depend on today's crew or owner.
-        if (existing === null) yield* ensureFeatureManager(input.projectId);
-        const memberId = existing?.memberId ?? (yield* bots.projectOwner(input.projectId));
-        if (memberId === null) {
-          return yield* Effect.fail(new CrewValidationError("Project does not exist"));
-        }
-        return yield* createRun({
-          id: input.id,
-          memberId,
-          projectId: input.projectId,
-          taskText: `Project: ${input.projectId}. Feature manager: ${featureManagerMemberId(input.projectId)}. Person's request: ${input.taskText}`,
-          modelSelection: input.modelSelection,
-        });
-      }),
       createMember,
       createRole,
       updateRole,
