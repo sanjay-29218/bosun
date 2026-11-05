@@ -107,6 +107,20 @@ it.effect("moves the feature lead role to role:feature-manager, renaming only st
         },
       ],
     );
+
+    // 102 gives the freed ID to the new Project manager, on the Feature manager's model.
+    yield* BosunMigrations.runMigrations(102);
+    const [projectManager] = yield* sql<{
+      readonly name: string;
+      readonly instructions: string;
+      readonly model: string;
+    }>`
+      SELECT name, instructions, model_selection_json AS model FROM roles
+      WHERE id = 'role:project-manager'
+    `;
+    assert.strictEqual(projectManager?.name, "Project manager");
+    assert.include(projectManager?.instructions ?? "", "You manage one project");
+    assert.strictEqual(projectManager?.model, '{"instanceId":"codex","model":"gpt-5"}');
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 

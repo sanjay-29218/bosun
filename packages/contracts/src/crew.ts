@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { BotLongConversation } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
@@ -28,6 +29,11 @@ export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_D
 
 /** The role that leads a feature in the built-in workflows; each project's lead is made from it. */
 export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
+/**
+ * The role each project's standing manager starts from. It leads no workflow and joins no crew;
+ * a project's manager follows it until someone customizes it in the project.
+ */
+export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 
 /**
  * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.
@@ -170,6 +176,38 @@ export const CrewSetDelegationInput = Schema.Struct({
   targetMemberId: Schema.String,
   allowed: Schema.Boolean,
 });
+
+/** A project's manager as it is now, or as the role would make it before its first use. */
+export const ProjectManagerSettings = Schema.Struct({
+  projectId: ProjectId,
+  instructions: Schema.String,
+  allowedTools: Schema.Array(Schema.String),
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  longConversation: BotLongConversation,
+  /** Saved in the project, so role edits no longer reach it until it is reset. */
+  customized: Schema.Boolean,
+  /** The member's revision; 0 before the project has one. */
+  revision: Schema.Int,
+  /** Its standing thread, null until it is first opened. */
+  threadId: Schema.NullOr(ThreadId),
+});
+export type ProjectManagerSettings = typeof ProjectManagerSettings.Type;
+export const ProjectManagerUpdateInput = Schema.Struct({
+  projectId: ProjectId,
+  instructions: Schema.String,
+  allowedTools: Schema.Array(Schema.String),
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  longConversation: BotLongConversation,
+  expectedRevision: Schema.Int,
+});
+export type ProjectManagerUpdateInput = typeof ProjectManagerUpdateInput.Type;
+export const ProjectManagerResetInput = Schema.Struct({
+  projectId: ProjectId,
+  expectedRevision: Schema.Int,
+});
+export type ProjectManagerResetInput = typeof ProjectManagerResetInput.Type;
 
 export const CrewStartInput = Schema.Struct({
   id: Schema.String,

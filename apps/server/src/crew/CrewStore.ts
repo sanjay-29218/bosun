@@ -1,5 +1,7 @@
 import {
   BOT_HEADQUARTERS_RUN_PREFIX,
+  type BotLongConversation,
+  PROJECT_HEADQUARTERS_RUN_PREFIX,
   CREW_DISPATCH_STATE,
   ModelSelection,
   ProjectId,
@@ -33,6 +35,10 @@ export interface CrewMember {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly enabled: boolean;
+  /** How a project's standing manager handles a long conversation; other members ignore it. */
+  readonly longConversation: BotLongConversation;
+  /** When someone saved its settings in its project; role edits leave it alone from then on. */
+  readonly customizedAt: string | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -115,6 +121,8 @@ interface CrewMemberRow {
   readonly modelSelectionJson: string;
   readonly runtimeMode: string;
   readonly enabled: number;
+  readonly longConversation: string;
+  readonly customizedAt: string | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -174,6 +182,8 @@ const decodeMember = (row: CrewMemberRow): CrewMember => ({
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
+  longConversation: row.longConversation === "new-session" ? "new-session" : "compact",
+  customizedAt: row.customizedAt,
   revision: row.revision,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -261,6 +271,14 @@ export interface CrewStoreShape {
     member: CrewMember,
     expectedRevision: number,
   ) => Effect.Effect<boolean, PersistenceSqlError>;
+  /**
+   * Writes `member` while it is still at `expectedRevision`, customized or not, and stores its
+   * `customizedAt`: saving a project's manager sets it, resetting it to its role clears it.
+   */
+  readonly saveMember: (
+    member: CrewMember,
+    expectedRevision: number,
+  ) => Effect.Effect<boolean, PersistenceSqlError>;
   /** Members of `roleId` that belong to a project but not to one feature. */
   readonly listProjectMembersOfRole: (
     roleId: string,
@@ -344,7 +362,7 @@ export const CrewStoreLive = Layer.effect(
           role_id AS roleId, role_revision AS roleRevision, name, instructions,
           allowed_tools_json AS allowedToolsJson,
           model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-          enabled,
+          enabled, long_conversation AS longConversation, customized_at AS customizedAt,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM crew_members WHERE id = ${id}
       `.pipe(
@@ -378,10 +396,12 @@ export const CrewStoreLive = Layer.effect(
       sql<CrewRunRow>`
         SELECT r.id, r.member_id AS memberId, r.project_id AS projectId, r.thread_id AS threadId,
           r.task_text AS taskText, r.title, r.instructions,
-          COALESCE(b.allowed_tools_json, r.allowed_tools_json) AS allowedToolsJson,
+          COALESCE(b.allowed_tools_json, m.allowed_tools_json, r.allowed_tools_json)
+            AS allowedToolsJson,
           r.member_revision AS memberRevision,
-          COALESCE(b.model_selection_json, r.model_selection_json) AS modelSelectionJson,
-          COALESCE(b.runtime_mode, r.runtime_mode) AS runtimeMode,
+          COALESCE(b.model_selection_json, m.model_selection_json, r.model_selection_json)
+            AS modelSelectionJson,
+          COALESCE(b.runtime_mode, m.runtime_mode, r.runtime_mode) AS runtimeMode,
           r.dispatch_state AS dispatchState, r.recovery_attempt AS recoveryAttempt,
           r.last_error AS lastError,
           r.created_at AS createdAt, r.dispatched_at AS dispatchedAt,
@@ -390,6 +410,8 @@ export const CrewStoreLive = Layer.effect(
         FROM crew_runs AS r
         LEFT JOIN bots AS b
           ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
+        LEFT JOIN crew_members AS m
+          ON r.id LIKE ${`${PROJECT_HEADQUARTERS_RUN_PREFIX}%`} AND m.id = r.member_id
         WHERE r.id = ${id}
       `.pipe(
         Effect.mapError(queryError),
@@ -502,14 +524,14 @@ export const CrewStoreLive = Layer.effect(
           INSERT INTO crew_members (
             id, project_id, feature_id, role_id, role_revision, name, instructions,
             allowed_tools_json, model_selection_json, runtime_mode, enabled,
-            revision, created_at, updated_at
+            long_conversation, customized_at, revision, created_at, updated_at
           ) VALUES (
             ${member.id}, ${member.projectId}, ${member.featureId},
             ${member.roleId}, ${member.roleRevision}, ${member.name},
             ${member.instructions}, ${JSON.stringify(member.allowedTools)},
             ${JSON.stringify(member.modelSelection)},
             ${member.runtimeMode}, ${member.enabled ? 1 : 0},
-            ${member.revision},
+            ${member.longConversation}, ${member.customizedAt}, ${member.revision},
             ${member.createdAt}, ${member.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -521,8 +543,26 @@ export const CrewStoreLive = Layer.effect(
             allowed_tools_json = ${JSON.stringify(member.allowedTools)},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
             runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
+            long_conversation = ${member.longConversation},
             revision = ${member.revision}, updated_at = ${member.updatedAt}
           WHERE id = ${member.id} AND revision = ${expectedRevision} AND customized_at IS NULL
+          RETURNING id
+        `.pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
+      saveMember: (member, expectedRevision) =>
+        sql<{ readonly id: string }>`
+          UPDATE crew_members SET
+            role_revision = ${member.roleRevision}, name = ${member.name},
+            instructions = ${member.instructions},
+            allowed_tools_json = ${JSON.stringify(member.allowedTools)},
+            model_selection_json = ${JSON.stringify(member.modelSelection)},
+            runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
+            long_conversation = ${member.longConversation},
+            customized_at = ${member.customizedAt},
+            revision = ${member.revision}, updated_at = ${member.updatedAt}
+          WHERE id = ${member.id} AND revision = ${expectedRevision}
           RETURNING id
         `.pipe(
           Effect.map((rows) => rows.length > 0),
@@ -534,7 +574,7 @@ export const CrewStoreLive = Layer.effect(
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
             allowed_tools_json AS allowedToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled,
+            enabled, long_conversation AS longConversation, customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM crew_members
           WHERE role_id = ${roleId} AND project_id IS NOT NULL AND feature_id IS NULL
@@ -559,7 +599,7 @@ export const CrewStoreLive = Layer.effect(
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
             allowed_tools_json AS allowedToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled,
+            enabled, long_conversation AS longConversation, customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM crew_members
           WHERE project_id = ${projectId} OR project_id IS NULL

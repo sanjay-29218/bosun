@@ -38,7 +38,8 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2ContextSourcePoint,
-  headquartersBotId,
+  headquartersProjectId,
+  isStandingThread,
   type OrchestrationV2ContextTransfer,
   type OrchestrationV2ContextTransferResolution,
   type OrchestrationV2ConversationMessage,
@@ -7962,8 +7963,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? {}
           : { branch: null, worktreePath: null }),
         ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
-        // Work handed to another project belongs to that project's lists.
-        ...(otherProject ? { lineage: { ...subagentThread.lineage, listed: true } } : {}),
+        // Work handed to another project, or by a project's manager, belongs to the project's lists.
+        ...(otherProject || headquartersProjectId(command.parentThreadId) !== null
+          ? { lineage: { ...subagentThread.lineage, listed: true } }
+          : {}),
         // A crew member's thread shows under its feature's lead by the member's name.
         ...(command.crewMember !== undefined && parentProjection.thread.feature
           ? { feature: { ...parentProjection.thread.feature, member: command.crewMember } }
@@ -13402,8 +13405,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       }
       case "thread.delete": {
-        // Its id is fixed per bot, and a deleted thread's id can never be reused.
-        if (headquartersBotId(command.threadId) !== null) {
+        // Its id is fixed per bot or project, and a deleted thread's id can never be reused.
+        if (isStandingThread(command.threadId)) {
           return yield* new OrchestratorHeadquartersThreadDeleteError({
             commandId: command.commandId,
             threadId: command.threadId,

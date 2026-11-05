@@ -1,7 +1,7 @@
 import {
   ChatAttachment,
   OrchestrationMessageContext,
-  headquartersBotId,
+  isStandingThread,
   BOT_FRESH_START_LABEL,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
@@ -202,7 +202,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         Effect.map((rows) => rows.length > 0),
         Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.worktreeInUse")),
       );
-    // A headquarters keeps its direct path, which `restore` also takes after a delete.
+    // A standing thread keeps its direct path, which `restore` also takes after a delete.
     const startHeadquarters = Effect.fn("CrewThreadRuntime.startHeadquarters")(function* (
       input: CrewThreadStart,
     ) {
@@ -245,7 +245,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       });
     });
     const start = Effect.fn("CrewThreadRuntime.start")(function* (input: CrewThreadStart) {
-      if (headquartersBotId(input.threadId) !== null) return yield* startHeadquarters(input);
+      if (isStandingThread(input.threadId)) return yield* startHeadquarters(input);
       // The direct path created threads under this ID, so a run it began replays here.
       const commandId = CommandId.make(`${runCommandPrefix(input.threadId)}:${input.runId}:create`);
       yield* launch(input, commandId).pipe(

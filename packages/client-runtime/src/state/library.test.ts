@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   FEATURE_MANAGER_ROLE_ID,
+  PROJECT_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
   type WorkflowConfig,
@@ -39,6 +40,7 @@ describe("roleAvailabilityNote", () => {
     expect(roleAvailabilityNote(role(FEATURE_MANAGER_ROLE_ID), [delivery])).toBeNull();
     expect(roleAvailabilityNote(role("role:builder", { enabled: false }), [delivery])).toBe("Off");
     expect(roleAvailabilityNote(role("role:helper"), [delivery])).toBe("Not in a workflow");
+    expect(roleAvailabilityNote(role(PROJECT_MANAGER_ROLE_ID), [delivery])).toBeNull();
   });
 });
 

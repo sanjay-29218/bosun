@@ -25,6 +25,21 @@ export const headquartersBotId = (threadId: string): string | null =>
     ? threadId.slice(`bot-run:${BOT_HEADQUARTERS_RUN_PREFIX}`.length)
     : null;
 
+/** A project's standing manager: one run and thread per project, made on first use. */
+export const PROJECT_HEADQUARTERS_RUN_PREFIX = "project-hq:";
+export const projectHeadquartersRunId = (projectId: string) =>
+  `${PROJECT_HEADQUARTERS_RUN_PREFIX}${projectId}`;
+export const projectHeadquartersThreadId = (projectId: string) =>
+  ThreadId.make(`bot-run:${projectHeadquartersRunId(projectId)}`);
+/** The project whose manager `threadId` is, or null for every other thread. */
+export const headquartersProjectId = (threadId: string): ProjectId | null =>
+  threadId.startsWith(`bot-run:${PROJECT_HEADQUARTERS_RUN_PREFIX}`)
+    ? ProjectId.make(threadId.slice(`bot-run:${PROJECT_HEADQUARTERS_RUN_PREFIX}`.length))
+    : null;
+/** A thread that lives as long as its owner: a bot's headquarters or a project's manager. */
+export const isStandingThread = (threadId: string) =>
+  headquartersBotId(threadId) !== null || headquartersProjectId(threadId) !== null;
+
 /** A bot's avatar: a small robot built from these parts and tinted with the bot's color. */
 export const BOT_HEADS = [
   "squircle",

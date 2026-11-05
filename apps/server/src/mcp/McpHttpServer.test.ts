@@ -1435,6 +1435,7 @@ it.effect(
         CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
       `;
         yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+        yield* sql`CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)`;
         yield* sql`INSERT INTO crew_runs VALUES
         ('builder', 'role', 'bot-run:builder', '["worktree"]'),
         ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]')`;
@@ -1585,6 +1586,7 @@ it.effect(
           "crew_update_todo",
           "t3_bot_list",
           "t3_feature_finish",
+          "t3_feature_list",
           "t3_feature_start",
           "upstream",
         ].sort();

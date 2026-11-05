@@ -110,6 +110,44 @@ const FinishFeature = Tool.make("t3_feature_finish", {
   }),
 }).annotate(Tool.Destructive, false);
 
+const ListFeatures = Tool.make("t3_feature_list", {
+  ...shared,
+  description:
+    "List this thread's project's features, newest first: each one's lead thread, branch and base branch, parent feature, issue, pull request and its last known state, the thread it reports to, and how its lead last reported. status keeps open or closed ones; parentFeatureId keeps one feature's children.",
+  parameters: Schema.Struct({
+    status: Schema.optional(Schema.Literals(["open", "closed"])),
+    parentFeatureId: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    features: Schema.Array(
+      Schema.Struct({
+        featureId: Schema.String,
+        number: Schema.optional(Schema.Number),
+        title: Schema.String,
+        status: Schema.Literals(["open", "closed"]),
+        leadThreadId: Schema.NullOr(ThreadId),
+        branch: Schema.NullOr(Schema.String),
+        baseBranch: Schema.NullOr(Schema.String),
+        parentFeatureId: Schema.NullOr(Schema.String),
+        issue: Schema.NullOr(Schema.Struct({ ref: Schema.String, title: Schema.String })),
+        pullRequest: Schema.NullOr(
+          Schema.Struct({
+            url: Schema.String,
+            number: Schema.Number,
+            state: Schema.NullOr(Schema.Literals(["open", "closed", "merged"])),
+          }),
+        ),
+        requesterThreadId: Schema.NullOr(Schema.String),
+        report: Schema.NullOr(
+          Schema.Literals(["finished", "closed", "stopped", "failed", "interrupted"]),
+        ),
+      }),
+    ),
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
 export const FeaturesToolkit = Toolkit.make(
   ListRoles,
   CreateRole,
@@ -118,4 +156,5 @@ export const FeaturesToolkit = Toolkit.make(
   UpdateWorkflow,
   StartFeature,
   FinishFeature,
+  ListFeatures,
 );

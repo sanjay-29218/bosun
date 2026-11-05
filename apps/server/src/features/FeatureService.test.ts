@@ -12,6 +12,8 @@ import {
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
+  PROJECT_MANAGER_ROLE_ID,
+  projectHeadquartersThreadId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -24,6 +26,7 @@ import { describe, expect } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { CrewStore } from "../crew/CrewStore.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -91,6 +94,7 @@ const withSystem = <E>(
     E,
     | FeatureService
     | CrewService
+    | CrewStore
     | OrchestrationEngineService
     | BotStore.BotStore
     | SqlClient.SqlClient
@@ -617,6 +621,76 @@ describe("feature lead and crew", () => {
     ),
   );
 
+  effectIt.effect(
+    "lists a project's features with their branches, requester and pull request",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const features = yield* FeatureService;
+          const sql = yield* SqlClient.SqlClient;
+          const manager = projectHeadquartersThreadId(projectId);
+          const parent = yield* features.launch({
+            projectId,
+            title: "Port to Mac",
+            brief: "Port the app",
+            requesterThreadId: manager,
+          });
+          const child = yield* features.launch({
+            projectId,
+            title: "Recording",
+            brief: "Record the screen",
+            baseBranch: "bosun/app-shell-123abc",
+            parentFeatureId: parent.feature.id,
+          });
+          yield* sql`
+          UPDATE orchestration_v2_projection_threads
+          SET payload_json = json_set(payload_json, '$.pullRequests', json(${JSON.stringify([
+            {
+              url: "https://github.com/owner/repo/pull/7",
+              number: 7,
+              source: "agent",
+              snapshot: { state: "merged" },
+            },
+          ])}))
+          WHERE thread_id = ${child.leadThreadId}
+        `;
+          yield* features.setStatus(parent.feature.id, projectId, "closed");
+
+          expect(yield* features.list(projectId, { status: "open" })).toEqual([
+            {
+              featureId: child.feature.id,
+              number: 2,
+              title: "Recording",
+              status: "open",
+              leadThreadId: child.leadThreadId,
+              branch: child.branch,
+              baseBranch: "bosun/app-shell-123abc",
+              parentFeatureId: parent.feature.id,
+              issue: null,
+              pullRequest: {
+                url: "https://github.com/owner/repo/pull/7",
+                number: 7,
+                state: "merged",
+              },
+              requesterThreadId: null,
+              report: null,
+            },
+          ]);
+          const [closed] = yield* features.list(projectId, { status: "closed" });
+          expect(closed).toMatchObject({
+            featureId: parent.feature.id,
+            requesterThreadId: manager,
+            pullRequest: null,
+          });
+          expect(
+            (yield* features.list(projectId, { parentFeatureId: parent.feature.id })).map(
+              (feature) => feature.featureId,
+            ),
+          ).toEqual([child.feature.id]);
+        }),
+      ),
+  );
+
   effectIt.effect("stacks a child on a branch that exists, and refuses one that doesn't", () =>
     withSystem(
       Effect.gen(function* () {
@@ -688,7 +762,8 @@ describe("feature lead and crew", () => {
             workspace: "local",
             workflowId: workflow.id,
           });
-          // Back to the shape a feature started before the rename has.
+          // Back to the shape a feature started before the rename, and the Project manager, had.
+          yield* sql`DELETE FROM roles WHERE id = 'role:project-manager'`;
           yield* sql`
           INSERT INTO roles (
             id, name, instructions, allowed_tools_json, model_selection_json, runtime_mode,
@@ -984,5 +1059,130 @@ describe("feature lead and crew", () => {
           expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
         }),
       ),
+  );
+
+  effectIt.effect(
+    "keeps a project's manager pinned in its project, following its settings until reset",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const engine = yield* OrchestrationEngineService;
+          const crewStore = yield* CrewStore;
+          const before = yield* crew.projectManagerSettings(projectId);
+          expect(before).toMatchObject({ revision: 0, customized: false, threadId: null });
+          expect(before.instructions).toContain("You manage one project");
+
+          const run = yield* crew.ensureProjectManager(projectId);
+          expect(run.threadId).toBe(projectHeadquartersThreadId(projectId));
+          expect(yield* crew.ensureProjectManager(projectId)).toEqual(run);
+          const shell = () => engine.getThreadShell(run.threadId);
+          // It lives in its project, in the project's checkout.
+          expect(yield* shell()).toMatchObject({ projectId, branch: null, worktreePath: null });
+          expect((yield* shell())?.pinnedAt).toBeTruthy();
+          expect(
+            (yield* engine
+              .dispatch({
+                type: "thread.delete",
+                commandId: CommandId.make("test:delete-pm"),
+                threadId: run.threadId,
+              })
+              .pipe(Effect.flip))._tag,
+          ).toBe("OrchestratorHeadquartersThreadDeleteError");
+          yield* engine.dispatch({
+            type: "thread.archive",
+            commandId: CommandId.make("test:archive-pm"),
+            threadId: run.threadId,
+          });
+          yield* crew.ensureProjectManager(projectId);
+          expect((yield* shell())?.archivedAt).toBeNull();
+
+          const created = yield* crew.projectManagerSettings(projectId);
+          expect(created).toMatchObject({ revision: 1, threadId: run.threadId });
+          const runtimeMode =
+            created.runtimeMode === "full-access" ? "approval-required" : "full-access";
+          const saved = yield* crew.updateProjectManager({
+            projectId,
+            instructions: "Manage it my way.",
+            allowedTools: ["worktree"],
+            modelSelection: created.modelSelection,
+            runtimeMode,
+            longConversation: "new-session",
+            expectedRevision: created.revision,
+          });
+          expect(saved).toMatchObject({
+            customized: true,
+            revision: 2,
+            longConversation: "new-session",
+          });
+          // The open thread follows: its mode now, its grants on the next tool call.
+          expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
+          expect((yield* crewStore.getRun(run.id))?.allowedTools).toEqual(["worktree"]);
+          expect(
+            (yield* crew
+              .updateProjectManager({ ...saved, instructions: "Stale", expectedRevision: 1 })
+              .pipe(Effect.flip)).message,
+          ).toContain("reload");
+
+          // A role edit leaves a customized manager alone, until it is reset to the role.
+          const role = (yield* crewStore.getRole(PROJECT_MANAGER_ROLE_ID))!;
+          yield* crew.updateRole({
+            ...role,
+            instructions: "Manage, edited.",
+            expectedRevision: role.revision,
+          });
+          expect((yield* crew.projectManagerSettings(projectId)).instructions).toBe(
+            "Manage it my way.",
+          );
+          const reset = yield* crew.resetProjectManager({ projectId, expectedRevision: 2 });
+          expect(reset).toMatchObject({
+            customized: false,
+            revision: 3,
+            allowedTools: [],
+            runtimeMode: role.runtimeMode,
+            longConversation: "compact",
+          });
+          expect(reset.instructions).toBe(`Manage, edited.\n\nYour project is ${projectId}.`);
+          expect((yield* shell())?.runtimeMode).toBe(role.runtimeMode);
+        }),
+      ),
+  );
+
+  effectIt.effect("keeps the Project manager out of workflows", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const workflow = {
+          id: "workflow:managed-by-pm",
+          name: "Managed",
+          instructions: "Run it.",
+          leadRoleId: PROJECT_MANAGER_ROLE_ID,
+          crewRoleIds: [],
+        };
+        expect((yield* crew.createWorkflow(workflow).pipe(Effect.flip)).message).toContain(
+          "can't lead a workflow",
+        );
+        expect(
+          (yield* crew
+            .createWorkflow({
+              ...workflow,
+              leadRoleId: FEATURE_MANAGER_ROLE_ID,
+              crewRoleIds: [PROJECT_MANAGER_ROLE_ID],
+            })
+            .pipe(Effect.flip)).message,
+        ).toContain("join its crew");
+        const delivery = (yield* crew.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))!;
+        expect(delivery.crewRoleIds).not.toContain(PROJECT_MANAGER_ROLE_ID);
+        expect(
+          (yield* crew
+            .updateWorkflow({
+              ...delivery,
+              crewRoleIds: [...delivery.crewRoleIds, PROJECT_MANAGER_ROLE_ID],
+              expectedRevision: delivery.revision,
+            })
+            .pipe(Effect.flip))._tag,
+        ).toBe("CrewValidationError");
+      }),
+    ),
   );
 });

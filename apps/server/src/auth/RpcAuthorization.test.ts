@@ -41,6 +41,18 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("lets readers see a project's manager settings, and only operators change or reset them", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.crewProjectManager)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    for (const method of [
+      WS_METHODS.crewUpdateProjectManager,
+      WS_METHODS.crewResetProjectManager,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+  });
+
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

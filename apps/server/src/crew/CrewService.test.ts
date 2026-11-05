@@ -329,7 +329,10 @@ describe("Bot foundation", () => {
             expectedRevision: lead.revision,
           });
           yield* bots.ensureFeatureManager(projectId);
-          expect(yield* store.getMember(featureManagerMemberId(projectId))).toEqual(manager);
+          expect(yield* store.getMember(featureManagerMemberId(projectId))).toEqual({
+            ...manager,
+            customizedAt: "2026-11-05",
+          });
         }),
       ).pipe(
         Effect.ensuring(

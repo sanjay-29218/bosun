@@ -18,6 +18,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnItemId,
+  projectHeadquartersThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -1103,6 +1104,59 @@ it.effect("names a crew member's child after its feature lead's crew", () =>
     // The crew works in the lead's feature checkout.
     assert.equal(child.thread.worktreePath, "/worktrees/dark-mode");
     assert.isFalse(isListedThreadLineage(child.thread.lineage));
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("lists a project manager's delegated task in its project", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const projectId = ProjectId.make("project:managed");
+    const managerThreadId = projectHeadquartersThreadId(projectId);
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-project-manager"),
+      threadId: managerThreadId,
+      projectId,
+      title: "Project manager",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("start-project-manager"),
+      threadId: managerThreadId,
+      messageId: MessageId.make("message:project-manager"),
+      text: "Fix the copy on the pricing page",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const managerRun = (yield* projections.getThreadProjection(managerThreadId)).runs[0]!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate-copy-fix"),
+      parentThreadId: managerThreadId,
+      parentRunId: managerRun.id,
+      parentNodeId: managerRun.rootNodeId!,
+      task: "Fix the copy",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const task = (yield* projections.getThreadProjection(managerThreadId)).subagents[0]!;
+    const child = yield* projections.getThreadProjection(task.childThreadId!);
+    // Its manager's tasks are the project's work, listed and on the board like features.
+    assert.isTrue(isListedThreadLineage(child.thread.lineage));
+    assert.equal(child.thread.lineage.parentThreadId, managerThreadId);
   }).pipe(Effect.provide(layerTest)),
 );
 

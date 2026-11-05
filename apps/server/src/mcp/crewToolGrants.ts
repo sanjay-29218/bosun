@@ -73,5 +73,6 @@ export const CrewGatedToolkits = {
     t3_feature_workflow_update: "crew.workflows",
     t3_feature_start: null,
     t3_feature_finish: null,
+    t3_feature_list: null,
   }),
 };

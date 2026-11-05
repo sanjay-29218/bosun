@@ -120,6 +120,28 @@ const make = Effect.gen(function* () {
           };
         }).pipe(Effect.mapError(asMcpFailure)),
     ),
+    t3_feature_list: McpToolAccess.reads(
+      (input: {
+        readonly status?: "open" | "closed" | undefined;
+        readonly parentFeatureId?: string | undefined;
+      }) =>
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.requireThreadScope(
+            yield* McpInvocationContext.McpInvocationContext,
+            "t3_feature_list",
+          );
+          const shell = yield* threads.getThreadShell(scope.thread.threadId);
+          if (shell === null) return yield* invalid("This thread has no project");
+          return {
+            features: yield* features.list(shell.projectId, {
+              ...(input.status === undefined ? {} : { status: input.status }),
+              ...(input.parentFeatureId === undefined
+                ? {}
+                : { parentFeatureId: input.parentFeatureId }),
+            }),
+          };
+        }).pipe(Effect.mapError(asMcpFailure)),
+    ),
     t3_feature_finish: McpToolAccess.actsAsCaller((input: { readonly summary: string }) =>
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.requireThreadScope(

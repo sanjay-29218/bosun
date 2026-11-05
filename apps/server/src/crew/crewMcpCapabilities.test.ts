@@ -22,6 +22,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
         CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
       `;
       yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+      yield* sql`CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)`;
       yield* sql`INSERT INTO crew_runs VALUES
         ('builder', 'role', 'bot-run:builder', '["crew.workflows"]'),
         ('limited', 'role', 'bot-run:limited', '["crew.workflows","worktree","device"]'),
@@ -48,10 +49,14 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
       // The bot's other runs keep the grants saved when they started.
       assert.deepStrictEqual(
         yield* crewMcpCapabilities(ThreadId.make("bot-run:captain-request")),
-        new Set(["worktree"]),
+        new Set(["worktree", "crew"]),
       );
+      // Every crew thread gets the crew tools, granted or not; each tool checks its own grant.
       for (const id of ["bosun-run:bare", "bot-run:malformed", "bot-run:missing"]) {
-        assert.deepStrictEqual(yield* crewMcpCapabilities(ThreadId.make(id)), DEFAULTS);
+        assert.deepStrictEqual(
+          yield* crewMcpCapabilities(ThreadId.make(id)),
+          new Set([...DEFAULTS, "crew"]),
+        );
       }
     }),
   );
@@ -64,6 +69,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
           (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
       `;
       yield* sql`CREATE TABLE IF NOT EXISTS bots (id TEXT, allowed_tools_json TEXT)`;
+      yield* sql`CREATE TABLE IF NOT EXISTS crew_members (id TEXT, allowed_tools_json TEXT)`;
       yield* sql`
         CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)
       `;
