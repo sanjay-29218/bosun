@@ -10,6 +10,13 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import {
+  childFeatureFinished,
+  routeChildFeature,
+  workGroupOpenThread,
+  workGroupThreads,
+  type WorkGroup,
+} from "@t3tools/client-runtime/state/work-groups";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import {
   threadSearchMatchKey,
@@ -388,6 +395,19 @@ export interface ThreadListV2ThreadListItem {
   readonly hasQueuedMessages: boolean;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
+  /** Whether the row's child features list below it; recycled cells ignore closure updates. */
+  readonly childFeaturesExpanded?: boolean;
+}
+
+/** One child feature listed under its parent feature's row. */
+export interface ThreadListV2ChildFeatureListItem {
+  readonly type: "v2-child-feature";
+  readonly key: string;
+  /** The thread the row opens: the child's thread waiting on you, else its lead. */
+  readonly thread: EnvironmentThreadShell;
+  readonly title: string;
+  readonly finished: boolean;
+  readonly selected: boolean;
 }
 
 export interface ThreadListV2PendingListItem {
@@ -426,6 +446,7 @@ export interface ThreadListV2SettledShelfListItem {
 export type ThreadListV2ListItem =
   | ThreadListV2ThreadListItem
   | ThreadListV2PendingListItem
+  | ThreadListV2ChildFeatureListItem
   | ThreadListV2WorkingShelfListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem;
@@ -436,6 +457,7 @@ export function isThreadListV2ListItem(value: {
   return (
     value.type === "v2-thread" ||
     value.type === "v2-pending" ||
+    value.type === "v2-child-feature" ||
     value.type === "v2-working-shelf" ||
     value.type === "v2-snoozed-shelf" ||
     value.type === "v2-settled-shelf"
@@ -463,7 +485,17 @@ export function threadListV2ListItemsAreEqual(
         previous.showTrailingDivider === item.showTrailingDivider &&
         previous.hasQueuedMessages === item.hasQueuedMessages &&
         previous.canMoveUp === item.canMoveUp &&
-        previous.canMoveDown === item.canMoveDown
+        previous.canMoveDown === item.canMoveDown &&
+        previous.childFeaturesExpanded === item.childFeaturesExpanded
+      );
+    case "v2-child-feature":
+      return (
+        previous.type === "v2-child-feature" &&
+        previous.key === item.key &&
+        previous.thread === item.thread &&
+        previous.title === item.title &&
+        previous.finished === item.finished &&
+        previous.selected === item.selected
       );
     case "v2-pending":
       return (
@@ -623,6 +655,60 @@ export function buildThreadListV2ListItems(input: {
     return showTrailingDivider === entry.showTrailingDivider
       ? entry
       : { ...entry, showTrailingDivider };
+  });
+}
+
+/**
+ * Whether a parent row lists its child features: as toggled, else while one of them is open.
+ * Every load starts folded.
+ */
+export function childFeatureRowExpanded(input: {
+  readonly rowKey: string;
+  readonly workGroups: ReadonlyMap<string, WorkGroup<EnvironmentThreadShell>>;
+  readonly toggles: ReadonlyMap<string, boolean>;
+  readonly selectedThreadKey: string | null;
+}): boolean {
+  const group = input.workGroups.get(input.rowKey);
+  return (
+    input.toggles.get(input.rowKey) ??
+    (group !== undefined && routeChildFeature(group, input.selectedThreadKey) !== undefined)
+  );
+}
+
+/**
+ * Lists each expanded parent feature's child features right after its row, as rows of their own
+ * so the list measures them.
+ */
+export function withChildFeatureListItems(input: {
+  readonly items: ReadonlyArray<ThreadListV2ListItem>;
+  readonly workGroups: ReadonlyMap<string, WorkGroup<EnvironmentThreadShell>>;
+  readonly toggles: ReadonlyMap<string, boolean>;
+  readonly selectedThreadKey: string | null;
+}): ThreadListV2ListItem[] {
+  return input.items.flatMap((entry): ThreadListV2ListItem[] => {
+    if (entry.type !== "v2-thread") return [entry];
+    const rowKey = `${entry.item.thread.environmentId}:${entry.item.thread.id}`;
+    const children = input.workGroups.get(rowKey)?.childFeatures;
+    if (!children?.length) return [entry];
+    const expanded = childFeatureRowExpanded({ ...input, rowKey });
+    const row =
+      expanded === entry.childFeaturesExpanded
+        ? entry
+        : { ...entry, childFeaturesExpanded: expanded };
+    if (!expanded) return [row];
+    return [
+      row,
+      ...children.map((child): ThreadListV2ChildFeatureListItem => ({
+        type: "v2-child-feature",
+        key: `v2-child-feature:${child.key}`,
+        thread: workGroupOpenThread(child),
+        title: child.title,
+        finished: childFeatureFinished(child),
+        selected: workGroupThreads(child).some(
+          (thread) => `${thread.environmentId}:${thread.id}` === input.selectedThreadKey,
+        ),
+      })),
+    ];
   });
 }
 

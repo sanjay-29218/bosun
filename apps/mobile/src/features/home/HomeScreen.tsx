@@ -4,8 +4,7 @@ import { useActiveNewTask } from "../../state/active-new-task";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
-import { resolveWorkGroupRouteRowKey } from "@t3tools/client-runtime/state/work-groups";
-import { useWorkGroupedThreads } from "../threads/useWorkGroupedThreads";
+import { useChildFeatureExpansion, useWorkGroupedThreads } from "../threads/useWorkGroupedThreads";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "../threads/threadListAnimations";
@@ -63,6 +62,7 @@ import { threadListEnvironmentsAtom } from "../../state/presentation";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import {
+  ThreadListV2ChildFeatureRow,
   ThreadListV2PendingRow,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
@@ -77,6 +77,7 @@ import {
   threadListV2ListItemsAreEqual,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  withChildFeatureListItems,
   type ThreadListV2ListItem,
 } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
@@ -459,13 +460,14 @@ export function HomeScreen(props: HomeScreenProps) {
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder();
-  const { listThreads, workGroups } = useWorkGroupedThreads(props.threads);
-  // Inside a feature or request, its row stays selected.
-  const selectedRowKey =
-    resolveWorkGroupRouteRowKey(workGroups, selectedThreadKey ?? null) ?? selectedThreadKey ?? null;
+  const { listThreads, workGroups } = useWorkGroupedThreads(props.threads, {
+    nestChildFeatures: props.searchQuery.trim().length === 0,
+  });
+  const childFeatures = useChildFeatureExpansion(workGroups, selectedThreadKey ?? null);
+  const { selectedRowKey } = childFeatures;
   const {
     layout: threadListV2Layout,
-    items: threadListV2Items,
+    items: threadListV2RowItems,
     contentOnlyThreadKeys,
     olderSettledShelf,
   } = useThreadListV2({
@@ -491,6 +493,16 @@ export function HomeScreen(props: HomeScreenProps) {
     settledShelfExpanded,
     selectedThreadKey: selectedRowKey,
   });
+  const threadListV2Items = useMemo(
+    () =>
+      withChildFeatureListItems({
+        items: threadListV2RowItems,
+        workGroups,
+        toggles: childFeatures.toggles,
+        selectedThreadKey: selectedThreadKey ?? null,
+      }),
+    [threadListV2RowItems, workGroups, childFeatures.toggles, selectedThreadKey],
+  );
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
   // props object, which is new on every render of Home's parent.
   const { onSelectThread } = props;
@@ -579,11 +591,22 @@ export function HomeScreen(props: HomeScreenProps) {
         />
       );
     }
+    if (item.type === "v2-child-feature") {
+      return (
+        <ThreadListV2ChildFeatureRow
+          item={item}
+          pane={sidebarSurface ? "sidebar" : "screen"}
+          onSelectThread={selectThread}
+        />
+      );
+    }
     const thread = item.item.thread;
     return (
       <ThreadListV2Row
         pane={sidebarSurface ? "sidebar" : "screen"}
         selected={scopedThreadKey(thread.environmentId, thread.id) === selectedRowKey}
+        childFeaturesExpanded={item.childFeaturesExpanded}
+        onToggleChildFeatures={childFeatures.toggle}
         fullSwipeWidth={fullSwipeWidth}
         onNewThreadOnBranch={props.onNewThreadOnBranch}
         thread={thread}

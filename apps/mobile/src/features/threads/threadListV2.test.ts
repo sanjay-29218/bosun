@@ -25,6 +25,10 @@ import {
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
+import {
+  groupWorkThreads,
+  nestChildFeatureGroups,
+} from "@t3tools/client-runtime/state/work-groups";
 import type { MenuAction } from "@react-native-menu/menu";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -43,6 +47,7 @@ import {
   sortThreadsForListV2,
   threadListV2ListItemsAreEqual,
   threadHasUnseenCompletion,
+  withChildFeatureListItems,
   type ThreadListV2ListItem,
 } from "./threadListV2";
 
@@ -1766,5 +1771,70 @@ describe("Working section beta", () => {
       "v2-settled-shelf",
       "settled",
     ]);
+  });
+});
+
+describe("withChildFeatureListItems", () => {
+  const epic = makeThread({
+    id: ThreadId.make("epic"),
+    title: "Lead",
+    feature: { id: "epic", title: "Epic" },
+  });
+  const done = makeThread({
+    id: ThreadId.make("done"),
+    title: "Lead",
+    createdAt: "2026-06-01T00:00:01.000Z",
+    feature: { id: "done", title: "Done child", parentFeatureId: "epic" },
+    settledOverride: "settled",
+    settledAt: NOW,
+  });
+  const open = makeThread({
+    id: ThreadId.make("open"),
+    title: "Lead",
+    createdAt: "2026-06-01T00:00:02.000Z",
+    feature: { id: "open", title: "Open child", parentFeatureId: "epic" },
+  });
+  const grouped = groupWorkThreads([epic, done, open]);
+  const { primaries, groupByThreadKey } = nestChildFeatureGroups(
+    grouped.primaries,
+    grouped.groupByThreadKey,
+  );
+  const items = buildThreadListV2ListItems({
+    items: buildThreadListV2Items({
+      threads: primaries,
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    }).items,
+    pendingTasks: [],
+  });
+  const describeItems = (toggles: ReadonlyMap<string, boolean>, selected = "open") =>
+    withChildFeatureListItems({
+      items,
+      workGroups: groupByThreadKey,
+      toggles,
+      selectedThreadKey: `${environmentId}:${selected}`,
+    }).map((item) =>
+      item.type === "v2-child-feature"
+        ? [item.title, { finished: item.finished, selected: item.selected }]
+        : item.type === "v2-thread"
+          ? [item.item.thread.id, { expanded: item.childFeaturesExpanded }]
+          : [item.type],
+    );
+
+  it("lists an open child's parent's children after its row, open first, as rows of their own", () => {
+    expect(describeItems(new Map())).toEqual([
+      ["epic", { expanded: true }],
+      ["Open child", { finished: false, selected: true }],
+      ["Done child", { finished: true, selected: false }],
+    ]);
+  });
+
+  it("keeps a parent's children out of the list until it is toggled open", () => {
+    expect(describeItems(new Map(), "epic")).toEqual([["epic", { expanded: false }]]);
+    expect(describeItems(new Map([[`${environmentId}:epic`, false]]))).toEqual([
+      ["epic", { expanded: false }],
+    ]);
+    expect(describeItems(new Map([[`${environmentId}:epic`, true]]), "epic")).toHaveLength(3);
   });
 });
