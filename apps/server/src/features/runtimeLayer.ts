@@ -118,7 +118,8 @@ const MergeNoticesLive = Layer.effectDiscard(
   MergeNotices.MergeNotices.pipe(Effect.flatMap((notices) => notices.start())),
 ).pipe(
   Layer.provide(MergeNotices.layer),
-  Layer.provide(Layer.merge(FeatureServiceLive, ProjectionStore.layer)),
+  Layer.provide(TicketService.layer),
+  Layer.provide(Layer.mergeAll(FeatureServiceLive, IssueService.layer, ProjectionStore.layer)),
 );
 
 /** Needs `ProjectService` from the orchestration runtime, which `BotService` moves projects with. */

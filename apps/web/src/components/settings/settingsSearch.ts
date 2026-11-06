@@ -1062,6 +1062,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "close-issues-on-merge",
+    title: "Close linked issues when merging",
+    to: "/settings/source-control",
+    scope: "project-defaults",
+    searchTerms: [`pull request ${SOURCE_CONTROL_HOST_LABELS} issue ticket close resolve feature`],
+  },
+  {
     id: "pull-request-merge-method",
     title: "Default merge method",
     to: "/settings/source-control",

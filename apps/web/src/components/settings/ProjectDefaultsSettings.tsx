@@ -100,6 +100,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
+  const mixedCloseIssues = useScopedSettingsMixed(["closeIssuesOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
@@ -452,6 +453,30 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 onCheckedChange={(enabled) =>
                   updateSettings({ removeAgentCreditsOnMerge: enabled })
                 }
+              />
+            }
+          />
+          <SettingsRow
+            serverScoped
+            settingKeys={["closeIssuesOnMerge"]}
+            mixed={mixedCloseIssues}
+            {...searchableSetting("close-issues-on-merge")}
+            description="When a pull request merges, close the issues and tickets linked to the features and tasks it carries, wherever it was merged. Issues from other repositories and trackers stay open."
+            resetAction={
+              settings.closeIssuesOnMerge ? (
+                <SettingResetButton
+                  label="issue closing on merge"
+                  tooltip="Leave linked issues open"
+                  onClick={() => updateSettings({ closeIssuesOnMerge: false })}
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                aria-label="Close linked issues when merging"
+                mixed={mixedCloseIssues}
+                checked={mixedCloseIssues ? false : settings.closeIssuesOnMerge}
+                onCheckedChange={(enabled) => updateSettings({ closeIssuesOnMerge: enabled })}
               />
             }
           />

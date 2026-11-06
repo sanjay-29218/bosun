@@ -12,13 +12,17 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 
 import { FeatureService } from "../features/FeatureService.ts";
 import * as NoticeInbox from "../features/NoticeInbox.ts";
+import { IssueService } from "../issues/IssueService.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as BosunMigrations from "../persistence/BosunMigrations.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
+import { TicketService } from "../tickets/TicketService.ts";
 import { CrewStore } from "./CrewStore.ts";
 import * as MergeNotices from "./MergeNotices.ts";
 
@@ -88,14 +92,32 @@ const threads = [
   thread("docs-lead", docs, { feature: { id: "feature:docs", title: "Docs site" } }),
 ];
 
-/** The service over a migrated database; each project's manager started at `managersFrom`. */
-const setup = (managersFrom = "2026-11-01T00:00:00.000Z") =>
+/**
+ * The service over a migrated database; each project's manager started at `managersFrom`. The
+ * host reads #14 as this repository's and #15 as another's that shares its number.
+ */
+const setup = (managersFrom = "2026-11-01T00:00:00.000Z", closeIssuesOnMerge = false) =>
   Effect.gen(function* () {
     const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+    const closedIssues = yield* Ref.make<ReadonlyArray<number>>([]);
     const layer = MergeNotices.layer.pipe(
       Layer.provideMerge(NoticeInbox.layer),
       Layer.provide(
         Layer.mergeAll(
+          ServerSettingsService.layerTest({ closeIssuesOnMerge }),
+          Layer.mock(IssueService)({
+            get: (_projectId, number) =>
+              Effect.succeed({
+                number,
+                url: `https://github.com/acme/${number === 14 ? "web" : "api"}/issues/${number}`,
+                state: "open",
+              } as never),
+            setState: (input) =>
+              Ref.update(closedIssues, (all) => [...all, input.number]).pipe(
+                Effect.as({} as never),
+              ),
+          }),
+          Layer.mock(TicketService)({}),
           Layer.mock(Orchestrator.OrchestratorV2)({
             dispatch: (command) =>
               Ref.update(dispatched, (all) => [...all, command]).pipe(Effect.as({} as never)),
@@ -165,7 +187,7 @@ const setup = (managersFrom = "2026-11-01T00:00:00.000Z") =>
         ),
       ),
     );
-    return { notices, inbox, sent };
+    return { notices, inbox, sent, closedIssues: Ref.get(closedIssues) };
   });
 
 const migrated = Effect.gen(function* () {
@@ -204,6 +226,32 @@ it.effect("tells each project's manager once about a merge its work tracks", () 
     assert.include(notice!.text, "issue #15, milestone Exports");
     assert.strictEqual(notice!.text.match(/Feature "CSV export"/g)?.length, 1);
     assert.notInclude(notice!.text, "web-plain");
+    assert.notInclude(notice!.text, "closed by the merge");
+  }).pipe(Effect.provide(sqlite)),
+);
+
+it.effect("closes a fresh merge's own-repository issues once when the setting is on", () =>
+  Effect.gen(function* () {
+    yield* migrated;
+    const sql = yield* SqlClient.SqlClient;
+    yield* TestClock.setTime(Date.parse("2026-11-06T00:00:00.000Z"));
+    const { notices, sent, closedIssues } = yield* setup(undefined, true);
+    yield* notices.handleLink(ThreadId.make("web-lead"), merged());
+    // #15 reads back from another repository, so the merge leaves it open.
+    assert.deepStrictEqual(yield* closedIssues, [14]);
+    const [notice] = yield* sent;
+    assert.include(notice!.text, "issue #14, milestone Exports (closed by the merge)");
+    assert.notInclude(notice!.text, "#15, milestone Exports (closed");
+
+    // A later update of the same merge leaves an issue someone reopened alone.
+    yield* notices.handleLink(ThreadId.make("web-builder"), merged());
+    assert.deepStrictEqual(yield* closedIssues, [14]);
+
+    // Turning the setting on does not reach back to merges long past.
+    yield* sql`DELETE FROM merge_closed_issues`;
+    yield* TestClock.setTime(Date.parse("2026-11-20T00:00:00.000Z"));
+    yield* notices.handleLink(ThreadId.make("web-lead"), merged());
+    assert.deepStrictEqual(yield* closedIssues, [14]);
   }).pipe(Effect.provide(sqlite)),
 );
 
