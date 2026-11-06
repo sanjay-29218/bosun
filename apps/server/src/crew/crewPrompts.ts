@@ -78,7 +78,7 @@ export const featureLeadTask = (
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
     'When you start another feature, decide yourself whether it is a child or separate, and never ask the person. It is a child when this feature needs that work done to count as finished: leave parentFeatureId out. Otherwise it is separate: set parentFeatureId to null, and it reports back to this thread. When you split this feature into parts, they are children. After starting one, say which in one line, such as "Started child 3 of 4: Invoice page" or "Started a separate feature: Fix the login 500".',
     // Last, so a lead still has it in mind when the work is done.
-    `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board then shows it ready for review."}`,
+    `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board and whoever started it then hear; progress needs no report."}`,
   ].join("\n\n");
 
 /** What a new bot is told, until a person edits it. */

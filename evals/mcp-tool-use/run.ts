@@ -22,6 +22,7 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -128,6 +129,15 @@ const isPricedModel = (model: ShellModel): model is PricedModel => model in PRIC
 const T3_PREFIX = "mcp__t3-code__";
 const RUNTIME_MARKER = "<runtime_info>";
 const TOOL_LOADED = "Tool loaded.";
+
+class EvalToolCallError extends Schema.TaggedError<EvalToolCallError>()("EvalToolCallError", {
+  tool: Schema.String,
+  cause: Schema.Defect(),
+}) {
+  override get message(): string {
+    return `The ${this.tool} tool call failed.`;
+  }
+}
 const DEFERRED_LIST =
   /(The following deferred tools are now available via ToolSearch\.[^\n]*\n)((?:[^\n]+\n)*)/;
 const MODEL_LINE = /You are powered by the model named .+?\. The exact model ID is [\w.-]+\./;
@@ -299,11 +309,15 @@ export const McpToolUseCase = Schema.Struct({
     harness: Schema.optional(Schema.Literals(["claude", "codex"])),
     /** The Linked environments beta is on, so T3 lists its link tools. */
     linkedEnvironments: Schema.optional(Schema.Boolean),
-    /** A feature lead's feature and crew. T3 opens the lead's thread with the brief, `prompt`. */
+    /**
+     * A feature lead's feature and crew. T3 opens the lead's thread with the brief, `prompt`, or
+     * with `brief` ahead of `priorTurns`; `prompt` then comes later, such as a crew result.
+     */
     featureLead: Schema.optional(
       Schema.Struct({
         title: Schema.String,
         crew: Schema.Array(Schema.String),
+        brief: Schema.optional(Schema.String),
         /** Follows the Epic workflow instead of Feature delivery. */
         epic: Schema.optional(Schema.Boolean),
       }),
@@ -1014,7 +1028,11 @@ export const buildMessages = (sample: Sample) => {
   };
   const { role, context, delegateRole, priorTurns = [] } = testCase.setup;
   const sideChat = testCase.setup.sideChat;
-  if (testCase.prompt === "" && (role !== "top" || sideChat !== undefined)) {
+  const leadBrief = role === "feature-lead" ? testCase.setup.featureLead?.brief : undefined;
+  if (
+    testCase.prompt === "" &&
+    !((role === "top" || leadBrief !== undefined) && sideChat === undefined)
+  ) {
     throw new Error(
       `${testCase.id}: Empty-prompt replay requires a top-level thread without side-chat context.`,
     );
@@ -1036,6 +1054,21 @@ export const buildMessages = (sample: Sample) => {
   const reminders = base.reminders.toSpliced(base.gitStatusAt, 0, reminder(gitStatus(testCase)));
   push("user", ...reminders, ...notes.flatMap((note) => (note ? [reminder(note)] : [])));
   const toolSearch = findTool(base, "ToolSearch")?.name ?? "ToolSearch";
+  const leadPrompt = (brief: string) => {
+    const lead = testCase.setup.featureLead;
+    if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
+    return crewRunPrompt({
+      instructions: FEATURE_MANAGER_INSTRUCTIONS,
+      taskText: featureLeadTask(
+        { id: "feature:eval", title: lead.title, brief },
+        lead.epic
+          ? { name: "Epic", instructions: EPIC_INSTRUCTIONS }
+          : { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
+        lead.crew,
+      ),
+    });
+  };
+  if (leadBrief !== undefined) push("user", text(leadPrompt(leadBrief)));
   let nextId = 0;
   for (const turn of priorTurns) {
     const calls = (turn.toolCalls ?? []).map((call) => {
@@ -1075,20 +1108,6 @@ export const buildMessages = (sample: Sample) => {
   const prompt =
     sideChatContext === undefined ? userText : withInlineContext(sideChatContext, userText);
   const childPrompt = () => taskPrompt({ task: prompt, role: delegateRole });
-  const leadPrompt = () => {
-    const lead = testCase.setup.featureLead;
-    if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
-    return crewRunPrompt({
-      instructions: FEATURE_MANAGER_INSTRUCTIONS,
-      taskText: featureLeadTask(
-        { id: "feature:eval", title: lead.title, brief: prompt },
-        lead.epic
-          ? { name: "Epic", instructions: EPIC_INSTRUCTIONS }
-          : { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
-        lead.crew,
-      ),
-    });
-  };
   // A project's manager thread opens with its task, and each request reaches it as the server
   // posts one: its own message, from the bot's headquarters.
   if (role === "project-manager" && testCase.prompt !== "") {
@@ -1123,8 +1142,8 @@ export const buildMessages = (sample: Sample) => {
       text(
         role === "delegated-child"
           ? childPrompt()
-          : role === "feature-lead"
-            ? leadPrompt()
+          : role === "feature-lead" && leadBrief === undefined
+            ? leadPrompt(prompt)
             : role === "project-manager"
               ? projectRequestText({
                   id: "R-1",
@@ -2189,24 +2208,27 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
             runPromise,
           );
         };
-        return yield* Effect.tryPromise(async () => {
-          const output =
-            use.name === "exec"
-              ? await executeCodex(
-                  valueText(use.input),
-                  codexCatalog(base),
-                  answer,
-                  sample.codeStore,
-                )
-              : await answer(use.name, use.input, false);
-          const item = {
-            type: use.name === "exec" ? "custom_tool_call_output" : "function_call_output",
-            call_id: use.id,
-            output: valueText(output),
-          };
-          input.push(item);
-          transcript.push(item);
-          return toolResult(use.id, output);
+        return yield* Effect.tryPromise({
+          try: async () => {
+            const output =
+              use.name === "exec"
+                ? await executeCodex(
+                    valueText(use.input),
+                    codexCatalog(base),
+                    answer,
+                    sample.codeStore,
+                  )
+                : await answer(use.name, use.input, false);
+            const item = {
+              type: use.name === "exec" ? "custom_tool_call_output" : "function_call_output",
+              call_id: use.id,
+              output: valueText(output),
+            };
+            input.push(item);
+            transcript.push(item);
+            return toolResult(use.id, output);
+          },
+          catch: (cause) => new EvalToolCallError({ tool: use.name, cause }),
         });
       }),
     );
@@ -2534,7 +2556,7 @@ const main = Effect.gen(function* () {
     }
     return;
   }
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+  const apiKey = yield* Config.String("ANTHROPIC_API_KEY").pipe(Config.withDefault(""));
   const out = flags.out;
   if ((!apiKey && !codex) || out === undefined) {
     const message =
@@ -2559,11 +2581,16 @@ const main = Effect.gen(function* () {
   // Only a case that passed every baseline sample can stop a run; flaky ones are just reported.
   const passedBefore = (id: string) => baseline.get(id) === 1;
   // Before the paid runs, so a missing git cannot lose their results.
-  const commit = yield* Effect.try(() =>
-    NodeChildProcess.execFileSync("git", ["describe", "--always", "--dirty"], {
-      encoding: "utf8",
-    }).trim(),
-  ).pipe(Effect.orElseSucceed(() => "unknown"));
+  const commit = yield* Effect.sync(() =>
+    Option.getOrElse(
+      Option.liftThrowable(() =>
+        NodeChildProcess.execFileSync("git", ["describe", "--always", "--dirty"], {
+          encoding: "utf8",
+        }).trim(),
+      )(),
+      () => "unknown",
+    ),
+  );
   const inFlight = yield* Semaphore.make(flags.concurrency);
   const runOne = (testCase: McpToolUseCase) => {
     const { id, kind, pattern } = testCase;

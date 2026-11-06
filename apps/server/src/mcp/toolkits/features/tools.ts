@@ -116,7 +116,7 @@ const StartFeature = Tool.make("t3_feature_start", {
 const FinishFeature = Tool.make("t3_feature_finish", {
   ...shared,
   description:
-    "Report that the feature you lead is done, with its pull request open when the project has a remote. The board then shows it ready for review. For a child feature, its parent feature's lead also gets your summary with the branch and pull request, and plans its next step from it. Call it once the work is done; call it again after more work if you're asked for changes.",
+    "Report that the feature you lead is done, its pull request open if the project has a remote. The board shows it ready for review, and whoever started it, or a child's parent lead with its branch and pull request, gets your summary. Call it once the work is done, not for progress, and again after asked-for changes.",
   parameters: Schema.Struct({
     summary: Schema.String.annotate({
       description: "What the feature changed, what was checked, and anything left open.",

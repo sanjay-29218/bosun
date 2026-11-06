@@ -23,10 +23,12 @@ import type { OrchestratorV2Error } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
+import { NoticeInbox } from "../features/NoticeInbox.ts";
 import { forkParked } from "../serverActivation.ts";
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
 import { projectRequestText } from "./crewPrompts.ts";
 
+// @effect-diagnostics-next-line extendsNativeError:off - Bosun error predating the Schema.TaggedError rule; migrating its call sites is follow-up work.
 class ProjectRequestError extends Error {
   readonly _tag = "ProjectRequestError";
 }
@@ -147,6 +149,7 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const crew = yield* CrewService;
+  const inbox = yield* NoticeInbox;
   const queryError = toPersistenceSqlError("ProjectRequests.query");
 
   const columns = sql`
@@ -200,22 +203,11 @@ const make = Effect.gen(function* () {
     message: string,
     summary: string,
   ) => {
-    const base = `${requestIds(request.projectId, request.id).base}:${key}`;
-    return engine.dispatch({
-      type: "message.dispatch",
-      commandId: CommandId.make(base),
-      messageId: MessageId.make(`message:${base}`),
+    return inbox.post({
       threadId: request.requesterThreadId,
+      key: `${requestIds(request.projectId, request.id).base}:${key}`,
       text: message,
-      notification: {
-        source: { kind: "subagent", childThreadId: managerThreadId },
-        outcome: "updated",
-        summary,
-      },
-      attachments: [],
-      dispatchMode: { type: "queue_after_active" },
-      createdBy: "agent",
-      creationSource: "server",
+      notification: { childThreadId: managerThreadId, outcome: "updated", summary },
     });
   };
 

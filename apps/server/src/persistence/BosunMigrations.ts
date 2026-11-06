@@ -63,7 +63,8 @@ import ProjectRequests from "./Migrations/105_ProjectRequests.ts";
 import ProjectManagerHandoffs from "./Migrations/106_ProjectManagerHandoffs.ts";
 import ProjectMergeNotices from "./Migrations/107_ProjectMergeNotices.ts";
 import RemoveProjectBuilders from "./Migrations/108_RemoveProjectBuilders.ts";
-import FeatureTagParent from "./Migrations/109_FeatureTagParent.ts";
+import NoticeInbox from "./Migrations/109_NoticeInbox.ts";
+import FeatureTagParent from "./Migrations/110_FeatureTagParent.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -119,7 +120,8 @@ const migrationEntries = [
   [106, "ProjectManagerHandoffs", ProjectManagerHandoffs],
   [107, "ProjectMergeNotices", ProjectMergeNotices],
   [108, "RemoveProjectBuilders", RemoveProjectBuilders],
-  [109, "FeatureTagParent", FeatureTagParent],
+  [109, "NoticeInbox", NoticeInbox],
+  [110, "FeatureTagParent", FeatureTagParent],
 ] as const;
 
 const legacyNames = new Set([

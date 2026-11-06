@@ -1,9 +1,7 @@
 import {
-  CommandId,
   CREW_DISPATCH_STATE,
   featureIssueRef,
   headquartersProjectId,
-  MessageId,
   projectHeadquartersRunId,
   type OrchestrationV2DomainEvent,
   type ProjectId,
@@ -19,6 +17,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 import { FeatureService } from "../features/FeatureService.ts";
+import { NoticeInbox } from "../features/NoticeInbox.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { toPersistenceSqlError } from "../persistence/Errors.ts";
@@ -59,6 +58,7 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const features = yield* FeatureService;
   const crewStore = yield* CrewStore;
+  const inbox = yield* NoticeInbox;
   const queryError = toPersistenceSqlError("MergeNotices.query");
 
   const trackedThreads = (projectId: ProjectId) =>
@@ -118,20 +118,13 @@ const make = Effect.gen(function* () {
       lines.push(`- ${yield* describe(thread)}`);
     }
     const snapshot = link.snapshot;
-    const base = `project-merge:${projectId}:${key}`;
-    yield* engine.dispatch({
-      type: "message.dispatch",
-      commandId: CommandId.make(base),
-      messageId: MessageId.make(`message:${base}`),
+    yield* inbox.post({
       threadId: manager.threadId,
+      key: `project-merge:${projectId}:${key}`,
       text: [
         `Pull request ${link.repository}#${link.number} merged into ${snapshot?.baseBranch ?? "its base branch"}: ${snapshot?.title ?? ""} (${link.url}).`,
         `It carries:\n${lines.join("\n")}`,
       ].join("\n\n"),
-      attachments: [],
-      dispatchMode: { type: "queue_after_active" },
-      createdBy: "agent",
-      creationSource: "server",
     });
     yield* sql`
       INSERT OR IGNORE INTO project_merge_notices (project_id, pull_request_key, notified_at)
