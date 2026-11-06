@@ -1677,18 +1677,15 @@ export const FeatureServiceLive = Layer.effect(
               return Effect.void;
           }
         };
-        // The starting point is read before this returns, so start-up catch-up
-        // (`reconcileChildren`), run after it, scans everything before it; a restart of the
-        // watch resumes from where it stopped, so none slip between.
-        const latest = sql<{ readonly sequence: number }>`
+        // The starting point is read (retrying until it succeeds) before this returns, so
+        // start-up catch-up, run after it, scans everything before it; a restart of the watch
+        // resumes from where it stopped, so none slip between.
+        const [latest] = yield* sql<{ readonly sequence: number }>`
           SELECT COALESCE(MAX(sequence), 0) AS sequence FROM orchestration_events
-        `.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0));
-        const cursor = yield* Ref.make<number | null>(
-          yield* latest.pipe(Effect.orElseSucceed(() => null)),
-        );
+        `.pipe(Effect.retry(Schedule.spaced("1 second")), Effect.orDie);
+        const cursor = yield* Ref.make(latest?.sequence ?? 0);
         const watch = Effect.gen(function* () {
-          const from = (yield* Ref.get(cursor)) ?? (yield* latest);
-          yield* Ref.set(cursor, from);
+          const from = yield* Ref.get(cursor);
           yield* engine
             .streamStoredEventsFrom({ afterSequence: from })
             .pipe(
