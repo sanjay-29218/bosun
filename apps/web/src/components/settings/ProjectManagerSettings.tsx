@@ -75,7 +75,7 @@ function ProjectManagerMember({
       />
     );
   }
-  // A new revision, from a save, a reset or a role edit, starts the form over from it.
+  // A new revision, from a save or a reset, starts the form over from it.
   return (
     <ProjectManagerForm
       key={query.data.revision}
@@ -152,9 +152,9 @@ function ProjectManagerForm({
       "Could not save the project manager",
     );
 
-  const resetToRole = async () => {
+  const resetToDefaults = async () => {
     const confirmed = await requestConfirmDialog(
-      "Reset this project's manager to the Project manager role? Its instructions, model, access and tools here are replaced.",
+      "Reset this project's manager to its defaults? Its instructions go back to the built-in ones, on the model of the bot that owns the project.",
     );
     if (confirmed !== true) return;
     await run(
@@ -178,8 +178,8 @@ function ProjectManagerForm({
       {heading ? <p className="text-sm font-medium">{heading}</p> : null}
       <p className="text-sm text-muted-foreground">
         {settings.customized
-          ? "Customized for this project. Edits to the Project manager role in the Library don't reach it until you reset it."
-          : "Follows the Project manager role in the Library until you save changes here."}
+          ? "Customized for this project."
+          : "Built-in instructions, on the model of the bot that owns this project, until you save changes here."}
       </p>
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-4">
         <EditorField label="Instructions" htmlFor={`project-manager-${member.id}`}>
@@ -257,9 +257,9 @@ function ProjectManagerForm({
             variant="outline"
             size="sm"
             disabled={saving || !canEdit}
-            onClick={() => void resetToRole()}
+            onClick={() => void resetToDefaults()}
           >
-            Reset to role defaults
+            Reset to defaults
           </Button>
         ) : null}
         <Button type="submit" size="sm" disabled={!edited || saving || !canEdit}>

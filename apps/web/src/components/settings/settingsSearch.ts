@@ -1172,7 +1172,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-manager",
     title: "Project manager",
     to: "/settings/projects",
-    searchTerms: ["requests backlog instructions model access tools reset role defaults"],
+    searchTerms: ["requests backlog instructions model access tools reset defaults on off"],
   },
   {
     id: "environment-icon",

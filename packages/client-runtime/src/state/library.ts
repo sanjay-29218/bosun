@@ -1,9 +1,4 @@
-import {
-  PROJECT_MANAGER_ROLE_ID,
-  type EnvironmentId,
-  type RoleConfig,
-  type WorkflowConfig,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type RoleConfig, type WorkflowConfig } from "@t3tools/contracts";
 
 /** Roles and workflows are environment-local, so their ids only mean something with it. */
 const libraryItemKey = (environmentId: EnvironmentId, id: string) => `${environmentId}:${id}`;
@@ -14,17 +9,11 @@ export function roleAvailabilityNote(
   workflows: ReadonlyArray<WorkflowConfig>,
 ): string | null {
   if (!role.enabled) return "Off";
-  // It manages each project from a thread of its own, never inside a workflow.
-  if (role.id === PROJECT_MANAGER_ROLE_ID) return null;
   const used = workflows.some(
     (workflow) => workflow.leadRoleId === role.id || workflow.crewRoleIds.includes(role.id),
   );
   return used ? null : "Not in a workflow";
 }
-
-/** The roles a workflow can name as lead or crew; the Project manager works outside workflows. */
-export const workflowRoles = (roles: ReadonlyArray<RoleConfig>) =>
-  roles.filter((role) => role.id !== PROJECT_MANAGER_ROLE_ID);
 
 export interface EnvironmentLibrary {
   readonly environmentId: EnvironmentId;

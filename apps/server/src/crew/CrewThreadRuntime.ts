@@ -64,6 +64,8 @@ export interface CrewThreadStart {
 
 export interface CrewThreadRuntimeShape {
   readonly projectExists: (projectId: ProjectId) => Effect.Effect<boolean, CrewReadError>;
+  /** The bot that owns the project, null when the project is gone. */
+  readonly projectBotId: (projectId: ProjectId) => Effect.Effect<string | null, CrewReadError>;
   /** Scratch or a bot's home, which never get a Project manager. */
   readonly isHiddenProject: (projectId: ProjectId) => Effect.Effect<boolean>;
   /** The bot's home project, made on first use; its headquarters works there. */
@@ -328,6 +330,14 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           .pipe(
             Effect.map(Option.isSome),
             Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectExists")),
+          ),
+      ),
+      projectBotId: Effect.fn("CrewThreadRuntime.projectBotId")((projectId) =>
+        projects
+          .get(projectId)
+          .pipe(
+            Effect.map(Option.match({ onNone: () => null, onSome: (project) => project.botId })),
+            Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectBotId")),
           ),
       ),
       isHiddenProject: Effect.fn("CrewThreadRuntime.isHiddenProject")((projectId) =>
