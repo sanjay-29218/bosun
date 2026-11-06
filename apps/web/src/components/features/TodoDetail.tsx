@@ -646,47 +646,57 @@ function IssueBody(props: {
     setDraft(shown);
   };
 
-  if (draft !== null) {
-    return (
-      <div
-        className="mt-2 flex flex-col gap-1"
-        onBlur={(event) => {
-          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-          // Leaving keeps the editor open only when the save failed, so nothing typed is lost.
-          void flush(draft).then((ok) => ok && setDraft(null));
-        }}
-      >
-        <InstructionsEditor
-          label="Description"
-          value={draft}
-          onChange={change}
-          placeholder="Add a description…"
-          size="lg"
-          variant="document"
-          autoFocus
-        />
-        <p className="text-xs text-muted-foreground">{saving ? "Saving…" : "Saves as you type"}</p>
-      </div>
-    );
-  }
+  // One element in both modes: removing the focused one would make the sheet pull focus back to
+  // itself, which reads as leaving the editor and closes it as soon as it opens.
+  const editing = draft !== null;
   return (
     <div
-      tabIndex={0}
-      aria-label="Description. Press Enter to edit."
-      className="-mx-2 mt-1 cursor-text rounded-md px-2 py-1 outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      tabIndex={editing ? -1 : 0}
+      aria-label={editing ? undefined : "Description. Press Enter to edit."}
+      className={cn(
+        "-mx-2 mt-1 flex flex-col gap-1 rounded-md px-2 py-1 outline-none",
+        !editing &&
+          "cursor-text hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+      )}
       onClick={(event) => {
+        if (editing) return;
         // Links, buttons and a text selection keep their own clicks.
         if ((event.target as Element).closest("a, button, summary, input, img")) return;
         if (window.getSelection()?.toString()) return;
         startEditing();
       }}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" || event.target !== event.currentTarget) return;
+        if (editing || event.key !== "Enter" || event.target !== event.currentTarget) return;
         event.preventDefault();
         startEditing();
       }}
+      onBlur={(event) => {
+        if (!editing || event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        // The editor can drop focus for a moment while it remounts, so it decides once focus settles.
+        const wrapper = event.currentTarget;
+        setTimeout(() => {
+          if (wrapper.contains(document.activeElement)) return;
+          // Leaving keeps the editor open only when the save failed, so nothing typed is lost.
+          void flush(draft).then((ok) => ok && setDraft(null));
+        }, 0);
+      }}
     >
-      {shown.trim() ? (
+      {editing ? (
+        <>
+          <InstructionsEditor
+            label="Description"
+            value={draft}
+            onChange={change}
+            placeholder="Add a description…"
+            size="lg"
+            variant="document"
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">
+            {saving ? "Saving…" : "Saves as you type"}
+          </p>
+        </>
+      ) : shown.trim() ? (
         props.markdown(shown)
       ) : (
         <p className="text-sm text-muted-foreground">Add a description…</p>
