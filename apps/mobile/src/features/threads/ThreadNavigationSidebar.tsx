@@ -48,8 +48,7 @@ import { useThreadListView } from "../home/use-thread-list-view";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useThreadListV2 } from "./useThreadListV2";
-import { resolveWorkGroupRouteRowKey } from "@t3tools/client-runtime/state/work-groups";
-import { useWorkGroupedThreads } from "./useWorkGroupedThreads";
+import { useChildFeatureExpansion, useWorkGroupedThreads } from "./useWorkGroupedThreads";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
@@ -65,6 +64,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { WORKSPACE_LIST_SCROLL_INSETS } from "../layout/workspace/workspace-list-insets";
 import { WorkspaceSidebarColumn } from "../layout/workspace/WorkspaceSidebarColumn";
 import {
+  ThreadListV2ChildFeatureRow,
   ThreadListV2PendingRow,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
@@ -80,6 +80,7 @@ import {
   threadListV2ListItemsAreEqual,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  withChildFeatureListItems,
   type ThreadListV2ListItem,
 } from "./threadListV2";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
@@ -159,12 +160,11 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
       ),
     [allThreads, botProjectKeys],
   );
-  const { listThreads, workGroups } = useWorkGroupedThreads(threads);
-  // Inside a feature or request, its row stays selected.
-  const selectedRowKey =
-    resolveWorkGroupRouteRowKey(workGroups, props.selectedThreadKey ?? null) ??
-    props.selectedThreadKey ??
-    null;
+  const { listThreads, workGroups } = useWorkGroupedThreads(threads, {
+    nestChildFeatures: props.searchQuery.trim().length === 0,
+  });
+  const childFeatures = useChildFeatureExpansion(workGroups, props.selectedThreadKey ?? null);
+  const { selectedRowKey } = childFeatures;
   const openHeadquarters = useOpenBotHeadquarters(props.onSelectThread);
   const botProjectCount = useMemo(
     () =>
@@ -341,7 +341,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const pendingOrder = usePendingThreadOrder();
   const {
     layout: threadListV2Layout,
-    items: threadListV2Items,
+    items: threadListV2RowItems,
     contentOnlyThreadKeys,
     olderSettledShelf,
   } = useThreadListV2({
@@ -367,6 +367,16 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     settledShelfExpanded,
     selectedThreadKey: selectedRowKey,
   });
+  const threadListV2Items = useMemo(
+    () =>
+      withChildFeatureListItems({
+        items: threadListV2RowItems,
+        workGroups,
+        toggles: childFeatures.toggles,
+        selectedThreadKey: props.selectedThreadKey ?? null,
+      }),
+    [threadListV2RowItems, workGroups, childFeatures.toggles, props.selectedThreadKey],
+  );
   const listItems: readonly SidebarListItem[] =
     settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0
       ? [
@@ -483,12 +493,22 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
           />
         );
       }
+      case "v2-child-feature":
+        return (
+          <ThreadListV2ChildFeatureRow
+            item={item}
+            pane="sidebar"
+            onSelectThread={handleSelectThread}
+          />
+        );
       case "v2-thread": {
         const thread = item.item.thread;
         const scopeKey = scopedProjectKey(thread.environmentId, thread.projectId);
         return (
           <ThreadListV2Row
             onNewThreadOnBranch={props.onNewThreadOnBranch}
+            childFeaturesExpanded={item.childFeaturesExpanded}
+            onToggleChildFeatures={childFeatures.toggle}
             thread={thread}
             workGroup={workGroups.get(`${thread.environmentId}:${thread.id}`)}
             variant={item.item.variant}

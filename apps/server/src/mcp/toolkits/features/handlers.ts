@@ -94,7 +94,7 @@ const make = Effect.gen(function* () {
         readonly baseBranch?: string | undefined;
         readonly requestId?: string | undefined;
         readonly issue?: string | undefined;
-        readonly parentFeatureId?: string | undefined;
+        readonly parentFeatureId?: string | null | undefined;
       }) =>
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.requireThreadScope(
@@ -107,8 +107,8 @@ const make = Effect.gen(function* () {
           if (requestId !== undefined) {
             yield* requireOwnRequest(scope.thread.threadId, input.projectId, requestId);
           }
-          // A feature's own threads start its children; a project's manager may add one to any
-          // feature of its project, such as a follow-up to an Epic.
+          // A feature's own threads start its children unless they ask for none (null); a
+          // project's manager may add one to any feature of its project, such as an Epic's.
           const namedParent = input.parentFeatureId?.trim() || undefined;
           if (namedParent !== undefined) {
             const managed = headquartersProjectId(scope.thread.threadId);
@@ -125,7 +125,8 @@ const make = Effect.gen(function* () {
               return yield* invalid(`This project has no feature ${namedParent}.`);
             }
           }
-          const parentFeatureId = namedParent ?? shell.feature?.id;
+          const parentFeatureId =
+            input.parentFeatureId === null ? undefined : (namedParent ?? shell.feature?.id);
           if (input.projectId === undefined && headquartersBotId(scope.thread.threadId) !== null) {
             return yield* invalid(
               "Pass projectId: your home isn't a project. t3_bot_projects lists your projects.",
@@ -143,8 +144,9 @@ const make = Effect.gen(function* () {
               );
             }
           }
+          const { parentFeatureId: _parent, ...request } = input;
           const { feature, leadThreadId, branch } = yield* features.launch({
-            ...input,
+            ...request,
             requestId,
             projectId:
               input.projectId === undefined ? shell.projectId : ProjectId.make(input.projectId),

@@ -36,6 +36,8 @@ export const ThreadFeatureTag = Schema.Struct({
   member: Schema.optionalKey(Schema.String),
   /** The thread that started the feature, on its lead's tag. */
   requesterThreadId: Schema.optionalKey(ThreadId),
+  /** The feature this one is a child of, so clients can fold it under its parent. */
+  parentFeatureId: Schema.optionalKey(Schema.String),
 });
 export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
 

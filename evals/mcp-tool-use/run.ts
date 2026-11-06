@@ -38,6 +38,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
 import {
   crewRunPrompt,
+  EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
   featureLeadTask,
   BOT_DEFAULT_INSTRUCTIONS,
@@ -317,6 +318,8 @@ export const McpToolUseCase = Schema.Struct({
         title: Schema.String,
         crew: Schema.Array(Schema.String),
         brief: Schema.optional(Schema.String),
+        /** Follows the Epic workflow instead of Feature delivery. */
+        epic: Schema.optional(Schema.Boolean),
       }),
     ),
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
@@ -1058,7 +1061,9 @@ export const buildMessages = (sample: Sample) => {
       instructions: FEATURE_MANAGER_INSTRUCTIONS,
       taskText: featureLeadTask(
         { id: "feature:eval", title: lead.title, brief },
-        { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
+        lead.epic
+          ? { name: "Epic", instructions: EPIC_INSTRUCTIONS }
+          : { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
         lead.crew,
       ),
     });

@@ -86,9 +86,12 @@ const compact = (schema: Json, optional: boolean): Json => {
         : compact(value, false);
   }
   if (Array.isArray(result.anyOf)) {
-    const branches = result.anyOf
+    const flat = result.anyOf
       .flatMap((branch) => (isBareAnyOf(branch) ? branch.anyOf : [branch]))
-      .filter((branch) => !(optional && isNullSchema(branch)) && !isJsonStringSchema(branch));
+      .filter((branch) => !isJsonStringSchema(branch));
+    // An optional property's null is noise beside another type, but alone it is the type.
+    const nonNull = flat.filter((branch) => !isNullSchema(branch));
+    const branches = nonNull.length === 0 ? flat.slice(0, 1) : optional ? nonNull : flat;
     const { anyOf: _anyOf, ...rest } = result;
     const only = branches.length === 1 ? branches[0] : mergeTaggedObjects(branches);
     result = Predicate.isObject(only) ? { ...only, ...rest } : { ...rest, anyOf: branches };

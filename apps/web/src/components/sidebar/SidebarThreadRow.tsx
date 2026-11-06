@@ -3,7 +3,11 @@ import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { featureIssueMeta } from "../crew/FeatureIssue";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { FeatureTag } from "../crew/FeatureTag";
-import { SidebarWorkGroupSummary, type SidebarWorkGroup } from "./SidebarWorkGroup";
+import {
+  SidebarChildFeatureChip,
+  SidebarWorkGroupSummary,
+  type SidebarWorkGroup,
+} from "./SidebarWorkGroup";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -698,6 +702,9 @@ type SidebarThreadRowProps = {
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
   /** The feature or bot request this row stands for. */
   workGroup?: SidebarWorkGroup | null;
+  /** Whether the child features folded under this row are listed below it. */
+  childFeaturesExpanded?: boolean;
+  onToggleChildFeatures?: (rowKey: string) => void;
 };
 
 // Mounted only while renaming, so each rename starts uncommitted.
@@ -1260,11 +1267,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     prBadge === null &&
     diff === null &&
     runningTerminalIds.length === 0;
+  const childFeatureChip = (compact: boolean) =>
+    props.workGroup?.childFeatures?.length && props.onToggleChildFeatures ? (
+      <SidebarChildFeatureChip
+        group={props.workGroup}
+        rowKey={threadKey}
+        expanded={props.childFeaturesExpanded === true}
+        compact={compact}
+        onToggle={props.onToggleChildFeatures}
+      />
+    ) : null;
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {/* A feature or request row leads with where the work is; other threads with their tag. */}
       {props.workGroup ? (
-        <SidebarWorkGroupSummary group={props.workGroup} />
+        <>
+          <SidebarWorkGroupSummary group={props.workGroup} />
+          {childFeatureChip(false)}
+        </>
       ) : thread.feature ? (
         <FeatureTag feature={thread.feature} />
       ) : null}
@@ -1388,6 +1408,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {multiline ? titleLineIcons : null}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}
+              {multiline ? null : childFeatureChip(true)}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
                   Regenerating title

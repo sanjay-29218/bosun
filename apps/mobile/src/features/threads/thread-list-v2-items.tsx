@@ -30,9 +30,14 @@ import { featureIssueRef } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { featureTagColor } from "@t3tools/client-runtime/feature-tag";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
-import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
-import { workGroupOpenThread, type WorkGroup } from "@t3tools/client-runtime/state/work-groups";
+import {
+  childFeatureSummary,
+  waitingWorkGroupEntry,
+  workGroupOpenThread,
+  type WorkGroup,
+} from "@t3tools/client-runtime/state/work-groups";
+import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
@@ -79,6 +84,7 @@ import {
   resolveThreadListV2ProviderDrivers,
   resolveThreadListV2SwipeActions,
   layoutThreadListV2RowMenuActions,
+  type ThreadListV2ChildFeatureListItem,
   type ThreadListV2Status,
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
@@ -635,6 +641,8 @@ function ThreadListV2WorkGroupLine(props: {
   readonly selected: boolean;
   readonly mutedClassName: string;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  readonly childFeaturesExpanded: boolean;
+  readonly onToggleChildFeatures: (() => void) | undefined;
 }) {
   const { group } = props;
   const color = featureTagColor(
@@ -648,8 +656,12 @@ function ThreadListV2WorkGroupLine(props: {
           .join(" → ")
       : group.children.map((entry) => entry.label).join(" → ");
   // The row's own status is its primary thread's; another thread waiting on you shows here.
-  const waiting = group.children.find((entry) => threadNeedsYouKind(entry.thread) !== null);
+  // Listed child features show their own questions.
+  const waiting = waitingWorkGroupEntry(group, props.childFeaturesExpanded ? "own" : "all");
   const threads = [group.primary, ...group.children.map((entry) => entry.thread)];
+  const childSummary = group.childFeatures?.length
+    ? childFeatureSummary(group, isThreadWorking)
+    : null;
   const roster = buildCrewRoster(group);
   return (
     <View className="min-w-0 shrink flex-row items-center gap-1.5">
@@ -678,6 +690,35 @@ function ThreadListV2WorkGroupLine(props: {
           >
             {waiting.label} needs you
           </Text>
+        </Pressable>
+      ) : null}
+      {childSummary && props.onToggleChildFeatures ? (
+        <Pressable
+          className="-m-2 shrink p-2"
+          accessibilityRole="button"
+          accessibilityLabel={`${props.childFeaturesExpanded ? "Hide" : "Show"} ${childSummary.total} ${childSummary.total === 1 ? "child feature" : "child features"} (${childSummary.label})`}
+          accessibilityState={{ expanded: props.childFeaturesExpanded }}
+          onPress={props.onToggleChildFeatures}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
+          <View className="flex-row items-center gap-0.5 rounded-md bg-subtle px-1.5 py-0.5">
+            <SymbolView
+              name={props.childFeaturesExpanded ? "chevron.down" : "chevron.right"}
+              size={9}
+              tintColorClassName={
+                props.selected
+                  ? selectedThreadRowColors.iconTintClassName
+                  : "accent-foreground-muted"
+              }
+              type="monochrome"
+            />
+            <Text
+              className={cn("text-2xs font-t3-medium tabular-nums", props.mutedClassName)}
+              numberOfLines={1}
+            >
+              {childSummary.label}
+            </Text>
+          </View>
         </Pressable>
       ) : null}
       {roster.length > 1 ? (
@@ -716,10 +757,83 @@ function ThreadListV2WorkGroupLine(props: {
   );
 }
 
+/** One child feature listed under its parent's row: its status and title, opening its thread. */
+export const ThreadListV2ChildFeatureRow = memo(function ThreadListV2ChildFeatureRow(props: {
+  readonly item: ThreadListV2ChildFeatureListItem;
+  readonly pane?: "screen" | "sidebar";
+  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+}) {
+  const { item, onSelectThread } = props;
+  const { fontScale } = useWindowDimensions();
+  const titleTypography = useScaledTextRole("body");
+  const theme = useUniwindTheme();
+  const sidebarPane = props.pane === "sidebar";
+  const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, item.selected);
+  const status = STATUS_LABEL_BY_STATUS[resolveThreadListV2Status(item.thread)];
+  // Past the parent's project icon, where its title starts, and one step further.
+  const indent = titleTypography.fontSize * 1.25 * fontScale + 8 + 12;
+  const content = (
+    <View className="min-h-6 flex-row items-center gap-2" style={{ paddingLeft: indent }}>
+      <View style={{ opacity: item.finished && !item.selected ? 0.4 : 1 }}>
+        <SymbolView
+          name={status?.icon ?? "checkmark.circle"}
+          size={13}
+          tintColorClassName={
+            item.selected
+              ? selectedThreadRowColors.iconTintClassName
+              : (status?.iconTintClassName ?? rowAppearance.tertiaryIconTintClassName)
+          }
+          type="monochrome"
+        />
+      </View>
+      <Text
+        className={cn(
+          "min-w-0 flex-1 text-sm",
+          item.selected
+            ? selectedThreadRowColors.foregroundClassName
+            : item.finished
+              ? rowAppearance.mutedForegroundClassName
+              : rowAppearance.foregroundClassName,
+        )}
+        numberOfLines={1}
+      >
+        {item.title}
+      </Text>
+      {status ? (
+        <Text
+          className={cn(
+            "text-xs font-t3-bold",
+            item.selected ? selectedThreadRowColors.foregroundClassName : status.className,
+          )}
+        >
+          {status.label}
+        </Text>
+      ) : null}
+    </View>
+  );
+  return (
+    <RowPressable
+      accessibilityLabel={`${item.title}${status ? `, ${status.label}` : ""}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: item.selected }}
+      className={rowAppearance.className}
+      interactionClassName={rowAppearance.interactionClassName}
+      interactionOpacity={rowAppearance.interactionOpacity}
+      onPress={() => onSelectThread(item.thread)}
+      style={rowAppearance.cardStyle}
+    >
+      {sidebarPane ? content : <View className="px-5 py-1.5">{content}</View>}
+    </RowPressable>
+  );
+});
+
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly thread: EnvironmentThreadShell;
   /** The feature or bot request this row stands for, with its other threads. */
   readonly workGroup?: WorkGroup<EnvironmentThreadShell> | undefined;
+  /** Whether the child features folded under this row are listed below it. */
+  readonly childFeaturesExpanded?: boolean;
+  readonly onToggleChildFeatures?: (thread: EnvironmentThreadShell) => void;
   readonly variant: "card" | "slim";
   readonly hasQueuedMessages?: boolean;
   readonly snoozed?: boolean;
@@ -1366,6 +1480,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 : rowAppearance.mutedForegroundClassName
             }
             onSelectThread={onSelectThread}
+            childFeaturesExpanded={props.childFeaturesExpanded === true}
+            onToggleChildFeatures={
+              props.onToggleChildFeatures ? () => props.onToggleChildFeatures?.(thread) : undefined
+            }
           />
         ) : thread.feature ? (
           /* A feature's threads share its tag, in the same chip as pull request labels. */
