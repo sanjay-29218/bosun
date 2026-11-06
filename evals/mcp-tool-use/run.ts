@@ -308,9 +308,16 @@ export const McpToolUseCase = Schema.Struct({
     harness: Schema.optional(Schema.Literals(["claude", "codex"])),
     /** The Linked environments beta is on, so T3 lists its link tools. */
     linkedEnvironments: Schema.optional(Schema.Boolean),
-    /** A feature lead's feature and crew. T3 opens the lead's thread with the brief, `prompt`. */
+    /**
+     * A feature lead's feature and crew. T3 opens the lead's thread with the brief, `prompt`, or
+     * with `brief` ahead of `priorTurns`; `prompt` then comes later, such as a crew result.
+     */
     featureLead: Schema.optional(
-      Schema.Struct({ title: Schema.String, crew: Schema.Array(Schema.String) }),
+      Schema.Struct({
+        title: Schema.String,
+        crew: Schema.Array(Schema.String),
+        brief: Schema.optional(Schema.String),
+      }),
     ),
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
@@ -1018,7 +1025,11 @@ export const buildMessages = (sample: Sample) => {
   };
   const { role, context, delegateRole, priorTurns = [] } = testCase.setup;
   const sideChat = testCase.setup.sideChat;
-  if (testCase.prompt === "" && (role !== "top" || sideChat !== undefined)) {
+  const leadBrief = role === "feature-lead" ? testCase.setup.featureLead?.brief : undefined;
+  if (
+    testCase.prompt === "" &&
+    !((role === "top" || leadBrief !== undefined) && sideChat === undefined)
+  ) {
     throw new Error(
       `${testCase.id}: Empty-prompt replay requires a top-level thread without side-chat context.`,
     );
@@ -1040,6 +1051,19 @@ export const buildMessages = (sample: Sample) => {
   const reminders = base.reminders.toSpliced(base.gitStatusAt, 0, reminder(gitStatus(testCase)));
   push("user", ...reminders, ...notes.flatMap((note) => (note ? [reminder(note)] : [])));
   const toolSearch = findTool(base, "ToolSearch")?.name ?? "ToolSearch";
+  const leadPrompt = (brief: string) => {
+    const lead = testCase.setup.featureLead;
+    if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
+    return crewRunPrompt({
+      instructions: FEATURE_MANAGER_INSTRUCTIONS,
+      taskText: featureLeadTask(
+        { id: "feature:eval", title: lead.title, brief },
+        { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
+        lead.crew,
+      ),
+    });
+  };
+  if (leadBrief !== undefined) push("user", text(leadPrompt(leadBrief)));
   let nextId = 0;
   for (const turn of priorTurns) {
     const calls = (turn.toolCalls ?? []).map((call) => {
@@ -1079,18 +1103,6 @@ export const buildMessages = (sample: Sample) => {
   const prompt =
     sideChatContext === undefined ? userText : withInlineContext(sideChatContext, userText);
   const childPrompt = () => taskPrompt({ task: prompt, role: delegateRole });
-  const leadPrompt = () => {
-    const lead = testCase.setup.featureLead;
-    if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
-    return crewRunPrompt({
-      instructions: FEATURE_MANAGER_INSTRUCTIONS,
-      taskText: featureLeadTask(
-        { id: "feature:eval", title: lead.title, brief: prompt },
-        { name: "Feature delivery", instructions: FEATURE_DELIVERY_INSTRUCTIONS },
-        lead.crew,
-      ),
-    });
-  };
   // A project's manager thread opens with its task, and each request reaches it as the server
   // posts one: its own message, from the bot's headquarters.
   if (role === "project-manager" && testCase.prompt !== "") {
@@ -1125,8 +1137,8 @@ export const buildMessages = (sample: Sample) => {
       text(
         role === "delegated-child"
           ? childPrompt()
-          : role === "feature-lead"
-            ? leadPrompt()
+          : role === "feature-lead" && leadBrief === undefined
+            ? leadPrompt(prompt)
             : role === "project-manager"
               ? projectRequestText({
                   id: "R-1",

@@ -10,6 +10,7 @@ import {
   CAPTAIN_BOT_ID,
   CommandId,
   EPIC_WORKFLOW_ID,
+  MessageId,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
   PROJECT_MANAGER_ROLE_ID,
@@ -46,6 +47,8 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
+import * as NoticeInbox from "./NoticeInbox.ts";
+import * as FeatureReportReactor from "./FeatureReportReactor.ts";
 import FeatureManagerMigration from "../persistence/Migrations/103_FeatureManager.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
@@ -102,6 +105,8 @@ const withSystem = <E>(
     | TextGeneration.TextGeneration
     | ProjectStore.ProjectStoreV2
     | ServerSettingsService
+    | NoticeInbox.NoticeInbox
+    | ProjectionStore.ProjectionStoreV2
   >,
 ) =>
   Effect.gen(function* () {
@@ -110,6 +115,7 @@ const withSystem = <E>(
     );
     const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
+      Layer.provideMerge(NoticeInbox.layer),
       Layer.provideMerge(FeatureWorkspacesLive),
       Layer.provideMerge(CrewRuntimeLive.pipe(Layer.provide(orchestration))),
       Layer.provideMerge(orchestration),
@@ -712,6 +718,446 @@ describe("feature lead and crew", () => {
         expect(yield* notes()).toContainEqual(
           expect.stringMatching(/^Child feature was interrupted: "web page"/),
         );
+      }),
+    ),
+  );
+
+  effectIt.effect("tells whoever started a feature when a stage ends, at once if it is busy", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const inbox = yield* NoticeInbox.NoticeInbox;
+        const sql = yield* SqlClient.SqlClient;
+        const hq = ThreadId.make("thread:hq");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("hq:create"),
+          threadId: hq,
+          projectId,
+          title: "HQ",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        const launch = (title: string) =>
+          features
+            .launch({
+              projectId,
+              title,
+              brief: `Build ${title}`,
+              workspace: "local",
+              requesterThreadId: hq,
+            })
+            .pipe(
+              Effect.tap((started) =>
+                engine
+                  .streamStoredEventsFrom({
+                    threadId: started.leadThreadId,
+                    eventType: "run.updated",
+                  })
+                  .pipe(
+                    Stream.filter(
+                      (stored) =>
+                        stored.event.type === "run.updated" &&
+                        stored.event.payload.status !== "preparing",
+                    ),
+                    Stream.runHead,
+                  ),
+              ),
+            );
+        const setRun = (threadId: ThreadId, status: string) =>
+          Effect.all([
+            sql`UPDATE orchestration_v2_projection_runs SET status = ${status} WHERE thread_id = ${threadId}`,
+            sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+          ]);
+        const fakeRun = (runId: string, threadId: ThreadId, status: string) => sql`
+          INSERT INTO orchestration_v2_projection_runs
+            (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+          VALUES (${runId}, ${threadId}, 99, 'codex', ${status}, '2026-11-05T00:00:00.000Z', '{}')
+          ON CONFLICT (run_id) DO UPDATE SET status = excluded.status
+        `;
+        const held = sql<{ readonly key: string }>`
+          SELECT key FROM notice_inbox WHERE thread_id = ${hq} AND dropped_at IS NULL
+        `.pipe(Effect.map((rows) => rows.map((row) => row.key)));
+
+        // HQ is busy with a turn of its own.
+        yield* engine.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("hq:ask"),
+          threadId: hq,
+          messageId: MessageId.make("message:hq:ask"),
+          text: "Ship exports and charts",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* setRun(hq, "running");
+        const csv = yield* launch("CSV export");
+        const pdf = yield* launch("PDF export");
+        const charts = yield* launch("Charts");
+
+        // The lead stops while its Builder, a thread it started itself, still works: progress.
+        const builder = ThreadId.make("thread:csv-builder");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("csv-builder:create"),
+          threadId: builder,
+          projectId,
+          title: "Builder",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make("csv-builder:tag"),
+          threadId: builder,
+          feature: { id: csv.feature.id, title: "CSV export", member: "Builder" },
+        });
+        yield* fakeRun("run:builder", builder, "running");
+        for (let stop = 0; stop < 5; stop++) {
+          yield* setRun(csv.leadThreadId, "completed");
+          yield* features.reportIfQuiet(csv.leadThreadId);
+        }
+        expect(yield* held).toEqual([]);
+        // It finishes once, and stopping after that reports nothing more.
+        yield* features.finishForThread(csv.leadThreadId, "CSV export is merged");
+        yield* fakeRun("run:builder", builder, "completed");
+        yield* features.reportIfQuiet(csv.leadThreadId);
+
+        // Leads that stop with nothing left running report how their turn ended.
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* setRun(charts.leadThreadId, "failed");
+        yield* features.reconcileChildren();
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        expect(yield* held).toHaveLength(3);
+        expect(yield* userTexts(hq)).toEqual(["Ship exports and charts"]);
+
+        // HQ's turn ends: one message carries all three.
+        yield* setRun(hq, "completed");
+        yield* inbox.flush(hq);
+        yield* inbox.flush(hq);
+        const [, digest, ...rest] = yield* userTexts(hq);
+        expect(rest).toEqual([]);
+        expect(digest).toMatch(/^3 updates arrived while you were busy:/);
+        expect(digest).toContain(
+          `Feature "CSV export" (lead thread ${csv.leadThreadId}) [finished]:\nCSV export is merged`,
+        );
+        expect(digest).toContain(
+          `Feature "PDF export" (lead thread ${pdf.leadThreadId}) [stopped]`,
+        );
+        expect(digest).toContain(`Feature "Charts" (lead thread ${charts.leadThreadId}) [failed]`);
+        // The board reads only the finish.
+        const reports = (yield* features.board(projectId)).map((card) => [
+          card.title,
+          card.report?.outcome,
+        ]);
+        expect(reports).toEqual(
+          expect.arrayContaining([
+            ["CSV export", "finished"],
+            ["PDF export", undefined],
+            ["Charts", undefined],
+          ]),
+        );
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "catches up on stops since the upgrade and open questions at start-up, in one message",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const features = yield* FeatureService;
+          const engine = yield* OrchestrationEngineService;
+          const sql = yield* SqlClient.SqlClient;
+          const hq = ThreadId.make("thread:hq-upgraded");
+          yield* engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("hq-upgraded:create"),
+            threadId: hq,
+            projectId,
+            title: "HQ",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+          const launch = (title: string) =>
+            features
+              .launch({
+                projectId,
+                title,
+                brief: `Build ${title}`,
+                workspace: "local",
+                requesterThreadId: hq,
+              })
+              .pipe(
+                Effect.tap((started) =>
+                  engine
+                    .streamStoredEventsFrom({
+                      threadId: started.leadThreadId,
+                      eventType: "run.updated",
+                    })
+                    .pipe(
+                      Stream.filter(
+                        (stored) =>
+                          stored.event.type === "run.updated" &&
+                          stored.event.payload.status !== "preparing",
+                      ),
+                      Stream.runHead,
+                    ),
+                ),
+              );
+          const stop = (threadId: ThreadId) =>
+            Effect.all([
+              sql`UPDATE orchestration_v2_projection_runs SET status = 'completed' WHERE thread_id = ${threadId}`,
+              sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+            ]);
+
+          // A lead that stopped before the upgrade, while the old reporter skipped it.
+          const before = yield* launch("Paused export");
+          yield* stop(before.leadThreadId);
+          yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+          // A feature in flight at the upgrade: its lead stopped before it, its Builder after.
+          const inFlight = yield* launch("Charts");
+          const builder = ThreadId.make("thread:charts-builder");
+          yield* engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("charts-builder:create"),
+            threadId: builder,
+            projectId,
+            title: "Builder",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+          yield* engine.dispatch({
+            type: "thread.crew-stage.set",
+            commandId: CommandId.make("charts-builder:tag"),
+            threadId: builder,
+            feature: { id: inFlight.feature.id, title: "Charts", member: "Builder" },
+          });
+          yield* stop(inFlight.leadThreadId);
+          yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+          yield* engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("charts-builder:task"),
+            threadId: builder,
+            messageId: MessageId.make("message:charts-builder:task"),
+            text: "Build the charts",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+          yield* stop(builder);
+          // Two leads that stopped after it, while the server was down.
+          const csv = yield* launch("CSV export");
+          const pdf = yield* launch("PDF export");
+          yield* stop(csv.leadThreadId);
+          yield* stop(pdf.leadThreadId);
+          // And one that asked the person something.
+          const asking = yield* launch("Dark mode");
+          yield* sql`
+            INSERT INTO orchestration_v2_projection_runtime_requests
+              (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json)
+            VALUES ('request:dark', ${asking.leadThreadId}, 'node:dark', 'user_input', 'pending',
+              '1970-01-01T00:00:00.000Z', ${JSON.stringify({
+                id: "request:dark",
+                nodeId: "node:dark",
+                providerTurnId: null,
+                nativeRequestRef: null,
+                kind: "user_input",
+                status: "pending",
+                responseCapability: { type: "message" },
+                createdAt: "1970-01-01T00:00:00.000Z",
+                resolvedAt: null,
+              })})
+          `;
+
+          const catchUp = FeatureReportReactor.catchUpAtStartup().pipe(
+            Effect.provide(FeatureReportReactor.layer),
+          );
+          yield* catchUp;
+          const [digest, ...rest] = yield* userTexts(hq);
+          expect(rest).toEqual([]);
+          expect(digest).toMatch(/^4 updates arrived while you were busy:/);
+          expect(digest).toContain('Feature "CSV export"');
+          expect(digest).toContain('Feature "PDF export"');
+          expect(digest).toContain('Feature "Charts"');
+          expect(digest).toContain('Feature "Dark mode" (lead thread');
+          expect(digest).toContain("is waiting on the person: a question");
+          expect(digest).not.toContain("Paused export");
+
+          // Catching up again reports nothing twice.
+          yield* catchUp;
+          const charts = yield* sql`
+            SELECT key FROM notice_inbox WHERE subject = ${inFlight.feature.id}
+          `;
+          expect(charts).toHaveLength(1);
+        }),
+      ),
+  );
+
+  effectIt.effect("doesn't count a silent /compact after the upgrade as the feature working", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const sql = yield* SqlClient.SqlClient;
+        const hq = ThreadId.make("thread:hq-compacting");
+        const createThread = (threadId: ThreadId, title: string) =>
+          engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`${threadId}:create`),
+            threadId,
+            projectId,
+            title,
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+        yield* createThread(hq, "HQ");
+        const launch = (title: string) =>
+          features
+            .launch({
+              projectId,
+              title,
+              brief: `Build ${title}`,
+              workspace: "local",
+              requesterThreadId: hq,
+            })
+            .pipe(
+              Effect.tap((started) =>
+                engine
+                  .streamStoredEventsFrom({
+                    threadId: started.leadThreadId,
+                    eventType: "run.updated",
+                  })
+                  .pipe(
+                    Stream.filter(
+                      (stored) =>
+                        stored.event.type === "run.updated" &&
+                        stored.event.payload.status !== "preparing",
+                    ),
+                    Stream.runHead,
+                  ),
+              ),
+            );
+        const stop = (threadId: ThreadId) =>
+          Effect.all([
+            sql`UPDATE orchestration_v2_projection_runs SET status = 'completed' WHERE thread_id = ${threadId}`,
+            sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+          ]);
+        const send = (threadId: ThreadId, key: string, text: string, compaction: boolean) =>
+          engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(key),
+            threadId,
+            messageId: MessageId.make(`message:${key}`),
+            text,
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: compaction ? "server" : "mcp",
+            ...(compaction ? { idleCompaction: "beforeCacheExpires" as const } : {}),
+          });
+
+        // Two features whose leads stopped before the upgrade; one has a Builder thread.
+        const csv = yield* launch("CSV export");
+        const pdf = yield* launch("PDF export");
+        const builder = ThreadId.make("thread:pdf-builder");
+        yield* createThread(builder, "Builder");
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make("pdf-builder:tag"),
+          threadId: builder,
+          feature: { id: pdf.feature.id, title: "PDF export", member: "Builder" },
+        });
+        yield* stop(csv.leadThreadId);
+        yield* stop(pdf.leadThreadId);
+        yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+
+        // After it, each only compacts: the lead of one, the Builder of the other.
+        yield* send(csv.leadThreadId, "csv-lead:compact", "/compact", true);
+        yield* stop(csv.leadThreadId);
+        yield* send(builder, "pdf-builder:compact", "/compact", true);
+        yield* stop(builder);
+        yield* features.reconcileChildren();
+        const keys = sql<{ readonly key: string }>`SELECT key FROM notice_inbox`.pipe(
+          Effect.map((rows) => rows.map((row) => row.key)),
+        );
+        expect(yield* keys).toEqual([]);
+
+        // Real work afterwards does count.
+        yield* send(csv.leadThreadId, "csv-lead:resume", "Carry on with the export", false);
+        yield* stop(csv.leadThreadId);
+        yield* features.reconcileChildren();
+        expect(yield* keys).toHaveLength(1);
+      }),
+    ),
+  );
+
+  effectIt.effect("sends a lone notice the orchestrator rejected again under a new command", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const inbox = yield* NoticeInbox.NoticeInbox;
+        const sql = yield* SqlClient.SqlClient;
+        const hq = ThreadId.make("thread:hq-rejecting");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("hq-rejecting:create"),
+          threadId: hq,
+          projectId,
+          title: "HQ",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        // A run the projection can't read makes the thread's commands fail, and they're rejected.
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_runs
+            (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+          VALUES ('run:unreadable', ${hq}, 1, 'codex', 'completed', '2026-11-05T00:00:00.000Z', '{}')
+        `;
+        yield* inbox.post({ threadId: hq, key: "project-merge:web:12", text: "PR #12 merged" });
+        const receipts = yield* sql<{ readonly status: string }>`
+          SELECT status FROM orchestration_command_receipts
+          WHERE command_id LIKE 'notice-digest:%' AND aggregate_id = ${hq}
+        `;
+        expect(receipts.map((receipt) => receipt.status)).toEqual(["rejected"]);
+        expect(yield* userTexts(hq)).toEqual([]);
+
+        yield* sql`DELETE FROM orchestration_v2_projection_runs WHERE run_id = 'run:unreadable'`;
+        yield* inbox.flush(hq);
+        expect(yield* userTexts(hq)).toEqual(["PR #12 merged"]);
       }),
     ),
   );

@@ -18,7 +18,9 @@ time the board opens, **Start a feature** adds the starter roles first.
 
 Most features start from a bot's request: the bot hands it to the project's
 [Project manager](./bots.md#project-managers), which starts a feature when the work needs one,
-links the issue it tracks, and hears from the feature's lead each time it stops. Ask a bot to start
+links the issue it tracks, and hears from the feature's lead when it finishes, needs the person,
+fails or stops with nothing left running, not with each step. Notices that arrive while a thread is
+busy reach it as one message when it is free. Ask a bot to start
 the feature itself, and it does the same as **New feature** without the Project manager.
 
 Attach images or files to the brief to send them to the lead with it.
