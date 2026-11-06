@@ -1,4 +1,4 @@
-import { isWebhookDedupeTemplate } from "@t3tools/contracts";
+import { isWebhookDedupeTemplate, scheduledTaskThreadMode } from "@t3tools/contracts";
 import type {
   ModelSelection,
   ServerConfig,
@@ -6,6 +6,7 @@ import type {
   RuntimeMode,
   ScheduledTask,
   ScheduledTaskUpsertInput,
+  ScheduledTaskThreadMode,
   ScheduledTaskUpsertSchedule,
   ScheduledTaskWebhookSignature,
 } from "@t3tools/contracts";
@@ -207,6 +208,7 @@ export type ScheduledTaskDraft = {
   readonly modelSelection: ModelSelection | null;
   readonly modelSelectionIsExplicit: boolean;
   readonly schedule: ScheduleDraft;
+  readonly threadMode: ScheduledTaskThreadMode;
   readonly workspace: Workspace;
   readonly baseRef: string;
   readonly checkoutPath: string;
@@ -236,6 +238,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.schedule.coalesceKey,
     draft.schedule.coalesceWindowSeconds,
     draft.schedule.filters.map(({ path, op, value }) => [path, op, value]),
+    draft.threadMode,
     draft.workspace,
     draft.baseRef,
     draft.checkoutPath,
@@ -265,6 +268,7 @@ export function createDraft(
     modelSelection,
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
+    threadMode: "new_thread",
     workspace: "worktree",
     baseRef: "main",
     checkoutPath: "",
@@ -284,6 +288,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     modelSelection: task.modelSelection,
     modelSelectionIsExplicit: true,
     schedule: scheduleDraftForTask(task),
+    threadMode: scheduledTaskThreadMode(task),
     workspace: task.workspaceStrategy.type,
     baseRef: task.workspaceStrategy.type === "worktree" ? task.workspaceStrategy.baseRef : "main",
     checkoutPath:

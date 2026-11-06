@@ -12,6 +12,7 @@ import type { CrewWorkspace } from "../crew/CrewStore.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 
+// @effect-diagnostics-next-line extendsNativeError:off - Bosun error predating the Schema.TaggedError rule; migrating its call sites is follow-up work.
 export class FeatureWorkspaceError extends Error {
   readonly _tag = "FeatureWorkspaceError";
 }

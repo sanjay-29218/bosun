@@ -68,6 +68,7 @@ import {
   headquartersTask,
 } from "./crewPrompts.ts";
 
+// @effect-diagnostics-next-line extendsNativeError:off - Bosun error predating the Schema.TaggedError rule; migrating its call sites is follow-up work.
 class CrewValidationError extends Error {
   readonly _tag = "CrewValidationError";
 }

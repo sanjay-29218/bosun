@@ -28,6 +28,7 @@ import { forkParked } from "../serverActivation.ts";
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
 import { projectRequestText } from "./crewPrompts.ts";
 
+// @effect-diagnostics-next-line extendsNativeError:off - Bosun error predating the Schema.TaggedError rule; migrating its call sites is follow-up work.
 class ProjectRequestError extends Error {
   readonly _tag = "ProjectRequestError";
 }
