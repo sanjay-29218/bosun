@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointScopeId,
+  ProjectId,
   RunId,
   ThreadId,
   type OrchestrationV2ThreadShell,
@@ -12,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as IssueRefreshes from "../issues/IssueRefreshes.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
@@ -107,6 +109,7 @@ it.effect.each(
         Layer.mock(PullRequestService.PullRequestService)({
           refreshAfterTurn: () => Effect.void,
         }),
+        IssueRefreshes.layer,
         Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
           refreshLocalStatus: () =>
             Effect.succeed({
@@ -174,6 +177,7 @@ it.effect("returns from the post-turn refresh without waiting for the PR lookup"
               activeRunId: null,
             } as OrchestrationV2ThreadShell),
         }),
+        IssueRefreshes.layer,
       ),
     ),
   );
@@ -229,6 +233,7 @@ it.effect("replaces a still-running PR lookup when a newer turn finishes", () =>
               activeRunId: null,
             } as OrchestrationV2ThreadShell),
         }),
+        IssueRefreshes.layer,
       ),
     ),
   );
@@ -239,5 +244,31 @@ it.effect("replaces a still-running PR lookup when a newer turn finishes", () =>
     yield* Deferred.await(firstInterrupted);
     yield* Deferred.await(secondLookedUp);
     assert.strictEqual(lookups, 2);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("a finished turn re-reads its project's pull requests and issues", () => {
+  const pullRequests: string[] = [];
+  const projectId = ProjectId.make("project-turn");
+  const layer = RunFinalization.layerObserver.pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(
+        Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
+        Layer.mock(PullRequestService.PullRequestService)({
+          refreshAfterTurn: (id) => Effect.sync(() => void pullRequests.push(id)),
+        }),
+        Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+        IssueRefreshes.layer,
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const observer = yield* RunFinalization.RunFinalizationObserver;
+    const issues = yield* IssueRefreshes.IssueRefreshes;
+    yield* observer.refreshAfterTurn(projectId);
+    assert.deepEqual(pullRequests, [projectId]);
+    assert.strictEqual(issues.revision(projectId), 1);
+    assert.strictEqual(issues.revision(ProjectId.make("project-other")), 0);
   }).pipe(Effect.provide(layer));
 });

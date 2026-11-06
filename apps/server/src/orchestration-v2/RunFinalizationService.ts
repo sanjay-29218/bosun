@@ -5,6 +5,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import * as IssueRefreshes from "../issues/IssueRefreshes.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
@@ -98,8 +99,15 @@ export const layerObserver = Layer.effect(
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const pullRequestLookups = yield* FiberMap.make<string>();
+    const issues = yield* IssueRefreshes.IssueRefreshes;
     return {
-      refreshAfterTurn: pullRequests.refreshAfterTurn,
+      // A turn may have filed or closed issues, such as with `gh issue create`.
+      refreshAfterTurn: Effect.fn("RunFinalizationObserver.refreshAfterTurn")(
+        function* (projectId) {
+          yield* pullRequests.refreshAfterTurn(projectId);
+          yield* issues.refresh(projectId);
+        },
+      ),
       refresh: Effect.fn("RunFinalizationService.refresh")(
         function* ({ cwd, threadId, runId }) {
           const [, local] = yield* Effect.all(

@@ -37,7 +37,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   Bot,
   BotCreateInput,
@@ -480,6 +480,8 @@ export const WS_METHODS = {
   issuesGet: "issues.get",
   issuesCreate: "issues.create",
   issuesSetState: "issues.setState",
+  issuesRefresh: "issues.refresh",
+  issuesSubscribeRefreshes: "issues.subscribeRefreshes",
   ticketsList: "tickets.list",
   ticketsCreate: "tickets.create",
   ticketsUpdate: "tickets.update",
@@ -1151,6 +1153,19 @@ const WsIssuesSetStateRpc = Rpc.make(WS_METHODS.issuesSetState, {
   payload: IssueSetStateInput,
   success: RepositoryIssue,
   error: IssueRpcError,
+});
+/** Drops the server's shared read of the project's issues and tells open boards to re-read. */
+const WsIssuesRefreshRpc = Rpc.make(WS_METHODS.issuesRefresh, {
+  payload: IssueListInput,
+  success: Schema.Void,
+  error: EnvironmentAuthorizationError,
+});
+/** Each project whose issues may have changed on its host, such as when a turn ends. */
+const WsIssuesSubscribeRefreshesRpc = Rpc.make(WS_METHODS.issuesSubscribeRefreshes, {
+  payload: Schema.Struct({}),
+  success: ProjectId,
+  error: EnvironmentAuthorizationError,
+  stream: true,
 });
 const TicketRpcError = Schema.Union([TicketOperationError, EnvironmentAuthorizationError]);
 const WsTicketsListRpc = Rpc.make(WS_METHODS.ticketsList, {
@@ -2336,6 +2351,8 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsIssuesGetRpc,
   WsIssuesCreateRpc,
   WsIssuesSetStateRpc,
+  WsIssuesRefreshRpc,
+  WsIssuesSubscribeRefreshesRpc,
   WsTicketsListRpc,
   WsTicketsCreateRpc,
   WsTicketsUpdateRpc,

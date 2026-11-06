@@ -7,8 +7,10 @@ import {
 } from "@t3tools/contracts";
 import type * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -81,7 +83,7 @@ it.effect("says why a project whose host cannot list issues has none", () =>
   ),
 );
 
-it.effect("shares a project's read for a while, and drops failures at once", () => {
+it.effect("shares a project's read for a while, until a refresh or failure", () => {
   let reads = 0;
   const listIssues: SourceControlProvider.SourceControlProvider["Service"]["listIssues"] = (
     input,
@@ -123,6 +125,16 @@ it.effect("shares a project's read for a while, and drops failures at once", () 
     yield* TestClock.adjust("31 seconds");
     yield* issues.list(projectId);
     assert.strictEqual(reads, 3);
+
+    const heard = yield* issues.subscribeRefreshes.pipe(
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* issues.refresh(projectId);
+    assert.deepStrictEqual(yield* Fiber.join(heard), [projectId]);
+    yield* issues.list(projectId);
+    assert.strictEqual(reads, 4);
 
     const missing = yield* Effect.flip(issues.list(ProjectId.make("project:missing")));
     assert.include(missing.reason, "not found");

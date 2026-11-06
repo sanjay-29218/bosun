@@ -38,6 +38,7 @@ import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useThreadActions } from "../../hooks/useThreadActions";
+import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useBotRailProjectKeys } from "../../state/botRail";
@@ -52,7 +53,6 @@ import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { primaryServerKeybindingsAtom } from "../../state/server";
-import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { hasStarterRoles, useAddStarterRoles } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
@@ -627,20 +627,11 @@ export function FeaturesPage(props: {
         layout={layout}
         onLayout={(featureLayout) => updatePreferences({ featureLayout })}
       />
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Refresh issues"
-        title={
-          issueBoard.readAt
-            ? `Issues read from GitHub ${formatRelativeTimeLabel(issueBoard.readAt)}`
-            : "Refresh issues"
-        }
-        disabled={issueBoard.refreshing}
-        onClick={issueBoard.refresh}
-      >
-        <RefreshCwIcon aria-hidden />
-      </Button>
+      <IssueRefreshButton
+        readAt={issueBoard.readAt}
+        refreshing={issueBoard.refreshing}
+        onRefresh={issueBoard.refresh}
+      />
       <Menu>
         <MenuTrigger
           render={
@@ -802,5 +793,37 @@ function StartFirstFeatureButton(props: {
     <Button variant="outline" onClick={() => void start()} disabled={busy}>
       Start a feature
     </Button>
+  );
+}
+
+/** Refresh with how fresh the board is; its own component so the ticking clock repaints only it. */
+function IssueRefreshButton(props: {
+  readAt: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const relative = useRelativeTimeState(props.readAt);
+  const synced =
+    relative.status === "relative"
+      ? `Synced ${relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value}`
+      : null;
+  return (
+    <>
+      {synced ? (
+        <span className="hidden whitespace-nowrap ps-1 text-xs text-muted-foreground tabular-nums md:inline">
+          {synced}
+        </span>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Refresh issues"
+        title={synced ? `Refresh from GitHub · ${synced.toLowerCase()}` : "Refresh from GitHub"}
+        disabled={props.refreshing}
+        onClick={props.onRefresh}
+      >
+        <RefreshCwIcon aria-hidden />
+      </Button>
+    </>
   );
 }

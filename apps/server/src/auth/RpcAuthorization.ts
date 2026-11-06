@@ -44,6 +44,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.featuresBoard]: AuthOrchestrationReadScope,
   [WS_METHODS.issuesList]: AuthOrchestrationReadScope,
   [WS_METHODS.issuesGet]: AuthOrchestrationReadScope,
+  // A forced re-read changes nothing on the host.
+  [WS_METHODS.issuesRefresh]: AuthOrchestrationReadScope,
+  [WS_METHODS.issuesSubscribeRefreshes]: AuthOrchestrationReadScope,
   [WS_METHODS.ticketsList]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresGet]: AuthOrchestrationReadScope,
   [WS_METHODS.featuresSetStatus]: AuthOrchestrationOperateScope,

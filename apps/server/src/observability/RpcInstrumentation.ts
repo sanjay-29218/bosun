@@ -230,6 +230,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.issuesGet]: "features",
   [WS_METHODS.issuesCreate]: "features",
   [WS_METHODS.issuesSetState]: "features",
+  [WS_METHODS.issuesRefresh]: "features",
+  [WS_METHODS.issuesSubscribeRefreshes]: "features",
   [WS_METHODS.ticketsList]: "features",
   [WS_METHODS.ticketsCreate]: "features",
   [WS_METHODS.ticketsUpdate]: "features",

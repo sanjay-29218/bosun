@@ -1,10 +1,15 @@
 import { WS_METHODS, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { AtomRegistry } from "effect/reactivity";
-import type { Atom } from "effect/reactivity";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
+import {
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentRpcSubscriptionAtomFamily,
+} from "./runtime.ts";
 
 interface FeatureTarget {
   readonly environmentId: EnvironmentId;
@@ -44,15 +49,40 @@ export function createFeatureAtoms<R, ER>(
       ? {}
       : { refreshTrigger: options.boardRefreshTrigger }),
   });
+  /** How many times the server has said each project's issues may have changed. */
+  const issueRefreshes = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+    label: "environment-data:issues:refreshes",
+    tag: WS_METHODS.issuesSubscribeRefreshes,
+    transform: (stream) =>
+      stream.pipe(
+        Stream.scan(
+          () => new Map<ProjectId, number>(),
+          (revisions, projectId) =>
+            new Map(revisions).set(projectId, (revisions.get(projectId) ?? 0) + 1),
+        ),
+      ),
+  });
+  // Per project, so a refresh of one project re-reads only its own issues.
+  const issueRefreshSignal = Atom.family((key: string) => {
+    const [environmentId, projectId] = JSON.parse(key) as [EnvironmentId, ProjectId];
+    return Atom.make((get) =>
+      Option.match(AsyncResult.value(get(issueRefreshes({ environmentId, input: {} }))), {
+        onNone: () => 0,
+        onSome: (revisions) => revisions.get(projectId) ?? 0,
+      }),
+    ).pipe(Atom.withLabel(`environment-data:issues:refresh-signal:${key}`));
+  });
   /**
    * One project's repository issues and milestones. The server shares each read for half a
-   * minute, so this only needs to be as fresh as that.
+   * minute, and says when a project's issues may have changed, such as when a turn ends there.
    */
   const issues = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:issues:list",
     tag: WS_METHODS.issuesList,
     staleTimeMs: 30_000,
     idleTtlMs: 5 * 60_000,
+    refreshTrigger: ({ environmentId, input }) =>
+      issueRefreshSignal(JSON.stringify([environmentId, input.projectId])),
   });
   /** One project's Bosun tickets. Writes refresh it, so it only needs the board's pace. */
   const tickets = createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -119,6 +149,11 @@ export function createFeatureAtoms<R, ER>(
     issues,
     tickets,
     issueDetail,
+    /** Reads the project's issues from the host again; open boards re-read when it lands. */
+    refreshIssues: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:issues:refresh",
+      tag: WS_METHODS.issuesRefresh,
+    }),
     createIssue: todoCommand(WS_METHODS.issuesCreate),
     setIssueState: todoCommand(WS_METHODS.issuesSetState),
     createTicket: todoCommand(WS_METHODS.ticketsCreate),
