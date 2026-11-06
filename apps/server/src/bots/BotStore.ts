@@ -34,12 +34,13 @@ export class BotStore extends Context.Service<
       expectedRevision: number,
     ) => Effect.Effect<boolean, PersistenceSqlError>;
     /**
-     * Marks the bot deleted unless an active project still belongs to it. Call it inside
-     * `withOwnership`, like every change that gives a project to a bot.
+     * Marks the bot deleted unless an active project other than its home still belongs to it.
+     * Call it inside `withOwnership`, like every change that gives a project to a bot.
      */
     readonly deleteUnlessOwning: (
       id: string,
       deletedAt: string,
+      homeWorkspaceRoot: string | null,
     ) => Effect.Effect<DeleteBotResult, PersistenceSqlError>;
     /** Writes rail positions in the given order. */
     readonly setPositions: (
@@ -55,10 +56,6 @@ export class BotStore extends Context.Service<
     readonly idTaken: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
     /** The bot that owns an active project, or null for a missing project. */
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
-    /** The oldest active project the bot owns, or null when it owns none. */
-    readonly firstOwnedProject: (
-      botId: string,
-    ) => Effect.Effect<string | null, PersistenceSqlError>;
   }
 >()("t3/bots/BotStore") {}
 
@@ -121,23 +118,26 @@ const make = Effect.gen(function* () {
         Effect.mapError(queryError),
       );
     }),
-    deleteUnlessOwning: Effect.fn("BotStore.deleteUnlessOwning")((id, deletedAt) =>
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const deleted = yield* sql<{ readonly id: string }>`
+    deleteUnlessOwning: Effect.fn("BotStore.deleteUnlessOwning")(
+      (id, deletedAt, homeWorkspaceRoot) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const deleted = yield* sql<{ readonly id: string }>`
               UPDATE bots SET deleted_at = ${deletedAt}
               WHERE id = ${id} AND deleted_at IS NULL AND NOT EXISTS (
                 SELECT 1 FROM projection_projects WHERE bot_id = ${id} AND deleted_at IS NULL
+                  AND workspace_root IS NOT ${homeWorkspaceRoot}
               )
               RETURNING id
             `;
-            if (deleted.length > 0) return "deleted" as const;
-            const existing = yield* sql`SELECT 1 FROM bots WHERE id = ${id} AND deleted_at IS NULL`;
-            return existing.length > 0 ? ("owns-projects" as const) : ("missing" as const);
-          }),
-        )
-        .pipe(Effect.mapError(queryError)),
+              if (deleted.length > 0) return "deleted" as const;
+              const existing =
+                yield* sql`SELECT 1 FROM bots WHERE id = ${id} AND deleted_at IS NULL`;
+              return existing.length > 0 ? ("owns-projects" as const) : ("missing" as const);
+            }),
+          )
+          .pipe(Effect.mapError(queryError)),
     ),
     setPositions: Effect.fn("BotStore.setPositions")((botIds, updatedAt) =>
       sql
@@ -164,16 +164,6 @@ const make = Effect.gen(function* () {
         WHERE project_id = ${projectId} AND deleted_at IS NULL
       `.pipe(
         Effect.map((rows) => rows[0]?.botId ?? null),
-        Effect.mapError(queryError),
-      ),
-    ),
-    firstOwnedProject: Effect.fn("BotStore.firstOwnedProject")((botId) =>
-      sql<{ readonly projectId: string }>`
-        SELECT project_id AS "projectId" FROM projection_projects
-        WHERE bot_id = ${botId} AND deleted_at IS NULL
-        ORDER BY created_at, project_id LIMIT 1
-      `.pipe(
-        Effect.map((rows) => rows[0]?.projectId ?? null),
         Effect.mapError(queryError),
       ),
     ),

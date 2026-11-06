@@ -1,6 +1,7 @@
 import {
   CAPTAIN_BOT_ID,
   CommandId,
+  headquartersBotId,
   type OrchestrationProjectShell,
   ProjectId,
   type Project,
@@ -86,6 +87,16 @@ export class ProjectNotEmptyError extends Schema.TaggedError<ProjectNotEmptyErro
   }
 }
 
+/** A bot's headquarters thread can't be made again once deleted, so its project stays. */
+export class ProjectHoldsHeadquartersError extends Schema.TaggedError<ProjectHoldsHeadquartersError>()(
+  "ProjectHoldsHeadquartersError",
+  { projectId: ProjectId, projectTitle: Schema.String, botName: Schema.String },
+) {
+  override get message(): string {
+    return `${this.projectTitle} holds ${this.botName}'s headquarters; it can't be deleted.`;
+  }
+}
+
 /** A project was given to a bot that does not exist. */
 export class ProjectBotNotFoundError extends Schema.TaggedError<ProjectBotNotFoundError>()(
   "ProjectBotNotFoundError",
@@ -123,6 +134,7 @@ export type ProjectServiceError =
   | ProjectConflictError
   | ProjectNotEmptyError
   | ProjectBotNotFoundError
+  | ProjectHoldsHeadquartersError
   | ProjectOperationError;
 
 export class ProjectService extends Context.Service<
@@ -527,6 +539,7 @@ export const make = Effect.gen(function* () {
 
   const deleteChildThreads = Effect.fn("ProjectService.deleteChildThreads")(function* (
     input: ProjectDeleteInput,
+    projectTitle: string,
   ) {
     const { projectId } = input;
     const snapshot = yield* threadProjections
@@ -537,6 +550,16 @@ export const make = Effect.gen(function* () {
         ),
       );
     const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads];
+    const headquarters = projectThreads.find((thread) => headquartersBotId(thread.id) !== null);
+    if (headquarters !== undefined) {
+      const botId = headquartersBotId(headquarters.id)!;
+      const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null));
+      return yield* new ProjectHoldsHeadquartersError({
+        projectId,
+        projectTitle,
+        botName: bot?.name ?? botId,
+      });
+    }
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });
     }
@@ -579,7 +602,7 @@ export const make = Effect.gen(function* () {
 
       const isFirstDelete = existing.value.deletedAt === null;
       if (isFirstDelete) {
-        yield* deleteChildThreads(input);
+        yield* deleteChildThreads(input, existing.value.title);
       }
       yield* commit({ type: "project.delete", commandId: input.commandId, projectId });
       if (isFirstDelete) {

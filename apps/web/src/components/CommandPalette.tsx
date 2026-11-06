@@ -153,6 +153,7 @@ import {
   useAnyEnvironmentHiding,
   useHiddenThreadKeys,
   useEnvironmentThreadRefs,
+  useProject,
   useProjects,
   useServerConfigs,
   useVisibleThreadShells,
@@ -757,6 +758,14 @@ function OpenCommandPaletteDialog(props: {
   const canOpenProjectManager = useAtomValue(
     rolesEnvironment.openProjectManager.permissionAtom(currentProjectEnvironmentId),
   );
+  const currentProjectEntity = useProject(
+    currentProjectEnvironmentId && currentProjectId
+      ? scopeProjectRef(currentProjectEnvironmentId, currentProjectId)
+      : null,
+  );
+  // Scratch and bots' homes are plain folders with no features or Project manager.
+  const currentProjectHidden =
+    currentProjectEntity?.isScratch === true || currentProjectEntity?.isBotHome === true;
   const currentProjectCwdForBrowse =
     browseEnvironmentId && currentProjectEnvironmentId === browseEnvironmentId
       ? currentProjectCwd
@@ -1484,7 +1493,12 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (currentProjectRunsFeatures && currentProjectEnvironmentId && currentProjectId) {
+  if (
+    currentProjectRunsFeatures &&
+    currentProjectEnvironmentId &&
+    currentProjectId &&
+    !currentProjectHidden
+  ) {
     const projectRef = scopeProjectRef(currentProjectEnvironmentId, currentProjectId);
     actionItems.push({
       kind: "action",

@@ -11,13 +11,15 @@ import { AppText as Text } from "../../components/ui/AppText";
 import * as Dialog from "../../components/ui/Dialog";
 import { Menu } from "../../components/ui/Menu";
 import { BotAvatar } from "../../components/BotAvatar";
+import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { botsEnvironment } from "../../state/bots";
+import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 /**
  * The active bot at the top of the thread list, as on web. Tapping it opens the bot's
  * headquarters, which the list leaves out. A dot shows while that thread works or waits on you.
- * A long press starts that thread over in a new session.
+ * A long press starts that thread over in a new session, or copies the bot's home folder path.
  */
 export const BotHeaderRow = memo(function BotHeaderRow(props: {
   readonly bot: LogicalBot;
@@ -40,6 +42,14 @@ export const BotHeaderRow = memo(function BotHeaderRow(props: {
   const member = bot.members.find(
     (candidate) => candidate.environmentId === headquarters?.environmentId,
   );
+  const homeMember = member ?? bot.members[0];
+  const homeBots = useEnvironmentQuery(
+    homeMember
+      ? botsEnvironment.list({ environmentId: homeMember.environmentId, input: {} })
+      : null,
+  ).data;
+  const homePath =
+    homeBots?.find((candidate) => candidate.id === homeMember?.botId)?.homePath ?? null;
   const confirmNewSession = () => {
     if (!member) return;
     Dialog.confirm({
@@ -72,9 +82,22 @@ export const BotHeaderRow = memo(function BotHeaderRow(props: {
           image: "arrow.clockwise",
           attributes: { disabled: !member || working || waiting },
         },
+        ...(homePath === null
+          ? []
+          : [
+              {
+                id: "copy-home",
+                title: "Copy home folder",
+                subtitle: homePath,
+                image: "doc.on.doc",
+              },
+            ]),
       ]}
       onPressAction={({ nativeEvent }) => {
         if (nativeEvent.event === "new-session") confirmNewSession();
+        if (nativeEvent.event === "copy-home" && homePath !== null) {
+          copyTextWithHaptic(homePath, { target: "home folder path" });
+        }
       }}
       shouldOpenOnLongPress
     >

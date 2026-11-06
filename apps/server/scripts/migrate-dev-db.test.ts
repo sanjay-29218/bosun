@@ -32,6 +32,7 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         (project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at)
         VALUES
         ('project-kept', 'Kept', '/tmp/kept', '[]', '2026-08-01', '2026-08-01', NULL),
+        ('project-home', 'Captain', ${path.join(baseDir, "bots", "bot-captain")}, '[]', '2026-08-01', '2026-08-06', NULL),
         ('project-deleted', 'Deleted', '/tmp/deleted', '[]', '2026-08-01', '2026-08-02', '2026-08-02')`;
 
       const forkPayload =
@@ -66,6 +67,7 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ["subagent-parent", "project-kept", "completed", "{}", "2026-08-05"],
         ["subagent-child", "project-kept", "completed", subagentPayload, "2026-08-05"],
         ["deleted-project-thread", "project-deleted", "completed", "{}", "2026-08-05"],
+        ["home-thread", "project-home", "completed", "{}", "2026-08-06"],
       ] as const;
       for (const [threadId, projectId, runStatus, payload, updatedAt] of threads) {
         yield* sql`INSERT INTO orchestration_v2_projection_threads
@@ -155,7 +157,9 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers,
               (SELECT COUNT(*) FROM peer_environment_links) AS links`;
           const features = yield* sql<{ id: string }>`SELECT id FROM features`;
-          return { threads, events, sessions, leftovers, features };
+          const projects = yield* sql<{ project_id: string }>`
+            SELECT project_id FROM projection_projects ORDER BY project_id`;
+          return { threads, events, sessions, leftovers, features, projects };
         }),
       );
       assert.deepStrictEqual(
@@ -170,6 +174,11 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         kept.features.map((row) => row.id),
         ["feature-kept"],
       );
+      // A bot's home is a folder of that install; the worktree makes its own on first use.
+      assert.deepStrictEqual(
+        kept.projects.map((row) => row.project_id),
+        ["project-kept"],
+      );
       assert.deepStrictEqual(
         kept.sessions.map((row) => row.provider_session_id),
         ["session-shared"],
@@ -181,6 +190,50 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         transfers: 0,
         links: 0,
       });
+    }),
+  );
+
+  it.effect("leaves bots' homes out of a snapshot copied somewhere else", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-src-" });
+      const backupDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-backup-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      const backup = path.join(backupDir, "bosun-backup.sqlite");
+      yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`INSERT INTO projection_projects
+            (project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at)
+            VALUES ('project-repo', 'Repo', '/tmp/github/bot-captain', '[]', '2026-08-01', '2026-08-06', NULL)`;
+          yield* sql`INSERT INTO orchestration_v2_projection_threads
+            (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+            VALUES ('repo-thread', 'project-repo', 'repo-thread', 'codex', 'full-access', 'default', '2026-08-01', '2026-08-06', '{}')`;
+          yield* sql`VACUUM INTO ${backup}`;
+        }),
+      );
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source: backup, projects: 5, threadsPerProject: 2 },
+        { sharedHome: sourceDir },
+      );
+
+      const projects = yield* withDatabase(
+        result.databasePath,
+        SqlClient.SqlClient.pipe(
+          Effect.flatMap(
+            (sql) => sql<{ project_id: string }>`
+              SELECT project_id FROM projection_projects ORDER BY project_id`,
+          ),
+        ),
+      );
+      assert.deepStrictEqual(
+        projects.map((row) => row.project_id),
+        ["project-kept", "project-repo"],
+      );
     }),
   );
 

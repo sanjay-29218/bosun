@@ -1,7 +1,13 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, ProjectId, ThreadId, VcsProcessSpawnError } from "@t3tools/contracts";
+import {
+  CAPTAIN_BOT_ID,
+  CommandId,
+  ProjectId,
+  ThreadId,
+  VcsProcessSpawnError,
+} from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -12,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Scope from "effect/Scope";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as GitManager from "../git/GitManager.ts";
@@ -89,6 +96,7 @@ const withScratch = <A, E>(
     E,
     | ManagedProjectFolders.ManagedProjectFolders
     | ProjectService.ProjectService
+    | SqlClient.SqlClient
     | NodeServices.NodeServices
     | Scope.Scope
   >,
@@ -126,6 +134,9 @@ it.effect("keeps Scratch outside the Git checkout the data dir sits in", () =>
         fileSystem.remove(root, { recursive: true }).pipe(Effect.ignore),
       );
       assert.isTrue(path.relative(checkout, root).startsWith(".."));
+      const botsRoot = Option.getOrThrow(yield* scratch.botHomesRoot);
+      assert.isTrue(path.relative(checkout, botsRoot).startsWith(".."));
+      assert.notEqual(botsRoot, root);
       const { projectId } = yield* scratch.ensureScratchProject;
       assert.isTrue(yield* scratch.isScratchProject(projectId));
       assert.isTrue(yield* fileSystem.exists(root));
@@ -186,6 +197,116 @@ it.effect("creates one Scratch project, even for concurrent first requests", () 
         name: "message-square-dashed",
         color: "gray",
       });
+    }),
+  ),
+);
+
+const insertBot = (id: string, name: string) =>
+  SqlClient.SqlClient.pipe(
+    Effect.flatMap(
+      (sql) => sql`
+        INSERT INTO bots (
+          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+          model_selection_json, position, revision, created_at, updated_at
+        ) VALUES (
+          ${id}, ${name},
+          '{"head":"round","eyes":"round","face":"visor","top":"ball","cheeks":false,"smile":false}',
+          'blue', 'Coordinate.', '[]', 'approval-required', NULL, 1, 1, '2026-11-05', '2026-11-05'
+        )
+      `,
+    ),
+  );
+
+it.effect("gives each bot one home, even for concurrent first requests, apart from Scratch", () =>
+  withScratch(({ baseDir }) =>
+    Effect.gen(function* () {
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      const projects = yield* ProjectService.ProjectService;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* insertBot("bot:nepse", "NEPSE Desk");
+      const root = Option.getOrThrow(yield* folders.botHomesRoot);
+      assert.equal(root, path.resolve(baseDir, "bots"));
+
+      const racers = yield* Effect.all(
+        Array.from({ length: 8 }, () => folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" })),
+        { concurrency: "unbounded" },
+      );
+      const again = yield* folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" });
+      assert.deepEqual(new Set(racers.map((home) => home.projectId)), new Set([again.projectId]));
+      assert.equal(path.dirname(again.workspaceRoot), root);
+      assert.match(path.basename(again.workspaceRoot), /^bot-nepse@[0-9a-f]{16}$/);
+      assert.equal(Option.getOrThrow(yield* folders.botHomePath("bot:nepse")), again.workspaceRoot);
+      assert.isTrue(yield* fileSystem.exists(again.workspaceRoot));
+      // A plain folder: no checkpoints or worktrees.
+      assert.isFalse(yield* fileSystem.exists(path.join(again.workspaceRoot, ".git")));
+      // A folder removed on disk comes back for the same home.
+      yield* fileSystem.remove(again.workspaceRoot, { recursive: true });
+      assert.equal(
+        (yield* folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" })).projectId,
+        again.projectId,
+      );
+      assert.isTrue(yield* fileSystem.exists(again.workspaceRoot));
+      const project = Option.getOrThrow(yield* projects.getById(again.projectId));
+      assert.equal(project.botId, "bot:nepse");
+      assert.deepEqual(project.projectIcon, { kind: "lucide", name: "bot", color: "gray" });
+
+      const captain = yield* folders.ensureBotHome({ id: CAPTAIN_BOT_ID, name: "Captain" });
+      assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_BOT_ID));
+      // An ID that is already a plain folder name never shares a home with an encoded one.
+      yield* insertBot("bot-nepse-06258b94", "Lookalike");
+      const lookalike = yield* folders.ensureBotHome({
+        id: "bot-nepse-06258b94",
+        name: "Lookalike",
+      });
+      assert.equal(lookalike.workspaceRoot, path.join(root, "bot-nepse-06258b94"));
+      assert.notEqual(lookalike.workspaceRoot, again.workspaceRoot);
+      assert.notEqual(lookalike.projectId, again.projectId);
+      // Folder names that a case-insensitive or Windows filesystem would merge or refuse get a
+      // hash too.
+      const homeOf = (id: string) =>
+        insertBot(id, id).pipe(Effect.andThen(folders.ensureBotHome({ id, name: id })));
+      const lower = yield* homeOf("bot-nepse");
+      assert.equal(lower.workspaceRoot, path.join(root, "bot-nepse"));
+      for (const id of ["BOT-NEPSE", "CON", "nul", "bot.", "bot. "]) {
+        const home = yield* homeOf(id);
+        assert.match(path.basename(home.workspaceRoot), /@[0-9a-f]{16}$/, id);
+        assert.notEqual(home.workspaceRoot.toLowerCase(), lower.workspaceRoot.toLowerCase());
+      }
+      // A project another bot owns at a bot's home path is never taken over.
+      yield* insertBot("bot-squatted", "Squatted");
+      const squattedRoot = path.join(root, "bot-squatted");
+      yield* fileSystem.makeDirectory(squattedRoot, { recursive: true });
+      yield* projects.create({
+        commandId: CommandId.make("squatter"),
+        projectId: ProjectId.make("squatter"),
+        title: "Squatter",
+        workspaceRoot: squattedRoot,
+      });
+      const refused = yield* folders
+        .ensureBotHome({ id: "bot-squatted", name: "Squatted" })
+        .pipe(Effect.flip);
+      assert.equal(refused._tag, "BotHomeError");
+      const scratch = yield* folders.ensureScratchProject;
+      const plain = yield* projects.create({
+        commandId: CommandId.make("plain-project"),
+        projectId: ProjectId.make("plain-project"),
+        title: "Plain",
+        workspaceRoot: baseDir,
+      });
+      assert.deepEqual(
+        yield* Effect.forEach(
+          [again.projectId, captain.projectId, scratch.projectId, plain.id],
+          (projectId) =>
+            Effect.all([folders.isBotHome(projectId), folders.isHiddenProject(projectId)]),
+        ),
+        [
+          [true, true],
+          [true, true],
+          [false, true],
+          [false, false],
+        ],
+      );
     }),
   ),
 );

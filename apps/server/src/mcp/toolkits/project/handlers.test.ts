@@ -626,26 +626,35 @@ it.effect("deleting a project through MCP also discards its clone record", () =>
   Effect.gen(function* () {
     const discarded: Array<ProjectId> = [];
     const harness = clientLaunchHarness({ runtimeModeCeiling: "full-access", launched: [] });
+    const home = ProjectId.make("project:captain-home");
     const dependencies = Layer.merge(
       harness.dependencies,
       Layer.mergeAll(
         Layer.mock(Project.ProjectService)({
           delete: (input) =>
-            Effect.succeed({
-              id: input.projectId,
-              title: "client-target",
-              workspaceRoot: "/projects/client-target",
-              repositoryIdentity: null,
-              faviconPath: null,
-              defaultModelSelection: null,
-              defaultThreadEnvMode: null,
-              autoPull: false,
-              projectIcon: null,
-              scripts: [],
-              createdAt: "2026-01-01T00:00:00.000Z",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              deletedAt: "2026-01-01T00:00:00.000Z",
-            }),
+            input.projectId === home
+              ? Effect.fail(
+                  new Project.ProjectHoldsHeadquartersError({
+                    projectId: home,
+                    projectTitle: "Captain",
+                    botName: "Captain",
+                  }),
+                )
+              : Effect.succeed({
+                  id: input.projectId,
+                  title: "client-target",
+                  workspaceRoot: "/projects/client-target",
+                  repositoryIdentity: null,
+                  faviconPath: null,
+                  defaultModelSelection: null,
+                  defaultThreadEnvMode: null,
+                  autoPull: false,
+                  projectIcon: null,
+                  scripts: [],
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  deletedAt: "2026-01-01T00:00:00.000Z",
+                }),
         }),
         Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({
           discard: (projectId) => Effect.sync(() => void discarded.push(projectId)),
@@ -662,6 +671,16 @@ it.effect("deleting a project through MCP also discards its clone record", () =>
       .handle("t3_project_delete", { projectId: harness.projectId })
       .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
 
+    expect(discarded).toEqual([harness.projectId]);
+
+    // A bot's headquarters keeps its project, even with force, and says why.
+    const refused = yield* toolkit
+      .handle("t3_project_delete", { projectId: home, force: true })
+      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+    expect(refused.at(-1)?.result).toMatchObject({
+      code: "invalid_request",
+      message: "Captain holds Captain's headquarters; it can't be deleted.",
+    });
     expect(discarded).toEqual([harness.projectId]);
   }),
 );

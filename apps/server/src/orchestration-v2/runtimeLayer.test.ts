@@ -335,6 +335,7 @@ const layerScheduledTasksTest = ScheduledTaskService.layer.pipe(
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
         isScratchProject: () => Effect.succeed(false),
+        isHiddenProject: () => Effect.succeed(false),
       }),
       Scheduler.layer,
     ),
@@ -7132,6 +7133,7 @@ const layerScratchPromotionTest = ScratchThreadPromotion.layer.pipe(
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       scratchRoot: Effect.succeedSome(SCRATCH_ROOT),
       isScratchProject: (projectId) => Effect.succeed(projectId === SCRATCH_PROJECT_ID),
+      isHiddenProject: (projectId) => Effect.succeed(projectId === SCRATCH_PROJECT_ID),
       namedProjectsRoot: "/projects",
     }),
   ),
@@ -7505,6 +7507,98 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       assert.isNull(moved?.worktreePath);
       const stayed = shell.threads.find((thread) => thread.id === busyThreadId);
       assert.equal(stayed?.projectId, scratchProjectId);
+    }),
+  );
+
+  it.effect("moves a root thread into another project once", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const fromProjectId = ProjectId.make("runtime-layer-move-from");
+      const homeProjectId = ProjectId.make("runtime-layer-move-home");
+      for (const projectId of [fromProjectId, homeProjectId]) {
+        yield* projects.create({
+          commandId: CommandId.make(`${projectId}-create`),
+          projectId,
+          title: projectId,
+          workspaceRoot: `/tmp/${projectId}`,
+        });
+      }
+      const createThread = (threadId: ThreadId, worktreePath: string | null) =>
+        orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`${threadId}-create`),
+          threadId,
+          projectId: fromProjectId,
+          title: "Headquarters",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath,
+        });
+      const move = (threadId: ThreadId, projectId: ProjectId, suffix: string) =>
+        orchestrator.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`${threadId}-move-${suffix}`),
+          threadId,
+          projectId,
+        });
+      const rootThreadId = ThreadId.make("runtime-layer-move-root");
+      const worktreeThreadId = ThreadId.make("runtime-layer-move-worktree");
+      yield* createThread(rootThreadId, null);
+      yield* createThread(worktreeThreadId, "/tmp/runtime-layer-move-from/feature");
+
+      const missing = yield* move(rootThreadId, ProjectId.make("missing"), "missing").pipe(
+        Effect.flip,
+      );
+      assert.equal(missing.cause, `Thread ${rootThreadId} cannot move to missing project missing.`);
+      const worktree = yield* move(worktreeThreadId, homeProjectId, "worktree").pipe(Effect.flip);
+      assert.equal(
+        worktree.cause,
+        `Thread ${worktreeThreadId} works in a worktree or on a branch, so it can't move.`,
+      );
+
+      // A thread at work is refused, and the refusal doesn't hold up a later attempt.
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-layer-move-busy-message"),
+        threadId: rootThreadId,
+        messageId: MessageId.make("runtime-layer-move-busy-message"),
+        text: "Keep this run active.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+      const busy = yield* move(rootThreadId, homeProjectId, "busy").pipe(Effect.flip);
+      assert.equal(
+        busy.cause,
+        `Thread ${rootThreadId} still has work in progress. Finish or stop it first.`,
+      );
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'completed',
+        payload_json = json_set(payload_json, '$.status', 'completed')
+        WHERE thread_id = ${rootThreadId}`;
+
+      // The move and the end of its provider conversation are one decision.
+      const moved = yield* move(rootThreadId, homeProjectId, "home");
+      assert.deepEqual(
+        moved.storedEvents.map((stored) => stored.event.type),
+        ["thread.metadata-updated", "provider-thread.updated", "thread.provider-switched"],
+      );
+      const records = yield* orchestrator.getThreadRecords(rootThreadId, ["providerThreads"]);
+      assert.isNull(records.thread.activeProviderThreadId);
+      assert.isTrue(records.providerThreads.every((thread) => thread.status === "archived"));
+      assert.lengthOf((yield* move(rootThreadId, homeProjectId, "again")).storedEvents, 0);
+      const shell = yield* orchestrator.getShellSnapshot();
+      assert.equal(
+        shell.threads.find((thread) => thread.id === rootThreadId)?.projectId,
+        homeProjectId,
+      );
     }),
   );
 });

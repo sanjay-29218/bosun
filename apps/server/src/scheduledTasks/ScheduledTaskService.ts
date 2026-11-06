@@ -278,6 +278,12 @@ export class ScheduledTaskService extends Context.Service<
     readonly deleteForThread: (threadId: ThreadId) => Effect.Effect<void, ScheduledTaskError>;
     /** Deletes the tasks that run as this bot, for when the bot is deleted. */
     readonly deleteForBot: (botId: string) => Effect.Effect<void, ScheduledTaskError>;
+    /** Files every bot task in its bot's home, as after an upgrade from tasks filed elsewhere. */
+    readonly rehomeBotTasks: () => Effect.Effect<void, ScheduledTaskError>;
+    /** The model a bot's runs use, or null before one is chosen. */
+    readonly botModelSelection: (
+      botId: string,
+    ) => Effect.Effect<ScheduledTask["modelSelection"] | null, ScheduledTaskError>;
     /**
      * Lets bot tasks open their bot's headquarters (creating or restoring it) for the scope.
      * The crew is built on the orchestration runtime that owns this service, so it connects
@@ -540,23 +546,22 @@ export const layer = Layer.effect(
         Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
       );
 
-    /** Files a new bot task where its headquarters lives: Scratch, else the bot's oldest project. */
+    /** Files a bot task in the bot's home, where its headquarters lives; made on first use. */
     const botTaskProjectId = Effect.fn("ScheduledTaskService.botTaskProjectId")(function* (
       botId: string,
     ) {
-      const scratch = yield* Effect.option(managedFolders.ensureScratchProject);
-      if (Option.isSome(scratch)) return scratch.value.projectId;
-      const rows = yield* sql<{ readonly project_id: ProjectId }>`
-        SELECT project_id FROM projection_projects
-        WHERE bot_id = ${botId} AND deleted_at IS NULL
-        ORDER BY created_at, project_id LIMIT 1
+      const rows = yield* sql<{ readonly name: string }>`
+        SELECT name FROM bots WHERE id = ${botId} AND deleted_at IS NULL
       `.pipe(
         NodeSqliteClient.readOnly,
-        Effect.mapError((cause) => taskError("Could not load the bot's projects.", { cause })),
+        Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
       );
-      const owned = rows[0];
-      if (owned === undefined) return yield* taskError("Give the bot a project first.");
-      return owned.project_id;
+      const bot = rows[0];
+      if (bot === undefined) return yield* taskError(MISSING_BOT);
+      const home = yield* managedFolders
+        .ensureBotHome({ id: botId, name: bot.name })
+        .pipe(Effect.mapError((cause) => taskError(cause.message, { cause })));
+      return home.projectId;
     });
 
     const openBotHeadquarters = Effect.fn("ScheduledTaskService.openBotHeadquarters")(function* (
@@ -1373,10 +1378,8 @@ export const layer = Layer.effect(
       if (botId !== null && !(yield* botExists(botId))) {
         return yield* taskError("That bot doesn't exist.", { taskId: id });
       }
-      // A bot task runs wherever its headquarters lives; the project only files it.
-      const projectId =
-        input.projectId ??
-        (botId === null ? null : (existingTask?.projectId ?? (yield* botTaskProjectId(botId))));
+      // A bot task runs in its headquarters, so it is filed in the bot's home.
+      const projectId = botId === null ? (input.projectId ?? null) : yield* botTaskProjectId(botId);
       if (projectId === null) {
         return yield* taskError("Pick a project for this task.", { taskId: id });
       }
@@ -1447,7 +1450,11 @@ export const layer = Layer.effect(
                 signature?.secretRef === undefined
                   ? undefined
                   : yield* secretRequests
-                      .consume({ ref: signature.secretRef, projectId })
+                      // Asked for in the caller's project, which a bot task isn't filed in.
+                      .consume({
+                        ref: signature.secretRef,
+                        projectId: input.projectId ?? projectId,
+                      })
                       .pipe(
                         Effect.catch((error) =>
                           replay
@@ -1471,7 +1478,7 @@ export const layer = Layer.effect(
           : { token: null, secret: null, secretChanged: true };
       const workspaceStrategy: ScheduledTask["workspaceStrategy"] =
         input.workspaceStrategy.type === "worktree" &&
-        (yield* managedFolders.isScratchProject(projectId))
+        (yield* managedFolders.isHiddenProject(projectId))
           ? { type: "root" }
           : input.workspaceStrategy;
       const scheduleUnchanged =
@@ -1640,6 +1647,46 @@ export const layer = Layer.effect(
     const deleteForBot = Effect.fn("ScheduledTaskService.deleteForBot")((botId: string) =>
       deleteMatching(sql`bot_id = ${botId}`, "bot's"),
     );
+
+    const botModelSelection: ScheduledTaskService["Service"]["botModelSelection"] = Effect.fn(
+      "ScheduledTaskService.botModelSelection",
+    )(function* (botId) {
+      const rows = yield* sql<{ readonly model_selection_json: string | null }>`
+        SELECT model_selection_json FROM bots WHERE id = ${botId} AND deleted_at IS NULL
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
+      );
+      const row = rows[0];
+      if (row === undefined) return yield* taskError(MISSING_BOT);
+      if (row.model_selection_json === null) return null;
+      return yield* decodeModelSelectionJson(row.model_selection_json).pipe(
+        Effect.mapError((cause) => taskError("Could not read the bot's model.", { cause })),
+      );
+    });
+
+    const rehomeBotTasks: ScheduledTaskService["Service"]["rehomeBotTasks"] = Effect.fn(
+      "ScheduledTaskService.rehomeBotTasks",
+    )(function* () {
+      const bots = yield* sql<{ readonly botId: string }>`
+        SELECT DISTINCT tasks.bot_id AS "botId" FROM scheduled_tasks AS tasks
+        JOIN bots ON bots.id = tasks.bot_id AND bots.deleted_at IS NULL
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not load the bots' tasks.", { cause })),
+      );
+      let moved = 0;
+      for (const { botId } of bots) {
+        const home = yield* botTaskProjectId(botId);
+        const rows = yield* sql<{ readonly task_id: string }>`
+          UPDATE scheduled_tasks SET project_id = ${home}
+          WHERE bot_id = ${botId} AND project_id != ${home}
+          RETURNING task_id
+        `.pipe(Effect.mapError((cause) => taskError("Could not move the bot's tasks.", { cause })));
+        moved += rows.length;
+      }
+      if (moved > 0) yield* notifyChanged;
+    });
 
     const connectBotHeadquarters: ScheduledTaskService["Service"]["connectBotHeadquarters"] = (
       open,
@@ -2597,6 +2644,8 @@ export const layer = Layer.effect(
       delete: deleteTask,
       deleteForThread,
       deleteForBot,
+      rehomeBotTasks,
+      botModelSelection,
       connectBotHeadquarters,
       moveThreadTasks,
       runNow,

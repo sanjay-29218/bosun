@@ -660,6 +660,8 @@ export const ServerConfig = Schema.Struct({
   /** A secret request card may be answered with a secret provider reference. */
   secretRequestReferences: Schema.optionalKey(Schema.Boolean),
   scratchWorkspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Each bot's home is `<botHomesRoot>/<botId>`; clients hide those projects from project lists. */
+  botHomesRoot: Schema.optionalKey(TrimmedNonEmptyString),
   newProjectsRoot: Schema.optionalKey(TrimmedNonEmptyString),
   /**
    * The latest stall long enough to notice, sent only for a few minutes after

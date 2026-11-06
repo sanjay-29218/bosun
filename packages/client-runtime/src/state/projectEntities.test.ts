@@ -26,7 +26,9 @@ function makeHarness(withConfig = true) {
     }),
   );
   const configAtom = Atom.family((_environmentId: EnvironmentId) =>
-    Atom.make<(Pick<ServerConfig, "scratchWorkspaceRoot"> & { revision?: number }) | null>(null),
+    Atom.make<
+      (Pick<ServerConfig, "scratchWorkspaceRoot" | "botHomesRoot"> & { revision?: number }) | null
+    >(null),
   );
   const catalogValueAtom = Atom.make({
     isReady: true,
@@ -116,6 +118,26 @@ describe("project scratch identity", () => {
 
       registry.set(configAtom(environmentId), null);
       expect(registry.get(projects.projectsAtom).every((project) => !project.isScratch)).toBe(true);
+    } finally {
+      registry.dispose();
+    }
+  });
+
+  it("leaves bots' homes out of the project list, and still finds one by its ref", () => {
+    const { registry, projects, configAtom } = makeHarness();
+    try {
+      registry.set(configAtom(environmentId), { botHomesRoot: "/" });
+      const listed = registry.get(projects.projectsAtom);
+      expect(listed.map((project) => [project.environmentId, project.id])).toEqual([
+        [environmentId, v2Project.id],
+        [remoteEnvironmentId, v2Project.id],
+        [remoteEnvironmentId, ProjectId.make("ordinary")],
+      ]);
+      const home = registry.get(
+        projects.projectAtom({ environmentId, projectId: ProjectId.make("ordinary") }),
+      );
+      expect(home?.isBotHome).toBe(true);
+      expect(home?.isScratch).toBeUndefined();
     } finally {
       registry.dispose();
     }

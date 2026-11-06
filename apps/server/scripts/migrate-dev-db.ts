@@ -18,6 +18,7 @@ import { Command, Flag } from "effect/cli";
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
 import { rebuildMessageSearch } from "../src/orchestration-v2/messageSearchIndex.ts";
 import { runMigrations } from "../src/persistence/Migrations.ts";
+import { isBotHomePath } from "../src/project/botHomeFolderName.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDevDbNotInWorktreeError>()(
@@ -304,6 +305,17 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
 const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigrateDevDbInput) {
   const sql = yield* SqlClient.SqlClient;
 
+  // A bot's home is a folder of the source install, wherever the snapshot was copied; the
+  // worktree makes its own on first use. It is the project at `bots/<its owner's home folder>`.
+  const owned = yield* sql<{ project_id: string; workspace_root: string; bot_id: string }>`
+    SELECT project_id, workspace_root, bot_id FROM projection_projects WHERE deleted_at IS NULL`;
+  yield* sql`CREATE TEMP TABLE bot_home_projects (project_id TEXT PRIMARY KEY)`;
+  for (const project of owned) {
+    if (isBotHomePath(project.workspace_root, project.bot_id)) {
+      yield* sql`INSERT INTO bot_home_projects (project_id) VALUES (${project.project_id})`;
+    }
+  }
+
   // Usage-limit recovery also depends on settings; exclude latest-run failures and recovery choices.
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const recoveryThreadIds = yield* Effect.forEach(RECOVERY_KINDS, (kind) =>
@@ -345,6 +357,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       GROUP BY project_id
     ) q ON q.project_id = p.project_id
     WHERE p.deleted_at IS NULL
+      AND p.project_id NOT IN (SELECT project_id FROM bot_home_projects)
     ORDER BY (q.last_stopped_at IS NULL) ASC,
       COALESCE(q.last_stopped_at, p.updated_at) DESC
     LIMIT ${input.projects}`;
