@@ -30,7 +30,6 @@ import {
   ListTreeIcon,
   MilestoneIcon,
   NotebookTextIcon,
-  PencilIcon,
   PlayIcon,
   RefreshCwIcon,
   Trash2Icon,
@@ -50,7 +49,6 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
-import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
@@ -512,67 +510,78 @@ const ISSUE_CLOSED_LABELS: Record<NonNullable<IssueDetail["closedReason"]>, stri
 };
 
 type IssueEdit = { readonly title: string } | { readonly body: string };
-
-/**
- * Saves a title or body unless the issue changed on GitHub since this sheet read it; then a toast
- * offers to save anyway. Resolves whether it saved.
- */
-async function saveIssueEdit(
-  owner: TodoOwner,
-  issue: IssueDetail,
-  edit: IssueEdit,
-  overwrite = false,
-): Promise<boolean> {
-  const result = await runAtomCommand(
-    appAtomRegistry,
-    featuresEnvironment.updateIssue,
-    {
-      environmentId: owner.environmentId,
-      input: {
-        projectId: owner.projectId,
-        number: issue.number,
-        ...edit,
-        ...(overwrite ? {} : { expectedUpdatedAt: issue.updatedAt }),
-      },
-    },
-    { reportFailure: false },
-  );
-  if (result._tag === "Success") return true;
-  if (isAtomCommandInterrupted(result)) return false;
-  const failure = squashAtomCommandFailure(result);
-  if (isIssueChanged(failure)) {
-    const id = toastManager.add({
-      type: "warning",
-      title: `#${issue.number} changed on GitHub since you opened it`,
-      description: "Saving replaces that change. Refresh to see it first.",
-      actionProps: {
-        children: "Save anyway",
-        onClick: () => {
-          toastManager.close(id);
-          void saveIssueEdit(owner, issue, edit, true);
-        },
-      },
-    });
-  } else {
-    toastManager.add({
-      type: "error",
-      title: `Could not save #${issue.number}`,
-      description: failureText(result, "GitHub did not change the issue."),
-    });
-  }
-  return false;
-}
+type SaveIssueEdit = (edit: IssueEdit) => Promise<boolean>;
 const isIssueChanged = Schema.is(IssueChangedError);
 
+/**
+ * Saves edits to one issue, each expecting GitHub's copy as this sheet last saw it: its read, or
+ * its own last save when the refreshed read hasn't landed yet. When someone changed it on GitHub
+ * meanwhile, one toast offers to save anyway.
+ */
+function useIssueEditSaver(owner: TodoOwner, issue: IssueDetail | null | undefined): SaveIssueEdit {
+  const savedAt = useRef<string | null>(null);
+  const conflictToast = useRef<string | null>(null);
+  const save = async (edit: IssueEdit, overwrite = false): Promise<boolean> => {
+    if (!issue) return false;
+    const expected =
+      savedAt.current !== null && savedAt.current > issue.updatedAt
+        ? savedAt.current
+        : issue.updatedAt;
+    const result = await runAtomCommand(
+      appAtomRegistry,
+      featuresEnvironment.updateIssue,
+      {
+        environmentId: owner.environmentId,
+        input: {
+          projectId: owner.projectId,
+          number: issue.number,
+          ...edit,
+          ...(overwrite ? {} : { expectedUpdatedAt: expected }),
+        },
+      },
+      { reportFailure: false },
+    );
+    if (result._tag === "Success") {
+      savedAt.current = result.value.updatedAt;
+      return true;
+    }
+    if (isAtomCommandInterrupted(result)) return false;
+    if (isIssueChanged(squashAtomCommandFailure(result))) {
+      if (conflictToast.current !== null) toastManager.close(conflictToast.current);
+      const id = toastManager.add({
+        type: "warning",
+        title: `#${issue.number} changed on GitHub since you opened it`,
+        description: "Saving replaces that change. Refresh to see it first.",
+        actionProps: {
+          children: "Save anyway",
+          onClick: () => {
+            toastManager.close(id);
+            void save(edit, true);
+          },
+        },
+      });
+      conflictToast.current = id;
+    } else {
+      toastManager.add({
+        type: "error",
+        title: `Could not save #${issue.number}`,
+        description: failureText(result, "GitHub did not change the issue."),
+      });
+    }
+    return false;
+  };
+  return save;
+}
+
 /** The title, edited in place like a ticket's: Enter or leaving the field saves it. */
-function IssueTitleField(props: { readonly owner: TodoOwner; readonly issue: IssueDetail }) {
-  const [title, setTitle] = useState(props.issue.title);
+function IssueTitleField(props: { readonly title: string; readonly save: SaveIssueEdit }) {
+  const [title, setTitle] = useState(props.title);
   const [saving, setSaving] = useState(false);
   const save = async () => {
     const trimmed = title.trim();
-    if (!trimmed || trimmed === props.issue.title) return setTitle(props.issue.title);
+    if (!trimmed || trimmed === props.title) return setTitle(props.title);
     setSaving(true);
-    if (!(await saveIssueEdit(props.owner, props.issue, { title: trimmed }))) setSaving(false);
+    if (!(await props.save({ title: trimmed }))) setSaving(false);
   };
   return (
     <textarea
@@ -583,7 +592,7 @@ function IssueTitleField(props: { readonly owner: TodoOwner; readonly issue: Iss
       onChange={(event) => setTitle(event.target.value.replace(/\n/g, " "))}
       onBlur={() => void save()}
       onKeyDown={(event) => {
-        if (event.key === "Escape") setTitle(props.issue.title);
+        if (event.key === "Escape") setTitle(props.title);
         if (event.key !== "Enter") return;
         event.preventDefault();
         event.currentTarget.blur();
@@ -596,57 +605,92 @@ function IssueTitleField(props: { readonly owner: TodoOwner; readonly issue: Iss
   );
 }
 
-/** The description as GitHub renders it, or its Markdown in an editor while editing. */
+/**
+ * The description as GitHub renders it, images and all. Clicking it edits the Markdown in place;
+ * a pause in typing or leaving it saves, as a ticket's does.
+ */
 function IssueBody(props: {
-  readonly owner: TodoOwner;
   readonly issue: IssueDetail;
+  readonly save: SaveIssueEdit;
   readonly markdown: (text: string) => ReactNode;
 }) {
+  const { issue } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const save = async (body: string) => {
-    if (body === props.issue.body) return setDraft(null);
+  // Shown after a save until the refreshed read lands, so the old text doesn't flash back.
+  const [saved, setSaved] = useState<{ body: string; over: string } | null>(null);
+  const shown = saved !== null && saved.over === issue.updatedAt ? saved.body : issue.body;
+  const sent = useRef(shown);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flush = async (body: string) => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    if (body === sent.current) return true;
+    const previous = sent.current;
+    sent.current = body;
     setSaving(true);
-    const saved = await saveIssueEdit(props.owner, props.issue, { body });
+    const ok = await props.save({ body });
     setSaving(false);
-    if (saved) setDraft(null);
+    if (ok) setSaved({ body, over: issue.updatedAt });
+    else sent.current = previous;
+    return ok;
   };
+  const change = (body: string) => {
+    setDraft(body);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(body), DESCRIPTION_SAVE_DELAY_MS);
+  };
+  const startEditing = () => {
+    sent.current = shown;
+    setDraft(shown);
+  };
+
   if (draft !== null) {
     return (
-      <div className="mt-2 flex flex-col gap-2">
+      <div
+        className="mt-2 flex flex-col gap-1"
+        onBlur={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          // Leaving keeps the editor open only when the save failed, so nothing typed is lost.
+          void flush(draft).then((ok) => ok && setDraft(null));
+        }}
+      >
         <InstructionsEditor
           label="Description"
           value={draft}
-          onChange={setDraft}
+          onChange={change}
           placeholder="Add a description…"
           size="lg"
-          disabled={saving}
+          variant="document"
+          autoFocus
         />
-        <div className="flex justify-end gap-1.5">
-          <Button size="xs" variant="ghost" disabled={saving} onClick={() => setDraft(null)}>
-            Cancel
-          </Button>
-          <Button size="xs" disabled={saving} onClick={() => void save(draft)}>
-            {saving ? <Spinner aria-hidden /> : null}
-            Save
-          </Button>
-        </div>
+        <p className="text-xs text-muted-foreground">{saving ? "Saving…" : "Saves as you type"}</p>
       </div>
     );
   }
   return (
-    <div className="group/body relative mt-2">
-      {props.issue.body.trim() ? (
-        props.markdown(props.issue.body)
+    <div
+      tabIndex={0}
+      aria-label="Description. Press Enter to edit."
+      className="-mx-2 mt-1 cursor-text rounded-md px-2 py-1 outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      onClick={(event) => {
+        // Links, buttons and a text selection keep their own clicks.
+        if ((event.target as Element).closest("a, button, summary, input, img")) return;
+        if (window.getSelection()?.toString()) return;
+        startEditing();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" || event.target !== event.currentTarget) return;
+        event.preventDefault();
+        startEditing();
+      }}
+    >
+      {shown.trim() ? (
+        props.markdown(shown)
       ) : (
-        <p className="text-sm text-muted-foreground">No description.</p>
+        <p className="text-sm text-muted-foreground">Add a description…</p>
       )}
-      <span className="absolute -top-1 right-0 opacity-0 group-hover/body:opacity-100 has-focus-visible:opacity-100 pointer-coarse:opacity-100">
-        <Button size="xs" variant="ghost-muted" onClick={() => setDraft(props.issue.body)}>
-          <PencilIcon aria-hidden />
-          Edit
-        </Button>
-      </span>
     </div>
   );
 }
@@ -666,6 +710,7 @@ function GitHubIssueDetail(props: {
   );
   const startFeature = useStartFeatureDraft();
   const issue = detail.data;
+  const save = useIssueEditSaver(owner, issue);
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed /> : <DetailSkeleton />;
   }
@@ -722,7 +767,7 @@ function GitHubIssueDetail(props: {
     >
       <SheetTitle className="sr-only">{issue.title}</SheetTitle>
       <div className="flex flex-col gap-1">
-        <IssueTitleField key={issue.title} owner={owner} issue={issue} />
+        <IssueTitleField key={issue.title} title={issue.title} save={save} />
         <p className="text-xs text-muted-foreground">
           {issue.author?.login ?? "Someone"} opened this {formatRelativeTimeLabel(issue.createdAt)}
         </p>
@@ -768,7 +813,7 @@ function GitHubIssueDetail(props: {
           </Chip>
         ))}
       </div>
-      <IssueBody owner={owner} issue={issue} markdown={markdown} />
+      <IssueBody issue={issue} save={save} markdown={markdown} />
       {issue.commentCount > 0 ? (
         <section className="mt-4 flex flex-col">
           <h3 className="pb-2 text-xs text-muted-foreground">

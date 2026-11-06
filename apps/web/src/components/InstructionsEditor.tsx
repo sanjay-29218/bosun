@@ -9,7 +9,7 @@ import {
   SquareCodeIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -56,6 +56,7 @@ export function InstructionsEditor({
   maxLength,
   size = "md",
   variant = "field",
+  autoFocus = false,
 }: {
   /** Id for the field's label to reference (`htmlFor`). */
   readonly id?: string;
@@ -69,9 +70,15 @@ export function InstructionsEditor({
   readonly size?: keyof typeof SIZE_CLASS_NAMES;
   /** "document" drops the box and grows with its text; its toolbar shows on hover and focus. */
   readonly variant?: "field" | "document";
+  /** Puts the caret at the end when it mounts, for an editor opened by clicking its text. */
+  readonly autoFocus?: boolean;
 }) {
   const bare = variant === "document";
   const editorRef = useRef<ComposerPromptEditorHandle>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Moves DOM focus into the editor once, when it opens.
+  useEffect(() => {
+    if (autoFocus) editorRef.current?.focusAtEnd();
+  }, [autoFocus]);
   const [cursor, setCursor] = useState(value.length);
   return (
     <div
