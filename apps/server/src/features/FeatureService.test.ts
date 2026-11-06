@@ -871,6 +871,48 @@ describe("feature lead and crew", () => {
     ),
   );
 
+  effectIt.effect("sends a lone notice the orchestrator rejected again under a new command", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const inbox = yield* NoticeInbox.NoticeInbox;
+        const sql = yield* SqlClient.SqlClient;
+        const hq = ThreadId.make("thread:hq-rejecting");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("hq-rejecting:create"),
+          threadId: hq,
+          projectId,
+          title: "HQ",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        // A run the projection can't read makes the thread's commands fail, and they're rejected.
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_runs
+            (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+          VALUES ('run:unreadable', ${hq}, 1, 'codex', 'completed', '2026-11-05T00:00:00.000Z', '{}')
+        `;
+        yield* inbox.post({ threadId: hq, key: "project-merge:web:12", text: "PR #12 merged" });
+        const receipts = yield* sql<{ readonly status: string }>`
+          SELECT status FROM orchestration_command_receipts
+          WHERE command_id LIKE 'notice-digest:%' AND aggregate_id = ${hq}
+        `;
+        expect(receipts.map((receipt) => receipt.status)).toEqual(["rejected"]);
+        expect(yield* userTexts(hq)).toEqual([]);
+
+        yield* sql`DELETE FROM orchestration_v2_projection_runs WHERE run_id = 'run:unreadable'`;
+        yield* inbox.flush(hq);
+        expect(yield* userTexts(hq)).toEqual(["PR #12 merged"]);
+      }),
+    ),
+  );
+
   effectIt.effect(
     "lists a project's features with their branches, requester and pull request",
     () =>

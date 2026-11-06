@@ -26,7 +26,7 @@ const ENDED_RUN_STATUSES = new Set(["completed", "failed", "interrupted", "cance
 
 export interface Notice {
   readonly threadId: ThreadId;
-  /** One delivery per thread and key. Alone, it is sent as `key` / `message:<key>`. */
+  /** One delivery per thread and key. */
   readonly key: string;
   /** A newer notice about the same subject, such as a feature, replaces an undelivered older one. */
   readonly subject?: string | undefined;
@@ -76,7 +76,14 @@ const make = Effect.gen(function* () {
   const rowColumns = sql`key, text, summary, outcome, source_thread_id AS sourceThreadId,
     digest_id AS digestId, rowid AS position`;
 
+  // Each delivery attempt is its own command, so one the orchestrator rejected can be retried.
   const digestMessage = (threadId: ThreadId, rows: ReadonlyArray<NoticeRow>) => {
+    const digestId = rows[0]!.digestId;
+    const ids = {
+      commandId: CommandId.make(digestId),
+      messageId: MessageId.make(`message:${digestId}`),
+      threadId,
+    };
     const notified = rows.filter((row) => row.summary !== null && row.outcome !== null);
     if (rows.length === 1) {
       const [row] = rows as [NoticeRow];
@@ -93,19 +100,10 @@ const make = Effect.gen(function* () {
               summary: row.summary,
             }
           : undefined;
-      return {
-        commandId: CommandId.make(row.key),
-        messageId: MessageId.make(`message:${row.key}`),
-        threadId,
-        text: row.text,
-        notification,
-      };
+      return { ...ids, text: row.text, notification };
     }
-    const digestId = rows[0]!.digestId;
     return {
-      commandId: CommandId.make(digestId),
-      messageId: MessageId.make(`message:${digestId}`),
-      threadId,
+      ...ids,
       text: [
         `${rows.length} updates arrived while you were busy:`,
         ...rows.map((row) => row.text),
@@ -121,10 +119,7 @@ const make = Effect.gen(function* () {
     };
   };
 
-  /**
-   * Sends a claimed digest. A crash before it is marked delivered leaves it claimed, and sending
-   * it again under the same ids is a no-op if the first send landed.
-   */
+  /** Sends a claimed digest; a crash before it is marked delivered leaves it claimed. */
   const deliver = Effect.fn("NoticeInbox.deliver")(function* (
     threadId: ThreadId,
     rows: ReadonlyArray<NoticeRow>,
@@ -173,8 +168,24 @@ const make = Effect.gen(function* () {
       WHERE thread_id = ${threadId} AND digest_id IS NOT NULL
         AND delivered_at IS NULL AND dropped_at IS NULL
     `.pipe(Effect.mapError(queryError));
-    const byDigest = Map.groupBy(claimed, (row) => row.digestId);
-    for (const rows of byDigest.values()) yield* deliver(threadId, rows);
+    // Claimed but not marked sent, as after a crash: sent if the orchestrator accepted it, else
+    // claimed afresh below, so a question answered meanwhile is dropped first.
+    for (const digestId of new Set(claimed.map((row) => row.digestId))) {
+      const [receipt] = yield* sql<{ readonly status: string }>`
+        SELECT status FROM orchestration_command_receipts WHERE command_id = ${digestId}
+      `.pipe(Effect.mapError(queryError));
+      yield* (
+        receipt?.status === "accepted"
+          ? sql`
+              UPDATE notice_inbox SET delivered_at = ${yield* now}
+              WHERE thread_id = ${threadId} AND digest_id = ${digestId}
+            `
+          : sql`
+              UPDATE notice_inbox SET digest_id = NULL
+              WHERE thread_id = ${threadId} AND digest_id = ${digestId}
+            `
+      ).pipe(Effect.mapError(queryError));
+    }
 
     const busy = yield* sql`
       SELECT 1 FROM orchestration_v2_projection_runs

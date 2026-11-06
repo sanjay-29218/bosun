@@ -80,7 +80,7 @@ const report = (feature: string, outcome: "updated" | "failed" = "updated") => (
 
 const sqlite = NodeSqliteClient.layer({ filename: ":memory:" });
 
-it.effect("sends a notice to an idle thread at once, under its own key, and a key once", () =>
+it.effect("sends a notice to an idle thread at once, and a key once", () =>
   Effect.gen(function* () {
     yield* migrated;
     const { inbox, sent } = yield* setup();
@@ -88,9 +88,11 @@ it.effect("sends a notice to an idle thread at once, under its own key, and a ke
     yield* inbox.post(report("csv"));
     const messages = yield* sent;
     assert.deepStrictEqual(
-      messages.map((message) => [message.threadId, message.commandId, message.messageId]),
-      [[hq, "feature-report:csv", "message:feature-report:csv"]],
+      messages.map((message) => [message.threadId, message.text]),
+      [[hq, 'Feature "csv" [finished]: done']],
     );
+    assert.match(messages[0]!.commandId, /^notice-digest:/);
+    assert.strictEqual(messages[0]!.messageId, `message:${messages[0]!.commandId}`);
     assert.deepStrictEqual(messages[0]!.notification, {
       source: { kind: "subagent", childThreadId: lead },
       outcome: "updated",
@@ -150,8 +152,8 @@ it.effect("drops a question answered before delivery and a report a newer one re
     yield* inbox.flush(hq);
     const messages = yield* sent;
     assert.deepStrictEqual(
-      messages.map((message) => message.messageId),
-      ["message:feature-report:pdf"],
+      messages.map((message) => message.text),
+      ['Feature "pdf" [finished]: done'],
     );
 
     // A question still open when the thread is free is delivered.
@@ -161,7 +163,7 @@ it.effect("drops a question answered before delivery and a report a newer one re
   }).pipe(Effect.provide(sqlite)),
 );
 
-it.effect("after a restart, sends nothing twice and resends a digest a crash cut short", () =>
+it.effect("after a restart, marks a digest the orchestrator accepted as sent", () =>
   Effect.gen(function* () {
     yield* migrated;
     const sql = yield* SqlClient.SqlClient;
@@ -169,23 +171,51 @@ it.effect("after a restart, sends nothing twice and resends a digest a crash cut
     yield* setTurn("running");
     yield* before.inbox.post(report("csv"));
     yield* before.inbox.post(report("pdf"));
-    // Claimed into a digest, then the server stopped before marking it sent.
-    yield* sql`UPDATE notice_inbox SET digest_id = 'notice-digest:cut-short'`;
+    // Claimed and sent, then the server stopped before marking it sent.
+    yield* sql`UPDATE notice_inbox SET digest_id = 'notice-digest:landed'`;
+    yield* sql`
+      INSERT INTO orchestration_command_receipts (command_id, aggregate_kind, aggregate_id,
+        command_type, accepted_at, result_sequence, status)
+      VALUES ('notice-digest:landed', 'thread', ${hq}, 'message.dispatch',
+        '2026-11-05T00:00:00.000Z', 1, 'accepted')
+    `;
     yield* setTurn("completed");
 
     const restarted = yield* setup();
     yield* restarted.inbox.flush(hq);
-    const [digest, ...rest] = yield* restarted.sent;
-    assert.deepStrictEqual(rest, []);
-    assert.match(digest!.text, /^2 updates arrived/);
-    // The same ids, which the orchestrator's receipt dedupes if the first send landed.
-    assert.strictEqual(digest!.commandId, "notice-digest:cut-short");
+    yield* restarted.inbox.post(report("csv"));
+    assert.deepStrictEqual(yield* restarted.sent, []);
+    const pending = yield* sql`SELECT 1 FROM notice_inbox WHERE delivered_at IS NULL`;
+    assert.deepStrictEqual(pending, []);
+  }).pipe(Effect.provide(sqlite)),
+);
 
-    // Delivered notices stay delivered across a restart, and their keys stay used.
-    const later = yield* setup();
-    yield* later.inbox.flush(hq);
-    yield* later.inbox.post(report("csv"));
-    assert.deepStrictEqual(yield* later.sent, []);
+it.effect("after a restart, drops a claimed question answered before it was sent", () =>
+  Effect.gen(function* () {
+    yield* migrated;
+    const sql = yield* SqlClient.SqlClient;
+    const before = yield* setup();
+    yield* setTurn("running");
+    yield* setRequest("pending");
+    yield* before.inbox.post({
+      threadId: hq,
+      key: "feature-report:request:request:plan",
+      subject: "feature:csv",
+      requestId: "request:plan",
+      text: 'Feature "csv" is waiting on the person',
+    });
+    yield* before.inbox.post(report("pdf"));
+    // Claimed, then the server stopped before sending; the person answered meanwhile.
+    yield* sql`UPDATE notice_inbox SET digest_id = 'notice-digest:cut-short'`;
+    yield* setRequest("resolved");
+    yield* setTurn("completed");
+
+    const restarted = yield* setup();
+    yield* restarted.inbox.flush(hq);
+    const [message, ...rest] = yield* restarted.sent;
+    assert.deepStrictEqual(rest, []);
+    assert.strictEqual(message!.text, 'Feature "pdf" [finished]: done');
+    assert.notStrictEqual(message!.commandId, "notice-digest:cut-short");
   }).pipe(Effect.provide(sqlite)),
 );
 

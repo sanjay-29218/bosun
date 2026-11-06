@@ -74,12 +74,24 @@ const setup = Effect.gen(function* () {
     requests: ProjectRequests.ProjectRequests,
     inbox: NoticeInbox.NoticeInbox,
   }).pipe(Effect.provide(layer));
+  // A lone notice's digest reads back as `message:<its key>`.
   const sent = Ref.get(dispatched).pipe(
-    Effect.map((all) =>
-      all.flatMap((command) =>
-        command.type === "message.dispatch"
-          ? [{ threadId: command.threadId, id: command.messageId, text: command.text }]
-          : [],
+    Effect.flatMap((all) =>
+      Effect.forEach(
+        all.flatMap((command) => (command.type === "message.dispatch" ? [command] : [])),
+        (command) =>
+          SqlClient.SqlClient.pipe(
+            Effect.flatMap(
+              (sql) => sql<{ readonly key: string }>`
+                SELECT key FROM notice_inbox WHERE digest_id = ${command.commandId}
+              `,
+            ),
+            Effect.map((keys) => ({
+              threadId: command.threadId,
+              id: keys.length === 1 ? `message:${keys[0]!.key}` : command.messageId,
+              text: command.text,
+            })),
+          ),
       ),
     ),
   );
