@@ -34,6 +34,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { isBotHomePath } from "./botHomeFolderName.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
@@ -86,6 +87,16 @@ export class ProjectNotEmptyError extends Schema.TaggedError<ProjectNotEmptyErro
   }
 }
 
+/** A bot's home holds its headquarters, whose thread can't be made again once deleted. */
+export class ProjectBotHomeError extends Schema.TaggedError<ProjectBotHomeError>()(
+  "ProjectBotHomeError",
+  { projectId: ProjectId },
+) {
+  override get message(): string {
+    return "A bot's home can't be deleted.";
+  }
+}
+
 /** A project was given to a bot that does not exist. */
 export class ProjectBotNotFoundError extends Schema.TaggedError<ProjectBotNotFoundError>()(
   "ProjectBotNotFoundError",
@@ -123,6 +134,7 @@ export type ProjectServiceError =
   | ProjectConflictError
   | ProjectNotEmptyError
   | ProjectBotNotFoundError
+  | ProjectBotHomeError
   | ProjectOperationError;
 
 export class ProjectService extends Context.Service<
@@ -578,6 +590,9 @@ export const make = Effect.gen(function* () {
       }
 
       const isFirstDelete = existing.value.deletedAt === null;
+      if (isFirstDelete && isBotHomePath(existing.value.workspaceRoot, existing.value.botId)) {
+        return yield* new ProjectBotHomeError({ projectId });
+      }
       if (isFirstDelete) {
         yield* deleteChildThreads(input);
       }

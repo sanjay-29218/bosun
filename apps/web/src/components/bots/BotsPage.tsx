@@ -98,9 +98,10 @@ function EnvironmentBotPage({
   const navigate = useNavigate();
   const botsQuery = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
   const defaultModel = useEnvironmentDefaultModel(environmentId);
-  const allProjects = useProjects().toSorted((left, right) =>
-    left.title.localeCompare(right.title),
-  );
+  // Scratch belongs to no bot's work; bots' homes are already left out of the list.
+  const allProjects = useProjects()
+    .filter((project) => project.isScratch !== true)
+    .toSorted((left, right) => left.title.localeCompare(right.title));
   const projects = allProjects.filter((project) => project.environmentId === environmentId);
   const logicalBots = useAtomValue(logicalBotsAtom);
   const botEnvironmentIds = new Set(useBotEnvironmentIds());

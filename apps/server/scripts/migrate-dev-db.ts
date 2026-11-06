@@ -18,7 +18,7 @@ import { Command, Flag } from "effect/cli";
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
 import { rebuildMessageSearch } from "../src/orchestration-v2/messageSearchIndex.ts";
 import { runMigrations } from "../src/persistence/Migrations.ts";
-import { botHomeFolderName } from "../src/project/botHomeFolderName.ts";
+import { isBotHomePath } from "../src/project/botHomeFolderName.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDevDbNotInWorktreeError>()(
@@ -311,11 +311,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
     SELECT project_id, workspace_root, bot_id FROM projection_projects WHERE deleted_at IS NULL`;
   yield* sql`CREATE TEMP TABLE bot_home_projects (project_id TEXT PRIMARY KEY)`;
   for (const project of owned) {
-    const [parent, folder] = project.workspace_root
-      .replace(/[\\/]+$/, "")
-      .split(/[\\/]/)
-      .slice(-2);
-    if (parent === "bots" && folder === botHomeFolderName(project.bot_id)) {
+    if (isBotHomePath(project.workspace_root, project.bot_id)) {
       yield* sql`INSERT INTO bot_home_projects (project_id) VALUES (${project.project_id})`;
     }
   }

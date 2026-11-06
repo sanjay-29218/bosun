@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
   CommandId,
   EventId,
   type OrchestrationV2AppThread,
@@ -77,14 +79,17 @@ const decodeEffectRequest = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationEffectRequestV2),
 );
 
-const seedProject = Effect.fn("ProjectDeletionTest.seedProject")(function* (projectId: ProjectId) {
+const seedProject = Effect.fn("ProjectDeletionTest.seedProject")(function* (
+  projectId: ProjectId,
+  workspaceRoot = `/work/${projectId}`,
+) {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
     INSERT INTO projection_projects (
       project_id, title, workspace_root, default_model_selection_json,
       scripts_json, created_at, updated_at, deleted_at
     ) VALUES (
-      ${projectId}, 'Deletion test', ${`/work/${projectId}`}, NULL,
+      ${projectId}, 'Deletion test', ${workspaceRoot}, NULL,
       '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL
     )
   `;
@@ -424,6 +429,29 @@ it.effect("rejects a child deletion command ID already accepted for an unrelated
         WHERE thread_id = ${threadId}
       `;
       assert.deepEqual(cleanup, []);
+    }).pipe(Effect.provide(layerServices));
+  }).pipe(Effect.provide(layerDatabase)),
+);
+
+it.effect("refuses to delete a bot's home, even with force, keeping its headquarters", () =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project:captain-home");
+    const threadId = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+    yield* seedProject(projectId, `/data/bots/${CAPTAIN_BOT_ID}`);
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const service = yield* ProjectService.make;
+      yield* eventSink.write({ events: [nativeThreadCreated(projectId, threadId)] });
+
+      // Its headquarters' thread ID can never be made again, so the home can't go.
+      const failure = yield* service
+        .delete({ commandId: CommandId.make("command:home-delete"), projectId, force: true })
+        .pipe(Effect.flip);
+      assert.equal(failure._tag, "ProjectBotHomeError");
+      assert.isTrue(Option.isSome(yield* service.getById(projectId)));
+      assert.isNull((yield* projections.getThreadProjection(threadId)).thread.deletedAt);
     }).pipe(Effect.provide(layerServices));
   }).pipe(Effect.provide(layerDatabase)),
 );

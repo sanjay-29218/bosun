@@ -240,6 +240,13 @@ it.effect("gives each bot one home, even for concurrent first requests, apart fr
       assert.isTrue(yield* fileSystem.exists(again.workspaceRoot));
       // A plain folder: no checkpoints or worktrees.
       assert.isFalse(yield* fileSystem.exists(path.join(again.workspaceRoot, ".git")));
+      // A folder removed on disk comes back for the same home.
+      yield* fileSystem.remove(again.workspaceRoot, { recursive: true });
+      assert.equal(
+        (yield* folders.ensureBotHome({ id: "bot:nepse", name: "NEPSE" })).projectId,
+        again.projectId,
+      );
+      assert.isTrue(yield* fileSystem.exists(again.workspaceRoot));
       const project = Option.getOrThrow(yield* projects.getById(again.projectId));
       assert.equal(project.botId, "bot:nepse");
       assert.deepEqual(project.projectIcon, { kind: "lucide", name: "bot", color: "gray" });
