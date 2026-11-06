@@ -131,6 +131,26 @@ it.effect("holds notices for a busy thread and sends them as one message when it
   }).pipe(Effect.provide(sqlite)),
 );
 
+it.effect("holds every delivery while a hold is open, then sends one message", () =>
+  Effect.gen(function* () {
+    yield* migrated;
+    const { inbox, sent } = yield* setup();
+    yield* inbox.holding(
+      Effect.gen(function* () {
+        yield* inbox.post(report("csv"));
+        // A run end, or start-up recovery, flushing mid-hold doesn't send part of it.
+        yield* inbox.flush(hq);
+        yield* inbox.recover();
+        assert.deepStrictEqual(yield* sent, []);
+        yield* inbox.post(report("pdf"));
+      }),
+    );
+    const [digest, ...rest] = yield* sent;
+    assert.deepStrictEqual(rest, []);
+    assert.match(digest!.text, /^2 updates arrived/);
+  }).pipe(Effect.provide(sqlite)),
+);
+
 it.effect("drops a question answered before delivery and a report a newer one replaces", () =>
   Effect.gen(function* () {
     yield* migrated;

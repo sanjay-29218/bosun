@@ -48,6 +48,7 @@ import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import * as NoticeInbox from "./NoticeInbox.ts";
+import * as FeatureReportReactor from "./FeatureReportReactor.ts";
 import FeatureManagerMigration from "../persistence/Migrations/103_FeatureManager.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
@@ -105,6 +106,7 @@ const withSystem = <E>(
     | ProjectStore.ProjectStoreV2
     | ServerSettingsService
     | NoticeInbox.NoticeInbox
+    | ProjectionStore.ProjectionStoreV2
   >,
 ) =>
   Effect.gen(function* () {
@@ -872,7 +874,7 @@ describe("feature lead and crew", () => {
   );
 
   effectIt.effect(
-    "catches up on stops since the upgrade at start-up, in one message per requester",
+    "catches up on stops since the upgrade and open questions at start-up, in one message",
     () =>
       withSystem(
         Effect.gen(function* () {
@@ -930,19 +932,87 @@ describe("feature lead and crew", () => {
           const before = yield* launch("Paused export");
           yield* stop(before.leadThreadId);
           yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+          // A feature in flight at the upgrade: its lead stopped before it, its Builder after.
+          const inFlight = yield* launch("Charts");
+          const builder = ThreadId.make("thread:charts-builder");
+          yield* engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("charts-builder:create"),
+            threadId: builder,
+            projectId,
+            title: "Builder",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+          yield* engine.dispatch({
+            type: "thread.crew-stage.set",
+            commandId: CommandId.make("charts-builder:tag"),
+            threadId: builder,
+            feature: { id: inFlight.feature.id, title: "Charts", member: "Builder" },
+          });
+          yield* stop(inFlight.leadThreadId);
+          yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+          yield* engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("charts-builder:task"),
+            threadId: builder,
+            messageId: MessageId.make("message:charts-builder:task"),
+            text: "Build the charts",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+          yield* stop(builder);
           // Two leads that stopped after it, while the server was down.
           const csv = yield* launch("CSV export");
           const pdf = yield* launch("PDF export");
           yield* stop(csv.leadThreadId);
           yield* stop(pdf.leadThreadId);
+          // And one that asked the person something.
+          const asking = yield* launch("Dark mode");
+          yield* sql`
+            INSERT INTO orchestration_v2_projection_runtime_requests
+              (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json)
+            VALUES ('request:dark', ${asking.leadThreadId}, 'node:dark', 'user_input', 'pending',
+              '1970-01-01T00:00:00.000Z', ${JSON.stringify({
+                id: "request:dark",
+                nodeId: "node:dark",
+                providerTurnId: null,
+                nativeRequestRef: null,
+                kind: "user_input",
+                status: "pending",
+                responseCapability: { type: "message" },
+                createdAt: "1970-01-01T00:00:00.000Z",
+                resolvedAt: null,
+              })})
+          `;
 
-          yield* features.reconcileChildren();
+          const catchUp = FeatureReportReactor.catchUpAtStartup().pipe(
+            Effect.provide(FeatureReportReactor.layer),
+          );
+          yield* catchUp;
           const [digest, ...rest] = yield* userTexts(hq);
           expect(rest).toEqual([]);
-          expect(digest).toMatch(/^2 updates arrived while you were busy:/);
+          expect(digest).toMatch(/^4 updates arrived while you were busy:/);
           expect(digest).toContain('Feature "CSV export"');
           expect(digest).toContain('Feature "PDF export"');
+          expect(digest).toContain('Feature "Charts"');
+          expect(digest).toContain('Feature "Dark mode" (lead thread');
+          expect(digest).toContain("is waiting on the person: a question");
           expect(digest).not.toContain("Paused export");
+
+          // Catching up again reports nothing twice.
+          yield* catchUp;
+          const charts = yield* sql`
+            SELECT key FROM notice_inbox WHERE subject = ${inFlight.feature.id}
+          `;
+          expect(charts).toHaveLength(1);
         }),
       ),
   );

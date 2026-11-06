@@ -177,14 +177,14 @@ const make = Effect.gen(function* () {
           ),
       );
       const leads = yield* features.reportingLeads;
-      yield* inbox.holding(Effect.forEach(leads, catchUpLead, { discard: true }));
+      yield* Effect.forEach(leads, catchUpLead, { discard: true });
     },
     Effect.catchCause((cause) =>
       Effect.logWarning("catching up feature reports failed", { cause }),
     ),
   );
 
-  // Catch-up covers requests that committed before the stream subscribed.
+  // Start-up catch-up (`catchUp`) covers requests that committed before the stream subscribed.
   const start: FeatureReportReactor["Service"]["start"] = Effect.fn("FeatureReportReactor.start")(
     function* () {
       yield* forkParked(
@@ -194,7 +194,6 @@ const make = Effect.gen(function* () {
           ),
         ),
       );
-      yield* forkParked(catchUp());
     },
   );
 
@@ -202,3 +201,29 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(FeatureReportReactor, make);
+
+/**
+ * What start-up catches up on, under one hold so each recipient gets one message: notices from
+ * before the restart, features that went quiet, and leads waiting on the person.
+ */
+export const catchUpAtStartup = Effect.fn("FeatureReportReactor.catchUpAtStartup")(function* () {
+  const inbox = yield* NoticeInbox;
+  const features = yield* FeatureService;
+  const reactor = yield* FeatureReportReactor;
+  yield* inbox.holding(
+    Effect.all(
+      [
+        inbox.recover(),
+        features
+          .reconcileChildren()
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Catching up quiet features failed", { cause }),
+            ),
+          ),
+        reactor.catchUp(),
+      ],
+      { discard: true },
+    ),
+  );
+});

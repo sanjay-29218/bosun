@@ -18,6 +18,7 @@ import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
 import * as NoticeInbox from "./NoticeInbox.ts";
+import { forkParked } from "../serverActivation.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 /** Automations that run as a bot post into its headquarters, which the crew opens or restores. */
@@ -71,11 +72,15 @@ const NoticeInboxWatchLive = Layer.effectDiscard(
   NoticeInbox.NoticeInbox.pipe(Effect.flatMap((inbox) => inbox.start())),
 );
 
-/** The thread that started a feature hears when its lead waits on the person. */
+/**
+ * The thread that started a feature hears when its lead waits on the person, and start-up
+ * catches up on every kind of notice in one pass.
+ */
 const FeatureReportsLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const reactor = yield* FeatureReportReactor.FeatureReportReactor;
     yield* reactor.start();
+    yield* forkParked(FeatureReportReactor.catchUpAtStartup());
   }),
 ).pipe(
   Layer.provide(FeatureReportReactor.layer),

@@ -1405,10 +1405,15 @@ export const FeatureServiceLive = Layer.effect(
                 .pipe(Effect.orElseSucceed(() => ({ messages: [] })))).messages;
         if (legacy.length > 0) return;
         // Stops from before the inbox were never reported, and an upgrade doesn't report them.
+        // Any of its threads' runs since counts, so a feature in flight at the upgrade reports.
         const sinceInbox = yield* sql`
           SELECT 1 FROM orchestration_events
-          WHERE aggregate_kind = 'thread' AND stream_id = ${lead} AND event_type = 'run.updated'
+          WHERE aggregate_kind = 'thread' AND event_type IN ('run.created', 'run.updated')
             AND sequence > (SELECT COALESCE(MAX(sequence), 0) FROM notice_inbox_cutoff)
+            AND stream_id IN (
+              SELECT thread_id FROM orchestration_v2_projection_threads
+              WHERE json_extract(payload_json, '$.feature.id') = ${feature.id}
+            )
           LIMIT 1
         `.pipe(Effect.mapError(queryError));
         if (sinceInbox.length === 0) return;
@@ -1461,24 +1466,20 @@ export const FeatureServiceLive = Layer.effect(
     const reconcileChildren: FeatureServiceShape["reconcileChildren"] = Effect.fn(
       "FeatureService.reconcileChildren",
     )(function* () {
-      // One feature failing to check doesn't keep the others from theirs, and what they report
-      // reaches each requester as one message.
-      const features = yield* reportingFeatures;
-      yield* inbox.holding(
-        Effect.forEach(
-          features,
-          (feature) =>
-            leadThreadOf(feature.id).pipe(
-              Effect.flatMap((lead) => (lead === null ? Effect.void : reportIfQuiet(lead))),
-              Effect.catchCause((cause) =>
-                Effect.logWarning("Checking a quiet feature failed", {
-                  featureId: feature.id,
-                  cause,
-                }),
-              ),
+      // One feature failing to check doesn't keep the others from theirs.
+      yield* Effect.forEach(
+        yield* reportingFeatures,
+        (feature) =>
+          leadThreadOf(feature.id).pipe(
+            Effect.flatMap((lead) => (lead === null ? Effect.void : reportIfQuiet(lead))),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Checking a quiet feature failed", {
+                featureId: feature.id,
+                cause,
+              }),
             ),
-          { discard: true },
-        ),
+          ),
+        { discard: true },
       );
     });
 
@@ -1641,15 +1642,15 @@ export const FeatureServiceLive = Layer.effect(
               return Effect.void;
           }
         };
-        // Each (re)start catches up on children that went quiet while it wasn't watching, then
-        // follows events from before that scan (or from where it stopped), so none slip between.
+        // Start-up catch-up (`reconcileChildren`) covers features that went quiet before this
+        // starts; a restart of the watch resumes from where it stopped, so none slip between.
         const cursor = yield* Ref.make<number | null>(null);
         const watch = Effect.gen(function* () {
           const [latest] = yield* sql<{ readonly sequence: number }>`
             SELECT COALESCE(MAX(sequence), 0) AS sequence FROM orchestration_events
           `;
           const from = (yield* Ref.get(cursor)) ?? latest?.sequence ?? 0;
-          yield* reconcileChildren().pipe(Effect.ignore);
+          yield* Ref.set(cursor, from);
           yield* engine
             .streamStoredEventsFrom({ afterSequence: from })
             .pipe(

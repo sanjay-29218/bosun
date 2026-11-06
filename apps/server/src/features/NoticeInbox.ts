@@ -51,10 +51,13 @@ export class NoticeInbox extends Context.Service<
   NoticeInbox,
   {
     readonly post: (notice: Notice) => Effect.Effect<void, PersistenceSqlError>;
-    /** Delivers what waits for `threadId`, unless it is busy. */
+    /** Delivers what waits for `threadId`, unless it is busy or a hold is open. */
     readonly flush: (threadId: ThreadId) => Effect.Effect<void, PersistenceSqlError>;
-    /** Runs `effect` with its posts held, then delivers to each recipient once. */
+    /** Runs `effect` with every delivery held, then delivers to each recipient once. */
     readonly holding: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+    /** Delivers what waits for every recipient, such as notices from before a restart. */
+    readonly recover: () => Effect.Effect<void>;
+    /** Follows run ends; start-up catch-up runs `recover` separately. */
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("t3/features/NoticeInbox") {}
@@ -224,8 +227,17 @@ const make = Effect.gen(function* () {
     yield* deliver(threadId, rows);
   });
 
+  const flushNow = (threadId: ThreadId) => lock.withPermits(1)(flushUnlocked(threadId));
+
+  /** While a hold is open, `threadId` waits for it to release; true when it does. */
+  const deferred = (threadId: ThreadId) =>
+    Ref.modify(held, (state) => [
+      state.depth > 0,
+      state.depth > 0 ? { ...state, threads: new Set(state.threads).add(threadId) } : state,
+    ]);
+
   const flush: NoticeInbox["Service"]["flush"] = (threadId) =>
-    lock.withPermits(1)(flushUnlocked(threadId));
+    deferred(threadId).pipe(Effect.flatMap((wait) => (wait ? Effect.void : flushNow(threadId))));
 
   const post: NoticeInbox["Service"]["post"] = Effect.fn("NoticeInbox.post")(function* (notice) {
     const createdAt = yield* now;
@@ -247,15 +259,11 @@ const make = Effect.gen(function* () {
           AND delivered_at IS NULL AND dropped_at IS NULL
       `.pipe(Effect.mapError(queryError));
     }
-    const holding = yield* Ref.modify(held, (state) => [
-      state.depth > 0,
-      state.depth > 0 ? { ...state, threads: new Set(state.threads).add(notice.threadId) } : state,
-    ]);
-    if (!holding) yield* flush(notice.threadId);
+    yield* flush(notice.threadId);
   });
 
   const flushQuietly = (threadId: ThreadId) =>
-    flush(threadId).pipe(
+    flushNow(threadId).pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("Delivering notices failed", { threadId, cause }),
       ),
@@ -275,14 +283,20 @@ const make = Effect.gen(function* () {
         ),
     );
 
-  const flushWaiting = Effect.fn("NoticeInbox.flushWaiting")(
+  const recover: NoticeInbox["Service"]["recover"] = Effect.fn("NoticeInbox.recover")(
     function* () {
       const threads = yield* sql<{ readonly threadId: ThreadId }>`
         SELECT DISTINCT thread_id AS threadId FROM notice_inbox
         WHERE delivered_at IS NULL AND dropped_at IS NULL
       `.pipe(Effect.mapError(queryError));
       // One recipient failing doesn't keep the others from theirs.
-      for (const { threadId } of threads) yield* flushQuietly(threadId);
+      for (const { threadId } of threads) {
+        yield* flush(threadId).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Delivering notices failed", { threadId, cause }),
+          ),
+        );
+      }
     },
     Effect.catchCause((cause) => Effect.logWarning("Delivering waiting notices failed", { cause })),
   );
@@ -302,17 +316,15 @@ const make = Effect.gen(function* () {
         )
       : Effect.void;
 
-  // Following events first, then sending what waits, leaves no run end between the two unseen.
   const start: NoticeInbox["Service"]["start"] = Effect.fn("NoticeInbox.start")(function* () {
     yield* forkParked(
       Stream.runForEach(engine.streamDomainEvents, onEvent).pipe(
         Effect.catchCause((cause) => Effect.logWarning("Notice inbox stream failed", { cause })),
       ),
     );
-    yield* forkParked(flushWaiting());
   });
 
-  return NoticeInbox.of({ post, flush, holding, start });
+  return NoticeInbox.of({ post, flush, holding, recover, start });
 });
 
 export const layer = Layer.effect(NoticeInbox, make);
