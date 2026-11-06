@@ -204,7 +204,16 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const backup = path.join(backupDir, "bosun-backup.sqlite");
       yield* withDatabase(
         source,
-        SqlClient.SqlClient.pipe(Effect.flatMap((sql) => sql`VACUUM INTO ${backup}`)),
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`INSERT INTO projection_projects
+            (project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at)
+            VALUES ('project-repo', 'Repo', '/tmp/github/bot-captain', '[]', '2026-08-01', '2026-08-06', NULL)`;
+          yield* sql`INSERT INTO orchestration_v2_projection_threads
+            (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+            VALUES ('repo-thread', 'project-repo', 'repo-thread', 'codex', 'full-access', 'default', '2026-08-01', '2026-08-06', '{}')`;
+          yield* sql`VACUUM INTO ${backup}`;
+        }),
       );
 
       const result = yield* runMigrateDevDb(
@@ -223,7 +232,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       );
       assert.deepStrictEqual(
         projects.map((row) => row.project_id),
-        ["project-kept"],
+        ["project-kept", "project-repo"],
       );
     }),
   );

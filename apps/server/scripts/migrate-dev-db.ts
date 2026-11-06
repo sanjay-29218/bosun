@@ -306,16 +306,16 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
   const sql = yield* SqlClient.SqlClient;
 
   // A bot's home is a folder of the source install, wherever the snapshot was copied; the
-  // worktree makes its own on first use. It is the project in its owner's home folder.
+  // worktree makes its own on first use. It is the project at `bots/<its owner's home folder>`.
   const owned = yield* sql<{ project_id: string; workspace_root: string; bot_id: string }>`
     SELECT project_id, workspace_root, bot_id FROM projection_projects WHERE deleted_at IS NULL`;
   yield* sql`CREATE TEMP TABLE bot_home_projects (project_id TEXT PRIMARY KEY)`;
   for (const project of owned) {
-    const folder = project.workspace_root
+    const [parent, folder] = project.workspace_root
       .replace(/[\\/]+$/, "")
       .split(/[\\/]/)
-      .at(-1);
-    if (folder === botHomeFolderName(project.bot_id)) {
+      .slice(-2);
+    if (parent === "bots" && folder === botHomeFolderName(project.bot_id)) {
       yield* sql`INSERT INTO bot_home_projects (project_id) VALUES (${project.project_id})`;
     }
   }
