@@ -197,17 +197,21 @@ export function FeaturesPage(props: {
       matchesFeatureSearch(card, query, [projectFor(card)?.title]) &&
       (milestoneFilter === null || milestoneFeatureKeys.has(featureCardKey(card))),
   );
-  // Todo holds open issues no feature works on; a closed feature keeps its issue in Done.
-  const todos = issueBoard.issues
-    .filter(
-      (issue) =>
-        issue.state === "open" &&
-        featureFor(issue) === null &&
-        inMilestone(issue) &&
-        (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
-        matchesIssueSearch(issue, searchWords.join(" ")),
-    )
+  // Todo holds open issues no feature works on, and Closed the closed ones; a feature keeps its
+  // issue on its own card.
+  const unworkedIssues = issueBoard.issues.filter(
+    (issue) =>
+      featureFor(issue) === null &&
+      inMilestone(issue) &&
+      (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
+      matchesIssueSearch(issue, searchWords.join(" ")),
+  );
+  const todos = unworkedIssues
+    .filter((issue) => issue.state === "open")
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const closedTodos = unworkedIssues
+    .filter((issue) => issue.state === "closed")
+    .toSorted((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
 
   // The board shows what the thread list shows. A feature sits where its row does: settled,
   // snoozed or neither. A started one with no row (its threads archived, or settled long ago and
@@ -310,7 +314,9 @@ export function FeaturesPage(props: {
     BoardSection,
     (a: EnvironmentThreadShell, b: EnvironmentThreadShell) => number
   > = {
+    // Chats never sit in Todo or Closed.
     todo: () => 0,
+    closed: () => 0,
     working: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     // The longest wait first, as for features.
     "needs-you": (a, b) =>
@@ -709,6 +715,7 @@ export function FeaturesPage(props: {
         layout={layout}
         groups={groups}
         todos={todos}
+        closed={closedTodos}
         todosPending={issueBoard.pending}
         snoozed={snoozedCards}
         settled={settledCards}

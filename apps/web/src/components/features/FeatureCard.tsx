@@ -51,7 +51,7 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { useNowSecond } from "../../hooks/useNowSecond";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
-import { formatRelativeTime } from "../../timestampFormat";
+import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
@@ -64,6 +64,7 @@ import {
 import { Tooltip, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
+import { CloseTodoButton, ReopenTodoButton } from "./todoState";
 
 interface FeatureStatus {
   readonly label: string;
@@ -570,7 +571,10 @@ export const FeatureCard = memo(function FeatureCard(props: {
   );
 });
 
-/** An open issue or ticket no feature works on yet, in Todo; Start feature begins one. */
+/**
+ * An issue or ticket no feature works on. Open, in Todo: start a feature on it, or close it.
+ * Closed, in Closed: reopen it.
+ */
 export const TodoCard = memo(function TodoCard(props: {
   readonly issue: EnvironmentIssue;
   readonly project: EnvironmentProject | null;
@@ -612,12 +616,24 @@ export const TodoCard = memo(function TodoCard(props: {
           ))}
         </div>
       ) : null}
-      <div className="relative z-10 mt-2 flex">
-        <Button size="xs" variant="outline" onClick={() => props.onStart(issue)}>
-          <PlayIcon aria-hidden />
-          Start feature
-        </Button>
-      </div>
+      {issue.state === "closed" ? (
+        <div className="relative z-10 mt-2 flex items-center gap-2">
+          <ReopenTodoButton todo={issue} />
+          {issue.closedAt ? (
+            <span className="text-secondary-label">
+              Closed {formatRelativeTimeLabel(issue.closedAt)}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <div className="relative z-10 mt-2 flex flex-wrap gap-1.5">
+          <Button size="xs" variant="outline" onClick={() => props.onStart(issue)}>
+            <PlayIcon aria-hidden />
+            Start feature
+          </Button>
+          <CloseTodoButton todo={issue} />
+        </div>
+      )}
     </div>
   );
 });

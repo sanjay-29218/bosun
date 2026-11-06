@@ -7,11 +7,7 @@ import {
   ticketIssue,
   type EnvironmentIssue,
 } from "@t3tools/client-runtime/state/issue-board";
-import {
-  isAtomCommandInterrupted,
-  runAtomCommand,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+import { isAtomCommandInterrupted, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { ticketRef, type EnvironmentId, type IssueDetail, type Ticket } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -53,6 +49,7 @@ import {
   type TodoOwner,
   type TodoTarget,
 } from "./todoDialogs";
+import { CloseTodoButton, failureText, ReopenTodoButton } from "./todoState";
 
 /**
  * Starts a feature in a new thread's composer, in a new worktree: the first message is the
@@ -85,11 +82,6 @@ const todoProject = (issue: EnvironmentIssue): TodoOwner => ({
   environmentId: issue.environmentId,
   projectId: issue.projectId,
 });
-
-const failureText = (result: Parameters<typeof squashAtomCommandFailure>[0], fallback: string) => {
-  const failure = squashAtomCommandFailure(result);
-  return failure instanceof Error ? failure.message.replace(/^\w*Error: /, "") : fallback;
-};
 
 const confirm = async (message: string) => {
   try {
@@ -518,8 +510,6 @@ function GitHubIssueDetail(props: {
       input: { projectId: owner.projectId, number: props.number },
     }),
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const startFeature = useStartFeatureDraft();
   const issue = detail.data;
   if (!issue) {
@@ -529,23 +519,6 @@ function GitHubIssueDetail(props: {
   const feature = props.featureFor(row);
   const repository = new URL(issue.url).pathname.split("/").slice(1, 3).join("/");
 
-  const setState = async (state: "open" | "closed") => {
-    setBusy(true);
-    setError(null);
-    const result = await runAtomCommand(
-      appAtomRegistry,
-      featuresEnvironment.setIssueState,
-      {
-        environmentId: owner.environmentId,
-        input: { projectId: owner.projectId, number: issue.number, state },
-      },
-      { reportFailure: false },
-    );
-    setBusy(false);
-    if (result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
-      setError(failureText(result, "GitHub did not change the issue."));
-    }
-  };
   const markdown = (text: string) => (
     <ChatMarkdown
       text={text}
@@ -589,11 +562,7 @@ function GitHubIssueDetail(props: {
           {open && !feature ? (
             <StartFeatureButton onStart={() => startFeature(todoProject(row), { issue: row })} />
           ) : null}
-          <MoreActions>
-            <MenuItem disabled={busy} onClick={() => void setState(open ? "closed" : "open")}>
-              {open ? "Close issue" : "Reopen issue"}
-            </MenuItem>
-          </MoreActions>
+          {open ? <CloseTodoButton todo={row} /> : <ReopenTodoButton todo={row} />}
         </>
       }
     >
@@ -652,11 +621,6 @@ function GitHubIssueDetail(props: {
           <p className="text-sm text-muted-foreground">No description.</p>
         )}
       </div>
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
       {issue.commentCount > 0 ? (
         <section className="mt-4 flex flex-col">
           <h3 className="pb-2 text-xs text-muted-foreground">
