@@ -25,4 +25,12 @@ export default Effect.gen(function* () {
     CREATE INDEX IF NOT EXISTS notice_inbox_pending_idx ON notice_inbox (thread_id)
     WHERE delivered_at IS NULL AND dropped_at IS NULL
   `;
+  // Lead stops from before the inbox were never reported to the thread that started the feature,
+  // and stay unreported: a top-level stop counts only after this event sequence.
+  yield* sql`CREATE TABLE IF NOT EXISTS notice_inbox_cutoff (sequence INTEGER NOT NULL)`;
+  yield* sql`
+    INSERT INTO notice_inbox_cutoff (sequence)
+    SELECT COALESCE(MAX(sequence), 0) FROM orchestration_events
+    WHERE NOT EXISTS (SELECT 1 FROM notice_inbox_cutoff)
+  `;
 });

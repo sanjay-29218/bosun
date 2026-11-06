@@ -12,6 +12,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -52,6 +53,8 @@ export class NoticeInbox extends Context.Service<
     readonly post: (notice: Notice) => Effect.Effect<void, PersistenceSqlError>;
     /** Delivers what waits for `threadId`, unless it is busy. */
     readonly flush: (threadId: ThreadId) => Effect.Effect<void, PersistenceSqlError>;
+    /** Runs `effect` with its posts held, then delivers to each recipient once. */
+    readonly holding: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("t3/features/NoticeInbox") {}
@@ -71,6 +74,10 @@ const make = Effect.gen(function* () {
   const engine = yield* OrchestratorV2;
   const queryError = toPersistenceSqlError("NoticeInbox.query");
   const lock = yield* Semaphore.make(1);
+  const held = yield* Ref.make<{ readonly depth: number; readonly threads: Set<ThreadId> }>({
+    depth: 0,
+    threads: new Set(),
+  });
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
   const rowColumns = sql`key, text, summary, outcome, source_thread_id AS sourceThreadId,
@@ -240,8 +247,33 @@ const make = Effect.gen(function* () {
           AND delivered_at IS NULL AND dropped_at IS NULL
       `.pipe(Effect.mapError(queryError));
     }
-    yield* flush(notice.threadId);
+    const holding = yield* Ref.modify(held, (state) => [
+      state.depth > 0,
+      state.depth > 0 ? { ...state, threads: new Set(state.threads).add(notice.threadId) } : state,
+    ]);
+    if (!holding) yield* flush(notice.threadId);
   });
+
+  const flushQuietly = (threadId: ThreadId) =>
+    flush(threadId).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Delivering notices failed", { threadId, cause }),
+      ),
+    );
+
+  const holding: NoticeInbox["Service"]["holding"] = (effect) =>
+    Effect.acquireUseRelease(
+      Ref.update(held, (state) => ({ ...state, depth: state.depth + 1 })),
+      () => effect,
+      () =>
+        Ref.modify(held, (state) =>
+          state.depth > 1
+            ? [[], { ...state, depth: state.depth - 1 }]
+            : [[...state.threads], { depth: 0, threads: new Set<ThreadId>() }],
+        ).pipe(
+          Effect.flatMap((threads) => Effect.forEach(threads, flushQuietly, { discard: true })),
+        ),
+    );
 
   const flushWaiting = Effect.fn("NoticeInbox.flushWaiting")(
     function* () {
@@ -249,7 +281,8 @@ const make = Effect.gen(function* () {
         SELECT DISTINCT thread_id AS threadId FROM notice_inbox
         WHERE delivered_at IS NULL AND dropped_at IS NULL
       `.pipe(Effect.mapError(queryError));
-      for (const { threadId } of threads) yield* flush(threadId);
+      // One recipient failing doesn't keep the others from theirs.
+      for (const { threadId } of threads) yield* flushQuietly(threadId);
     },
     Effect.catchCause((cause) => Effect.logWarning("Delivering waiting notices failed", { cause })),
   );
@@ -279,7 +312,7 @@ const make = Effect.gen(function* () {
     yield* forkParked(flushWaiting());
   });
 
-  return NoticeInbox.of({ post, flush, start });
+  return NoticeInbox.of({ post, flush, holding, start });
 });
 
 export const layer = Layer.effect(NoticeInbox, make);

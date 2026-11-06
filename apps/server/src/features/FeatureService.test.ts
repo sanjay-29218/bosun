@@ -871,6 +871,82 @@ describe("feature lead and crew", () => {
     ),
   );
 
+  effectIt.effect(
+    "catches up on stops since the upgrade at start-up, in one message per requester",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const features = yield* FeatureService;
+          const engine = yield* OrchestrationEngineService;
+          const sql = yield* SqlClient.SqlClient;
+          const hq = ThreadId.make("thread:hq-upgraded");
+          yield* engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("hq-upgraded:create"),
+            threadId: hq,
+            projectId,
+            title: "HQ",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+          const launch = (title: string) =>
+            features
+              .launch({
+                projectId,
+                title,
+                brief: `Build ${title}`,
+                workspace: "local",
+                requesterThreadId: hq,
+              })
+              .pipe(
+                Effect.tap((started) =>
+                  engine
+                    .streamStoredEventsFrom({
+                      threadId: started.leadThreadId,
+                      eventType: "run.updated",
+                    })
+                    .pipe(
+                      Stream.filter(
+                        (stored) =>
+                          stored.event.type === "run.updated" &&
+                          stored.event.payload.status !== "preparing",
+                      ),
+                      Stream.runHead,
+                    ),
+                ),
+              );
+          const stop = (threadId: ThreadId) =>
+            Effect.all([
+              sql`UPDATE orchestration_v2_projection_runs SET status = 'completed' WHERE thread_id = ${threadId}`,
+              sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+            ]);
+
+          // A lead that stopped before the upgrade, while the old reporter skipped it.
+          const before = yield* launch("Paused export");
+          yield* stop(before.leadThreadId);
+          yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+          // Two leads that stopped after it, while the server was down.
+          const csv = yield* launch("CSV export");
+          const pdf = yield* launch("PDF export");
+          yield* stop(csv.leadThreadId);
+          yield* stop(pdf.leadThreadId);
+
+          yield* features.reconcileChildren();
+          const [digest, ...rest] = yield* userTexts(hq);
+          expect(rest).toEqual([]);
+          expect(digest).toMatch(/^2 updates arrived while you were busy:/);
+          expect(digest).toContain('Feature "CSV export"');
+          expect(digest).toContain('Feature "PDF export"');
+          expect(digest).not.toContain("Paused export");
+        }),
+      ),
+  );
+
   effectIt.effect("sends a lone notice the orchestrator rejected again under a new command", () =>
     withSystem(
       Effect.gen(function* () {

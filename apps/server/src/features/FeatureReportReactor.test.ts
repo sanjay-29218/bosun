@@ -13,6 +13,7 @@ import { type Notice, NoticeInbox } from "./NoticeInbox.ts";
 const leadThreadId = ThreadId.make("thread:lead");
 const headquartersId = ThreadId.make("bot-run:bot-hq:bot-captain");
 const parentLeadId = ThreadId.make("thread:epic-lead");
+const brokenLeadId = ThreadId.make("thread:broken-lead");
 
 const runUpdated = (status: string) =>
   ({
@@ -39,6 +40,8 @@ const setup = (input: {
   readonly requestId?: string;
   /** Message ids already in the requester's thread. */
   readonly reported?: ReadonlyArray<string>;
+  /** A lead ahead of this one in catch-up whose thread can't be read. */
+  readonly brokenLead?: boolean;
 }) =>
   Effect.gen(function* () {
     const posted = yield* Ref.make<ReadonlyArray<Notice>>([]);
@@ -48,6 +51,7 @@ const setup = (input: {
           Layer.mock(Orchestrator.OrchestratorV2)({}),
           Layer.mock(NoticeInbox)({
             post: (notice) => Ref.update(posted, (all) => [...all, notice]),
+            holding: (effect) => effect,
           }),
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
             getThreadRecords: (threadId, _fields, filter) =>
@@ -65,34 +69,38 @@ const setup = (input: {
                     }) as never,
               ),
             getThread: (threadId) =>
-              Effect.succeed(
-                (threadId === leadThreadId
-                  ? {
-                      id: leadThreadId,
-                      lineage:
-                        input.parent === undefined
-                          ? { parentThreadId: null, relationshipToParent: null }
-                          : {
-                              parentThreadId: ThreadId.make("thread:other"),
-                              relationshipToParent:
-                                input.parent === "subagent" ? "subagent" : "fork",
-                              ...(input.parent === "sideChat" ? { sideChat: true } : {}),
-                            },
-                      feature: {
-                        id: "feature:dark",
-                        title: "Dark mode",
-                        ...(input.member ? { member: input.member } : {}),
-                      },
-                    }
-                  : { id: threadId, archivedAt: null, deletedAt: null }) as never,
-              ),
+              threadId === brokenLeadId
+                ? Effect.die("thread not found")
+                : Effect.succeed(
+                    (threadId === leadThreadId
+                      ? {
+                          id: leadThreadId,
+                          lineage:
+                            input.parent === undefined
+                              ? { parentThreadId: null, relationshipToParent: null }
+                              : {
+                                  parentThreadId: ThreadId.make("thread:other"),
+                                  relationshipToParent:
+                                    input.parent === "subagent" ? "subagent" : "fork",
+                                  ...(input.parent === "sideChat" ? { sideChat: true } : {}),
+                                },
+                          feature: {
+                            id: "feature:dark",
+                            title: "Dark mode",
+                            ...(input.member ? { member: input.member } : {}),
+                          },
+                        }
+                      : { id: threadId, archivedAt: null, deletedAt: null }) as never,
+                  ),
           }),
           Layer.mock(FeatureService)({
             requesterThreadId: () =>
               Effect.succeed(input.requester === undefined ? headquartersId : input.requester),
             parentLeadThreadId: () => Effect.succeed(input.parentLead ?? null),
             requestIdOf: () => Effect.succeed(input.requestId ?? null),
-            reportingLeads: Effect.succeed([leadThreadId]),
+            reportingLeads: Effect.succeed(
+              input.brokenLead ? [brokenLeadId, leadThreadId] : [leadThreadId],
+            ),
           }),
         ),
       ),
@@ -159,6 +167,10 @@ it.effect("catches up on questions no event reported, such as one before a resta
       (yield* Ref.get(fresh.posted)).map((notice) => notice.key),
       ["feature-report:request:request:plan"],
     );
+    // A lead that fails to check doesn't keep the next from its catch-up.
+    const broken = yield* setup({ brokenLead: true });
+    yield* broken.reactor.catchUp();
+    assert.lengthOf(yield* Ref.get(broken.posted), 1);
     // One the reactor sent before the inbox existed isn't sent again.
     const reported = yield* setup({ reported: ["message:feature-report:request:request:plan"] });
     yield* reported.reactor.catchUp();

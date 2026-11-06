@@ -62,8 +62,11 @@ const make = Effect.gen(function* () {
     leadThreadId: ThreadId,
   ) {
     if (threadId === null || threadId === leadThreadId) return null;
-    const thread = yield* projections.getThread(threadId);
-    return thread.archivedAt !== null || thread.deletedAt !== null ? null : threadId;
+    // A thread that is gone has no one to tell.
+    const thread = yield* projections.getThread(threadId).pipe(Effect.orElseSucceed(() => null));
+    return thread === null || thread.archivedAt !== null || thread.deletedAt !== null
+      ? null
+      : threadId;
   });
 
   /** The feature `threadId` leads and the thread that started it, or null with none to tell. */
@@ -146,21 +149,35 @@ const make = Effect.gen(function* () {
    */
   const catchUp: FeatureReportReactor["Service"]["catchUp"] = Effect.fnUntraced(
     function* () {
-      for (const leadThreadId of yield* features.reportingLeads) {
-        const asked = yield* askedOf(leadThreadId);
-        if (asked === null) continue;
-        const lead = yield* projections.getThreadRecords(leadThreadId, ["runtimeRequests"], {
-          runtimeRequestStatuses: ["pending"],
-        });
-        for (const request of lead.runtimeRequests) {
-          const { messages } = yield* projections.getThreadRecords(
-            asked.requesterId,
-            ["messages"],
-            { messageIds: [MessageId.make(`message:${reportKey(`request:${request.id}`)}`)] },
-          );
-          if (messages.length === 0) yield* reportRequest(leadThreadId, request);
-        }
-      }
+      const catchUpLead = Effect.fnUntraced(
+        function* (leadThreadId: ThreadId) {
+          const asked = yield* askedOf(leadThreadId);
+          if (asked === null) return;
+          const lead = yield* projections.getThreadRecords(leadThreadId, ["runtimeRequests"], {
+            runtimeRequestStatuses: ["pending"],
+          });
+          for (const request of lead.runtimeRequests) {
+            const { messages } = yield* projections.getThreadRecords(
+              asked.requesterId,
+              ["messages"],
+              { messageIds: [MessageId.make(`message:${reportKey(`request:${request.id}`)}`)] },
+            );
+            if (messages.length === 0) yield* reportRequest(leadThreadId, request);
+          }
+        },
+        // One lead failing to check doesn't keep the others from theirs.
+        (effect, leadThreadId) =>
+          effect.pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("catching up a feature lead's questions failed", {
+                leadThreadId,
+                cause,
+              }),
+            ),
+          ),
+      );
+      const leads = yield* features.reportingLeads;
+      yield* inbox.holding(Effect.forEach(leads, catchUpLead, { discard: true }));
     },
     Effect.catchCause((cause) =>
       Effect.logWarning("catching up feature reports failed", { cause }),

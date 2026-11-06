@@ -1403,6 +1403,14 @@ export const FeatureServiceLive = Layer.effect(
                 })
                 .pipe(Effect.orElseSucceed(() => ({ messages: [] })))).messages;
         if (legacy.length > 0) return;
+        // Stops from before the inbox were never reported, and an upgrade doesn't report them.
+        const sinceInbox = yield* sql`
+          SELECT 1 FROM orchestration_events
+          WHERE aggregate_kind = 'thread' AND stream_id = ${lead} AND event_type = 'run.updated'
+            AND sequence > (SELECT COALESCE(MAX(sequence), 0) FROM notice_inbox_cutoff)
+          LIMIT 1
+        `.pipe(Effect.mapError(queryError));
+        if (sinceInbox.length === 0) return;
         const { messages } = yield* engine
           .getThreadRecords(lead, ["messages"], { messageRoles: ["assistant"] })
           .pipe(Effect.orElseSucceed(() => ({ messages: [] })));
@@ -1452,18 +1460,25 @@ export const FeatureServiceLive = Layer.effect(
     const reconcileChildren: FeatureServiceShape["reconcileChildren"] = Effect.fn(
       "FeatureService.reconcileChildren",
     )(function* () {
-      // One child failing to check doesn't keep the others from theirs.
-      for (const child of yield* reportingFeatures) {
-        yield* leadThreadOf(child.id).pipe(
-          Effect.flatMap((lead) => (lead === null ? Effect.void : reportIfQuiet(lead))),
-          Effect.catch((error) =>
-            Effect.logWarning("Checking a quiet child feature failed", {
-              featureId: child.id,
-              error,
-            }),
-          ),
-        );
-      }
+      // One feature failing to check doesn't keep the others from theirs, and what they report
+      // reaches each requester as one message.
+      const features = yield* reportingFeatures;
+      yield* inbox.holding(
+        Effect.forEach(
+          features,
+          (feature) =>
+            leadThreadOf(feature.id).pipe(
+              Effect.flatMap((lead) => (lead === null ? Effect.void : reportIfQuiet(lead))),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Checking a quiet feature failed", {
+                  featureId: feature.id,
+                  cause,
+                }),
+              ),
+            ),
+          { discard: true },
+        ),
+      );
     });
 
     const board: FeatureServiceShape["board"] = Effect.fn("FeatureService.board")(
