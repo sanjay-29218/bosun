@@ -193,6 +193,41 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     }),
   );
 
+  it.effect("leaves bots' homes out of a snapshot copied somewhere else", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-src-" });
+      const backupDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-backup-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      const backup = path.join(backupDir, "bosun-backup.sqlite");
+      yield* withDatabase(
+        source,
+        SqlClient.SqlClient.pipe(Effect.flatMap((sql) => sql`VACUUM INTO ${backup}`)),
+      );
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source: backup, projects: 5, threadsPerProject: 2 },
+        { sharedHome: sourceDir },
+      );
+
+      const projects = yield* withDatabase(
+        result.databasePath,
+        SqlClient.SqlClient.pipe(
+          Effect.flatMap(
+            (sql) => sql<{ project_id: string }>`
+              SELECT project_id FROM projection_projects ORDER BY project_id`,
+          ),
+        ),
+      );
+      assert.deepStrictEqual(
+        projects.map((row) => row.project_id),
+        ["project-kept"],
+      );
+    }),
+  );
+
   it.effect("copies crew handoffs before their runs, dropping those whose runs are left out", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
