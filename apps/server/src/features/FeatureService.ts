@@ -38,6 +38,7 @@ import * as Stream from "effect/Stream";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { FeatureWorkspaces } from "./FeatureWorkspaces.ts";
+import { NoticeInbox } from "./NoticeInbox.ts";
 import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import { CrewService, type CrewServiceError } from "../crew/CrewService.ts";
 import { CrewStore, type Workflow } from "../crew/CrewStore.ts";
@@ -291,6 +292,16 @@ const REPORT_HEADLINES = {
   failed: "Child feature's lead failed",
   interrupted: "Child feature was interrupted",
 } as const;
+const MAX_REPORT_CHARS = 8_000;
+
+/** How a report to the thread that started a feature names it. */
+export const featureReportLabel = (
+  title: string,
+  leadThreadId: ThreadId,
+  requestId: string | null,
+) =>
+  `Feature "${title}" (lead thread ${leadThreadId}${requestId === null ? "" : `, request ${requestId}`})`;
+
 const QUIET_CHILD_HINT =
   "Its lead didn't call t3_feature_finish. If its work is done, carry on. If it asked something or needs a push, reply in its lead thread with t3_thread_send.";
 const ACTIVE_RUN_STATUSES = ["preparing", "queued", "starting", "running", "waiting"];
@@ -447,6 +458,7 @@ export const FeatureServiceLive = Layer.effect(
     const runtime = yield* CrewThreadRuntime;
     const featureWorkspaces = yield* FeatureWorkspaces;
     const engine = yield* OrchestratorV2;
+    const inbox = yield* NoticeInbox;
     const titleServices = yield* Effect.context<
       | ProjectStore.ProjectStoreV2
       | ServerSettings.ServerSettingsService
@@ -1273,12 +1285,61 @@ export const FeatureServiceLive = Layer.effect(
         }),
       );
 
-    /** Open child features with an open parent: the ones that report to a lead. */
-    const reportingChildren = sql<{ readonly id: string }>`
-      SELECT child.id FROM features AS child
-      JOIN features AS parent ON parent.id = child.parent_feature_id
-      WHERE child.status = 'open' AND parent.status = 'open'
+    /** Open features that report when they go quiet: children of an open parent, or requested. */
+    const reportingFeatures = sql<{ readonly id: string }>`
+      SELECT feature.id FROM features AS feature
+      LEFT JOIN features AS parent ON parent.id = feature.parent_feature_id
+      WHERE feature.status = 'open' AND (
+        parent.status = 'open'
+        OR (feature.parent_feature_id IS NULL AND feature.requester_thread_id IS NOT NULL)
+      )
     `.pipe(Effect.mapError(queryError));
+
+    /** The live thread that started a top-level feature, other than its lead. */
+    const reachableRequester = Effect.fn("FeatureService.reachableRequester")(function* (
+      featureId: string,
+      leadThreadId: ThreadId,
+    ) {
+      const requester = yield* requesterThreadId(featureId);
+      if (requester === null || requester === leadThreadId) return null;
+      const shell = yield* engine.getThreadShell(requester).pipe(Effect.orElseSucceed(() => null));
+      return shell === null || shell.archivedAt != null || shell.deletedAt != null
+        ? null
+        : requester;
+    });
+
+    /** Tells the thread that started a top-level feature that a stage of it ended. */
+    const reportToRequester = Effect.fn("FeatureService.reportToRequester")(function* (
+      feature: FeatureRecord,
+      leadThreadId: ThreadId,
+      input: {
+        readonly key: string;
+        readonly outcome: "finished" | "stopped" | "failed" | "interrupted";
+        readonly said: string;
+      },
+    ) {
+      const requester = yield* reachableRequester(feature.id, leadThreadId);
+      if (requester === null) return;
+      const said = input.said.trim();
+      const text =
+        said.length > MAX_REPORT_CHARS
+          ? `${said.slice(0, MAX_REPORT_CHARS)}… (read the rest in the lead's thread)`
+          : said || "(no message)";
+      const label = featureReportLabel(feature.title, leadThreadId, yield* requestIdOf(feature.id));
+      yield* inbox
+        .post({
+          threadId: requester,
+          key: input.key,
+          subject: feature.id,
+          text: `${label} [${input.outcome}]:\n${text}`,
+          notification: {
+            childThreadId: leadThreadId,
+            outcome: input.outcome === "failed" ? "failed" : "updated",
+            summary: `Feature "${feature.title}" ${input.outcome === "finished" ? "finished" : "reported back"}`,
+          },
+        })
+        .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
+    });
 
     const reportIfQuiet: FeatureServiceShape["reportIfQuiet"] = Effect.fn(
       "FeatureService.reportIfQuiet",
@@ -1288,9 +1349,12 @@ export const FeatureServiceLive = Layer.effect(
         FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}
       `.pipe(Effect.mapError(queryError));
       const feature = tag?.featureId ? yield* get(tag.featureId) : null;
-      if (!feature?.parentFeatureId || feature.status !== "open") return;
+      if (!feature || feature.status !== "open") return;
       const lead = yield* leadThreadOf(feature.id);
       if (lead === null) return;
+      if (!feature.parentFeatureId && (yield* reachableRequester(feature.id, lead)) === null) {
+        return;
+      }
       // Quiet: none of its threads runs, waits on the person, has work queued for it (such as
       // resuming a turn a restart cut short), or owes its lead a crew result not yet delivered.
       const busy = yield* sql`
@@ -1325,6 +1389,30 @@ export const FeatureServiceLive = Layer.effect(
           : run.status === "cancelled" || run.status === "interrupted"
             ? "interrupted"
             : "stopped";
+      if (!feature.parentFeatureId) {
+        // The board keeps reading the last finish; this only tells the requester.
+        const key = `feature-report:${run.runId}`;
+        // A report the reactor sent before the inbox existed isn't sent again.
+        const requester = yield* requesterThreadId(feature.id);
+        const legacy =
+          requester === null
+            ? []
+            : (yield* engine
+                .getThreadRecords(requester, ["messages"], {
+                  messageIds: [MessageId.make(`message:${key}`)],
+                })
+                .pipe(Effect.orElseSucceed(() => ({ messages: [] })))).messages;
+        if (legacy.length > 0) return;
+        const { messages } = yield* engine
+          .getThreadRecords(lead, ["messages"], { messageRoles: ["assistant"] })
+          .pipe(Effect.orElseSucceed(() => ({ messages: [] })));
+        yield* reportToRequester(feature, lead, {
+          key,
+          outcome,
+          said: messages.findLast((message) => !message.streaming)?.text ?? "",
+        });
+        return;
+      }
       const undelivered = yield* reportToParent(
         feature,
         outcome,
@@ -1365,7 +1453,7 @@ export const FeatureServiceLive = Layer.effect(
       "FeatureService.reconcileChildren",
     )(function* () {
       // One child failing to check doesn't keep the others from theirs.
-      for (const child of yield* reportingChildren) {
+      for (const child of yield* reportingFeatures) {
         yield* leadThreadOf(child.id).pipe(
           Effect.flatMap((lead) => (lead === null ? Effect.void : reportIfQuiet(lead))),
           Effect.catch((error) =>
@@ -1580,13 +1668,20 @@ export const FeatureServiceLive = Layer.effect(
         if (!validText(summary, 16_000)) {
           return yield* Effect.fail(new FeatureValidationError("Give a short summary"));
         }
-        // A child's parent hears; any feature's board then reads it as finished.
+        const run = yield* leadTurnOf(threadId);
+        // A child's parent hears, else whoever started it; any feature's board then reads it as
+        // finished.
         if (feature.parentFeatureId) {
           const undelivered = yield* reportToParent(feature, "finished", summary);
           if (undelivered !== null)
             return yield* Effect.fail(new FeatureValidationError(undelivered));
+        } else {
+          yield* reportToRequester(feature, threadId, {
+            key: `feature-report:finished:${run?.runId ?? NodeCrypto.randomUUID()}`,
+            outcome: "finished",
+            said: summary,
+          });
         }
-        const run = yield* leadTurnOf(threadId);
         yield* markReported(
           feature.id,
           DateTime.formatIso(yield* DateTime.now),

@@ -10,6 +10,7 @@ import {
   CAPTAIN_BOT_ID,
   CommandId,
   EPIC_WORKFLOW_ID,
+  MessageId,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
   PROJECT_MANAGER_ROLE_ID,
@@ -46,6 +47,7 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
+import * as NoticeInbox from "./NoticeInbox.ts";
 import FeatureManagerMigration from "../persistence/Migrations/103_FeatureManager.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
@@ -102,6 +104,7 @@ const withSystem = <E>(
     | TextGeneration.TextGeneration
     | ProjectStore.ProjectStoreV2
     | ServerSettingsService
+    | NoticeInbox.NoticeInbox
   >,
 ) =>
   Effect.gen(function* () {
@@ -110,6 +113,7 @@ const withSystem = <E>(
     );
     const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
+      Layer.provideMerge(NoticeInbox.layer),
       Layer.provideMerge(FeatureWorkspacesLive),
       Layer.provideMerge(CrewRuntimeLive.pipe(Layer.provide(orchestration))),
       Layer.provideMerge(orchestration),
@@ -711,6 +715,157 @@ describe("feature lead and crew", () => {
         yield* features.reportIfQuiet(page.leadThreadId);
         expect(yield* notes()).toContainEqual(
           expect.stringMatching(/^Child feature was interrupted: "web page"/),
+        );
+      }),
+    ),
+  );
+
+  effectIt.effect("tells whoever started a feature when a stage ends, at once if it is busy", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const inbox = yield* NoticeInbox.NoticeInbox;
+        const sql = yield* SqlClient.SqlClient;
+        const hq = ThreadId.make("thread:hq");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("hq:create"),
+          threadId: hq,
+          projectId,
+          title: "HQ",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        const launch = (title: string) =>
+          features
+            .launch({
+              projectId,
+              title,
+              brief: `Build ${title}`,
+              workspace: "local",
+              requesterThreadId: hq,
+            })
+            .pipe(
+              Effect.tap((started) =>
+                engine
+                  .streamStoredEventsFrom({
+                    threadId: started.leadThreadId,
+                    eventType: "run.updated",
+                  })
+                  .pipe(
+                    Stream.filter(
+                      (stored) =>
+                        stored.event.type === "run.updated" &&
+                        stored.event.payload.status !== "preparing",
+                    ),
+                    Stream.runHead,
+                  ),
+              ),
+            );
+        const setRun = (threadId: ThreadId, status: string) =>
+          Effect.all([
+            sql`UPDATE orchestration_v2_projection_runs SET status = ${status} WHERE thread_id = ${threadId}`,
+            sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+          ]);
+        const fakeRun = (runId: string, threadId: ThreadId, status: string) => sql`
+          INSERT INTO orchestration_v2_projection_runs
+            (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+          VALUES (${runId}, ${threadId}, 99, 'codex', ${status}, '2026-11-05T00:00:00.000Z', '{}')
+          ON CONFLICT (run_id) DO UPDATE SET status = excluded.status
+        `;
+        const held = sql<{ readonly key: string }>`
+          SELECT key FROM notice_inbox WHERE thread_id = ${hq} AND dropped_at IS NULL
+        `.pipe(Effect.map((rows) => rows.map((row) => row.key)));
+
+        // HQ is busy with a turn of its own.
+        yield* engine.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("hq:ask"),
+          threadId: hq,
+          messageId: MessageId.make("message:hq:ask"),
+          text: "Ship exports and charts",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* setRun(hq, "running");
+        const csv = yield* launch("CSV export");
+        const pdf = yield* launch("PDF export");
+        const charts = yield* launch("Charts");
+
+        // The lead stops while its Builder, a thread it started itself, still works: progress.
+        const builder = ThreadId.make("thread:csv-builder");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("csv-builder:create"),
+          threadId: builder,
+          projectId,
+          title: "Builder",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make("csv-builder:tag"),
+          threadId: builder,
+          feature: { id: csv.feature.id, title: "CSV export", member: "Builder" },
+        });
+        yield* fakeRun("run:builder", builder, "running");
+        for (let stop = 0; stop < 5; stop++) {
+          yield* setRun(csv.leadThreadId, "completed");
+          yield* features.reportIfQuiet(csv.leadThreadId);
+        }
+        expect(yield* held).toEqual([]);
+        // It finishes once, and stopping after that reports nothing more.
+        yield* features.finishForThread(csv.leadThreadId, "CSV export is merged");
+        yield* fakeRun("run:builder", builder, "completed");
+        yield* features.reportIfQuiet(csv.leadThreadId);
+
+        // Leads that stop with nothing left running report how their turn ended.
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* setRun(charts.leadThreadId, "failed");
+        yield* features.reconcileChildren();
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        expect(yield* held).toHaveLength(3);
+        expect(yield* userTexts(hq)).toEqual(["Ship exports and charts"]);
+
+        // HQ's turn ends: one message carries all three.
+        yield* setRun(hq, "completed");
+        yield* inbox.flush(hq);
+        yield* inbox.flush(hq);
+        const [, digest, ...rest] = yield* userTexts(hq);
+        expect(rest).toEqual([]);
+        expect(digest).toMatch(/^3 updates arrived while you were busy:/);
+        expect(digest).toContain(
+          `Feature "CSV export" (lead thread ${csv.leadThreadId}) [finished]:\nCSV export is merged`,
+        );
+        expect(digest).toContain(
+          `Feature "PDF export" (lead thread ${pdf.leadThreadId}) [stopped]`,
+        );
+        expect(digest).toContain(`Feature "Charts" (lead thread ${charts.leadThreadId}) [failed]`);
+        // The board reads only the finish.
+        const reports = (yield* features.board(projectId)).map((card) => [
+          card.title,
+          card.report?.outcome,
+        ]);
+        expect(reports).toEqual(
+          expect.arrayContaining([
+            ["CSV export", "finished"],
+            ["PDF export", undefined],
+            ["Charts", undefined],
+          ]),
         );
       }),
     ),

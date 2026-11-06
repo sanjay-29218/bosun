@@ -17,6 +17,7 @@ import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
+import * as NoticeInbox from "./NoticeInbox.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 /** Automations that run as a bot post into its headquarters, which the crew opens or restores. */
@@ -60,12 +61,17 @@ const CrewDelegationLive = Layer.effect(
   }),
 );
 
-/** A child feature that goes quiet without reporting tells its parent's lead anyway. */
+/** A feature that goes quiet without reporting tells its parent's lead or whoever started it. */
 const ChildFeatureWatchLive = Layer.effectDiscard(
   FeatureService.pipe(Effect.flatMap((features) => features.watchChildren())),
 );
 
-/** A feature started outside a feature hears its lead each time it stops. */
+/** Notices held for a busy thread reach it as one message once it is free. */
+const NoticeInboxWatchLive = Layer.effectDiscard(
+  NoticeInbox.NoticeInbox.pipe(Effect.flatMap((inbox) => inbox.start())),
+);
+
+/** The thread that started a feature hears when its lead waits on the person. */
 const FeatureReportsLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const reactor = yield* FeatureReportReactor.FeatureReportReactor;
@@ -119,7 +125,9 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   FeatureManagerTitlesLive,
   ProjectRequestsWatchLive.pipe(Layer.provideMerge(ProjectRequestsLive)),
   MergeNoticesLive,
+  NoticeInboxWatchLive,
 ).pipe(
+  Layer.provideMerge(NoticeInbox.layer),
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),
   // One counter for bots, the Library and features, which ws.ts streams to clients.

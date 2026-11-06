@@ -1,10 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import {
-  type OrchestrationV2DomainEvent,
-  type OrchestrationV2ServerCommand,
-  RunId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { type OrchestrationV2DomainEvent, RunId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
@@ -13,22 +8,17 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
 import { FeatureService } from "./FeatureService.ts";
+import { type Notice, NoticeInbox } from "./NoticeInbox.ts";
 
 const leadThreadId = ThreadId.make("thread:lead");
 const headquartersId = ThreadId.make("bot-run:bot-hq:bot-captain");
 const parentLeadId = ThreadId.make("thread:epic-lead");
 
-const run = (status: string, threadId = leadThreadId) => ({
-  id: RunId.make(`run:${threadId}:1`),
-  threadId,
-  status,
-  userMessageId: "message:prompt",
-});
-const runUpdated = (status: string, threadId = leadThreadId) =>
+const runUpdated = (status: string) =>
   ({
     type: "run.updated",
-    threadId,
-    payload: run(status, threadId),
+    threadId: leadThreadId,
+    payload: { id: RunId.make("run:lead:1"), threadId: leadThreadId, status },
   }) as unknown as OrchestrationV2DomainEvent;
 
 const requestUpdated = (status: string, kind = "user_input") =>
@@ -42,9 +32,6 @@ const setup = (input: {
   readonly member?: string;
   /** How the thread with the feature tag relates to a parent; the lead has none. */
   readonly parent?: "subagent" | "fork" | "sideChat";
-  readonly openTask?: boolean;
-  /** The run was a silent idle /compact. */
-  readonly compaction?: boolean;
   readonly requester?: ThreadId | null;
   /** The lead of the feature this one is a child of. */
   readonly parentLead?: ThreadId | null;
@@ -54,13 +41,13 @@ const setup = (input: {
   readonly reported?: ReadonlyArray<string>;
 }) =>
   Effect.gen(function* () {
-    const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+    const posted = yield* Ref.make<ReadonlyArray<Notice>>([]);
     const layer = FeatureReportReactor.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
-          Layer.mock(Orchestrator.OrchestratorV2)({
-            dispatch: (command) =>
-              Ref.update(dispatched, (all) => [...all, command]).pipe(Effect.as({} as never)),
+          Layer.mock(Orchestrator.OrchestratorV2)({}),
+          Layer.mock(NoticeInbox)({
+            post: (notice) => Ref.update(posted, (all) => [...all, notice]),
           }),
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
             getThreadRecords: (threadId, _fields, filter) =>
@@ -72,25 +59,8 @@ const setup = (input: {
                       ),
                     }
                   : {
-                      subagents: input.openTask
-                        ? [{ status: "running" }]
-                        : [{ status: "completed" }],
-                      runs: [run("completed")],
                       runtimeRequests: [
                         { id: "request:plan", status: "pending", kind: "user_input" },
-                      ],
-                      messages: [
-                        {
-                          id: "message:prompt",
-                          role: "user",
-                          text: input.compaction ? "/compact" : "Plan dark mode",
-                          ...(input.compaction ? { idleCompaction: "beforeCacheExpires" } : {}),
-                        },
-                        {
-                          role: "assistant",
-                          text: "The plan is ready. Approve it?",
-                          streaming: false,
-                        },
                       ],
                     }) as never,
               ),
@@ -128,108 +98,70 @@ const setup = (input: {
       ),
     );
     const reactor = yield* FeatureReportReactor.FeatureReportReactor.pipe(Effect.provide(layer));
-    return { reactor, dispatched };
+    return { reactor, posted };
   });
-
-it.effect("tells the thread that started a feature what its lead said when it stops", () =>
-  Effect.gen(function* () {
-    const { reactor, dispatched } = yield* setup({});
-    yield* reactor.handle(runUpdated("completed"));
-    const [report] = yield* Ref.get(dispatched);
-    assert.equal(report?.type, "message.dispatch");
-    if (report?.type !== "message.dispatch") return;
-    assert.equal(report.threadId, headquartersId);
-    assert.include(report.text, 'Feature "Dark mode"');
-    assert.include(report.text, "The plan is ready. Approve it?");
-    // One report per lead run, however often the run is updated.
-    assert.equal(report.commandId, `server:feature-report:run:${leadThreadId}:1`);
-  }),
-);
-
-it.effect("names the project request a feature answers in its reports", () =>
-  Effect.gen(function* () {
-    const { reactor, dispatched } = yield* setup({ requestId: "R-7" });
-    yield* reactor.handle(runUpdated("completed"));
-    yield* reactor.handle(requestUpdated("pending"));
-    const texts = (yield* Ref.get(dispatched)).map((command) =>
-      command.type === "message.dispatch" ? command.text : "",
-    );
-    assert.lengthOf(texts, 2);
-    for (const text of texts) {
-      assert.include(text, `Feature "Dark mode" (lead thread ${leadThreadId}, request R-7)`);
-    }
-  }),
-);
-
-it.effect("stays quiet while the crew works, for crew threads, and with no one to tell", () =>
-  Effect.gen(function* () {
-    for (const [input, status] of [
-      [{ openTask: true }, "completed"],
-      [{ member: "Builder" }, "completed"],
-      // A lead's own subagent, a fork of it and a side chat carry the feature but don't lead it.
-      [{ parent: "subagent" }, "completed"],
-      [{ parent: "fork" }, "completed"],
-      [{ parent: "sideChat" }, "completed"],
-      // An idle /compact is upkeep, not something the lead said.
-      [{ compaction: true }, "completed"],
-      [{ requester: null }, "completed"],
-      [{}, "running"],
-      [{}, "interrupted"],
-    ] as const) {
-      const { reactor, dispatched } = yield* setup(input);
-      yield* reactor.handle(runUpdated(status));
-      assert.deepEqual(yield* Ref.get(dispatched), [], JSON.stringify({ input, status }));
-    }
-  }),
-);
 
 it.effect("tells the thread that started a feature when its lead waits on the person", () =>
   Effect.gen(function* () {
-    const { reactor, dispatched } = yield* setup({});
+    const { reactor, posted } = yield* setup({ requestId: "R-7" });
     yield* reactor.handle(requestUpdated("pending"));
     yield* reactor.handle(requestUpdated("resolved"));
     yield* reactor.handle(requestUpdated("pending", "auth_refresh"));
-    const reports = yield* Ref.get(dispatched);
-    assert.lengthOf(reports, 1);
-    const [report] = reports;
-    if (report?.type !== "message.dispatch") return assert.fail("expected a message");
-    assert.equal(report.threadId, headquartersId);
-    assert.include(report.text, "waiting on the person: a question");
-    assert.equal(report.commandId, "server:feature-report:request:request:plan");
+    // Its stops are reported by the feature service, at a stage's end.
+    yield* reactor.handle(runUpdated("completed"));
+    const notices = yield* Ref.get(posted);
+    assert.lengthOf(notices, 1);
+    const [notice] = notices;
+    assert.equal(notice?.threadId, headquartersId);
+    assert.equal(notice?.key, "feature-report:request:request:plan");
+    assert.equal(notice?.requestId, "request:plan");
+    assert.equal(notice?.subject, "feature:dark");
+    assert.include(
+      notice?.text,
+      `Feature "Dark mode" (lead thread ${leadThreadId}, request R-7) is waiting on the person: a question`,
+    );
   }),
 );
 
-it.effect(
-  "tells an Epic child's parent lead when the child's lead waits, but not when it stops",
-  () =>
-    Effect.gen(function* () {
-      const { reactor, dispatched } = yield* setup({ requester: null, parentLead: parentLeadId });
+it.effect("stays quiet for crew threads and with no one to tell", () =>
+  Effect.gen(function* () {
+    for (const input of [
+      { member: "Builder" },
+      // A lead's own subagent, a fork of it and a side chat carry the feature but don't lead it.
+      { parent: "subagent" },
+      { parent: "fork" },
+      { parent: "sideChat" },
+      { requester: null },
+    ] as const) {
+      const { reactor, posted } = yield* setup(input);
       yield* reactor.handle(requestUpdated("pending"));
-      yield* reactor.handle(runUpdated("completed"));
-      const reports = yield* Ref.get(dispatched);
-      assert.lengthOf(reports, 1);
-      const [report] = reports;
-      if (report?.type !== "message.dispatch") return assert.fail("expected a message");
-      assert.equal(report.threadId, parentLeadId);
-      assert.include(report.text, "waiting on the person: a question");
-    }),
+      assert.deepEqual(yield* Ref.get(posted), [], JSON.stringify(input));
+    }
+  }),
 );
 
-it.effect("catches up on stops no event reported, such as one before a restart", () =>
+it.effect("tells an Epic child's parent lead when the child's lead waits", () =>
+  Effect.gen(function* () {
+    const { reactor, posted } = yield* setup({ requester: null, parentLead: parentLeadId });
+    yield* reactor.handle(requestUpdated("pending"));
+    const [notice, ...rest] = yield* Ref.get(posted);
+    assert.deepEqual(rest, []);
+    assert.equal(notice?.threadId, parentLeadId);
+    assert.include(notice?.text, "waiting on the person: a question");
+  }),
+);
+
+it.effect("catches up on questions no event reported, such as one before a restart", () =>
   Effect.gen(function* () {
     const fresh = yield* setup({});
     yield* fresh.reactor.catchUp();
     assert.deepEqual(
-      (yield* Ref.get(fresh.dispatched)).map((command) => command.commandId),
-      [`server:feature-report:run:${leadThreadId}:1`, "server:feature-report:request:request:plan"],
+      (yield* Ref.get(fresh.posted)).map((notice) => notice.key),
+      ["feature-report:request:request:plan"],
     );
-    const reported = yield* setup({
-      reported: [
-        `message:feature-report:run:${leadThreadId}:1`,
-        "message:feature-report:request:request:plan",
-      ],
-    });
+    // One the reactor sent before the inbox existed isn't sent again.
+    const reported = yield* setup({ reported: ["message:feature-report:request:request:plan"] });
     yield* reported.reactor.catchUp();
-    assert.deepEqual(yield* Ref.get(reported.dispatched), []);
+    assert.deepEqual(yield* Ref.get(reported.posted), []);
   }),
 );

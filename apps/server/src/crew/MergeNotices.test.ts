@@ -14,6 +14,7 @@ import * as Ref from "effect/Ref";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { FeatureService } from "../features/FeatureService.ts";
+import * as NoticeInbox from "../features/NoticeInbox.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as BosunMigrations from "../persistence/BosunMigrations.ts";
@@ -92,6 +93,7 @@ const setup = (managersFrom = "2026-11-01T00:00:00.000Z") =>
   Effect.gen(function* () {
     const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
     const layer = MergeNotices.layer.pipe(
+      Layer.provideMerge(NoticeInbox.layer),
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(Orchestrator.OrchestratorV2)({
@@ -138,7 +140,10 @@ const setup = (managersFrom = "2026-11-01T00:00:00.000Z") =>
         ),
       ),
     );
-    const notices = yield* MergeNotices.MergeNotices.pipe(Effect.provide(layer));
+    const { notices, inbox } = yield* Effect.all({
+      notices: MergeNotices.MergeNotices,
+      inbox: NoticeInbox.NoticeInbox,
+    }).pipe(Effect.provide(layer));
     const sent = Ref.get(dispatched).pipe(
       Effect.map((all) =>
         all.flatMap((command) =>
@@ -148,13 +153,13 @@ const setup = (managersFrom = "2026-11-01T00:00:00.000Z") =>
         ),
       ),
     );
-    return { notices, sent };
+    return { notices, inbox, sent };
   });
 
 const migrated = Effect.gen(function* () {
   yield* runMigrations({ toMigrationInclusive: 79 });
   yield* BosunMigrations.reconcileLegacyHistory();
-  yield* BosunMigrations.runMigrations(107);
+  yield* BosunMigrations.runMigrations();
 });
 const sqlite = NodeSqliteClient.layer({ filename: ":memory:" });
 
@@ -187,6 +192,30 @@ it.effect("tells each project's manager once about a merge its work tracks", () 
     assert.include(notice!.text, "issue #15, milestone Exports");
     assert.strictEqual(notice!.text.match(/Feature "CSV export"/g)?.length, 1);
     assert.notInclude(notice!.text, "web-plain");
+  }).pipe(Effect.provide(sqlite)),
+);
+
+it.effect("tells a busy manager about a merge with its other notices once it is free", () =>
+  Effect.gen(function* () {
+    yield* migrated;
+    const { notices, inbox, sent } = yield* setup();
+    const sql = yield* SqlClient.SqlClient;
+    const manager = projectHeadquartersThreadId(web);
+    const managerTurn = (status: string) => sql`
+      INSERT INTO orchestration_v2_projection_runs
+        (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+      VALUES ('run:manager', ${manager}, 1, 'codex', ${status}, '2026-11-05T00:00:00.000Z', '{}')
+      ON CONFLICT (run_id) DO UPDATE SET status = excluded.status
+    `;
+    yield* managerTurn("running");
+    yield* notices.handleLink(ThreadId.make("web-lead"), merged());
+    yield* inbox.post({ threadId: manager, key: "request-reply", text: "R-4 is done." });
+    assert.deepStrictEqual(yield* sent, []);
+    yield* managerTurn("completed");
+    yield* inbox.flush(manager);
+    const messages = yield* sent;
+    assert.lengthOf(messages, 1);
+    assert.match(messages[0]!.text, /^2 updates arrived[^]*acme\/web#12[^]*R-4 is done/);
   }).pipe(Effect.provide(sqlite)),
 );
 
