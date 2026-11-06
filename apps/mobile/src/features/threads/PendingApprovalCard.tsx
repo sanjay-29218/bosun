@@ -129,6 +129,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
           }
           disabled={disabled || !props.canOperateThread}
           onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
+          fullWidth
         />
       ))}
       {!props.canOperateThread ? (

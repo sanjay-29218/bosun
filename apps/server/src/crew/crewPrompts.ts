@@ -76,7 +76,7 @@ export const featureLeadTask = (
       : "Crew: none. Do the work yourself.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
     // Last, so a lead still has it in mind when the work is done.
-    `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board then shows it ready for review."}`,
+    `When this feature is done as its workflow describes (without a git remote, its work committed on its branch is enough), call t3_feature_finish with a short summary. ${context.parent ? "Until you do, the parent's lead doesn't know." : "The board and whoever started it then hear; progress needs no report."}`,
   ].join("\n\n");
 
 /** What a new bot is told, until a person edits it. */

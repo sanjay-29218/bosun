@@ -8,10 +8,7 @@ import {
   resolveNewTaskModelSelection,
 } from "../../lib/modelOptions";
 import { useEnvironmentServerConfig } from "../../state/entities";
-import {
-  SettingsEnvironmentFilterHeader,
-  useSettingsEnvironmentMenu,
-} from "./components/SettingsEnvironmentFilterHeader";
+import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { MobileRolesPanel } from "./MobileRoleConfigurationPanel";
@@ -27,7 +24,6 @@ export function SettingsRolesRouteScreen() {
   );
   return (
     <>
-      <SettingsEnvironmentFilterHeader />
       <SettingsScreen title="Roles" menus={[environmentMenu]}>
         <ScreenScrollView
           className="flex-1"

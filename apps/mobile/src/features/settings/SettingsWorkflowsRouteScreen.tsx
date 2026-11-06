@@ -2,10 +2,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
-import {
-  SettingsEnvironmentFilterHeader,
-  useSettingsEnvironmentMenu,
-} from "./components/SettingsEnvironmentFilterHeader";
+import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { MobileWorkflowsPanel } from "./MobileWorkflowConfigurationPanel";
@@ -21,7 +18,6 @@ export function SettingsWorkflowsRouteScreen() {
   );
   return (
     <>
-      <SettingsEnvironmentFilterHeader />
       <SettingsScreen title="Workflows" menus={[environmentMenu]}>
         <ScreenScrollView
           className="flex-1"

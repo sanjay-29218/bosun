@@ -657,6 +657,8 @@ export const ServerConfig = Schema.Struct({
   secretProviderSettings: Schema.optionalKey(Schema.Boolean),
   /** Secret settings may point at a secret provider; older servers drop the reference. */
   secretReferences: Schema.optionalKey(Schema.Boolean),
+  /** A secret request card may be answered with a secret provider reference. */
+  secretRequestReferences: Schema.optionalKey(Schema.Boolean),
   scratchWorkspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
   /** Each bot's home is `<botHomesRoot>/<botId>`; clients hide those projects from project lists. */
   botHomesRoot: Schema.optionalKey(TrimmedNonEmptyString),

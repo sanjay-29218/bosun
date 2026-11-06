@@ -13,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as NoticeInbox from "../features/NoticeInbox.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -42,11 +43,12 @@ const requestMessage = (requestId: string) => ({
 const setup = Effect.gen(function* () {
   yield* runMigrations({ toMigrationInclusive: 79 });
   yield* BosunMigrations.reconcileLegacyHistory();
-  yield* BosunMigrations.runMigrations(105);
+  yield* BosunMigrations.runMigrations();
   const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
   const turns = new Map<string, ReadonlyArray<object>>();
   const active: { run: OrchestrationV2Run | null } = { run: null };
   const layer = ProjectRequests.layer.pipe(
+    Layer.provideMerge(NoticeInbox.layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(Orchestrator.OrchestratorV2)({
@@ -71,18 +73,33 @@ const setup = Effect.gen(function* () {
       ),
     ),
   );
-  const requests = yield* ProjectRequests.ProjectRequests.pipe(Effect.provide(layer));
+  const { requests, inbox } = yield* Effect.all({
+    requests: ProjectRequests.ProjectRequests,
+    inbox: NoticeInbox.NoticeInbox,
+  }).pipe(Effect.provide(layer));
+  // A lone notice's digest reads back as `message:<its key>`.
   const sent = Ref.get(dispatched).pipe(
-    Effect.map((all) =>
-      all.flatMap((command) =>
-        command.type === "message.dispatch"
-          ? [{ threadId: command.threadId, id: command.messageId, text: command.text }]
-          : [],
+    Effect.flatMap((all) =>
+      Effect.forEach(
+        all.flatMap((command) => (command.type === "message.dispatch" ? [command] : [])),
+        (command) =>
+          SqlClient.SqlClient.pipe(
+            Effect.flatMap(
+              (sql) => sql<{ readonly key: string }>`
+                SELECT key FROM notice_inbox WHERE digest_id = ${command.commandId}
+              `,
+            ),
+            Effect.map((keys) => ({
+              threadId: command.threadId,
+              id: keys.length === 1 ? `message:${keys[0]!.key}` : command.messageId,
+              text: command.text,
+            })),
+          ),
       ),
     ),
   );
   const clear = Ref.set(dispatched, []);
-  return { requests, sent, clear, turns, active };
+  return { requests, inbox, sent, clear, turns, active };
 });
 
 const sqlite = NodeSqliteClient.layer({ filename: ":memory:" });
@@ -146,7 +163,7 @@ it.effect("posts a stored request that never reached its manager when the server
 
 it.effect("lets only the project's manager reply, and closes the request when it is done", () =>
   Effect.gen(function* () {
-    const { requests, sent, clear } = yield* setup;
+    const { requests, inbox, sent, clear } = yield* setup;
     yield* requests.send({ projectId, requesterThreadId: hq, key: "csv", message: "Add export" });
     yield* clear;
     const reply = (from: ThreadId, done?: boolean) =>
@@ -178,6 +195,30 @@ it.effect("lets only the project's manager reply, and closes the request when it
       ],
     );
     assert.include(replies[1]!.text, "Web's project manager on R-1 (done)");
+
+    // Replies to a busy requester wait, then arrive as one message.
+    const sql = yield* SqlClient.SqlClient;
+    const hqTurn = (status: string) => sql`
+      INSERT INTO orchestration_v2_projection_runs
+        (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+      VALUES ('run:hq', ${hq}, 1, 'codex', ${status}, '2026-11-05T00:00:00.000Z', '{}')
+      ON CONFLICT (run_id) DO UPDATE SET status = excluded.status
+    `;
+    yield* requests.send({ projectId, requesterThreadId: hq, key: "pdf", message: "Add PDF" });
+    yield* hqTurn("running");
+    yield* clear;
+    for (const key of ["planned", "built"]) {
+      yield* requests.reply({ managerThreadId, requestId: "R-2", key, message: `PDF ${key}.` });
+    }
+    assert.deepStrictEqual(yield* sent, []);
+    yield* hqTurn("completed");
+    yield* inbox.flush(hq);
+    const [digest, ...rest] = yield* sent;
+    assert.deepStrictEqual(rest, []);
+    assert.match(
+      digest!.text,
+      /^2 updates arrived while you were busy:[^]*PDF planned[^]*PDF built/,
+    );
   }).pipe(Effect.provide(sqlite)),
 );
 

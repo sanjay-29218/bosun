@@ -17,8 +17,9 @@ import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import { CrewDelegation } from "../mcp/CrewDelegation.ts";
 import { FeatureService, FeatureServiceLive } from "./FeatureService.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
-import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as NoticeInbox from "./NoticeInbox.ts";
 import { forkParked } from "../serverActivation.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 /**
  * Automations that run as a bot post into its headquarters, which the crew opens or restores.
@@ -68,16 +69,23 @@ const CrewDelegationLive = Layer.effect(
   }),
 );
 
-/** A child feature that goes quiet without reporting tells its parent's lead anyway. */
-const ChildFeatureWatchLive = Layer.effectDiscard(
-  FeatureService.pipe(Effect.flatMap((features) => features.watchChildren())),
+/** Notices held for a busy thread reach it as one message once it is free. */
+const NoticeInboxWatchLive = Layer.effectDiscard(
+  NoticeInbox.NoticeInbox.pipe(Effect.flatMap((inbox) => inbox.start())),
 );
 
-/** A feature started outside a feature hears its lead each time it stops. */
+/**
+ * A feature that goes quiet tells its parent's lead or whoever started it, and when its lead
+ * waits on the person; start-up catches up on every kind of notice in one pass.
+ */
 const FeatureReportsLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const reactor = yield* FeatureReportReactor.FeatureReportReactor;
+    const features = yield* FeatureService;
+    // In order: the watches record where they start, then catch-up scans what came before.
+    yield* features.watchChildren();
     yield* reactor.start();
+    yield* forkParked(FeatureReportReactor.catchUpAtStartup());
   }),
 ).pipe(
   Layer.provide(FeatureReportReactor.layer),
@@ -119,7 +127,6 @@ export const FeatureRuntimeLive = Layer.mergeAll(
     Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
   ),
   CrewDelegationLive.pipe(Layer.provide(Layer.merge(FeatureServiceLive, ProjectRequestsLive))),
-  ChildFeatureWatchLive.pipe(Layer.provide(FeatureServiceLive)),
   BotService.layer,
   BotAutomationsLive,
   FeatureReportsLive,
@@ -127,7 +134,9 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   FeatureManagerTitlesLive,
   ProjectRequestsWatchLive.pipe(Layer.provideMerge(ProjectRequestsLive)),
   MergeNoticesLive,
+  NoticeInboxWatchLive,
 ).pipe(
+  Layer.provideMerge(NoticeInbox.layer),
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),
   // One counter for bots, the Library and features, which ws.ts streams to clients.
