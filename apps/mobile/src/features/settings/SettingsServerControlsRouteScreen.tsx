@@ -62,7 +62,7 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
     "sidebarAutoSettleOnMerge",
     "sidebarAutoSettleAfterDays",
   ],
-  "source-control": ["defaultAutoPull", "removeAgentCreditsOnMerge"],
+  "source-control": ["defaultAutoPull", "removeAgentCreditsOnMerge", "closeIssuesOnMerge"],
   worktrees: [
     "newWorktreesStartFromOrigin",
     "worktreeSubmodules",
@@ -417,6 +417,17 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     value={uniform("removeAgentCreditsOnMerge")}
                     disabled={disabledFor("removeAgentCreditsOnMerge")}
                     onValueChange={(value) => write({ removeAgentCreditsOnMerge: value })}
+                  />
+                  <SettingsSwitchRow
+                    icon="checkmark.circle"
+                    label="Close linked issues when merging"
+                    subtitle={managedSubtitle(
+                      "closeIssuesOnMerge",
+                      "When a pull request merges, close the issues and tickets linked to the features and tasks it carries. Issues from other repositories and trackers stay open.",
+                    )}
+                    value={uniform("closeIssuesOnMerge")}
+                    disabled={disabledFor("closeIssuesOnMerge")}
+                    onValueChange={(value) => write({ closeIssuesOnMerge: value })}
                   />
                 </SettingsSection>
                 <SettingsSection title="Default branch">
