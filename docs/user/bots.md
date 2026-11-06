@@ -56,7 +56,8 @@ archived headquarters.
 Each bot has a **home folder** of its own on its environment, where its headquarters works and
 keeps its notes: `~/.bosun/bots/<bot id>`, a plain folder rather than a Git repository. It's made
 when you add the bot, or when the bot first opens its headquarters or gets a scheduled task. It
-isn't a project, so it doesn't show in project lists and has no Project manager. The bot's
+isn't a project, so it doesn't show in project lists, has no Project manager, and can't be
+deleted; if the folder is removed, it's made again the next time the bot needs it. The bot's
 **Projects** tab shows its path, with **Copy** and **Open** (Open uses your editor on that
 environment); on mobile, long press the bot and choose **Copy home folder**. Headquarters that
 lived in **No project** before move into their bot's home when the server starts, without running
