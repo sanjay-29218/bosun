@@ -68,6 +68,7 @@ import {
   trackerIssue,
 } from "./featureIssue.ts";
 import { readTicketByNumber, ticketNumberFromRef } from "../tickets/ticketRows.ts";
+// @effect-diagnostics-next-line extendsNativeError:off - Bosun error predating the Schema.TaggedError rule; migrating its call sites is follow-up work.
 class FeatureValidationError extends Error {
   readonly _tag = "FeatureValidationError";
 }
