@@ -21,6 +21,7 @@ const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project:web");
 const settings = (fields: Partial<ProjectManagerSettings> = {}): ProjectManagerSettings => ({
   projectId,
+  enabled: true,
   instructions: "Manage the web app.",
   allowedTools: [],
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
@@ -105,7 +106,7 @@ const section = () => (
 const members = [{ environmentId, id: projectId, title: "Web", environmentLabel: null }];
 
 describe("ProjectManagerSection", () => {
-  it("resets a customized manager to its role, and then follows the role", async () => {
+  it("resets a customized manager to its defaults", async () => {
     await serverHolds(settings({ customized: true, instructions: "My own way.", revision: 4 }));
     state.reset = vi.fn(async () => {
       await serverHolds(settings({ revision: 5 }));
@@ -116,20 +117,18 @@ describe("ProjectManagerSection", () => {
       .element(page.getByText("Customized for this project.", { exact: false }))
       .toBeVisible();
 
-    await userEvent.click(page.getByRole("button", { name: "Reset to role defaults" }));
+    await userEvent.click(page.getByRole("button", { name: "Reset to defaults" }));
 
     expect(state.reset).toHaveBeenCalledWith({
       environmentId,
       input: { projectId, expectedRevision: 4 },
     });
-    await expect
-      .element(page.getByText("Follows the Project manager role", { exact: false }))
-      .toBeVisible();
+    await expect.element(page.getByText("Built-in instructions", { exact: false })).toBeVisible();
     await expect
       .element(page.getByRole("textbox", { name: "Instructions" }))
       .toHaveTextContent("Manage the web app.");
     await expect
-      .element(page.getByRole("button", { name: "Reset to role defaults" }))
+      .element(page.getByRole("button", { name: "Reset to defaults" }))
       .not.toBeInTheDocument();
   });
 

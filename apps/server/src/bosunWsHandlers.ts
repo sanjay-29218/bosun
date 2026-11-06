@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 
 import type { BotService } from "./bots/BotService.ts";
 import type { CrewService } from "./crew/CrewService.ts";
+import type { ProjectRequests } from "./crew/ProjectRequests.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
 import type { TicketService } from "./tickets/TicketService.ts";
@@ -18,6 +19,7 @@ import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 export interface BosunWsServices {
   readonly bots: BotService["Service"];
   readonly crew: CrewService["Service"];
+  readonly projectRequests: ProjectRequests["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
   readonly tickets: TicketService["Service"];
@@ -28,7 +30,14 @@ export interface BosunWsServices {
  * handlers in `ws.ts`. A separate group keeps the T3 handler map within the
  * type checker's instantiation depth and keeps upstream merges cheap.
  */
-export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: BosunWsServices) =>
+export const layerBosunWsRpc = ({
+  bots,
+  crew,
+  projectRequests,
+  features,
+  issues,
+  tickets,
+}: BosunWsServices) =>
   BosunWsRpcGroup.middleware(RpcInstrumentation).toLayer(
     Effect.sync(() => {
       return {
@@ -164,6 +173,10 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
         [WS_METHODS.crewResetProjectManager]: (input) =>
           crew
             .resetProjectManager(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewSetProjectManagerEnabled]: (input) =>
+          projectRequests
+            .setManagerEnabled(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.crewOpenProjectManager]: (input) =>
           crew.ensureProjectManager(input.projectId).pipe(

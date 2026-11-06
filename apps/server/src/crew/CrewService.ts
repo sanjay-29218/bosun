@@ -82,7 +82,7 @@ class CrewValidationError extends Error {
  */
 export const featureManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
 /** A project's standing manager, made from the Project manager role on first use. */
-const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
+export const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
 /** The member that leads a workflow led by a role other than the Feature manager. */
 const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
   `bot-lead:${projectId}:${roleId}`;
@@ -310,6 +310,13 @@ export interface CrewServiceShape {
   readonly ensureProjectManager: (projectId: ProjectId) => Effect.Effect<CrewRun, CrewServiceError>;
   /** Fails for a missing project, Scratch and a bot's home: the ones with no Project manager. */
   readonly requireManagedProject: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
+  /** Like `requireManagedProject`, and fails while the project's manager is turned off. */
+  readonly requireProjectManagerOn: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
+  /** Turns the project's manager off, archiving its thread, or back on, restoring it. */
+  readonly setProjectManagerEnabled: (input: {
+    readonly projectId: ProjectId;
+    readonly enabled: boolean;
+  }) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
   /** The project's manager settings, or the defaults before the project has one. */
   readonly projectManagerSettings: (
     projectId: ProjectId,
@@ -806,6 +813,7 @@ export const CrewServiceLive = Layer.effect(
       if (member !== null) {
         return {
           projectId,
+          enabled: member.enabled,
           instructions: member.instructions,
           allowedTools: member.allowedTools,
           modelSelection: member.modelSelection,
@@ -818,6 +826,7 @@ export const CrewServiceLive = Layer.effect(
       }
       return {
         projectId,
+        enabled: true,
         ...(yield* projectManagerDefaults(projectId)),
         customized: false,
         revision: 0,
@@ -1184,10 +1193,55 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
+    const projectManagerOff = (projectId: ProjectId) =>
+      new CrewValidationError(
+        `Project ${projectId}'s manager is turned off. Do this work yourself: start a task or a feature in the project.`,
+      );
+
+    const requireProjectManagerOn: CrewServiceShape["requireProjectManagerOn"] = Effect.fn(
+      "CrewService.requireProjectManagerOn",
+    )(function* (projectId) {
+      yield* requireManagedProject(projectId);
+      const member = yield* store.getMember(projectManagerMemberId(projectId));
+      if (member?.enabled === false) return yield* Effect.fail(projectManagerOff(projectId));
+    });
+
+    const setProjectManagerEnabled: CrewServiceShape["setProjectManagerEnabled"] = Effect.fn(
+      "CrewService.setProjectManagerEnabled",
+    )(function* ({ projectId, enabled }) {
+      const member = yield* projectManagerMember(projectId);
+      if (member.enabled !== enabled) {
+        const updated: CrewMember = {
+          ...member,
+          enabled,
+          revision: member.revision + 1,
+          updatedAt: DateTime.formatIso(yield* DateTime.now),
+        };
+        if (!(yield* store.saveMember(updated, member.revision))) {
+          return yield* Effect.fail(
+            new CrewValidationError(
+              "The project manager changed; reload its settings and try again",
+            ),
+          );
+        }
+      }
+      const run = yield* store.getRun(projectHeadquartersRunId(projectId));
+      if (run !== null) {
+        if (enabled) {
+          const owner = yield* projectOwner(projectId);
+          if (owner !== null) yield* ensureStanding(owner);
+        } else {
+          yield* runtime.archive(run.threadId);
+        }
+      }
+      return yield* projectManagerSettings(projectId);
+    });
+
     const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
       "CrewService.ensureProjectManager",
     )(function* (projectId) {
-      yield* projectManagerMember(projectId);
+      const member = yield* projectManagerMember(projectId);
+      if (!member.enabled) return yield* Effect.fail(projectManagerOff(projectId));
       const owner = yield* projectOwner(projectId);
       if (owner === null) {
         return yield* Effect.fail(new CrewValidationError("Project manager is unavailable"));
@@ -1436,6 +1490,8 @@ export const CrewServiceLive = Layer.effect(
       rehomeHeadquarters,
       syncHeadquarters,
       ensureProjectManager,
+      requireProjectManagerOn,
+      setProjectManagerEnabled,
       requireManagedProject,
       projectManagerSettings,
       updateProjectManager,

@@ -493,6 +493,7 @@ it.effect("requires operate access to change, reset, open or restart a project's
       for (const method of [
         WS_METHODS.crewUpdateProjectManager,
         WS_METHODS.crewResetProjectManager,
+        WS_METHODS.crewSetProjectManagerEnabled,
         WS_METHODS.crewOpenProjectManager,
         WS_METHODS.crewStartNewSession,
       ]) {

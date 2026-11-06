@@ -94,6 +94,8 @@ export interface CrewThreadRuntimeShape {
    * unarchives it. A no-op while the thread is live.
    */
   readonly restore: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** Archives a crew thread; a no-op when it is gone or already archived. */
+  readonly archive: (threadId: ThreadId) => Effect.Effect<void, OrchestrationDispatchError>;
   /** Points the thread's next turns at `runtimeMode` and `modelSelection` when they differ. */
   readonly syncSettings: (
     threadId: ThreadId,
@@ -386,6 +388,15 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           .pipe(Effect.asVoid),
       ),
       restore,
+      archive: Effect.fn("CrewThreadRuntime.archive")(function* (threadId) {
+        const shell = yield* engine.getThreadShell(threadId);
+        if (shell === null || shell.deletedAt !== null || shell.archivedAt !== null) return;
+        yield* engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make(`${threadId}:archive:${yield* freshId}`),
+          threadId,
+        });
+      }),
       syncSettings,
       start,
       completedRuns: engine.streamDomainEvents.pipe(

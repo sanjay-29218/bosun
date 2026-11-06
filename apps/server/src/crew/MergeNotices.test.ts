@@ -148,6 +148,7 @@ const setup = (managersFrom = "2026-11-01T00:00:00.000Z", closeIssuesOnMerge = f
               ),
           }),
           Layer.mock(CrewStore)({
+            getMember: () => Effect.succeed(null),
             getRun: (id) =>
               Effect.succeed(
                 id === projectHeadquartersRunId(web) || id === projectHeadquartersRunId(docs)

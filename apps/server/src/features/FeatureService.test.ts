@@ -1732,6 +1732,24 @@ describe("feature lead and crew", () => {
             longConversation: "compact",
           });
           expect((yield* shell())?.runtimeMode).toBe("full-access");
+
+          // Off archives its thread and stops new work reaching it; on brings it back.
+          const offSettings = yield* crew.setProjectManagerEnabled({ projectId, enabled: false });
+          expect(offSettings.enabled).toBe(false);
+          expect((yield* shell())?.archivedAt).not.toBeNull();
+          for (const refused of [
+            crew.ensureProjectManager(projectId),
+            crew.requireProjectManagerOn(projectId),
+          ]) {
+            expect((yield* Effect.flip(refused)).message).toContain("turned off");
+          }
+          expect((yield* crew.setProjectManagerEnabled({ projectId, enabled: true })).enabled).toBe(
+            true,
+          );
+          expect((yield* shell())?.archivedAt).toBeNull();
+          expect(yield* crew.ensureProjectManager(projectId)).toMatchObject({
+            threadId: run.threadId,
+          });
         }),
       ),
   );

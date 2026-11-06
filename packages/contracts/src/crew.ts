@@ -201,6 +201,8 @@ export const CrewSetDelegationInput = Schema.Struct({
 /** A project's manager as it is now, or as the role would make it before its first use. */
 export const ProjectManagerSettings = Schema.Struct({
   projectId: ProjectId,
+  /** Off, its bot does the project's work itself and its thread is archived. */
+  enabled: Schema.Boolean,
   instructions: Schema.String,
   allowedTools: Schema.Array(Schema.String),
   modelSelection: ModelSelection,
@@ -229,6 +231,11 @@ export const ProjectManagerResetInput = Schema.Struct({
   expectedRevision: Schema.Int,
 });
 export type ProjectManagerResetInput = typeof ProjectManagerResetInput.Type;
+export const ProjectManagerEnabledInput = Schema.Struct({
+  projectId: ProjectId,
+  enabled: Schema.Boolean,
+});
+export type ProjectManagerEnabledInput = typeof ProjectManagerEnabledInput.Type;
 
 /** A project's manager thread, made and opened on first use. */
 export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });
