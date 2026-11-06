@@ -301,7 +301,10 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
   yield* sql`DETACH DATABASE src`;
 });
 
-const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigrateDevDbInput) {
+const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (
+  input: RunMigrateDevDbInput,
+  sourceBotHomes: string,
+) {
   const sql = yield* SqlClient.SqlClient;
 
   // Usage-limit recovery also depends on settings; exclude latest-run failures and recovery choices.
@@ -345,6 +348,8 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       GROUP BY project_id
     ) q ON q.project_id = p.project_id
     WHERE p.deleted_at IS NULL
+      -- A bot's home is a folder of the source install; the worktree makes its own on first use.
+      AND substr(p.workspace_root, 1, ${sourceBotHomes.length}) <> ${sourceBotHomes}
     ORDER BY (q.last_stopped_at IS NULL) ASC,
       COALESCE(q.last_stopped_at, p.updated_at) DESC
     LIMIT ${input.projects}`;
@@ -508,7 +513,8 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
     yield* Console.log(
       `Pruning to ${input.projects} projects, ${input.threadsPerProject} stopped threads each...`,
     );
-    const result = yield* pruneSnapshot(input).pipe(
+    const sourceBotHomes = `${path.join(path.dirname(path.dirname(sourcePath)), "bots")}${path.sep}`;
+    const result = yield* pruneSnapshot(input, sourceBotHomes).pipe(
       Effect.provide(
         ProjectionStore.layer.pipe(
           Layer.provideMerge(NodeSqliteClient.layer({ filename: snapshotPath })),
