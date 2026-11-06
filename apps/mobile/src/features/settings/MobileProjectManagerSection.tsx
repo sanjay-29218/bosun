@@ -65,6 +65,9 @@ function Form(props: {
   const update = useAtomCommand(rolesEnvironment.updateProjectManager, { reportFailure: false });
   const reset = useAtomCommand(rolesEnvironment.resetProjectManager, { reportFailure: false });
   const open = useAtomCommand(rolesEnvironment.openProjectManager, { reportFailure: false });
+  const setEnabled = useAtomCommand(rolesEnvironment.setProjectManagerEnabled, {
+    reportFailure: false,
+  });
   const canEdit = useAtomValue(
     rolesEnvironment.updateProjectManager.permissionAtom(project.environmentId),
   );
@@ -84,6 +87,16 @@ function Form(props: {
       : { instanceId: ProviderInstanceId.make(instanceId.trim()), model: model.trim() };
   const canSave =
     canEdit && !busy && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
+
+  const toggle = () =>
+    run(async () => {
+      const result = await setEnabled({
+        ...target,
+        input: { projectId: project.id, enabled: !settings.enabled },
+      });
+      if (result._tag !== "Success") props.onStale();
+      return result;
+    });
 
   const save = () =>
     run(async () => {
@@ -138,6 +151,20 @@ function Form(props: {
       Alert.alert("Could not open the project manager", Cause.pretty(result.cause));
     }
   };
+
+  if (!settings.enabled) {
+    return (
+      <View className="gap-2 p-4">
+        <Text className="text-xs text-foreground-muted">
+          Off. The project's bot does its work itself, and the manager's thread is archived.
+        </Text>
+        <View className="flex-row flex-wrap gap-1.5">
+          <Action label="Turn on" disabled={!canEdit || busy} onPress={() => void toggle()} />
+        </View>
+        {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
+      </View>
+    );
+  }
 
   return (
     <View className="gap-2 p-4">
@@ -223,6 +250,7 @@ function Form(props: {
           <Action label="Reset to defaults" disabled={!canEdit || busy} onPress={resetToDefaults} />
         ) : null}
         <Action label="Open project manager" onPress={() => void openThread()} />
+        <Action label="Turn off" disabled={!canEdit || busy} onPress={() => void toggle()} />
       </View>
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
     </View>

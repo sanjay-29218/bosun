@@ -655,15 +655,6 @@ function ProjectDetail({
             </>
           ) : null}
         </SettingsSection>
-        <ProjectDefaultsSettings category="project" />
-        <ProjectActionsSettings />
-        <ProjectBotSection
-          members={group.memberProjects.filter(
-            (member) =>
-              environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
-                .bots === true,
-          )}
-        />
         <ProjectManagerSection
           members={group.memberProjects.filter(
             (member) =>
@@ -671,6 +662,15 @@ function ProjectDetail({
               member.isBotHome !== true &&
               environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
                 .workflows === true,
+          )}
+        />
+        <ProjectDefaultsSettings category="project" />
+        <ProjectActionsSettings />
+        <ProjectBotSection
+          members={group.memberProjects.filter(
+            (member) =>
+              environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+                .bots === true,
           )}
         />
         {checkoutChoices}

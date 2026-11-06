@@ -88,7 +88,9 @@ Its settings are in **Settings → Project → Project manager**: instructions, 
 tools and **Long conversations**. It needs no roles from the Library: until you save changes there
 it uses built-in instructions on the model of the bot that owns the project, and **Reset to
 defaults** goes back to them. New instructions reach the thread when it next starts a new session;
-model, **Access** and tools apply right away.
+model, **Access** and tools apply right away. The switch at the top turns a project's manager off: its
+bot then does the project's work itself, requests still open go back to the bot, and the manager's
+thread is archived until you turn it on again.
 
 ### The bot rail
 

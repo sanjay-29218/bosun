@@ -17,6 +17,7 @@ import { RoleModelPicker } from "../library/RoleEditor";
 import { useOpenProjectManager } from "../sidebar/openProjectManager";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { CrewToolPicker, EditorField } from "./CrewAgentFields";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
@@ -100,6 +101,9 @@ function ProjectManagerForm({
 }) {
   const update = useAtomCommand(rolesEnvironment.updateProjectManager, { reportFailure: false });
   const reset = useAtomCommand(rolesEnvironment.resetProjectManager, { reportFailure: false });
+  const setEnabled = useAtomCommand(rolesEnvironment.setProjectManagerEnabled, {
+    reportFailure: false,
+  });
   const openProjectManager = useOpenProjectManager();
   const canEdit = useAtomValue(
     rolesEnvironment.updateProjectManager.permissionAtom(member.environmentId),
@@ -152,6 +156,16 @@ function ProjectManagerForm({
       "Could not save the project manager",
     );
 
+  const toggle = (enabled: boolean) =>
+    run(
+      () =>
+        setEnabled({
+          environmentId: member.environmentId,
+          input: { projectId: member.id, enabled },
+        }),
+      enabled ? "Could not turn the project manager on" : "Could not turn the project manager off",
+    );
+
   const resetToDefaults = async () => {
     const confirmed = await requestConfirmDialog(
       "Reset this project's manager to its defaults? Its instructions go back to the built-in ones, on the model of the bot that owns the project.",
@@ -172,16 +186,31 @@ function ProjectManagerForm({
       className="space-y-4 px-4 py-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (edited && canEdit && !saving) void save();
+        if (edited && canEdit && !saving && settings.enabled) void save();
       }}
     >
-      {heading ? <p className="text-sm font-medium">{heading}</p> : null}
-      <p className="text-sm text-muted-foreground">
-        {settings.customized
-          ? "Customized for this project."
-          : "Built-in instructions, on the model of the bot that owns this project, until you save changes here."}
-      </p>
-      <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 space-y-1">
+          {heading ? <p className="text-sm font-medium">{heading}</p> : null}
+          <p className="text-sm text-muted-foreground">
+            {!settings.enabled
+              ? "Off. The project's bot does its work itself, and the manager's thread is archived."
+              : settings.customized
+                ? "Takes this project's requests from its bot. Customized for this project."
+                : "Takes this project's requests from its bot. Built-in instructions, on the model of the bot that owns this project, until you save changes here."}
+          </p>
+        </div>
+        <Switch
+          checked={settings.enabled}
+          disabled={saving || !canEdit}
+          onCheckedChange={(checked) => void toggle(Boolean(checked))}
+          aria-label="Project manager on"
+        />
+      </div>
+      <fieldset
+        disabled={saving || !canEdit || !settings.enabled}
+        className="min-w-0 space-y-4 disabled:opacity-50"
+      >
         <EditorField label="Instructions" htmlFor={`project-manager-${member.id}`}>
           <InstructionsEditor
             id={`project-manager-${member.id}`}
@@ -241,6 +270,7 @@ function ProjectManagerForm({
           type="button"
           variant="ghost-muted"
           size="sm"
+          disabled={!settings.enabled}
           onClick={() =>
             void openProjectManager({
               environmentId: member.environmentId,
@@ -256,13 +286,17 @@ function ProjectManagerForm({
             type="button"
             variant="outline"
             size="sm"
-            disabled={saving || !canEdit}
+            disabled={saving || !canEdit || !settings.enabled}
             onClick={() => void resetToDefaults()}
           >
             Reset to defaults
           </Button>
         ) : null}
-        <Button type="submit" size="sm" disabled={!edited || saving || !canEdit}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!edited || saving || !canEdit || !settings.enabled}
+        >
           Save
         </Button>
       </div>
