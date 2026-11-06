@@ -2103,26 +2103,68 @@ const make = Effect.gen(function* () {
   return OrchestratorMcpService.of({
     scheduleTask: Effect.fn("OrchestratorMcpService.scheduleTask")(function* (scope, input) {
       const { parent, limits } = yield* loadCaller(scope);
-      const projectId = yield* resolveProjectTarget(parent, input.projectId);
-      yield* assertLiveCallerForOtherProject(scope, parent, projectId);
-      const project = yield* requireProject(projectId);
       const botId = input.botId ?? null;
-      if (botId !== null) yield* assertCoversBotRuns(botId, limits);
-      // A bot's runs go to its headquarters, never to this thread.
-      const bindToCurrentThread =
-        botId === null &&
-        (input.bindToCurrentThread ??
-          (parent !== undefined && parent.thread.projectId === projectId));
-      if (bindToCurrentThread && (parent === undefined || parent.thread.projectId !== projectId)) {
-        return yield* failure(
-          "invalid_request",
-          parent === undefined
-            ? "bindToCurrentThread needs an agent running inside a T3 thread."
-            : "bindToCurrentThread binds to this thread, which belongs to a different project.",
-        );
-      }
-      const modelSelection =
-        parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project));
+      // A bot's task runs in its headquarters, on the bot's model, and the scheduler files it in
+      // the bot's home; a project, when there is one, only scopes its secrets.
+      const target =
+        botId !== null
+          ? yield* Effect.gen(function* () {
+              yield* assertCoversBotRuns(botId, limits);
+              if (input.projectId !== undefined) {
+                yield* assertLiveCallerForOtherProject(scope, parent, input.projectId);
+                yield* requireProject(input.projectId);
+              }
+              const botModel = yield* scheduledTasks
+                .botModelSelection(botId)
+                .pipe(
+                  Effect.mapError((error) =>
+                    failure("invalid_request", `Could not schedule task: ${error.message}`),
+                  ),
+                );
+              const modelSelection = botModel ?? parent?.thread.modelSelection;
+              if (modelSelection === undefined) {
+                return yield* failure(
+                  "invalid_request",
+                  "Choose a default model for this bot before scheduling its work.",
+                );
+              }
+              return {
+                projectId: input.projectId ?? parent?.thread.projectId,
+                bindToCurrentThread: false,
+                workspaceStrategy: { type: "root" as const },
+                modelSelection,
+              };
+            })
+          : yield* Effect.gen(function* () {
+              const projectId = yield* resolveProjectTarget(parent, input.projectId);
+              yield* assertLiveCallerForOtherProject(scope, parent, projectId);
+              const project = yield* requireProject(projectId);
+              const bindToCurrentThread =
+                input.bindToCurrentThread ??
+                (parent !== undefined && parent.thread.projectId === projectId);
+              if (
+                bindToCurrentThread &&
+                (parent === undefined || parent.thread.projectId !== projectId)
+              ) {
+                return yield* failure(
+                  "invalid_request",
+                  parent === undefined
+                    ? "bindToCurrentThread needs an agent running inside a T3 thread."
+                    : "bindToCurrentThread binds to this thread, which belongs to a different project.",
+                );
+              }
+              return {
+                projectId,
+                bindToCurrentThread,
+                workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(
+                  bindToCurrentThread,
+                  projectId,
+                ),
+                modelSelection:
+                  parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project)),
+              };
+            });
+      const { projectId, bindToCurrentThread, workspaceStrategy, modelSelection } = target;
       const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
       const title =
         input.title ?? (derivedTitle.length > 0 ? derivedTitle.slice(0, 80) : "Scheduled task");
@@ -2131,10 +2173,10 @@ const make = Effect.gen(function* () {
         prompt: input.prompt,
         enabled: input.enabled ?? true,
         schedule: input.schedule,
-        projectId,
+        ...(projectId === undefined ? {} : { projectId }),
         ...(botId === null ? {} : { botId }),
         threadId: bindToCurrentThread && parent !== undefined ? parent.thread.id : null,
-        workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(bindToCurrentThread, projectId),
+        workspaceStrategy,
         modelSelection,
         runtimeMode: limits.runtimeMode,
         interactionMode: limits.interactionMode,

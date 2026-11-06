@@ -186,6 +186,7 @@ const layerUnusedScheduledTaskStub = Layer.succeed(
     deleteForThread: () => Effect.die("unused in this test"),
     deleteForBot: () => Effect.die("unused in this test"),
     rehomeBotTasks: () => Effect.die("unused in this test"),
+    botModelSelection: () => Effect.die("unused in this test"),
     connectBotHeadquarters: () => Effect.die("unused in this test"),
     moveThreadTasks: () => Effect.die("unused in this test"),
     runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),

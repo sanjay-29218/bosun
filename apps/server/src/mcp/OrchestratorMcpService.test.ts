@@ -13,6 +13,7 @@ import {
   OrchestratorMcpTarget,
   type OrchestrationV2ThreadShell,
   type ScheduledTask,
+  type ScheduledTaskUpsertInput,
   ScheduledTaskId,
   IssueOperationError,
   ProjectId,
@@ -2967,6 +2968,71 @@ describe("OrchestratorMcpService provider resolution", () => {
           ),
         ),
       );
+
+    it.effect("schedules a bot's task from a client with no thread or project", () =>
+      Effect.gen(function* () {
+        const saved = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        const botModel = { instanceId: ProviderInstanceId.make("claude"), model: "haiku" };
+        const scheduled = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.flatMap((mcp) =>
+            mcp.scheduleTask(
+              {
+                ...supervisedClient,
+                client: { sessionId: "scheduled", label: "Claude Code", access: "full-access" },
+              },
+              {
+                botId: "bot-nepse",
+                prompt: "Post the market summary",
+                schedule: { type: "interval", everyMs: 3_600_000 },
+              },
+            ),
+          ),
+          Effect.provide(
+            layerOrchestratorService.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  NodeServices.layer,
+                  NodeCrypto.layer,
+                  Layer.mock(ThreadManagementService.ThreadManagementService)({
+                    getThreadShell: () => Effect.succeed(null),
+                  }),
+                  ServerSettings.layerTest(),
+                  Layer.mock(ProviderRegistry.ProviderRegistry)({
+                    getProviders: Effect.succeed([]),
+                  }),
+                  Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+                    list: () => Effect.succeed([]),
+                  }),
+                  Layer.mock(ProjectService.ProjectService)({}),
+                  Layer.mock(SecretRequests.SecretRequests)({}),
+                  Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+                  Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+                    botModelSelection: () => Effect.succeed(botModel),
+                    upsert: (input) =>
+                      Ref.update(saved, (all) => [...all, input]).pipe(
+                        Effect.as({
+                          task: task({
+                            botId: "bot-nepse",
+                            projectId: ProjectId.make("project:home:bot-nepse"),
+                            runtimeMode: "full-access",
+                          }),
+                        }),
+                      ),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+        assert.equal(scheduled.botId, "bot-nepse");
+        const [input] = yield* Ref.get(saved);
+        // Filed in the bot's home by the scheduler; no caller project to pass.
+        assert.isUndefined(input?.projectId);
+        assert.deepEqual(input?.modelSelection, botModel);
+        assert.deepEqual(input?.workspaceStrategy, { type: "root" });
+        assert.isNull(input?.threadId);
+      }),
+    );
 
     it.effect("hides a webhook URL from a caller below the task's modes", () =>
       Effect.gen(function* () {

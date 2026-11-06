@@ -264,6 +264,10 @@ export class ScheduledTaskService extends Context.Service<
     readonly deleteForBot: (botId: string) => Effect.Effect<void, ScheduledTaskError>;
     /** Files every bot task in its bot's home, as after an upgrade from tasks filed elsewhere. */
     readonly rehomeBotTasks: () => Effect.Effect<void, ScheduledTaskError>;
+    /** The model a bot's runs use, or null before one is chosen. */
+    readonly botModelSelection: (
+      botId: string,
+    ) => Effect.Effect<ScheduledTask["modelSelection"] | null, ScheduledTaskError>;
     /**
      * Lets bot tasks open their bot's headquarters (creating or restoring it) for the scope.
      * The crew is built on the orchestration runtime that owns this service, so it connects
@@ -1581,6 +1585,23 @@ export const layer = Layer.effect(
       deleteMatching(sql`bot_id = ${botId}`, "bot's"),
     );
 
+    const botModelSelection: ScheduledTaskService["Service"]["botModelSelection"] = Effect.fn(
+      "ScheduledTaskService.botModelSelection",
+    )(function* (botId) {
+      const rows = yield* sql<{ readonly model_selection_json: string | null }>`
+        SELECT model_selection_json FROM bots WHERE id = ${botId} AND deleted_at IS NULL
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
+      );
+      const row = rows[0];
+      if (row === undefined) return yield* taskError(MISSING_BOT);
+      if (row.model_selection_json === null) return null;
+      return yield* decodeModelSelectionJson(row.model_selection_json).pipe(
+        Effect.mapError((cause) => taskError("Could not read the bot's model.", { cause })),
+      );
+    });
+
     const rehomeBotTasks: ScheduledTaskService["Service"]["rehomeBotTasks"] = Effect.fn(
       "ScheduledTaskService.rehomeBotTasks",
     )(function* () {
@@ -2561,6 +2582,7 @@ export const layer = Layer.effect(
       deleteForThread,
       deleteForBot,
       rehomeBotTasks,
+      botModelSelection,
       connectBotHeadquarters,
       moveThreadTasks,
       runNow,
