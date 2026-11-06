@@ -47,6 +47,8 @@ import {
   useOlderSettledShelfGrowth,
 } from "../../state/olderSettledShelf";
 import { useProjects, useQuietThreadShells } from "../../state/entities";
+import { useUiStateStore } from "../../uiStateStore";
+import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -130,9 +132,32 @@ export function FeaturesPage(props: {
     )
     .toSorted((a, b) => a.title.localeCompare(b.title));
   const projectByKey = new Map(projects.map((project) => [projectKey(project), project]));
+  // The board's project scope is the sidebar's, so the board opens on the project in view.
+  const sidebarScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
+  const setSidebarScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const projectGroups = useSettingsProjectGroups();
+  const sidebarGroup =
+    sidebarScopeKeys.length === 1
+      ? projectGroups.find((group) => group.projectKey === sidebarScopeKeys[0])
+      : undefined;
+  const sidebarProject =
+    sidebarGroup?.memberProjectRefs
+      .map((ref) => projectByKey.get(`${ref.environmentId}:${ref.projectId}`))
+      .find((project) => project !== undefined) ?? null;
   const scopedProject = props.search.project
     ? (projectByKey.get(props.search.project) ?? null)
-    : null;
+    : sidebarProject;
+  const scopeToProject = (project: EnvironmentProject | null) => {
+    const group = project
+      ? projectGroups.find((candidate) =>
+          candidate.memberProjectRefs.some(
+            (ref) => ref.environmentId === project.environmentId && ref.projectId === project.id,
+          ),
+        )
+      : undefined;
+    setSidebarScopeKeys(group ? [group.projectKey] : []);
+    props.onSearchChange({ project: undefined });
+  };
   const targets = (scopedProject ? [scopedProject] : projects).map((project) => ({
     environmentId: project.environmentId,
     projectId: project.id,
@@ -498,6 +523,7 @@ export function FeaturesPage(props: {
 
   const clearFilters = () => {
     setLabelFilters(new Set());
+    setSidebarScopeKeys([]);
     props.onSearchChange({ project: undefined, milestone: undefined });
   };
   const showProjectInTitles = scopedProject === null && projects.length > 1;
@@ -517,7 +543,7 @@ export function FeaturesPage(props: {
               checked: project === scopedProject,
             })),
             onChange: (value: string, checked: boolean) =>
-              props.onSearchChange({ project: checked ? value : undefined }),
+              scopeToProject(checked ? (projectByKey.get(value) ?? null) : null),
           },
         ]
       : []),

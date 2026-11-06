@@ -85,7 +85,8 @@ snoozed or settled in the sidebar moves on the board too. Snoozed features wait 
 under Done until they wake; **Wake** brings one back early and **Un-settle** undoes a settle.
 
 Search (the magnifier in the board's header, or `/`) matches titles, projects, issue numbers and
-feature numbers. **Filter** narrows the board to a project, a milestone or issue labels; each
+feature numbers. **Filter** narrows the board to a project, a milestone or issue labels; the board's project is the
+sidebar's project filter, so picking one in either place narrows both; each
 filter in effect shows below the header, where its × removes it. **Display** switches between the
 columns and a list.
 
