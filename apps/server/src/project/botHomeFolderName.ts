@@ -25,9 +25,9 @@ export function botHomeFolderName(botId: string): string {
 }
 
 /**
- * Whether a project the bot owns at `workspaceRoot` is that bot's home: its own folder in a
- * bots folder, `<data dir>/bots` or a dev data dir's `bosun-bots/<hash>`. Needs no bots root, so
- * code that can't reach the managed folders, and copies of another install's data, can tell.
+ * Whether a project the bot owns at `workspaceRoot` looks like that bot's home: its own folder in
+ * a bots folder, `<data dir>/bots` or a dev data dir's `bosun-bots/<hash>`. For dev seeding from
+ * another install's data, where a repo named like a home is dropped too.
  */
 export function isBotHomePath(workspaceRoot: string, botId: string): boolean {
   const segments = workspaceRoot.replace(/[\\/]+$/, "").split(/[\\/]/);

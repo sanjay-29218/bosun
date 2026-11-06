@@ -1,6 +1,7 @@
 import {
   CAPTAIN_BOT_ID,
   CommandId,
+  headquartersBotId,
   type OrchestrationProjectShell,
   ProjectId,
   type Project,
@@ -34,7 +35,6 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { isBotHomePath } from "./botHomeFolderName.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
@@ -87,13 +87,13 @@ export class ProjectNotEmptyError extends Schema.TaggedError<ProjectNotEmptyErro
   }
 }
 
-/** A bot's home holds its headquarters, whose thread can't be made again once deleted. */
-export class ProjectBotHomeError extends Schema.TaggedError<ProjectBotHomeError>()(
-  "ProjectBotHomeError",
-  { projectId: ProjectId },
+/** A bot's headquarters thread can't be made again once deleted, so its project stays. */
+export class ProjectHoldsHeadquartersError extends Schema.TaggedError<ProjectHoldsHeadquartersError>()(
+  "ProjectHoldsHeadquartersError",
+  { projectId: ProjectId, projectTitle: Schema.String, botName: Schema.String },
 ) {
   override get message(): string {
-    return "A bot's home can't be deleted.";
+    return `${this.projectTitle} holds ${this.botName}'s headquarters; it can't be deleted.`;
   }
 }
 
@@ -134,7 +134,7 @@ export type ProjectServiceError =
   | ProjectConflictError
   | ProjectNotEmptyError
   | ProjectBotNotFoundError
-  | ProjectBotHomeError
+  | ProjectHoldsHeadquartersError
   | ProjectOperationError;
 
 export class ProjectService extends Context.Service<
@@ -539,6 +539,7 @@ export const make = Effect.gen(function* () {
 
   const deleteChildThreads = Effect.fn("ProjectService.deleteChildThreads")(function* (
     input: ProjectDeleteInput,
+    projectTitle: string,
   ) {
     const { projectId } = input;
     const snapshot = yield* threadProjections
@@ -549,6 +550,16 @@ export const make = Effect.gen(function* () {
         ),
       );
     const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads];
+    const headquarters = projectThreads.find((thread) => headquartersBotId(thread.id) !== null);
+    if (headquarters !== undefined) {
+      const botId = headquartersBotId(headquarters.id)!;
+      const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null));
+      return yield* new ProjectHoldsHeadquartersError({
+        projectId,
+        projectTitle,
+        botName: bot?.name ?? botId,
+      });
+    }
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });
     }
@@ -590,11 +601,8 @@ export const make = Effect.gen(function* () {
       }
 
       const isFirstDelete = existing.value.deletedAt === null;
-      if (isFirstDelete && isBotHomePath(existing.value.workspaceRoot, existing.value.botId)) {
-        return yield* new ProjectBotHomeError({ projectId });
-      }
       if (isFirstDelete) {
-        yield* deleteChildThreads(input);
+        yield* deleteChildThreads(input, existing.value.title);
       }
       yield* commit({ type: "project.delete", commandId: input.commandId, projectId });
       if (isFirstDelete) {

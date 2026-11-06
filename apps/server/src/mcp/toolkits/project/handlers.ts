@@ -45,7 +45,9 @@ function projectFailure(error: Project.ProjectServiceError) {
         ? "The workspace is already registered to a project."
         : error._tag === "ProjectBotNotFoundError"
           ? "The bot was not found; t3_bot_list shows this environment's bots."
-          : "The project is not empty; force=true is required to delete it.";
+          : error._tag === "ProjectHoldsHeadquartersError"
+            ? error.message
+            : "The project is not empty; force=true is required to delete it.";
   return new OrchestratorMcpFailure({ code: "invalid_request", message });
 }
 
