@@ -1017,6 +1017,109 @@ describe("feature lead and crew", () => {
       ),
   );
 
+  effectIt.effect("doesn't count a silent /compact after the upgrade as the feature working", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        const engine = yield* OrchestrationEngineService;
+        const sql = yield* SqlClient.SqlClient;
+        const hq = ThreadId.make("thread:hq-compacting");
+        const createThread = (threadId: ThreadId, title: string) =>
+          engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`${threadId}:create`),
+            threadId,
+            projectId,
+            title,
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+        yield* createThread(hq, "HQ");
+        const launch = (title: string) =>
+          features
+            .launch({
+              projectId,
+              title,
+              brief: `Build ${title}`,
+              workspace: "local",
+              requesterThreadId: hq,
+            })
+            .pipe(
+              Effect.tap((started) =>
+                engine
+                  .streamStoredEventsFrom({
+                    threadId: started.leadThreadId,
+                    eventType: "run.updated",
+                  })
+                  .pipe(
+                    Stream.filter(
+                      (stored) =>
+                        stored.event.type === "run.updated" &&
+                        stored.event.payload.status !== "preparing",
+                    ),
+                    Stream.runHead,
+                  ),
+              ),
+            );
+        const stop = (threadId: ThreadId) =>
+          Effect.all([
+            sql`UPDATE orchestration_v2_projection_runs SET status = 'completed' WHERE thread_id = ${threadId}`,
+            sql`UPDATE orchestration_v2_effect_outbox SET status = 'succeeded' WHERE thread_id = ${threadId}`,
+          ]);
+        const send = (threadId: ThreadId, key: string, text: string, compaction: boolean) =>
+          engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(key),
+            threadId,
+            messageId: MessageId.make(`message:${key}`),
+            text,
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: compaction ? "server" : "mcp",
+            ...(compaction ? { idleCompaction: "beforeCacheExpires" as const } : {}),
+          });
+
+        // Two features whose leads stopped before the upgrade; one has a Builder thread.
+        const csv = yield* launch("CSV export");
+        const pdf = yield* launch("PDF export");
+        const builder = ThreadId.make("thread:pdf-builder");
+        yield* createThread(builder, "Builder");
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make("pdf-builder:tag"),
+          threadId: builder,
+          feature: { id: pdf.feature.id, title: "PDF export", member: "Builder" },
+        });
+        yield* stop(csv.leadThreadId);
+        yield* stop(pdf.leadThreadId);
+        yield* sql`UPDATE notice_inbox_cutoff SET sequence = (SELECT MAX(sequence) FROM orchestration_events)`;
+
+        // After it, each only compacts: the lead of one, the Builder of the other.
+        yield* send(csv.leadThreadId, "csv-lead:compact", "/compact", true);
+        yield* stop(csv.leadThreadId);
+        yield* send(builder, "pdf-builder:compact", "/compact", true);
+        yield* stop(builder);
+        yield* features.reconcileChildren();
+        const keys = sql<{ readonly key: string }>`SELECT key FROM notice_inbox`.pipe(
+          Effect.map((rows) => rows.map((row) => row.key)),
+        );
+        expect(yield* keys).toEqual([]);
+
+        // Real work afterwards does count.
+        yield* send(csv.leadThreadId, "csv-lead:resume", "Carry on with the export", false);
+        yield* stop(csv.leadThreadId);
+        yield* features.reconcileChildren();
+        expect(yield* keys).toHaveLength(1);
+      }),
+    ),
+  );
+
   effectIt.effect("sends a lone notice the orchestrator rejected again under a new command", () =>
     withSystem(
       Effect.gen(function* () {

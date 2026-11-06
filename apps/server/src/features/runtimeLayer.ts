@@ -62,23 +62,21 @@ const CrewDelegationLive = Layer.effect(
   }),
 );
 
-/** A feature that goes quiet without reporting tells its parent's lead or whoever started it. */
-const ChildFeatureWatchLive = Layer.effectDiscard(
-  FeatureService.pipe(Effect.flatMap((features) => features.watchChildren())),
-);
-
 /** Notices held for a busy thread reach it as one message once it is free. */
 const NoticeInboxWatchLive = Layer.effectDiscard(
   NoticeInbox.NoticeInbox.pipe(Effect.flatMap((inbox) => inbox.start())),
 );
 
 /**
- * The thread that started a feature hears when its lead waits on the person, and start-up
- * catches up on every kind of notice in one pass.
+ * A feature that goes quiet tells its parent's lead or whoever started it, and when its lead
+ * waits on the person; start-up catches up on every kind of notice in one pass.
  */
 const FeatureReportsLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const reactor = yield* FeatureReportReactor.FeatureReportReactor;
+    const features = yield* FeatureService;
+    // In order: the watches record where they start, then catch-up scans what came before.
+    yield* features.watchChildren();
     yield* reactor.start();
     yield* forkParked(FeatureReportReactor.catchUpAtStartup());
   }),
@@ -122,7 +120,6 @@ export const FeatureRuntimeLive = Layer.mergeAll(
     Layer.provideMerge(Layer.mergeAll(FeatureServiceLive, IssueService.layer)),
   ),
   CrewDelegationLive.pipe(Layer.provide(Layer.merge(FeatureServiceLive, ProjectRequestsLive))),
-  ChildFeatureWatchLive.pipe(Layer.provide(FeatureServiceLive)),
   BotService.layer,
   BotAutomationsLive,
   FeatureReportsLive,

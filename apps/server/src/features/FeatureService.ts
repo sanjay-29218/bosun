@@ -1286,6 +1286,21 @@ export const FeatureServiceLive = Layer.effect(
         }),
       );
 
+    /** Whether the run `userMessageId` started on `threadId` is a silent idle /compact. */
+    const idleCompactionRun = (threadId: ThreadId, userMessageId: string | null) =>
+      userMessageId === null
+        ? Effect.succeed(false)
+        : engine
+            .getThreadRecords(threadId, ["messages"], {
+              messageIds: [MessageId.make(userMessageId)],
+            })
+            .pipe(
+              Effect.map(({ messages }) =>
+                messages.some((message) => idleCompactionOf(message) !== undefined),
+              ),
+              Effect.orElseSucceed(() => false),
+            );
+
     /** Open features that report when they go quiet: children of an open parent, or requested. */
     const reportingFeatures = sql<{ readonly id: string }>`
       SELECT feature.id FROM features AS feature
@@ -1379,6 +1394,12 @@ export const FeatureServiceLive = Layer.effect(
       if (busy.length > 0) return;
       const run = yield* leadTurnOf(lead);
       if (!run?.ended) return;
+      // A silent /compact is upkeep, not something the lead said.
+      const [prompt] = yield* sql<{ readonly userMessageId: string | null }>`
+        SELECT json_extract(payload_json, '$.userMessageId') AS userMessageId
+        FROM orchestration_v2_projection_runs WHERE run_id = ${run.runId}
+      `.pipe(Effect.mapError(queryError));
+      if (yield* idleCompactionRun(lead, prompt?.userMessageId ?? null)) return;
       const [marker] = yield* sql<{ readonly runId: string | null }>`
         SELECT reported_run_id AS runId FROM features WHERE id = ${feature.id}
       `.pipe(Effect.mapError(queryError));
@@ -1405,18 +1426,32 @@ export const FeatureServiceLive = Layer.effect(
                 .pipe(Effect.orElseSucceed(() => ({ messages: [] })))).messages;
         if (legacy.length > 0) return;
         // Stops from before the inbox were never reported, and an upgrade doesn't report them.
-        // Any of its threads' runs since counts, so a feature in flight at the upgrade reports.
-        const sinceInbox = yield* sql`
-          SELECT 1 FROM orchestration_events
+        // A run on any of its threads since counts, so a feature in flight at the upgrade
+        // reports; a silent /compact doesn't. Newest first, so the first real run decides.
+        const runsSince = yield* sql<{
+          readonly threadId: ThreadId;
+          readonly userMessageId: string | null;
+        }>`
+          SELECT stream_id AS threadId,
+            json_extract(payload_json, '$.userMessageId') AS userMessageId
+          FROM orchestration_events
           WHERE aggregate_kind = 'thread' AND event_type IN ('run.created', 'run.updated')
             AND sequence > (SELECT COALESCE(MAX(sequence), 0) FROM notice_inbox_cutoff)
             AND stream_id IN (
               SELECT thread_id FROM orchestration_v2_projection_threads
               WHERE json_extract(payload_json, '$.feature.id') = ${feature.id}
             )
-          LIMIT 1
+          GROUP BY stream_id, userMessageId
+          ORDER BY MAX(sequence) DESC
         `.pipe(Effect.mapError(queryError));
-        if (sinceInbox.length === 0) return;
+        let sinceInbox = false;
+        for (const since of runsSince) {
+          if (!(yield* idleCompactionRun(since.threadId, since.userMessageId))) {
+            sinceInbox = true;
+            break;
+          }
+        }
+        if (!sinceInbox) return;
         const { messages } = yield* engine
           .getThreadRecords(lead, ["messages"], { messageRoles: ["assistant"] })
           .pipe(Effect.orElseSucceed(() => ({ messages: [] })));
@@ -1642,14 +1677,17 @@ export const FeatureServiceLive = Layer.effect(
               return Effect.void;
           }
         };
-        // Start-up catch-up (`reconcileChildren`) covers features that went quiet before this
-        // starts; a restart of the watch resumes from where it stopped, so none slip between.
-        const cursor = yield* Ref.make<number | null>(null);
+        // The starting point is read before this returns, so start-up catch-up
+        // (`reconcileChildren`), run after it, scans everything before it; a restart of the
+        // watch resumes from where it stopped, so none slip between.
+        const latest = sql<{ readonly sequence: number }>`
+          SELECT COALESCE(MAX(sequence), 0) AS sequence FROM orchestration_events
+        `.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0));
+        const cursor = yield* Ref.make<number | null>(
+          yield* latest.pipe(Effect.orElseSucceed(() => null)),
+        );
         const watch = Effect.gen(function* () {
-          const [latest] = yield* sql<{ readonly sequence: number }>`
-            SELECT COALESCE(MAX(sequence), 0) AS sequence FROM orchestration_events
-          `;
-          const from = (yield* Ref.get(cursor)) ?? latest?.sequence ?? 0;
+          const from = (yield* Ref.get(cursor)) ?? (yield* latest);
           yield* Ref.set(cursor, from);
           yield* engine
             .streamStoredEventsFrom({ afterSequence: from })
