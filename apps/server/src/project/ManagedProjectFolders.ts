@@ -1,4 +1,5 @@
 import {
+  CAPTAIN_BOT_ID,
   CommandId,
   type GitManagerServiceError,
   ProjectId,
@@ -26,6 +27,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { botHomeFolderName } from "./botHomeFolderName.ts";
 import * as ProjectService from "./ProjectService.ts";
 
 export class ScratchUnavailableError extends Schema.TaggedError<ScratchUnavailableError>()(
@@ -63,6 +65,15 @@ export class ScratchProjectError extends Schema.TaggedError<ScratchProjectError>
 
 export type ScratchError = ScratchUnavailableError | ScratchFolderError | ScratchProjectError;
 
+export class BotHomeError extends Schema.TaggedError<BotHomeError>()("BotHomeError", {
+  botId: Schema.String,
+  cause: Schema.Defect(),
+}) {
+  override get message(): string {
+    return "Failed to create the bot's home folder.";
+  }
+}
+
 export class NamedProjectFolderError extends Schema.TaggedError<NamedProjectFolderError>()(
   "NamedProjectFolderError",
   {
@@ -95,6 +106,21 @@ export class ManagedProjectFolders extends Context.Service<
     readonly scratchRoot: Effect.Effect<Option.Option<string>>;
     readonly ensureScratchProject: Effect.Effect<{ readonly projectId: ProjectId }, ScratchError>;
     readonly isScratchProject: (projectId: ProjectId) => Effect.Effect<boolean>;
+    /** The folder bots' homes sit in; none where homes are unavailable. */
+    readonly botHomesRoot: Effect.Effect<Option.Option<string>>;
+    /** Where the bot's home is, or would be: `<botHomesRoot>/<botId>`, made safe for a folder name. */
+    readonly botHomePath: (botId: string) => Effect.Effect<Option.Option<string>>;
+    /** The bot's home folder and the project rooted there, owned by the bot; made on first use. */
+    readonly ensureBotHome: (bot: {
+      readonly id: string;
+      readonly name: string;
+    }) => Effect.Effect<
+      { readonly projectId: ProjectId; readonly workspaceRoot: string },
+      BotHomeError
+    >;
+    readonly isBotHome: (projectId: ProjectId) => Effect.Effect<boolean>;
+    /** Scratch or a bot's home: never listed as a project, and never given a Project manager. */
+    readonly isHiddenProject: (projectId: ProjectId) => Effect.Effect<boolean>;
     readonly folderForThread: (input: {
       readonly projectId: ProjectId;
       readonly threadId: ThreadId;
@@ -238,31 +264,38 @@ const make = Effect.gen(function* () {
     }
   });
 
-  // Scratch inside a checkout would inherit its git status and checkpoints, so a data dir in
-  // one (a dev worktree's) keeps Scratch in the system temp folder, one per data dir.
+  // Scratch and bot homes inside a checkout would inherit its git status and checkpoints, so a
+  // data dir in one (a dev worktree's) keeps them in the system temp folder, one per data dir.
   const [probe, invalidate] = yield* Effect.cachedInvalidateWithTTL(
     gitWorkflow.isRepository(config.baseDir).pipe(
       Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
       Effect.flatMap((isRepository) =>
         isRepository
-          ? digester
-              .digest(Digest.sha256, new TextEncoder().encode(config.baseDir))
-              .pipe(
-                Effect.map((hash) =>
-                  Option.some(
-                    path.join(NodeOS.tmpdir(), "bosun-scratch", Hex.encode(hash).slice(0, 16)),
-                  ),
-                ),
-              )
-          : Effect.succeedSome(path.resolve(config.baseDir, "scratch")),
+          ? digester.digest(Digest.sha256, new TextEncoder().encode(config.baseDir)).pipe(
+              Effect.map((hash) => {
+                const id = Hex.encode(hash).slice(0, 16);
+                return Option.some({
+                  scratch: path.join(NodeOS.tmpdir(), "bosun-scratch", id),
+                  bots: path.join(NodeOS.tmpdir(), "bosun-bots", id),
+                });
+              }),
+            )
+          : Effect.succeedSome({
+              scratch: path.resolve(config.baseDir, "scratch"),
+              bots: path.resolve(config.baseDir, "bots"),
+            }),
       ),
       Effect.catchCause((cause) =>
-        Cause.hasInterrupts(cause) ? Effect.interrupt : Effect.succeed(Option.none<string>()),
+        Cause.hasInterrupts(cause)
+          ? Effect.interrupt
+          : Effect.succeed(Option.none<{ readonly scratch: string; readonly bots: string }>()),
       ),
     ),
     Duration.infinity,
   );
-  const scratchRoot = probe.pipe(Effect.onInterrupt(() => invalidate));
+  const roots = probe.pipe(Effect.onInterrupt(() => invalidate));
+  const scratchRoot = roots.pipe(Effect.map(Option.map((root) => root.scratch)));
+  const botHomesRoot = roots.pipe(Effect.map(Option.map((root) => root.bots)));
 
   const makeScratchFolder = (folder: string) =>
     fileSystem
@@ -331,6 +364,76 @@ const make = Effect.gen(function* () {
           onSome: (root) => isScratchRoot(projectId, root),
         }),
       ),
+    );
+
+  const botHomePath: ManagedProjectFolders["Service"]["botHomePath"] = (botId) =>
+    botHomesRoot.pipe(Effect.map(Option.map((root) => path.join(root, botHomeFolderName(botId)))));
+
+  const ensureBotHome: ManagedProjectFolders["Service"]["ensureBotHome"] = Effect.fn(
+    "ManagedProjectFolders.ensureBotHome",
+  )(function* (bot) {
+    const fail = (cause: unknown) => new BotHomeError({ botId: bot.id, cause });
+    const home = yield* botHomePath(bot.id);
+    if (Option.isNone(home)) return yield* fail("Bot homes are not available on this environment.");
+    const workspaceRoot = home.value;
+    yield* fileSystem.makeDirectory(workspaceRoot, { recursive: true }).pipe(Effect.mapError(fail));
+    const id = yield* random.uuidV4().pipe(Effect.mapError(fail));
+    const bootstrapped = yield* projects
+      .bootstrap({
+        commandId: CommandId.make(`bot-home:${bot.id}:${id}`),
+        projectId: ProjectId.make(id),
+        title: bot.name,
+        workspaceRoot,
+        botId: bot.id,
+      })
+      .pipe(
+        Effect.catchTags({
+          ProjectConflictError: (conflict) =>
+            Effect.succeed({ project: { id: conflict.conflictingProjectId }, created: false }),
+        }),
+        Effect.mapError(fail),
+      );
+    if (!bootstrapped.created) {
+      const existing = yield* projects.getById(bootstrapped.project.id).pipe(Effect.mapError(fail));
+      const owner = Option.getOrUndefined(existing)?.botId ?? CAPTAIN_BOT_ID;
+      if (owner !== bot.id) {
+        return yield* fail(`${workspaceRoot} already belongs to another bot's project.`);
+      }
+    }
+    if (bootstrapped.created) {
+      yield* projects
+        .update({
+          commandId: CommandId.make(`bot-home-icon:${id}`),
+          projectId: bootstrapped.project.id,
+          projectIcon: { kind: "lucide", name: "bot", color: "gray" },
+        })
+        .pipe(Effect.mapError(fail));
+    }
+    return { projectId: bootstrapped.project.id, workspaceRoot };
+  });
+
+  const isBotHome: ManagedProjectFolders["Service"]["isBotHome"] = (projectId) =>
+    botHomesRoot.pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.succeed(false),
+          onSome: (root) =>
+            projects.getById(projectId).pipe(
+              Effect.map(
+                Option.exists(
+                  (project) =>
+                    path.dirname(path.resolve(project.workspaceRoot)) === path.resolve(root),
+                ),
+              ),
+              Effect.orElseSucceed(() => false),
+            ),
+        }),
+      ),
+    );
+
+  const isHiddenProject: ManagedProjectFolders["Service"]["isHiddenProject"] = (projectId) =>
+    isScratchProject(projectId).pipe(
+      Effect.flatMap((scratch) => (scratch ? Effect.succeed(true) : isBotHome(projectId))),
     );
 
   const folderForThread: ManagedProjectFolders["Service"]["folderForThread"] = Effect.fn(
@@ -483,6 +586,11 @@ const make = Effect.gen(function* () {
     scratchRoot,
     ensureScratchProject,
     isScratchProject,
+    botHomesRoot,
+    botHomePath,
+    ensureBotHome,
+    isBotHome,
+    isHiddenProject,
     folderForThread,
     namedProjectsRoot,
     createNamedProject,

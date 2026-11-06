@@ -23,6 +23,7 @@ import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { BOT_DEFAULT_INSTRUCTIONS } from "../crew/crewPrompts.ts";
 import type { PersistenceSqlError } from "../persistence/Errors.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as BotStore from "./BotStore.ts";
@@ -41,25 +42,29 @@ export type BotServiceError = BotValidationError | PersistenceSqlError;
 export class BotService extends Context.Service<
   BotService,
   {
+    /** Every bot in rail order, each with its `homePath`. */
     readonly list: Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
     readonly get: (id: string) => Effect.Effect<Bot | null, BotServiceError>;
-    /** Adds a bot at the end of the rail. Repeating the same create returns the same bot. */
+    /**
+     * Adds a bot at the end of the rail, with its home. Repeating the same create returns the
+     * same bot.
+     */
     readonly create: (input: BotCreateInput) => Effect.Effect<Bot, BotServiceError>;
     readonly update: (input: BotUpdateInput) => Effect.Effect<Bot, BotServiceError>;
     /**
      * Refused for Captain and for a bot that still owns a project; move its projects first.
-     * Deletes the automations that run as the bot. Runs the bot already started keep
-     * working, but it gets no new ones.
+     * Its home stays, for a restore to find. Deletes the automations that run as the bot.
+     * Runs the bot already started keep working, but it gets no new ones.
      */
     readonly delete: (id: string) => Effect.Effect<void, BotServiceError>;
     /** Sets the rail order; `botIds` lists every bot exactly once. */
     readonly reorder: (
       botIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
-    /** Gives a project to another bot. Runs already started keep the bot that started them. */
     /**
      * Gives a project to another bot. With `ensureBot`, that's the bot with the same logical key
-     * as `botId`'s, created here once however many moves ask for it at the same time.
+     * as `botId`'s, created here once however many moves ask for it at the same time. Such a
+     * copy gets its home when it first needs one. Scratch and bots' homes never move.
      */
     readonly moveProject: (
       input: BotMoveProjectInput,
@@ -96,6 +101,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const random = yield* SecureRandom.SecureRandom;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
+  const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   // Optional so bot tests run without the crew; the server always provides it.
   const crew = yield* Effect.serviceOption(CrewService);
 
@@ -108,6 +114,25 @@ const make = Effect.gen(function* () {
           () => new BotValidationError({ reason: "Bot not found" }),
         ),
       );
+
+  /** The bot's home project, when the bot has one. */
+  const homeProject = Effect.fn("BotService.homeProject")(function* (botId: string) {
+    const root = yield* folders.botHomePath(botId);
+    if (Option.isNone(root)) return Option.none<Project>();
+    return yield* projects
+      .getByWorkspaceRoot(root.value)
+      .pipe(Effect.orElseSucceed(() => Option.none<Project>()));
+  });
+
+  const withHome = Effect.fn("BotService.withHome")(function* (bot: Bot) {
+    const home = yield* homeProject(bot.id);
+    return { ...bot, homePath: Option.isSome(home) ? home.value.workspaceRoot : null };
+  });
+
+  const ensureHome = (bot: Bot) =>
+    folders
+      .ensureBotHome(bot)
+      .pipe(Effect.mapError((error) => new BotValidationError({ reason: error.message })));
 
   const createUnlocked = Effect.fn("BotService.insertBot")(function* (input: BotCreateInput) {
     const id = yield* text(input.id, "Bot ID", 128);
@@ -170,11 +195,16 @@ const make = Effect.gen(function* () {
     );
 
   const service = BotService.of({
-    list: store.list,
-    get: store.get,
-    create: Effect.fn("BotService.create")((input) =>
-      creating.withPermits(1)(createUnlocked(input)),
-    ),
+    list: store.list.pipe(Effect.flatMap(Effect.forEach(withHome))),
+    get: Effect.fn("BotService.get")(function* (id) {
+      const bot = yield* store.get(id);
+      return bot === null ? null : yield* withHome(bot);
+    }),
+    create: Effect.fn("BotService.create")(function* (input) {
+      const bot = yield* creating.withPermits(1)(createUnlocked(input));
+      const home = yield* ensureHome(bot);
+      return { ...bot, homePath: home.workspaceRoot };
+    }),
     update: Effect.fn("BotService.update")(function* (input) {
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
@@ -202,6 +232,20 @@ const make = Effect.gen(function* () {
       if (!(yield* store.update(next, previous.revision))) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
       }
+      const home = yield* homeProject(next.id);
+      if (next.name !== previous.name && Option.isSome(home)) {
+        yield* projects
+          .update({
+            commandId: CommandId.make(`bot-home-title:${next.id}:${next.revision}`),
+            projectId: home.value.id,
+            title: next.name,
+          })
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Bot home retitle failed", { botId: next.id, error }),
+            ),
+          );
+      }
       // An open headquarters takes the new runtime mode and model on its next turn.
       if (Option.isSome(crew)) {
         yield* crew.value
@@ -212,14 +256,17 @@ const make = Effect.gen(function* () {
             ),
           );
       }
-      return next;
+      return { ...next, homePath: Option.isSome(home) ? home.value.workspaceRoot : null };
     }),
     delete: Effect.fn("BotService.delete")(function* (id) {
       if (id === CAPTAIN_BOT_ID) {
         return yield* new BotValidationError({ reason: "Captain can't be deleted" });
       }
       const deletedAt = DateTime.formatIso(yield* DateTime.now);
-      const result = yield* store.withOwnership(store.deleteUnlessOwning(id, deletedAt));
+      const home = yield* folders.botHomePath(id);
+      const result = yield* store.withOwnership(
+        store.deleteUnlessOwning(id, deletedAt, Option.getOrNull(home)),
+      );
       if (result === "owns-projects") {
         return yield* new BotValidationError({
           reason: "Move this bot's projects to another bot before deleting it",
@@ -255,6 +302,9 @@ const make = Effect.gen(function* () {
     }),
     moveProject: Effect.fn("BotService.moveProject")(function* (input) {
       const { projectId } = input;
+      if (yield* folders.isHiddenProject(projectId)) {
+        return yield* new BotValidationError({ reason: "Scratch and bots' homes can't move" });
+      }
       const botId =
         input.ensureBot === undefined
           ? (yield* requireBot(input.botId)).id

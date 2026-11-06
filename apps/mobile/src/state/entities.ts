@@ -102,7 +102,7 @@ const threadProjectChipIconAtom = Atom.family((key: string) => {
       : null;
     const icon = resolveProjectChipIcon(
       project,
-      get(serverEnvironment.configValueAtom(ref.environmentId))?.scratchWorkspaceRoot,
+      get(serverEnvironment.configValueAtom(ref.environmentId)),
       () =>
         project
           ? get(

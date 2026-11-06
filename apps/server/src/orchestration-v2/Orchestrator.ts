@@ -594,6 +594,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.title.regeneration.complete":
     case "thread.crew-stage.set":
     case "thread.project.adopt-folder":
+    case "thread.project.move":
     case "thread.conversation.restart":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
@@ -4533,6 +4534,124 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  /**
+   * Retires the thread's provider conversations: its sessions detach and its provider threads
+   * archive, so its next turn starts a fresh one with no carried history.
+   */
+  const retireConversation = Effect.fn("orchestrationV2.dispatch.retireConversation")(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.conversation.restart" | "thread.project.move" }
+    >,
+    projection: Pick<OrchestrationV2ThreadProjection, "providerSessions" | "providerThreads">,
+    thread: OrchestrationV2ThreadProjection["thread"],
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const now = yield* DateTime.now;
+    const emitEvent = emit(events, command);
+    for (const session of projection.providerSessions) {
+      if (session.status === "stopped" || session.status === "error") continue;
+      yield* emitEvent({
+        type: "provider-session.detached",
+        threadId: command.threadId,
+        driver: session.driver,
+        providerInstanceId: session.providerInstanceId,
+        occurredAt: now,
+        payload: { providerSessionId: session.id, detachedAt: now, reason: "Fresh start." },
+      });
+      yield* Ref.update(effects, (existing) => [
+        ...existing,
+        {
+          id: `effect:${command.commandId}:provider-session.detach:${session.id}`,
+          commandId: command.commandId,
+          threadId: command.threadId,
+          request: {
+            type: "provider-session.detach",
+            providerSessionId: session.id,
+            detail: "Fresh start.",
+          },
+        } satisfies PendingOrchestrationEffectV2,
+      ]);
+    }
+    for (const providerThread of projection.providerThreads) {
+      if (
+        providerThread.appThreadId !== command.threadId ||
+        providerThread.ownerNodeId !== null ||
+        providerThread.status === "archived"
+      )
+        continue;
+      yield* emitEvent({
+        type: "provider-thread.updated",
+        threadId: command.threadId,
+        driver: providerThread.driver,
+        providerInstanceId: providerThread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...providerThread, status: "archived", updatedAt: now },
+      });
+    }
+    yield* emitEvent({
+      type: "thread.provider-switched",
+      threadId: command.threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: { ...thread, activeProviderThreadId: null, updatedAt: now },
+    });
+  });
+
+  const dispatchThreadProjectMove = Effect.fn("orchestrationV2.dispatch.threadProjectMove")(
+    function* (
+      command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.project.move" }>,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+      effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    ) {
+      const reject = (cause: string) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} ${cause}`,
+        });
+      const projection = yield* projectionStore
+        .getThreadRecords(
+          command.threadId,
+          ["runs", "runtimeRequests", "providerThreads", "providerSessions"],
+          { turnItemTypes: [] },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const thread = projection.thread;
+      if (thread.deletedAt !== null) return yield* reject("is deleted.");
+      if (thread.projectId === command.projectId) return;
+      if (thread.worktreePath !== null || thread.branch !== null) {
+        return yield* reject("works in a worktree or on a branch, so it can't move.");
+      }
+      if (threadHasUnfinishedWork(projection)) {
+        return yield* reject("still has work in progress. Finish or stop it first.");
+      }
+      const target = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+      if (Option.isNone(target) || target.value.deletedAt !== null) {
+        return yield* reject(`cannot move to missing project ${command.projectId}.`);
+      }
+      const now = yield* DateTime.now;
+      const moved = { ...thread, projectId: command.projectId, updatedAt: now };
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: moved,
+      });
+      // Its sessions ran in the old project's folder, so they end with the move.
+      yield* retireConversation(command, projection, moved, events, effects);
+    },
+  );
+
   const dispatchConversationRestart = Effect.fn("orchestrationV2.dispatch.conversationRestart")(
     function* (
       command: Extract<
@@ -4564,55 +4683,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Thread ${command.threadId} is busy, so its conversation cannot restart.`,
         });
       }
-      const now = yield* DateTime.now;
-      const emitEvent = emit(events, command);
-      for (const session of projection.providerSessions) {
-        if (session.status === "stopped" || session.status === "error") continue;
-        yield* emitEvent({
-          type: "provider-session.detached",
-          threadId: command.threadId,
-          driver: session.driver,
-          providerInstanceId: session.providerInstanceId,
-          occurredAt: now,
-          payload: { providerSessionId: session.id, detachedAt: now, reason: "Fresh start." },
-        });
-        yield* Ref.update(effects, (existing) => [
-          ...existing,
-          {
-            id: `effect:${command.commandId}:provider-session.detach:${session.id}`,
-            commandId: command.commandId,
-            threadId: command.threadId,
-            request: {
-              type: "provider-session.detach",
-              providerSessionId: session.id,
-              detail: "Fresh start.",
-            },
-          } satisfies PendingOrchestrationEffectV2,
-        ]);
-      }
-      for (const providerThread of projection.providerThreads) {
-        if (
-          providerThread.appThreadId !== command.threadId ||
-          providerThread.ownerNodeId !== null ||
-          providerThread.status === "archived"
-        )
-          continue;
-        yield* emitEvent({
-          type: "provider-thread.updated",
-          threadId: command.threadId,
-          driver: providerThread.driver,
-          providerInstanceId: providerThread.providerInstanceId,
-          occurredAt: now,
-          payload: { ...providerThread, status: "archived", updatedAt: now },
-        });
-      }
-      yield* emitEvent({
-        type: "thread.provider-switched",
-        threadId: command.threadId,
-        providerInstanceId: projection.thread.providerInstanceId,
-        occurredAt: now,
-        payload: { ...projection.thread, activeProviderThreadId: null, updatedAt: now },
-      });
+      yield* retireConversation(command, projection, projection.thread, events, effects);
     },
   );
 
@@ -13726,6 +13797,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.project.adopt-folder":
         yield* dispatchThreadProjectAdoptFolder(command, events);
         break;
+      case "thread.project.move":
+        yield* dispatchThreadProjectMove(command, events, effects);
+        break;
       case "thread.conversation.restart":
         yield* dispatchConversationRestart(command, events, effects);
         break;
@@ -14068,6 +14142,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.interrupt.unresponsive" ||
           command.type === "thread.stop" ||
           command.type === "subagent.stop" ||
+          command.type === "thread.project.move" ||
           // Closing a share again, or after it ended, is not an error.
           command.type === "thread.guest-share.close" ||
           (command.type === "thread.delete" && command.onlyIfUnused === true) ||

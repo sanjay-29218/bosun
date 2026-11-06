@@ -292,7 +292,8 @@ export const ChatHeader = memo(function ChatHeader({
         ariaLabel="Thread breadcrumb"
         className="flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
-        {activeProject ? (
+        {/* A bot's headquarters is titled after the bot; its home is no project to name. */}
+        {activeProject && activeProject.isBotHome !== true ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>

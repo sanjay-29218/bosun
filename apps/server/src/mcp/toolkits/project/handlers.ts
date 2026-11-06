@@ -45,7 +45,9 @@ function projectFailure(error: Project.ProjectServiceError) {
         ? "The workspace is already registered to a project."
         : error._tag === "ProjectBotNotFoundError"
           ? "The bot was not found; t3_bot_list shows this environment's bots."
-          : "The project is not empty; force=true is required to delete it.";
+          : error._tag === "ProjectHoldsHeadquartersError"
+            ? error.message
+            : "The project is not empty; force=true is required to delete it.";
   return new OrchestratorMcpFailure({ code: "invalid_request", message });
 }
 
@@ -305,7 +307,12 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       const page = yield* projects
         .listPage({ cursor: input.cursor ?? 0, limit: input.limit ?? 20 })
         .pipe(Effect.mapError(unavailable));
-      return { ...page, projects: yield* Effect.forEach(page.projects, withManager) };
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      // Scratch and bots' homes are where threads without a project work, not projects.
+      const listed = yield* Effect.filter(page.projects, (project) =>
+        Effect.map(folders.isHiddenProject(project.id), (hidden) => !hidden),
+      );
+      return { ...page, projects: yield* Effect.forEach(listed, withManager) };
     }),
   ),
   t3_project_read: McpToolAccess.reads((input) =>

@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  botHeadquartersThreadId,
+  CAPTAIN_BOT_ID,
   CommandId,
   EventId,
   type OrchestrationV2AppThread,
@@ -77,14 +79,17 @@ const decodeEffectRequest = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationEffectRequestV2),
 );
 
-const seedProject = Effect.fn("ProjectDeletionTest.seedProject")(function* (projectId: ProjectId) {
+const seedProject = Effect.fn("ProjectDeletionTest.seedProject")(function* (
+  projectId: ProjectId,
+  workspaceRoot = `/work/${projectId}`,
+) {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
     INSERT INTO projection_projects (
       project_id, title, workspace_root, default_model_selection_json,
       scripts_json, created_at, updated_at, deleted_at
     ) VALUES (
-      ${projectId}, 'Deletion test', ${`/work/${projectId}`}, NULL,
+      ${projectId}, 'Deletion test', ${workspaceRoot}, NULL,
       '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL
     )
   `;
@@ -424,6 +429,51 @@ it.effect("rejects a child deletion command ID already accepted for an unrelated
         WHERE thread_id = ${threadId}
       `;
       assert.deepEqual(cleanup, []);
+    }).pipe(Effect.provide(layerServices));
+  }).pipe(Effect.provide(layerDatabase)),
+);
+
+it.effect("refuses to delete a project holding a bot's headquarters, wherever it is", () =>
+  Effect.gen(function* () {
+    const homeId = ProjectId.make("project:captain-home");
+    const repoId = ProjectId.make("project:bots-named-repo");
+    const hqId = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+    const repoThreadId = ThreadId.make("thread:bots-named-repo");
+    yield* seedProject(homeId, `/data/bots/${CAPTAIN_BOT_ID}`);
+    yield* seedProject(repoId, `/github/bots/${CAPTAIN_BOT_ID}`);
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const service = yield* ProjectService.make;
+      yield* eventSink.write({
+        events: [nativeThreadCreated(homeId, hqId), nativeThreadCreated(repoId, repoThreadId)],
+      });
+      const forceDelete = (projectId: ProjectId, key: string) =>
+        service.delete({ commandId: CommandId.make(`command:${key}`), projectId, force: true });
+
+      // Its headquarters' thread ID can never be made again, so the project can't go.
+      const refused = yield* forceDelete(homeId, "home-delete").pipe(Effect.flip);
+      assert.equal(refused._tag, "ProjectHoldsHeadquartersError");
+      assert.equal(
+        refused.message,
+        "Deletion test holds Captain's headquarters; it can't be deleted.",
+      );
+      // Pointing it somewhere else first doesn't get around that.
+      yield* service.update({
+        commandId: CommandId.make("command:home-move"),
+        projectId: homeId,
+        workspaceRoot: "/work/elsewhere",
+      });
+      const stillRefused = yield* forceDelete(homeId, "home-delete-moved").pipe(Effect.flip);
+      assert.equal(stillRefused._tag, "ProjectHoldsHeadquartersError");
+      assert.isTrue(Option.isSome(yield* service.getById(homeId)));
+      assert.isNull((yield* projections.getThreadProjection(hqId)).thread.deletedAt);
+
+      // A repo merely named like a home holds no headquarters, so it deletes as any project.
+      yield* forceDelete(repoId, "repo-delete");
+      assert.isTrue(Option.isNone(yield* service.getById(repoId)));
+      assert.isNotNull((yield* projections.getThreadProjection(repoThreadId)).thread.deletedAt);
     }).pipe(Effect.provide(layerServices));
   }).pipe(Effect.provide(layerDatabase)),
 );

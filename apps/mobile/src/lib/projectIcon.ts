@@ -1,4 +1,4 @@
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { isHiddenProject } from "@t3tools/client-runtime/state/projects";
 import { ProjectIconColor, type ProjectIconOverride } from "@t3tools/contracts";
 import { isProjectFaviconFallbackUrl } from "@t3tools/shared/projectFavicon";
 import type { AppSymbolName } from "../components/ui/AppSymbol";
@@ -84,10 +84,10 @@ export function resolveProjectChipIcon(
     readonly workspaceRoot: string;
     readonly projectIcon?: ProjectIconOverride | null;
   } | null,
-  scratchWorkspaceRoot: string | null | undefined,
+  serverConfig: Parameters<typeof isHiddenProject>[1],
   faviconUrl: () => string | null,
 ): ProjectChipIcon | null {
-  if (!project || isScratchProject(project, scratchWorkspaceRoot)) return null;
+  if (!project || isHiddenProject(project, serverConfig)) return null;
   const glyph = resolveProjectIconGlyph(project.projectIcon, project.title);
   if (glyph) return glyph;
   const url = faviconUrl();

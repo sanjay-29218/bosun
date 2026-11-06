@@ -37,6 +37,7 @@ import {
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { LINKED_ENVIRONMENT_STOPPED_ANSWERING } from "../peer/PeerMcpClient.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as BotService from "./BotService.ts";
@@ -142,6 +143,7 @@ const make = Effect.gen(function* () {
   const links = yield* PeerLinks.PeerLinks;
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const environment = yield* ServerEnvironment.ServerEnvironment;
+  const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
 
   const here = environment.getDescriptor.pipe(
     Effect.map((descriptor) => ({
@@ -157,8 +159,12 @@ const make = Effect.gen(function* () {
       listed.filter((bot) => logicalBotKey(bot) === botKey).map((bot) => bot.id),
     );
     const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
-    const owned = snapshot.projects.filter(
-      (project) => project.deletedAt === null && owners.has(project.botId ?? CAPTAIN_BOT_ID),
+    // Scratch and bots' homes are where headquarters work, not projects to hand work to.
+    const owned = yield* Effect.filter(
+      snapshot.projects.filter(
+        (project) => project.deletedAt === null && owners.has(project.botId ?? CAPTAIN_BOT_ID),
+      ),
+      (project) => Effect.map(folders.isHiddenProject(project.id), (hidden) => !hidden),
     );
     return yield* Effect.forEach(owned, (project) =>
       features.listByProject(project.id).pipe(
@@ -381,7 +387,11 @@ const make = Effect.gen(function* () {
       const project = Option.getOrUndefined(
         yield* projects.getById(input.projectId).pipe(Effect.mapError(unavailable)),
       );
-      if (project === undefined || project.deletedAt !== null) {
+      if (
+        project === undefined ||
+        project.deletedAt !== null ||
+        (yield* folders.isHiddenProject(project.id))
+      ) {
         return yield* failure(
           "invalid_request",
           `No project ${input.projectId} on ${self.label}. t3_bot_projects lists the bot's projects there.`,

@@ -667,6 +667,8 @@ function ProjectDetail({
         <ProjectManagerSection
           members={group.memberProjects.filter(
             (member) =>
+              member.isScratch !== true &&
+              member.isBotHome !== true &&
               environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
                 .workflows === true,
           )}
