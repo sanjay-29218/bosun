@@ -27,6 +27,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { botHomeFolderName } from "./botHomeFolderName.ts";
 import * as ProjectService from "./ProjectService.ts";
 
 export class ScratchUnavailableError extends Schema.TaggedError<ScratchUnavailableError>()(
@@ -365,22 +366,8 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  // An ID that isn't a plain folder name gets "@" and a hash, which no plain name contains, so
-  // no two IDs share a home.
-  const botHomePath: ManagedProjectFolders["Service"]["botHomePath"] = Effect.fn(
-    "ManagedProjectFolders.botHomePath",
-  )(function* (botId) {
-    const root = yield* botHomesRoot;
-    if (Option.isNone(root)) return Option.none();
-    if (/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(botId)) {
-      return Option.some(path.join(root.value, botId));
-    }
-    const hash = yield* digester
-      .digest(Digest.sha256, new TextEncoder().encode(botId))
-      .pipe(Effect.orDie);
-    const readable = botId.replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 64);
-    return Option.some(path.join(root.value, `${readable}@${Hex.encode(hash).slice(0, 16)}`));
-  });
+  const botHomePath: ManagedProjectFolders["Service"]["botHomePath"] = (botId) =>
+    botHomesRoot.pipe(Effect.map(Option.map((root) => path.join(root, botHomeFolderName(botId)))));
 
   const ensureBotHome: ManagedProjectFolders["Service"]["ensureBotHome"] = Effect.fn(
     "ManagedProjectFolders.ensureBotHome",

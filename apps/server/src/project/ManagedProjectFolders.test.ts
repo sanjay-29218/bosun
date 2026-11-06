@@ -254,6 +254,17 @@ it.effect("gives each bot one home, even for concurrent first requests, apart fr
       assert.equal(lookalike.workspaceRoot, path.join(root, "bot-nepse-06258b94"));
       assert.notEqual(lookalike.workspaceRoot, again.workspaceRoot);
       assert.notEqual(lookalike.projectId, again.projectId);
+      // Folder names that a case-insensitive or Windows filesystem would merge or refuse get a
+      // hash too.
+      const homeOf = (id: string) =>
+        insertBot(id, id).pipe(Effect.andThen(folders.ensureBotHome({ id, name: id })));
+      const lower = yield* homeOf("bot-nepse");
+      assert.equal(lower.workspaceRoot, path.join(root, "bot-nepse"));
+      for (const id of ["BOT-NEPSE", "CON", "nul", "bot.", "bot. "]) {
+        const home = yield* homeOf(id);
+        assert.match(path.basename(home.workspaceRoot), /@[0-9a-f]{16}$/, id);
+        assert.notEqual(home.workspaceRoot.toLowerCase(), lower.workspaceRoot.toLowerCase());
+      }
       // A project another bot owns at a bot's home path is never taken over.
       yield* insertBot("bot-squatted", "Squatted");
       const squattedRoot = path.join(root, "bot-squatted");
