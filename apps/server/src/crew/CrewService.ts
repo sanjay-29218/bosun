@@ -1113,8 +1113,9 @@ export const CrewServiceLive = Layer.effect(
     // One at a time, so two opens of a deleted standing thread restore it once.
     const standingLock = yield* Semaphore.make(1);
     /**
-     * A standing run, created and pinned on first use, and restored if its thread was deleted
-     * or archived. It restarts with its owner's instructions as they are then.
+     * A standing run, created on first use with no turn, and restored if its thread was deleted
+     * or archived. A bot's headquarters is pinned; a project's manager is reached from the
+     * sidebar header instead, so one pinned before that is unpinned once.
      */
     const ensureStanding = Effect.fn("CrewService.ensureStanding")(function* (
       owner: StandingOwner,
@@ -1127,6 +1128,9 @@ export const CrewServiceLive = Layer.effect(
       // A standing run whose project was deleted moves, and `restore` restarts it there.
       if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
         yield* store.moveRun(id, home);
+      }
+      if (existing !== null && existing.instructions !== owner.instructions) {
+        yield* store.setRunInstructions(id, owner.instructions);
       }
       if (existing === null) {
         yield* store.insertRun({
@@ -1155,15 +1159,14 @@ export const CrewServiceLive = Layer.effect(
       if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
         yield* dispatch(run);
       } else {
-        yield* runtime.restore({
-          ...threadInput(run),
-          prompt: `${owner.instructions}\n\nTask:\n${run.taskText}`,
-        });
+        yield* runtime.restore(threadInput(run));
         yield* runtime.syncSettings(run.threadId, owner.runtimeMode, modelSelection);
       }
-      yield* runtime
-        .pin(run.threadId, `${id}:pin`)
-        .pipe(Effect.catch((error) => Effect.logWarning("Standing pin failed", { id, error })));
+      yield* (
+        headquartersBotId(run.threadId) === null
+          ? runtime.unpin(run.threadId, `${id}:unpin`)
+          : runtime.pin(run.threadId, `${id}:pin`)
+      ).pipe(Effect.catch((error) => Effect.logWarning("Standing pin failed", { id, error })));
       return (yield* store.getRun(id))!;
     }, standingLock.withPermits(1));
 
@@ -1530,9 +1533,12 @@ export const CrewServiceLive = Layer.effect(
           yield* Effect.forEach(
             ids,
             (id) =>
-              store
-                .getRun(id)
-                .pipe(Effect.flatMap((run) => (run === null ? Effect.void : replayPending(run)))),
+              store.getRun(id).pipe(
+                // A standing run starts no turn of its own, so it has none to recover.
+                Effect.flatMap((run) =>
+                  run === null || isStandingThread(run.threadId) ? Effect.void : replayPending(run),
+                ),
+              ),
             { concurrency: 1, discard: true },
           );
           afterId = ids[ids.length - 1]!;

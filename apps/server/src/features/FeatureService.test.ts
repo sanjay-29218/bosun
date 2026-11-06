@@ -1649,7 +1649,7 @@ describe("feature lead and crew", () => {
   );
 
   effectIt.effect(
-    "keeps a project's manager pinned in its project, following its settings until reset",
+    "keeps a project's manager unpinned in its project, following its settings until reset",
     () =>
       withSystem(
         Effect.gen(function* () {
@@ -1675,6 +1675,17 @@ describe("feature lead and crew", () => {
           const shell = () => engine.getThreadShell(run.threadId);
           // It lives in its project, in the project's checkout.
           expect(yield* shell()).toMatchObject({ projectId, branch: null, worktreePath: null });
+          // The sidebar header opens it, so it is not pinned, and opening it starts no turn.
+          expect((yield* shell())?.pinnedAt).toBeNull();
+          const opened = yield* engine.getThreadRecords(run.threadId, ["messages", "runs"]);
+          expect([opened.messages, opened.runs]).toEqual([[], []]);
+          // A pin the person adds stays.
+          yield* engine.dispatch({
+            type: "thread.pin",
+            commandId: CommandId.make("test:pin-pm"),
+            threadId: run.threadId,
+          });
+          yield* crew.ensureProjectManager(projectId);
           expect((yield* shell())?.pinnedAt).toBeTruthy();
           expect(
             (yield* engine

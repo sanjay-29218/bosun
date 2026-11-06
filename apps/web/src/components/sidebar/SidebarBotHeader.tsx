@@ -1,6 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
-import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
+import { hasUnseenCompletion, isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { botHeadquartersThreadId, projectHeadquartersThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { ClipboardListIcon, PencilIcon, SettingsIcon } from "lucide-react";
@@ -23,12 +23,24 @@ import {
   useScopedProjectManager,
 } from "./openProjectManager";
 
-/** The working or waiting dot for a standing thread, and its label for screen readers. */
+/** A standing thread's state, and its label for screen readers. */
 function useStandingStatus(ref: Parameters<typeof useThreadShell>[0]) {
   const shell = useThreadShell(ref);
   const waiting = shell !== null && threadNeedsYouKind(shell) !== null;
   const working = shell !== null && !waiting && isThreadWorking(shell);
-  return { waiting, working, status: waiting ? "needs you" : working ? "working" : null };
+  // A server without visit tracking never reads as unseen.
+  const done =
+    shell !== null &&
+    !waiting &&
+    !working &&
+    shell.lastVisitedAt !== undefined &&
+    hasUnseenCompletion(shell);
+  return {
+    waiting,
+    working,
+    done,
+    status: waiting ? "needs you" : working ? "working" : done ? "done" : null,
+  };
 }
 
 function StatusDot({ waiting, working }: { readonly waiting: boolean; readonly working: boolean }) {
@@ -74,7 +86,7 @@ function ProjectManagerHeader({
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const threadId = projectHeadquartersThreadId(manager.projectId);
-  const { waiting, working, status } = useStandingStatus(
+  const { waiting, working, done, status } = useStandingStatus(
     scopeThreadRef(manager.environmentId, threadId),
   );
   const open = useParams({ strict: false, select: (params) => params.threadId === threadId });
@@ -97,15 +109,35 @@ function ProjectManagerHeader({
         >
           <ClipboardListIcon aria-hidden className="size-4 shrink-0" />
           <span className="max-w-[60%] shrink-0 truncate">{manager.title}</span>
-          <span
-            className={cn(
-              "min-w-0 truncate font-normal",
-              onBackdrop ? "text-white/75" : "text-muted-foreground",
-            )}
-          >
-            Project manager
-          </span>
-          <StatusDot waiting={waiting} working={working} />
+          {/* Its thread is off the list, so the label carries what it would have shown there. */}
+          {waiting ? (
+            <span className="shrink-0 rounded-full bg-warning px-1.5 text-2xs leading-4 font-semibold text-black">
+              Needs you
+            </span>
+          ) : (
+            <>
+              <StatusDot waiting={false} working={working} />
+              {done ? (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    onBackdrop ? "bg-white" : "bg-sidebar-foreground",
+                  )}
+                />
+              ) : null}
+              <span
+                className={cn(
+                  "min-w-0 truncate",
+                  done
+                    ? "font-semibold"
+                    : cn("font-normal", onBackdrop ? "text-white/75" : "text-muted-foreground"),
+                )}
+              >
+                {working ? "Working…" : done ? "Done" : "Project manager"}
+              </span>
+            </>
+          )}
         </TooltipTrigger>
         <TooltipPopup side="bottom">Open {manager.title}'s project manager</TooltipPopup>
       </Tooltip>

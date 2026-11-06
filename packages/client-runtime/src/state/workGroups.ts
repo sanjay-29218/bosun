@@ -1,4 +1,4 @@
-import { headquartersBotId, type ThreadCrewRequestTag } from "@t3tools/contracts";
+import { isStandingThread, type ThreadCrewRequestTag } from "@t3tools/contracts";
 
 import { threadNeedsYouKind, type NeedsYouShell } from "./crewBoard.ts";
 import { inboxReturnAt, type InboxThreadInput } from "./threadInbox.ts";
@@ -170,7 +170,7 @@ export function featureRows<T extends WorkGroupThread & { readonly archivedAt: u
 /**
  * The chats the board shows beside its features: the thread list's own rows outside any
  * feature, with a bot request's handoffs folded into one. Subagents, threads delegated under
- * another and bot headquarters stay off it, as they do in the list.
+ * another, bot headquarters and project managers stay off it, as they do in the list.
  */
 export function boardChatThreads<
   T extends WorkGroupThread & {
@@ -188,7 +188,7 @@ export function boardChatThreads<
       !thread.feature &&
       (thread.lineage.relationshipToParent !== "subagent" || thread.lineage.listed === true) &&
       thread.delegatedFrom == null &&
-      headquartersBotId(thread.id) === null,
+      !isStandingThread(thread.id),
   );
   return groupWorkThreads(rows).primaries;
 }

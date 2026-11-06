@@ -89,8 +89,13 @@ export interface CrewThreadRuntimeShape {
     threadId: ThreadId,
     commandId: string,
   ) => Effect.Effect<void, OrchestrationDispatchError>;
+  /** Unpins a crew thread once; the fixed command ID makes a later pin stick. */
+  readonly unpin: (
+    threadId: ThreadId,
+    commandId: string,
+  ) => Effect.Effect<void, OrchestrationDispatchError>;
   /**
-   * Brings a long-lived crew thread back: recreates and restarts it after a delete, or
+   * Brings a long-lived crew thread back: recreates it, with no turn, after a delete, or
    * unarchives it. A no-op while the thread is live.
    */
   readonly restore: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
@@ -171,26 +176,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         ...(input.openingMessage?.context?.records ?? []),
       ],
     });
-    // `suffix` gives a restart after a delete its own receipts.
-    const submitTurn = (input: CrewThreadStart, suffix = "") =>
-      engine
-        .dispatch({
-          type: "message.dispatch",
-          commandId: CommandId.make(
-            `${runCommandPrefix(input.threadId)}:${input.runId}:start${suffix}`,
-          ),
-          threadId: input.threadId,
-          messageId: MessageId.make(
-            `${runCommandPrefix(input.threadId)}:${input.runId}:message${suffix}`,
-          ),
-          text: input.prompt,
-          attachments: input.openingMessage?.attachments ?? [],
-          context: origin(input),
-          createdBy: "agent",
-          creationSource: "mcp",
-          dispatchMode: { type: "start_immediately" },
-        })
-        .pipe(Effect.asVoid);
+    // `suffix` gives a restore after a delete its own receipts.
     const create = (input: CrewThreadStart, suffix = "") =>
       engine.dispatch({
         type: "thread.create",
@@ -222,13 +208,13 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         Effect.map((rows) => rows.length > 0),
         Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.worktreeInUse")),
       );
-    // A standing thread keeps its direct path, which `restore` also takes after a delete.
+    // A standing thread opens with no turn: its instructions ride along with the first message
+    // that reaches it (see StandingBriefing), so opening one costs nothing.
     const startHeadquarters = Effect.fn("CrewThreadRuntime.startHeadquarters")(function* (
       input: CrewThreadStart,
     ) {
       const existing = yield* engine.getThreadShell(input.threadId);
       if (existing === null) yield* create(input);
-      yield* submitTurn(input);
     });
     // Untraced: `start` is its span.
     const launch = Effect.fnUntraced(function* (input: CrewThreadStart, commandId: CommandId) {
@@ -287,14 +273,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
     const restore = Effect.fn("CrewThreadRuntime.restore")(function* (input: CrewThreadStart) {
       const shell = yield* engine.getThreadShell(input.threadId);
       if (shell === null || shell.deletedAt !== null) {
-        const suffix = `:restore:${yield* freshId}`;
-        yield* create(input, suffix);
-        yield* submitTurn({ ...input, openingMessage: null }, suffix);
-        yield* engine.dispatch({
-          type: "thread.pin",
-          commandId: CommandId.make(`${input.runId}:pin${suffix}`),
-          threadId: input.threadId,
-        });
+        yield* create(input, `:restore:${yield* freshId}`);
       } else if (shell.archivedAt !== null) {
         yield* engine.dispatch({
           type: "thread.unarchive",
@@ -385,6 +364,11 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       pin: Effect.fn("CrewThreadRuntime.pin")((threadId, commandId) =>
         engine
           .dispatch({ type: "thread.pin", commandId: CommandId.make(commandId), threadId })
+          .pipe(Effect.asVoid),
+      ),
+      unpin: Effect.fn("CrewThreadRuntime.unpin")((threadId, commandId) =>
+        engine
+          .dispatch({ type: "thread.unpin", commandId: CommandId.make(commandId), threadId })
           .pipe(Effect.asVoid),
       ),
       restore,

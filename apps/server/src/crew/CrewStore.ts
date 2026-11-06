@@ -354,6 +354,11 @@ export interface CrewStoreShape {
   ) => Effect.Effect<void, PersistenceSqlError>;
   /** Moves a long-lived run to another project, for a headquarters whose project was deleted. */
   readonly moveRun: (id: string, projectId: ProjectId) => Effect.Effect<void, PersistenceSqlError>;
+  /** Points a standing run's briefing at its owner's current instructions. */
+  readonly setRunInstructions: (
+    id: string,
+    instructions: string,
+  ) => Effect.Effect<void, PersistenceSqlError>;
   readonly nextRecoveryAttempt: (id: string) => Effect.Effect<number, PersistenceSqlError>;
   readonly markDispatchError: (
     id: string,
@@ -750,6 +755,11 @@ export const CrewStoreLive = Layer.effect(
         ),
       moveRun: (id, projectId) =>
         sql`UPDATE crew_runs SET project_id = ${projectId} WHERE id = ${id}`.pipe(
+          Effect.asVoid,
+          Effect.mapError(queryError),
+        ),
+      setRunInstructions: (id, instructions) =>
+        sql`UPDATE crew_runs SET instructions = ${instructions} WHERE id = ${id}`.pipe(
           Effect.asVoid,
           Effect.mapError(queryError),
         ),

@@ -12,6 +12,7 @@ import {
   CAPTAIN_BOT_ID,
   CommandId,
   FEATURE_MANAGER_ROLE_ID,
+  MessageId,
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
   ProjectId,
@@ -353,7 +354,16 @@ describe("Bot foundation", () => {
             WHERE project_id = ${home}
           `;
           expect(homeRow).toEqual([{ workspaceRoot, botId: CAPTAIN_BOT_ID }]);
-          expect((yield* engine.getThreadShell(headquarters.threadId))?.projectId).toBe(home);
+          // It opens pinned, with no turn: nothing runs until someone writes to it.
+          expect(yield* engine.getThreadShell(headquarters.threadId)).toMatchObject({
+            projectId: home,
+            pinnedAt: expect.anything(),
+          });
+          const opened = yield* engine.getThreadRecords(headquarters.threadId, [
+            "messages",
+            "runs",
+          ]);
+          expect([opened.messages, opened.runs]).toEqual([[], []]);
           expect(yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID)).toEqual(headquarters);
           // Homes never get a Project manager.
           expect((yield* bots.ensureProjectManager(home).pipe(Effect.flip)).message).toBe(
@@ -362,6 +372,17 @@ describe("Bot foundation", () => {
 
           // One that lives elsewhere, as in Scratch before bots had homes, moves in.
           yield* createProject(engine);
+          yield* engine.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("test:hq-ask"),
+            threadId: headquarters.threadId,
+            messageId: MessageId.make("test:hq-ask"),
+            text: "What's open?",
+            attachments: [],
+            dispatchMode: { type: "start_immediately" },
+            createdBy: "user",
+            creationSource: "web",
+          });
           // Its first turn ended (no effect worker runs in tests).
           const setRuns = (status: string) =>
             sql`UPDATE orchestration_v2_projection_runs SET status = ${status},
@@ -514,6 +535,7 @@ describe("Bot foundation", () => {
         freshStartRecords: () => Effect.die("unused"),
         startFresh: () => Effect.void,
         pin: () => Effect.void,
+        unpin: () => Effect.void,
         start: () =>
           Effect.sync(() => ++attempts).pipe(
             Effect.flatMap((attempt) =>
@@ -597,6 +619,7 @@ describe("Bot foundation", () => {
             Queue.offer(checks, threadId).pipe(Effect.as(freshStartRecords())),
           startFresh: (input) => Queue.offer(fresh, input).pipe(Effect.asVoid),
           pin: () => Effect.void,
+          unpin: () => Effect.void,
           start: () => Effect.void,
           getTurnState: () => Effect.succeed("pending" as const),
           replayPending: () => Effect.void,

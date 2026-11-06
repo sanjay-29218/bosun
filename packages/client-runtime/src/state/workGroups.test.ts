@@ -159,6 +159,7 @@ describe("boardChatThreads", () => {
       row("archived", {}, { archivedAt: "2026-10-01" }),
       row("stage", { feature }),
       row(botHeadquartersThreadId("captain")),
+      row(projectHeadquartersThreadId("project")),
       row("pm", { createdAt: "0", crewRequest: request("Feature manager") }),
       row("builder", { crewRequest: request("Builder") }),
     ]);
