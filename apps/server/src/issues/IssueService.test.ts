@@ -194,3 +194,54 @@ it.effect("files an issue in an open milestone named by title or number, under i
     ]);
   }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
 });
+
+it.effect("edits an issue, but not over a change made on the host since it was read", () => {
+  const edits: Array<{ readonly title?: string | undefined; readonly body?: string | undefined }> =
+    [];
+  let hostUpdatedAt = issue.updatedAt;
+  const github = {
+    ...provider("github", () =>
+      Effect.succeed({ repository: "acme/web", issues: [], milestones: [], truncated: false }),
+    ),
+    getIssue: () =>
+      Effect.succeed({
+        ...issue,
+        updatedAt: hostUpdatedAt,
+        body: "",
+        closedReason: null,
+        author: null,
+        createdAt: issue.updatedAt,
+        commentCount: 0,
+        comments: [],
+      }),
+    updateIssue: (input: {
+      readonly title?: string | undefined;
+      readonly body?: string | undefined;
+    }) =>
+      Effect.sync(() => {
+        edits.push({ title: input.title, body: input.body });
+        return issue;
+      }),
+  } as SourceControlProvider.SourceControlProvider["Service"];
+  return Effect.gen(function* () {
+    const issues = yield* IssueService.IssueService;
+    yield* issues.update({
+      projectId,
+      number: 7,
+      body: "Steps",
+      expectedUpdatedAt: issue.updatedAt,
+    });
+    // Someone edits it on GitHub; a save from the stale editor is refused.
+    hostUpdatedAt = "2026-10-02T00:00:00Z";
+    const refused = yield* issues
+      .update({ projectId, number: 7, title: "Stale", expectedUpdatedAt: issue.updatedAt })
+      .pipe(Effect.flip);
+    assert.strictEqual(refused._tag, "IssueChangedError");
+    // Saving anyway sends no expected time.
+    yield* issues.update({ projectId, number: 7, title: "Mine" });
+    assert.deepStrictEqual(edits, [
+      { title: undefined, body: "Steps" },
+      { title: "Mine", body: undefined },
+    ]);
+  }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
+});

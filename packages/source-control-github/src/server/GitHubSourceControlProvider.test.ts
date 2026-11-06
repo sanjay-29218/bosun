@@ -738,6 +738,42 @@ describe("GitHubSourceControlProvider writes", () => {
     }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
   });
 
+  it.effect("edits only the issue fields it is given", () => {
+    const requests: Array<GitHubRest.GitHubRestInput> = [];
+    const { layer } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      api: {
+        rest: (input) =>
+          Effect.sync(() => {
+            requests.push(input);
+            return restResponse({
+              id: 9001,
+              number: 12,
+              title: "Export as CSV",
+              html_url: "https://github.com/acme/web/issues/12",
+              state: "open",
+              created_at: "2026-11-05T00:00:00Z",
+              updated_at: "2026-11-06T00:00:00Z",
+              closed_at: null,
+              milestone: null,
+            });
+          }),
+      },
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      yield* gh.updateIssue!({ cwd: "/repo", number: 12, body: "Columns in table order." });
+      yield* gh.updateIssue!({ cwd: "/repo", number: 12, title: "Export as CSV" });
+      assert.deepStrictEqual(
+        requests.map((request) => [request.method, request.path, request.body]),
+        [
+          ["PATCH", "repos/acme/web/issues/12", { body: "Columns in table order." }],
+          ["PATCH", "repos/acme/web/issues/12", { title: "Export as CSV" }],
+        ],
+      );
+    }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
+  });
+
   it.effect("opens a milestone and closes it by number", () => {
     const requests: Array<GitHubRest.GitHubRestInput> = [];
     const { layer } = harness({

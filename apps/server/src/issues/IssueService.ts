@@ -1,4 +1,5 @@
 import {
+  IssueChangedError,
   IssueOperationError,
   type IssueClosedReason,
   type IssueDetail,
@@ -6,6 +7,7 @@ import {
   type ProjectId,
   type RepositoryIssue,
   type RepositoryMilestone,
+  type IssueUpdateInput,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -67,6 +69,13 @@ export class IssueService extends Context.Service<
       readonly state: "open" | "closed";
       readonly reason?: IssueClosedReason | undefined;
     }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
+    /**
+     * Changes the title or body. Given `expectedUpdatedAt`, it first checks the host's copy and
+     * refuses when someone edited it since, so a stale editor can't overwrite their change.
+     */
+    readonly update: (
+      input: IssueUpdateInput,
+    ) => Effect.Effect<RepositoryIssue, IssueOperationError | IssueChangedError>;
     /** Drops the project's shared read, so the next one asks the host, and tells open boards. */
     readonly refresh: (projectId: ProjectId) => Effect.Effect<void>;
     /** Each project whose issues may have changed on its host. */
@@ -223,6 +232,34 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const update: IssueService["Service"]["update"] = Effect.fn("IssueService.update")(
+    function* (input) {
+      const { cwd, provider } = yield* requireIssueHost(input.projectId);
+      if (provider.updateIssue === undefined) return yield* unsupported;
+      if (input.expectedUpdatedAt !== undefined && provider.getIssue !== undefined) {
+        const current = yield* provider
+          .getIssue({ cwd, number: input.number })
+          .pipe(Effect.catch(hostFailure("read", input.projectId)));
+        if (current.updatedAt !== input.expectedUpdatedAt) {
+          return yield* new IssueChangedError({
+            number: input.number,
+            updatedAt: current.updatedAt,
+          });
+        }
+      }
+      const issue = yield* provider
+        .updateIssue({
+          cwd,
+          number: input.number,
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.body === undefined ? {} : { body: input.body }),
+        })
+        .pipe(Effect.catch(hostFailure("edit", input.projectId)));
+      yield* refreshes.refresh(input.projectId);
+      return issue;
+    },
+  );
+
   const createMilestone: IssueService["Service"]["createMilestone"] = Effect.fn(
     "IssueService.createMilestone",
   )(function* (input) {
@@ -254,6 +291,7 @@ const make = Effect.gen(function* () {
 
   return IssueService.of({
     get,
+    update,
     create,
     setState,
     createMilestone,

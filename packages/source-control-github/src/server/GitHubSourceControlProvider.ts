@@ -1138,6 +1138,31 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const updateIssue = Effect.fn("GitHubSourceControlProvider.updateIssue")(function* (input: {
+    readonly cwd: string;
+    readonly number: number;
+    readonly title?: string | undefined;
+    readonly body?: string | undefined;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) {
+    const locator = yield* issueRepository(input);
+    const response = yield* rest(
+      {
+        host: locator.host,
+        operation: "updateIssue",
+        method: "PATCH",
+        allowReserve: true,
+        path: `${issuePath(locator)}/${input.number}`,
+        body: {
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.body === undefined ? {} : { body: input.body }),
+        },
+      },
+      `Issue #${input.number} was not found.`,
+    );
+    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+  });
+
   const setIssueState = Effect.fn("GitHubSourceControlProvider.setIssueState")(function* (input: {
     readonly cwd: string;
     readonly number: number;
@@ -1336,6 +1361,11 @@ export const make = Effect.gen(function* () {
         );
       },
     ),
+    updateIssue: Effect.fn("GitHubSourceControlProvider.updateIssueForCaller")(function (input) {
+      return updateIssue(input).pipe(
+        Effect.mapError(providerError("updateIssue", input.cwd, { reference: `#${input.number}` })),
+      );
+    }),
     setIssueState: Effect.fn("GitHubSourceControlProvider.setIssueStateForCaller")(
       function (input) {
         return setIssueState(input).pipe(

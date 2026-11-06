@@ -88,8 +88,10 @@ import {
   IssueGetInput,
   IssueList,
   IssueListInput,
+  IssueChangedError,
   IssueOperationError,
   IssueSetStateInput,
+  IssueUpdateInput,
   RepositoryIssue,
 } from "./issues.ts";
 import {
@@ -480,6 +482,7 @@ export const WS_METHODS = {
   issuesGet: "issues.get",
   issuesCreate: "issues.create",
   issuesSetState: "issues.setState",
+  issuesUpdate: "issues.update",
   issuesRefresh: "issues.refresh",
   issuesSubscribeRefreshes: "issues.subscribeRefreshes",
   ticketsList: "tickets.list",
@@ -1148,6 +1151,11 @@ const WsIssuesCreateRpc = Rpc.make(WS_METHODS.issuesCreate, {
   payload: IssueCreateInput,
   success: RepositoryIssue,
   error: IssueRpcError,
+});
+const WsIssuesUpdateRpc = Rpc.make(WS_METHODS.issuesUpdate, {
+  payload: IssueUpdateInput,
+  success: RepositoryIssue,
+  error: Schema.Union([IssueOperationError, IssueChangedError, EnvironmentAuthorizationError]),
 });
 const WsIssuesSetStateRpc = Rpc.make(WS_METHODS.issuesSetState, {
   payload: IssueSetStateInput,
@@ -2351,6 +2359,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsIssuesGetRpc,
   WsIssuesCreateRpc,
   WsIssuesSetStateRpc,
+  WsIssuesUpdateRpc,
   WsIssuesRefreshRpc,
   WsIssuesSubscribeRefreshesRpc,
   WsTicketsListRpc,

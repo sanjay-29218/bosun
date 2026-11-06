@@ -95,6 +95,30 @@ export const IssueCreateInput = Schema.Struct({
 });
 export type IssueCreateInput = typeof IssueCreateInput.Type;
 
+/**
+ * Changes the title or body, whichever is given. With `expectedUpdatedAt`, the change is refused
+ * with `IssueChangedError` when the host's copy was updated since that time.
+ */
+export const IssueUpdateInput = Schema.Struct({
+  projectId: ProjectId,
+  number: Schema.Int,
+  title: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Markdown. */
+  body: Schema.optionalKey(Schema.String),
+  expectedUpdatedAt: Schema.optionalKey(Schema.String),
+});
+export type IssueUpdateInput = typeof IssueUpdateInput.Type;
+
+/** The issue was edited on its host after the editor read it; saving would overwrite that. */
+export class IssueChangedError extends Schema.TaggedError<IssueChangedError>()(
+  "IssueChangedError",
+  { number: Schema.Int, updatedAt: Schema.String },
+) {
+  override get message(): string {
+    return `Issue #${this.number} changed on GitHub since you opened it.`;
+  }
+}
+
 export const IssueClosedReason = Schema.Literals(["completed", "not_planned"]);
 export type IssueClosedReason = typeof IssueClosedReason.Type;
 

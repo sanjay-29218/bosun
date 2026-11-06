@@ -7,10 +7,21 @@ import {
   ticketIssue,
   type EnvironmentIssue,
 } from "@t3tools/client-runtime/state/issue-board";
-import { isAtomCommandInterrupted, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  runAtomCommand,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { ticketRef, type EnvironmentId, type IssueDetail, type Ticket } from "@t3tools/contracts";
+import {
+  IssueChangedError,
+  ticketRef,
+  type EnvironmentId,
+  type IssueDetail,
+  type Ticket,
+} from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import * as Schema from "effect/Schema";
 import {
   ChevronDownIcon,
   CircleDotIcon,
@@ -19,6 +30,7 @@ import {
   ListTreeIcon,
   MilestoneIcon,
   NotebookTextIcon,
+  PencilIcon,
   PlayIcon,
   RefreshCwIcon,
   Trash2Icon,
@@ -38,6 +50,8 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
+import { Spinner } from "../ui/spinner";
+import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { featureStatus } from "./FeatureCard";
@@ -497,6 +511,146 @@ const ISSUE_CLOSED_LABELS: Record<NonNullable<IssueDetail["closedReason"]>, stri
   duplicate: "Closed as duplicate",
 };
 
+type IssueEdit = { readonly title: string } | { readonly body: string };
+
+/**
+ * Saves a title or body unless the issue changed on GitHub since this sheet read it; then a toast
+ * offers to save anyway. Resolves whether it saved.
+ */
+async function saveIssueEdit(
+  owner: TodoOwner,
+  issue: IssueDetail,
+  edit: IssueEdit,
+  overwrite = false,
+): Promise<boolean> {
+  const result = await runAtomCommand(
+    appAtomRegistry,
+    featuresEnvironment.updateIssue,
+    {
+      environmentId: owner.environmentId,
+      input: {
+        projectId: owner.projectId,
+        number: issue.number,
+        ...edit,
+        ...(overwrite ? {} : { expectedUpdatedAt: issue.updatedAt }),
+      },
+    },
+    { reportFailure: false },
+  );
+  if (result._tag === "Success") return true;
+  if (isAtomCommandInterrupted(result)) return false;
+  const failure = squashAtomCommandFailure(result);
+  if (isIssueChanged(failure)) {
+    const id = toastManager.add({
+      type: "warning",
+      title: `#${issue.number} changed on GitHub since you opened it`,
+      description: "Saving replaces that change. Refresh to see it first.",
+      actionProps: {
+        children: "Save anyway",
+        onClick: () => {
+          toastManager.close(id);
+          void saveIssueEdit(owner, issue, edit, true);
+        },
+      },
+    });
+  } else {
+    toastManager.add({
+      type: "error",
+      title: `Could not save #${issue.number}`,
+      description: failureText(result, "GitHub did not change the issue."),
+    });
+  }
+  return false;
+}
+const isIssueChanged = Schema.is(IssueChangedError);
+
+/** The title, edited in place like a ticket's: Enter or leaving the field saves it. */
+function IssueTitleField(props: { readonly owner: TodoOwner; readonly issue: IssueDetail }) {
+  const [title, setTitle] = useState(props.issue.title);
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const trimmed = title.trim();
+    if (!trimmed || trimmed === props.issue.title) return setTitle(props.issue.title);
+    setSaving(true);
+    if (!(await saveIssueEdit(props.owner, props.issue, { title: trimmed }))) setSaving(false);
+  };
+  return (
+    <textarea
+      aria-label="Title"
+      rows={1}
+      value={title}
+      readOnly={saving}
+      onChange={(event) => setTitle(event.target.value.replace(/\n/g, " "))}
+      onBlur={() => void save()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setTitle(props.issue.title);
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.currentTarget.blur();
+      }}
+      className={cn(
+        "field-sizing-content w-full resize-none bg-transparent text-xl font-semibold leading-snug outline-none",
+        saving && "text-muted-foreground",
+      )}
+    />
+  );
+}
+
+/** The description as GitHub renders it, or its Markdown in an editor while editing. */
+function IssueBody(props: {
+  readonly owner: TodoOwner;
+  readonly issue: IssueDetail;
+  readonly markdown: (text: string) => ReactNode;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const save = async (body: string) => {
+    if (body === props.issue.body) return setDraft(null);
+    setSaving(true);
+    const saved = await saveIssueEdit(props.owner, props.issue, { body });
+    setSaving(false);
+    if (saved) setDraft(null);
+  };
+  if (draft !== null) {
+    return (
+      <div className="mt-2 flex flex-col gap-2">
+        <InstructionsEditor
+          label="Description"
+          value={draft}
+          onChange={setDraft}
+          placeholder="Add a description…"
+          size="lg"
+          disabled={saving}
+        />
+        <div className="flex justify-end gap-1.5">
+          <Button size="xs" variant="ghost" disabled={saving} onClick={() => setDraft(null)}>
+            Cancel
+          </Button>
+          <Button size="xs" disabled={saving} onClick={() => void save(draft)}>
+            {saving ? <Spinner aria-hidden /> : null}
+            Save
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="group/body relative mt-2">
+      {props.issue.body.trim() ? (
+        props.markdown(props.issue.body)
+      ) : (
+        <p className="text-sm text-muted-foreground">No description.</p>
+      )}
+      <span className="absolute -top-1 right-0 opacity-0 group-hover/body:opacity-100 has-focus-visible:opacity-100 pointer-coarse:opacity-100">
+        <Button size="xs" variant="ghost-muted" onClick={() => setDraft(props.issue.body)}>
+          <PencilIcon aria-hidden />
+          Edit
+        </Button>
+      </span>
+    </div>
+  );
+}
+
 function GitHubIssueDetail(props: {
   readonly owner: TodoOwner;
   readonly number: number;
@@ -568,7 +722,7 @@ function GitHubIssueDetail(props: {
     >
       <SheetTitle className="sr-only">{issue.title}</SheetTitle>
       <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-semibold leading-snug">{issue.title}</h2>
+        <IssueTitleField key={issue.title} owner={owner} issue={issue} />
         <p className="text-xs text-muted-foreground">
           {issue.author?.login ?? "Someone"} opened this {formatRelativeTimeLabel(issue.createdAt)}
         </p>
@@ -614,13 +768,7 @@ function GitHubIssueDetail(props: {
           </Chip>
         ))}
       </div>
-      <div className="mt-2">
-        {issue.body.trim() ? (
-          markdown(issue.body)
-        ) : (
-          <p className="text-sm text-muted-foreground">No description.</p>
-        )}
-      </div>
+      <IssueBody owner={owner} issue={issue} markdown={markdown} />
       {issue.commentCount > 0 ? (
         <section className="mt-4 flex flex-col">
           <h3 className="pb-2 text-xs text-muted-foreground">

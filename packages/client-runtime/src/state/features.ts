@@ -156,6 +156,8 @@ export function createFeatureAtoms<R, ER>(
     }),
     createIssue: todoCommand(WS_METHODS.issuesCreate),
     setIssueState: todoCommand(WS_METHODS.issuesSetState),
+    /** Changes an issue's title or body on its host. */
+    updateIssue: todoCommand(WS_METHODS.issuesUpdate),
     createTicket: todoCommand(WS_METHODS.ticketsCreate),
     updateTicket: todoCommand(WS_METHODS.ticketsUpdate),
     deleteTicket: todoCommand(WS_METHODS.ticketsDelete),
@@ -178,6 +180,7 @@ export function createFeatureAtoms<R, ER>(
 
 type TodoCommandTag =
   | typeof WS_METHODS.issuesCreate
+  | typeof WS_METHODS.issuesUpdate
   | typeof WS_METHODS.issuesSetState
   | typeof WS_METHODS.ticketsCreate
   | typeof WS_METHODS.ticketsUpdate

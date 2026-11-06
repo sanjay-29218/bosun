@@ -204,6 +204,14 @@ export class SourceControlProvider extends Context.Service<
       readonly state: "open" | "closed";
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryMilestone, SourceControlProviderError>;
+    /** Changes an issue's title or Markdown body, whichever is given. Absent means unsupported. */
+    readonly updateIssue?: (input: {
+      readonly cwd: string;
+      readonly number: number;
+      readonly title?: string | undefined;
+      readonly body?: string | undefined;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
     /** Closes or reopens an issue. Present when `listIssues` is. */
     readonly setIssueState?: (input: {
       readonly cwd: string;
