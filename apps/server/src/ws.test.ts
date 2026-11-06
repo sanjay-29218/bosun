@@ -831,6 +831,7 @@ it.effect.each([
         }),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
           scratchRoot: Effect.succeedNone,
+          botHomesRoot: Effect.succeedNone,
           namedProjectsRoot: process.cwd(),
         }),
         Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
@@ -1083,6 +1084,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       }),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         scratchRoot: Effect.succeedNone,
+        botHomesRoot: Effect.succeedNone,
         namedProjectsRoot: process.cwd(),
       }),
       Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),

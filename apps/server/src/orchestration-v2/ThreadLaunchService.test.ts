@@ -229,6 +229,7 @@ function makeHarness(options: HarnessOptions = {}) {
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
         isScratchProject: () => Effect.succeed(false),
+        isHiddenProject: () => Effect.succeed(false),
         folderForThread: () => Effect.succeedNone,
       }),
   );
@@ -896,6 +897,7 @@ function scratchHarness() {
     managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
       isScratchProject: (id) => Effect.succeed(id === projectId),
+      isHiddenProject: (id) => Effect.succeed(id === projectId),
       folderForThread: (input) =>
         Effect.sync(() => {
           if (input.projectId !== projectId) return Option.none();
@@ -1815,6 +1817,7 @@ it.effect("reports one concurrent same-command launch as new and the rest as res
       managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
         isScratchProject: () => Effect.succeed(false),
+        isHiddenProject: () => Effect.succeed(false),
         folderForThread: () =>
           Ref.updateAndGet(arrived, (count) => count + 1).pipe(
             Effect.tap((count) =>

@@ -341,6 +341,7 @@ it.effect.each(deliveries)(
                     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
                       namedProjectsRoot: "/projects",
                       isScratchProject: () => Effect.succeed(false),
+                      isHiddenProject: () => Effect.succeed(false),
                     }),
                   ),
                   Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
