@@ -1,6 +1,4 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
-import { hasUnseenCompletion, isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import { botHeadquartersThreadId, projectHeadquartersThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { ClipboardListIcon, PencilIcon, SettingsIcon } from "lucide-react";
@@ -8,7 +6,6 @@ import { memo, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useEnvironmentFilter, useVisibleActiveLogicalBot } from "../../state/botRail";
-import { useThreadShell } from "../../state/entities";
 import { useConnectedEnvironmentIds } from "../../state/environments";
 import { BotAvatar } from "../BotAvatar";
 import { Button } from "../ui/button";
@@ -22,26 +19,7 @@ import {
   useOpenProjectManager,
   useScopedProjectManager,
 } from "./openProjectManager";
-
-/** A standing thread's state, and its label for screen readers. */
-function useStandingStatus(ref: Parameters<typeof useThreadShell>[0]) {
-  const shell = useThreadShell(ref);
-  const waiting = shell !== null && threadNeedsYouKind(shell) !== null;
-  const working = shell !== null && !waiting && isThreadWorking(shell);
-  // A server without visit tracking never reads as unseen.
-  const done =
-    shell !== null &&
-    !waiting &&
-    !working &&
-    shell.lastVisitedAt !== undefined &&
-    hasUnseenCompletion(shell);
-  return {
-    waiting,
-    working,
-    done,
-    status: waiting ? "needs you" : working ? "working" : done ? "done" : null,
-  };
-}
+import { useStandingStatus } from "./useStandingStatus";
 
 function StatusDot({ waiting, working }: { readonly waiting: boolean; readonly working: boolean }) {
   if (waiting) return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />;

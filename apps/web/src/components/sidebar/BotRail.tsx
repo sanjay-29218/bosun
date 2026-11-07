@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   botRailSignal,
+  combineBotActivity,
   type BotRailSignal,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
@@ -9,6 +10,7 @@ import {
   ChartNoAxesColumnIcon,
   ClockIcon,
   LayersIcon,
+  LayoutGridIcon,
   ServerIcon,
   SettingsIcon,
   UsersRoundIcon,
@@ -164,7 +166,23 @@ export const BotRail = memo(function BotRail({
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border pt-0.5 pb-2">
         {/* The padding sits inside the scroller so it doesn't clip the badges over the top avatar. */}
         <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]">
-          {/* All bots is hidden for now; the palette's Show All bots and bot.inbox still reach it. */}
+          {multipleBots ? (
+            <RailItem
+              label="All bots"
+              hint="Every bot's chat"
+              active={onBots && active === null}
+              signal={botRailSignal(
+                [...needsYou.values()].reduce((sum, count) => sum + count, 0),
+                combineBotActivity(activity.values()),
+              )}
+              shortcut={shortcutFor("bot.inbox")}
+              variant="icon"
+              // The sheet stays open, since the All bots list is what it shows next.
+              onSelect={() => switchTo(null)}
+            >
+              <LayoutGridIcon className="size-5" strokeWidth={1.75} />
+            </RailItem>
+          ) : null}
           {bots.map((bot, index) => (
             <RailItem
               key={bot.key}

@@ -40,6 +40,7 @@ import {
 } from "../panelAnimations";
 import { AutomationsSidebar } from "./automations/AutomationsSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
+import { AllBotsSidebar } from "./bots/AllBotsList";
 import { BotsSidebar } from "./bots/BotsSidebar";
 import { LibrarySidebar } from "./library/LibrarySidebar";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
@@ -49,7 +50,11 @@ import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage, mainViewForPathname, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
-import { useShowBotRail } from "../state/botRail";
+import {
+  useShowBotRail,
+  useVisibleActiveLogicalBot,
+  useVisibleLogicalBots,
+} from "../state/botRail";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import {
   clampThreadSidebarWidth,
@@ -451,6 +456,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // the sidebar sheet instead.
   const isMobile = useMediaQuery("max-md");
   const showBotRail = useShowBotRail();
+  const multipleBots = useVisibleLogicalBots().length > 1;
+  const activeBot = useVisibleActiveLogicalBot();
+  // All bots exists beside two or more bots; a lone bot is always picked.
+  const showAllBots = showBotRail && multipleBots && activeBot === null;
   const pinnedBotRail = showBotRail && !isMobile;
   const viewportWidth = windowWidth - (pinnedBotRail ? BOT_RAIL_WIDTH_PX : 0);
   const [brandWidth, setBrandWidth] = useState(0);
@@ -516,6 +525,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <AutomationsSidebar />
             ) : railDestination === "library" ? (
               <LibrarySidebar />
+            ) : showAllBots ? (
+              <AllBotsSidebar />
             ) : (
               <ThreadSidebar routeReveal={sidebarRouteReveal} />
             )}

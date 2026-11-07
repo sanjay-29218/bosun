@@ -23,6 +23,7 @@ import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
+import { ThreadBotAutomationsSection } from "./ThreadBotAutomationsSection";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
@@ -263,6 +264,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
 
               {!props.draftId ? (
                 <ThreadCrewSection environmentId={props.environmentId} threadId={props.threadId} />
+              ) : null}
+
+              {!props.draftId ? (
+                <ThreadBotAutomationsSection
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
+                />
               ) : null}
 
               {density === "full" && !props.draftId && (visible.lineage || visible.sideChats) ? (
