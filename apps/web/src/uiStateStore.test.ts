@@ -2,6 +2,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  botRailLayoutAfterDrag,
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
@@ -295,6 +296,21 @@ describe("uiStateStore persistence", () => {
     expect(parsePersistedState({ botRailWidth: 900 }).botRailWidth).toBe(360);
     expect(parsePersistedState({ botRailWidth: 20 }).botRailWidth).toBe(200);
     expect(parsePersistedState({})).toMatchObject({ botRailWidth: 256, botRailCollapsed: false });
+  });
+
+  it.each([
+    ["resizes an expanded rail", false, 300, { botRailCollapsed: false, botRailWidth: 300 }],
+    [
+      "clamps a resize to the narrowest list",
+      false,
+      180,
+      { botRailCollapsed: false, botRailWidth: 200 },
+    ],
+    ["collapses an expanded rail dragged under 160px", false, 150, { botRailCollapsed: true }],
+    ["keeps the icon rail under 120px", true, 110, { botRailCollapsed: true }],
+    ["expands the icon rail to its remembered width", true, 130, { botRailCollapsed: false }],
+  ] as const)("%s", (_name, botRailCollapsed, width, layout) => {
+    expect(botRailLayoutAfterDrag({ botRailCollapsed, botRailWidth: 300 }, width)).toEqual(layout);
   });
 
   it("restores the sidebar project scope across reloads", () => {

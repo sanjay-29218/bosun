@@ -9,6 +9,7 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { toastManager } from "../ui/toast";
+import { latestStandingOpen } from "./standingOpen";
 
 /**
  * Opens a bot's headquarters: the one thread where it sees all its projects. The server
@@ -27,16 +28,6 @@ export function headquartersMember(
   );
 }
 
-// Only the newest open navigates, so a slow environment's answer can't override a later pick.
-let latestOpen = 0;
-
-/** Drops any headquarters still opening, for a bot switch that shouldn't be overridden. */
-export const supersedeHeadquartersOpen = () => {
-  latestOpen += 1;
-};
-const beginOpen = () => ++latestOpen;
-const isLatestOpen = (request: number) => request === latestOpen;
-
 export function useOpenBotHeadquarters() {
   const navigate = useNavigate();
   const connected = useConnectedEnvironmentIds();
@@ -45,25 +36,25 @@ export function useOpenBotHeadquarters() {
   return (bot: LogicalBot) => {
     const member = headquartersMember(bot, connected, environmentFilter);
     if (!member) return;
-    const request = beginOpen();
-    void open({ environmentId: member.environmentId, input: { botId: member.botId } }).then(
-      (result) => {
-        if (!isLatestOpen(request)) return;
-        if (result._tag === "Success") {
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(
-              scopeThreadRef(member.environmentId, result.value.threadId),
-            ),
-          });
-        } else {
-          toastManager.add({
-            type: "error",
-            title: `Could not open ${bot.name}`,
-            description: formatEnvironmentQueryError(result.cause),
-          });
-        }
-      },
-    );
+    void latestStandingOpen(
+      open({ environmentId: member.environmentId, input: { botId: member.botId } }),
+    ).then((latest) => {
+      if (latest === null) return;
+      const result = latest.value;
+      if (result._tag === "Success") {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(
+            scopeThreadRef(member.environmentId, result.value.threadId),
+          ),
+        });
+      } else {
+        toastManager.add({
+          type: "error",
+          title: `Could not open ${bot.name}`,
+          description: formatEnvironmentQueryError(result.cause),
+        });
+      }
+    });
   };
 }

@@ -12,10 +12,32 @@ export const BOT_RAIL_MAX_WIDTH = 360;
 export const BOT_RAIL_DEFAULT_WIDTH = 256;
 export const BOT_RAIL_COLLAPSED_WIDTH = 56;
 
-export const clampBotRailWidth = (width: number) =>
+const clampBotRailWidth = (width: number) =>
   Number.isFinite(width)
     ? Math.round(Math.max(BOT_RAIL_MIN_WIDTH, Math.min(BOT_RAIL_MAX_WIDTH, width)))
     : BOT_RAIL_DEFAULT_WIDTH;
+
+/** Released under this width, a drag of the expanded rail collapses it to icons. */
+const BOT_RAIL_COLLAPSE_BELOW = 160;
+/** Dragged out past this width, the icon rail expands. */
+const BOT_RAIL_EXPAND_FROM = 120;
+
+/** Under this width a drag that started `collapsed` ends collapsed. */
+export const botRailSnapWidth = (collapsed: boolean) =>
+  collapsed ? BOT_RAIL_EXPAND_FROM : BOT_RAIL_COLLAPSE_BELOW;
+
+/**
+ * Where a drag of the rail's edge released at `width` leaves it. Expanding from icons restores
+ * the remembered width rather than the pointer's, which is only a gesture out of the column.
+ */
+export function botRailLayoutAfterDrag(
+  state: UiBotRailState,
+  width: number,
+): Partial<UiBotRailState> {
+  if (width < botRailSnapWidth(state.botRailCollapsed)) return { botRailCollapsed: true };
+  if (state.botRailCollapsed) return { botRailCollapsed: false };
+  return { botRailCollapsed: false, botRailWidth: clampBotRailWidth(width) };
+}
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3code:renderer-state:v8",

@@ -55,7 +55,8 @@ import {
   BOT_RAIL_COLLAPSED_WIDTH,
   BOT_RAIL_DEFAULT_WIDTH,
   BOT_RAIL_MAX_WIDTH,
-  clampBotRailWidth,
+  botRailLayoutAfterDrag,
+  botRailSnapWidth,
   useUiStateStore,
 } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
@@ -78,19 +79,14 @@ import {
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
-import {
-  headquartersMember,
-  supersedeHeadquartersOpen,
-  useOpenBotHeadquarters,
-} from "./openBotHeadquarters";
+import { headquartersMember, useOpenBotHeadquarters } from "./openBotHeadquarters";
 import { useOpenProjectManager } from "./openProjectManager";
 import { RelativeTimeLabel } from "./SidebarThreadRow";
+import { supersedeStandingOpen } from "./standingOpen";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { useStandingStatus } from "./useStandingStatus";
 
 // Dragging the edge under these widths collapses to icons on release.
-const SNAP_COLLAPSE_BELOW = 160;
-const SNAP_EXPAND_FROM = 120;
 
 /** The rail's width in px: the icon column, or the expanded list's chosen width. */
 export function useBotRailWidth(): number {
@@ -185,7 +181,7 @@ export const BotRail = memo(function BotRail({
       : null;
   // Switching saves and restores List / Board per bot.
   const switchTo = (bot: LogicalBot) => {
-    supersedeHeadquartersOpen();
+    supersedeStandingOpen();
     if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
   };
   // A click returns to where the bot was left, or opens its headquarters the first time and when
@@ -203,7 +199,7 @@ export const BotRail = memo(function BotRail({
       openHeadquarters(bot);
       return;
     }
-    supersedeHeadquartersOpen();
+    supersedeStandingOpen();
     void navigate({ href });
   };
   // The manager's bot is picked first, so the thread list knows the project it is scoped to.
@@ -216,7 +212,6 @@ export const BotRail = memo(function BotRail({
       selectBot(owner);
     }
     setScopeKeys([manager.projectKey]);
-    supersedeHeadquartersOpen();
     void openProjectManager(manager);
   };
   const headquartersHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its headquarters`;
@@ -392,7 +387,7 @@ function BotRailResizeHandle() {
     if (!nav || !wrapper) return null;
     const { botRailCollapsed, botRailWidth } = useUiStateStore.getState();
     const startWidth = botRailCollapsed ? BOT_RAIL_COLLAPSED_WIDTH : botRailWidth;
-    const snapBelow = botRailCollapsed ? SNAP_EXPAND_FROM : SNAP_COLLAPSE_BELOW;
+    const snapBelow = botRailSnapWidth(botRailCollapsed);
     // The layout writes this property too; it is set here only for the drag, and on release
     // to the width the store then renders.
     const setLiveWidth = (width: number) =>
@@ -411,13 +406,11 @@ function BotRailResizeHandle() {
           setLiveWidth(startWidth);
           return;
         }
-        const collapse = width < snapBelow;
-        setLiveWidth(collapse ? BOT_RAIL_COLLAPSED_WIDTH : clampBotRailWidth(width));
-        setLayout(
-          collapse
-            ? { botRailCollapsed: true }
-            : { botRailCollapsed: false, botRailWidth: clampBotRailWidth(width) },
+        const next = botRailLayoutAfterDrag({ botRailCollapsed, botRailWidth }, width);
+        setLiveWidth(
+          next.botRailCollapsed ? BOT_RAIL_COLLAPSED_WIDTH : (next.botRailWidth ?? botRailWidth),
         );
+        setLayout(next);
       },
       cleanup(committed) {
         nav.removeAttribute("data-snap");
