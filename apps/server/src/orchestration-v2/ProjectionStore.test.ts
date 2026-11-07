@@ -8,6 +8,7 @@ import {
   CheckpointRef,
   CheckpointScopeId,
   MessageId,
+  botHeadquartersThreadId,
   type ModelSelection,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2TurnItem,
@@ -4723,6 +4724,106 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           assert.equal(shell?.itemCount, itemCount);
         }
       }),
+  );
+
+  it.effect("gives only standing threads a last completed line in the shell", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const createdAt = yield* DateTime.now;
+      const headquartersId = botHeadquartersThreadId("bot:shell-line");
+      const plainId = ThreadId.make("thread:shell-line:plain");
+      const threadPayload = (threadId: ThreadId) => ({
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId: ProjectId.make("project:shell-line"),
+        title: "Shell line",
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      });
+      const message = (
+        threadId: ThreadId,
+        id: string,
+        seconds: number,
+        text: string,
+        streaming: boolean,
+      ) =>
+        projectionStore.apply({
+          id: EventId.make(`event:shell-line:${threadId}:${id}:${streaming}`),
+          type: "message.updated",
+          threadId,
+          occurredAt: DateTime.add(createdAt, { seconds }),
+          payload: {
+            id: MessageId.make(`message:shell-line:${threadId}:${id}`),
+            threadId,
+            runId: null,
+            nodeId: null,
+            role: "assistant",
+            text,
+            attachments: [],
+            streaming,
+            createdBy: "user",
+            creationSource: "web",
+            createdAt: DateTime.add(createdAt, { seconds }),
+            updatedAt: DateTime.add(createdAt, { seconds }),
+          },
+        });
+      const lines = Effect.gen(function* () {
+        const shells = (yield* projectionStore.getShellSnapshot()).threads;
+        const memory = yield* projectionStore.getThreadProjection(headquartersId);
+        return {
+          headquarters: shells.find((shell) => shell.id === headquartersId)?.latestVisibleMessage
+            ?.text,
+          plain: shells.find((shell) => shell.id === plainId)?.latestVisibleMessage,
+          memory: ProjectionStore.threadShellFromProjection(memory).latestVisibleMessage?.text,
+        };
+      });
+
+      for (const threadId of [headquartersId, plainId]) {
+        yield* projectionStore.apply({
+          id: EventId.make(`event:shell-line:${threadId}:created`),
+          type: "thread.created",
+          threadId,
+          occurredAt: createdAt,
+          payload: threadPayload(threadId),
+        });
+        yield* message(threadId, "done", 1, "Report\n\n- **Shipped** the fix\n", false);
+      }
+      assert.deepEqual(yield* lines, {
+        headquarters: "Shipped the fix",
+        plain: null,
+        memory: "Shipped the fix",
+      });
+
+      // A reply still streaming leaves the line on the last completed message.
+      yield* message(headquartersId, "next", 2, "Halfway", true);
+      assert.deepEqual(yield* lines, {
+        headquarters: "Shipped the fix",
+        plain: null,
+        memory: "Shipped the fix",
+      });
+
+      yield* message(headquartersId, "next", 2, "All done", false);
+      assert.deepEqual(yield* lines, {
+        headquarters: "All done",
+        plain: null,
+        memory: "All done",
+      });
+    }),
   );
 
   it.effect("does not treat visited or marked-unread state as thread activity", () =>
