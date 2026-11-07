@@ -620,6 +620,9 @@ export function ThreadRelationshipsPanel(props: {
       })
       .map(({ threadId }) => threadId),
   );
+  const { handedOffActive = [], handedOffFinished = [] } = groupBy(handedOff, ({ threadId }) =>
+    finishedRowIds.has(threadId) ? "handedOffFinished" : "handedOffActive",
+  );
   const { remoteActive = [], remotePrevious = [] } = groupBy(
     (projection?.subagents ?? [])
       .filter((agent): agent is RemoteSubagent => agent.remoteChild !== undefined)
@@ -634,7 +637,13 @@ export function ThreadRelationshipsPanel(props: {
   }> = [
     { id: "related", label: null, rows: related, expanded: true },
     { id: "active", label: null, rows: [...active, ...remoteActive], expanded: true },
-    { id: "handedOff", label: "Handed to projects", rows: handedOff, expanded: true },
+    { id: "handedOff", label: "Handed to projects", rows: handedOffActive, expanded: true },
+    {
+      id: "previousHandoffs",
+      label: "Previous handoffs",
+      rows: handedOffFinished,
+      expanded: false,
+    },
     {
       id: "previous",
       label: "Previous agents",
