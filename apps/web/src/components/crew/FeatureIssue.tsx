@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   featureIssueRef,
+  ticketRef,
   type EnvironmentId,
   type FeatureIssue,
   type ProjectId,
@@ -13,22 +14,16 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
+import { CheckIcon, LinkIcon, NotebookTextIcon, UnlinkIcon } from "lucide-react";
 import { useState } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { featuresEnvironment } from "../../state/features";
 import { openFeatureIssue } from "../features/todoDialogs";
-import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
-import { Input } from "../ui/input";
+import { useEnvironmentQuery } from "../../state/query";
+import { Command, CommandInput, CommandItem, CommandList } from "../ui/command";
+import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
+import { FeatureIssueIcon } from "./FeatureIssueIcon";
 
 /** "v0.4 · 1/3 sub-issues", or null when the issue has neither. */
 export function featureIssueMeta(issue: FeatureIssue): string | null {
@@ -99,18 +94,31 @@ export function FeatureIssueDialogHost() {
   return <FeatureIssueDialog key={target.featureId ?? target.threadId} target={target} />;
 }
 
+/** One issue or ticket the picker offers, with the reference the link takes. */
+interface IssueChoice {
+  readonly key: string;
+  /** What `setIssue` reads: the issue's link, or the ticket's `T-<number>`. */
+  readonly link: string;
+  readonly ref: string;
+  readonly title: string;
+  readonly state: "open" | "closed";
+  readonly updatedAt: string;
+  readonly ticket: boolean;
+}
+
+/** A link, `#12`, `T-3` or a tracker key: worth offering as typed when no row matches. */
+const LINKABLE = /^(?:https?:\/\/\S+|#\d+|T-\d+|[A-Z][A-Z0-9]+-\d+)$/iu;
+
 function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget }) {
-  const current = target.issue
-    ? target.issue.ticketId === undefined
-      ? target.issue.url
-      : featureIssueRef(target.issue)
-    : "";
-  const [url, setUrl] = useState(current);
-  const [busy, setBusy] = useState<"link" | "unlink" | null>(null);
+  const owner = { environmentId: target.environmentId, input: { projectId: target.projectId } };
+  const issues = useEnvironmentQuery(featuresEnvironment.issues(owner));
+  const tickets = useEnvironmentQuery(featuresEnvironment.tickets(owner));
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const save = async (next: string | null) => {
-    setBusy(next === null ? "unlink" : "link");
+    setBusy(true);
     setError(null);
     const result =
       target.threadId === undefined
@@ -132,7 +140,7 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
             },
             { reportFailure: false },
           );
-    setBusy(null);
+    setBusy(false);
     if (result._tag === "Success") close();
     else if (!isAtomCommandInterrupted(result)) {
       const failure = squashAtomCommandFailure(result);
@@ -144,73 +152,102 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
     }
   };
 
+  const linked = target.issue ? featureIssueRef(target.issue) : null;
+  const choices: ReadonlyArray<IssueChoice> = [
+    ...(tickets.data ?? []).map((ticket) => ({
+      key: `ticket:${ticket.id}`,
+      link: ticketRef(ticket),
+      ref: ticketRef(ticket),
+      title: ticket.title,
+      state: ticket.state,
+      updatedAt: ticket.updatedAt,
+      ticket: true,
+    })),
+    ...(issues.data?.issues ?? []).map((issue) => ({
+      key: `issue:${issue.number}`,
+      link: issue.url,
+      ref: `#${issue.number}`,
+      title: issue.title,
+      state: issue.state,
+      updatedAt: issue.updatedAt,
+      ticket: false,
+    })),
+  ].toSorted(
+    (a, b) =>
+      Number(b.state === "open") - Number(a.state === "open") ||
+      b.updatedAt.localeCompare(a.updatedAt),
+  );
+  const search = query.trim().toLocaleLowerCase();
+  const shown = choices.filter((choice) =>
+    `${choice.ref} ${choice.title}`.toLocaleLowerCase().includes(search),
+  );
+  const typed =
+    LINKABLE.test(query.trim()) &&
+    !shown.some((choice) => choice.ref.toLocaleLowerCase() === search)
+      ? query.trim()
+      : null;
+  const loading = issues.data === null && tickets.data === null;
+
   return (
     <Dialog open onOpenChange={(open) => (open || busy ? undefined : close())}>
-      <DialogPopup className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {target.issue
-              ? target.threadId === undefined
-                ? "Feature issue"
-                : "Thread issue"
-              : "Link an issue"}
-          </DialogTitle>
-          <DialogDescription>
-            {target.threadId === undefined ? (
-              <>
-                Every thread of <span className="font-medium">{target.featureTitle}</span> shows the
-                issue or ticket it works on. A feature has one.
-              </>
-            ) : (
-              <>
-                <span className="font-medium">{target.threadTitle}</span> shows the issue or ticket
-                it works on, and opens it from its details.
-              </>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (url.trim() && !busy) void save(url.trim());
-          }}
-        >
-          <DialogPanel>
-            <div className="space-y-2">
-              <Input
-                autoFocus
-                aria-label="Issue link"
-                placeholder="https://github.com/owner/repo/issues/123, #123 or T-14"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-              />
-              {error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              ) : null}
-            </div>
-          </DialogPanel>
-          <DialogFooter>
-            {target.issue ? (
-              <Button
-                type="button"
-                variant="destructive-outline"
-                className="me-auto"
-                disabled={busy !== null}
-                onClick={() => void save(null)}
-              >
-                Unlink
-              </Button>
+      <DialogPopup className="max-w-lg" showCloseButton={false}>
+        <DialogTitle className="sr-only">
+          {target.threadId === undefined
+            ? `Link an issue to ${target.featureTitle}`
+            : `Link an issue to ${target.threadTitle}`}
+        </DialogTitle>
+        <Command mode="none" value={query} onValueChange={setQuery} aria-label="Choose an issue">
+          <CommandInput placeholder="Search issues and tickets, or paste a link…" disabled={busy} />
+          <CommandList className="max-h-80 overflow-y-auto">
+            {typed ? (
+              <CommandItem value="typed" disabled={busy} onClick={() => void save(typed)}>
+                <LinkIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Link {typed}</span>
+              </CommandItem>
             ) : null}
-            <Button type="button" variant="ghost" onClick={close} disabled={busy !== null}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy !== null || !url.trim() || url.trim() === current}>
-              {target.issue ? "Replace" : "Link"}
-            </Button>
-          </DialogFooter>
-        </form>
+            {shown.map((choice) => (
+              <CommandItem
+                key={choice.key}
+                value={choice.key}
+                disabled={busy}
+                onClick={() => (choice.ref === linked ? close() : void save(choice.link))}
+              >
+                {choice.ticket ? (
+                  <NotebookTextIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <FeatureIssueIcon issue={choice} className="size-4" />
+                )}
+                <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground">
+                  {choice.ref}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{choice.title}</span>
+                {choice.ref === linked ? (
+                  <CheckIcon aria-label="Linked" className="size-3.5" />
+                ) : null}
+              </CommandItem>
+            ))}
+            {shown.length === 0 && !typed ? (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                {loading
+                  ? "Loading issues…"
+                  : search
+                    ? "No issue or ticket matches. Paste a link, #number or T-number."
+                    : (issues.data?.unavailable ?? "No issues or tickets yet.")}
+              </div>
+            ) : null}
+            {linked ? (
+              <CommandItem value="unlink" disabled={busy} onClick={() => void save(null)}>
+                <UnlinkIcon aria-hidden className="size-4 shrink-0 text-destructive" />
+                <span className="text-destructive">Unlink {linked}</span>
+              </CommandItem>
+            ) : null}
+          </CommandList>
+        </Command>
+        {error ? (
+          <p role="alert" className="border-t px-4 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
       </DialogPopup>
     </Dialog>
   );
