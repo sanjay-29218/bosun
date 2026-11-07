@@ -33,8 +33,10 @@ const callerHolds = (needs: Needs, forLinks: boolean): boolean => {
   const grants = scope?.crewGrants;
   if (grants === undefined) return false;
   if (needs === null) return true;
-  if (needs === "standing")
-    return scope?.thread !== undefined && isStandingThread(scope.thread.threadId);
+  if (needs === "standing") {
+    const thread = scope?.thread;
+    return thread !== undefined && thread.subagent !== true && isStandingThread(thread.threadId);
+  }
   return grants.includes(needs);
 };
 

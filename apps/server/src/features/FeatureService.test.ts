@@ -1831,10 +1831,42 @@ describe("feature lead and crew", () => {
           expect(yield* refusal(botHeadquartersThreadId("other-bot"))).toContain(
             "isn't one of this bot's projects",
           );
+          // A delegated child of the manager's thread never acts as the manager.
+          expect(
+            (yield* Effect.flip(
+              crew.projectManagerInstructions({ callerThreadId: manager, callerIsSubagent: true }),
+            )).message,
+          ).toContain("subagent");
 
+          // Two first saves at once: the member one makes, the other must not overwrite.
+          const firstSaves = yield* Effect.forEach(
+            ["First", "Second"],
+            (instructions) =>
+              Effect.result(
+                crew.updateProjectManagerInstructions({
+                  callerThreadId: projectHeadquartersThreadId(otherProject),
+                  instructions,
+                  expectedRevision: 0,
+                }),
+              ),
+            { concurrency: 2 },
+          );
+          expect(firstSaves.filter((result) => result._tag === "Success")).toHaveLength(1);
+
+          // A manager nobody customized follows the current built-in text, not what it stored.
+          const crewStore = yield* CrewStore;
+          yield* crew.ensureProjectManager(projectId);
+          const stored = (yield* crewStore.getMember(`project-manager:${projectId}`))!;
+          yield* crewStore.saveMember(
+            { ...stored, instructions: "Old built-in text", revision: stored.revision + 1 },
+            stored.revision,
+          );
           const read = yield* crew.projectManagerInstructions({ callerThreadId: manager });
-          expect(read).toMatchObject({ projectId, revision: 0, customized: false });
+          expect(read).toMatchObject({ projectId, customized: false });
           expect(read.instructions).toContain("You manage one project");
+          expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(
+            read.instructions,
+          );
           const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_BOT_ID))!;
           const icon = { avatar: captain.avatar, color: "teal" as const };
           const before = yield* crew.setProjectManagerIcon({ projectId, icon });
@@ -1850,6 +1882,7 @@ describe("feature lead and crew", () => {
             revision: before.revision + 1,
             customized: true,
           });
+          expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(rule);
           const after = yield* crew.projectManagerSettings(projectId);
           expect(after).toMatchObject({
             icon,

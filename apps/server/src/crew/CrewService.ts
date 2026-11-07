@@ -340,11 +340,14 @@ export interface CrewServiceShape {
    */
   readonly projectManagerInstructions: (input: {
     readonly callerThreadId: ThreadId;
+    /** A delegated child of the caller's thread; it never acts as the manager. */
+    readonly callerIsSubagent?: boolean | undefined;
     readonly projectId?: ProjectId | undefined;
   }) => Effect.Effect<ProjectManagerInstructions, CrewServiceError>;
   /** Saves new instructions as a Settings edit would, keeping the manager's other settings. */
   readonly updateProjectManagerInstructions: (input: {
     readonly callerThreadId: ThreadId;
+    readonly callerIsSubagent?: boolean | undefined;
     readonly projectId?: ProjectId | undefined;
     readonly instructions: string;
     readonly expectedRevision: number;
@@ -791,6 +794,12 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
+    const builtInManagerInstructions = (projectId: ProjectId) =>
+      `${PROJECT_MANAGER_INSTRUCTIONS}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`;
+    /** A manager nobody customized follows the current built-in text, not the one it was saved with. */
+    const managerInstructions = (member: CrewMember, projectId: ProjectId) =>
+      member.customizedAt === null ? builtInManagerInstructions(projectId) : member.instructions;
+
     /** What a project's manager starts with: built-in instructions on its owning bot's model. */
     const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (
       projectId: ProjectId,
@@ -803,7 +812,7 @@ export const CrewServiceLive = Layer.effect(
         );
       }
       return {
-        instructions: `${PROJECT_MANAGER_INSTRUCTIONS}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`,
+        instructions: builtInManagerInstructions(projectId),
         allowedTools: [] as ReadonlyArray<string>,
         modelSelection: bot.modelSelection,
         runtimeMode: "full-access" as const,
@@ -842,7 +851,7 @@ export const CrewServiceLive = Layer.effect(
         return {
           projectId,
           enabled: member.enabled,
-          instructions: member.instructions,
+          instructions: managerInstructions(member, projectId),
           allowedTools: member.allowedTools,
           modelSelection: member.modelSelection,
           runtimeMode: member.runtimeMode,
@@ -882,7 +891,10 @@ export const CrewServiceLive = Layer.effect(
       const member = existing ?? (yield* projectManagerMember(projectId));
       const now = DateTime.formatIso(yield* DateTime.now);
       const updated = yield* change(member, now);
-      if (!(yield* store.saveMember(updated, member.revision))) return yield* Effect.fail(stale);
+      // A member made here starts at revision 1; one someone else made and changed meanwhile is stale.
+      if (!(yield* store.saveMember(updated, existing?.revision ?? 1))) {
+        return yield* Effect.fail(stale);
+      }
       yield* syncStanding(yield* projectOwner(projectId));
       return yield* projectManagerSettings(projectId);
     });
@@ -933,10 +945,17 @@ export const CrewServiceLive = Layer.effect(
     });
 
     /** Which project's manager the caller may change: its own, or its bot's project's. */
-    const instructionsProject = Effect.fn("CrewService.instructionsProject")(function* (
-      callerThreadId: ThreadId,
-      projectId: ProjectId | undefined,
-    ) {
+    const instructionsProject = Effect.fn("CrewService.instructionsProject")(function* (input: {
+      readonly callerThreadId: ThreadId;
+      readonly callerIsSubagent?: boolean | undefined;
+      readonly projectId?: ProjectId | undefined;
+    }) {
+      const { callerThreadId, projectId } = input;
+      if (input.callerIsSubagent === true) {
+        return yield* Effect.fail(
+          new CrewValidationError("A subagent can't change a project manager's instructions"),
+        );
+      }
       const own = headquartersProjectId(callerThreadId);
       if (own !== null) {
         if (projectId !== undefined && projectId !== own) {
@@ -977,13 +996,13 @@ export const CrewServiceLive = Layer.effect(
     const projectManagerInstructions: CrewServiceShape["projectManagerInstructions"] = Effect.fn(
       "CrewService.projectManagerInstructions",
     )(function* (input) {
-      const projectId = yield* instructionsProject(input.callerThreadId, input.projectId);
+      const projectId = yield* instructionsProject(input);
       return instructionsOf(yield* projectManagerSettings(projectId));
     });
 
     const updateProjectManagerInstructions: CrewServiceShape["updateProjectManagerInstructions"] =
       Effect.fn("CrewService.updateProjectManagerInstructions")(function* (input) {
-        const projectId = yield* instructionsProject(input.callerThreadId, input.projectId);
+        const projectId = yield* instructionsProject(input);
         const current = yield* projectManagerSettings(projectId);
         if (current.revision !== input.expectedRevision) {
           return yield* Effect.fail(
@@ -1186,7 +1205,7 @@ export const CrewServiceLive = Layer.effect(
         threadId: projectHeadquartersThreadId(projectId),
         actorId: member.id,
         name: "Project manager",
-        instructions: member.instructions,
+        instructions: managerInstructions(member, projectId),
         allowedTools: member.allowedTools,
         revision: member.revision,
         modelSelection: member.modelSelection,
