@@ -324,17 +324,6 @@ export function CommandPalette(props: {
             },
           ]
         : []),
-      ...(activeBot.bots.length > 1 && activeBot.active !== null
-        ? [
-            {
-              key: "bot:all",
-              kind: "action" as const,
-              title: "Show all bots",
-              searchTerms: ["bot", "all bots", "inbox"],
-              run: () => activeBot.select(null),
-            },
-          ]
-        : []),
       ...(activeBot.bots.length > 1
         ? activeBot.bots
             .filter((bot) => bot.key !== activeBot.active?.key)

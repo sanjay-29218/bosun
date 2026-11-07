@@ -72,10 +72,9 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
 }
 
 /**
- * The selected rail entry, or null for All bots. Each environment remembers its own active bot;
- * the first environment (primary first) whose remembered bot is still listed wins. Nothing
- * remembered, or a deleted bot, reads as All bots. A lone bot is always selected: All bots
- * only exists beside two or more.
+ * The selected rail entry, null only while no bot is listed. Each environment remembers its own
+ * active bot; the first environment (primary first) whose remembered bot is still listed wins.
+ * Nothing remembered, or a deleted bot, selects the first bot.
  */
 export function resolveActiveLogicalBot(
   bots: ReadonlyArray<LogicalBot>,
@@ -92,19 +91,15 @@ export function resolveActiveLogicalBot(
     );
     if (match) return match;
   }
-  return bots.length === 1 ? bots[0]! : null;
+  return bots[0] ?? null;
 }
 
 /**
- * What selecting `bot` remembers: its bot on each of its environments, or nothing for All bots.
- * Other environments forget theirs, since an older choice there would otherwise outrank this
- * one in `resolveActiveLogicalBot` when `bot` lives only on a later environment.
+ * What selecting `bot` remembers: its bot on each of its environments. Other environments forget
+ * theirs, since an older choice there would otherwise outrank this one in
+ * `resolveActiveLogicalBot` when `bot` lives only on a later environment.
  */
-export function selectLogicalBot(
-  _activeBotIdByEnvironmentId: Readonly<Record<string, string>>,
-  bot: LogicalBot | null,
-): Record<string, string> {
-  if (bot === null) return {};
+export function selectLogicalBot(bot: LogicalBot): Record<string, string> {
   return Object.fromEntries(bot.members.map((member) => [member.environmentId, member.botId]));
 }
 
@@ -299,13 +294,6 @@ export function botActivityByLogicalBot(
     merged.set(key, mergeActivity(merged.get(key), activity));
   }
   return merged;
-}
-
-/** Every entry's activity at once, for All bots. */
-export function combineBotActivity(activities: Iterable<BotActivity>): BotActivity | undefined {
-  let combined: BotActivity | undefined;
-  for (const activity of activities) combined = mergeActivity(combined, activity);
-  return combined;
 }
 
 export type BotRailSignal =
