@@ -271,6 +271,8 @@ export const BotRail = memo(function BotRail({
         className={cn(
           "flex min-h-0 flex-1 flex-col gap-2 border-r border-sidebar-border pt-0.5 pb-2",
           collapsed && "items-center",
+          // Keeps the first icon's badge clear of the collapse tab, which straddles the titlebar.
+          collapsed && placement === "window" && "pt-3.5",
         )}
       >
         {/* The padding sits inside the scroller so it doesn't clip the badges over the top avatar. */}
@@ -461,7 +463,7 @@ function BotRailCollapseTab({
             type="button"
             aria-label={label}
             onClick={onToggle}
-            className="pointer-events-none absolute top-[calc(var(--workspace-topbar-height)+8px)] -right-2.5 z-40 grid size-5 cursor-pointer place-items-center rounded-full border border-sidebar-border bg-sidebar text-muted-foreground opacity-0 outline-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/rail:pointer-events-auto group-hover/rail:opacity-100 group-focus-within/rail:pointer-events-auto group-focus-within/rail:opacity-100"
+            className="pointer-events-none absolute top-[calc(var(--workspace-topbar-height)-10px)] -right-2.5 z-40 grid size-5 cursor-pointer place-items-center rounded-full border border-sidebar-border bg-sidebar text-muted-foreground opacity-0 outline-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/rail:pointer-events-auto group-hover/rail:opacity-100 group-focus-within/rail:pointer-events-auto group-focus-within/rail:opacity-100"
           />
         }
       >
