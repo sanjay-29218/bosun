@@ -95,11 +95,15 @@ describe("rightPanelStore", () => {
       ticketId: "t1",
     });
     store.openIssue(refA, issue);
+    store.openIssue(refA, { ...issue, url: "https://github.com/acme/api/issues/56" });
     const surfaces = () =>
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces;
-    expect(surfaces().map((surface) => surface.kind === "issue" && surface.ref)).toEqual([
-      "#56",
-      "T-1",
+    expect(
+      surfaces().map((surface) => surface.kind === "issue" && [surface.ref, surface.url]),
+    ).toEqual([
+      ["#56", "https://github.com/acme/web/issues/56"],
+      ["T-1", undefined],
+      ["#56", "https://github.com/acme/api/issues/56"],
     ]);
     const opened = surfaces()[0]!;
     store.closeSurface(refA, opened.id);

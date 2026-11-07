@@ -284,7 +284,11 @@ export interface IssueSurface {
 }
 
 function issueSurface(target: Omit<IssueSurface, "id" | "kind">): IssueSurface {
-  const which = target.ticketId === undefined ? `#${target.number}` : `ticket:${target.ticketId}`;
+  // An issue's link names its repository too, so another repository's #12 gets its own tab.
+  const which =
+    target.ticketId === undefined
+      ? `#${target.number}${target.url ? `:${encodeURIComponent(target.url.toLowerCase())}` : ""}`
+      : `ticket:${target.ticketId}`;
   return {
     ...target,
     id: `issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${which}`,

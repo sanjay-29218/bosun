@@ -63,6 +63,7 @@ import {
   type TodoOwner,
   type TodoTarget,
 } from "./todoDialogs";
+import { createSerialSaves } from "./descriptionSaves.logic";
 import { CloseTodoButton, failureText, ReopenTodoButton } from "./todoState";
 
 /**
@@ -378,6 +379,9 @@ function TicketDetail(props: {
 }) {
   const { ticket, feature } = props;
   const place = use(TodoDetailPlace);
+  const canEdit = useAtomValue(
+    featuresEnvironment.updateTicket.permissionAtom(props.environmentId),
+  );
   const [title, setTitle] = useState(ticket.title);
   const [busy, setBusy] = useState<"save" | "move" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -498,6 +502,7 @@ function TicketDetail(props: {
         aria-label="Title"
         rows={1}
         value={title}
+        readOnly={!canEdit}
         onChange={(event) => setTitle(event.target.value.replace(/\n/g, " "))}
         onBlur={saveTitle}
         onKeyDown={(event) => {
@@ -510,6 +515,7 @@ function TicketDetail(props: {
       <div className="flex flex-wrap items-center gap-1.5">
         <Menu>
           <MenuTrigger
+            disabled={!canEdit}
             render={
               <button
                 type="button"
@@ -555,6 +561,7 @@ function TicketDetail(props: {
           uploadTodoImage("ticket", { ...target, projectId: ticket.projectId }, file)
         }
         markdown={markdown}
+        editable={canEdit}
       />
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -680,7 +687,11 @@ function useIssueEditSaver(owner: TodoOwner, issue: IssueDetail | null | undefin
 }
 
 /** The title, edited in place like a ticket's: Enter or leaving the field saves it. */
-function IssueTitleField(props: { readonly title: string; readonly save: SaveIssueEdit }) {
+function IssueTitleField(props: {
+  readonly title: string;
+  readonly save: SaveIssueEdit;
+  readonly editable: boolean;
+}) {
   const [title, setTitle] = useState(props.title);
   const [saving, setSaving] = useState(false);
   const save = async () => {
@@ -694,7 +705,7 @@ function IssueTitleField(props: { readonly title: string; readonly save: SaveIss
       aria-label="Title"
       rows={1}
       value={title}
-      readOnly={saving}
+      readOnly={saving || !props.editable}
       onChange={(event) => setTitle(event.target.value.replace(/\n/g, " "))}
       onBlur={() => void save()}
       onKeyDown={(event) => {
@@ -722,6 +733,8 @@ function DescriptionBody(props: {
   readonly save: (text: string) => Promise<boolean>;
   readonly uploadImage: (file: File) => Promise<string | null>;
   readonly markdown: (text: string) => ReactNode;
+  /** False where this client can't change it, which leaves it read-only. */
+  readonly editable: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -731,30 +744,36 @@ function DescriptionBody(props: {
   // Shown after a save until the refreshed read lands, so the old text doesn't flash back.
   const [saved, setSaved] = useState<{ body: string; over: string } | null>(null);
   const shown = saved !== null && saved.over === props.version ? saved.body : props.text;
-  const sent = useRef(shown);
+  // One write at a time, so an older text can't land after a newer one.
+  const [saves] = useState(() => createSerialSaves(shown));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flush = async (body: string) => {
+  const cancelTimer = () => {
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
-    if (body === sent.current) return true;
-    const previous = sent.current;
-    sent.current = body;
-    setSaving(true);
-    const ok = await props.save(body);
-    setSaving(false);
-    if (ok) setSaved({ body, over: props.version });
-    else sent.current = previous;
-    return ok;
+  };
+
+  const flush = (body: string) => {
+    cancelTimer();
+    const version = props.version;
+    return saves.save(body, async (text) => {
+      setSaving(true);
+      const ok = await props.save(text);
+      setSaving(false);
+      if (ok) setSaved({ body: text, over: version });
+      return ok;
+    });
   };
   const change = (body: string) => {
     setDraft(body);
-    if (timer.current !== null) clearTimeout(timer.current);
+    cancelTimer();
     // Saving now would store an upload's placeholder; the image's own change saves.
-    if (uploads.current > 0) return;
-    timer.current = setTimeout(() => void flush(body), DESCRIPTION_SAVE_DELAY_MS);
+    timer.current = setTimeout(() => {
+      if (uploads.current === 0) void flush(body);
+    }, DESCRIPTION_SAVE_DELAY_MS);
   };
   const upload = (file: File) => {
+    // The placeholder's own change scheduled a save just before this; it waits for the image.
+    cancelTimer();
     uploads.current += 1;
     setUploading(uploads.current);
     return props.uploadImage(file).finally(() => {
@@ -765,7 +784,7 @@ function DescriptionBody(props: {
   // Where the click landed, so the caret goes there; the keyboard opens it at the end.
   const [openedAt, setOpenedAt] = useState<{ x: number; y: number } | true>(true);
   const startEditing = (point: { x: number; y: number } | true) => {
-    sent.current = shown;
+    saves.reset(shown);
     setOpenedAt(point);
     setDraft(shown);
   };
@@ -773,24 +792,25 @@ function DescriptionBody(props: {
   // One element in both modes: removing the focused one would make the sheet pull focus back to
   // itself, which reads as leaving the editor and closes it as soon as it opens.
   const editing = draft !== null;
+  const offersEditing = !editing && props.editable;
   return (
     <div
-      tabIndex={editing ? -1 : 0}
-      aria-label={editing ? undefined : "Description. Press Enter to edit."}
+      {...(offersEditing ? { tabIndex: 0 } : editing ? { tabIndex: -1 } : {})}
+      aria-label={offersEditing ? "Description. Press Enter to edit." : undefined}
       className={cn(
         "-mx-2 mt-1 flex flex-col gap-1 rounded-md px-2 py-1 outline-none",
-        !editing &&
+        offersEditing &&
           "cursor-text hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
       onClick={(event) => {
-        if (editing) return;
+        if (!offersEditing) return;
         // Links, buttons and a text selection keep their own clicks.
         if ((event.target as Element).closest("a, button, summary, input, img")) return;
         if (window.getSelection()?.toString()) return;
         startEditing({ x: event.clientX, y: event.clientY });
       }}
       onKeyDown={(event) => {
-        if (editing || event.key !== "Enter" || event.target !== event.currentTarget) return;
+        if (!offersEditing || event.key !== "Enter" || event.target !== event.currentTarget) return;
         event.preventDefault();
         startEditing(true);
       }}
@@ -850,6 +870,7 @@ function GitHubIssueDetail(props: {
   const startFeature = useStartFeatureDraft();
   const issue = detail.data;
   const save = useIssueEditSaver(owner, issue);
+  const canEdit = useAtomValue(featuresEnvironment.updateIssue.permissionAtom(owner.environmentId));
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed url={props.url} /> : <DetailSkeleton />;
   }
@@ -915,7 +936,7 @@ function GitHubIssueDetail(props: {
     >
       <DetailTitle className="sr-only">{issue.title}</DetailTitle>
       <div className="flex flex-col gap-1">
-        <IssueTitleField key={issue.title} title={issue.title} save={save} />
+        <IssueTitleField key={issue.title} title={issue.title} save={save} editable={canEdit} />
         <p className="text-xs text-muted-foreground">
           {issue.author?.login ?? "Someone"} opened this {formatRelativeTimeLabel(issue.createdAt)}
         </p>
@@ -967,6 +988,7 @@ function GitHubIssueDetail(props: {
         save={(body) => save({ body })}
         uploadImage={(file) => uploadTodoImage("issue", owner, file)}
         markdown={markdown}
+        editable={canEdit}
       />
       {issue.commentCount > 0 ? (
         <section className="mt-4 flex flex-col">

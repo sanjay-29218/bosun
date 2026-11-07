@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { IssueClosedReason } from "@t3tools/contracts";
 import { ChevronDownIcon, CircleCheckIcon, RotateCcwIcon } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";
@@ -99,20 +100,26 @@ const changeWithToast = async (
  */
 function useTodoChange(todo: TodoRef) {
   const [pending, setPending] = useState(false);
+  const allowed = useAtomValue(
+    (todo.ticketId
+      ? featuresEnvironment.updateTicket
+      : featuresEnvironment.setIssueState
+    ).permissionAtom(todo.environmentId),
+  );
   const run = (state: "open" | "closed", reason?: IssueClosedReason) => {
-    if (pending) return;
+    if (pending || !allowed) return;
     setPending(true);
     void changeWithToast(todo, state, reason).then((changed) => {
       if (!changed) setPending(false);
     });
   };
-  return { pending, run };
+  return { pending, allowed, run };
 }
 
 export function ReopenTodoButton(props: { readonly todo: TodoRef }) {
-  const { pending, run } = useTodoChange(props.todo);
+  const { pending, allowed, run } = useTodoChange(props.todo);
   return (
-    <Button size="xs" variant="outline" disabled={pending} onClick={() => run("open")}>
+    <Button size="xs" variant="outline" disabled={pending || !allowed} onClick={() => run("open")}>
       {pending ? <Spinner aria-hidden /> : <RotateCcwIcon aria-hidden />}
       Reopen
     </Button>
@@ -121,18 +128,23 @@ export function ReopenTodoButton(props: { readonly todo: TodoRef }) {
 
 /** Close as completed in one click; the chevron offers not planned. Undo reopens it. */
 export function CloseTodoButton(props: { readonly todo: TodoRef }) {
-  const { pending, run } = useTodoChange(props.todo);
+  const { pending, allowed, run } = useTodoChange(props.todo);
   const close = (reason: IssueClosedReason) => run("closed", reason);
   return (
     <Group aria-label={`Close ${issueRef(props.todo)}`} aria-busy={pending}>
-      <Button size="xs" variant="outline" disabled={pending} onClick={() => close("completed")}>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={pending || !allowed}
+        onClick={() => close("completed")}
+      >
         {pending ? <Spinner aria-hidden /> : <CircleCheckIcon aria-hidden />}
         Close
       </Button>
       <GroupSeparator />
       <Menu>
         <MenuTrigger
-          disabled={pending}
+          disabled={pending || !allowed}
           render={<Button size="icon-xs" variant="outline" aria-label="More ways to close" />}
         >
           <ChevronDownIcon aria-hidden />

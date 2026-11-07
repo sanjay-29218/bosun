@@ -153,6 +153,15 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
   };
 
   const linked = target.issue ? featureIssueRef(target.issue) : null;
+  // By identity, not `#7`: the linked issue can be another repository's #7.
+  const isLinked = (choice: IssueChoice) => {
+    const current = target.issue;
+    if (!current) return false;
+    return choice.ticket
+      ? current.ticketId === choice.key.slice("ticket:".length)
+      : current.ticketId === undefined &&
+          current.url.toLowerCase().replace(/\/+$/u, "") === choice.link.toLowerCase();
+  };
   const choices: ReadonlyArray<IssueChoice> = [
     ...(tickets.data ?? []).map((ticket) => ({
       key: `ticket:${ticket.id}`,
@@ -210,7 +219,7 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
                 key={choice.key}
                 value={choice.key}
                 disabled={busy}
-                onClick={() => (choice.ref === linked ? close() : void save(choice.link))}
+                onClick={() => (isLinked(choice) ? close() : void save(choice.link))}
               >
                 {choice.ticket ? (
                   <NotebookTextIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
@@ -221,9 +230,7 @@ function FeatureIssueDialog({ target }: { readonly target: FeatureIssueTarget })
                   {choice.ref}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{choice.title}</span>
-                {choice.ref === linked ? (
-                  <CheckIcon aria-label="Linked" className="size-3.5" />
-                ) : null}
+                {isLinked(choice) ? <CheckIcon aria-label="Linked" className="size-3.5" /> : null}
               </CommandItem>
             ))}
             {shown.length === 0 && !typed ? (
