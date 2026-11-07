@@ -21,14 +21,22 @@ describe("allBotsRowSummary", () => {
     });
   });
 
-  it("says No messages yet without a line", () => {
-    for (const latest of [null, undefined, message("")]) {
+  it("says No messages yet without a message", () => {
+    for (const latest of [null, undefined]) {
       expect(allBotsRowSummary(0, undefined, latest)).toEqual({
         mark: null,
         preview: "No messages yet",
         time: null,
       });
     }
+  });
+
+  it("keeps the time of a message with no text", () => {
+    expect(allBotsRowSummary(0, undefined, message(""))).toEqual({
+      mark: null,
+      preview: "Attachment",
+      time: "2026-11-07T10:00:00.000Z",
+    });
   });
 
   it("marks Needs you over working, like the rail", () => {

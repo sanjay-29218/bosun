@@ -1226,7 +1226,12 @@ const decodeMessagePayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2ConversationMessageJsonSchema),
 );
 const decodeLatestVisibleMessage = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(OrchestrationV2LatestVisibleMessageSummaryJson),
+  Schema.fromJsonString(
+    Schema.Struct({
+      ...OrchestrationV2LatestVisibleMessageSummaryJson.fields,
+      attachmentType: Schema.NullOr(Schema.String),
+    }),
+  ),
 );
 const decodePlanJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2PlanArtifactSchema),
@@ -1558,6 +1563,53 @@ const linkCardStillAsks = (
   latestUserAuthoredMessageAt === null ||
   !DateTime.isGreaterThan(latestUserAuthoredMessageAt, item.startedAt ?? item.updatedAt);
 
+/** A message's one-line preview; a message with only attachments names its first one. */
+const messagePreviewLine = (text: string, firstAttachmentType: string | null | undefined) =>
+  lastMessageLine(text) ||
+  (firstAttachmentType == null ? "" : firstAttachmentType === "image" ? "Image" : "Attachment");
+
+/**
+ * The newest completed message the transcript shows: not from a rolled-back run, and not queued
+ * input whose run was cancelled. Mirrors the SQL shell's `latest_visible_message_json`.
+ */
+function latestVisibleMessageForShell(
+  projection: OrchestrationV2ThreadProjection,
+): OrchestrationV2ThreadShell["latestVisibleMessage"] {
+  const runStatus = new Map(projection.runs.map((run) => [run.id, run.status]));
+  const cancelledQueuedMessageIds = new Set(
+    projection.turnItems.flatMap((item) =>
+      item.type === "user_message" &&
+      item.inputIntent === "queued_turn" &&
+      item.runId !== null &&
+      runStatus.get(item.runId) === "cancelled"
+        ? [item.messageId]
+        : [],
+    ),
+  );
+  const message = projection.messages
+    .filter(
+      (candidate) =>
+        (candidate.role === "user" || candidate.role === "assistant") &&
+        !candidate.streaming &&
+        idleCompactionOf(candidate) === undefined &&
+        (candidate.runId === null || runStatus.get(candidate.runId) !== "rolled_back") &&
+        !cancelledQueuedMessageIds.has(candidate.id),
+    )
+    .toSorted(
+      (left, right) =>
+        DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt) ||
+        (right.id > left.id ? 1 : right.id < left.id ? -1 : 0),
+    )[0];
+  return message === undefined
+    ? null
+    : {
+        id: message.id,
+        role: message.role,
+        text: messagePreviewLine(message.text, message.attachments[0]?.type),
+        updatedAt: message.updatedAt,
+      };
+}
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadShell {
@@ -1625,28 +1677,8 @@ export function threadShellFromProjection(
     }
   }
   const latestUserMessage = userMessages[0] ?? null;
-  const rolledBackRunIds = new Set(
-    runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
-  );
   const latestVisibleMessage = isStandingThread(projection.thread.id)
-    ? (projection.messages
-        .filter(
-          (message) =>
-            (message.role === "user" || message.role === "assistant") &&
-            !message.streaming &&
-            idleCompactionOf(message) === undefined &&
-            (message.runId === null || !rolledBackRunIds.has(message.runId)),
-        )
-        .toSorted(
-          (left, right) =>
-            DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt),
-        )
-        .map((message) => ({
-          id: message.id,
-          role: message.role,
-          text: lastMessageLine(message.text),
-          updatedAt: message.updatedAt,
-        }))[0] ?? null)
+    ? latestVisibleMessageForShell(projection)
     : null;
   const pendingBackgroundTasks = derivePendingBackgroundWork({
     latestRun,
@@ -6365,17 +6397,32 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   'id', message.message_id,
                   'role', message.role,
                   'text', json_extract(message.payload_json, '$.text'),
-                  'updatedAt', message.updated_at
+                  'updatedAt', message.updated_at,
+                  'attachmentType', json_extract(message.payload_json, '$.attachments[0].type')
                 )
                 FROM orchestration_v2_projection_messages message
                 WHERE message.thread_id = t.thread_id
                   AND message.role IN ('user', 'assistant')
                   AND message.streaming = 0
                   AND NOT ${isIdleCompactionMessage("message")}
+                  -- Mirrors latestVisibleMessageForShell: what the transcript hides.
                   AND NOT EXISTS (
-                    SELECT 1 FROM orchestration_v2_projection_runs rolled_back
-                    WHERE rolled_back.run_id = message.run_id
-                      AND rolled_back.status = 'rolled_back'
+                    SELECT 1 FROM orchestration_v2_projection_runs hidden
+                    WHERE hidden.run_id = message.run_id
+                      AND (
+                        hidden.status = 'rolled_back'
+                        OR (
+                          hidden.status = 'cancelled'
+                          AND EXISTS (
+                            SELECT 1 FROM orchestration_v2_projection_turn_items queued
+                            WHERE queued.thread_id = message.thread_id
+                              AND queued.run_id = hidden.run_id
+                              AND queued.type = 'user_message'
+                              AND json_extract(queued.payload_json, '$.messageId') = message.message_id
+                              AND json_extract(queued.payload_json, '$.inputIntent') = 'queued_turn'
+                          )
+                        )
+                      )
                   )
                 ORDER BY message.created_at DESC, message.message_id DESC
                 LIMIT 1
@@ -6999,7 +7046,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             row.latest_visible_message_json === null
               ? null
               : yield* decodeLatestVisibleMessage(row.latest_visible_message_json).pipe(
-                  Effect.map((message) => ({ ...message, text: lastMessageLine(message.text) })),
+                  Effect.map(({ attachmentType, ...message }) => ({
+                    ...message,
+                    text: messagePreviewLine(message.text, attachmentType),
+                  })),
                 ),
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
           pendingBackgroundTasks,

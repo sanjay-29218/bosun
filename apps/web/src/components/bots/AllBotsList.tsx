@@ -1,5 +1,9 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
+import type {
+  BotActivity,
+  LogicalBot,
+  LogicalBotMember,
+} from "@t3tools/client-runtime/state/bot-rail";
 import {
   botHeadquartersThreadId,
   headquartersProjectId,
@@ -36,6 +40,10 @@ const rowClassName =
 /** The sidebar while All bots is picked: each bot's headquarters, then the project managers. */
 export function AllBotsSidebar() {
   const bots = useVisibleLogicalBots();
+  const needsYou = useNeedsYouByLogicalBot();
+  const activity = useActivityByLogicalBot();
+  const connected = useConnectedEnvironmentIds();
+  const environmentFilter = useEnvironmentFilter();
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -53,7 +61,13 @@ export function AllBotsSidebar() {
         <SidebarGroup>
           <ul className="flex flex-col gap-0.5" aria-label="Bots">
             {bots.map((bot) => (
-              <BotRow key={bot.key} bot={bot} />
+              <BotRow
+                key={bot.key}
+                bot={bot}
+                member={headquartersMember(bot, connected, environmentFilter)}
+                needsYou={needsYou.get(bot.key) ?? 0}
+                activity={activity.get(bot.key)}
+              />
             ))}
           </ul>
           <ProjectManagers />
@@ -64,15 +78,21 @@ export function AllBotsSidebar() {
   );
 }
 
-function BotRow({ bot }: { readonly bot: LogicalBot }) {
-  const connected = useConnectedEnvironmentIds();
-  const environmentFilter = useEnvironmentFilter();
-  const needsYou = useNeedsYouByLogicalBot().get(bot.key) ?? 0;
-  const activity = useActivityByLogicalBot().get(bot.key);
+// Rows take their own counts so one change doesn't make every row rebuild every bot's totals.
+function BotRow({
+  bot,
+  member,
+  needsYou,
+  activity,
+}: {
+  readonly bot: LogicalBot;
+  readonly member: LogicalBotMember | undefined;
+  readonly needsYou: number;
+  readonly activity: BotActivity | undefined;
+}) {
   const selectBot = useSelectLogicalBot();
   const openHeadquarters = useOpenBotHeadquarters();
   const { isMobile, setOpenMobile } = useSidebar();
-  const member = headquartersMember(bot, connected, environmentFilter);
   const threadId = member ? botHeadquartersThreadId(member.botId) : null;
   const shell = useThreadShell(
     member && threadId ? scopeThreadRef(member.environmentId, threadId) : null,

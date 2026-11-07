@@ -17,10 +17,12 @@ export function allBotsRowSummary(
   latestMessage: OrchestrationV2ThreadShell["latestVisibleMessage"] | undefined,
 ): AllBotsRowSummary {
   const signal = botRailSignal(needsYou, activity);
-  const message = latestMessage?.text ? latestMessage : null;
+  const mark = signal?.kind === "needs-you" || signal?.kind === "working" ? signal.kind : null;
+  if (!latestMessage) return { mark, preview: "No messages yet", time: null };
   return {
-    mark: signal?.kind === "needs-you" || signal?.kind === "working" ? signal.kind : null,
-    preview: message?.text ?? "No messages yet",
-    time: message === null ? null : DateTime.formatIso(message.updatedAt),
+    mark,
+    // The server names a message's attachment when it has no text; this covers older servers.
+    preview: latestMessage.text || "Attachment",
+    time: DateTime.formatIso(latestMessage.updatedAt),
   };
 }

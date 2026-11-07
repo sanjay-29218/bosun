@@ -8,6 +8,8 @@ import {
   CheckpointRef,
   CheckpointScopeId,
   MessageId,
+  ChatAttachmentId,
+  type ChatAttachment,
   botHeadquartersThreadId,
   type ModelSelection,
   type OrchestrationV2ProviderThread,
@@ -4761,6 +4763,11 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         seconds: number,
         text: string,
         streaming: boolean,
+        options: {
+          readonly runId?: RunId;
+          readonly role?: "user" | "assistant";
+          readonly attachments?: ReadonlyArray<ChatAttachment>;
+        } = {},
       ) =>
         projectionStore.apply({
           id: EventId.make(`event:shell-line:${threadId}:${id}:${streaming}`),
@@ -4770,11 +4777,11 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           payload: {
             id: MessageId.make(`message:shell-line:${threadId}:${id}`),
             threadId,
-            runId: null,
+            runId: options.runId ?? null,
             nodeId: null,
-            role: "assistant",
+            role: options.role ?? "assistant",
             text,
-            attachments: [],
+            attachments: [...(options.attachments ?? [])],
             streaming,
             createdBy: "user",
             creationSource: "web",
@@ -4823,6 +4830,103 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         plain: null,
         memory: "All done",
       });
+
+      // Messages at the same instant resolve by id, as SQL orders them.
+      yield* message(headquartersId, "tie-b", 3, "Tie b", false);
+      yield* message(headquartersId, "tie-a", 3, "Tie a", false);
+      assert.deepEqual(yield* lines, { headquarters: "Tie b", plain: null, memory: "Tie b" });
+
+      // An image with no text still counts as the last message.
+      yield* message(headquartersId, "image", 4, "", false, {
+        role: "user",
+        attachments: [
+          {
+            type: "image",
+            id: ChatAttachmentId.make("shell-line-image"),
+            name: "shot.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+          },
+        ],
+      });
+      assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
+
+      // Queued input whose run was cancelled is hidden in the transcript, so not shown here.
+      const cancelledRunId = RunId.make("run:shell-line:cancelled");
+      const cancelledRun = {
+        id: cancelledRunId,
+        threadId: headquartersId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make(`message:shell-line:${headquartersId}:queued`),
+        rootNodeId: NodeId.make("node:shell-line:cancelled"),
+        activeAttemptId: null,
+        status: "queued" as const,
+        requestedAt: DateTime.add(createdAt, { seconds: 5 }),
+        startedAt: null,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      };
+      yield* projectionStore.apply({
+        id: EventId.make("event:shell-line:cancelled-run"),
+        type: "run.created",
+        threadId: headquartersId,
+        runId: cancelledRunId,
+        nodeId: cancelledRun.rootNodeId,
+        driver,
+        providerInstanceId,
+        occurredAt: cancelledRun.requestedAt,
+        payload: cancelledRun,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:shell-line:queued-item"),
+        type: "turn-item.updated",
+        threadId: headquartersId,
+        runId: cancelledRunId,
+        driver,
+        occurredAt: cancelledRun.requestedAt,
+        payload: {
+          createdBy: "user",
+          creationSource: "web",
+          id: TurnItemId.make("item:shell-line:queued"),
+          threadId: headquartersId,
+          runId: cancelledRunId,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "completed",
+          title: null,
+          startedAt: cancelledRun.requestedAt,
+          completedAt: cancelledRun.requestedAt,
+          updatedAt: cancelledRun.requestedAt,
+          type: "user_message",
+          messageId: cancelledRun.userMessageId,
+          inputIntent: "queued_turn",
+          text: "Never sent",
+          attachments: [],
+        },
+      });
+      yield* message(headquartersId, "queued", 5, "Never sent", false, {
+        role: "user",
+        runId: cancelledRunId,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:shell-line:cancelled"),
+        type: "run.updated",
+        threadId: headquartersId,
+        runId: cancelledRunId,
+        nodeId: cancelledRun.rootNodeId,
+        driver,
+        occurredAt: DateTime.add(createdAt, { seconds: 6 }),
+        payload: { ...cancelledRun, status: "cancelled", completedAt: createdAt },
+      });
+      assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
     }),
   );
 
