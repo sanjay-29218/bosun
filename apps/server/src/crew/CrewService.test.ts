@@ -708,6 +708,7 @@ describe("Bot foundation", () => {
             runtimeMode: "full-access",
             enabled: true,
             longConversation: "new-session",
+            icon: null,
             customizedAt: null,
             revision: 1,
             createdAt: "2026-10-30T00:00:00.000Z",

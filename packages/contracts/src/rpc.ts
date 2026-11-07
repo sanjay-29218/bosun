@@ -58,6 +58,7 @@ import {
   CrewSetHierarchyInput,
   CrewStartNewSessionInput,
   ProjectManagerEnabledInput,
+  ProjectManagerIconInput,
   ProjectManagerResetInput,
   ProjectManagerThread,
   ProjectManagerSettings,
@@ -521,6 +522,7 @@ export const WS_METHODS = {
   crewUpdateProjectManager: "crew.updateProjectManager",
   crewResetProjectManager: "crew.resetProjectManager",
   crewSetProjectManagerEnabled: "crew.setProjectManagerEnabled",
+  crewSetProjectManagerIcon: "crew.setProjectManagerIcon",
   crewOpenProjectManager: "crew.openProjectManager",
   crewStartNewSession: "crew.startNewSession",
   projectsListEntries: "projects.listEntries",
@@ -1365,6 +1367,11 @@ const WsCrewResetProjectManagerRpc = Rpc.make(WS_METHODS.crewResetProjectManager
 });
 const WsCrewSetProjectManagerEnabledRpc = Rpc.make(WS_METHODS.crewSetProjectManagerEnabled, {
   payload: ProjectManagerEnabledInput,
+  success: ProjectManagerSettings,
+  error: CrewRpcError,
+});
+const WsCrewSetProjectManagerIconRpc = Rpc.make(WS_METHODS.crewSetProjectManagerIcon, {
+  payload: ProjectManagerIconInput,
   success: ProjectManagerSettings,
   error: CrewRpcError,
 });
@@ -2418,6 +2425,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsCrewUpdateProjectManagerRpc,
   WsCrewResetProjectManagerRpc,
   WsCrewSetProjectManagerEnabledRpc,
+  WsCrewSetProjectManagerIconRpc,
   WsCrewOpenProjectManagerRpc,
   WsCrewStartNewSessionRpc,
 ).middleware(RpcScopeAuthorization);

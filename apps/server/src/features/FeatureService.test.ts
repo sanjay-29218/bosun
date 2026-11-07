@@ -1748,11 +1748,20 @@ describe("feature lead and crew", () => {
               .pipe(Effect.flip)).message,
           ).toContain("reload");
 
-          // Reset puts it back on those defaults.
-          const reset = yield* crew.resetProjectManager({ projectId, expectedRevision: 2 });
+          // Its look saves on its own and leaves customizing alone.
+          const icon = { avatar: captain.avatar, color: "teal" as const };
+          const withIcon = yield* crew.setProjectManagerIcon({ projectId, icon });
+          expect(withIcon).toMatchObject({ icon, revision: 3, customized: true });
+          expect(withIcon.instructions).toBe("Manage it my way.");
+          const reloaded = (yield* crewStore.getMember(`project-manager:${projectId}`))!;
+          expect(reloaded.icon).toEqual(icon);
+
+          // Reset puts it back on those defaults, keeping its look.
+          const reset = yield* crew.resetProjectManager({ projectId, expectedRevision: 3 });
           expect(reset).toMatchObject({
+            icon,
             customized: false,
-            revision: 3,
+            revision: 4,
             instructions: before.instructions,
             allowedTools: [],
             modelSelection: captain.modelSelection,
@@ -1760,6 +1769,8 @@ describe("feature lead and crew", () => {
             longConversation: "compact",
           });
           expect((yield* shell())?.runtimeMode).toBe("full-access");
+          const cleared = yield* crew.setProjectManagerIcon({ projectId, icon: null });
+          expect(cleared).toMatchObject({ icon: null, customized: false, revision: 5 });
 
           // Off archives its thread and stops new work reaching it; on brings it back.
           const offSettings = yield* crew.setProjectManagerEnabled({ projectId, enabled: false });

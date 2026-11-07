@@ -91,6 +91,12 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       tag: WS_METHODS.crewSetProjectManagerEnabled,
       onSuccess: refreshProjectManager,
     }),
+    /** Chooses the manager's look, or null for the one derived from its project. */
+    setProjectManagerIcon: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:crew:set-project-manager-icon",
+      tag: WS_METHODS.crewSetProjectManagerIcon,
+      onSuccess: refreshProjectManager,
+    }),
     /** Makes the project's manager thread on first use, and returns it to open. */
     openProjectManager: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:open-project-manager",
