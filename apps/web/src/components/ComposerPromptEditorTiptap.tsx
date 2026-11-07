@@ -135,6 +135,8 @@ export interface ComposerPromptEditorHandle {
   focus: () => void;
   focusAt: (cursor: number) => void;
   focusAtEnd: () => void;
+  /** Puts the caret at a viewport point, as a click there would, without scrolling. */
+  focusAtPoint: (point: { readonly x: number; readonly y: number }) => void;
   readSelectionRange: () => { start: number; end: number };
   requestCitationComment: (request: ComposerCitationCommentRequest) => void;
   readSnapshot: () => {
@@ -1710,6 +1712,12 @@ function ComposerPromptEditorTiptapInner(
                 snapshotRef.current.value.length,
               ),
         );
+      },
+      focusAtPoint: ({ x, y }) => {
+        if (!editor) return;
+        const hit = editor.view.posAtCoords({ left: x, top: y });
+        if (hit) editor.commands.setTextSelection(hit.pos);
+        editor.view.focus();
       },
       readSelectionRange: () => {
         readSnapshot();

@@ -35,6 +35,7 @@ import {
 } from "../sourceControl/threadPullRequests.ts";
 import { TicketService } from "../tickets/TicketService.ts";
 import { CrewStore } from "./CrewStore.ts";
+import { projectManagerMemberId } from "./CrewService.ts";
 
 /**
  * Tells a project's manager once when a pull request its features or delegated tasks track
@@ -213,6 +214,7 @@ const make = Effect.gen(function* () {
   ) {
     const manager = yield* crewStore.getRun(projectHeadquartersRunId(projectId));
     if (manager === null || manager.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
+    if ((yield* crewStore.getMember(projectManagerMemberId(projectId)))?.enabled === false) return;
     const key = threadPullRequestKeyOf(normalizeThreadPullRequestKey(link));
     const [noticed] = yield* sql`
       SELECT 1 FROM project_merge_notices

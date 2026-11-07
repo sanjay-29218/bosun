@@ -7,8 +7,10 @@ import {
 } from "@t3tools/contracts";
 import type * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -81,7 +83,7 @@ it.effect("says why a project whose host cannot list issues has none", () =>
   ),
 );
 
-it.effect("shares a project's read for a while, and drops failures at once", () => {
+it.effect("shares a project's read for a while, until a refresh or failure", () => {
   let reads = 0;
   const listIssues: SourceControlProvider.SourceControlProvider["Service"]["listIssues"] = (
     input,
@@ -123,6 +125,16 @@ it.effect("shares a project's read for a while, and drops failures at once", () 
     yield* TestClock.adjust("31 seconds");
     yield* issues.list(projectId);
     assert.strictEqual(reads, 3);
+
+    const heard = yield* issues.subscribeRefreshes.pipe(
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.forkChild({ startImmediately: true }),
+    );
+    yield* issues.refresh(projectId);
+    assert.deepStrictEqual(yield* Fiber.join(heard), [projectId]);
+    yield* issues.list(projectId);
+    assert.strictEqual(reads, 4);
 
     const missing = yield* Effect.flip(issues.list(ProjectId.make("project:missing")));
     assert.include(missing.reason, "not found");
@@ -179,6 +191,57 @@ it.effect("files an issue in an open milestone named by title or number, under i
     assert.deepStrictEqual(created, [
       { milestone: 4, parent: 3 },
       { milestone: 9, parent: 3 },
+    ]);
+  }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
+});
+
+it.effect("edits an issue, but not over a change made on the host since it was read", () => {
+  const edits: Array<{ readonly title?: string | undefined; readonly body?: string | undefined }> =
+    [];
+  let hostUpdatedAt = issue.updatedAt;
+  const github = {
+    ...provider("github", () =>
+      Effect.succeed({ repository: "acme/web", issues: [], milestones: [], truncated: false }),
+    ),
+    getIssue: () =>
+      Effect.succeed({
+        ...issue,
+        updatedAt: hostUpdatedAt,
+        body: "",
+        closedReason: null,
+        author: null,
+        createdAt: issue.updatedAt,
+        commentCount: 0,
+        comments: [],
+      }),
+    updateIssue: (input: {
+      readonly title?: string | undefined;
+      readonly body?: string | undefined;
+    }) =>
+      Effect.sync(() => {
+        edits.push({ title: input.title, body: input.body });
+        return issue;
+      }),
+  } as SourceControlProvider.SourceControlProvider["Service"];
+  return Effect.gen(function* () {
+    const issues = yield* IssueService.IssueService;
+    yield* issues.update({
+      projectId,
+      number: 7,
+      body: "Steps",
+      expectedUpdatedAt: issue.updatedAt,
+    });
+    // Someone edits it on GitHub; a save from the stale editor is refused.
+    hostUpdatedAt = "2026-10-02T00:00:00Z";
+    const refused = yield* issues
+      .update({ projectId, number: 7, title: "Stale", expectedUpdatedAt: issue.updatedAt })
+      .pipe(Effect.flip);
+    assert.strictEqual(refused._tag, "IssueChangedError");
+    // Saving anyway sends no expected time.
+    yield* issues.update({ projectId, number: 7, title: "Mine" });
+    assert.deepStrictEqual(edits, [
+      { title: undefined, body: "Steps" },
+      { title: "Mine", body: undefined },
     ]);
   }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
 });

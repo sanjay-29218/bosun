@@ -5,7 +5,6 @@ import {
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
-import { workflowRoles } from "@t3tools/client-runtime/state/library";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -33,7 +32,7 @@ function Editor(props: {
   readonly onSave: (value: WorkflowFields) => Promise<boolean>;
   readonly onDelete: (workflow: WorkflowConfig) => void;
 }) {
-  const choices = workflowRoles(props.roles);
+  const choices = props.roles;
   const [name, setName] = useState(props.workflow?.name ?? "");
   const [instructions, setInstructions] = useState(props.workflow?.instructions ?? "");
   const [leadRoleId, setLeadRoleId] = useState(

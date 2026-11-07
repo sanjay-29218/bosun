@@ -85,7 +85,8 @@ snoozed or settled in the sidebar moves on the board too. Snoozed features wait 
 under Done until they wake; **Wake** brings one back early and **Un-settle** undoes a settle.
 
 Search (the magnifier in the board's header, or `/`) matches titles, projects, issue numbers and
-feature numbers. **Filter** narrows the board to a project, a milestone or issue labels; each
+feature numbers. **Filter** narrows the board to a project, a milestone or issue labels; the board's project is the
+sidebar's project filter, so picking one in either place narrows both; each
 filter in effect shows below the header, where its × removes it. **Display** switches between the
 columns and a list.
 
@@ -116,8 +117,11 @@ description with headings, lists and checklists. When the project has GitHub iss
 **Ticket** or **GitHub issue**; the choice is remembered. Click a todo to open it beside the board.
 A ticket's title, description and status edit in place, and **Move to GitHub issue** files it on
 GitHub, moves its features to the new issue and deletes the ticket. A GitHub issue shows its
-description, status and comments as GitHub has them; close or reopen it there, and edit its text on
-GitHub. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
+description, status and comments as GitHub has them; close or reopen it there, and click its title
+or description to edit it in place. Paste a screenshot into either description to add it. A
+ticket's images stay on its environment. GitHub takes no images through its API, so an issue's are
+committed to a `bosun-attachments` branch of its repository, which anyone who can see the repository
+can open. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
 create and close todos too.
 
 A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for

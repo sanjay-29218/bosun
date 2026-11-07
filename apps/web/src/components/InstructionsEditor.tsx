@@ -9,7 +9,7 @@ import {
   SquareCodeIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -56,6 +56,8 @@ export function InstructionsEditor({
   maxLength,
   size = "md",
   variant = "field",
+  autoFocus = false,
+  onPasteImage,
 }: {
   /** Id for the field's label to reference (`htmlFor`). */
   readonly id?: string;
@@ -69,10 +71,105 @@ export function InstructionsEditor({
   readonly size?: keyof typeof SIZE_CLASS_NAMES;
   /** "document" drops the box and grows with its text; its toolbar shows on hover and focus. */
   readonly variant?: "field" | "document";
+  /**
+   * Focuses it when it mounts, for an editor opened from its rendered text: the caret goes to the
+   * clicked point, or to the end.
+   */
+  readonly autoFocus?: boolean | { readonly x: number; readonly y: number };
+  /**
+   * Stores a pasted image and resolves with its URL, or null when it couldn't. The editor holds a
+   * placeholder at the caret meanwhile. Without it, pasted images are ignored.
+   */
+  readonly onPasteImage?: (file: File) => Promise<string | null>;
 }) {
   const bare = variant === "document";
   const editorRef = useRef<ComposerPromptEditorHandle>(null);
+  const openedAt = useRef(autoFocus);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Moves DOM focus into the editor once, when it opens.
+  useEffect(() => {
+    const point = openedAt.current;
+    if (typeof point === "object") editorRef.current?.focusAtPoint(point);
+    else if (point) editorRef.current?.focusAtEnd();
+  }, []);
   const [cursor, setCursor] = useState(value.length);
+  // Writes go through the editor's live text, which may be ahead of `value` by then.
+  const replaceText = (start: number, end: number, text: string) => {
+    const live = editorRef.current?.readSnapshot();
+    if (!live) return;
+    const shift = live.cursor >= end ? text.length - (end - start) : 0;
+    setCursor(live.cursor + shift);
+    onChange(live.value.slice(0, start) + text + live.value.slice(end));
+  };
+  const pasteImages = (event: ClipboardEvent<HTMLElement>) => {
+    if (!onPasteImage) return;
+    const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
+    const live = editorRef.current?.readSnapshot();
+    if (files.length === 0 || !live) return;
+    event.preventDefault();
+    const at = live.expandedCursor;
+    // An image reads as its own block, so one pasted mid-line starts a new line. Each placeholder
+    // carries the line break before it, so a failed upload takes that out with it.
+    const lineStart = at === 0 || live.value[at - 1] === "\n";
+    const uploads = files.map((file, index) => ({
+      file,
+      alt: file.name.replace(/\.\w+$/u, "") || "image",
+      before: index === 0 && lineStart ? "" : "\n",
+      // Unique, so each upload finds its own placeholder however the text moved meanwhile.
+      placeholder: `![Uploading ${file.name || "image"}… ${Date.now().toString(36)}${index}]()`,
+    }));
+    replaceText(at, at, uploads.map((upload) => upload.before + upload.placeholder).join(""));
+    for (const upload of uploads) {
+      void onPasteImage(upload.file).then((url) => {
+        const value = editorRef.current?.readSnapshot().value ?? "";
+        const held = upload.before + upload.placeholder;
+        const [found, start] = value.includes(held)
+          ? [held, value.indexOf(held)]
+          : [upload.placeholder, value.indexOf(upload.placeholder)];
+        if (start < 0) return;
+        const image = `![${upload.alt}](${url})`;
+        replaceText(
+          start,
+          start + found.length,
+          url === null ? "" : found === held ? upload.before + image : image,
+        );
+      });
+    }
+  };
+  // A document's toolbar sits under its text, so showing it never moves the text.
+  const toolbar = (
+    <div
+      role="toolbar"
+      aria-label={`${label} formatting`}
+      className={cn(
+        "flex flex-wrap items-center gap-0.5",
+        bare
+          ? "-ms-1.5 mt-1 opacity-0 transition-opacity group-focus-within/editor:opacity-100 group-hover/editor:opacity-100 pointer-coarse:opacity-100"
+          : "border-b border-input px-1.5 py-1",
+      )}
+    >
+      {FORMAT_ACTIONS.map(({ format, label: actionLabel, icon: Icon }) => (
+        <Tooltip key={format}>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={actionLabel}
+                disabled={disabled}
+                // Keep focus and the selection in the editor.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => editorRef.current?.applyFormat(format)}
+              >
+                <Icon />
+              </Button>
+            }
+          />
+          <TooltipPopup>{actionLabel}</TooltipPopup>
+        </Tooltip>
+      ))}
+    </div>
+  );
   return (
     <div
       id={id}
@@ -84,38 +181,7 @@ export function InstructionsEditor({
         disabled && "opacity-64",
       )}
     >
-      <div
-        role="toolbar"
-        aria-label={`${label} formatting`}
-        className={cn(
-          "flex flex-wrap items-center gap-0.5",
-          bare
-            ? "-ms-1.5 mb-1 opacity-0 transition-opacity group-focus-within/editor:opacity-100 group-hover/editor:opacity-100 pointer-coarse:opacity-100"
-            : "border-b border-input px-1.5 py-1",
-        )}
-      >
-        {FORMAT_ACTIONS.map(({ format, label: actionLabel, icon: Icon }) => (
-          <Tooltip key={format}>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  aria-label={actionLabel}
-                  disabled={disabled}
-                  // Keep focus and the selection in the editor.
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => editorRef.current?.applyFormat(format)}
-                >
-                  <Icon />
-                </Button>
-              }
-            />
-            <TooltipPopup>{actionLabel}</TooltipPopup>
-          </Tooltip>
-        ))}
-      </div>
+      {bare ? null : toolbar}
       <div className={bare ? undefined : "px-3 py-2"}>
         <ComposerPromptEditor
           editorRef={editorRef}
@@ -129,14 +195,15 @@ export function InstructionsEditor({
           skills={NO_SKILLS}
           disabled={disabled}
           placeholder={placeholder}
-          className={cn(bare ? "max-h-none" : "max-h-80", SIZE_CLASS_NAMES[size])}
+          className={cn(bare ? "composer-document max-h-none" : "max-h-80", SIZE_CLASS_NAMES[size])}
           onChange={(nextValue, nextCursor) => {
             setCursor(nextCursor);
             if (nextValue !== value) onChange(nextValue);
           }}
-          onPaste={noop}
+          onPaste={onPasteImage ? pasteImages : noop}
         />
       </div>
+      {bare ? toolbar : null}
     </div>
   );
 }

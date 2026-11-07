@@ -95,6 +95,49 @@ export const IssueCreateInput = Schema.Struct({
 });
 export type IssueCreateInput = typeof IssueCreateInput.Type;
 
+/**
+ * Changes the title or body, whichever is given. With `expectedUpdatedAt`, the change is refused
+ * with `IssueChangedError` when the host's copy was updated since that time.
+ */
+export const IssueUpdateInput = Schema.Struct({
+  projectId: ProjectId,
+  number: Schema.Int,
+  title: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Markdown. */
+  body: Schema.optionalKey(Schema.String),
+  expectedUpdatedAt: Schema.optionalKey(Schema.String),
+});
+export type IssueUpdateInput = typeof IssueUpdateInput.Type;
+
+/** GitHub takes up to 10 MB in an issue; a pasted screenshot is well under that. */
+export const ISSUE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+/** An image pasted into an issue's description, stored on the project's host. */
+export const IssueImageUploadInput = Schema.Struct({
+  projectId: ProjectId,
+  fileName: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  /** A `data:image/...;base64,` URL. */
+  dataUrl: Schema.String.check(
+    Schema.isPattern(/^data:image\/[\w.+-]+;base64,/i),
+    Schema.isMaxLength(Math.ceil((ISSUE_IMAGE_MAX_BYTES * 4) / 3) + 100),
+  ),
+});
+export type IssueImageUploadInput = typeof IssueImageUploadInput.Type;
+
+/** Where the image now lives, for the description's Markdown to link. */
+export const IssueImageUpload = Schema.Struct({ url: Schema.String });
+export type IssueImageUpload = typeof IssueImageUpload.Type;
+
+/** The issue was edited on its host after the editor read it; saving would overwrite that. */
+export class IssueChangedError extends Schema.TaggedError<IssueChangedError>()(
+  "IssueChangedError",
+  { number: Schema.Int, updatedAt: Schema.String },
+) {
+  override get message(): string {
+    return `Issue #${this.number} changed on GitHub since you opened it.`;
+  }
+}
+
 export const IssueClosedReason = Schema.Literals(["completed", "not_planned"]);
 export type IssueClosedReason = typeof IssueClosedReason.Type;
 

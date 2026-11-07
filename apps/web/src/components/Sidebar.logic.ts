@@ -17,7 +17,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
 import {
-  headquartersBotId,
+  isStandingThread,
   isListedThreadLineage,
   type ContextMenuItem,
   type EnvironmentId,
@@ -590,7 +590,7 @@ export function resolveSidebarRowThreadId(
 }
 
 /**
- * Bot headquarters open from the bot header. `delegatedUnderParent` holds the tasks linked
+ * Bot headquarters and project managers open from the sidebar header. `delegatedUnderParent` holds the tasks linked
  * environments run for a listed thread, by thread key; they show under it, as subagents do.
  */
 export function filterSidebarV2VisibleThreads<
@@ -610,7 +610,7 @@ export function filterSidebarV2VisibleThreads<
         thread.lineage,
         delegatedUnderParent,
       ) &&
-      headquartersBotId(thread.id) === null &&
+      !isStandingThread(thread.id) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );

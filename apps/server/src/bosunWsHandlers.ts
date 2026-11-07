@@ -10,17 +10,21 @@ import * as Effect from "effect/Effect";
 
 import type { BotService } from "./bots/BotService.ts";
 import type { CrewService } from "./crew/CrewService.ts";
+import type { ProjectRequests } from "./crew/ProjectRequests.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
+import type * as TicketImages from "./tickets/TicketImages.ts";
 import type { TicketService } from "./tickets/TicketService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 
 export interface BosunWsServices {
   readonly bots: BotService["Service"];
   readonly crew: CrewService["Service"];
+  readonly projectRequests: ProjectRequests["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
   readonly tickets: TicketService["Service"];
+  readonly ticketImages: Effect.Success<typeof TicketImages.make>;
 }
 
 /**
@@ -28,7 +32,15 @@ export interface BosunWsServices {
  * handlers in `ws.ts`. A separate group keeps the T3 handler map within the
  * type checker's instantiation depth and keeps upstream merges cheap.
  */
-export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: BosunWsServices) =>
+export const layerBosunWsRpc = ({
+  bots,
+  crew,
+  projectRequests,
+  features,
+  issues,
+  tickets,
+  ticketImages,
+}: BosunWsServices) =>
   BosunWsRpcGroup.middleware(RpcInstrumentation).toLayer(
     Effect.sync(() => {
       return {
@@ -53,10 +65,15 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
         [WS_METHODS.issuesGet]: (input) => issues.get(input.projectId, input.number),
         [WS_METHODS.issuesCreate]: (input) => issues.create(input),
         [WS_METHODS.issuesSetState]: (input) => issues.setState(input),
+        [WS_METHODS.issuesUpdate]: (input) => issues.update(input),
+        [WS_METHODS.issuesUploadImage]: (input) => issues.uploadImage(input),
+        [WS_METHODS.issuesRefresh]: (input) => issues.refresh(input.projectId),
+        [WS_METHODS.issuesSubscribeRefreshes]: () => issues.subscribeRefreshes,
         [WS_METHODS.ticketsList]: (input) => tickets.list(input.projectId),
         [WS_METHODS.ticketsCreate]: (input) => tickets.create(input),
         [WS_METHODS.ticketsUpdate]: (input) => tickets.update(input),
         [WS_METHODS.ticketsDelete]: (input) => tickets.remove(input.projectId, input.ticketId),
+        [WS_METHODS.ticketsUploadImage]: (input) => ticketImages.upload(input),
         [WS_METHODS.ticketsMoveToIssue]: (input) =>
           tickets.moveToIssue(input.projectId, input.ticketId),
         [WS_METHODS.featuresGet]: (input) =>
@@ -164,6 +181,10 @@ export const layerBosunWsRpc = ({ bots, crew, features, issues, tickets }: Bosun
         [WS_METHODS.crewResetProjectManager]: (input) =>
           crew
             .resetProjectManager(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewSetProjectManagerEnabled]: (input) =>
+          projectRequests
+            .setManagerEnabled(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.crewOpenProjectManager]: (input) =>
           crew.ensureProjectManager(input.projectId).pipe(

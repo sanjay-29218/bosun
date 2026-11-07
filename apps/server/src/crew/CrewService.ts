@@ -11,7 +11,6 @@ import {
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
-  PROJECT_MANAGER_ROLE_ID,
   ProjectId,
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
@@ -83,7 +82,7 @@ class CrewValidationError extends Error {
  */
 export const featureManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
 /** A project's standing manager, made from the Project manager role on first use. */
-const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
+export const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
 /** The member that leads a workflow led by a role other than the Feature manager. */
 const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
   `bot-lead:${projectId}:${roleId}`;
@@ -121,12 +120,6 @@ const DEFAULT_ROLES = [
     name: "Feature manager",
     allowedTools: [],
     instructions: FEATURE_MANAGER_INSTRUCTIONS,
-  },
-  {
-    id: PROJECT_MANAGER_ROLE_ID,
-    name: "Project manager",
-    allowedTools: [],
-    instructions: PROJECT_MANAGER_INSTRUCTIONS,
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
@@ -317,7 +310,14 @@ export interface CrewServiceShape {
   readonly ensureProjectManager: (projectId: ProjectId) => Effect.Effect<CrewRun, CrewServiceError>;
   /** Fails for a missing project, Scratch and a bot's home: the ones with no Project manager. */
   readonly requireManagedProject: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
-  /** The project's manager settings, or the role's before the project has one. */
+  /** Like `requireManagedProject`, and fails while the project's manager is turned off. */
+  readonly requireProjectManagerOn: (projectId: ProjectId) => Effect.Effect<void, CrewServiceError>;
+  /** Turns the project's manager off, archiving its thread, or back on, restoring it. */
+  readonly setProjectManagerEnabled: (input: {
+    readonly projectId: ProjectId;
+    readonly enabled: boolean;
+  }) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
+  /** The project's manager settings, or the defaults before the project has one. */
   readonly projectManagerSettings: (
     projectId: ProjectId,
   ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
@@ -325,7 +325,7 @@ export interface CrewServiceShape {
   readonly updateProjectManager: (
     input: ProjectManagerUpdateInput,
   ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
-  /** Takes the role's current settings again, and follows the role from then on. */
+  /** Puts the project's manager back on the defaults: built-in instructions, its bot's model. */
   readonly resetProjectManager: (
     input: ProjectManagerResetInput,
   ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
@@ -633,13 +633,6 @@ export const CrewServiceLive = Layer.effect(
             }
           }),
         );
-        // A project's open manager thread takes the role's new model and mode.
-        if (updated.id === PROJECT_MANAGER_ROLE_ID) {
-          for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
-            if (member.projectId !== null)
-              yield* syncStanding(yield* projectOwner(member.projectId));
-          }
-        }
         return updated;
       },
     );
@@ -657,15 +650,6 @@ export const CrewServiceLive = Layer.effect(
       });
       if (!(yield* store.getRole(input.leadRoleId))) {
         return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.leadRoleId}`));
-      }
-      // It manages a project from its own standing thread, never one feature.
-      if (
-        input.leadRoleId === PROJECT_MANAGER_ROLE_ID ||
-        input.crewRoleIds.includes(PROJECT_MANAGER_ROLE_ID)
-      ) {
-        return yield* Effect.fail(
-          new CrewValidationError("The Project manager can't lead a workflow or join its crew"),
-        );
       }
       const crewRoleIds = [...new Set(input.crewRoleIds)].filter((id) => id !== input.leadRoleId);
       for (const id of crewRoleIds) {
@@ -765,7 +749,6 @@ export const CrewServiceLive = Layer.effect(
       return manager.member;
     });
 
-    /** The project's manager member, made from the Project manager role on first use. */
     /** Fails for a missing project, Scratch and a bot's home. */
     const requireManagedProject = Effect.fn("CrewService.requireManagedProject")(function* (
       projectId: ProjectId,
@@ -780,15 +763,43 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
+    /** What a project's manager starts with: built-in instructions on its owning bot's model. */
+    const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (
+      projectId: ProjectId,
+    ) {
+      const botId = yield* runtime.projectBotId(projectId);
+      const bot = botId === null ? null : yield* bots.get(botId);
+      if (bot?.modelSelection == null) {
+        return yield* Effect.fail(
+          new CrewValidationError(`Choose a default model for ${bot?.name ?? "the project's bot"}`),
+        );
+      }
+      return {
+        instructions: `${PROJECT_MANAGER_INSTRUCTIONS}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`,
+        allowedTools: [] as ReadonlyArray<string>,
+        modelSelection: bot.modelSelection,
+        runtimeMode: "full-access" as const,
+        longConversation: "compact" as const,
+      };
+    });
+
     const projectManagerMember = Effect.fn("CrewService.projectManagerMember")(function* (
       projectId: ProjectId,
     ) {
       yield* requireManagedProject(projectId);
-      const { member } = yield* projectMemberFromRole(
-        projectManagerMemberId(projectId),
+      const existing = yield* store.getMember(projectManagerMemberId(projectId));
+      if (existing !== null) return existing;
+      const defaults = yield* projectManagerDefaults(projectId);
+      const { member } = yield* ensureMember({
+        id: projectManagerMemberId(projectId),
         projectId,
-        PROJECT_MANAGER_ROLE_ID,
-      );
+        roleId: null,
+        name: "Project manager",
+        instructions: defaults.instructions,
+        allowedTools: defaults.allowedTools,
+        modelSelection: defaults.modelSelection,
+        runtimeMode: defaults.runtimeMode,
+      });
       return member;
     });
 
@@ -802,6 +813,7 @@ export const CrewServiceLive = Layer.effect(
       if (member !== null) {
         return {
           projectId,
+          enabled: member.enabled,
           instructions: member.instructions,
           allowedTools: member.allowedTools,
           modelSelection: member.modelSelection,
@@ -812,17 +824,10 @@ export const CrewServiceLive = Layer.effect(
           threadId,
         };
       }
-      const role = yield* store.getRole(PROJECT_MANAGER_ROLE_ID);
-      if (role === null) {
-        return yield* Effect.fail(new CrewValidationError("Add the starter roles first"));
-      }
       return {
         projectId,
-        instructions: `${role.instructions}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`,
-        allowedTools: role.allowedTools,
-        modelSelection: role.modelSelection,
-        runtimeMode: role.runtimeMode,
-        longConversation: "compact",
+        enabled: true,
+        ...(yield* projectManagerDefaults(projectId)),
         customized: false,
         revision: 0,
         threadId,
@@ -885,24 +890,14 @@ export const CrewServiceLive = Layer.effect(
       "CrewService.resetProjectManager",
     )(function* (input) {
       return yield* saveProjectManager(input.projectId, input.expectedRevision, (member, now) =>
-        store.getRole(PROJECT_MANAGER_ROLE_ID).pipe(
-          Effect.flatMap((role) =>
-            role === null
-              ? Effect.fail(new CrewValidationError("Add the starter roles first"))
-              : Effect.succeed({
-                  ...member,
-                  roleRevision: role.revision,
-                  name: role.name,
-                  instructions: `${role.instructions}\n\n${projectMemberContext(member.id, member.projectId)}`,
-                  allowedTools: role.allowedTools,
-                  modelSelection: role.modelSelection,
-                  runtimeMode: role.runtimeMode,
-                  longConversation: "compact" as const,
-                  customizedAt: null,
-                  revision: member.revision + 1,
-                  updatedAt: now,
-                }),
-          ),
+        projectManagerDefaults(input.projectId).pipe(
+          Effect.map((defaults) => ({
+            ...member,
+            ...defaults,
+            customizedAt: null,
+            revision: member.revision + 1,
+            updatedAt: now,
+          })),
         ),
       );
     });
@@ -1118,8 +1113,9 @@ export const CrewServiceLive = Layer.effect(
     // One at a time, so two opens of a deleted standing thread restore it once.
     const standingLock = yield* Semaphore.make(1);
     /**
-     * A standing run, created and pinned on first use, and restored if its thread was deleted
-     * or archived. It restarts with its owner's instructions as they are then.
+     * A standing run, created on first use with no turn, and restored if its thread was deleted
+     * or archived. A bot's headquarters is pinned; a project's manager is reached from the
+     * sidebar header instead, so one pinned before that is unpinned once.
      */
     const ensureStanding = Effect.fn("CrewService.ensureStanding")(function* (
       owner: StandingOwner,
@@ -1132,6 +1128,9 @@ export const CrewServiceLive = Layer.effect(
       // A standing run whose project was deleted moves, and `restore` restarts it there.
       if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
         yield* store.moveRun(id, home);
+      }
+      if (existing !== null && existing.instructions !== owner.instructions) {
+        yield* store.setRunInstructions(id, owner.instructions);
       }
       if (existing === null) {
         yield* store.insertRun({
@@ -1160,15 +1159,14 @@ export const CrewServiceLive = Layer.effect(
       if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
         yield* dispatch(run);
       } else {
-        yield* runtime.restore({
-          ...threadInput(run),
-          prompt: `${owner.instructions}\n\nTask:\n${run.taskText}`,
-        });
+        yield* runtime.restore(threadInput(run));
         yield* runtime.syncSettings(run.threadId, owner.runtimeMode, modelSelection);
       }
-      yield* runtime
-        .pin(run.threadId, `${id}:pin`)
-        .pipe(Effect.catch((error) => Effect.logWarning("Standing pin failed", { id, error })));
+      yield* (
+        headquartersBotId(run.threadId) === null
+          ? runtime.unpin(run.threadId, `${id}:unpin`)
+          : runtime.pin(run.threadId, `${id}:pin`)
+      ).pipe(Effect.catch((error) => Effect.logWarning("Standing pin failed", { id, error })));
       return (yield* store.getRun(id))!;
     }, standingLock.withPermits(1));
 
@@ -1198,10 +1196,55 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
+    const projectManagerOff = (projectId: ProjectId) =>
+      new CrewValidationError(
+        `Project ${projectId}'s manager is turned off. Do this work yourself: start a task or a feature in the project.`,
+      );
+
+    const requireProjectManagerOn: CrewServiceShape["requireProjectManagerOn"] = Effect.fn(
+      "CrewService.requireProjectManagerOn",
+    )(function* (projectId) {
+      yield* requireManagedProject(projectId);
+      const member = yield* store.getMember(projectManagerMemberId(projectId));
+      if (member?.enabled === false) return yield* Effect.fail(projectManagerOff(projectId));
+    });
+
+    const setProjectManagerEnabled: CrewServiceShape["setProjectManagerEnabled"] = Effect.fn(
+      "CrewService.setProjectManagerEnabled",
+    )(function* ({ projectId, enabled }) {
+      const member = yield* projectManagerMember(projectId);
+      if (member.enabled !== enabled) {
+        const updated: CrewMember = {
+          ...member,
+          enabled,
+          revision: member.revision + 1,
+          updatedAt: DateTime.formatIso(yield* DateTime.now),
+        };
+        if (!(yield* store.saveMember(updated, member.revision))) {
+          return yield* Effect.fail(
+            new CrewValidationError(
+              "The project manager changed; reload its settings and try again",
+            ),
+          );
+        }
+      }
+      const run = yield* store.getRun(projectHeadquartersRunId(projectId));
+      if (run !== null) {
+        if (enabled) {
+          const owner = yield* projectOwner(projectId);
+          if (owner !== null) yield* ensureStanding(owner);
+        } else {
+          yield* runtime.archive(run.threadId);
+        }
+      }
+      return yield* projectManagerSettings(projectId);
+    });
+
     const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
       "CrewService.ensureProjectManager",
     )(function* (projectId) {
-      yield* projectManagerMember(projectId);
+      const member = yield* projectManagerMember(projectId);
+      if (!member.enabled) return yield* Effect.fail(projectManagerOff(projectId));
       const owner = yield* projectOwner(projectId);
       if (owner === null) {
         return yield* Effect.fail(new CrewValidationError("Project manager is unavailable"));
@@ -1348,9 +1391,7 @@ export const CrewServiceLive = Layer.effect(
             instructions: FEATURE_DELIVERY_INSTRUCTIONS,
             leadRoleId: FEATURE_MANAGER_ROLE_ID,
             crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
-              role.id === FEATURE_MANAGER_ROLE_ID || role.id === PROJECT_MANAGER_ROLE_ID
-                ? []
-                : [role.id],
+              role.id === FEATURE_MANAGER_ROLE_ID ? [] : [role.id],
             ),
           },
           {
@@ -1452,6 +1493,8 @@ export const CrewServiceLive = Layer.effect(
       rehomeHeadquarters,
       syncHeadquarters,
       ensureProjectManager,
+      requireProjectManagerOn,
+      setProjectManagerEnabled,
       requireManagedProject,
       projectManagerSettings,
       updateProjectManager,
@@ -1490,9 +1533,12 @@ export const CrewServiceLive = Layer.effect(
           yield* Effect.forEach(
             ids,
             (id) =>
-              store
-                .getRun(id)
-                .pipe(Effect.flatMap((run) => (run === null ? Effect.void : replayPending(run)))),
+              store.getRun(id).pipe(
+                // A standing run starts no turn of its own, so it has none to recover.
+                Effect.flatMap((run) =>
+                  run === null || isStandingThread(run.threadId) ? Effect.void : replayPending(run),
+                ),
+              ),
             { concurrency: 1, discard: true },
           );
           afterId = ids[ids.length - 1]!;

@@ -3,6 +3,8 @@ import {
   headquartersProjectId,
   MessageId,
   ProjectId,
+  projectHeadquartersThreadId,
+  type ProjectManagerSettings,
   RunId,
   ThreadId,
   type OrchestrationV2DomainEvent,
@@ -104,6 +106,11 @@ export interface ProjectRequestsShape {
    * recorded for it, such as one that ended just before a restart, newer turns or not.
    */
   readonly catchUp: () => Effect.Effect<void>;
+  /** Turns the project's manager on or off; off hands its open requests back to their senders. */
+  readonly setManagerEnabled: (input: {
+    readonly projectId: ProjectId;
+    readonly enabled: boolean;
+  }) => Effect.Effect<ProjectManagerSettings, ProjectRequestsError>;
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
 }
 
@@ -229,7 +236,7 @@ const make = Effect.gen(function* () {
   const send: ProjectRequestsShape["send"] = Effect.fn("ProjectRequests.send")(function* (input) {
     const message = yield* text(input.message, "the request", 16_000);
     const key = yield* text(input.key, "a key", 200);
-    yield* crew.requireManagedProject(input.projectId);
+    yield* crew.requireProjectManagerOn(input.projectId);
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     const row = yield* sql
       .withTransaction(
@@ -544,7 +551,36 @@ const make = Effect.gen(function* () {
     yield* forkParked(catchUp().pipe(Effect.andThen(deliverPending())));
   });
 
+  const setManagerEnabled: ProjectRequestsShape["setManagerEnabled"] = Effect.fn(
+    "ProjectRequests.setManagerEnabled",
+  )(function* (input) {
+    const settings = yield* crew.setProjectManagerEnabled(input);
+    if (input.enabled) return settings;
+    const open = yield* sql<ProjectRequestRow>`
+      SELECT ${columns} FROM project_requests
+      WHERE project_id = ${input.projectId} AND status = 'open'
+      ORDER BY number
+    `.pipe(Effect.mapError(queryError));
+    const name = yield* projectName(input.projectId);
+    for (const request of open.map(decode)) {
+      yield* tellRequester(
+        request,
+        projectHeadquartersThreadId(input.projectId),
+        "manager-off",
+        `${name}'s project manager was turned off, so ${request.id} is back with you:\n\n${request.text}\n\nDo it yourself: start a task or a feature in the project.`,
+        `${request.id} is back with you`,
+      );
+      const closedAt = DateTime.formatIso(yield* DateTime.now);
+      yield* sql`
+        UPDATE project_requests SET status = 'done', closed_at = COALESCE(closed_at, ${closedAt})
+        WHERE project_id = ${input.projectId} AND id = ${request.id}
+      `.pipe(Effect.mapError(queryError));
+    }
+    return settings;
+  });
+
   return ProjectRequests.of({
+    setManagerEnabled,
     send,
     reply,
     list,

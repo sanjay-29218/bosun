@@ -13,7 +13,6 @@ import {
   MessageId,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
-  PROJECT_MANAGER_ROLE_ID,
   projectHeadquartersThreadId,
   ProjectId,
   ProviderInstanceId,
@@ -1650,15 +1649,24 @@ describe("feature lead and crew", () => {
   );
 
   effectIt.effect(
-    "keeps a project's manager pinned in its project, following its settings until reset",
+    "keeps a project's manager unpinned in its project, following its settings until reset",
     () =>
       withSystem(
         Effect.gen(function* () {
           const crew = yield* CrewService;
           const engine = yield* OrchestrationEngineService;
           const crewStore = yield* CrewStore;
+          const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_BOT_ID))!;
+          // No Library role: it starts on built-in instructions and its bot's model.
+          expect(yield* crewStore.getRole("role:project-manager")).toBeNull();
           const before = yield* crew.projectManagerSettings(projectId);
-          expect(before).toMatchObject({ revision: 0, customized: false, threadId: null });
+          expect(before).toMatchObject({
+            revision: 0,
+            customized: false,
+            threadId: null,
+            modelSelection: captain.modelSelection,
+            runtimeMode: "full-access",
+          });
           expect(before.instructions).toContain("You manage one project");
 
           const run = yield* crew.ensureProjectManager(projectId);
@@ -1667,6 +1675,17 @@ describe("feature lead and crew", () => {
           const shell = () => engine.getThreadShell(run.threadId);
           // It lives in its project, in the project's checkout.
           expect(yield* shell()).toMatchObject({ projectId, branch: null, worktreePath: null });
+          // The sidebar header opens it, so it is not pinned, and opening it starts no turn.
+          expect((yield* shell())?.pinnedAt).toBeNull();
+          const opened = yield* engine.getThreadRecords(run.threadId, ["messages", "runs"]);
+          expect([opened.messages, opened.runs]).toEqual([[], []]);
+          // A pin the person adds stays.
+          yield* engine.dispatch({
+            type: "thread.pin",
+            commandId: CommandId.make("test:pin-pm"),
+            threadId: run.threadId,
+          });
+          yield* crew.ensureProjectManager(projectId);
           expect((yield* shell())?.pinnedAt).toBeTruthy();
           expect(
             (yield* engine
@@ -1712,65 +1731,37 @@ describe("feature lead and crew", () => {
               .pipe(Effect.flip)).message,
           ).toContain("reload");
 
-          // A role edit leaves a customized manager alone, until it is reset to the role.
-          const role = (yield* crewStore.getRole(PROJECT_MANAGER_ROLE_ID))!;
-          yield* crew.updateRole({
-            ...role,
-            instructions: "Manage, edited.",
-            expectedRevision: role.revision,
-          });
-          expect((yield* crew.projectManagerSettings(projectId)).instructions).toBe(
-            "Manage it my way.",
-          );
+          // Reset puts it back on those defaults.
           const reset = yield* crew.resetProjectManager({ projectId, expectedRevision: 2 });
           expect(reset).toMatchObject({
             customized: false,
             revision: 3,
+            instructions: before.instructions,
             allowedTools: [],
-            runtimeMode: role.runtimeMode,
+            modelSelection: captain.modelSelection,
+            runtimeMode: "full-access",
             longConversation: "compact",
           });
-          expect(reset.instructions).toBe(`Manage, edited.\n\nYour project is ${projectId}.`);
-          expect((yield* shell())?.runtimeMode).toBe(role.runtimeMode);
+          expect((yield* shell())?.runtimeMode).toBe("full-access");
+
+          // Off archives its thread and stops new work reaching it; on brings it back.
+          const offSettings = yield* crew.setProjectManagerEnabled({ projectId, enabled: false });
+          expect(offSettings.enabled).toBe(false);
+          expect((yield* shell())?.archivedAt).not.toBeNull();
+          for (const refused of [
+            crew.ensureProjectManager(projectId),
+            crew.requireProjectManagerOn(projectId),
+          ]) {
+            expect((yield* Effect.flip(refused)).message).toContain("turned off");
+          }
+          expect((yield* crew.setProjectManagerEnabled({ projectId, enabled: true })).enabled).toBe(
+            true,
+          );
+          expect((yield* shell())?.archivedAt).toBeNull();
+          expect(yield* crew.ensureProjectManager(projectId)).toMatchObject({
+            threadId: run.threadId,
+          });
         }),
       ),
-  );
-
-  effectIt.effect("keeps the Project manager out of workflows", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const crew = yield* CrewService;
-        const workflow = {
-          id: "workflow:managed-by-pm",
-          name: "Managed",
-          instructions: "Run it.",
-          leadRoleId: PROJECT_MANAGER_ROLE_ID,
-          crewRoleIds: [],
-        };
-        expect((yield* crew.createWorkflow(workflow).pipe(Effect.flip)).message).toContain(
-          "can't lead a workflow",
-        );
-        expect(
-          (yield* crew
-            .createWorkflow({
-              ...workflow,
-              leadRoleId: FEATURE_MANAGER_ROLE_ID,
-              crewRoleIds: [PROJECT_MANAGER_ROLE_ID],
-            })
-            .pipe(Effect.flip)).message,
-        ).toContain("join its crew");
-        const delivery = (yield* crew.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))!;
-        expect(delivery.crewRoleIds).not.toContain(PROJECT_MANAGER_ROLE_ID);
-        expect(
-          (yield* crew
-            .updateWorkflow({
-              ...delivery,
-              crewRoleIds: [...delivery.crewRoleIds, PROJECT_MANAGER_ROLE_ID],
-              expectedRevision: delivery.revision,
-            })
-            .pipe(Effect.flip))._tag,
-        ).toBe("CrewValidationError");
-      }),
-    ),
   );
 });

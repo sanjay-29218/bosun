@@ -44,7 +44,14 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveProjectExpanded } from "../uiStateStore";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  projectHeadquartersThreadId,
+  ProviderInstanceId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import {
   DEFAULT_INTERACTION_MODE,
@@ -180,7 +187,7 @@ describe("sidebar thread lineage helpers", () => {
 });
 
 describe("filterSidebarV2VisibleThreads", () => {
-  it("lists a feature's lead, and keeps its crew threads for inside the lead's row", () => {
+  it("lists a feature's lead, keeps its crew threads for inside the lead's row, and leaves out the project's manager", () => {
     const feature = { id: "feature", title: "Clip crop editing" };
     const lead = makeThreadFixture({ id: ThreadId.make("thread-lead"), feature });
     const planner = makeThreadFixture({
@@ -193,7 +200,9 @@ describe("filterSidebarV2VisibleThreads", () => {
       },
     });
     const plain = makeThreadFixture({ id: ThreadId.make("thread-plain") });
-    const threads = [lead, planner, plain];
+    // It opens from the sidebar header.
+    const manager = makeThreadFixture({ id: projectHeadquartersThreadId("project") });
+    const threads = [lead, planner, plain, manager];
     expect(
       filterSidebarV2VisibleThreads(threads, null, new Set()).map((thread) => thread.id),
     ).toEqual([lead.id, plain.id]);

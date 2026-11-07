@@ -37,7 +37,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   Bot,
   BotCreateInput,
@@ -57,6 +57,7 @@ import {
   CrewSetDelegationInput,
   CrewSetHierarchyInput,
   CrewStartNewSessionInput,
+  ProjectManagerEnabledInput,
   ProjectManagerResetInput,
   ProjectManagerThread,
   ProjectManagerSettings,
@@ -87,8 +88,12 @@ import {
   IssueGetInput,
   IssueList,
   IssueListInput,
+  IssueChangedError,
+  IssueImageUpload,
+  IssueImageUploadInput,
   IssueOperationError,
   IssueSetStateInput,
+  IssueUpdateInput,
   RepositoryIssue,
 } from "./issues.ts";
 import {
@@ -479,11 +484,16 @@ export const WS_METHODS = {
   issuesGet: "issues.get",
   issuesCreate: "issues.create",
   issuesSetState: "issues.setState",
+  issuesUpdate: "issues.update",
+  issuesUploadImage: "issues.uploadImage",
+  issuesRefresh: "issues.refresh",
+  issuesSubscribeRefreshes: "issues.subscribeRefreshes",
   ticketsList: "tickets.list",
   ticketsCreate: "tickets.create",
   ticketsUpdate: "tickets.update",
   ticketsDelete: "tickets.delete",
   ticketsMoveToIssue: "tickets.moveToIssue",
+  ticketsUploadImage: "tickets.uploadImage",
   botsList: "bots.list",
   botsCreate: "bots.create",
   botsUpdate: "bots.update",
@@ -507,6 +517,7 @@ export const WS_METHODS = {
   crewProjectManager: "crew.projectManager",
   crewUpdateProjectManager: "crew.updateProjectManager",
   crewResetProjectManager: "crew.resetProjectManager",
+  crewSetProjectManagerEnabled: "crew.setProjectManagerEnabled",
   crewOpenProjectManager: "crew.openProjectManager",
   crewStartNewSession: "crew.startNewSession",
   projectsListEntries: "projects.listEntries",
@@ -1145,10 +1156,34 @@ const WsIssuesCreateRpc = Rpc.make(WS_METHODS.issuesCreate, {
   success: RepositoryIssue,
   error: IssueRpcError,
 });
+const WsIssuesUploadImageRpc = Rpc.make(WS_METHODS.issuesUploadImage, {
+  payload: IssueImageUploadInput,
+  success: IssueImageUpload,
+  error: Schema.Union([IssueOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsIssuesUpdateRpc = Rpc.make(WS_METHODS.issuesUpdate, {
+  payload: IssueUpdateInput,
+  success: RepositoryIssue,
+  error: Schema.Union([IssueOperationError, IssueChangedError, EnvironmentAuthorizationError]),
+});
 const WsIssuesSetStateRpc = Rpc.make(WS_METHODS.issuesSetState, {
   payload: IssueSetStateInput,
   success: RepositoryIssue,
   error: IssueRpcError,
+});
+/** Drops the server's shared read of the project's issues and tells open boards to re-read. */
+const WsIssuesRefreshRpc = Rpc.make(WS_METHODS.issuesRefresh, {
+  payload: IssueListInput,
+  success: Schema.Void,
+  error: EnvironmentAuthorizationError,
+});
+/** Each project whose issues may have changed on its host, such as when a turn ends. */
+const WsIssuesSubscribeRefreshesRpc = Rpc.make(WS_METHODS.issuesSubscribeRefreshes, {
+  payload: Schema.Struct({}),
+  success: ProjectId,
+  error: EnvironmentAuthorizationError,
+  stream: true,
 });
 const TicketRpcError = Schema.Union([TicketOperationError, EnvironmentAuthorizationError]);
 const WsTicketsListRpc = Rpc.make(WS_METHODS.ticketsList, {
@@ -1168,6 +1203,12 @@ const WsTicketsUpdateRpc = Rpc.make(WS_METHODS.ticketsUpdate, {
 });
 const WsTicketsDeleteRpc = Rpc.make(WS_METHODS.ticketsDelete, {
   payload: TicketGetInput,
+  error: TicketRpcError,
+});
+/** Stores an image pasted into a ticket on its environment, for its Markdown to show. */
+const WsTicketsUploadImageRpc = Rpc.make(WS_METHODS.ticketsUploadImage, {
+  payload: IssueImageUploadInput,
+  success: IssueImageUpload,
   error: TicketRpcError,
 });
 /** Files the ticket as an issue on the project's host, moves its features over, and deletes it. */
@@ -1311,6 +1352,11 @@ const WsCrewUpdateProjectManagerRpc = Rpc.make(WS_METHODS.crewUpdateProjectManag
 });
 const WsCrewResetProjectManagerRpc = Rpc.make(WS_METHODS.crewResetProjectManager, {
   payload: ProjectManagerResetInput,
+  success: ProjectManagerSettings,
+  error: CrewRpcError,
+});
+const WsCrewSetProjectManagerEnabledRpc = Rpc.make(WS_METHODS.crewSetProjectManagerEnabled, {
+  payload: ProjectManagerEnabledInput,
   success: ProjectManagerSettings,
   error: CrewRpcError,
 });
@@ -2329,11 +2375,16 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsIssuesGetRpc,
   WsIssuesCreateRpc,
   WsIssuesSetStateRpc,
+  WsIssuesUpdateRpc,
+  WsIssuesUploadImageRpc,
+  WsIssuesRefreshRpc,
+  WsIssuesSubscribeRefreshesRpc,
   WsTicketsListRpc,
   WsTicketsCreateRpc,
   WsTicketsUpdateRpc,
   WsTicketsDeleteRpc,
   WsTicketsMoveToIssueRpc,
+  WsTicketsUploadImageRpc,
   WsBotsListRpc,
   WsBotsCreateRpc,
   WsBotsUpdateRpc,
@@ -2357,6 +2408,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsCrewProjectManagerRpc,
   WsCrewUpdateProjectManagerRpc,
   WsCrewResetProjectManagerRpc,
+  WsCrewSetProjectManagerEnabledRpc,
   WsCrewOpenProjectManagerRpc,
   WsCrewStartNewSessionRpc,
 ).middleware(RpcScopeAuthorization);

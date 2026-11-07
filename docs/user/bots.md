@@ -79,17 +79,20 @@ itself for pull requests into `main`.
 It reads the project's checkout but doesn't change it, and merges a pull request only when the
 request or its instructions say to.
 
-Open it with **Open project manager** in the project's right-click menu or the command palette,
+With one project picked in the sidebar's project filter, the sidebar's header shows that
+project's manager in place of the bot: click it to open the manager, or its ⚙ for its settings. It
+also opens with **Open project manager** in the project's right-click menu or the command palette,
 or from the link in the bot's reply; the thread is made the first time. A bot's **Lineage** lists
 the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
 back if it was archived, and **/new** or **Start new session…** starts it over.
 
 Its settings are in **Settings → Project → Project manager**: instructions, model and **Access**,
-tools and **Long conversations**. Until you save changes there it follows the **Project manager**
-role in the Library, so editing that role changes every project's manager. Once you save, the
-project keeps its own settings; **Reset to role defaults** goes back to following the role. New
-instructions reach the thread when it next starts a new session; model, **Access** and tools apply
-right away.
+tools and **Long conversations**. It needs no roles from the Library: until you save changes there
+it uses built-in instructions on the model of the bot that owns the project, and **Reset to
+defaults** goes back to them. New instructions reach the thread when it next starts a new session;
+model, **Access** and tools apply right away. The switch at the top turns a project's manager off: its
+bot then does the project's work itself, requests still open go back to the bot, and the manager's
+thread is archived until you turn it on again.
 
 ### The bot rail
 
@@ -140,9 +143,8 @@ default model, whose picker also sets reasoning, speed and **Access**, from **Su
 **Full access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
 on. Each project gets its own Feature manager the first time a feature needs one; editing a role
-changes the crews of features started later, not existing ones. The **Project manager** role is
-the template for each project's manager (see [Project managers](#project-managers)); it doesn't
-lead workflows or join a crew.
+changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see
+[Project managers](#project-managers)).
 
 Editing bots, workflows and roles is available on web and desktop.
 

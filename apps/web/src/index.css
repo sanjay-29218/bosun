@@ -2446,6 +2446,44 @@ code {
   padding: 0.05em 0.25em;
 }
 
+/* A document editor lays text out as the rendered Markdown it opens from, so clicking into it
+   doesn't move the text. Its blank lines are empty paragraphs, standing in for block margins. */
+.composer-document > p:not(:only-child):has(> br.ProseMirror-trailingBreak:only-child) {
+  line-height: 0.65rem;
+}
+
+.composer-document > :has(+ p > br.ProseMirror-trailingBreak:only-child) {
+  margin-bottom: 0;
+}
+
+.composer-document > p:has(> br.ProseMirror-trailingBreak:only-child) + * {
+  margin-top: 0;
+}
+
+.composer-document
+  > p:has(> br.ProseMirror-trailingBreak:only-child)
+  + :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 0.6rem;
+}
+
+.composer-document :not(pre) > code {
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+}
+
+.composer-document strong {
+  font-weight: 600;
+}
+
+.composer-document li + li {
+  margin-top: 0.25rem;
+}
+
+/* Single-digit lists only; the wider-marker rules above outrank this and match ChatMarkdown's. */
+.composer-document ol {
+  --list-gutter: 1.25rem;
+}
+
 /* Markdown delimiters shown, as editable text, around styled text with the caret in it. */
 .composer-rich-marker {
   color: var(--muted-foreground);

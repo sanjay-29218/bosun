@@ -17,6 +17,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   CircleIcon,
+  CircleSlashIcon,
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -34,9 +35,12 @@ import { ChatRow, FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./Feature
 
 const PAGE = 10;
 
-/** The status columns, and the two shelves under Done for features set aside. */
+/**
+ * The status columns, the two shelves under Done for features set aside, and Closed: issues and
+ * tickets closed without a feature on them.
+ */
 type Shelf = "snoozed" | "settled";
-export type BoardSection = FeatureColumn | Shelf;
+export type BoardSection = FeatureColumn | Shelf | "closed";
 /**
  * Settled's open state and its older settled threads not loaded yet, counted as the sidebar
  * counts them. Opening it loads them.
@@ -95,9 +99,15 @@ const SECTION_META: Record<
     className: "text-muted-foreground",
     empty: "Nothing settled",
   },
+  closed: {
+    label: "Closed",
+    icon: CircleSlashIcon,
+    className: "text-muted-foreground",
+    empty: "Nothing closed lately",
+  },
 };
 
-const BOARD_ORDER: ReadonlyArray<FeatureColumn> = ["todo", "working", "needs-you", "done"];
+const BOARD_ORDER: ReadonlyArray<BoardSection> = ["todo", "working", "needs-you", "done", "closed"];
 /** The list puts what waits on you first. */
 const LIST_ORDER: ReadonlyArray<BoardSection> = [
   "needs-you",
@@ -106,9 +116,10 @@ const LIST_ORDER: ReadonlyArray<BoardSection> = [
   "done",
   "snoozed",
   "settled",
+  "closed",
 ];
 /** Sections that grow without bound show their newest few until asked for more. */
-const PAGED = new Set<BoardSection>(["done", "snoozed", "settled"]);
+const PAGED = new Set<BoardSection>(["done", "snoozed", "settled", "closed"]);
 const isShelf = (section: BoardSection): section is Shelf =>
   section === "snoozed" || section === "settled";
 /** Todo pages in the list so a long backlog doesn't bury what follows. */
@@ -328,7 +339,7 @@ function ColumnCards(props: {
       ) : (
         <Paged
           items={items.todos}
-          pageSize={null}
+          pageSize={PAGED.has(items.section) ? PAGE : null}
           render={(issue) => (
             <TodoCard
               key={issueKey(issue)}
@@ -379,14 +390,16 @@ function BoardShelf(props: {
 }
 
 /**
- * Todo, Working, Needs you and Done, as columns or as stacked sections, with Snoozed and
- * Settled folded under Done. Todo holds open issues and tickets beside features not started yet;
- * chat threads sit in the other columns beside features.
+ * Todo, Working, Needs you, Done and Closed, as columns or as stacked sections, with Snoozed and
+ * Settled folded under Done. Todo holds open issues and tickets beside features not started yet,
+ * and Closed the ones closed without a feature; chat threads sit beside features.
  */
 export function FeatureStatusBoard(props: {
   readonly layout: "board" | "list";
   readonly groups: ReadonlyArray<FeatureColumnGroup>;
   readonly todos: ReadonlyArray<EnvironmentIssue>;
+  /** Closed issues and tickets no feature works on, newest first. */
+  readonly closed: ReadonlyArray<EnvironmentIssue>;
   readonly todosPending: boolean;
   readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
   readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
@@ -404,8 +417,14 @@ export function FeatureStatusBoard(props: {
           ? props.settled
           : (props.groups.find((group) => group.column === section)?.cards ?? []),
     chats: props.chats[section] ?? [],
-    todos: section === "todo" && !props.todosPending ? props.todos : [],
-    todosPending: section === "todo" && props.todosPending,
+    todos: props.todosPending
+      ? []
+      : section === "todo"
+        ? props.todos
+        : section === "closed"
+          ? props.closed
+          : [],
+    todosPending: (section === "todo" || section === "closed") && props.todosPending,
   });
   if (props.layout === "list") {
     return (
@@ -428,7 +447,9 @@ export function FeatureStatusBoard(props: {
         return (
           <section
             key={items.section}
-            {...drag.dropProps(items.section, isDone ? "done" : "open")}
+            {...(items.section === "closed"
+              ? {}
+              : drag.dropProps(items.section, isDone ? "done" : "open"))}
             className={cn(
               "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
               drag.over === items.section && "border-dashed border-border bg-accent/40",

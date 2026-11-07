@@ -13,6 +13,7 @@ import {
   AuthFilesystemReadScope,
   AuthOrchestrationOperateScope,
   SOURCE_CONTROL_MEDIA_ASSET,
+  ticketImageAttachmentId,
 } from "@t3tools/contracts";
 import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
@@ -399,6 +400,7 @@ function markdownUrlTransform(href: string) {
   if (parseComposerContextHref(href)) return href;
   if (parseThreadLinkHref(href)) return href;
   if (isWindowsDrivePathHref(href)) return href;
+  if (ticketImageAttachmentId(href)) return href;
   return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
 }
 
@@ -1440,6 +1442,23 @@ const CHAT_MARKDOWN_COMPONENTS = {
       if (fileLinkMeta) return fileLinkChip(fileLinkMeta, copyMarkdown, srcString);
     }
     const kind = mediaKind ?? "image";
+    const attachmentId = ticketImageAttachmentId(srcString);
+    if (attachmentId !== null && environmentId !== null) {
+      return (
+        <ChatMarkdownAssetImage
+          environmentId={environmentId}
+          resource={{ _tag: "attachment", attachmentId, disposition: "inline" }}
+          alt={altText}
+          copyMarkdown={copyMarkdown}
+          standalone={standalone}
+          className={className}
+          style={authoredSizeStyle}
+          imageProps={imageProps}
+          framed={false}
+          onImageExpand={imageExpand}
+        />
+      );
+    }
     const directUri = imageSource._tag === "Direct" ? imageSource.uri : null;
     const hostMediaUrl =
       directUri === null

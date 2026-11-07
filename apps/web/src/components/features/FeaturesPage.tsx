@@ -38,6 +38,7 @@ import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useThreadActions } from "../../hooks/useThreadActions";
+import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useBotRailProjectKeys } from "../../state/botRail";
@@ -47,10 +48,11 @@ import {
   useOlderSettledShelfGrowth,
 } from "../../state/olderSettledShelf";
 import { useProjects, useQuietThreadShells } from "../../state/entities";
+import { useUiStateStore } from "../../uiStateStore";
+import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { primaryServerKeybindingsAtom } from "../../state/server";
-import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { hasStarterRoles, useAddStarterRoles } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
@@ -130,9 +132,32 @@ export function FeaturesPage(props: {
     )
     .toSorted((a, b) => a.title.localeCompare(b.title));
   const projectByKey = new Map(projects.map((project) => [projectKey(project), project]));
+  // The board's project scope is the sidebar's, so the board opens on the project in view.
+  const sidebarScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
+  const setSidebarScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const projectGroups = useSettingsProjectGroups();
+  const sidebarGroup =
+    sidebarScopeKeys.length === 1
+      ? projectGroups.find((group) => group.projectKey === sidebarScopeKeys[0])
+      : undefined;
+  const sidebarProject =
+    sidebarGroup?.memberProjectRefs
+      .map((ref) => projectByKey.get(`${ref.environmentId}:${ref.projectId}`))
+      .find((project) => project !== undefined) ?? null;
   const scopedProject = props.search.project
     ? (projectByKey.get(props.search.project) ?? null)
-    : null;
+    : sidebarProject;
+  const scopeToProject = (project: EnvironmentProject | null) => {
+    const group = project
+      ? projectGroups.find((candidate) =>
+          candidate.memberProjectRefs.some(
+            (ref) => ref.environmentId === project.environmentId && ref.projectId === project.id,
+          ),
+        )
+      : undefined;
+    setSidebarScopeKeys(group ? [group.projectKey] : []);
+    props.onSearchChange({ project: undefined });
+  };
   const targets = (scopedProject ? [scopedProject] : projects).map((project) => ({
     environmentId: project.environmentId,
     projectId: project.id,
@@ -172,17 +197,21 @@ export function FeaturesPage(props: {
       matchesFeatureSearch(card, query, [projectFor(card)?.title]) &&
       (milestoneFilter === null || milestoneFeatureKeys.has(featureCardKey(card))),
   );
-  // Todo holds open issues no feature works on; a closed feature keeps its issue in Done.
-  const todos = issueBoard.issues
-    .filter(
-      (issue) =>
-        issue.state === "open" &&
-        featureFor(issue) === null &&
-        inMilestone(issue) &&
-        (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
-        matchesIssueSearch(issue, searchWords.join(" ")),
-    )
+  // Todo holds open issues no feature works on, and Closed the closed ones; a feature keeps its
+  // issue on its own card.
+  const unworkedIssues = issueBoard.issues.filter(
+    (issue) =>
+      featureFor(issue) === null &&
+      inMilestone(issue) &&
+      (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
+      matchesIssueSearch(issue, searchWords.join(" ")),
+  );
+  const todos = unworkedIssues
+    .filter((issue) => issue.state === "open")
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const closedTodos = unworkedIssues
+    .filter((issue) => issue.state === "closed")
+    .toSorted((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
 
   // The board shows what the thread list shows. A feature sits where its row does: settled,
   // snoozed or neither. A started one with no row (its threads archived, or settled long ago and
@@ -285,7 +314,9 @@ export function FeaturesPage(props: {
     BoardSection,
     (a: EnvironmentThreadShell, b: EnvironmentThreadShell) => number
   > = {
+    // Chats never sit in Todo or Closed.
     todo: () => 0,
+    closed: () => 0,
     working: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     // The longest wait first, as for features.
     "needs-you": (a, b) =>
@@ -498,6 +529,7 @@ export function FeaturesPage(props: {
 
   const clearFilters = () => {
     setLabelFilters(new Set());
+    setSidebarScopeKeys([]);
     props.onSearchChange({ project: undefined, milestone: undefined });
   };
   const showProjectInTitles = scopedProject === null && projects.length > 1;
@@ -517,7 +549,7 @@ export function FeaturesPage(props: {
               checked: project === scopedProject,
             })),
             onChange: (value: string, checked: boolean) =>
-              props.onSearchChange({ project: checked ? value : undefined }),
+              scopeToProject(checked ? (projectByKey.get(value) ?? null) : null),
           },
         ]
       : []),
@@ -595,20 +627,11 @@ export function FeaturesPage(props: {
         layout={layout}
         onLayout={(featureLayout) => updatePreferences({ featureLayout })}
       />
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Refresh issues"
-        title={
-          issueBoard.readAt
-            ? `Issues read from GitHub ${formatRelativeTimeLabel(issueBoard.readAt)}`
-            : "Refresh issues"
-        }
-        disabled={issueBoard.refreshing}
-        onClick={issueBoard.refresh}
-      >
-        <RefreshCwIcon aria-hidden />
-      </Button>
+      <IssueRefreshButton
+        readAt={issueBoard.readAt}
+        refreshing={issueBoard.refreshing}
+        onRefresh={issueBoard.refresh}
+      />
       <Menu>
         <MenuTrigger
           render={
@@ -683,6 +706,7 @@ export function FeaturesPage(props: {
         layout={layout}
         groups={groups}
         todos={todos}
+        closed={closedTodos}
         todosPending={issueBoard.pending}
         snoozed={snoozedCards}
         settled={settledCards}
@@ -769,5 +793,37 @@ function StartFirstFeatureButton(props: {
     <Button variant="outline" onClick={() => void start()} disabled={busy}>
       Start a feature
     </Button>
+  );
+}
+
+/** Refresh with how fresh the board is; its own component so the ticking clock repaints only it. */
+function IssueRefreshButton(props: {
+  readAt: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const relative = useRelativeTimeState(props.readAt);
+  const synced =
+    relative.status === "relative"
+      ? `Synced ${relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value}`
+      : null;
+  return (
+    <>
+      {synced ? (
+        <span className="hidden whitespace-nowrap ps-1 text-xs text-muted-foreground tabular-nums md:inline">
+          {synced}
+        </span>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Refresh issues"
+        title={synced ? `Refresh from GitHub · ${synced.toLowerCase()}` : "Refresh from GitHub"}
+        disabled={props.refreshing}
+        onClick={props.onRefresh}
+      >
+        <RefreshCwIcon aria-hidden />
+      </Button>
+    </>
   );
 }

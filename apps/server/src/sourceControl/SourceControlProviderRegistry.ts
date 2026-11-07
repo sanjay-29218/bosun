@@ -194,8 +194,16 @@ function bindProviderContext(
     return provider;
   }
 
-  const { listIssues, getIssue, createIssue, setIssueState, createMilestone, setMilestoneState } =
-    provider;
+  const {
+    listIssues,
+    getIssue,
+    createIssue,
+    updateIssue,
+    uploadIssueImage,
+    setIssueState,
+    createMilestone,
+    setMilestoneState,
+  } = provider;
   return SourceControlProvider.SourceControlProvider.of({
     ...provider,
     ...(listIssues === undefined
@@ -209,6 +217,15 @@ function bindProviderContext(
     ...(createIssue === undefined
       ? {}
       : { createIssue: (input) => createIssue({ ...input, context: input.context ?? context }) }),
+    ...(updateIssue === undefined
+      ? {}
+      : { updateIssue: (input) => updateIssue({ ...input, context: input.context ?? context }) }),
+    ...(uploadIssueImage === undefined
+      ? {}
+      : {
+          uploadIssueImage: (input) =>
+            uploadIssueImage({ ...input, context: input.context ?? context }),
+        }),
     ...(setIssueState === undefined
       ? {}
       : {

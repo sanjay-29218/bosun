@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { isAtomCommandInterrupted, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import {
   issueKey,
   ticketIssue,
@@ -9,7 +10,7 @@ import type { Ticket } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { featuresEnvironment } from "../../state/features";
@@ -17,10 +18,15 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import type { FeatureBoardTarget } from "./useFeatureBoard";
 
 /**
- * Every read is a GitHub GraphQL query per project, so an open page re-reads slowly; the
- * Refresh button is there for when that is too slow.
+ * Every read is a GitHub GraphQL query per project, so an open page polls slowly. Opening the
+ * board, the Refresh button, and a turn ending in the project read GitHub sooner.
  */
 const ISSUES_REFRESH_MS = 120_000;
+/** Opening the board again within this long of the last read keeps that read. */
+const OPEN_REFRESH_AFTER_MS = 10_000;
+/** When each project's last forced read was sent, so opens during an in-flight read skip it. */
+const forcedReadSentAt = new Map<string, number>();
+const targetKey = (target: FeatureBoardTarget) => `${target.environmentId}:${target.projectId}`;
 
 const issuesAtom = (target: FeatureBoardTarget) =>
   featuresEnvironment.issues({
@@ -65,21 +71,6 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
   const resultsAtom = board.atom;
   const results = useAtomValue(resultsAtom);
 
-  const refresh = () => {
-    for (const target of stableTargets) {
-      appAtomRegistry.refresh(issuesAtom(target));
-      appAtomRegistry.refresh(ticketsAtom(target));
-    }
-  };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Polls GitHub issues while the page is mounted; the interval is cleared on unmount.
-  useEffect(() => {
-    if (stableTargets.length === 0) return;
-    const handle = window.setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
-    }, ISSUES_REFRESH_MS);
-    return () => window.clearInterval(handle);
-  }, [refresh, stableTargets.length]);
-
   const issues: EnvironmentIssue[] = [];
   const milestones: EnvironmentMilestone[] = [];
   const errors: string[] = [];
@@ -100,7 +91,7 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
       for (const issue of value.issues) issues.push({ ...issue, ...owner, ticketId: null });
       for (const milestone of value.milestones) milestones.push({ ...milestone, ...owner });
       if (value.unavailable !== null) unavailable.push({ ...target, reason: value.unavailable });
-      else issueHosts.add(`${target.environmentId}:${target.projectId}`);
+      else issueHosts.add(targetKey(target));
       if (value.truncated) truncated = true;
       // The oldest read is what the page can vouch for.
       if (readAt === null || value.readAt < readAt) readAt = value.readAt;
@@ -117,6 +108,49 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
     if (entry.tickets._tag === "Failure" && !Cause.hasInterruptsOnly(entry.tickets.cause))
       errors.push(formatEnvironmentQueryError(entry.tickets.cause));
   }
+  const refresh = () => {
+    for (const target of stableTargets) {
+      appAtomRegistry.refresh(issuesAtom(target));
+      appAtomRegistry.refresh(ticketsAtom(target));
+    }
+  };
+  /** Reads GitHub past the server's shared read; the server then tells this board to re-read. */
+  const refreshFromHost = (targets: ReadonlyArray<FeatureBoardTarget> = stableTargets) => {
+    for (const target of targets) {
+      forcedReadSentAt.set(targetKey(target), Date.now());
+      appAtomRegistry.refresh(ticketsAtom(target));
+      void runAtomCommand(
+        appAtomRegistry,
+        featuresEnvironment.refreshIssues,
+        { environmentId: target.environmentId, input: { projectId: target.projectId } },
+        { reportFailure: false },
+      ).then((result) => {
+        // A server without the forced read still answers a plain one.
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result))
+          appAtomRegistry.refresh(issuesAtom(target));
+      });
+    }
+  };
+  const onOpen = useEffectEvent(() => {
+    const age = readAt === null ? Infinity : Date.now() - Date.parse(readAt);
+    if (age < OPEN_REFRESH_AFTER_MS) return;
+    const now = Date.now();
+    const stale = stableTargets.filter(
+      (target) => !(now - (forcedReadSentAt.get(targetKey(target)) ?? 0) < OPEN_REFRESH_AFTER_MS),
+    );
+    if (stale.length > 0) refreshFromHost(stale);
+  });
+  const onPoll = useEffectEvent(refresh);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads GitHub when the board opens or its projects change, then polls while it is mounted; the interval is cleared on unmount.
+  useEffect(() => {
+    if (stableTargets.length === 0) return;
+    onOpen();
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === "visible") onPoll();
+    }, ISSUES_REFRESH_MS);
+    return () => window.clearInterval(handle);
+  }, [stableTargets]);
+
   return {
     issues,
     tickets,
@@ -130,6 +164,6 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
     refreshing: results.some((entry) => entry.result.waiting || entry.tickets.waiting),
     truncated,
     readAt,
-    refresh,
+    refresh: () => refreshFromHost(),
   };
 }

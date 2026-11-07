@@ -43,7 +43,7 @@ export function MobileProjectManagerSection(props: {
       {query.data === null ? (
         <Text className="p-4 text-sm text-foreground-muted">{query.error ?? "Loading…"}</Text>
       ) : (
-        // A new revision, from a save, a reset or a role edit, starts the form over from it.
+        // A new revision, from a save or a reset, starts the form over from it.
         <Form
           key={query.data.revision}
           project={project}
@@ -65,6 +65,9 @@ function Form(props: {
   const update = useAtomCommand(rolesEnvironment.updateProjectManager, { reportFailure: false });
   const reset = useAtomCommand(rolesEnvironment.resetProjectManager, { reportFailure: false });
   const open = useAtomCommand(rolesEnvironment.openProjectManager, { reportFailure: false });
+  const setEnabled = useAtomCommand(rolesEnvironment.setProjectManagerEnabled, {
+    reportFailure: false,
+  });
   const canEdit = useAtomValue(
     rolesEnvironment.updateProjectManager.permissionAtom(project.environmentId),
   );
@@ -85,6 +88,16 @@ function Form(props: {
   const canSave =
     canEdit && !busy && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
+  const toggle = () =>
+    run(async () => {
+      const result = await setEnabled({
+        ...target,
+        input: { projectId: project.id, enabled: !settings.enabled },
+      });
+      if (result._tag !== "Success") props.onStale();
+      return result;
+    });
+
   const save = () =>
     run(async () => {
       const result = await update({
@@ -103,23 +116,27 @@ function Form(props: {
       return result;
     });
 
-  const resetToRole = () =>
-    Alert.alert("Reset to role defaults?", "Its settings here are replaced by the role's.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Reset",
-        style: "destructive",
-        onPress: () =>
-          void run(async () => {
-            const result = await reset({
-              ...target,
-              input: { projectId: project.id, expectedRevision: settings.revision },
-            });
-            if (result._tag !== "Success") props.onStale();
-            return result;
-          }),
-      },
-    ]);
+  const resetToDefaults = () =>
+    Alert.alert(
+      "Reset to defaults?",
+      "Its instructions go back to the built-in ones, on the model of the bot that owns the project.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: () =>
+            void run(async () => {
+              const result = await reset({
+                ...target,
+                input: { projectId: project.id, expectedRevision: settings.revision },
+              });
+              if (result._tag !== "Success") props.onStale();
+              return result;
+            }),
+        },
+      ],
+    );
 
   const openThread = async () => {
     const result = await open({ ...target, input: { projectId: project.id } });
@@ -135,12 +152,26 @@ function Form(props: {
     }
   };
 
+  if (!settings.enabled) {
+    return (
+      <View className="gap-2 p-4">
+        <Text className="text-xs text-foreground-muted">
+          Off. The project's bot does its work itself, and the manager's thread is archived.
+        </Text>
+        <View className="flex-row flex-wrap gap-1.5">
+          <Action label="Turn on" disabled={!canEdit || busy} onPress={() => void toggle()} />
+        </View>
+        {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
+      </View>
+    );
+  }
+
   return (
     <View className="gap-2 p-4">
       <Text className="text-xs text-foreground-muted">
         {settings.customized
-          ? "Customized for this project. Edits to the Project manager role don't reach it until you reset it."
-          : "Follows the Project manager role until you save changes here."}
+          ? "Customized for this project."
+          : "Built-in instructions, on the model of the bot that owns this project, until you save changes here."}
       </Text>
       <AppTextInput
         accessibilityLabel="Project manager instructions"
@@ -216,13 +247,10 @@ function Form(props: {
       <View className="flex-row flex-wrap gap-1.5">
         <Action label="Save" disabled={!canSave} onPress={() => void save()} />
         {settings.customized ? (
-          <Action
-            label="Reset to role defaults"
-            disabled={!canEdit || busy}
-            onPress={resetToRole}
-          />
+          <Action label="Reset to defaults" disabled={!canEdit || busy} onPress={resetToDefaults} />
         ) : null}
         <Action label="Open project manager" onPress={() => void openThread()} />
+        <Action label="Turn off" disabled={!canEdit || busy} onPress={() => void toggle()} />
       </View>
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
     </View>

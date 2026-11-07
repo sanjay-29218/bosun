@@ -47,6 +47,7 @@ const setup = Effect.gen(function* () {
   const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
   const turns = new Map<string, ReadonlyArray<object>>();
   const active: { run: OrchestrationV2Run | null } = { run: null };
+  const off = new Set<string>();
   const layer = ProjectRequests.layer.pipe(
     Layer.provideMerge(NoticeInbox.layer),
     Layer.provide(
@@ -67,8 +68,18 @@ const setup = Effect.gen(function* () {
         }),
         Layer.mock(CrewService)({
           ensureProjectManager: () => Effect.succeed({ threadId: managerThreadId } as never),
-          requireManagedProject: (id) =>
-            id === botHome ? Effect.fail(new Error("No Project manager") as never) : Effect.void,
+          requireProjectManagerOn: (id) =>
+            id === botHome
+              ? Effect.fail(new Error("No Project manager") as never)
+              : off.has(id)
+                ? Effect.fail(new Error(`Project ${id}'s manager is turned off`) as never)
+                : Effect.void,
+          setProjectManagerEnabled: ({ projectId: id, enabled }) =>
+            Effect.sync(() => {
+              if (enabled) off.delete(id);
+              else off.add(id);
+              return { projectId: id, enabled } as never;
+            }),
         }),
       ),
     ),
@@ -219,6 +230,45 @@ it.effect("lets only the project's manager reply, and closes the request when it
       digest!.text,
       /^2 updates arrived while you were busy:[^]*PDF planned[^]*PDF built/,
     );
+  }).pipe(Effect.provide(sqlite)),
+);
+
+it.effect("hands open requests back when the manager is turned off, and takes no new ones", () =>
+  Effect.gen(function* () {
+    const { requests, sent, clear } = yield* setup;
+    yield* requests.send({ projectId, requesterThreadId: hq, key: "csv", message: "Add export" });
+    yield* requests.send({ projectId, requesterThreadId: hq, key: "pdf", message: "Add PDF" });
+    yield* requests.reply({
+      managerThreadId,
+      requestId: "R-2",
+      key: "done",
+      message: "Done.",
+      done: true,
+    });
+    yield* clear;
+
+    yield* requests.setManagerEnabled({ projectId, enabled: false });
+    const handedBack = yield* sent;
+    assert.deepStrictEqual(
+      handedBack.map((message) => [message.threadId, message.id]),
+      [[hq, `message:project-request:${projectId}:R-1:manager-off`]],
+    );
+    assert.include(handedBack[0]!.text, "Web's project manager was turned off, so R-1 is back");
+    assert.include(handedBack[0]!.text, "Add export");
+    assert.strictEqual((yield* requests.get(projectId, "R-1"))?.status, "done");
+    const refused = yield* Effect.flip(
+      requests.send({ projectId, requesterThreadId: hq, key: "svg", message: "Add SVG" }),
+    );
+    assert.include(refused.message, "turned off");
+
+    yield* requests.setManagerEnabled({ projectId, enabled: true });
+    const sentAgain = yield* requests.send({
+      projectId,
+      requesterThreadId: hq,
+      key: "svg",
+      message: "Add SVG",
+    });
+    assert.strictEqual(sentAgain.request.id, "R-3");
   }).pipe(Effect.provide(sqlite)),
 );
 

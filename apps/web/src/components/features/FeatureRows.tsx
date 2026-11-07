@@ -11,7 +11,13 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { CircleIcon, GitBranchIcon, MessageSquareIcon, PlayIcon } from "lucide-react";
+import {
+  CircleIcon,
+  CircleSlashIcon,
+  GitBranchIcon,
+  MessageSquareIcon,
+  PlayIcon,
+} from "lucide-react";
 import { memo, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
@@ -35,6 +41,7 @@ import {
   type FeatureShelf,
 } from "./FeatureCard";
 import { FeatureNow } from "./FeatureNow";
+import { CloseTodoButton, ReopenTodoButton } from "./todoState";
 
 /** A long stack shows its first page, then a button for the rest. */
 export function Paged<T>(props: {
@@ -267,16 +274,21 @@ export const ChatRow = memo(function ChatRow(props: {
   );
 });
 
-/** An open issue or ticket no feature works on yet; Start feature shows on hover. */
+/** An issue or ticket no feature works on; on hover, Start feature and Close, or Reopen once closed. */
 export const TodoRow = memo(function TodoRow(props: {
   readonly issue: EnvironmentIssue;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const { issue, handlers } = props;
+  const closed = issue.state === "closed";
   return (
     <div className={rowClassName}>
       <RowId>{issueRef(issue)}</RowId>
-      <CircleIcon aria-label="Todo" className="size-4 shrink-0 text-muted-foreground" />
+      {closed ? (
+        <CircleSlashIcon aria-label="Closed" className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <CircleIcon aria-label="Todo" className="size-4 shrink-0 text-muted-foreground" />
+      )}
       <RowTitle title={issue.title} onOpen={() => handlers.onOpenTodo(issue)} />
       {/* Zero basis: the title takes its width first; labels that don't fit wrap out of sight. */}
       <span className="flex h-5 min-w-0 flex-1 flex-wrap justify-end gap-1.5 overflow-hidden">
@@ -291,11 +303,18 @@ export const TodoRow = memo(function TodoRow(props: {
           </Chip>
         ))}
       </span>
-      <span className={cn("relative z-10 shrink-0", hoverOnlyClassName)}>
-        <Button size="xs" variant="outline" onClick={() => handlers.onStartTodo(issue)}>
-          <PlayIcon aria-hidden />
-          Start feature
-        </Button>
+      <span className={cn("relative z-10 flex shrink-0 gap-1.5", hoverOnlyClassName)}>
+        {closed ? (
+          <ReopenTodoButton todo={issue} />
+        ) : (
+          <>
+            <Button size="xs" variant="outline" onClick={() => handlers.onStartTodo(issue)}>
+              <PlayIcon aria-hidden />
+              Start feature
+            </Button>
+            <CloseTodoButton todo={issue} />
+          </>
+        )}
       </span>
       <RowProject project={handlers.projectFor(issue)} />
       <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">

@@ -1,3 +1,4 @@
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { assert, it, vi } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -8,6 +9,9 @@ import {
   CheckpointRef,
   CheckpointScopeId,
   MessageId,
+  ChatAttachmentId,
+  type ChatAttachment,
+  botHeadquartersThreadId,
   type ModelSelection,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2TurnItem,
@@ -4779,6 +4783,228 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           assert.equal(shell?.itemCount, itemCount);
         }
       }),
+  );
+
+  it.effect("gives only standing threads a last completed line in the shell", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const createdAt = yield* DateTime.now;
+      const headquartersId = botHeadquartersThreadId("bot:shell-line");
+      const plainId = ThreadId.make("thread:shell-line:plain");
+      const threadPayload = (threadId: ThreadId) => ({
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId: ProjectId.make("project:shell-line"),
+        title: "Shell line",
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      });
+      const message = (
+        threadId: ThreadId,
+        id: string,
+        seconds: number,
+        text: string,
+        streaming: boolean,
+        options: {
+          readonly runId?: RunId;
+          readonly role?: "user" | "assistant";
+          readonly attachments?: ReadonlyArray<ChatAttachment>;
+        } = {},
+      ) =>
+        projectionStore.apply({
+          id: EventId.make(`event:shell-line:${threadId}:${id}:${streaming}`),
+          type: "message.updated",
+          threadId,
+          occurredAt: DateTime.add(createdAt, { seconds }),
+          payload: {
+            id: MessageId.make(`message:shell-line:${threadId}:${id}`),
+            threadId,
+            runId: options.runId ?? null,
+            nodeId: null,
+            role: options.role ?? "assistant",
+            text,
+            attachments: [...(options.attachments ?? [])],
+            streaming,
+            createdBy: "user",
+            creationSource: "web",
+            createdAt: DateTime.add(createdAt, { seconds }),
+            updatedAt: DateTime.add(createdAt, { seconds }),
+          },
+        });
+      const lines = Effect.gen(function* () {
+        const shells = (yield* projectionStore.getShellSnapshot()).threads;
+        const memory = yield* projectionStore.getThreadProjection(headquartersId);
+        return {
+          headquarters: shells.find((shell) => shell.id === headquartersId)?.latestVisibleMessage
+            ?.text,
+          plain: shells.find((shell) => shell.id === plainId)?.latestVisibleMessage,
+          memory: ProjectionStore.threadShellFromProjection(memory).latestVisibleMessage?.text,
+        };
+      });
+
+      for (const threadId of [headquartersId, plainId]) {
+        yield* projectionStore.apply({
+          id: EventId.make(`event:shell-line:${threadId}:created`),
+          type: "thread.created",
+          threadId,
+          occurredAt: createdAt,
+          payload: threadPayload(threadId),
+        });
+        yield* message(threadId, "done", 1, "Report\n\n- **Shipped** the fix\n", false);
+      }
+      assert.deepEqual(yield* lines, {
+        headquarters: "Shipped the fix",
+        plain: null,
+        memory: "Shipped the fix",
+      });
+
+      // A reply still streaming leaves the line on the last completed message.
+      yield* message(headquartersId, "next", 2, "Halfway", true);
+      assert.deepEqual(yield* lines, {
+        headquarters: "Shipped the fix",
+        plain: null,
+        memory: "Shipped the fix",
+      });
+
+      yield* message(headquartersId, "next", 2, "All done", false);
+      assert.deepEqual(yield* lines, {
+        headquarters: "All done",
+        plain: null,
+        memory: "All done",
+      });
+
+      // Messages at the same instant resolve by id, as SQL orders them.
+      yield* message(headquartersId, "tie-b", 3, "Tie b", false);
+      yield* message(headquartersId, "tie-a", 3, "Tie a", false);
+      assert.deepEqual(yield* lines, { headquarters: "Tie b", plain: null, memory: "Tie b" });
+
+      // An image sent with no text is stored with the attachment-only bootstrap prompt.
+      yield* message(headquartersId, "image", 4, ATTACHMENT_ONLY_BOOTSTRAP_PROMPT, false, {
+        role: "user",
+        attachments: [
+          {
+            type: "image",
+            id: ChatAttachmentId.make("shell-line-image"),
+            name: "shot.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+          },
+        ],
+      });
+      assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
+      yield* message(
+        headquartersId,
+        "image-ultrathink",
+        4,
+        `ultrathink:\n${ATTACHMENT_ONLY_BOOTSTRAP_PROMPT}`,
+        false,
+        {
+          role: "user",
+          attachments: [
+            {
+              type: "image",
+              id: ChatAttachmentId.make("shell-line-image-ultrathink"),
+              name: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+            },
+          ],
+        },
+      );
+      assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
+
+      // Queued input whose run was cancelled is hidden in the transcript, so not shown here.
+      const cancelledRunId = RunId.make("run:shell-line:cancelled");
+      const cancelledRun = {
+        id: cancelledRunId,
+        threadId: headquartersId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make(`message:shell-line:${headquartersId}:queued`),
+        rootNodeId: NodeId.make("node:shell-line:cancelled"),
+        activeAttemptId: null,
+        status: "queued" as const,
+        requestedAt: DateTime.add(createdAt, { seconds: 5 }),
+        startedAt: null,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      };
+      yield* projectionStore.apply({
+        id: EventId.make("event:shell-line:cancelled-run"),
+        type: "run.created",
+        threadId: headquartersId,
+        runId: cancelledRunId,
+        nodeId: cancelledRun.rootNodeId,
+        driver,
+        providerInstanceId,
+        occurredAt: cancelledRun.requestedAt,
+        payload: cancelledRun,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:shell-line:queued-item"),
+        type: "turn-item.updated",
+        threadId: headquartersId,
+        runId: cancelledRunId,
+        driver,
+        occurredAt: cancelledRun.requestedAt,
+        payload: {
+          createdBy: "user",
+          creationSource: "web",
+          id: TurnItemId.make("item:shell-line:queued"),
+          threadId: headquartersId,
+          runId: cancelledRunId,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "completed",
+          title: null,
+          startedAt: cancelledRun.requestedAt,
+          completedAt: cancelledRun.requestedAt,
+          updatedAt: cancelledRun.requestedAt,
+          type: "user_message",
+          messageId: cancelledRun.userMessageId,
+          inputIntent: "queued_turn",
+          text: "Never sent",
+          attachments: [],
+        },
+      });
+      yield* message(headquartersId, "queued", 5, "Never sent", false, {
+        role: "user",
+        runId: cancelledRunId,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:shell-line:cancelled"),
+        type: "run.updated",
+        threadId: headquartersId,
+        runId: cancelledRunId,
+        nodeId: cancelledRun.rootNodeId,
+        driver,
+        occurredAt: DateTime.add(createdAt, { seconds: 6 }),
+        payload: { ...cancelledRun, status: "cancelled", completedAt: createdAt },
+      });
+      assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
+    }),
   );
 
   it.effect("does not treat visited or marked-unread state as thread activity", () =>

@@ -78,6 +78,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.crewSetDelegation]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewUpdateProjectManager]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewResetProjectManager]: AuthOrchestrationOperateScope,
+  [WS_METHODS.crewSetProjectManagerEnabled]: AuthOrchestrationOperateScope,
   // Opening may create the manager's thread, as opening a bot's headquarters may.
   [WS_METHODS.crewOpenProjectManager]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewStartNewSession]: AuthOrchestrationOperateScope,
@@ -92,8 +93,11 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.featuresSetIssue]: AuthOrchestrationOperateScope,
   [WS_METHODS.issuesCreate]: AuthSourceControlWriteScope,
   [WS_METHODS.issuesSetState]: AuthSourceControlWriteScope,
+  [WS_METHODS.issuesUpdate]: AuthSourceControlWriteScope,
+  [WS_METHODS.issuesUploadImage]: AuthSourceControlWriteScope,
   [WS_METHODS.ticketsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.ticketsUpdate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.ticketsUploadImage]: AuthOrchestrationOperateScope,
   [WS_METHODS.ticketsDelete]: AuthOrchestrationOperateScope,
   // Moving a ticket files an issue on the host.
   [WS_METHODS.ticketsMoveToIssue]: AuthSourceControlWriteScope,

@@ -1,4 +1,5 @@
 import { requireSettingsSecretLiteral, SourceControlProviderKind } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -10,6 +11,7 @@ import {
   GraphQLResolver,
 } from "effect/graphql";
 import * as Option from "effect/Option";
+import * as Random from "effect/Random";
 import * as RequestResolver from "effect/RequestResolver";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -346,6 +348,7 @@ class GitHubFailure extends Schema.TaggedError<GitHubFailure>()("GitHubFailure",
 }) {}
 
 const failure = (detail: string, cause?: unknown) => new GitHubFailure({ detail, cause });
+const isGitHubFailure = Schema.is(GitHubFailure);
 
 const PULL_REQUEST_NOT_FOUND = "Pull request not found. Check the PR number or URL and try again.";
 const REPOSITORY_NOT_FOUND = "Repository not found. Check the owner and name and try again.";
@@ -402,6 +405,19 @@ function repositoryCloneUrls(
 }
 
 const decodeViewerLogin = decodeJsonResult(Schema.Struct({ login: TrimmedNonEmptyString }));
+
+/** GitHub takes no images through its API, so pasted ones are committed here, off every history. */
+const ISSUE_IMAGES_BRANCH = "bosun-attachments";
+const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+const decodeSha = decodeJsonResult(Schema.Struct({ sha: Schema.String }));
+const decodeContentsWrite = decodeJsonResult(
+  Schema.Struct({ commit: Schema.Struct({ sha: Schema.String }) }),
+);
 
 type PullRequestListState = "open" | "closed" | "merged" | "all";
 
@@ -1138,6 +1154,123 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const uploadIssueImage = Effect.fn("GitHubSourceControlProvider.uploadIssueImage")(
+    function* (input: {
+      readonly cwd: string;
+      readonly fileName: string;
+      readonly mimeType: string;
+      readonly base64: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+    }) {
+      const extension = IMAGE_EXTENSIONS[input.mimeType.toLowerCase()];
+      if (extension === undefined) {
+        return yield* failure("Only PNG, JPEG, GIF and WebP images can go in an issue.");
+      }
+      const locator = yield* issueRepository(input);
+      const repository = `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}`;
+      const stamp = (yield* Clock.currentTimeMillis).toString(36);
+      const salt = (yield* Random.nextIntBetween(0, 2 ** 31)).toString(36);
+      const path = `issues/${stamp}-${salt}.${extension}`;
+      const message = `Add ${input.fileName} for an issue`;
+      const request = (
+        operation: string,
+        method: "GET" | "POST" | "PUT",
+        path: string,
+        body?: unknown,
+      ) =>
+        Effect.suspend(() =>
+          api.rest({
+            host: locator.host,
+            operation,
+            method,
+            allowReserve: true,
+            path: `${repository}/${path}`,
+            ...(body === undefined ? {} : { body }),
+          }),
+        );
+      const sha = (body: string) => {
+        const decoded = decodeSha(body);
+        return Result.isFailure(decoded)
+          ? Effect.fail(failure("GitHub returned an invalid answer.", decoded.failure))
+          : Effect.succeed(decoded.success.sha);
+      };
+      const putFile = request("uploadIssueImage", "PUT", `contents/${path}`, {
+        message,
+        content: input.base64,
+        branch: ISSUE_IMAGES_BRANCH,
+      }).pipe(
+        Effect.flatMap((response) => {
+          const decoded = decodeContentsWrite(response.body);
+          return Result.isFailure(decoded)
+            ? Effect.fail(failure("GitHub returned an invalid answer.", decoded.failure))
+            : Effect.succeed(decoded.success.commit.sha);
+        }),
+      );
+      // The first image starts the branch as a root commit; a race to create it falls back to adding.
+      const startBranch = Effect.gen(function* () {
+        const blob = yield* request("uploadIssueImage", "POST", "git/blobs", {
+          content: input.base64,
+          encoding: "base64",
+        }).pipe(Effect.flatMap((response) => sha(response.body)));
+        const tree = yield* request("uploadIssueImage", "POST", "git/trees", {
+          tree: [{ path, mode: "100644", type: "blob", sha: blob }],
+        }).pipe(Effect.flatMap((response) => sha(response.body)));
+        const commit = yield* request("uploadIssueImage", "POST", "git/commits", {
+          message,
+          tree,
+          parents: [],
+        }).pipe(Effect.flatMap((response) => sha(response.body)));
+        return yield* request("uploadIssueImage", "POST", "git/refs", {
+          ref: `refs/heads/${ISSUE_IMAGES_BRANCH}`,
+          sha: commit,
+        }).pipe(
+          Effect.as(commit),
+          Effect.catch(() => putFile),
+        );
+      });
+      const commit = yield* request(
+        "uploadIssueImage",
+        "GET",
+        `git/ref/heads/${ISSUE_IMAGES_BRANCH}`,
+      ).pipe(
+        Effect.as(true),
+        Effect.catchTags({ GitHubApiNotFoundError: () => Effect.succeed(false) }),
+        Effect.flatMap((exists) => (exists ? putFile : startBranch)),
+        Effect.mapError((error) =>
+          isGitHubFailure(error) ? error : fromGitHubApiError(error, REPOSITORY_NOT_FOUND),
+        ),
+      );
+      return {
+        url: `https://${locator.host}/${locator.owner}/${locator.name}/raw/${commit}/${path}`,
+      };
+    },
+  );
+
+  const updateIssue = Effect.fn("GitHubSourceControlProvider.updateIssue")(function* (input: {
+    readonly cwd: string;
+    readonly number: number;
+    readonly title?: string | undefined;
+    readonly body?: string | undefined;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+  }) {
+    const locator = yield* issueRepository(input);
+    const response = yield* rest(
+      {
+        host: locator.host,
+        operation: "updateIssue",
+        method: "PATCH",
+        allowReserve: true,
+        path: `${issuePath(locator)}/${input.number}`,
+        body: {
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.body === undefined ? {} : { body: input.body }),
+        },
+      },
+      `Issue #${input.number} was not found.`,
+    );
+    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+  });
+
   const setIssueState = Effect.fn("GitHubSourceControlProvider.setIssueState")(function* (input: {
     readonly cwd: string;
     readonly number: number;
@@ -1333,6 +1466,18 @@ export const make = Effect.gen(function* () {
       function (input) {
         return setMilestoneState(input).pipe(
           Effect.mapError(providerError("setMilestoneState", input.cwd)),
+        );
+      },
+    ),
+    updateIssue: Effect.fn("GitHubSourceControlProvider.updateIssueForCaller")(function (input) {
+      return updateIssue(input).pipe(
+        Effect.mapError(providerError("updateIssue", input.cwd, { reference: `#${input.number}` })),
+      );
+    }),
+    uploadIssueImage: Effect.fn("GitHubSourceControlProvider.uploadIssueImageForCaller")(
+      function (input) {
+        return uploadIssueImage(input).pipe(
+          Effect.mapError(providerError("uploadIssueImage", input.cwd)),
         );
       },
     ),

@@ -1,11 +1,15 @@
 import {
+  IssueChangedError,
   IssueOperationError,
   type IssueClosedReason,
   type IssueDetail,
+  type IssueImageUpload,
+  type IssueImageUploadInput,
   type IssueList,
   type ProjectId,
   type RepositoryIssue,
   type RepositoryMilestone,
+  type IssueUpdateInput,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -16,9 +20,11 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import type * as Stream from "effect/Stream";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import * as IssueRefreshes from "./IssueRefreshes.ts";
 
 /** How long a project's issue list is shared before the host is asked again. */
 const LIST_CACHE_TTL = Duration.seconds(30);
@@ -65,12 +71,28 @@ export class IssueService extends Context.Service<
       readonly state: "open" | "closed";
       readonly reason?: IssueClosedReason | undefined;
     }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
+    /**
+     * Changes the title or body. Given `expectedUpdatedAt`, it first checks the host's copy and
+     * refuses when someone edited it since, so a stale editor can't overwrite their change.
+     */
+    readonly update: (
+      input: IssueUpdateInput,
+    ) => Effect.Effect<RepositoryIssue, IssueOperationError | IssueChangedError>;
+    /** Stores a pasted image on the project's host, for an issue's Markdown to link. */
+    readonly uploadImage: (
+      input: IssueImageUploadInput,
+    ) => Effect.Effect<IssueImageUpload, IssueOperationError>;
+    /** Drops the project's shared read, so the next one asks the host, and tells open boards. */
+    readonly refresh: (projectId: ProjectId) => Effect.Effect<void>;
+    /** Each project whose issues may have changed on its host. */
+    readonly subscribeRefreshes: Stream.Stream<ProjectId>;
   }
 >()("t3/issues/IssueService") {}
 
 const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
+  const refreshes = yield* IssueRefreshes.IssueRefreshes;
 
   const workspaceRoot = Effect.fn("IssueService.workspaceRoot")(function* (projectId: ProjectId) {
     const project = yield* projects.get(projectId).pipe(
@@ -134,7 +156,11 @@ const make = Effect.gen(function* () {
 
   // Concurrent reads of one project share a host request, and answers are shared for a while.
   // Failures are dropped at once so a fixed credential or network shows on the next read.
-  const listCache = yield* Cache.makeWith(listUncached, {
+  // The key carries the project's refresh revision, so a refresh makes the next read miss.
+  const cacheKey = (projectId: ProjectId) =>
+    JSON.stringify([projectId, refreshes.revision(projectId)]);
+  const cacheProject = (key: string) => (JSON.parse(key) as [ProjectId, number])[0];
+  const listCache = yield* Cache.makeWith((key: string) => listUncached(cacheProject(key)), {
     capacity: LIST_CACHE_CAPACITY,
     timeToLive: (exit) => (Exit.isSuccess(exit) ? LIST_CACHE_TTL : Duration.zero),
   });
@@ -163,7 +189,7 @@ const make = Effect.gen(function* () {
     const number = /^#?([1-9]\d*)$/u.exec(ref.trim());
     if (number) return Number(number[1]);
     const wanted = ref.trim().toLowerCase();
-    const list = yield* Cache.get(listCache, projectId);
+    const list = yield* Cache.get(listCache, cacheKey(projectId));
     const match = list.milestones.find((milestone) => milestone.title.toLowerCase() === wanted);
     if (match === undefined) {
       return yield* new IssueOperationError({
@@ -190,7 +216,7 @@ const make = Effect.gen(function* () {
           ...(input.parent === undefined ? {} : { parent: input.parent }),
         })
         .pipe(Effect.catch(hostFailure("create", input.projectId)));
-      yield* Cache.invalidate(listCache, input.projectId);
+      yield* refreshes.refresh(input.projectId);
       return issue;
     },
   );
@@ -207,7 +233,35 @@ const make = Effect.gen(function* () {
           ...(input.reason === undefined ? {} : { reason: input.reason }),
         })
         .pipe(Effect.catch(hostFailure("state change", input.projectId)));
-      yield* Cache.invalidate(listCache, input.projectId);
+      yield* refreshes.refresh(input.projectId);
+      return issue;
+    },
+  );
+
+  const update: IssueService["Service"]["update"] = Effect.fn("IssueService.update")(
+    function* (input) {
+      const { cwd, provider } = yield* requireIssueHost(input.projectId);
+      if (provider.updateIssue === undefined) return yield* unsupported;
+      if (input.expectedUpdatedAt !== undefined && provider.getIssue !== undefined) {
+        const current = yield* provider
+          .getIssue({ cwd, number: input.number })
+          .pipe(Effect.catch(hostFailure("read", input.projectId)));
+        if (current.updatedAt !== input.expectedUpdatedAt) {
+          return yield* new IssueChangedError({
+            number: input.number,
+            updatedAt: current.updatedAt,
+          });
+        }
+      }
+      const issue = yield* provider
+        .updateIssue({
+          cwd,
+          number: input.number,
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.body === undefined ? {} : { body: input.body }),
+        })
+        .pipe(Effect.catch(hostFailure("edit", input.projectId)));
+      yield* refreshes.refresh(input.projectId);
       return issue;
     },
   );
@@ -224,7 +278,7 @@ const make = Effect.gen(function* () {
         ...(input.description === undefined ? {} : { description: input.description }),
       })
       .pipe(Effect.catch(hostFailure("milestone create", input.projectId)));
-    yield* Cache.invalidate(listCache, input.projectId);
+    yield* refreshes.refresh(input.projectId);
     return milestone;
   });
 
@@ -237,23 +291,43 @@ const make = Effect.gen(function* () {
     const milestone = yield* provider
       .setMilestoneState({ cwd, number, state: input.state })
       .pipe(Effect.catch(hostFailure("milestone state change", input.projectId)));
-    yield* Cache.invalidate(listCache, input.projectId);
+    yield* refreshes.refresh(input.projectId);
     return milestone;
   });
 
+  const uploadImage: IssueService["Service"]["uploadImage"] = Effect.fn("IssueService.uploadImage")(
+    function* (input) {
+      const { cwd, provider } = yield* requireIssueHost(input.projectId);
+      if (provider.uploadIssueImage === undefined) return yield* unsupported;
+      const [, mimeType = "", base64 = ""] =
+        /^data:([^;]+);base64,(.*)$/su.exec(input.dataUrl) ?? [];
+      return yield* provider
+        .uploadIssueImage({ cwd, fileName: input.fileName, mimeType, base64 })
+        .pipe(Effect.catch(hostFailure("image upload", input.projectId)));
+    },
+  );
+
   return IssueService.of({
     get,
+    update,
+    uploadImage,
     create,
     setState,
     createMilestone,
     setMilestoneState,
     // A reader can join a lookup still finishing a previous reader's cancellation.
     list: Effect.fn("IssueService.list")((projectId) =>
-      Cache.get(listCache, projectId).pipe(
-        Effect.catchCauseIf(Cause.hasInterruptsOnly, () => Cache.get(listCache, projectId)),
+      Effect.suspend(() => Cache.get(listCache, cacheKey(projectId))).pipe(
+        Effect.catchCauseIf(Cause.hasInterruptsOnly, () =>
+          Cache.get(listCache, cacheKey(projectId)),
+        ),
       ),
     ),
+    refresh: refreshes.refresh,
+    subscribeRefreshes: refreshes.changes,
   });
 });
 
-export const layer = Layer.effect(IssueService, make);
+export const layer = Layer.effect(IssueService, make).pipe(
+  Layer.provideMerge(IssueRefreshes.layer),
+);

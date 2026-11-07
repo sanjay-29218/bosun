@@ -29,11 +29,6 @@ export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_D
 
 /** The role that leads a feature in the built-in workflows; each project's lead is made from it. */
 export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
-/**
- * The role each project's standing manager starts from. It leads no workflow and joins no crew;
- * a project's manager follows it until someone customizes it in the project.
- */
-export const PROJECT_MANAGER_ROLE_ID = "role:project-manager";
 
 /**
  * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.
@@ -206,12 +201,14 @@ export const CrewSetDelegationInput = Schema.Struct({
 /** A project's manager as it is now, or as the role would make it before its first use. */
 export const ProjectManagerSettings = Schema.Struct({
   projectId: ProjectId,
+  /** Off, its bot does the project's work itself and its thread is archived. */
+  enabled: Schema.Boolean,
   instructions: Schema.String,
   allowedTools: Schema.Array(Schema.String),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   longConversation: BotLongConversation,
-  /** Saved in the project, so role edits no longer reach it until it is reset. */
+  /** Saved in the project, rather than its defaults. */
   customized: Schema.Boolean,
   /** The member's revision; 0 before the project has one. */
   revision: Schema.Int,
@@ -234,6 +231,11 @@ export const ProjectManagerResetInput = Schema.Struct({
   expectedRevision: Schema.Int,
 });
 export type ProjectManagerResetInput = typeof ProjectManagerResetInput.Type;
+export const ProjectManagerEnabledInput = Schema.Struct({
+  projectId: ProjectId,
+  enabled: Schema.Boolean,
+});
+export type ProjectManagerEnabledInput = typeof ProjectManagerEnabledInput.Type;
 
 /** A project's manager thread, made and opened on first use. */
 export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });

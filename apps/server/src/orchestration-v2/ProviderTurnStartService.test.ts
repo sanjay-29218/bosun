@@ -54,6 +54,7 @@ import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as TurnBriefing from "./TurnBriefing.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
 
@@ -285,6 +286,8 @@ function makeLocalCommandHarness(input: {
   readonly interruptRunBeforeOpenFailure?: boolean;
   readonly writeFailure?: unknown;
   readonly failReadsAfterRunning?: boolean;
+  /** What the thread's agent is briefed with when its provider conversation starts. */
+  readonly briefing?: string;
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
     readonly turnStatus: "running" | "completed" | "interrupted";
@@ -685,6 +688,19 @@ function makeLocalCommandHarness(input: {
         },
         run,
       ],
+      attempts: [
+        {
+          ...projection.attempts[0]!,
+          id: previousAttemptId,
+          runId: previousRunId,
+          rootNodeId: NodeId.make("previous-root"),
+          providerThreadId: previousProviderThreadId,
+          providerTurnId: previousTurnId,
+          nativeThreadId: "existing-native-conversation",
+          status: input.previousTurn.runStatus,
+        },
+        ...projection.attempts,
+      ],
       providerThreads: [
         {
           ...providerThread,
@@ -913,6 +929,13 @@ function makeLocalCommandHarness(input: {
     }),
   );
   const layer = ProviderTurnStart.layer.pipe(
+    Layer.provide(
+      input.briefing === undefined
+        ? Layer.empty
+        : Layer.succeed(TurnBriefing.TurnBriefing, {
+            forThread: () => Effect.succeed(input.briefing ?? null),
+          }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
@@ -1300,6 +1323,29 @@ effectIt.effect.each([
           toProviderThreadId: "new-provider-thread",
           delivery: { nativeThreadId: "side-chat-native", status: "inline" },
         },
+      ]);
+    }),
+);
+
+effectIt.effect.each([
+  { conversation: "new", briefed: true },
+  { conversation: "continued", briefed: false },
+] as const)(
+  "briefs a thread's agent only when its provider conversation starts: $conversation",
+  ({ conversation, briefed }) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "What's open?",
+        briefing: "You manage one project.",
+        ...(conversation === "new"
+          ? { sideChat: { contextRun: "current" } }
+          : { previousTurn: { runStatus: "completed", turnStatus: "completed" } }),
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun.mock.calls.map(([run]) => run.message.text)).toEqual([
+        briefed ? "You manage one project.\n\nWhat's open?" : "What's open?",
       ]);
     }),
 );
