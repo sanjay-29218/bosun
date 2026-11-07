@@ -1,12 +1,12 @@
 # Bosun
 
-Bosun is an open-source **agentic software factory**. Instead of driving one coding
-agent at a time, you direct a crew: a **Captain** coordinates **Managers**, and each
-Manager runs a team of bots — **Planner**, **Designer**, **Execution**, **Reviewer** —
-across **Projects** and the **Features** they deliver.
+Bosun is an open-source **agentic software factory**. Instead of driving one coding agent
+at a time, you talk to **bots**. Each bot owns a set of projects, each project has a
+**project manager** that turns your requests into tracked work, and bigger work runs as
+**features**: a lead and a crew of roles working in their own branch toward one pull request.
 
 Bosun is a downstream fork of [T3 Code](#the-t3-code-harness) and uses it as its agent
-harness and control surface. The name comes from _boatswain_ ("bosun") — the officer
+harness and control surface. The name comes from _boatswain_ ("bosun"): the officer
 who runs the deck crew under the captain.
 
 ## Credit where it's due
@@ -28,84 +28,69 @@ and it ships under its own name, identity, and branding.
 
 ## What is Bosun?
 
-An agentic software factory — a system for running _organizations_ of agents rather
-than single conversations.
+![The bot list with Shipwright's headquarters open](./assets/readme/bot-hq.webp)
 
-- **Captain** — a bot, and the single source you talk to. It asks each project's
-  Manager what they're doing and which feature is in flight, and relays your wishes.
-  Managers can also ask the Captain to ask you on their behalf.
-- **Manager** — one per project, and a bot itself. It plans the work and drives the
-  project's crew.
-- **Bots** — the crew: **Planner** (Linear / GitHub issues), **Designer** (Figma MCP /
-  paper), **Execution**, and **Reviewer**. Each bot has a hierarchy, rules, context,
-  skills, models, and MCP tools, and usually one job it does well. Bots can ask each
-  other for context — a Designer asks the Planner; a Planner asks its Manager.
-- **Projects** — a container (its own worktree and branch). A set of tasks, not
-  necessarily coding: another codebase, a stock portfolio, anything you can describe.
-  A project's crew turns features into branches that converge into a PR.
-- **Features** — the units a project's crew delivers.
+- **Bots** own your projects. Each one has a **headquarters** thread where you ask for
+  work, a home folder for its notes, its own model, tools and access, and an avatar you
+  build from parts. Every environment starts with **Captain**; add more, such as one per
+  area of your life or work. Scheduled tasks (**Automations**) can run as a bot too.
+- **The bot list** runs down the left edge: your bots first, then your project managers,
+  each with its latest message and whether it's working or needs you.
+- **Project managers**: each project has one. It takes the requests its bot hands it,
+  checks the backlog and files an issue or ticket when nothing tracks the request, then decides how
+  the work runs: a **task** for a small, clear change, a **feature** for one reviewable
+  pull request, or several features for bigger work. It replies in the bot's headquarters
+  when work starts, when it needs an answer and when it's done.
+- **Features** are one worktree, one branch and one pull request. A **workflow** decides
+  who leads a feature and which crew roles it can hand work to. The default, **Feature
+  delivery**, is led by a Feature manager with a Planner, Designer, Builder, QA Tester and
+  Reviewer, and asks you to approve the plan before anything is built. **Epic** splits big
+  work into child features; a child that builds on another starts from its branch, so the
+  pull requests stack.
+- **Issues and tickets**: every piece of work can trace back to a GitHub issue or a Bosun
+  ticket (`T-1`, `T-2`, …). Threads show their issue in an **Issue** tab, and a pull
+  request's summary lists the issues it closes. The **board** shows every feature and todo
+  across your projects.
+- **More than one machine**: a bot's projects can live on any connected environment, and
+  with linked environments (beta) agents on one machine can hand work to another.
 
-Bots negotiate with each other: a Designer that is unsure asks the Planner for
-confirmation; a Planner that lacks context asks its Manager. Every request has one
-clear home.
+### How work flows
 
 ```mermaid
 flowchart LR
-  Captain["Captain (bot)"]
-
-  subgraph Pn["Project n — worktree, branch"]
-    direction LR
-    ManagerN["Manager (bot)"]
-    BotsN["Planner · Designer · Execution · Reviewer"]
-    PRN["PR"]
-    ManagerN --> BotsN --> PRN
-  end
-
-  subgraph P2["Project 2 — worktree, branch"]
-    direction LR
-    Manager2["Manager (bot)"]
-    Bots2["Planner · Designer · Execution · Reviewer"]
-    PR2["PR"]
-    Manager2 --> Bots2 --> PR2
-  end
-
-  subgraph P1["Project 1 — worktree, branch"]
-    direction LR
-    Manager1["Manager (bot)"]
-    Planner1["Planner — linear / github issue"]
-    Designer1["Designer — figma mcp / paper"]
-    Execution1["Execution — cc / co"]
-    Reviewer1["Reviewer"]
-    W1["W1, B1"]
-    W2["W2, B2"]
-    Wn["Wn, Bn"]
-    PR1["PR"]
-
-    Manager1 --> Planner1
-    Manager1 --> Designer1
-    Manager1 --> Execution1
-    Manager1 --> Reviewer1
-    Planner1 --> W1
-    Designer1 --> W2
-    Execution1 --> W1
-    Reviewer1 --> Wn
-    W1 --> PR1
-    W2 --> PR1
-    Wn --> PR1
-  end
-
-  Captain <-->|exchange message| Manager1
-  Captain <-->|exchange message| Manager2
-  Captain <-->|exchange message| ManagerN
+  You(["You"]) <--> Bot["Bot<br/>headquarters"]
+  Bot -->|request| PM["Project manager"]
+  PM -->|small change| Task["Task"]
+  PM -->|feature| Lead["Feature lead"]
+  Lead --> Crew["Crew<br/>Planner · Designer · Builder<br/>QA Tester · Reviewer"]
+  Task --> PR["Pull request"]
+  Crew --> PR
+  PM -. replies .-> Bot
 ```
 
-That is the direction, not a finished product.
+You can also ask a bot to start a task or feature itself, or start a feature yourself
+from the board.
+
+![A project picked in the thread list, with its project manager card and two features](./assets/readme/project-manager.webp)
+
+_Pick a project and its project manager sits at the top of the thread list, above that
+project's features._
+
+![A feature lead's thread with the Crew tab open](./assets/readme/feature-crew.webp)
+
+_A feature's lead hands work to its crew. The **Crew** tab shows each member's state and
+the feature's branch and pull request._
+
+![Settings, Crew, Workflows: the Feature delivery workflow](./assets/readme/settings-crew.webp)
+
+_Bots, workflows and roles live in **Settings → Crew**._
+
+Read more in [Bots and roles](./docs/user/bots.md) and [Features](./docs/user/features.md).
 
 ## Status
 
-Very early. Today Bosun is the T3 Code harness with the Bosun identity applied; the
-factory layer above it — the Captain, the Manager/bot hierarchy, and cross-bot
-messaging — is under active construction. Expect rough edges.
+Early, and moving fast. Bosun follows T3 Code closely and adds the bots, project managers,
+features and crews described above on top. Expect rough edges.
 
 ## The T3 Code harness
 
@@ -216,6 +201,14 @@ See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configurati
 ## Documentation
 
 Full docs live in [docs/](./docs).
+
+Bosun:
+
+- [Bots, project managers and roles](./docs/user/bots.md)
+- [Features, the board, issues and tickets](./docs/user/features.md)
+- [Link another environment](./docs/user/remote-access.md#link-another-environment)
+
+From T3 Code:
 
 - [FAQ](./docs/user/faq.md)
 - [Install and first run](./docs/user/install.md)
