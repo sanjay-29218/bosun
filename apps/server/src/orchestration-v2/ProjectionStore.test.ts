@@ -4907,6 +4907,26 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         ],
       });
       assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
+      yield* message(
+        headquartersId,
+        "image-ultrathink",
+        4,
+        `ultrathink:\n${ATTACHMENT_ONLY_BOOTSTRAP_PROMPT}`,
+        false,
+        {
+          role: "user",
+          attachments: [
+            {
+              type: "image",
+              id: ChatAttachmentId.make("shell-line-image-ultrathink"),
+              name: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+            },
+          ],
+        },
+      );
+      assert.deepEqual(yield* lines, { headquarters: "Image", plain: null, memory: "Image" });
 
       // Queued input whose run was cancelled is hidden in the transcript, so not shown here.
       const cancelledRunId = RunId.make("run:shell-line:cancelled");
