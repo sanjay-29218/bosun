@@ -548,6 +548,55 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* A working bot's glance: one-shot, started by the glance scheduler setting data-glance. */
+@keyframes bot-tilt {
+  0% {
+    transform: none;
+  }
+  25% {
+    transform: rotate(-5deg) translateY(-1px);
+  }
+  60% {
+    transform: rotate(4deg);
+  }
+  85%,
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes bot-glance {
+  0% {
+    transform: none;
+  }
+  15%,
+  40% {
+    transform: translateX(-2.5px);
+  }
+  50%,
+  70% {
+    transform: translateX(2.5px);
+  }
+  80% {
+    transform: scaleY(0.12);
+  }
+  90%,
+  100% {
+    transform: none;
+  }
+}
+
+svg[data-glance] [data-body] {
+  transform-origin: 50% 85%;
+  animation: bot-tilt 720ms ease-in-out 1;
+}
+
+svg[data-glance] [data-eyes] {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bot-glance 720ms ease-in-out 1;
+}
+
 @keyframes live-tool-shine {
   from {
     background-position:
