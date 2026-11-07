@@ -24,11 +24,14 @@ export const ProjectManagerAvatar = memo(function ProjectManagerAvatar({
   projectId,
   icon,
   size,
+  working = false,
   className,
 }: {
   readonly projectId: ProjectId;
   readonly icon: Icon | null;
   readonly size: NonNullable<ComponentProps<typeof BotAvatar>["size"]>;
+  /** Glances now and then while it works; the chat header leaves it still. */
+  readonly working?: boolean;
   readonly className?: string;
 }) {
   const look = projectManagerLook(projectId, icon);
@@ -37,7 +40,7 @@ export const ProjectManagerAvatar = memo(function ProjectManagerAvatar({
       avatar={look.avatar}
       color={look.color}
       size={size}
-      shaded={false}
+      working={working}
       {...(className ? { className } : {})}
     />
   );

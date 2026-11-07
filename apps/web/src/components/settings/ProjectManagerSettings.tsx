@@ -182,11 +182,13 @@ function ProjectManagerIconRow({
             <PopoverPopup
               align="end"
               width="lg"
+              // The shape grid needs the room the default padding takes.
+              padding="compact"
               aria-label={`${member.title}'s project manager icon`}
             >
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-3">
-                  <BotAvatar avatar={draft.avatar} color={draft.color} size={48} shaded={false} />
+                  <BotAvatar avatar={draft.avatar} color={draft.color} size={48} />
                   <p className="text-sm font-medium">{member.title}'s project manager</p>
                 </div>
                 <BotAvatarPicker

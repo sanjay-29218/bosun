@@ -295,8 +295,10 @@ export const BotRail = memo(function BotRail({
                   avatar={bot.avatar}
                   color={bot.color}
                   size={32}
-                  shaded={false}
-                  working={activity.get(bot.key)?.working ?? false}
+                  working={
+                    botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))?.kind ===
+                    "working"
+                  }
                 />
               </RailItem>
             ) : (
@@ -556,7 +558,7 @@ const BotListRow = memo(function BotListRow({
         avatar={bot.avatar}
         color={bot.color}
         size={36}
-        shaded={false}
+        working={summary.mark === "working"}
         className="pointer-events-none shrink-0"
       />
       <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
@@ -628,6 +630,7 @@ const ManagerListRow = memo(function ManagerListRow({
         projectId={manager.projectId}
         icon={icon}
         size={36}
+        working={working}
         className="pointer-events-none shrink-0"
       />
       <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
@@ -690,7 +693,7 @@ const ManagerRailItem = memo(function ManagerRailItem({
       shortcut={null}
       onSelect={onSelect}
     >
-      <ProjectManagerAvatar projectId={manager.projectId} icon={icon} size={32} />
+      <ProjectManagerAvatar projectId={manager.projectId} icon={icon} size={32} working={working} />
     </RailItem>
   );
 });

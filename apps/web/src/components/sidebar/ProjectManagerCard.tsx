@@ -74,6 +74,7 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
           projectId={manager.projectId}
           icon={icon}
           size={32}
+          working={working}
           className="pointer-events-none shrink-0"
         />
         <div className="pointer-events-none flex min-w-0 flex-1 flex-col">

@@ -16,5 +16,9 @@ describe("projectManagerLook", () => {
     );
     const looks = new Set(ids.map((id) => JSON.stringify(projectManagerLook(id, null))));
     expect(looks.size).toBeGreaterThan(12);
+    // Each is a starter bot in the flat style, so it draws like a bot someone picked.
+    for (const id of ids) {
+      expect(BOT_AVATAR_PRESETS).toContainEqual(projectManagerLook(id, null).avatar);
+    }
   });
 });
