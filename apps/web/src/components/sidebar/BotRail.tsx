@@ -291,7 +291,13 @@ export const BotRail = memo(function BotRail({
                 shortcut={shortcutFor(botJumpCommandForIndex(index))}
                 onSelect={(event) => select(bot, event)}
               >
-                <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
+                <BotAvatar
+                  avatar={bot.avatar}
+                  color={bot.color}
+                  size={32}
+                  shaded={false}
+                  working={activity.get(bot.key)?.working ?? false}
+                />
               </RailItem>
             ) : (
               <BotListRow
