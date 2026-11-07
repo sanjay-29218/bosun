@@ -10,11 +10,10 @@ import {
   type ProjectIconColor,
   type RuntimeMode,
 } from "@t3tools/contracts";
-import { useBlocker } from "@tanstack/react-router";
 import { FolderIcon, PaletteIcon, SlidersHorizontalIcon, WrenchIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { requestConfirmDialog } from "../../confirmDialog";
+import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import { randomUUID } from "../../lib/utils";
 import { botsEnvironment } from "../../state/bots";
 import { formatEnvironmentQueryError } from "../../state/query";
@@ -163,14 +162,10 @@ export function BotEditor({
     (bot === null || instructions.trim().length > 0) &&
     !saving;
 
-  useBlocker({
-    shouldBlockFn: async () =>
-      edited &&
-      !saving &&
-      (await requestConfirmDialog(
-        bot ? `Leave without saving ${bot.name}?` : "Leave without adding this bot?",
-      )) !== true,
-    enableBeforeUnload: () => edited,
+  useUnsavedChangesGuard({
+    unsaved: edited,
+    saving,
+    message: bot ? `Leave without saving ${bot.name}?` : "Leave without adding this bot?",
   });
 
   const submit = async () => {

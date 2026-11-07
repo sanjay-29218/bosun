@@ -6,10 +6,10 @@ import {
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
-import { useBlocker } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
+import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import { cn, randomUUID } from "../../lib/utils";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
@@ -97,12 +97,10 @@ export function WorkflowEditorForm({
   );
   const leadName = roles.find((role) => role.id === leadRoleId)?.name ?? "Pick a role";
 
-  useBlocker({
-    shouldBlockFn: async () =>
-      edited &&
-      !busy &&
-      (await requestConfirmDialog("Leave without saving this workflow?")) !== true,
-    enableBeforeUnload: () => edited,
+  useUnsavedChangesGuard({
+    unsaved: edited,
+    saving: busy,
+    message: "Leave without saving this workflow?",
   });
 
   const submit = async () => {

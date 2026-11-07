@@ -2,6 +2,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { hasUnsavedChanges } from "../hooks/useUnsavedChangesGuard";
 import { useNativeTitlebarHeight } from "../lib/windowControlsOverlay";
 import { useCloseAppModal } from "./sidebar/mainAppLocation";
 import { Button } from "./ui/button";
@@ -25,6 +26,15 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
   // buttons). Below sm the modal fills the window and leaves that strip empty; up to lg its
   // 1.5rem inset is shorter than the strip.
   const nativeTitlebarHeight = useNativeTitlebarHeight();
+  // An editor with unsaved changes asks before navigation, so the modal then leaves by
+  // navigating, and stays open with the edit when the person cancels.
+  const requestClose = () => {
+    if (hasUnsavedChanges()) {
+      void closeAppModal();
+      return;
+    }
+    setOpen(false);
+  };
 
   return (
     <DialogPrimitive.Root
@@ -37,7 +47,7 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
         // drop what was typed. Blur first so they commit.
         const focused = document.activeElement;
         if (focused instanceof HTMLElement && popupRef.current?.contains(focused)) focused.blur();
-        setOpen(false);
+        requestClose();
       }}
       onOpenChangeComplete={(nextOpen) => {
         if (!nextOpen) void closeAppModal();
@@ -58,7 +68,7 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
             backdropPressRef.current = event.target === event.currentTarget;
           }}
           onClick={(event) => {
-            if (backdropPressRef.current && event.target === event.currentTarget) setOpen(false);
+            if (backdropPressRef.current && event.target === event.currentTarget) requestClose();
             backdropPressRef.current = false;
           }}
         >
