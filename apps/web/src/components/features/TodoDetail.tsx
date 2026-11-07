@@ -346,7 +346,9 @@ function FeatureChip(props: { readonly feature: EnvironmentFeatureCard | null })
   );
 }
 
+/** Offered on the board; in a thread's panel the todo is already what that thread works on. */
 function StartFeatureButton(props: { readonly onStart: () => void }) {
+  if (use(TodoDetailPlace).inPanel) return null;
   return (
     <Button size="xs" onClick={props.onStart}>
       <PlayIcon aria-hidden />
