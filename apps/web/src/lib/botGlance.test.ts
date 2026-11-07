@@ -17,12 +17,18 @@ function setup() {
     random: () => 0,
   });
   const avatar = () => {
-    const glances: string[] = [];
-    return {
-      glances,
-      setAttribute: (name: string) => glances.push(name),
-      removeAttribute: () => {},
+    const target = {
+      glances: [] as string[],
+      glancing: false,
+      setAttribute: (name: string) => {
+        target.glances.push(name);
+        target.glancing = true;
+      },
+      removeAttribute: () => {
+        target.glancing = false;
+      },
     };
+    return target;
   };
   const change = (next: Partial<typeof state>) => {
     Object.assign(state, next);
@@ -78,6 +84,28 @@ describe("createBotGlanceScheduler", () => {
     env.change({ visible: true });
     vi.advanceTimersByTime(5_000);
     expect(avatar.glances).toEqual(["data-glance"]);
+  });
+
+  it.each([
+    ["the document hides", { visible: false }, { visible: true }],
+    ["reduced motion turns on", { reducedMotion: true }, { reducedMotion: false }],
+  ] as const)("stops a glance under way when %s, then resumes", (_, stop, resume) => {
+    using env = setup();
+    const avatar = env.avatar();
+    env.scheduler.register(avatar);
+    vi.advanceTimersByTime(5_000);
+    expect(avatar.glancing).toBe(true);
+
+    env.change(stop);
+    expect(avatar.glancing).toBe(false);
+    vi.advanceTimersByTime(20_000);
+    expect(avatar.glances).toEqual(["data-glance"]);
+    expect(vi.getTimerCount()).toBe(0);
+
+    env.change(resume);
+    vi.advanceTimersByTime(5_000);
+    expect(avatar.glances).toEqual(["data-glance", "data-glance"]);
+    expect(avatar.glancing).toBe(true);
   });
 
   it("never glances with reduced motion", () => {

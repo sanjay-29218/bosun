@@ -57,6 +57,10 @@ export function createBotGlanceScheduler(environment: BotGlanceEnvironment) {
       const now = Date.now();
       for (const target of due.keys()) due.set(target, now + gap());
     }
+    // Stop a glance already under way, not just the next one.
+    if (!moving && was) {
+      for (const target of due.keys()) target.removeAttribute("data-glance");
+    }
     schedule();
   };
 

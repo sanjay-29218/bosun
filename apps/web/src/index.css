@@ -597,6 +597,13 @@ svg[data-glance] [data-eyes] {
   animation: bot-glance 720ms ease-in-out 1;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  svg[data-glance] [data-body],
+  svg[data-glance] [data-eyes] {
+    animation: none;
+  }
+}
+
 @keyframes live-tool-shine {
   from {
     background-position:
