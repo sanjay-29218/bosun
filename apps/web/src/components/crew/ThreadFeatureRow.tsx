@@ -51,7 +51,7 @@ export function ThreadFeatureRow(props: {
           <WorkflowIcon className="text-muted-foreground" />
           <span className="flex min-w-0 flex-1 items-center gap-2">
             {feature ? (
-              <FeatureTag feature={feature} />
+              <FeatureTag feature={feature} fill />
             ) : (
               <span className="min-w-0 truncate">{group.title}</span>
             )}
