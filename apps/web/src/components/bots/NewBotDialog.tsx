@@ -114,6 +114,8 @@ function NewBotForm({
 
   return (
     <form
+      // The popup's header, scrolling panel and footer stay in its flex column.
+      className="flex min-h-0 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
