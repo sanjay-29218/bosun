@@ -438,12 +438,18 @@ function setSidebarProjectScopeKeys(state: UiState, projectKeys: readonly string
   };
 }
 
-function setActiveBotIdByEnvironmentId(state: UiState, next: Record<string, string>): UiState {
+/** Picks a bot; a project scope belongs to the bot it was picked under, so switching clears it. */
+export function setActiveBotIdByEnvironmentId(
+  state: UiState,
+  next: Record<string, string>,
+): UiState {
   const current = state.activeBotIdByEnvironmentId;
   const unchanged =
     Object.keys(next).length === Object.keys(current).length &&
     Object.entries(next).every(([environmentId, botId]) => current[environmentId] === botId);
-  return unchanged ? state : { ...state, activeBotIdByEnvironmentId: next };
+  return unchanged
+    ? state
+    : { ...state, activeBotIdByEnvironmentId: next, sidebarProjectScopeKeys: [] };
 }
 
 function setSidebarEnvironmentIds(state: UiState, environmentIds: string[] | null): UiState {

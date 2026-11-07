@@ -12,6 +12,7 @@ import {
   persistState,
   reorderProjects,
   resolveProjectExpanded,
+  setActiveBotIdByEnvironmentId,
   setProjectExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -85,6 +86,18 @@ describe("uiStateStore pure functions", () => {
       "environment-b:/repo": false,
     });
     expect(setProjectExpanded(next, keys, false)).toBe(next);
+  });
+
+  it("clears a project scope when another bot is picked, and keeps it for the same bot", () => {
+    const scoped = makeUiState({
+      activeBotIdByEnvironmentId: { local: "bot-captain" },
+      sidebarProjectScopeKeys: ["github.com/acme/alpha"],
+    });
+    expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-pilot" })).toMatchObject({
+      activeBotIdByEnvironmentId: { local: "bot-pilot" },
+      sidebarProjectScopeKeys: [],
+    });
+    expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-captain" })).toBe(scoped);
   });
 
   it("moves grouped project members together", () => {
