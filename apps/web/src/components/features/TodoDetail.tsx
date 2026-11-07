@@ -35,7 +35,7 @@ import {
   RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { createContext, use, useRef, useState, type ReactNode } from "react";
 
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
@@ -122,6 +122,43 @@ export function TodoDetailHost() {
   );
 }
 
+/**
+ * Where a todo shows: the board's sheet, or a thread's right panel. The panel has no sheet to
+ * title or close, and opens the issue a ticket moves to in itself.
+ */
+const TodoDetailPlace = createContext<{
+  readonly inPanel: boolean;
+  readonly open: (target: TodoTarget) => void;
+}>({ inPanel: false, open: openTodo });
+
+/** A todo in a thread's right panel, as the board's sheet shows it. */
+export function TodoDetailPanel(props: {
+  readonly target: TodoTarget;
+  readonly onOpen: (target: TodoTarget) => void;
+}) {
+  const { target } = props;
+  return (
+    <TodoDetailPlace value={{ inPanel: true, open: props.onOpen }}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <TodoDetail
+          key={`${target.environmentId}:${target.projectId}:${target.ticketId ?? target.number}`}
+          target={target}
+        />
+      </div>
+    </TodoDetailPlace>
+  );
+}
+
+function DetailTitle(props: { readonly className?: string; readonly children: ReactNode }) {
+  return use(TodoDetailPlace).inPanel ? (
+    <h2 className={cn("text-base font-semibold leading-snug", props.className)}>
+      {props.children}
+    </h2>
+  ) : (
+    <SheetTitle className={props.className}>{props.children}</SheetTitle>
+  );
+}
+
 function TodoDetail({ target }: { readonly target: TodoTarget }) {
   const { environmentId, projectId } = target;
   const project =
@@ -173,7 +210,7 @@ function TodoDetail({ target }: { readonly target: TodoTarget }) {
 function DetailSkeleton() {
   return (
     <div className="flex flex-col gap-3 p-6">
-      <SheetTitle className="sr-only">Loading</SheetTitle>
+      <DetailTitle className="sr-only">Loading</DetailTitle>
       <Skeleton className="h-7 w-2/3" />
       <Skeleton className="h-40 w-full" />
     </div>
@@ -192,9 +229,9 @@ function Gone(props: {
   return (
     <div className="flex flex-col items-start gap-3 p-6">
       <div>
-        <SheetTitle>
+        <DetailTitle>
           {props.title ?? (props.failed ? "Couldn't load this todo" : "Todo not found")}
-        </SheetTitle>
+        </DetailTitle>
         <p className="mt-2 text-sm text-muted-foreground">{props.text}</p>
       </div>
       {url ? (
@@ -221,10 +258,16 @@ function DetailLayout(props: {
   readonly actions: ReactNode;
   readonly children: ReactNode;
 }) {
+  const { inPanel } = use(TodoDetailPlace);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* The end padding leaves room for the sheet's close button. */}
-      <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border ps-5 pe-12 text-xs text-muted-foreground">
+      <header
+        className={cn(
+          "flex h-12 shrink-0 items-center gap-1.5 border-b border-border ps-5 text-xs text-muted-foreground",
+          inPanel ? "pe-3" : "pe-12",
+        )}
+      >
         {props.crumb}
         <div className="ms-auto flex shrink-0 items-center gap-1">{props.actions}</div>
       </header>
@@ -332,6 +375,7 @@ function TicketDetail(props: {
   readonly canFileIssues: boolean;
 }) {
   const { ticket, feature } = props;
+  const place = use(TodoDetailPlace);
   const [title, setTitle] = useState(ticket.title);
   const [busy, setBusy] = useState<"save" | "move" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -380,7 +424,7 @@ function TicketDetail(props: {
     );
     setBusy(null);
     if (result._tag === "Success") {
-      openTodo({ ...target, projectId: ticket.projectId, number: result.value.number });
+      place.open({ ...target, projectId: ticket.projectId, number: result.value.number });
     } else if (!isAtomCommandInterrupted(result)) {
       setError(failureText(result, "The ticket could not be moved."));
     }
@@ -447,7 +491,7 @@ function TicketDetail(props: {
         </>
       }
     >
-      <SheetTitle className="sr-only">{ticket.title}</SheetTitle>
+      <DetailTitle className="sr-only">{ticket.title}</DetailTitle>
       <textarea
         aria-label="Title"
         rows={1}
@@ -867,7 +911,7 @@ function GitHubIssueDetail(props: {
         </>
       }
     >
-      <SheetTitle className="sr-only">{issue.title}</SheetTitle>
+      <DetailTitle className="sr-only">{issue.title}</DetailTitle>
       <div className="flex flex-col gap-1">
         <IssueTitleField key={issue.title} title={issue.title} save={save} />
         <p className="text-xs text-muted-foreground">

@@ -1,7 +1,14 @@
-import type { EnvironmentId, FeatureIssue, ProjectId } from "@t3tools/contracts";
+import {
+  featureIssueRef,
+  type EnvironmentId,
+  type FeatureIssue,
+  type ProjectId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { readLocalApi } from "../../localApi";
+import { type IssueSurface, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 
 /*
@@ -51,10 +58,55 @@ export function openNewTodoDialog(target: NewTodoTarget = {}): void {
 
 export const closeNewTodoDialog = () => appAtomRegistry.set(newTodoDialogAtom, null);
 
-/** Opens a feature's linked issue in the todo sheet; a tracker key such as `LIN-123` on its site. */
-export function openFeatureIssue(owner: TodoOwner, issue: FeatureIssue): void {
-  if (issue.ticketId !== undefined) openTodo({ ...owner, ticketId: issue.ticketId });
-  else if (issue.key === undefined) openTodo({ ...owner, number: issue.number, url: issue.url });
-  // A bare tracker key, such as `LIN-123`, has nowhere to open.
-  else if (issue.url) void readLocalApi()?.shell.openExternal(issue.url);
+/** The todo a linked issue opens as; null for a tracker key such as `LIN-123`, which opens its site. */
+export function featureIssueTodo(owner: TodoOwner, issue: FeatureIssue): TodoTarget | null {
+  if (issue.ticketId !== undefined) return { ...owner, ticketId: issue.ticketId };
+  return issue.key === undefined ? { ...owner, number: issue.number, url: issue.url } : null;
+}
+
+/**
+ * Opens a linked issue: in `threadRef`'s right panel when given, else in the todo sheet. A Cmd- or
+ * Ctrl-click or middle click opens it on its host instead, as a pull request link does.
+ */
+export function openFeatureIssue(
+  owner: TodoOwner,
+  issue: FeatureIssue,
+  options: {
+    readonly threadRef?: ScopedThreadRef | null;
+    readonly event?: Pick<MouseEvent, "metaKey" | "ctrlKey" | "button">;
+  } = {},
+): void {
+  const todo = featureIssueTodo(owner, issue);
+  const { event } = options;
+  const external = event !== undefined && (event.metaKey || event.ctrlKey || event.button === 1);
+  if (todo === null || (external && issue.url)) {
+    // A bare tracker key, such as `LIN-123`, has nowhere to open.
+    if (issue.url) void readLocalApi()?.shell.openExternal(issue.url);
+    return;
+  }
+  if (options.threadRef) openTodoInPanel(options.threadRef, todo, featureIssueRef(issue));
+  else openTodo(todo);
+}
+
+/** Opens a todo as a tab in a thread's right panel. */
+export function openTodoInPanel(threadRef: ScopedThreadRef, todo: TodoTarget, ref: string): void {
+  useRightPanelStore.getState().openIssue(threadRef, {
+    environmentId: todo.environmentId,
+    projectId: todo.projectId,
+    ref,
+    ...(todo.ticketId === undefined
+      ? { number: todo.number, ...(todo.url === undefined ? {} : { url: todo.url }) }
+      : { ticketId: todo.ticketId }),
+  });
+}
+
+/** The todo an issue tab shows. */
+export function issueSurfaceTodo(surface: IssueSurface): TodoTarget {
+  const owner = {
+    environmentId: surface.environmentId as EnvironmentId,
+    projectId: surface.projectId as ProjectId,
+  };
+  return surface.ticketId === undefined
+    ? { ...owner, number: surface.number ?? 0, ...(surface.url ? { url: surface.url } : {}) }
+    : { ...owner, ticketId: surface.ticketId };
 }

@@ -22,6 +22,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   "feature",
+  "issue",
   "side-chat",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -56,6 +57,7 @@ export type RightPanelSurface =
     }
   /** The Crew tab: a feature's or bot request's crew, and a feature's workspace. */
   | { id: "feature"; kind: "feature" }
+  | IssueSurface
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -126,9 +128,10 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat" | "issue">,
   ) => void;
   openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
+  openIssue: (ref: ScopedThreadRef, target: Omit<IssueSurface, "id" | "kind">) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
@@ -188,7 +191,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat" | "issue">,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -211,7 +214,10 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "side-chat">,
+  kind: Exclude<
+    RightPanelKind,
+    "file" | "preview" | "terminal" | "pull-request" | "side-chat" | "issue"
+  >,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -260,6 +266,31 @@ const terminalSurface = (terminalId: string): RightPanelSurface => ({
   terminalIds: [terminalId],
   activeTerminalId: terminalId,
 });
+
+/**
+ * A ticket or GitHub issue, shown as the board's todo sheet shows it. `url` is the issue link it
+ * was opened from, so an issue in another repository isn't shown as the project's by its number.
+ */
+export interface IssueSurface {
+  id: `issue:${string}`;
+  kind: "issue";
+  environmentId: string;
+  projectId: string;
+  /** `#12` or `T-3`, for the tab. */
+  ref: string;
+  ticketId?: string;
+  number?: number;
+  url?: string;
+}
+
+function issueSurface(target: Omit<IssueSurface, "id" | "kind">): IssueSurface {
+  const which = target.ticketId === undefined ? `#${target.number}` : `ticket:${target.ticketId}`;
+  return {
+    ...target,
+    id: `issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${which}`,
+    kind: "issue",
+  };
+}
 
 export type PullRequestSurface = Extract<RightPanelSurface, { kind: "pull-request" }>;
 
@@ -729,6 +760,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
             upsertSurface(current, { id: `side-chat:${threadId}`, kind: "side-chat", threadId }),
+          ),
+        ),
+      openIssue: (ref, target) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, issueSurface(target)),
           ),
         ),
       renameDevice: (ref, surfaceId, title) =>

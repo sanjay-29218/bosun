@@ -79,7 +79,10 @@ export function ThreadFeatureRow(props: {
         <ThreadDetailsControl
           part="row"
           aria-label={`Open ${featureIssueRef(issue)} ${issue.title}`}
-          onClick={() => openFeatureIssue(thread, issue)}
+          onClick={(event) => openFeatureIssue(thread, issue, { threadRef, event })}
+          onAuxClick={(event) => {
+            if (event.button === 1) openFeatureIssue(thread, issue, { threadRef, event });
+          }}
         >
           <FeatureIssueIcon issue={issue} />
           <span className="min-w-0 truncate">

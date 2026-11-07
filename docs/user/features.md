@@ -123,7 +123,10 @@ ticket's images stay on its environment. GitHub takes no images through its API,
 committed to a `bosun-attachments` branch of its repository, which anyone who can see the repository
 can open. **Start feature** opens a new thread whose brief names the todo. Any other thread can
 link the issue or ticket it works on with **Link issue…** in its details panel or its menu's
-**Issue** item; a feature's threads share the feature's. The crew can list, read,
+**Issue** item; a feature's threads share the feature's. In a thread, its issue opens as an
+**Issue** tab in the right panel (`I` in Open a surface), and a pull request's summary lists the
+issues its description closes ("Fixes #12"); click one to open it there, or Cmd-click to open it on
+GitHub. The crew can list, read,
 create and close todos too.
 
 A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for

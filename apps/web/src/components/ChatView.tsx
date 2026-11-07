@@ -43,7 +43,8 @@ import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
 import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
-import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import { featureIssueRef, type UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import { featureIssueTodo, openTodoInPanel } from "./features/todoDialogs";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
 import { armFreshSession, disarmFreshSession, useFreshSessionArmed } from "./chat/freshSessionArms";
@@ -997,6 +998,16 @@ export default function ChatView(props: ChatViewProps) {
       ? () => {
           if (!activeThreadRef) return;
           useRightPanelStore.getState().open(activeThreadRef, "feature");
+        }
+      : undefined;
+  const linkedIssue = activeThreadShell?.issue ?? activeThreadShell?.feature?.issue ?? null;
+  const linkedIssueTodo =
+    linkedIssue && activeThreadShell ? featureIssueTodo(activeThreadShell, linkedIssue) : null;
+  const addIssueSurface =
+    linkedIssue && linkedIssueTodo
+      ? () => {
+          if (activeThreadRef)
+            openTodoInPanel(activeThreadRef, linkedIssueTodo, featureIssueRef(linkedIssue));
         }
       : undefined;
   const limitRecoveryRun =
@@ -4169,6 +4180,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
           onAddFeature={addFeatureSurface}
+          onAddIssue={addIssueSurface}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}

@@ -78,6 +78,40 @@ describe("rightPanelStore", () => {
     ).toEqual(["device", "diff", pr.id]);
   });
 
+  it("opens each issue or ticket in one tab, and reopens a closed one where it was", async () => {
+    const store = useRightPanelStore.getState();
+    const issue = {
+      environmentId: "env-1",
+      projectId: "project-a",
+      ref: "#56",
+      number: 56,
+      url: "https://github.com/acme/web/issues/56",
+    };
+    store.openIssue(refA, issue);
+    store.openIssue(refA, {
+      environmentId: "env-1",
+      projectId: "project-a",
+      ref: "T-1",
+      ticketId: "t1",
+    });
+    store.openIssue(refA, issue);
+    const surfaces = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces;
+    expect(surfaces().map((surface) => surface.kind === "issue" && surface.ref)).toEqual([
+      "#56",
+      "T-1",
+    ]);
+    const opened = surfaces()[0]!;
+    store.closeSurface(refA, opened.id);
+    await reopenClosedView(useClosedViewStore.getState().entries[0]!, {
+      workspaceAvailable: true,
+      openPreview: () => {
+        throw new Error("An issue tab must not create a browser session");
+      },
+    });
+    expect(surfaces().find((surface) => surface.id === opened.id)).toEqual(opened);
+  });
+
   it("reopens the active tab first after a bulk close", () => {
     const store = useRightPanelStore.getState();
     store.open(refA, "files");

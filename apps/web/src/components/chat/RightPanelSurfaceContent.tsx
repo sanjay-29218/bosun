@@ -25,6 +25,8 @@ import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
 import { CrewPanel } from "../crew/CrewPanel";
+import { TodoDetailPanel } from "../features/TodoDetail";
+import { issueSurfaceTodo, openTodoInPanel } from "../features/todoDialogs";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -172,6 +174,19 @@ export function RightPanelSurfaceContent(props: {
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
     case "feature":
       return <CrewPanel threadRef={threadRef} />;
+    case "issue":
+      return (
+        <TodoDetailPanel
+          target={issueSurfaceTodo(surface)}
+          onOpen={(todo) =>
+            openTodoInPanel(
+              threadRef,
+              todo,
+              todo.ticketId === undefined ? `#${todo.number}` : "Ticket",
+            )
+          }
+        />
+      );
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

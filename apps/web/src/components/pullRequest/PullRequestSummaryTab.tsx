@@ -20,6 +20,7 @@ import {
   ListFilterIcon,
   MessageSquarePlusIcon,
   TagIcon,
+  CircleDotIcon,
   UsersIcon,
 } from "lucide-react";
 import * as Schema from "effect/Schema";
@@ -92,6 +93,8 @@ import {
 } from "./PullRequestMarkdownTextarea";
 import { PullRequestReactionBar } from "./PullRequestReactions";
 import { PullRequestConversationGhost } from "./PullRequestGhosts";
+import { PullRequestLinkedIssues } from "./PullRequestLinkedIssues";
+import { linkedIssueRefs } from "./pullRequestLinkedIssues.logic";
 import { sectionCollapseAnchorScrollTop } from "./pullRequestSummaryScroll.logic";
 
 function reviewerKey(login: string): string {
@@ -552,6 +555,7 @@ export function PullRequestSummaryTab({
   );
   if (descriptionDraftKept !== descriptionDraft) setDescriptionDraft(descriptionDraftKept);
   const description = descriptionDraftKept?.body ?? detail.body;
+  const linkedIssues = linkedIssueRefs(description, reference.repository);
   const descriptionSaving = (descriptionDraftKept?.saves ?? 0) > 0;
   const descriptionSavesRunning = useRef(0);
   // Hosts can reuse comment ids across pull requests.
@@ -833,6 +837,16 @@ export function PullRequestSummaryTab({
                   />
                 ) : null}
               </span>
+            </MetaRow>
+          ) : null}
+          {linkedIssues.length > 0 ? (
+            <MetaRow icon={<CircleDotIcon className="size-3.5" />} label="Issues">
+              <PullRequestLinkedIssues
+                environmentId={environmentId}
+                reference={reference}
+                refs={linkedIssues}
+                threadRef={threadRef}
+              />
             </MetaRow>
           ) : null}
         </div>

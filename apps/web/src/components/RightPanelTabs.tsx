@@ -36,7 +36,9 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  CircleDot,
   ListChecks,
+  NotebookText,
   Smartphone,
   ChevronDown,
   ChevronLeft,
@@ -144,6 +146,8 @@ export interface RightPanelTabsProps {
   onAddDevice: () => void;
   /** Only feature and bot request threads offer the Crew tab; leave unset elsewhere. */
   onAddFeature?: (() => void) | undefined;
+  /** Only a thread with a linked issue or ticket offers the Issue tab; leave unset elsewhere. */
+  onAddIssue?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -327,6 +331,8 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   /** Only feature and bot request threads offer the Crew tab; leave unset elsewhere. */
   onAddFeature?: (() => void) | undefined;
+  /** Only a thread with a linked issue or ticket offers the Issue tab; leave unset elsewhere. */
+  onAddIssue?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -408,6 +414,18 @@ function RightPanelEmptyState(props: {
             available: true,
             disabledReason: "",
             onClick: props.onAddFeature,
+          },
+        ]
+      : []),
+    ...(props.onAddIssue
+      ? [
+          {
+            label: "Issue",
+            icon: CircleDot,
+            shortcut: "I",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddIssue,
           },
         ]
       : []),
@@ -609,6 +627,8 @@ function surfaceTitle(
       return "Pull requests";
     case "feature":
       return "Crew";
+    case "issue":
+      return surface.ref;
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -703,6 +723,12 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "feature":
       return <ListChecks className="size-3 shrink-0" />;
+    case "issue":
+      return surface.ticketId === undefined ? (
+        <CircleDot className="size-3 shrink-0" />
+      ) : (
+        <NotebookText className="size-3 shrink-0" />
+      );
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "device":
@@ -1180,6 +1206,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           },
         ]
       : []),
+    ...(props.onAddIssue
+      ? [
+          {
+            label: "Issue",
+            icon: CircleDot,
+            shortcut: "I",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddIssue,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {
@@ -1567,6 +1605,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
             onAddFeature={props.onAddFeature}
+            onAddIssue={props.onAddIssue}
             onAddSideChat={props.onAddSideChat}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
