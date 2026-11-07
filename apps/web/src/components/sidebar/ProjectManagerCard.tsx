@@ -77,34 +77,11 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
           className="pointer-events-none shrink-0"
         />
         <div className="pointer-events-none flex min-w-0 flex-1 flex-col">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground">
-              Project manager
-            </span>
-            <span className="pointer-events-auto relative opacity-0 group-hover/pm-card:opacity-100 focus-within:opacity-100">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost-muted"
-                      size="icon-xs"
-                      aria-label="Project manager settings"
-                      onClick={() => {
-                        if (isMobile) setOpenMobile(false);
-                        void navigate({
-                          to: "/settings/projects",
-                          search: { project: manager.projectKey },
-                          hash: searchableSetting("project-manager").id,
-                        });
-                      }}
-                    />
-                  }
-                >
-                  <SettingsIcon />
-                </TooltipTrigger>
-                <TooltipPopup side="bottom">Project manager settings</TooltipPopup>
-              </Tooltip>
-            </span>
+          {/* The title has the top line to itself; the status leads the second. */}
+          <span className="truncate pe-6 text-sm font-medium text-sidebar-foreground">
+            Project manager
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5">
             {waiting ? (
               <span className="shrink-0 rounded-full bg-warning/15 px-1.5 text-2xs leading-4 font-medium text-warning-foreground">
                 Needs you
@@ -119,11 +96,35 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
                 Done
               </span>
             ) : null}
-          </div>
-          <span className="truncate text-xs text-muted-foreground">
-            {preview ? `${manager.title} · ${preview}` : manager.title}
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {preview ? `${manager.title} · ${preview}` : manager.title}
+            </span>
           </span>
         </div>
+        <span className="pointer-events-auto absolute end-1.5 top-1.5 opacity-0 group-hover/pm-card:opacity-100 focus-within:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost-muted"
+                  size="icon-xs"
+                  aria-label="Project manager settings"
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false);
+                    void navigate({
+                      to: "/settings/projects",
+                      search: { project: manager.projectKey },
+                      hash: searchableSetting("project-manager").id,
+                    });
+                  }}
+                />
+              }
+            >
+              <SettingsIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Project manager settings</TooltipPopup>
+          </Tooltip>
+        </span>
       </div>
     </div>
   );
