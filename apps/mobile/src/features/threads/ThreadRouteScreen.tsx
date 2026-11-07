@@ -28,6 +28,7 @@ import {
   AuthTerminalReadScope,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  headquartersProjectId,
   MessageId,
   ThreadId,
   type ProjectScript,
@@ -960,7 +961,11 @@ function ThreadRouteContent(
           header={
             props.inspectorPresentation ? null : (
               <ThreadHeader
-                title={selectedThread.title}
+                title={
+                  headquartersProjectId(selectedThread.id) === null
+                    ? selectedThread.title
+                    : "Project manager"
+                }
                 subtitle={headerSubtitle}
                 gitControls={threadGitControlProps}
                 hasThreadCwd={selectedThreadCwd !== null}
