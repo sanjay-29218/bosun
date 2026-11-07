@@ -14,6 +14,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
+  ISSUE_IMAGE_MAX_BYTES,
   IssueChangedError,
   ticketRef,
   type EnvironmentId,
@@ -53,6 +54,7 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { featureStatus } from "./FeatureCard";
+import { readFileAsDataUrl } from "../../lib/imageCompression";
 import { cn } from "../../lib/utils";
 import {
   closeTodo,
@@ -518,6 +520,36 @@ const isIssueChanged = Schema.is(IssueChangedError);
  * its own last save when the refreshed read hasn't landed yet. When someone changed it on GitHub
  * meanwhile, one toast offers to save anyway.
  */
+/** Stores a pasted image on the issue's host; null, after saying why, when it can't. */
+async function uploadIssueImage(owner: TodoOwner, file: File): Promise<string | null> {
+  if (file.size > ISSUE_IMAGE_MAX_BYTES) {
+    toastManager.add({ type: "error", title: "That image is over 10 MB", description: file.name });
+    return null;
+  }
+  const result = await runAtomCommand(
+    appAtomRegistry,
+    featuresEnvironment.uploadIssueImage,
+    {
+      environmentId: owner.environmentId,
+      input: {
+        projectId: owner.projectId,
+        fileName: file.name || "image.png",
+        dataUrl: await readFileAsDataUrl(file),
+      },
+    },
+    { reportFailure: false },
+  );
+  if (result._tag === "Success") return result.value.url;
+  if (!isAtomCommandInterrupted(result)) {
+    toastManager.add({
+      type: "error",
+      title: "Could not add the image",
+      description: failureText(result, "Nothing changed."),
+    });
+  }
+  return null;
+}
+
 function useIssueEditSaver(owner: TodoOwner, issue: IssueDetail | null | undefined): SaveIssueEdit {
   const savedAt = useRef<string | null>(null);
   const conflictToast = useRef<string | null>(null);
@@ -612,11 +644,15 @@ function IssueTitleField(props: { readonly title: string; readonly save: SaveIss
 function IssueBody(props: {
   readonly issue: IssueDetail;
   readonly save: SaveIssueEdit;
+  readonly uploadImage: (file: File) => Promise<string | null>;
   readonly markdown: (text: string) => ReactNode;
 }) {
   const { issue } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Handlers outlive their render while an upload runs, so they read the live count.
+  const uploads = useRef(0);
+  const [uploading, setUploading] = useState(0);
   // Shown after a save until the refreshed read lands, so the old text doesn't flash back.
   const [saved, setSaved] = useState<{ body: string; over: string } | null>(null);
   const shown = saved !== null && saved.over === issue.updatedAt ? saved.body : issue.body;
@@ -639,10 +675,23 @@ function IssueBody(props: {
   const change = (body: string) => {
     setDraft(body);
     if (timer.current !== null) clearTimeout(timer.current);
+    // Saving now would put an upload's placeholder on GitHub; the image's own change saves.
+    if (uploads.current > 0) return;
     timer.current = setTimeout(() => void flush(body), DESCRIPTION_SAVE_DELAY_MS);
   };
-  const startEditing = () => {
+  const upload = (file: File) => {
+    uploads.current += 1;
+    setUploading(uploads.current);
+    return props.uploadImage(file).finally(() => {
+      uploads.current -= 1;
+      setUploading(uploads.current);
+    });
+  };
+  // Where the click landed, so the caret goes there; the keyboard opens it at the end.
+  const [openedAt, setOpenedAt] = useState<{ x: number; y: number } | true>(true);
+  const startEditing = (point: { x: number; y: number } | true) => {
     sent.current = shown;
+    setOpenedAt(point);
     setDraft(shown);
   };
 
@@ -663,15 +712,17 @@ function IssueBody(props: {
         // Links, buttons and a text selection keep their own clicks.
         if ((event.target as Element).closest("a, button, summary, input, img")) return;
         if (window.getSelection()?.toString()) return;
-        startEditing();
+        startEditing({ x: event.clientX, y: event.clientY });
       }}
       onKeyDown={(event) => {
         if (editing || event.key !== "Enter" || event.target !== event.currentTarget) return;
         event.preventDefault();
-        startEditing();
+        startEditing(true);
       }}
       onBlur={(event) => {
         if (!editing || event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        // An image still uploading lands in the editor, so it stays open until then.
+        if (uploads.current > 0) return;
         // The editor can drop focus for a moment while it remounts, so it decides once focus settles.
         const wrapper = event.currentTarget;
         setTimeout(() => {
@@ -690,10 +741,11 @@ function IssueBody(props: {
             placeholder="Add a description…"
             size="lg"
             variant="document"
-            autoFocus
+            autoFocus={openedAt}
+            onPasteImage={upload}
           />
           <p className="text-xs text-muted-foreground">
-            {saving ? "Saving…" : "Saves as you type"}
+            {uploading > 0 ? "Uploading image…" : saving ? "Saving…" : "Saves as you type"}
           </p>
         </>
       ) : shown.trim() ? (
@@ -823,7 +875,12 @@ function GitHubIssueDetail(props: {
           </Chip>
         ))}
       </div>
-      <IssueBody issue={issue} save={save} markdown={markdown} />
+      <IssueBody
+        issue={issue}
+        save={save}
+        uploadImage={(file) => uploadIssueImage(owner, file)}
+        markdown={markdown}
+      />
       {issue.commentCount > 0 ? (
         <section className="mt-4 flex flex-col">
           <h3 className="pb-2 text-xs text-muted-foreground">

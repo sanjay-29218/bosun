@@ -199,6 +199,7 @@ function bindProviderContext(
     getIssue,
     createIssue,
     updateIssue,
+    uploadIssueImage,
     setIssueState,
     createMilestone,
     setMilestoneState,
@@ -219,6 +220,12 @@ function bindProviderContext(
     ...(updateIssue === undefined
       ? {}
       : { updateIssue: (input) => updateIssue({ ...input, context: input.context ?? context }) }),
+    ...(uploadIssueImage === undefined
+      ? {}
+      : {
+          uploadIssueImage: (input) =>
+            uploadIssueImage({ ...input, context: input.context ?? context }),
+        }),
     ...(setIssueState === undefined
       ? {}
       : {

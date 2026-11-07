@@ -117,8 +117,10 @@ description with headings, lists and checklists. When the project has GitHub iss
 **Ticket** or **GitHub issue**; the choice is remembered. Click a todo to open it beside the board.
 A ticket's title, description and status edit in place, and **Move to GitHub issue** files it on
 GitHub, moves its features to the new issue and deletes the ticket. A GitHub issue shows its
-description, status and comments as GitHub has them; close or reopen it there, and edit its text on
-GitHub. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
+description, status and comments as GitHub has them; close or reopen it there, and click its title
+or description to edit it in place. GitHub takes no images through its API, so an image pasted into
+an issue's description is committed to a `bosun-attachments` branch of its repository, which anyone
+who can see the repository can open. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
 create and close todos too.
 
 A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for

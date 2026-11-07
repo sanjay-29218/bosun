@@ -89,6 +89,8 @@ import {
   IssueList,
   IssueListInput,
   IssueChangedError,
+  IssueImageUpload,
+  IssueImageUploadInput,
   IssueOperationError,
   IssueSetStateInput,
   IssueUpdateInput,
@@ -483,6 +485,7 @@ export const WS_METHODS = {
   issuesCreate: "issues.create",
   issuesSetState: "issues.setState",
   issuesUpdate: "issues.update",
+  issuesUploadImage: "issues.uploadImage",
   issuesRefresh: "issues.refresh",
   issuesSubscribeRefreshes: "issues.subscribeRefreshes",
   ticketsList: "tickets.list",
@@ -1152,6 +1155,12 @@ const WsIssuesCreateRpc = Rpc.make(WS_METHODS.issuesCreate, {
   success: RepositoryIssue,
   error: IssueRpcError,
 });
+const WsIssuesUploadImageRpc = Rpc.make(WS_METHODS.issuesUploadImage, {
+  payload: IssueImageUploadInput,
+  success: IssueImageUpload,
+  error: Schema.Union([IssueOperationError, EnvironmentAuthorizationError]),
+});
+
 const WsIssuesUpdateRpc = Rpc.make(WS_METHODS.issuesUpdate, {
   payload: IssueUpdateInput,
   success: RepositoryIssue,
@@ -2360,6 +2369,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsIssuesCreateRpc,
   WsIssuesSetStateRpc,
   WsIssuesUpdateRpc,
+  WsIssuesUploadImageRpc,
   WsIssuesRefreshRpc,
   WsIssuesSubscribeRefreshesRpc,
   WsTicketsListRpc,

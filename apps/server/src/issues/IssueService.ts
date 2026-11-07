@@ -3,6 +3,8 @@ import {
   IssueOperationError,
   type IssueClosedReason,
   type IssueDetail,
+  type IssueImageUpload,
+  type IssueImageUploadInput,
   type IssueList,
   type ProjectId,
   type RepositoryIssue,
@@ -76,6 +78,10 @@ export class IssueService extends Context.Service<
     readonly update: (
       input: IssueUpdateInput,
     ) => Effect.Effect<RepositoryIssue, IssueOperationError | IssueChangedError>;
+    /** Stores a pasted image on the project's host, for an issue's Markdown to link. */
+    readonly uploadImage: (
+      input: IssueImageUploadInput,
+    ) => Effect.Effect<IssueImageUpload, IssueOperationError>;
     /** Drops the project's shared read, so the next one asks the host, and tells open boards. */
     readonly refresh: (projectId: ProjectId) => Effect.Effect<void>;
     /** Each project whose issues may have changed on its host. */
@@ -289,9 +295,22 @@ const make = Effect.gen(function* () {
     return milestone;
   });
 
+  const uploadImage: IssueService["Service"]["uploadImage"] = Effect.fn("IssueService.uploadImage")(
+    function* (input) {
+      const { cwd, provider } = yield* requireIssueHost(input.projectId);
+      if (provider.uploadIssueImage === undefined) return yield* unsupported;
+      const [, mimeType = "", base64 = ""] =
+        /^data:([^;]+);base64,(.*)$/su.exec(input.dataUrl) ?? [];
+      return yield* provider
+        .uploadIssueImage({ cwd, fileName: input.fileName, mimeType, base64 })
+        .pipe(Effect.catch(hostFailure("image upload", input.projectId)));
+    },
+  );
+
   return IssueService.of({
     get,
     update,
+    uploadImage,
     create,
     setState,
     createMilestone,

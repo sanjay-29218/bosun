@@ -231,6 +231,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.issuesCreate]: "features",
   [WS_METHODS.issuesSetState]: "features",
   [WS_METHODS.issuesUpdate]: "features",
+  [WS_METHODS.issuesUploadImage]: "features",
   [WS_METHODS.issuesRefresh]: "features",
   [WS_METHODS.issuesSubscribeRefreshes]: "features",
   [WS_METHODS.ticketsList]: "features",

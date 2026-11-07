@@ -94,6 +94,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.issuesCreate]: AuthSourceControlWriteScope,
   [WS_METHODS.issuesSetState]: AuthSourceControlWriteScope,
   [WS_METHODS.issuesUpdate]: AuthSourceControlWriteScope,
+  [WS_METHODS.issuesUploadImage]: AuthSourceControlWriteScope,
   [WS_METHODS.ticketsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.ticketsUpdate]: AuthOrchestrationOperateScope,
   [WS_METHODS.ticketsDelete]: AuthOrchestrationOperateScope,

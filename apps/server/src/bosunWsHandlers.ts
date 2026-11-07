@@ -63,6 +63,7 @@ export const layerBosunWsRpc = ({
         [WS_METHODS.issuesCreate]: (input) => issues.create(input),
         [WS_METHODS.issuesSetState]: (input) => issues.setState(input),
         [WS_METHODS.issuesUpdate]: (input) => issues.update(input),
+        [WS_METHODS.issuesUploadImage]: (input) => issues.uploadImage(input),
         [WS_METHODS.issuesRefresh]: (input) => issues.refresh(input.projectId),
         [WS_METHODS.issuesSubscribeRefreshes]: () => issues.subscribeRefreshes,
         [WS_METHODS.ticketsList]: (input) => tickets.list(input.projectId),

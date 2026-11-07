@@ -212,6 +212,17 @@ export class SourceControlProvider extends Context.Service<
       readonly body?: string | undefined;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
+    /**
+     * Stores an image for an issue's Markdown to show, since hosts take no images through their
+     * API, and returns a URL that names it for good. Absent means unsupported.
+     */
+    readonly uploadIssueImage?: (input: {
+      readonly cwd: string;
+      readonly fileName: string;
+      readonly mimeType: string;
+      readonly base64: string;
+      readonly context?: SourceControlProviderContext;
+    }) => Effect.Effect<{ readonly url: string }, SourceControlProviderError>;
     /** Closes or reopens an issue. Present when `listIssues` is. */
     readonly setIssueState?: (input: {
       readonly cwd: string;
