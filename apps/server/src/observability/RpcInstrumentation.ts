@@ -239,6 +239,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.ticketsUpdate]: "features",
   [WS_METHODS.ticketsDelete]: "features",
   [WS_METHODS.ticketsMoveToIssue]: "features",
+  [WS_METHODS.ticketsUploadImage]: "features",
   [WS_METHODS.featuresGet]: "features",
   [WS_METHODS.featuresStart]: "features",
   [WS_METHODS.featuresSetIssue]: "features",

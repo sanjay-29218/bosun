@@ -56,3 +56,15 @@ export class TicketOperationError extends Schema.TaggedError<TicketOperationErro
     return this.reason;
   }
 }
+
+/**
+ * A ticket's Markdown names a pasted image as `attachment:<id>`. The image stays on the ticket's
+ * environment, and each client loads it from there.
+ */
+export const TICKET_IMAGE_PREFIX = "attachment:";
+
+/** The attachment id an image source names, when it is a ticket's stored image. */
+export function ticketImageAttachmentId(src: string): string | null {
+  const match = /^attachment:([a-z0-9_-]+)$/iu.exec(src.trim());
+  return match?.[1] ?? null;
+}

@@ -97,6 +97,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.issuesUploadImage]: AuthSourceControlWriteScope,
   [WS_METHODS.ticketsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.ticketsUpdate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.ticketsUploadImage]: AuthOrchestrationOperateScope,
   [WS_METHODS.ticketsDelete]: AuthOrchestrationOperateScope,
   // Moving a ticket files an issue on the host.
   [WS_METHODS.ticketsMoveToIssue]: AuthSourceControlWriteScope,

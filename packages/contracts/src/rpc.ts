@@ -493,6 +493,7 @@ export const WS_METHODS = {
   ticketsUpdate: "tickets.update",
   ticketsDelete: "tickets.delete",
   ticketsMoveToIssue: "tickets.moveToIssue",
+  ticketsUploadImage: "tickets.uploadImage",
   botsList: "bots.list",
   botsCreate: "bots.create",
   botsUpdate: "bots.update",
@@ -1202,6 +1203,12 @@ const WsTicketsUpdateRpc = Rpc.make(WS_METHODS.ticketsUpdate, {
 });
 const WsTicketsDeleteRpc = Rpc.make(WS_METHODS.ticketsDelete, {
   payload: TicketGetInput,
+  error: TicketRpcError,
+});
+/** Stores an image pasted into a ticket on its environment, for its Markdown to show. */
+const WsTicketsUploadImageRpc = Rpc.make(WS_METHODS.ticketsUploadImage, {
+  payload: IssueImageUploadInput,
+  success: IssueImageUpload,
   error: TicketRpcError,
 });
 /** Files the ticket as an issue on the project's host, moves its features over, and deletes it. */
@@ -2377,6 +2384,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsTicketsUpdateRpc,
   WsTicketsDeleteRpc,
   WsTicketsMoveToIssueRpc,
+  WsTicketsUploadImageRpc,
   WsBotsListRpc,
   WsBotsCreateRpc,
   WsBotsUpdateRpc,

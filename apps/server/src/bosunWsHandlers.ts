@@ -13,6 +13,7 @@ import type { CrewService } from "./crew/CrewService.ts";
 import type { ProjectRequests } from "./crew/ProjectRequests.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
+import type * as TicketImages from "./tickets/TicketImages.ts";
 import type { TicketService } from "./tickets/TicketService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 
@@ -23,6 +24,7 @@ export interface BosunWsServices {
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
   readonly tickets: TicketService["Service"];
+  readonly ticketImages: Effect.Success<typeof TicketImages.make>;
 }
 
 /**
@@ -37,6 +39,7 @@ export const layerBosunWsRpc = ({
   features,
   issues,
   tickets,
+  ticketImages,
 }: BosunWsServices) =>
   BosunWsRpcGroup.middleware(RpcInstrumentation).toLayer(
     Effect.sync(() => {
@@ -70,6 +73,7 @@ export const layerBosunWsRpc = ({
         [WS_METHODS.ticketsCreate]: (input) => tickets.create(input),
         [WS_METHODS.ticketsUpdate]: (input) => tickets.update(input),
         [WS_METHODS.ticketsDelete]: (input) => tickets.remove(input.projectId, input.ticketId),
+        [WS_METHODS.ticketsUploadImage]: (input) => ticketImages.upload(input),
         [WS_METHODS.ticketsMoveToIssue]: (input) =>
           tickets.moveToIssue(input.projectId, input.ticketId),
         [WS_METHODS.featuresGet]: (input) =>

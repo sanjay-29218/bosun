@@ -168,6 +168,11 @@ export function createFeatureAtoms<R, ER>(
     deleteTicket: todoCommand(WS_METHODS.ticketsDelete),
     /** Files the ticket as an issue on the project's host and deletes the ticket. */
     moveTicketToIssue: todoCommand(WS_METHODS.ticketsMoveToIssue),
+    /** Stores a pasted image on the ticket's environment; succeeds with its `attachment:` URL. */
+    uploadTicketImage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:tickets:upload-image",
+      tag: WS_METHODS.ticketsUploadImage,
+    }),
     create: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:features:create",
       tag: WS_METHODS.featuresCreate,

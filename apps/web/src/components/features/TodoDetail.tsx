@@ -307,7 +307,6 @@ function TicketDetail(props: {
 }) {
   const { ticket, feature } = props;
   const [title, setTitle] = useState(ticket.title);
-  const [description, setDescription] = useState(ticket.description);
   const [busy, setBusy] = useState<"save" | "move" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const row = ticketIssue(ticket, props.environmentId);
@@ -319,7 +318,7 @@ function TicketDetail(props: {
     readonly description?: string;
     readonly state?: "open" | "closed";
     readonly closedReason?: "completed" | "not_planned";
-  }) => {
+  }): Promise<boolean> => {
     setBusy("save");
     setError(null);
     const result = await runAtomCommand(
@@ -329,22 +328,11 @@ function TicketDetail(props: {
       { reportFailure: false },
     );
     setBusy(null);
-    if (result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
+    if (result._tag === "Success") return true;
+    if (!isAtomCommandInterrupted(result)) {
       setError(failureText(result, "The ticket could not be saved."));
     }
-  };
-
-  // A pause in typing saves the description, so closing the sheet mid-edit keeps it.
-  const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveDescription = (next: string) => {
-    if (descriptionTimer.current !== null) clearTimeout(descriptionTimer.current);
-    descriptionTimer.current = null;
-    if (next !== ticket.description) void update({ description: next });
-  };
-  const changeDescription = (next: string) => {
-    setDescription(next);
-    if (descriptionTimer.current !== null) clearTimeout(descriptionTimer.current);
-    descriptionTimer.current = setTimeout(() => saveDescription(next), DESCRIPTION_SAVE_DELAY_MS);
+    return false;
   };
 
   const saveTitle = () => {
@@ -390,6 +378,14 @@ function TicketDetail(props: {
     }
   };
 
+  const markdown = (text: string) => (
+    <ChatMarkdown
+      text={text}
+      cwd={props.project?.workspaceRoot}
+      environmentId={props.environmentId}
+    />
+  );
+
   const status = ticketStatus(ticket);
   return (
     <DetailLayout
@@ -405,7 +401,9 @@ function TicketDetail(props: {
         <>
           {ticket.state === "open" && !feature ? (
             <StartFeatureButton
-              onStart={() => startFeature(todoProject(row), { issue: row, description })}
+              onStart={() =>
+                startFeature(todoProject(row), { issue: row, description: ticket.description })
+              }
             />
           ) : null}
           <MoreActions>
@@ -477,21 +475,15 @@ function TicketDetail(props: {
         <FeatureChip feature={feature} />
         <Chip>Created {formatRelativeTimeLabel(ticket.createdAt)}</Chip>
       </div>
-      <div
-        onBlur={(event) => {
-          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-          saveDescription(description);
-        }}
-      >
-        <InstructionsEditor
-          label="Description"
-          value={description}
-          onChange={changeDescription}
-          placeholder="Add a description…"
-          size="lg"
-          variant="document"
-        />
-      </div>
+      <DescriptionBody
+        text={ticket.description}
+        version={ticket.updatedAt}
+        save={(description) => update({ description })}
+        uploadImage={(file) =>
+          uploadTodoImage("ticket", { ...target, projectId: ticket.projectId }, file)
+        }
+        markdown={markdown}
+      />
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -520,25 +512,35 @@ const isIssueChanged = Schema.is(IssueChangedError);
  * its own last save when the refreshed read hasn't landed yet. When someone changed it on GitHub
  * meanwhile, one toast offers to save anyway.
  */
-/** Stores a pasted image on the issue's host; null, after saying why, when it can't. */
-async function uploadIssueImage(owner: TodoOwner, file: File): Promise<string | null> {
+/**
+ * Stores a pasted image: an issue's on its GitHub repository, a ticket's on its environment. Null,
+ * after saying why, when it can't.
+ */
+async function uploadTodoImage(
+  kind: "issue" | "ticket",
+  owner: Pick<TodoOwner, "environmentId" | "projectId">,
+  file: File,
+): Promise<string | null> {
   if (file.size > ISSUE_IMAGE_MAX_BYTES) {
     toastManager.add({ type: "error", title: "That image is over 10 MB", description: file.name });
     return null;
   }
-  const result = await runAtomCommand(
-    appAtomRegistry,
-    featuresEnvironment.uploadIssueImage,
-    {
-      environmentId: owner.environmentId,
-      input: {
-        projectId: owner.projectId,
-        fileName: file.name || "image.png",
-        dataUrl: await readFileAsDataUrl(file),
-      },
+  const upload = {
+    environmentId: owner.environmentId,
+    input: {
+      projectId: owner.projectId,
+      fileName: file.name || "image.png",
+      dataUrl: await readFileAsDataUrl(file),
     },
-    { reportFailure: false },
-  );
+  };
+  const result =
+    kind === "issue"
+      ? await runAtomCommand(appAtomRegistry, featuresEnvironment.uploadIssueImage, upload, {
+          reportFailure: false,
+        })
+      : await runAtomCommand(appAtomRegistry, featuresEnvironment.uploadTicketImage, upload, {
+          reportFailure: false,
+        });
   if (result._tag === "Success") return result.value.url;
   if (!isAtomCommandInterrupted(result)) {
     toastManager.add({
@@ -638,16 +640,17 @@ function IssueTitleField(props: { readonly title: string; readonly save: SaveIss
 }
 
 /**
- * The description as GitHub renders it, images and all. Clicking it edits the Markdown in place;
- * a pause in typing or leaving it saves, as a ticket's does.
+ * A todo's description as rendered Markdown, images and all. Clicking it edits the Markdown in
+ * place, at the clicked spot; a pause in typing or leaving it saves.
  */
-function IssueBody(props: {
-  readonly issue: IssueDetail;
-  readonly save: SaveIssueEdit;
+function DescriptionBody(props: {
+  readonly text: string;
+  /** When the todo last changed; a newer read replaces what this last saved. */
+  readonly version: string;
+  readonly save: (text: string) => Promise<boolean>;
   readonly uploadImage: (file: File) => Promise<string | null>;
   readonly markdown: (text: string) => ReactNode;
 }) {
-  const { issue } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Handlers outlive their render while an upload runs, so they read the live count.
@@ -655,7 +658,7 @@ function IssueBody(props: {
   const [uploading, setUploading] = useState(0);
   // Shown after a save until the refreshed read lands, so the old text doesn't flash back.
   const [saved, setSaved] = useState<{ body: string; over: string } | null>(null);
-  const shown = saved !== null && saved.over === issue.updatedAt ? saved.body : issue.body;
+  const shown = saved !== null && saved.over === props.version ? saved.body : props.text;
   const sent = useRef(shown);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -666,16 +669,16 @@ function IssueBody(props: {
     const previous = sent.current;
     sent.current = body;
     setSaving(true);
-    const ok = await props.save({ body });
+    const ok = await props.save(body);
     setSaving(false);
-    if (ok) setSaved({ body, over: issue.updatedAt });
+    if (ok) setSaved({ body, over: props.version });
     else sent.current = previous;
     return ok;
   };
   const change = (body: string) => {
     setDraft(body);
     if (timer.current !== null) clearTimeout(timer.current);
-    // Saving now would put an upload's placeholder on GitHub; the image's own change saves.
+    // Saving now would store an upload's placeholder; the image's own change saves.
     if (uploads.current > 0) return;
     timer.current = setTimeout(() => void flush(body), DESCRIPTION_SAVE_DELAY_MS);
   };
@@ -875,10 +878,11 @@ function GitHubIssueDetail(props: {
           </Chip>
         ))}
       </div>
-      <IssueBody
-        issue={issue}
-        save={save}
-        uploadImage={(file) => uploadIssueImage(owner, file)}
+      <DescriptionBody
+        text={issue.body}
+        version={issue.updatedAt}
+        save={(body) => save({ body })}
+        uploadImage={(file) => uploadTodoImage("issue", owner, file)}
         markdown={markdown}
       />
       {issue.commentCount > 0 ? (

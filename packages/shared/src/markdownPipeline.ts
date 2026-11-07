@@ -162,7 +162,13 @@ function rehypePreserveImageSourceMeta() {
   };
 }
 
-const IMAGE_SRC_PROTOCOLS = [...(defaultSchema.protocols?.src ?? []), "file", "t3-context"];
+// `attachment:` names an image a ticket stores on its environment; the renderer loads it from there.
+const IMAGE_SRC_PROTOCOLS = [
+  ...(defaultSchema.protocols?.src ?? []),
+  "file",
+  "t3-context",
+  "attachment",
+];
 
 const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
