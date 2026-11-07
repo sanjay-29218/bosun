@@ -5,6 +5,10 @@ import { McpSchema, type Tool, Toolkit } from "effect/ai";
 
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
+import {
+  READ_MANAGER_INSTRUCTIONS,
+  UPDATE_MANAGER_INSTRUCTIONS,
+} from "./toolkits/crew/managerInstructionsTools.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
 import { ProjectRequestsToolkit } from "./toolkits/projectRequests/tools.ts";
@@ -85,8 +89,8 @@ export const CrewGatedToolkits = {
     crew_update_todo: null,
     crew_create_milestone: null,
     crew_update_milestone: null,
-    crew_read_manager_instructions: "standing",
-    crew_update_manager_instructions: "standing",
+    [READ_MANAGER_INSTRUCTIONS]: "standing",
+    [UPDATE_MANAGER_INSTRUCTIONS]: "standing",
   }),
   features: gated(FeaturesToolkit, {
     t3_role_list: "crew.workflows",

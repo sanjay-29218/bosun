@@ -16,6 +16,10 @@ import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import {
+  READ_MANAGER_INSTRUCTIONS,
+  UPDATE_MANAGER_INSTRUCTIONS,
+} from "./managerInstructionsTools.ts";
 
 export class CrewToolFailedError extends Schema.TaggedError<CrewToolFailedError>()(
   "CrewToolFailedError",
@@ -181,7 +185,7 @@ const ManagerProject = Schema.optional(ProjectId).annotate({
     "A bot's headquarters names one of its projects. A project manager leaves it out: it reads its own.",
 });
 
-const ReadManagerInstructions = Tool.make("crew_read_manager_instructions", {
+const ReadManagerInstructions = Tool.make(READ_MANAGER_INSTRUCTIONS, {
   description:
     "Read a project manager's instructions and their revision: a project manager's own, or, from a bot's headquarters, those of a project the bot owns.",
   parameters: Schema.Struct({ projectId: ManagerProject }),
@@ -190,7 +194,7 @@ const ReadManagerInstructions = Tool.make("crew_read_manager_instructions", {
   dependencies: [...dependencies, CrewService],
 }).annotate(Tool.Readonly, true);
 
-const UpdateManagerInstructions = Tool.make("crew_update_manager_instructions", {
+const UpdateManagerInstructions = Tool.make(UPDATE_MANAGER_INSTRUCTIONS, {
   description:
     "Save a project manager's instructions, to record a standing rule the person or its bot gave for the project. Read them with crew_read_manager_instructions first, then pass the whole new text, not only the change, with the revision you read; to add a rule, append it to the text you read. A stale revision is refused, so a person's edit is never overwritten. The manager shows as Customized in Settings, which can reset it. The new text applies from the manager's next session.",
   parameters: Schema.Struct({

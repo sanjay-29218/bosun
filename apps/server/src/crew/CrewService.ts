@@ -88,6 +88,15 @@ export const projectManagerMemberId = (projectId: ProjectId) => `project-manager
 const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
   `bot-lead:${projectId}:${roleId}`;
 
+const builtInManagerInstructions = (projectId: ProjectId) =>
+  `${PROJECT_MANAGER_INSTRUCTIONS}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`;
+
+/** A manager nobody customized follows the current built-in text, not the one it was saved with. */
+export const managerInstructions = (
+  member: Pick<CrewMember, "customizedAt" | "instructions">,
+  projectId: ProjectId,
+) => (member.customizedAt === null ? builtInManagerInstructions(projectId) : member.instructions);
+
 /**
  * What a project-level member adds to its role's instructions, or null for a member that isn't
  * one of the project's own (an instantiated or feature member), which role edits don't reach.
@@ -793,12 +802,6 @@ export const CrewServiceLive = Layer.effect(
         );
       }
     });
-
-    const builtInManagerInstructions = (projectId: ProjectId) =>
-      `${PROJECT_MANAGER_INSTRUCTIONS}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`;
-    /** A manager nobody customized follows the current built-in text, not the one it was saved with. */
-    const managerInstructions = (member: CrewMember, projectId: ProjectId) =>
-      member.customizedAt === null ? builtInManagerInstructions(projectId) : member.instructions;
 
     /** What a project's manager starts with: built-in instructions on its owning bot's model. */
     const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (

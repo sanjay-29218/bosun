@@ -29,6 +29,7 @@ import { describe, expect } from "vite-plus/test";
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
+import { StandingBriefingLive } from "../crew/StandingBriefing.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -38,6 +39,7 @@ import {
 } from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as TurnBriefing from "../orchestration-v2/TurnBriefing.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -1855,15 +1857,23 @@ describe("feature lead and crew", () => {
 
           // A manager nobody customized follows the current built-in text, not what it stored.
           const crewStore = yield* CrewStore;
-          yield* crew.ensureProjectManager(projectId);
+          const managerRun = yield* crew.ensureProjectManager(projectId);
           const stored = (yield* crewStore.getMember(`project-manager:${projectId}`))!;
           yield* crewStore.saveMember(
             { ...stored, instructions: "Old built-in text", revision: stored.revision + 1 },
             stored.revision,
           );
+          yield* crewStore.setRunInstructions(managerRun.id, "Old built-in text");
           const read = yield* crew.projectManagerInstructions({ callerThreadId: manager });
           expect(read).toMatchObject({ projectId, customized: false });
           expect(read.instructions).toContain("You manage one project");
+          // Its thread's first message, before anything reopens it, briefs it with that text too.
+          const briefing = () =>
+            TurnBriefing.TurnBriefing.pipe(
+              Effect.flatMap((turnBriefing) => turnBriefing.forThread(manager)),
+              Effect.provide(StandingBriefingLive),
+            );
+          expect(yield* briefing()).toContain(read.instructions);
           expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(
             read.instructions,
           );
@@ -1883,6 +1893,7 @@ describe("feature lead and crew", () => {
             customized: true,
           });
           expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(rule);
+          expect(yield* briefing()).toContain(rule);
           const after = yield* crew.projectManagerSettings(projectId);
           expect(after).toMatchObject({
             icon,

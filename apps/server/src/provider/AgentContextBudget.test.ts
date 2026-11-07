@@ -9,6 +9,7 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+import { MANAGER_INSTRUCTIONS_TOOLS } from "../mcp/toolkits/crew/managerInstructionsTools.ts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -232,10 +233,7 @@ it.effect("a project manager holding every grant is listed every tool but the li
         ThreadId.make("bot-run:feature-lead:x"),
       ),
     );
-    const standingOnly = new Set([
-      "crew_read_manager_instructions",
-      "crew_update_manager_instructions",
-    ]);
+    const standingOnly: ReadonlySet<string> = new Set(MANAGER_INSTRUCTIONS_TOOLS);
     expect(lead.map(({ tool }) => tool.name)).toEqual(
       all.filter((name) => !standingOnly.has(name)),
     );
