@@ -43,6 +43,7 @@ import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
 import { BotRail, useBotRailWidth } from "./sidebar/BotRail";
+import { FollowStandingThread } from "./sidebar/FollowStandingThread";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage, mainViewForPathname, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
@@ -516,6 +517,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}
+        {showBotRail ? <FollowStandingThread /> : null}
         <BackgroundThreadAnnouncer />
         <SidebarControl />
         {isElectron ? <HistorySwipeNavigation /> : null}

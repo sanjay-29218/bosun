@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
-import { headquartersBotId, type EnvironmentId } from "@t3tools/contracts";
+import { headquartersBotId, headquartersProjectId, type EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useState } from "react";
 
@@ -84,6 +84,8 @@ const toggledMainView = (current: MainView | null): MainView =>
 const SHELL_LESS_PATHS = new Set(["/pair", "/connect", "/connect-agent", GUEST_PAGE_PATH]);
 
 let mainAppHref: string | null = null;
+// A headquarters or project manager belongs to its own bot, so it is never a bot's last page.
+let mainAppHrefIsStanding = false;
 let appModalReturnHref: string | null = null;
 // Where each view was left, so the toggle flips back to the same thread or board scope.
 const mainViewHrefs: Record<MainView, string | null> = { list: null, board: null };
@@ -132,7 +134,7 @@ export const readBotHref = (botKey: string) => botHrefs.get(botKey);
 
 /** Saves the main page on screen for `botKey`, which the app may have opened on before bots loaded. */
 export function rememberBotHref(botKey: string) {
-  if (mainAppHref !== null) botHrefs.set(botKey, mainAppHref);
+  if (mainAppHref !== null && !mainAppHrefIsStanding) botHrefs.set(botKey, mainAppHref);
 }
 
 /**
@@ -146,11 +148,14 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     const href = withoutAssistantCitationHash(router.state.location.href);
     appModalReturnHref = href;
     if (isSidebarUtilityPage(pathname)) return;
-    mainAppHref = href;
-    // The index only forwards to a draft or the board, so it is neither view.
-    if (pathname === "/") return;
     const thread = resolveThreadRouteRef(router.state.matches.at(-1)?.params ?? {});
     const headquartersOf = thread ? headquartersBotId(thread.threadId) : null;
+    mainAppHref = href;
+    mainAppHrefIsStanding =
+      headquartersOf !== null ||
+      (thread !== null && headquartersProjectId(thread.threadId) !== null);
+    // The index only forwards to a draft or the board, so it is neither view.
+    if (pathname === "/") return;
     if (thread && headquartersOf !== null) {
       selectBotOfHeadquarters(thread.environmentId, headquartersOf);
     }
@@ -158,7 +163,7 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     mainViewHrefs[view] = href;
     rememberMainView(readActiveEnvironmentId(), view);
     const botKey = readActiveLogicalBotKey();
-    if (botKey !== null) botHrefs.set(botKey, href);
+    if (botKey !== null && !mainAppHrefIsStanding) botHrefs.set(botKey, href);
   };
   record();
   return router.subscribe("onResolved", record);
