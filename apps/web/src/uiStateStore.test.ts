@@ -2,6 +2,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  botRailLayoutAfterDrag,
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
@@ -11,6 +12,7 @@ import {
   persistState,
   reorderProjects,
   resolveProjectExpanded,
+  setActiveBotIdByEnvironmentId,
   setProjectExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -22,6 +24,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     sidebarProjectScopeKeys: [],
     activeBotIdByEnvironmentId: {},
     sidebarEnvironmentIds: null,
+    botRailWidth: 256,
+    botRailCollapsed: false,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -84,6 +88,18 @@ describe("uiStateStore pure functions", () => {
     expect(setProjectExpanded(next, keys, false)).toBe(next);
   });
 
+  it("clears a project scope when another bot is picked, and keeps it for the same bot", () => {
+    const scoped = makeUiState({
+      activeBotIdByEnvironmentId: { local: "bot-captain" },
+      sidebarProjectScopeKeys: ["github.com/acme/alpha"],
+    });
+    expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-pilot" })).toMatchObject({
+      activeBotIdByEnvironmentId: { local: "bot-pilot" },
+      sidebarProjectScopeKeys: [],
+    });
+    expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-captain" })).toBe(scoped);
+  });
+
   it("moves grouped project members together", () => {
     const keyALocal = "env-local:proj-a";
     const keyARemote = "env-remote:proj-a";
@@ -131,6 +147,8 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKeys: [],
       activeBotIdByEnvironmentId: {},
       sidebarEnvironmentIds: null,
+      botRailWidth: 256,
+      botRailCollapsed: false,
       pullRequestMergeMethod: "merge",
       seenAutomationFailureAtByKey: {},
       threadChangedFilesExpandedById: {
@@ -240,6 +258,8 @@ describe("uiStateStore persistence", () => {
       sidebarProjectScopeKey: null,
       activeBotIdByEnvironmentId: {},
       sidebarEnvironmentIds: null,
+      botRailWidth: 256,
+      botRailCollapsed: false,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -275,6 +295,35 @@ describe("uiStateStore persistence", () => {
     expect(parsed.activeBotIdByEnvironmentId).toEqual({ local: "bot-social" });
     expect(parsed.sidebarEnvironmentIds).toEqual(["local"]);
     expect(parsePersistedState({}).sidebarEnvironmentIds).toBeNull();
+  });
+
+  it("restores the bot rail's width and collapse, clamping the width", () => {
+    persistState(makeUiState({ botRailWidth: 300, botRailCollapsed: true }));
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(parsePersistedState(persisted)).toMatchObject({
+      botRailWidth: 300,
+      botRailCollapsed: true,
+    });
+    expect(parsePersistedState({ botRailWidth: 900 }).botRailWidth).toBe(360);
+    expect(parsePersistedState({ botRailWidth: 20 }).botRailWidth).toBe(200);
+    expect(parsePersistedState({})).toMatchObject({ botRailWidth: 256, botRailCollapsed: false });
+  });
+
+  it.each([
+    ["resizes an expanded rail", false, 300, { botRailCollapsed: false, botRailWidth: 300 }],
+    [
+      "clamps a resize to the narrowest list",
+      false,
+      180,
+      { botRailCollapsed: false, botRailWidth: 200 },
+    ],
+    ["collapses an expanded rail dragged under 160px", false, 150, { botRailCollapsed: true }],
+    ["keeps the icon rail under 120px", true, 110, { botRailCollapsed: true }],
+    ["expands the icon rail to its remembered width", true, 130, { botRailCollapsed: false }],
+  ] as const)("%s", (_name, botRailCollapsed, width, layout) => {
+    expect(botRailLayoutAfterDrag({ botRailCollapsed, botRailWidth: 300 }, width)).toEqual(layout);
   });
 
   it("restores the sidebar project scope across reloads", () => {

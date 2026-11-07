@@ -49,6 +49,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.crewUpdateProjectManager,
       WS_METHODS.crewResetProjectManager,
       WS_METHODS.crewSetProjectManagerEnabled,
+      WS_METHODS.crewSetProjectManagerIcon,
       WS_METHODS.crewOpenProjectManager,
       WS_METHODS.crewStartNewSession,
     ]) {

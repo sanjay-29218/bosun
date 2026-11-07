@@ -60,7 +60,6 @@ describe("buildBotSwitcherMenu", () => {
       elsewhereNeedsYou: 3,
       accessibilityLabel: "Bot: Captain. 3 need you in other bots",
       items: [
-        { title: "All bots", subtitle: "6 need you", state: "off" },
         { title: "Captain", subtitle: "3 need you", state: "on" },
         { title: "Social", subtitle: "1 needs you", state: "off" },
         { title: "Finance", subtitle: "2 need you", state: "off" },
@@ -69,39 +68,12 @@ describe("buildBotSwitcherMenu", () => {
         { title: "Library" },
       ],
     });
-    menu!.items[2]!.onPress();
+    menu!.items[1]!.onPress();
     expect(select).toHaveBeenCalledWith(social);
-    // The last item opens the active bot's headquarters rather than switching.
-    menu!.items[4]!.onPress();
+    // The item after the bots opens the active bot's headquarters rather than switching.
+    menu!.items[3]!.onPress();
     expect(openHeadquarters).toHaveBeenCalledWith(captain);
-    expect(menu!.items[4]).not.toHaveProperty("state");
-  });
-
-  it("shows All bots with nothing elsewhere and no headquarters", () => {
-    const select = vi.fn();
-    const menu = buildBotSwitcherMenu({
-      bots: [captain, social],
-      active: null,
-      needsYou: new Map([[social.key, 1]]),
-      select,
-      openHeadquarters: vi.fn(),
-      openAutomations: vi.fn(),
-      openLibrary: vi.fn(),
-    });
-    expect(menu).toMatchObject({
-      bot: null,
-      name: "All bots",
-      elsewhereNeedsYou: 0,
-      items: [
-        { title: "All bots", subtitle: "1 needs you", state: "on" },
-        { title: "Captain", state: "off" },
-        { title: "Social", state: "off" },
-        { title: "Automations" },
-        { title: "Library" },
-      ],
-    });
-    menu!.items[0]!.onPress();
-    expect(select).toHaveBeenCalledWith(null);
+    expect(menu!.items[3]).not.toHaveProperty("state");
   });
 
   it("ends with the places: Automations, then Library", () => {
@@ -109,7 +81,7 @@ describe("buildBotSwitcherMenu", () => {
     const openLibrary = vi.fn();
     const menu = buildBotSwitcherMenu({
       bots: [captain, social],
-      active: null,
+      active: captain,
       needsYou: new Map(),
       select: vi.fn(),
       openHeadquarters: vi.fn(),
@@ -151,6 +123,6 @@ describe("buildBotSwitcherMenu", () => {
       openLibrary: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
-    expect(menu?.items[1]).not.toHaveProperty("subtitle");
+    expect(menu?.items[0]).not.toHaveProperty("subtitle");
   });
 });

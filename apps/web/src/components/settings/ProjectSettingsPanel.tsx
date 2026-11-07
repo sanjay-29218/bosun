@@ -49,7 +49,7 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
-import { ProjectBotSection } from "./BotsSettings";
+import { ProjectBotSection } from "./ProjectBotSettings";
 import { ProjectManagerSection } from "./ProjectManagerSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import {

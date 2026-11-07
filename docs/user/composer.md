@@ -313,7 +313,7 @@ On any new thread in a project, the workflow icon beside the model picker turns 
 feature: pick a workflow, or **Thread** to go back. **New feature…** in the command palette, or
 **New → New feature** on the board, opens one already on **Feature delivery**. While it is a
 feature the model picker gives way to the **Workflow** picker, because the feature's lead and crew
-bring their own models (change them in the **Library**). Your first message becomes the brief, and
+bring their own models (change them in **Settings → Roles**). Your first message becomes the brief, and
 you land in the lead's thread, where the workflow's lead runs the feature with its crew. See
 [Features](./features.md#the-lead-and-its-crew).
 

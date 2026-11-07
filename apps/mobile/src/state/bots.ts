@@ -119,7 +119,7 @@ const EMPTY_ACTIVE_BOTS: Readonly<Record<string, string>> = {};
 export interface ActiveBot {
   /** Every logical bot; the switcher shows only when there are two or more. */
   readonly bots: ReadonlyArray<LogicalBot>;
-  /** Null is All bots, or no bot loaded yet. */
+  /** Null only before any bot loads. */
   readonly active: LogicalBot | null;
   readonly needsYou: ReadonlyMap<string, number>;
   /**
@@ -127,10 +127,9 @@ export interface ActiveBot {
    * project (one bot, or none yet).
    */
   readonly projectKeys: ReadonlySet<string> | null;
-  /** Where List / Board is remembered: the active bot, or "all" for All bots. */
+  /** Where List / Board is remembered: the active bot, or "all" with one bot or none. */
   readonly viewKey: string;
-  /** Selects a bot, or All bots for null. */
-  readonly select: (bot: LogicalBot | null) => void;
+  readonly select: (bot: LogicalBot) => void;
 }
 
 /** The active bot's id on `environmentId`, which new projects there go to; none means Captain. */
@@ -175,15 +174,8 @@ export function useActiveBot(): ActiveBot {
     [active, bots, projects, switching],
   );
   const select = useCallback(
-    (bot: LogicalBot | null) =>
-      savePreferences({
-        transform: (current) => ({
-          activeBotIdByEnvironmentId: selectLogicalBot(
-            current.activeBotIdByEnvironmentId ?? {},
-            bot,
-          ),
-        }),
-      }),
+    (bot: LogicalBot) =>
+      savePreferences({ transform: () => ({ activeBotIdByEnvironmentId: selectLogicalBot(bot) }) }),
     [savePreferences],
   );
 

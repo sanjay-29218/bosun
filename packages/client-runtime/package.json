@@ -35,6 +35,10 @@
       "types": "./src/botAvatar.ts",
       "default": "./src/botAvatar.ts"
     },
+    "./project-manager-look": {
+      "types": "./src/projectManagerLook.ts",
+      "default": "./src/projectManagerLook.ts"
+    },
     "./state/features": {
       "types": "./src/state/features.ts",
       "default": "./src/state/features.ts"

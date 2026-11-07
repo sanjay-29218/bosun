@@ -150,7 +150,6 @@ function SettingsContentLayout() {
 const SINGLE_ENVIRONMENT_PATHS: ReadonlySet<string> = new Set([
   "/settings/providers",
   "/settings/secrets",
-  "/settings/bots",
 ]);
 
 function SettingsRouteLayout() {

@@ -10,6 +10,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { useUiStateStore } from "../../uiStateStore";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { toastManager } from "../ui/toast";
+import { latestStandingOpen } from "./standingOpen";
 
 export interface ScopedProjectManager {
   readonly environmentId: EnvironmentId;
@@ -59,7 +60,10 @@ export const OPEN_PROJECT_MANAGER_ITEM = {
   icon: "message-square",
 } as const;
 
-/** Opens a project's manager thread, which the server makes on first use. */
+/**
+ * Opens a project's manager thread, which the server makes on first use. A later headquarters or
+ * manager open wins over this one.
+ */
 export function useOpenProjectManager() {
   const navigate = useNavigate();
   const open = useAtomCommand(rolesEnvironment.openProjectManager, { reportFailure: false });
@@ -68,22 +72,24 @@ export function useOpenProjectManager() {
     readonly projectId: ProjectId;
     readonly title: string;
   }) =>
-    open({ environmentId: project.environmentId, input: { projectId: project.projectId } }).then(
-      (result) => {
-        if (result._tag === "Success") {
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(
-              scopeThreadRef(project.environmentId, result.value.threadId),
-            ),
-          });
-        } else {
-          toastManager.add({
-            type: "error",
-            title: `Could not open ${project.title}'s project manager`,
-            description: formatEnvironmentQueryError(result.cause),
-          });
-        }
-      },
-    );
+    latestStandingOpen(
+      open({ environmentId: project.environmentId, input: { projectId: project.projectId } }),
+    ).then((latest) => {
+      if (latest === null) return;
+      const result = latest.value;
+      if (result._tag === "Success") {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(
+            scopeThreadRef(project.environmentId, result.value.threadId),
+          ),
+        });
+      } else {
+        toastManager.add({
+          type: "error",
+          title: `Could not open ${project.title}'s project manager`,
+          description: formatEnvironmentQueryError(result.cause),
+        });
+      }
+    });
 }

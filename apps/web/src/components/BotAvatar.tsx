@@ -1,88 +1,116 @@
 import {
+  BOT_AVATAR_EYE_COLOR,
+  BOT_AVATAR_VIEW_BOX,
   botAvatarPalette,
   botAvatarShapes,
-  type BotAvatarPaint,
+  type BotAvatarShape,
 } from "@t3tools/client-runtime/bot-avatar";
 import type { BotAvatar as BotAvatarParts, ProjectIconColor } from "@t3tools/contracts";
-import { memo, useId } from "react";
+import { memo, useEffect, useRef } from "react";
+
+import { botGlanceScheduler } from "../lib/botGlance";
 
 const SIZES = { xs: 18, sm: 24, md: 32, lg: 64 } as const;
 
-/** A bot's robot avatar, tinted with its color. `shaded={false}` draws it in flat colors. */
+function Shape({ shape, color }: { readonly shape: BotAvatarShape; readonly color: string }) {
+  switch (shape.kind) {
+    case "rect":
+      return (
+        <rect
+          x={shape.x}
+          y={shape.y}
+          width={shape.width}
+          height={shape.height}
+          rx={shape.r}
+          fill={color}
+        />
+      );
+    case "ellipse":
+      return <ellipse cx={shape.cx} cy={shape.cy} rx={shape.rx} ry={shape.ry} fill={color} />;
+    case "path":
+      return shape.outline ? (
+        <path
+          d={shape.d}
+          fill={color}
+          stroke={color}
+          strokeWidth={shape.outline}
+          strokeLinejoin="round"
+        />
+      ) : (
+        <path d={shape.d} fill={color} />
+      );
+    case "stroke":
+      return (
+        <path
+          d={shape.d}
+          fill="none"
+          stroke={color}
+          strokeWidth={shape.width}
+          strokeLinecap="round"
+        />
+      );
+  }
+}
+
+/**
+ * A bot's flat avatar in its color. While `working` and on screen it glances now and then,
+ * timed by the app-wide glance scheduler.
+ */
 export const BotAvatar = memo(function BotAvatar({
   avatar,
   color,
   size = "md",
-  shaded = true,
+  working = false,
   className,
 }: {
   readonly avatar: BotAvatarParts;
   readonly color: ProjectIconColor;
   readonly size?: keyof typeof SIZES | number;
+  readonly working?: boolean;
+  /** Ignored: avatars are always flat. Kept so callers that still pass it compile. */
   readonly shaded?: boolean;
   readonly className?: string;
 }) {
-  // Gradient ids are document-wide, so each avatar names its own.
-  const id = `bot-${useId().replace(/[^\w-]/g, "")}`;
-  const palette = botAvatarPalette(color);
-  const paint = (name: BotAvatarPaint) =>
-    name === "head" ? `url(#${id}-head)` : name === "visor" ? `url(#${id}-visor)` : palette[name];
+  const ref = useRef<SVGSVGElement>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers with the shared glance timer and an IntersectionObserver
+  useEffect(() => {
+    const element = ref.current;
+    if (!working || !element) return;
+    const scheduler = botGlanceScheduler();
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) scheduler.register(element);
+      else scheduler.unregister(element);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      scheduler.unregister(element);
+    };
+  }, [working]);
+
+  const { body, eyes } = botAvatarShapes(avatar);
+  const fill = botAvatarPalette(color).base;
   const pixels = typeof size === "number" ? size : SIZES[size];
   return (
-    <svg viewBox="0 0 64 64" width={pixels} height={pixels} aria-hidden className={className}>
-      <defs>
-        <radialGradient id={`${id}-head`} cx="35%" cy="28%" r="80%">
-          <stop offset="0" stopColor={palette.light} />
-          <stop offset="0.5" stopColor={palette.base} />
-          <stop offset="1" stopColor={palette.dark} />
-        </radialGradient>
-        <linearGradient id={`${id}-visor`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={palette.visorTop} />
-          <stop offset="1" stopColor={palette.visorBottom} />
-        </linearGradient>
-      </defs>
-      {botAvatarShapes(avatar, { shaded }).map((shape) => {
-        switch (shape.kind) {
-          case "rect":
-            return (
-              <rect
-                key={JSON.stringify(shape)}
-                x={shape.x}
-                y={shape.y}
-                width={shape.width}
-                height={shape.height}
-                rx={shape.r}
-                fill={paint(shape.fill)}
-                opacity={shape.opacity}
-              />
-            );
-          case "ellipse":
-            return (
-              <ellipse
-                key={JSON.stringify(shape)}
-                cx={shape.cx}
-                cy={shape.cy}
-                rx={shape.rx}
-                ry={shape.ry}
-                fill={paint(shape.fill)}
-                opacity={shape.opacity}
-              />
-            );
-          case "path":
-            return <path key={JSON.stringify(shape)} d={shape.d} fill={paint(shape.fill)} />;
-          case "stroke":
-            return (
-              <path
-                key={JSON.stringify(shape)}
-                d={shape.d}
-                fill="none"
-                stroke={paint(shape.stroke)}
-                strokeWidth={shape.width}
-                strokeLinecap="round"
-              />
-            );
-        }
-      })}
+    <svg
+      ref={ref}
+      viewBox={BOT_AVATAR_VIEW_BOX}
+      width={pixels}
+      height={pixels}
+      aria-hidden
+      className={className}
+      onAnimationEnd={working ? () => ref.current?.removeAttribute("data-glance") : undefined}
+    >
+      <g data-body="">
+        {body.map((shape) => (
+          <Shape key={JSON.stringify(shape)} shape={shape} color={fill} />
+        ))}
+        <g data-eyes="">
+          {eyes.map((shape) => (
+            <Shape key={JSON.stringify(shape)} shape={shape} color={BOT_AVATAR_EYE_COLOR} />
+          ))}
+        </g>
+      </g>
     </svg>
   );
 });

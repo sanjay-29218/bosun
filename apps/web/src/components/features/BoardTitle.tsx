@@ -58,7 +58,7 @@ export function BoardTitle() {
             />
           }
         >
-          <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" shaded={false} />
+          <BotAvatar avatar={bot.avatar} color={bot.color} size={20} />
           <span className="truncate">{bot.name}</span>
         </TooltipTrigger>
         <TooltipPopup side="bottom">Open {bot.name}'s thread</TooltipPopup>

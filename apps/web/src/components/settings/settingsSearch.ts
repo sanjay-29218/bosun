@@ -27,6 +27,8 @@ export type SettingsPath =
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/bots"
+  | "/settings/workflows"
+  | "/settings/roles"
   | "/settings/threads"
   | "/settings/browser"
   | "/settings/devices"
@@ -97,6 +99,8 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/bots": "Bots",
+  "/settings/workflows": "Workflows",
+  "/settings/roles": "Roles",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
   "/settings/devices": "Devices",
@@ -129,7 +133,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/snap-shot",
     ],
   },
-  { heading: "Crew", paths: ["/settings/bots"] },
+  { heading: "Crew", paths: ["/settings/bots", "/settings/workflows", "/settings/roles"] },
   {
     heading: "Agents",
     paths: ["/settings/providers", "/settings/threads", "/settings/browser", "/settings/devices"],
@@ -1296,7 +1300,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "bots",
     title: "Bots",
     to: "/settings/bots",
-    searchTerms: ["captain add edit manage bots rail open bots"],
+    searchTerms: ["captain add new edit manage reorder delete bots avatar model"],
+  },
+  {
+    id: "workflows",
+    title: "Workflows",
+    to: "/settings/workflows",
+    searchTerms: ["library feature workflow lead crew epic new edit"],
+  },
+  {
+    id: "roles",
+    title: "Roles",
+    to: "/settings/roles",
+    searchTerms: [
+      "library crew roles feature manager planner designer builder reviewer qa starter",
+    ],
   },
   {
     id: "secret-providers",
@@ -1336,8 +1354,10 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
-  // Environment-local; the page pins one environment, like Providers.
+  // Every environment's, listed on the page.
   "/settings/bots": null,
+  "/settings/workflows": null,
+  "/settings/roles": null,
   "/settings/threads": null,
   "/settings/browser": null,
   "/settings/devices": null,

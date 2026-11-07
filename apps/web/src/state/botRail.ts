@@ -184,8 +184,7 @@ export function selectBotOfHeadquarters(environmentId: EnvironmentId, botId: str
       ),
     );
   if (!bot || readActiveLogicalBotKey() === bot.key) return;
-  const store = useUiStateStore.getState();
-  store.setActiveBotIdByEnvironmentId(selectLogicalBot(store.activeBotIdByEnvironmentId, bot));
+  useUiStateStore.getState().setActiveBotIdByEnvironmentId(selectLogicalBot(bot));
 }
 
 /** The active rail entry's key, read outside React (the main view is remembered per bot). */
@@ -204,11 +203,10 @@ export function activeBotInput(environmentId: EnvironmentId): { botId?: string }
   return botId === undefined ? {} : { botId };
 }
 
-/** Selects a rail entry, or All bots for null. */
-export function useSelectLogicalBot(): (bot: LogicalBot | null) => void {
+/** Selects a rail entry. */
+export function useSelectLogicalBot(): (bot: LogicalBot) => void {
   const setActive = useUiStateStore((store) => store.setActiveBotIdByEnvironmentId);
-  return (bot) =>
-    setActive(selectLogicalBot(useUiStateStore.getState().activeBotIdByEnvironmentId, bot));
+  return (bot) => setActive(selectLogicalBot(bot));
 }
 
 /** The environments the rail and sidebar show, or null for all of them. */
@@ -229,8 +227,9 @@ export function useVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
 }
 
 /**
- * The active entry among the visible ones, or null for All bots. Filtering out its
- * environments falls back to All bots without forgetting what each environment remembers.
+ * The active entry among the visible ones, null only while none is visible. Filtering out its
+ * environments falls back to the first visible bot without forgetting what each environment
+ * remembers.
  */
 export function useVisibleActiveLogicalBot(): LogicalBot | null {
   const bots = useVisibleLogicalBots();
@@ -282,7 +281,7 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
 
 /**
  * A bot switch in thread view asks for that bot's first thread. Only the sidebar knows its order
- * once it shows the bot, so it opens the thread and clears this. Null bot key is All bots.
+ * once it shows the bot, so it opens the thread and clears this. A null bot key is no bot yet.
  */
 export const botFirstThreadRequestAtom = Atom.make<{ readonly botKey: string | null } | null>(
   null,

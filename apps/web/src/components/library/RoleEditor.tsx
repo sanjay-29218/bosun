@@ -8,11 +8,10 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { useBlocker } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { requestConfirmDialog } from "../../confirmDialog";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import { randomUUID } from "../../lib/utils";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -202,11 +201,7 @@ export function RoleEditorForm({
   const canSave =
     edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !saving;
 
-  useBlocker({
-    shouldBlockFn: async () =>
-      edited && !saving && (await requestConfirmDialog("Leave without saving this role?")) !== true,
-    enableBeforeUnload: () => edited,
-  });
+  useUnsavedChangesGuard({ unsaved: edited, saving, message: "Leave without saving this role?" });
 
   const submit = async () => {
     if (!canSave) return;

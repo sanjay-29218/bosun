@@ -5,6 +5,7 @@ import {
   CREW_DISPATCH_STATE,
   ModelSelection,
   ProjectId,
+  ProjectManagerIcon,
   RuntimeMode,
   ThreadId,
   type CrewDispatchState,
@@ -42,6 +43,8 @@ export interface CrewMember {
   readonly enabled: boolean;
   /** How a project's standing manager handles a long conversation; other members ignore it. */
   readonly longConversation: BotLongConversation;
+  /** A project manager's chosen look; null for every other member. */
+  readonly icon: ProjectManagerIcon | null;
   /** When someone saved its settings in its project; role edits leave it alone from then on. */
   readonly customizedAt: string | null;
   readonly revision: number;
@@ -127,6 +130,7 @@ interface CrewMemberRow {
   readonly runtimeMode: string;
   readonly enabled: number;
   readonly longConversation: string;
+  readonly iconJson: string | null;
   readonly customizedAt: string | null;
   readonly revision: number;
   readonly createdAt: string;
@@ -174,6 +178,10 @@ const parseRuntimeMode = Schema.decodeUnknownSync(RuntimeMode);
 const parseAllowedTools = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 const decodeModelSelection = (json: string) => parseModelSelection(JSON.parse(json));
 const decodeAllowedTools = (json: string) => parseAllowedTools(JSON.parse(json));
+const parseIcon = Schema.decodeUnknownSync(ProjectManagerIcon);
+const decodeIcon = (json: string | null) => (json === null ? null : parseIcon(JSON.parse(json)));
+const encodeIcon = (icon: ProjectManagerIcon | null) =>
+  icon === null ? null : JSON.stringify(icon);
 
 const decodeMember = (row: CrewMemberRow): CrewMember => ({
   id: row.id,
@@ -188,6 +196,7 @@ const decodeMember = (row: CrewMemberRow): CrewMember => ({
   runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
   longConversation: row.longConversation === "new-session" ? "new-session" : "compact",
+  icon: decodeIcon(row.iconJson),
   customizedAt: row.customizedAt,
   revision: row.revision,
   createdAt: row.createdAt,
@@ -381,7 +390,8 @@ export const CrewStoreLive = Layer.effect(
           role_id AS roleId, role_revision AS roleRevision, name, instructions,
           allowed_tools_json AS allowedToolsJson,
           model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-          enabled, long_conversation AS longConversation, customized_at AS customizedAt,
+          enabled, long_conversation AS longConversation, icon_json AS iconJson,
+          customized_at AS customizedAt,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM crew_members WHERE id = ${id}
       `.pipe(
@@ -543,14 +553,15 @@ export const CrewStoreLive = Layer.effect(
           INSERT INTO crew_members (
             id, project_id, feature_id, role_id, role_revision, name, instructions,
             allowed_tools_json, model_selection_json, runtime_mode, enabled,
-            long_conversation, customized_at, revision, created_at, updated_at
+            long_conversation, icon_json, customized_at, revision, created_at, updated_at
           ) VALUES (
             ${member.id}, ${member.projectId}, ${member.featureId},
             ${member.roleId}, ${member.roleRevision}, ${member.name},
             ${member.instructions}, ${JSON.stringify(member.allowedTools)},
             ${JSON.stringify(member.modelSelection)},
             ${member.runtimeMode}, ${member.enabled ? 1 : 0},
-            ${member.longConversation}, ${member.customizedAt}, ${member.revision},
+            ${member.longConversation}, ${encodeIcon(member.icon)}, ${member.customizedAt},
+            ${member.revision},
             ${member.createdAt}, ${member.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -579,6 +590,7 @@ export const CrewStoreLive = Layer.effect(
             model_selection_json = ${JSON.stringify(member.modelSelection)},
             runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
             long_conversation = ${member.longConversation},
+            icon_json = ${encodeIcon(member.icon)},
             customized_at = ${member.customizedAt},
             revision = ${member.revision}, updated_at = ${member.updatedAt}
           WHERE id = ${member.id} AND revision = ${expectedRevision}
@@ -593,7 +605,8 @@ export const CrewStoreLive = Layer.effect(
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
             allowed_tools_json AS allowedToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled, long_conversation AS longConversation, customized_at AS customizedAt,
+            enabled, long_conversation AS longConversation, icon_json AS iconJson,
+          customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM crew_members
           WHERE role_id = ${roleId} AND project_id IS NOT NULL AND feature_id IS NULL
@@ -618,7 +631,8 @@ export const CrewStoreLive = Layer.effect(
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
             allowed_tools_json AS allowedToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled, long_conversation AS longConversation, customized_at AS customizedAt,
+            enabled, long_conversation AS longConversation, icon_json AS iconJson,
+          customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM crew_members
           WHERE project_id = ${projectId} OR project_id IS NULL

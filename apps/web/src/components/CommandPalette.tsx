@@ -66,11 +66,12 @@ import {
   ListTodoIcon,
   CheckIcon,
   ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
-  InboxIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
@@ -292,8 +293,8 @@ import { openNextNeedsYou } from "./features/featuresNavigation";
 import {
   AUTOMATIONS_PATH,
   BOARD_PATH,
-  BOTS_PATH,
-  LIBRARY_PATH,
+  BOTS_SETTINGS_PATH,
+  WORKFLOWS_SETTINGS_PATH,
   useToggleMainView,
 } from "./sidebar/mainAppLocation";
 import { suggestAppAccessForRemote } from "./sourceControlAppAccessToast";
@@ -552,6 +553,7 @@ function OpenCommandPaletteDialog(props: {
   const openBotHeadquarters = useOpenBotHeadquarters();
   const switchBotMainView = useSwitchBotMainView();
   const multipleBots = railBots.length > 1;
+  const botRailCollapsed = useUiStateStore((store) => store.botRailCollapsed);
   const environmentFilter = useEnvironmentFilter();
   const setSidebarEnvironmentIds = useUiStateStore((store) => store.setSidebarEnvironmentIds);
   const connectedEnvironmentIds = useConnectedEnvironmentIds();
@@ -1753,22 +1755,24 @@ function OpenCommandPaletteDialog(props: {
     value: "action:bots",
     searchTerms: ["bots", "bot", "captain", "add bot", "new bot", "edit bot", "avatar"],
     title: "Open bots",
+    description: "Settings",
     icon: <BotIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "bots.open",
     run: async () => {
-      await navigate({ to: BOTS_PATH });
+      await navigate({ to: BOTS_SETTINGS_PATH });
     },
   });
 
   actionItems.push({
     kind: "action",
     value: "action:library",
-    searchTerms: ["library", "roles", "crew", "feature manager"],
-    title: "Open library",
+    searchTerms: ["library", "workflows", "roles", "crew", "feature manager"],
+    title: "Open workflows",
+    description: "Settings",
     icon: <LayersIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "library.open",
     run: async () => {
-      await navigate({ to: LIBRARY_PATH });
+      await navigate({ to: WORKFLOWS_SETTINGS_PATH });
     },
   });
 
@@ -1888,44 +1892,42 @@ function OpenCommandPaletteDialog(props: {
 
   // The bot rail's switches; Mod+1-9 runs them while the palette is open too.
   const botItems: CommandPaletteActionItem[] = multipleBots
-    ? [
-        {
+    ? railBots.map((bot, index): CommandPaletteActionItem => {
+        const shortcutCommand = botJumpCommandForIndex(index);
+        return {
           kind: "action",
-          value: "bot:all",
-          searchTerms: ["all bots", "inbox", "bot", "switch", "everything"],
+          value: `bot:${bot.key}`,
+          searchTerms: [bot.name, "bot", "switch"],
           title: (
             <>
-              Show <span className="font-semibold">All bots</span>
+              Switch to <span className="font-semibold">{bot.name}</span>
             </>
           ),
-          description: activeRailBot === null ? "Current" : "Every bot's threads",
-          icon: <InboxIcon className={ITEM_ICON_CLASS} />,
-          shortcutCommand: "bot.inbox",
+          ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
+          icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
+          ...(shortcutCommand ? { shortcutCommand } : {}),
           run: async () => {
-            if (activeRailBot !== null) switchBotMainView(() => selectRailBot(null));
+            if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
           },
-        },
-        ...railBots.map((bot, index): CommandPaletteActionItem => {
-          const shortcutCommand = botJumpCommandForIndex(index);
-          return {
-            kind: "action",
-            value: `bot:${bot.key}`,
-            searchTerms: [bot.name, "bot", "switch"],
-            title: (
-              <>
-                Switch to <span className="font-semibold">{bot.name}</span>
-              </>
-            ),
-            ...(bot.key === activeRailBot?.key ? { description: "Current bot" } : {}),
-            icon: <BotAvatar avatar={bot.avatar} color={bot.color} size="xs" />,
-            ...(shortcutCommand ? { shortcutCommand } : {}),
-            run: async () => {
-              if (bot.key !== activeRailBot?.key) switchBotMainView(() => selectRailBot(bot));
-            },
-          };
-        }),
-      ]
+        };
+      })
     : [];
+  if (railBots.length > 0) {
+    botItems.push({
+      kind: "action",
+      value: "bot-list:toggle",
+      searchTerms: ["toggle bot list", "bots", "rail", "collapse", "expand", "icons"],
+      title: "Toggle bot list",
+      description: botRailCollapsed ? "Expand it" : "Collapse it to icons",
+      icon: botRailCollapsed ? (
+        <ChevronsRightIcon className={ITEM_ICON_CLASS} />
+      ) : (
+        <ChevronsLeftIcon className={ITEM_ICON_CLASS} />
+      ),
+      shortcutCommand: "bot.inbox",
+      run: async () => useUiStateStore.getState().toggleBotRailCollapsed(),
+    });
+  }
   // Every bot's headquarters, so a single bot (no rail) can be reached too.
   for (const bot of railBots) {
     botItems.push({

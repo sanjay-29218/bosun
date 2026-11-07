@@ -1,36 +1,11 @@
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { useNavigate } from "@tanstack/react-router";
-import { ArrowRightIcon } from "lucide-react";
 
 import { botsEnvironment } from "../../state/bots";
 import { useEnvironmentQuery } from "../../state/query";
 import { BotOwnerSelect } from "../bots/BotProjects";
-import { BOTS_PATH } from "../sidebar/mainAppLocation";
-import { Button } from "../ui/button";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-
-/** What applies to every bot. The bots themselves are added and edited in the rail's Bots. */
-export function BotsSettings() {
-  const navigate = useNavigate();
-  return (
-    <SettingsPageContainer>
-      <SettingsSection title="Bots" id={searchableSetting("bots").id}>
-        <SettingsRow
-          title="Your bots"
-          description="Add, edit and reorder bots, and move projects between them, from Bots in the rail."
-          control={
-            <Button size="sm" variant="outline" onClick={() => void navigate({ to: BOTS_PATH })}>
-              Open Bots
-              <ArrowRightIcon />
-            </Button>
-          }
-        />
-      </SettingsSection>
-    </SettingsPageContainer>
-  );
-}
 
 /** Project settings: the bot that owns each of the project's checkouts. */
 export function ProjectBotSection({

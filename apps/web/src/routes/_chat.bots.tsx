@@ -1,14 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { BotsPage } from "../components/bots/BotsPage";
 import { validateBotsSearch } from "../components/bots/botsSearch";
 
-function BotsRouteView() {
-  const search = Route.useSearch();
-  return <BotsPage {...search} />;
-}
-
+// Bots moved to Settings → Bots; old links and agent messages land there.
 export const Route = createFileRoute("/_chat/bots")({
   validateSearch: validateBotsSearch,
-  component: BotsRouteView,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/settings/bots", search, replace: true });
+  },
 });

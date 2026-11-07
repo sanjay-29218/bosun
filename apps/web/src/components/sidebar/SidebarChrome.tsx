@@ -44,10 +44,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import {
   AUTOMATIONS_PATH,
-  BOTS_PATH,
+  BOTS_SETTINGS_PATH,
   isSidebarUtilityPage,
-  LIBRARY_PATH,
   useNavigateToMainApp,
+  WORKFLOWS_SETTINGS_PATH,
 } from "./mainAppLocation";
 import { SidebarBotHeader } from "./SidebarBotHeader";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
@@ -261,15 +261,15 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   };
   const handleBotsClick = () => {
     closeMobileSidebar();
-    void navigate({ to: BOTS_PATH });
+    void navigate({ to: BOTS_SETTINGS_PATH });
   };
   const handleAutomationsClick = () => {
     closeMobileSidebar();
     void navigate({ to: AUTOMATIONS_PATH });
   };
-  const handleLibraryClick = () => {
+  const handleWorkflowsClick = () => {
     closeMobileSidebar();
-    void navigate({ to: LIBRARY_PATH });
+    void navigate({ to: WORKFLOWS_SETTINGS_PATH });
   };
   const handleSettingsClick = () => {
     closeMobileSidebar();
@@ -312,7 +312,11 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Automations"
             onClick={handleAutomationsClick}
           />
-          <SidebarUtilityItem icon={<LayersIcon />} label="Library" onClick={handleLibraryClick} />
+          <SidebarUtilityItem
+            icon={<LayersIcon />}
+            label="Workflows"
+            onClick={handleWorkflowsClick}
+          />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}

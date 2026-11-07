@@ -15,7 +15,6 @@ import {
   botRailShowsThread,
   botRailSignal,
   buildLogicalBots,
-  combineBotActivity,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
   logicalBotMemberOn,
@@ -109,32 +108,23 @@ describe("resolveActiveLogicalBot", () => {
     ).toBe("Finance");
   });
 
-  it("reads as All bots when nothing remembered is still listed", () => {
-    expect(resolveActiveLogicalBot(bots, {}, [local, remote])).toBeNull();
-    expect(resolveActiveLogicalBot(bots, { local: "bot-gone" }, [local, remote])).toBeNull();
+  it("selects the first bot when nothing remembered is still listed", () => {
+    expect(resolveActiveLogicalBot(bots, {}, [local, remote])?.name).toBe("Captain");
+    expect(resolveActiveLogicalBot(bots, { local: "bot-gone" }, [local, remote])?.name).toBe(
+      "Captain",
+    );
     expect(resolveActiveLogicalBot([], {}, [local])).toBeNull();
   });
 
-  it("always selects a lone bot, which has no All bots beside it", () => {
-    const [captain] = bots;
-    expect(resolveActiveLogicalBot([captain!], {}, [local])?.name).toBe("Captain");
-  });
-
-  it("selects All bots by forgetting every environment's bot", () => {
-    const next = selectLogicalBot({ local: "bot-social", remote: "bot-social-2" }, null);
-    expect(next).toEqual({});
-    expect(resolveActiveLogicalBot(bots, next, [local, remote])).toBeNull();
-  });
-
   it("remembers the bot on each of its environments", () => {
-    const next = selectLogicalBot({ local: CAPTAIN_BOT_ID, other: "bot-x" }, bots[1]!);
+    const next = selectLogicalBot(bots[1]!);
     expect(next).toEqual({ local: "bot-social", remote: "bot-social-2" });
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Social");
   });
 
   it("selects a bot that only a later environment has", () => {
     const finance = bots.find((entry) => entry.name === "Finance")!;
-    const next = selectLogicalBot({ local: CAPTAIN_BOT_ID, remote: CAPTAIN_BOT_ID }, finance);
+    const next = selectLogicalBot(finance);
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Finance");
   });
 });
@@ -331,7 +321,7 @@ describe("bot activity", () => {
     expect([...activity.keys()]).toEqual([botNeedsYouKey(local, "bot-social")]);
   });
 
-  it("merges per rail entry and across entries for All bots", () => {
+  it("merges per rail entry", () => {
     const perEntry = botActivityByLogicalBot(
       [captain!, social!],
       new Map([
@@ -341,12 +331,7 @@ describe("bot activity", () => {
     );
     // A bot the rail doesn't know falls under Captain, like its projects.
     expect(perEntry.get(captain!.key)).toEqual({ failed: false, working: false, unread: true });
-    expect(combineBotActivity(perEntry.values())).toEqual({
-      failed: false,
-      working: true,
-      unread: true,
-    });
-    expect(combineBotActivity([])).toBeUndefined();
+    expect(perEntry.get(social!.key)).toEqual({ failed: false, working: true, unread: false });
   });
 
   it("shows one signal, the most urgent", () => {

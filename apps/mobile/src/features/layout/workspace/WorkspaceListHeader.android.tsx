@@ -5,7 +5,6 @@ import { BackHandler, Keyboard, Pressable } from "react-native";
 import { BotAvatar } from "../../../components/BotAvatar";
 import { AndroidAnchoredMenu } from "../../../components/ui/AndroidAnchoredMenu";
 import { AppBar } from "../../../components/ui/AppBar";
-import { SymbolView } from "../../../components/ui/AppSymbol";
 import { useAndroidControlSizing } from "../../../components/ui/useAndroidControlSizing";
 import { useWorkspaceConnectionState } from "../../../state/workspace";
 import { threadListViewToggleButton, type BotSwitcherMenu } from "../../home/thread-list-chrome";
@@ -130,16 +129,7 @@ function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
           style={{ width: buttonSize, height: buttonSize }}
           onPress={open}
         >
-          {menu.bot ? (
-            <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 10} />
-          ) : (
-            <SymbolView
-              name="tray"
-              size={iconSize}
-              tintColorClassName="accent-foreground"
-              type="monochrome"
-            />
-          )}
+          <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 10} />
         </Pressable>
       )}
     </AndroidAnchoredMenu>

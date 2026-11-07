@@ -65,7 +65,7 @@ export const BOT_HEADS = [
  * bare head drawn in one flat color, without shine or shadow.
  */
 export const BOT_FACES = ["visor", "plate", "bare", "flat"] as const;
-export const BOT_EYES = [
+const BOT_EYES = [
   "round",
   "happy",
   "wink",
@@ -77,7 +77,7 @@ export const BOT_EYES = [
   "big",
   "dash",
 ] as const;
-export const BOT_TOPS = [
+const BOT_TOPS = [
   "ball",
   "double",
   "ears",

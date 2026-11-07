@@ -1,8 +1,9 @@
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
-import { BotLongConversation } from "./bots.ts";
+import { BotAvatar, BotLongConversation } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { ProjectIconColor } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
@@ -198,6 +199,10 @@ export const CrewSetDelegationInput = Schema.Struct({
   allowed: Schema.Boolean,
 });
 
+/** The bot look a person chose for a project's manager. */
+export const ProjectManagerIcon = Schema.Struct({ avatar: BotAvatar, color: ProjectIconColor });
+export type ProjectManagerIcon = typeof ProjectManagerIcon.Type;
+
 /** A project's manager as it is now, or as the role would make it before its first use. */
 export const ProjectManagerSettings = Schema.Struct({
   projectId: ProjectId,
@@ -214,6 +219,8 @@ export const ProjectManagerSettings = Schema.Struct({
   revision: Schema.Int,
   /** Its standing thread, null until it is first opened. */
   threadId: Schema.NullOr(ThreadId),
+  /** Null shows the look clients derive from the project id. */
+  icon: Schema.NullOr(ProjectManagerIcon),
 });
 export type ProjectManagerSettings = typeof ProjectManagerSettings.Type;
 export const ProjectManagerUpdateInput = Schema.Struct({
@@ -236,6 +243,11 @@ export const ProjectManagerEnabledInput = Schema.Struct({
   enabled: Schema.Boolean,
 });
 export type ProjectManagerEnabledInput = typeof ProjectManagerEnabledInput.Type;
+export const ProjectManagerIconInput = Schema.Struct({
+  projectId: ProjectId,
+  icon: Schema.NullOr(ProjectManagerIcon),
+});
+export type ProjectManagerIconInput = typeof ProjectManagerIconInput.Type;
 
 /** A project's manager thread, made and opened on first use. */
 export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });

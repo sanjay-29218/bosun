@@ -14,6 +14,7 @@ import {
   ProjectId,
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
+  type ProjectManagerIconInput,
   type ProjectManagerResetInput,
   type ProjectManagerSettings,
   type ProjectManagerUpdateInput,
@@ -317,6 +318,10 @@ export interface CrewServiceShape {
     readonly projectId: ProjectId;
     readonly enabled: boolean;
   }) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
+  /** Chooses the manager's look without marking it customized; null goes back to the derived one. */
+  readonly setProjectManagerIcon: (
+    input: ProjectManagerIconInput,
+  ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
   /** The project's manager settings, or the defaults before the project has one. */
   readonly projectManagerSettings: (
     projectId: ProjectId,
@@ -481,6 +486,7 @@ export const CrewServiceLive = Layer.effect(
           allowedTools,
           enabled: true,
           longConversation: "compact",
+          icon: null,
           customizedAt: null,
           revision: 1,
           createdAt: now,
@@ -822,6 +828,7 @@ export const CrewServiceLive = Layer.effect(
           customized: member.customizedAt !== null,
           revision: member.revision,
           threadId,
+          icon: member.icon,
         };
       }
       return {
@@ -831,6 +838,7 @@ export const CrewServiceLive = Layer.effect(
         customized: false,
         revision: 0,
         threadId,
+        icon: null,
       };
     });
 
@@ -1240,6 +1248,24 @@ export const CrewServiceLive = Layer.effect(
       return yield* projectManagerSettings(projectId);
     });
 
+    const setProjectManagerIcon: CrewServiceShape["setProjectManagerIcon"] = Effect.fn(
+      "CrewService.setProjectManagerIcon",
+    )(function* ({ projectId, icon }) {
+      const member = yield* projectManagerMember(projectId);
+      const updated: CrewMember = {
+        ...member,
+        icon,
+        revision: member.revision + 1,
+        updatedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+      if (!(yield* store.saveMember(updated, member.revision))) {
+        return yield* Effect.fail(
+          new CrewValidationError("The project manager changed; reload its settings and try again"),
+        );
+      }
+      return yield* projectManagerSettings(projectId);
+    });
+
     const ensureProjectManager: CrewServiceShape["ensureProjectManager"] = Effect.fn(
       "CrewService.ensureProjectManager",
     )(function* (projectId) {
@@ -1495,6 +1521,7 @@ export const CrewServiceLive = Layer.effect(
       ensureProjectManager,
       requireProjectManagerOn,
       setProjectManagerEnabled,
+      setProjectManagerIcon,
       requireManagedProject,
       projectManagerSettings,
       updateProjectManager,

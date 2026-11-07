@@ -6,7 +6,6 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  BotIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
   PlusIcon,
@@ -20,71 +19,111 @@ import { botsEnvironment } from "../../state/bots";
 import {
   logicalBotsAtom,
   useBotEnvironmentIds,
+  useSelectLogicalBot,
   useShownBotEnvironmentIds,
 } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { useEnvironmentIdentities } from "../../state/environments";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { LibraryFrame } from "../library/LibraryFrame";
 import { useEnvironmentDefaultModel } from "../library/RoleEditor";
-import { BOTS_PATH } from "../sidebar/mainAppLocation";
+import { CrewSettingsFrame } from "../settings/CrewSettingsFrame";
+import { BOTS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
 import { useOpenBotHeadquarters } from "../sidebar/openBotHeadquarters";
 import { Button } from "../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
-import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { BotEditor } from "./BotEditor";
+import { BotList } from "./BotList";
 import { BotProjectList } from "./BotProjects";
 import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./bots.logic";
 import type { BotsSearch } from "./botsSearch";
+import { NewBotDialog } from "./NewBotDialog";
 
-/** The Bots destination's main pane: the selected bot's editor, or a new one. */
+/**
+ * Settings → Bots: every bot, or one bot's editor. `new` opens the New bot dialog, whose bot
+ * opens in its headquarters once made.
+ */
 export function BotsPage(search: BotsSearch) {
   const navigate = useNavigate();
   const environmentIds = useShownBotEnvironmentIds();
-  const environmentId = search.environmentId ?? (search.new ? (environmentIds[0] ?? null) : null);
+  const selectBot = useSelectLogicalBot();
+  const openHeadquarters = useOpenBotHeadquarters();
+  const newEnvironmentId = search.new ? (search.environmentId ?? environmentIds[0] ?? null) : null;
+  const usedAvatars =
+    useEnvironmentQuery(
+      newEnvironmentId === null
+        ? null
+        : botsEnvironment.list({ environmentId: newEnvironmentId, input: {} }),
+    ).data?.map((bot) => bot.avatar) ?? [];
+  const openNew = (environmentId: EnvironmentId) =>
+    void navigate({ to: BOTS_SETTINGS_PATH, search: { environmentId, new: true } });
+  const closeNew = () => void navigate({ to: BOTS_SETTINGS_PATH, search: {}, replace: true });
 
-  if (environmentId !== null && (search.new || search.botId !== undefined)) {
+  if (search.environmentId !== undefined && search.botId !== undefined) {
     return (
       <EnvironmentBotPage
-        // A new bot's form starts over on each environment.
-        key={search.new ? `new:${environmentId}` : environmentId}
-        environmentId={environmentId}
-        botId={search.botId ?? null}
+        key={search.environmentId}
+        environmentId={search.environmentId}
+        botId={search.botId}
       />
     );
   }
+  const firstEnvironmentId = environmentIds[0];
   return (
-    <LibraryFrame root="Bots" title={null} actions={null}>
-      <WorkspacePageContainer>
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <BotIcon />
-            </EmptyMedia>
-            <EmptyTitle>
-              {environmentIds.length === 0 ? "No environment runs bots" : "Pick a bot"}
-            </EmptyTitle>
-            <EmptyDescription>
-              {environmentIds.length === 0
-                ? "Connect an environment that runs bots to add and edit them here."
-                : "Each bot owns projects and runs their work with the model, access and tools you give it."}
-            </EmptyDescription>
-          </EmptyHeader>
-          {environmentIds.length > 0 ? (
-            <Button
-              size="sm"
-              onClick={() => void navigate({ to: BOTS_PATH, search: { new: true } })}
-            >
-              <PlusIcon />
-              New bot
-            </Button>
-          ) : null}
-        </Empty>
-      </WorkspacePageContainer>
-    </LibraryFrame>
+    <CrewSettingsFrame
+      back={null}
+      title="Bots"
+      actions={
+        <Button
+          size="sm"
+          disabled={firstEnvironmentId === undefined}
+          onClick={() => {
+            if (firstEnvironmentId !== undefined) openNew(firstEnvironmentId);
+          }}
+        >
+          <PlusIcon />
+          Add bot
+        </Button>
+      }
+    >
+      <BotList onNew={openNew} />
+      {newEnvironmentId === null ? null : (
+        <NewBotDialog
+          environmentId={newEnvironmentId}
+          usedAvatars={usedAvatars}
+          open
+          onOpenChange={(open) => {
+            if (!open) closeNew();
+          }}
+          onCreated={(bot) => {
+            closeNew();
+            const logicalBot = {
+              key: logicalBotKey(bot),
+              name: bot.name,
+              avatar: bot.avatar,
+              color: bot.color,
+              members: [{ environmentId: newEnvironmentId, botId: bot.id }],
+            };
+            selectBot(logicalBot);
+            openHeadquarters(logicalBot);
+            toastManager.add({
+              type: "success",
+              title: `${bot.name} is ready`,
+              actionProps: {
+                children: "Edit settings",
+                onClick: () =>
+                  void navigate({
+                    to: BOTS_SETTINGS_PATH,
+                    search: { environmentId: newEnvironmentId, botId: bot.id },
+                  }),
+              },
+            });
+          }}
+        />
+      )}
+    </CrewSettingsFrame>
   );
 }
 
@@ -93,7 +132,7 @@ function EnvironmentBotPage({
   botId,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly botId: string | null;
+  readonly botId: string;
 }) {
   const navigate = useNavigate();
   const botsQuery = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} }));
@@ -111,105 +150,85 @@ function EnvironmentBotPage({
   // Bumped to remount the form, which discards its draft.
   const [formRevision, setFormRevision] = useState(0);
   const bots = botsQuery.data ?? [];
-  const bot = botId === null ? null : (bots.find((candidate) => candidate.id === botId) ?? null);
-  const open = (id: string | null) =>
-    void navigate({
-      to: BOTS_PATH,
-      search: id === null ? {} : { environmentId, botId: id },
-      replace: id !== null,
-    });
+  const bot = bots.find((candidate) => candidate.id === botId) ?? null;
+  const back = {
+    label: "Bots",
+    onBack: () => void navigate({ to: BOTS_SETTINGS_PATH, search: {} }),
+  };
 
-  if (!botsQuery.data || (botId !== null && bot === null)) {
+  if (bot === null) {
     return (
-      <LibraryFrame root="Bots" title={null} actions={null}>
-        <WorkspacePageContainer>
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>
-                {botsQuery.error
-                  ? "Could not load bots"
-                  : !botsQuery.data
-                    ? "Loading bots…"
-                    : "Bot unavailable"}
-              </EmptyTitle>
-              <EmptyDescription>
-                {botsQuery.error ?? (botsQuery.data ? "This bot no longer exists." : null)}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </WorkspacePageContainer>
-      </LibraryFrame>
+      <CrewSettingsFrame back={back} title="Bot" actions={null}>
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>
+              {botsQuery.error
+                ? "Could not load bots"
+                : !botsQuery.data
+                  ? "Loading bots…"
+                  : "Bot unavailable"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {botsQuery.error ?? (botsQuery.data ? "This bot no longer exists." : null)}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </CrewSettingsFrame>
     );
   }
 
-  const ownedProjects = bot ? (groupProjectsByBot(projects).get(bot.id) ?? []) : [];
+  const ownedProjects = groupProjectsByBot(projects).get(bot.id) ?? [];
   // The same bot on other environments; one the rail hasn't merged yet stands alone.
-  const logicalBot = bot
-    ? (logicalBots.find((candidate) =>
-        candidate.members.some(
-          (member) => member.environmentId === environmentId && member.botId === bot.id,
-        ),
-      ) ?? {
-        key: logicalBotKey(bot),
-        name: bot.name,
-        avatar: bot.avatar,
-        color: bot.color,
-        members: [{ environmentId, botId: bot.id }],
-      })
-    : null;
-  const projectLists = logicalBot
-    ? logicalBotProjectLists(
-        logicalBot,
-        logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot],
-        allProjects,
-        botEnvironmentIds,
-      )
-    : null;
+  const logicalBot = logicalBots.find((candidate) =>
+    candidate.members.some(
+      (member) => member.environmentId === environmentId && member.botId === bot.id,
+    ),
+  ) ?? {
+    key: logicalBotKey(bot),
+    name: bot.name,
+    avatar: bot.avatar,
+    color: bot.color,
+    members: [{ environmentId, botId: bot.id }],
+  };
+  const railBots = logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot];
+  const projectLists = logicalBotProjectLists(logicalBot, railBots, allProjects, botEnvironmentIds);
   return (
-    <LibraryFrame
-      root="Bots"
-      title={bot?.name ?? "New bot"}
+    <CrewSettingsFrame
+      back={back}
+      title={bot.name}
       actions={
-        bot ? (
-          <BotActions
-            environmentId={environmentId}
-            bot={bot}
-            bots={bots}
-            ownedProjects={ownedProjects.length}
-            onDeleted={() => open(null)}
-          />
-        ) : null
-      }
-    >
-      <WorkspacePageContainer>
-        <BotEditor
-          key={`${environmentId}:${bot?.id ?? "new"}:${formRevision}`}
+        <BotActions
           environmentId={environmentId}
           bot={bot}
-          defaultModel={defaultModel}
-          usedAvatars={bots.map((candidate) => candidate.avatar)}
-          projectCount={projectLists?.owned.length ?? 0}
-          projects={
-            logicalBot && projectLists ? (
-              <BotProjectList
-                environmentId={environmentId}
-                bot={logicalBot}
-                bots={logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot]}
-                ownedProjects={projectLists.owned}
-                availableProjects={projectLists.available}
-                projectsWithoutBots={projectLists.withoutBots}
-                environmentLabels={environmentLabels}
-              />
-            ) : null
-          }
-          onConflict={botsQuery.refresh}
-          onSaved={(id) => {
-            if (id !== bot?.id) open(id);
-          }}
-          onCancel={() => (bot ? setFormRevision((revision) => revision + 1) : open(null))}
+          bots={bots}
+          ownedProjects={ownedProjects.length}
+          onDeleted={back.onBack}
         />
-      </WorkspacePageContainer>
-    </LibraryFrame>
+      }
+    >
+      <BotEditor
+        key={`${environmentId}:${bot.id}:${formRevision}`}
+        environmentId={environmentId}
+        bot={bot}
+        defaultModel={defaultModel}
+        usedAvatars={bots.map((candidate) => candidate.avatar)}
+        projectCount={projectLists.owned.length}
+        projects={
+          <BotProjectList
+            environmentId={environmentId}
+            bot={logicalBot}
+            bots={railBots}
+            ownedProjects={projectLists.owned}
+            availableProjects={projectLists.available}
+            projectsWithoutBots={projectLists.withoutBots}
+            environmentLabels={environmentLabels}
+          />
+        }
+        onConflict={botsQuery.refresh}
+        onSaved={() => {}}
+        onCancel={() => setFormRevision((revision) => revision + 1)}
+      />
+    </CrewSettingsFrame>
   );
 }
 

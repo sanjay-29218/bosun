@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useRouter, type AnyRouter } from "@tanstack/react-router";
-import { headquartersBotId, type EnvironmentId } from "@t3tools/contracts";
+import { headquartersBotId, headquartersProjectId, type EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useState } from "react";
 
@@ -20,36 +20,31 @@ export function isAppModalPage(pathname: string) {
 }
 
 export const AUTOMATIONS_PATH = "/automations";
-export const LIBRARY_PATH = "/library";
-export const BOTS_PATH = "/bots";
+/** Bots, workflows and roles are added and edited in Settings → Crew. */
+export const BOTS_SETTINGS_PATH = "/settings/bots";
+export const WORKFLOWS_SETTINGS_PATH = "/settings/workflows";
+export const ROLES_SETTINGS_PATH = "/settings/roles";
 
 export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
     pathname === "/pull-requests" ||
-    pathname === AUTOMATIONS_PATH ||
-    pathname === LIBRARY_PATH ||
-    pathname === BOTS_PATH
+    pathname === AUTOMATIONS_PATH
   );
 }
 
 /**
- * What the rail points at: the bots (each bot's or All bots' threads) or one of its places,
- * where `bot-list` is the Bots place that adds and edits them. The sidebar column shows the
- * destination's list.
+ * What the rail points at: the bots (the picked bot's threads) or one of its places. The sidebar
+ * column shows the destination's list.
  */
-export type RailDestination = "bots" | "bot-list" | "automations" | "library" | "pull-requests";
+export type RailDestination = "bots" | "automations" | "pull-requests";
 
 const railDestinationForPathname = (pathname: string): RailDestination =>
-  pathname === BOTS_PATH
-    ? "bot-list"
-    : pathname === AUTOMATIONS_PATH
-      ? "automations"
-      : pathname === LIBRARY_PATH
-        ? "library"
-        : pathname === "/pull-requests"
-          ? "pull-requests"
-          : "bots";
+  pathname === AUTOMATIONS_PATH
+    ? "automations"
+    : pathname === "/pull-requests"
+      ? "pull-requests"
+      : "bots";
 
 /** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
 export function useRailDestination(): RailDestination {
@@ -89,6 +84,8 @@ const toggledMainView = (current: MainView | null): MainView =>
 const SHELL_LESS_PATHS = new Set(["/pair", "/connect", "/connect-agent", GUEST_PAGE_PATH]);
 
 let mainAppHref: string | null = null;
+// A headquarters or project manager belongs to its own bot, so it is never a bot's last page.
+let mainAppHrefIsStanding = false;
 let appModalReturnHref: string | null = null;
 // Where each view was left, so the toggle flips back to the same thread or board scope.
 const mainViewHrefs: Record<MainView, string | null> = { list: null, board: null };
@@ -104,7 +101,7 @@ function readMainViews(): Record<string, MainView> {
   }
 }
 
-// Each bot remembers its view; All bots, or a rail that knows no bot yet, uses the environment.
+// Each bot remembers its view; a rail that knows no bot yet uses the environment.
 function mainViewKey(environmentId: EnvironmentId | null): string | null {
   const botKey = readActiveLogicalBotKey();
   return botKey === null ? environmentId : `bot:${botKey}`;
@@ -137,7 +134,7 @@ export const readBotHref = (botKey: string) => botHrefs.get(botKey);
 
 /** Saves the main page on screen for `botKey`, which the app may have opened on before bots loaded. */
 export function rememberBotHref(botKey: string) {
-  if (mainAppHref !== null) botHrefs.set(botKey, mainAppHref);
+  if (mainAppHref !== null && !mainAppHrefIsStanding) botHrefs.set(botKey, mainAppHref);
 }
 
 /**
@@ -151,11 +148,14 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     const href = withoutAssistantCitationHash(router.state.location.href);
     appModalReturnHref = href;
     if (isSidebarUtilityPage(pathname)) return;
-    mainAppHref = href;
-    // The index only forwards to a draft or the board, so it is neither view.
-    if (pathname === "/") return;
     const thread = resolveThreadRouteRef(router.state.matches.at(-1)?.params ?? {});
     const headquartersOf = thread ? headquartersBotId(thread.threadId) : null;
+    mainAppHref = href;
+    mainAppHrefIsStanding =
+      headquartersOf !== null ||
+      (thread !== null && headquartersProjectId(thread.threadId) !== null);
+    // The index only forwards to a draft or the board, so it is neither view.
+    if (pathname === "/") return;
     if (thread && headquartersOf !== null) {
       selectBotOfHeadquarters(thread.environmentId, headquartersOf);
     }
@@ -163,7 +163,7 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     mainViewHrefs[view] = href;
     rememberMainView(readActiveEnvironmentId(), view);
     const botKey = readActiveLogicalBotKey();
-    if (botKey !== null) botHrefs.set(botKey, href);
+    if (botKey !== null && !mainAppHrefIsStanding) botHrefs.set(botKey, href);
   };
   record();
   return router.subscribe("onResolved", record);
