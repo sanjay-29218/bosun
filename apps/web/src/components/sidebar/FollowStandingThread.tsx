@@ -8,7 +8,7 @@ import { logicalBotsAtom, readActiveLogicalBotKey } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { useUiStateStore } from "../../uiStateStore";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
-import { standingThreadSelection } from "./standingThreadSelection";
+import { followStandingThread, standingThreadSelection } from "./standingThreadSelection";
 
 /**
  * Keeps the rail on the open standing thread when it was opened from outside the rail (a link,
@@ -46,20 +46,17 @@ export function FollowStandingThread() {
     if (selection.kind === "pending") return;
     followedRef.current = key;
     if (selection.kind === "none") return;
-    const store = useUiStateStore.getState();
     const bot = bots.find((candidate) => candidate.key === selection.botKey);
-    if (bot && readActiveLogicalBotKey() !== bot.key) {
-      store.setActiveBotIdByEnvironmentId(selectLogicalBot(bot));
-    }
-    const { projectKey } = selection;
-    if (
-      projectKey !== null &&
-      !(
-        store.sidebarProjectScopeKeys.length === 1 &&
-        store.sidebarProjectScopeKeys[0] === projectKey
-      )
-    ) {
-      useUiStateStore.getState().setSidebarProjectScopeKeys([projectKey]);
+    if (!bot) return;
+    const store = useUiStateStore.getState();
+    const change = followStandingThread(
+      { activeBotKey: readActiveLogicalBotKey(), scopeKeys: store.sidebarProjectScopeKeys },
+      selection,
+    );
+    // Picking another bot clears the scope, so the project's scope is set after it.
+    if (change.selectBot) store.setActiveBotIdByEnvironmentId(selectLogicalBot(bot));
+    if (change.scopeKeys !== null) {
+      useUiStateStore.getState().setSidebarProjectScopeKeys(change.scopeKeys);
     }
   }, [environmentId, threadId, bots, projects, groups]);
 

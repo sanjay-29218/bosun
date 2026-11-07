@@ -53,3 +53,22 @@ export function standingThreadSelection(input: {
     ? { kind: "select", botKey: ownerKey, projectKey }
     : { kind: "pending" };
 }
+
+/**
+ * What following an opened standing thread changes: pick `target`'s bot when another is picked,
+ * and scope the thread list to its project, or to all projects for a headquarters. Null scope
+ * keys leave the scope as it is.
+ */
+export function followStandingThread(
+  current: { readonly activeBotKey: string | null; readonly scopeKeys: ReadonlyArray<string> },
+  target: { readonly botKey: string; readonly projectKey: string | null },
+): { readonly selectBot: boolean; readonly scopeKeys: ReadonlyArray<string> | null } {
+  const scopeKeys = target.projectKey === null ? [] : [target.projectKey];
+  const sameScope =
+    current.scopeKeys.length === scopeKeys.length &&
+    current.scopeKeys.every((key, index) => key === scopeKeys[index]);
+  return {
+    selectBot: current.activeBotKey !== target.botKey,
+    scopeKeys: sameScope ? null : scopeKeys,
+  };
+}

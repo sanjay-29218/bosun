@@ -8,7 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { standingThreadSelection } from "./standingThreadSelection";
+import { followStandingThread, standingThreadSelection } from "./standingThreadSelection";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -73,5 +73,42 @@ describe("standingThreadSelection", () => {
 
   it("leaves the rail alone for any other thread", () => {
     expect(decide(ThreadId.make("thread-1"))).toEqual({ kind: "none" });
+  });
+});
+
+describe("followStandingThread", () => {
+  const alphaKey = "github.com/acme/alpha";
+
+  it("clears a project scope when the current bot's headquarters opens", () => {
+    expect(
+      followStandingThread(
+        { activeBotKey: captain.key, scopeKeys: [alphaKey] },
+        { botKey: captain.key, projectKey: null },
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: [] });
+  });
+
+  it("scopes to a manager's project, picking its bot when another is picked", () => {
+    expect(
+      followStandingThread(
+        { activeBotKey: navigator.key, scopeKeys: [] },
+        { botKey: captain.key, projectKey: alphaKey },
+      ),
+    ).toEqual({ selectBot: true, scopeKeys: [alphaKey] });
+  });
+
+  it("changes nothing that already matches", () => {
+    expect(
+      followStandingThread(
+        { activeBotKey: captain.key, scopeKeys: [alphaKey] },
+        { botKey: captain.key, projectKey: alphaKey },
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: null });
+    expect(
+      followStandingThread(
+        { activeBotKey: captain.key, scopeKeys: [] },
+        { botKey: captain.key, projectKey: null },
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: null });
   });
 });
