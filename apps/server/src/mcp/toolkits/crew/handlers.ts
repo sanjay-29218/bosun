@@ -3,12 +3,14 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   ticketRef,
+  type ProjectId,
   type RepositoryIssue,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -22,11 +24,18 @@ const isAccessError = Schema.is(
   Schema.Union([McpCapabilityUnavailableError, OrchestratorMcpFailure]),
 );
 
-/** Crew tools act for the crew run behind the calling thread, so only thread callers have one. */
-const requireCrewThread = McpInvocationContext.requireMcpCapability("crew").pipe(
+/**
+ * Crew tools act for the crew run behind the calling thread, so only thread callers have one. A
+ * delegated child shares its parent's crew tools but never acts as a standing thread.
+ */
+const requireCrewCaller = McpInvocationContext.requireMcpCapability("crew").pipe(
   Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "This crew tool")),
-  Effect.map((scope) => scope.thread.threadId),
+  Effect.map((scope) => ({
+    callerThreadId: scope.thread.threadId,
+    callerIsSubagent: scope.thread.subagent === true,
+  })),
 );
+const requireCrewThread = requireCrewCaller.pipe(Effect.map((caller) => caller.callerThreadId));
 
 /** `T-14` is a ticket, `#482` or `482` an issue. */
 function parseTodoRef(ref: string) {
@@ -75,6 +84,7 @@ function crewIssueRows(
 }
 
 const make = Effect.gen(function* () {
+  const crew = yield* CrewService;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
   const tickets = yield* TicketService;
@@ -98,17 +108,37 @@ const make = Effect.gen(function* () {
     return parsed;
   });
 
+  const toolFailure = <E>(error: E) =>
+    isAccessError(error)
+      ? error
+      : new CrewToolFailedError({
+          reason: error instanceof Error ? error.message : String(error),
+        });
   const asCrewMember = <A, E, R>(
     effect: (threadId: McpInvocationContext.McpThreadCaller["threadId"]) => Effect.Effect<A, E, R>,
-  ) =>
-    requireCrewThread.pipe(
-      Effect.flatMap(effect),
-      Effect.mapError((error) =>
-        isAccessError(error) ? error : new CrewToolFailedError({ reason: String(error) }),
-      ),
-    );
-
+  ) => requireCrewThread.pipe(Effect.flatMap(effect), Effect.mapError(toolFailure));
+  const asCrewCaller = <A, E, R>(
+    effect: (caller: Effect.Success<typeof requireCrewCaller>) => Effect.Effect<A, E, R>,
+  ) => requireCrewCaller.pipe(Effect.flatMap(effect), Effect.mapError(toolFailure));
   return {
+    crew_read_manager_instructions: McpToolAccess.readsAsCaller(
+      (input: { readonly projectId?: ProjectId | undefined }) =>
+        asCrewCaller((caller) =>
+          crew.projectManagerInstructions({ ...caller, projectId: input.projectId }),
+        ),
+    ),
+    crew_update_manager_instructions: McpToolAccess.actsAsCaller(
+      (input: {
+        readonly projectId?: ProjectId | undefined;
+        readonly instructions: string;
+        readonly expectedRevision: number;
+      }) =>
+        asCrewCaller((caller) =>
+          crew
+            .updateProjectManagerInstructions({ ...caller, ...input })
+            .pipe(Effect.map((saved) => ({ ...saved, appliesFrom: "the manager's next session" }))),
+        ),
+    ),
     crew_link_issue: McpToolAccess.actsAsCaller(
       (input: { readonly url: string | null; readonly threadId?: ThreadId | undefined }) =>
         asCrewMember((callerId) =>
