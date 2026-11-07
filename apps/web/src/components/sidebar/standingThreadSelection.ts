@@ -67,8 +67,7 @@ export function followStandingThread(
   const sameScope =
     current.scopeKeys.length === scopeKeys.length &&
     current.scopeKeys.every((key, index) => key === scopeKeys[index]);
-  return {
-    selectBot: current.activeBotKey !== target.botKey,
-    scopeKeys: sameScope ? null : scopeKeys,
-  };
+  const selectBot = current.activeBotKey !== target.botKey;
+  // Picking another bot clears the scope, so a matching one must be set again.
+  return { selectBot, scopeKeys: sameScope && !selectBot ? null : scopeKeys };
 }

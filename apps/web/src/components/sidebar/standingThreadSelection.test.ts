@@ -97,6 +97,15 @@ describe("followStandingThread", () => {
     ).toEqual({ selectBot: true, scopeKeys: [alphaKey] });
   });
 
+  it("restores a matching scope that picking another bot would clear", () => {
+    expect(
+      followStandingThread(
+        { activeBotKey: navigator.key, scopeKeys: [alphaKey] },
+        { botKey: captain.key, projectKey: alphaKey },
+      ),
+    ).toEqual({ selectBot: true, scopeKeys: [alphaKey] });
+  });
+
   it("changes nothing that already matches", () => {
     expect(
       followStandingThread(
