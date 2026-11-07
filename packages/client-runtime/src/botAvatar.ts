@@ -44,6 +44,12 @@ export type BotAvatarEyeStyle = (typeof BOT_AVATAR_EYE_STYLES)[number];
 
 export const BOT_AVATAR_EYE_COLOR = "#17171c";
 
+/**
+ * The part of the 64-unit canvas an avatar shows: zoomed 1.12× around (32, 33), so the body
+ * fills more of its box while the flower's top and the mushroom's stem still clear the edges.
+ */
+export const BOT_AVATAR_VIEW_BOX = "3.43 4.43 57.14 57.14";
+
 // Tailwind's 500 shades, the same hues the project and bot color swatches use.
 const BOT_COLOR_HEX: Record<ProjectIconColor, string> = {
   gray: "#6b7280",

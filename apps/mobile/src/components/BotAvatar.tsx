@@ -1,5 +1,6 @@
 import {
   BOT_AVATAR_EYE_COLOR,
+  BOT_AVATAR_VIEW_BOX,
   botAvatarPalette,
   botAvatarShapes,
   type BotAvatarShape,
@@ -58,7 +59,7 @@ export const BotAvatar = memo(function BotAvatar(props: {
   const { body, eyes } = botAvatarShapes(props.avatar);
   const fill = botAvatarPalette(props.color).base;
   return (
-    <Svg width={size} height={size} viewBox="0 0 64 64" accessible={false}>
+    <Svg width={size} height={size} viewBox={BOT_AVATAR_VIEW_BOX} accessible={false}>
       <G>
         {body.map((shape) => (
           <Shape key={JSON.stringify(shape)} shape={shape} color={fill} />

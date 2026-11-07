@@ -73,7 +73,7 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
         <ProjectManagerAvatar
           projectId={manager.projectId}
           icon={icon}
-          size={32}
+          size={36}
           working={working}
           className="pointer-events-none shrink-0"
         />

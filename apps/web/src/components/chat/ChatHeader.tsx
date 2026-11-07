@@ -454,5 +454,5 @@ function ManagerIcon({
   readonly projectId: ProjectId;
 }) {
   const icon = useProjectManagerIcon(environmentId, projectId);
-  return <ProjectManagerAvatar projectId={projectId} icon={icon} size={16} className="shrink-0" />;
+  return <ProjectManagerAvatar projectId={projectId} icon={icon} size={20} className="shrink-0" />;
 }

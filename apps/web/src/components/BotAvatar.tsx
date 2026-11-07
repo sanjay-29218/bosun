@@ -1,5 +1,6 @@
 import {
   BOT_AVATAR_EYE_COLOR,
+  BOT_AVATAR_VIEW_BOX,
   botAvatarPalette,
   botAvatarShapes,
   type BotAvatarShape,
@@ -93,7 +94,7 @@ export const BotAvatar = memo(function BotAvatar({
   return (
     <svg
       ref={ref}
-      viewBox="0 0 64 64"
+      viewBox={BOT_AVATAR_VIEW_BOX}
       width={pixels}
       height={pixels}
       aria-hidden
