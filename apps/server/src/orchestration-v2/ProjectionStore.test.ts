@@ -1,3 +1,4 @@
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { assert, it, vi } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -4892,8 +4893,8 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       yield* message(headquartersId, "tie-a", 3, "Tie a", false);
       assert.deepEqual(yield* lines, { headquarters: "Tie b", plain: null, memory: "Tie b" });
 
-      // An image with no text still counts as the last message.
-      yield* message(headquartersId, "image", 4, "", false, {
+      // An image sent with no text is stored with the attachment-only bootstrap prompt.
+      yield* message(headquartersId, "image", 4, ATTACHMENT_ONLY_BOOTSTRAP_PROMPT, false, {
         role: "user",
         attachments: [
           {

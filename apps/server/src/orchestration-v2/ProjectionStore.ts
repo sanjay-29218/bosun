@@ -81,6 +81,7 @@ import {
   ProjectId,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import { stripAttachmentOnlyBootstrapPrompt } from "@t3tools/shared/composerContextReferences";
 import { lastMessageLine } from "@t3tools/shared/String";
 import {
   createOrchestrationV2TurnItemVisibility,
@@ -1571,7 +1572,7 @@ const linkCardStillAsks = (
 
 /** A message's one-line preview; a message with only attachments names its first one. */
 const messagePreviewLine = (text: string, firstAttachmentType: string | null | undefined) =>
-  lastMessageLine(text) ||
+  lastMessageLine(stripAttachmentOnlyBootstrapPrompt(text)) ||
   (firstAttachmentType == null ? "" : firstAttachmentType === "image" ? "Image" : "Attachment");
 
 /**
