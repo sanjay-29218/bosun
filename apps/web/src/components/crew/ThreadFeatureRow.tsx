@@ -1,11 +1,10 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { featureIssueRef, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
-import { ChevronRightIcon, CircleDotIcon, PencilIcon, WorkflowIcon } from "lucide-react";
+import { ChevronRightIcon, CircleDotIcon, WorkflowIcon } from "lucide-react";
 
 import { useThreadShell } from "../../state/entities";
 import { useWorkGroup } from "../../state/workGroup";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
-import { THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS } from "../chat/threadDetailsPanelStyles";
 import { openFeatureIssueDialog } from "./FeatureIssue";
 import { FeatureIssueIcon } from "./FeatureIssueIcon";
 import { FeatureTag } from "./FeatureTag";
@@ -27,7 +26,7 @@ export function ThreadFeatureRow(props: {
   if (!thread || (!group && !thread.issue)) return null;
   const feature = thread.feature;
   // A task's own issue is linked by the agent that runs or delegated it, not from here.
-  const editIssue =
+  const linkIssue =
     feature && !thread.issue
       ? () =>
           openFeatureIssueDialog({
@@ -60,25 +59,18 @@ export function ThreadFeatureRow(props: {
         </ThreadDetailsControl>
       ) : null}
       {issue ? (
-        <div className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}>
-          <ThreadDetailsControl
-            part="primary"
-            aria-label={`Open ${featureIssueRef(issue)} ${issue.title}`}
-            onClick={() => openFeatureIssue(thread, issue)}
-          >
-            <FeatureIssueIcon issue={issue} />
-            <span className="min-w-0 truncate">
-              {featureIssueRef(issue)} {issue.title}
-            </span>
-          </ThreadDetailsControl>
-          {editIssue ? (
-            <ThreadDetailsControl part="secondary" aria-label="Change issue" onClick={editIssue}>
-              <PencilIcon className="size-3.5 text-muted-foreground" />
-            </ThreadDetailsControl>
-          ) : null}
-        </div>
-      ) : editIssue ? (
-        <ThreadDetailsControl part="row" tone="muted" onClick={editIssue}>
+        <ThreadDetailsControl
+          part="row"
+          aria-label={`Open ${featureIssueRef(issue)} ${issue.title}`}
+          onClick={() => openFeatureIssue(thread, issue)}
+        >
+          <FeatureIssueIcon issue={issue} />
+          <span className="min-w-0 truncate">
+            {featureIssueRef(issue)} {issue.title}
+          </span>
+        </ThreadDetailsControl>
+      ) : linkIssue ? (
+        <ThreadDetailsControl part="row" tone="muted" onClick={linkIssue}>
           <CircleDotIcon />
           Link issue…
         </ThreadDetailsControl>

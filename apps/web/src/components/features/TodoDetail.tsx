@@ -163,6 +163,7 @@ function TodoDetail({ target }: { readonly target: TodoTarget }) {
     <GitHubIssueDetail
       owner={{ environmentId, projectId }}
       number={target.number}
+      {...(target.url === undefined ? {} : { url: target.url })}
       project={project}
       featureFor={(row) => featureForIssue(features, row)}
     />
@@ -180,14 +181,39 @@ function DetailSkeleton() {
 }
 
 /** A todo that is gone, or one that couldn't be read, which is a different problem. */
-function Gone(props: { readonly text: string; readonly failed?: boolean }) {
+function Gone(props: {
+  readonly text: string;
+  readonly failed?: boolean;
+  readonly title?: string;
+  /** Where it lives on its host, offered when the sheet can't show it. */
+  readonly url?: string | undefined;
+}) {
+  const { url } = props;
   return (
-    <div className="p-6">
-      <SheetTitle>{props.failed ? "Couldn't load this todo" : "Todo not found"}</SheetTitle>
-      <p className="mt-2 text-sm text-muted-foreground">{props.text}</p>
+    <div className="flex flex-col items-start gap-3 p-6">
+      <div>
+        <SheetTitle>
+          {props.title ?? (props.failed ? "Couldn't load this todo" : "Todo not found")}
+        </SheetTitle>
+        <p className="mt-2 text-sm text-muted-foreground">{props.text}</p>
+      </div>
+      {url ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void readLocalApi()?.shell.openExternal(url)}
+        >
+          <ExternalLinkIcon aria-hidden />
+          Open on GitHub
+        </Button>
+      ) : null}
     </div>
   );
 }
+
+/** Whether two issue links name the same issue, ignoring case and a trailing slash. */
+const sameUrl = (a: string, b: string) =>
+  a.trim().replace(/\/+$/u, "").toLowerCase() === b.trim().replace(/\/+$/u, "").toLowerCase();
 
 /** One column: a header with the todo's place and actions, then the todo as a document. */
 function DetailLayout(props: {
@@ -763,6 +789,8 @@ function DescriptionBody(props: {
 function GitHubIssueDetail(props: {
   readonly owner: TodoOwner;
   readonly number: number;
+  /** The link it was opened from; a different issue by that number isn't shown as this one. */
+  readonly url?: string;
   readonly project: EnvironmentProject | null;
   readonly featureFor: (row: EnvironmentIssue) => EnvironmentFeatureCard | null;
 }) {
@@ -777,7 +805,16 @@ function GitHubIssueDetail(props: {
   const issue = detail.data;
   const save = useIssueEditSaver(owner, issue);
   if (!issue) {
-    return detail.error ? <Gone text={detail.error} failed /> : <DetailSkeleton />;
+    return detail.error ? <Gone text={detail.error} failed url={props.url} /> : <DetailSkeleton />;
+  }
+  if (props.url !== undefined && !sameUrl(props.url, issue.url)) {
+    return (
+      <Gone
+        title="In another repository"
+        text={`This issue isn't in ${props.project?.title ?? "this project"}'s repository, so it opens on GitHub.`}
+        url={props.url}
+      />
+    );
   }
   const row: EnvironmentIssue = { ...issue, ...owner, ticketId: null };
   const feature = props.featureFor(row);
