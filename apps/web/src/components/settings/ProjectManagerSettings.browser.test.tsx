@@ -30,12 +30,14 @@ const settings = (fields: Partial<ProjectManagerSettings> = {}): ProjectManagerS
   customized: false,
   revision: 1,
   threadId: null,
+  icon: null,
   ...fields,
 });
 
 const state = vi.hoisted(() => ({
   update: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
   reset: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
+  setIcon: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
 }));
 
 // The settings the server holds; a test changes them as a save or reset would.
@@ -60,6 +62,10 @@ vi.mock(import("../../state/roles"), async (original) => {
         ...actual.rolesEnvironment.resetProjectManager,
         permissionAtom: () => allowed,
       },
+      setProjectManagerIcon: {
+        ...actual.rolesEnvironment.setProjectManagerIcon,
+        permissionAtom: () => allowed,
+      },
     },
   };
 });
@@ -73,7 +79,9 @@ vi.mock(import("../../state/use-atom-command"), async (original) => {
         ? state.update
         : command === rolesEnvironment.resetProjectManager
           ? state.reset
-          : actual.useAtomCommand(command)) as never,
+          : command === rolesEnvironment.setProjectManagerIcon
+            ? state.setIcon
+            : actual.useAtomCommand(command)) as never,
   };
 });
 vi.mock(import("../../confirmDialog"), async (original) => ({
@@ -130,6 +138,36 @@ describe("ProjectManagerSection", () => {
     await expect
       .element(page.getByRole("button", { name: "Reset to defaults" }))
       .not.toBeInTheDocument();
+  });
+
+  it("saves a new look on its own, keeping what's being typed for the next save", async () => {
+    await serverHolds(settings());
+    const chosen = { avatar: expect.any(Object), color: "teal" };
+    state.setIcon = vi.fn(async (...args: ReadonlyArray<unknown>) => {
+      const { icon } = (args[0] as { input: Pick<ProjectManagerSettings, "icon"> }).input;
+      await serverHolds(settings({ icon, revision: 2 }));
+      return AsyncResult.success(settings({ icon, revision: 2 }));
+    });
+    state.update = vi.fn(async () => AsyncResult.success(settings({ revision: 3 })));
+    await using _screen = await render(section());
+    const instructions = page.getByRole("textbox", { name: "Instructions" });
+    await userEvent.fill(instructions, "Half typed.");
+
+    await userEvent.click(page.getByRole("button", { name: "Change" }));
+    await userEvent.click(page.getByRole("radio", { name: "Teal" }));
+    await userEvent.click(page.getByRole("button", { name: "Save icon" }));
+
+    expect(state.setIcon).toHaveBeenCalledWith({
+      environmentId,
+      input: { projectId, icon: chosen },
+    });
+    await expect.element(page.getByRole("button", { name: "Use automatic" })).toBeVisible();
+    await expect.element(instructions).toHaveTextContent("Half typed.");
+    await userEvent.click(page.getByRole("button", { name: "Save" }));
+    expect(state.update).toHaveBeenCalledWith({
+      environmentId,
+      input: expect.objectContaining({ instructions: "Half typed.", expectedRevision: 2 }),
+    });
   });
 
   it("shows the newer settings when someone else saved first", async () => {

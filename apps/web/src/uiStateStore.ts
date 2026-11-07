@@ -5,6 +5,17 @@ import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state
 import { useThreadSelectionStore } from "./threadSelectionStore";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
+
+/** The bot rail's expanded width bounds and default, in px; collapsed it is an icon column. */
+const BOT_RAIL_MIN_WIDTH = 200;
+export const BOT_RAIL_MAX_WIDTH = 360;
+export const BOT_RAIL_DEFAULT_WIDTH = 256;
+export const BOT_RAIL_COLLAPSED_WIDTH = 56;
+
+export const clampBotRailWidth = (width: number) =>
+  Number.isFinite(width)
+    ? Math.round(Math.max(BOT_RAIL_MIN_WIDTH, Math.min(BOT_RAIL_MAX_WIDTH, width)))
+    : BOT_RAIL_DEFAULT_WIDTH;
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3code:renderer-state:v8",
@@ -31,6 +42,8 @@ export interface PersistedUiState {
   sidebarProjectScopeKeys?: string[];
   activeBotIdByEnvironmentId?: Record<string, string>;
   sidebarEnvironmentIds?: string[] | null;
+  botRailWidth?: number;
+  botRailCollapsed?: boolean;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -66,8 +79,20 @@ export interface UiAutomationState {
   seenAutomationFailureAtByKey: Record<string, string>;
 }
 
+export interface UiBotRailState {
+  // The expanded width; kept while collapsed so expanding restores it.
+  botRailWidth: number;
+  botRailCollapsed: boolean;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiAutomationState {}
+  extends
+    UiProjectState,
+    UiThreadState,
+    UiEndpointState,
+    UiPullRequestState,
+    UiAutomationState,
+    UiBotRailState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -75,6 +100,8 @@ const initialState: UiState = {
   sidebarProjectScopeKeys: [],
   activeBotIdByEnvironmentId: {},
   sidebarEnvironmentIds: null,
+  botRailWidth: BOT_RAIL_DEFAULT_WIDTH,
+  botRailCollapsed: false,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -187,6 +214,11 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     sidebarEnvironmentIds: Array.isArray(parsed.sidebarEnvironmentIds)
       ? sanitizeStringArray(parsed.sidebarEnvironmentIds)
       : null,
+    botRailWidth:
+      typeof parsed.botRailWidth === "number"
+        ? clampBotRailWidth(parsed.botRailWidth)
+        : BOT_RAIL_DEFAULT_WIDTH,
+    botRailCollapsed: parsed.botRailCollapsed === true,
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -269,6 +301,8 @@ export function persistState(state: UiState): void {
             : null,
         activeBotIdByEnvironmentId: state.activeBotIdByEnvironmentId,
         sidebarEnvironmentIds: state.sidebarEnvironmentIds,
+        botRailWidth: state.botRailWidth,
+        botRailCollapsed: state.botRailCollapsed,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
@@ -402,6 +436,15 @@ function setSidebarEnvironmentIds(state: UiState, environmentIds: string[] | nul
   return unchanged ? state : { ...state, sidebarEnvironmentIds: next };
 }
 
+function setBotRailLayout(state: UiState, layout: Partial<UiBotRailState>): UiState {
+  const botRailWidth =
+    layout.botRailWidth === undefined ? state.botRailWidth : clampBotRailWidth(layout.botRailWidth);
+  const botRailCollapsed = layout.botRailCollapsed ?? state.botRailCollapsed;
+  return botRailWidth === state.botRailWidth && botRailCollapsed === state.botRailCollapsed
+    ? state
+    : { ...state, botRailWidth, botRailCollapsed };
+}
+
 function markAutomationFailureSeen(state: UiState, key: string, lastRunAt: string): UiState {
   return state.seenAutomationFailureAtByKey[key] === lastRunAt
     ? state
@@ -502,6 +545,8 @@ interface UiStateStore extends UiState {
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setActiveBotIdByEnvironmentId: (next: Record<string, string>) => void;
   setSidebarEnvironmentIds: (environmentIds: string[] | null) => void;
+  setBotRailLayout: (layout: Partial<UiBotRailState>) => void;
+  toggleBotRailCollapsed: () => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   markAutomationFailureSeen: (key: string, lastRunAt: string) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -533,6 +578,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setSidebarEnvironmentIds(state, environmentIds));
     useThreadSelectionStore.getState().clearSelection();
   },
+  setBotRailLayout: (layout) => set((state) => setBotRailLayout(state, layout)),
+  toggleBotRailCollapsed: () =>
+    set((state) => setBotRailLayout(state, { botRailCollapsed: !state.botRailCollapsed })),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   markAutomationFailureSeen: (key, lastRunAt) =>
     set((state) => markAutomationFailureSeen(state, key, lastRunAt)),

@@ -22,6 +22,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     sidebarProjectScopeKeys: [],
     activeBotIdByEnvironmentId: {},
     sidebarEnvironmentIds: null,
+    botRailWidth: 256,
+    botRailCollapsed: false,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -131,6 +133,8 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKeys: [],
       activeBotIdByEnvironmentId: {},
       sidebarEnvironmentIds: null,
+      botRailWidth: 256,
+      botRailCollapsed: false,
       pullRequestMergeMethod: "merge",
       seenAutomationFailureAtByKey: {},
       threadChangedFilesExpandedById: {
@@ -240,6 +244,8 @@ describe("uiStateStore persistence", () => {
       sidebarProjectScopeKey: null,
       activeBotIdByEnvironmentId: {},
       sidebarEnvironmentIds: null,
+      botRailWidth: 256,
+      botRailCollapsed: false,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -275,6 +281,20 @@ describe("uiStateStore persistence", () => {
     expect(parsed.activeBotIdByEnvironmentId).toEqual({ local: "bot-social" });
     expect(parsed.sidebarEnvironmentIds).toEqual(["local"]);
     expect(parsePersistedState({}).sidebarEnvironmentIds).toBeNull();
+  });
+
+  it("restores the bot rail's width and collapse, clamping the width", () => {
+    persistState(makeUiState({ botRailWidth: 300, botRailCollapsed: true }));
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(parsePersistedState(persisted)).toMatchObject({
+      botRailWidth: 300,
+      botRailCollapsed: true,
+    });
+    expect(parsePersistedState({ botRailWidth: 900 }).botRailWidth).toBe(360);
+    expect(parsePersistedState({ botRailWidth: 20 }).botRailWidth).toBe(200);
+    expect(parsePersistedState({})).toMatchObject({ botRailWidth: 256, botRailCollapsed: false });
   });
 
   it("restores the sidebar project scope across reloads", () => {

@@ -11,7 +11,7 @@ import {
   type ComposerControlSize,
 } from "../chat/ComposerControl";
 import { useComposerMenuProps } from "../chat/composerEventScope";
-import { LIBRARY_PATH } from "../sidebar/mainAppLocation";
+import { WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
 import {
   Menu,
   MenuGroup,
@@ -128,7 +128,7 @@ export function ComposerWorkflowPicker(props: {
             <MenuSeparator />
           </>
         ) : null}
-        <MenuItem onClick={() => void navigate({ to: LIBRARY_PATH, search: {} })}>
+        <MenuItem onClick={() => void navigate({ to: WORKFLOWS_SETTINGS_PATH, search: {} })}>
           <LayersIcon />
           Manage workflows…
         </MenuItem>

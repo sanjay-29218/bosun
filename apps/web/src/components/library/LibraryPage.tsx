@@ -13,9 +13,9 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { WorkspacePageContainer } from "../WorkspacePageContainer";
-import { LIBRARY_PATH } from "../sidebar/mainAppLocation";
-import { LibraryFrame } from "./LibraryFrame";
+import { CrewSettingsFrame } from "../settings/CrewSettingsFrame";
+import { ROLES_SETTINGS_PATH, WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { LibraryList } from "./LibraryList";
 import type { LibrarySearch } from "./librarySearch";
 import {
   hasStarterRoles,
@@ -33,19 +33,31 @@ type LoadedLibrary = EnvironmentLibraryState & {
 const isLoaded = (state: EnvironmentLibraryState | null): state is LoadedLibrary =>
   state !== null && state.roles !== null && state.workflows !== null;
 
-/** The Library destination's main pane: the selected workflow's or role's editor, or a new one. */
-export function LibraryPage(search: LibrarySearch) {
+/**
+ * Settings → Workflows or Roles: the list, or the selected workflow's or role's editor, or a new
+ * one.
+ */
+export function LibraryPage({
+  kind,
+  search,
+}: {
+  readonly kind: "workflow" | "role";
+  readonly search: LibrarySearch;
+}) {
   const navigate = useNavigate();
   const libraries = useLibraries();
   const shown = useLibraryByEnvironment();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const path = kind === "workflow" ? WORKFLOWS_SETTINGS_PATH : ROLES_SETTINGS_PATH;
+  const listTitle = kind === "workflow" ? "Workflows" : "Roles";
+  const creating = search.new === kind;
   const newEnvironmentId =
     search.environmentId ??
     shown.find((state) => state.environmentId === primaryEnvironmentId)?.environmentId ??
     shown[0]?.environmentId ??
     libraries[0]?.environmentId ??
     null;
-  const environmentId = search.new ? newEnvironmentId : (search.environmentId ?? null);
+  const environmentId = creating ? newEnvironmentId : (search.environmentId ?? null);
   const live = libraries.find((state) => state.environmentId === environmentId) ?? null;
   // An editor's environment can drop out while the user edits; keep showing its last library
   // so a disconnect doesn't throw away unsaved changes.
@@ -63,30 +75,29 @@ export function LibraryPage(search: LibrarySearch) {
     : kept !== null && kept.environmentId === environmentId
       ? kept
       : null;
+  const selectedId = kind === "workflow" ? search.workflowId : search.roleId;
   const workflow =
-    search.workflowId === undefined
+    kind !== "workflow" || selectedId === undefined
       ? null
-      : (library?.workflows.find((candidate) => candidate.id === search.workflowId) ?? null);
+      : (library?.workflows.find((candidate) => candidate.id === selectedId) ?? null);
   const role =
-    search.roleId === undefined
+    kind !== "role" || selectedId === undefined
       ? null
-      : (library?.roles.find((candidate) => candidate.id === search.roleId) ?? null);
-  const selecting = search.workflowId !== undefined || search.roleId !== undefined;
+      : (library?.roles.find((candidate) => candidate.id === selectedId) ?? null);
+  const selecting = selectedId !== undefined;
 
   // Bumped to remount the open form, which discards its draft.
   const [formRevision, setFormRevision] = useState(0);
-  const open = (target: Omit<LibrarySearch, "environmentId" | "new">, replace = false) => {
+  const open = (id: string) => {
     if (environmentId === null) return;
-    void navigate({ to: LIBRARY_PATH, search: { environmentId, ...target }, replace });
+    void navigate({
+      to: path,
+      search: { environmentId, ...(kind === "workflow" ? { workflowId: id } : { roleId: id }) },
+      replace: true,
+    });
   };
-  const close = () => void navigate({ to: LIBRARY_PATH, search: {} });
-
-  const title =
-    search.new === "workflow"
-      ? "New workflow"
-      : search.new === "role"
-        ? "New role"
-        : (workflow?.name ?? role?.name ?? null);
+  const close = () => void navigate({ to: path, search: {} });
+  const back = { label: listTitle, onBack: close };
   const status =
     environmentId !== null && library === null
       ? live === null
@@ -94,19 +105,38 @@ export function LibraryPage(search: LibrarySearch) {
         : live.error
       : null;
 
-  let body;
-  if (libraries.length === 0 && library === null) {
-    body = <NoEnvironments />;
-  } else if (search.new && environmentId !== null) {
-    const kind = search.new;
-    body = (
-      <>
+  if (!creating && !selecting) {
+    return (
+      <CrewSettingsFrame
+        back={null}
+        title={listTitle}
+        actions={
+          libraries.length === 0 ? null : (
+            <Button size="sm" onClick={() => void navigate({ to: path, search: { new: kind } })}>
+              <PlusIcon />
+              {kind === "workflow" ? "New workflow" : "New role"}
+            </Button>
+          )
+        }
+      >
+        {libraries.length === 0 ? <NoEnvironments /> : <LibraryList kind={kind} />}
+      </CrewSettingsFrame>
+    );
+  }
+
+  if (creating && environmentId !== null) {
+    return (
+      <CrewSettingsFrame
+        back={back}
+        title={kind === "workflow" ? "New workflow" : "New role"}
+        actions={null}
+      >
         <EnvironmentPicker
           libraries={libraries}
           value={environmentId}
           onChange={(next) =>
             void navigate({
-              to: LIBRARY_PATH,
+              to: path,
               search: { environmentId: next, new: kind },
               replace: true,
             })
@@ -119,7 +149,7 @@ export function LibraryPage(search: LibrarySearch) {
             key={environmentId}
             environmentId={environmentId}
             roles={library.roles}
-            onSaved={(workflowId) => open({ workflowId }, true)}
+            onSaved={open}
             onCancel={close}
           />
         ) : (
@@ -127,93 +157,62 @@ export function LibraryPage(search: LibrarySearch) {
             key={environmentId}
             environmentId={environmentId}
             roles={library.roles}
-            onSaved={(roleId) => open({ roleId }, true)}
+            onSaved={open}
             onCancel={close}
           />
         )}
-      </>
-    );
-  } else if (selecting && library === null) {
-    body = <LibraryStatus status={status} />;
-  } else if (workflow !== null && library !== null) {
-    return (
-      <LibraryFrame title={title} actions={null}>
-        <WorkspacePageContainer>
-          <WorkflowEditorForm
-            key={`${library.environmentId}:${workflow.id}:${formRevision}`}
-            environmentId={library.environmentId}
-            workflow={workflow}
-            roles={library.roles}
-            onSaved={() => {}}
-            onCancel={() => setFormRevision((revision) => revision + 1)}
-            onDeleted={close}
-          />
-        </WorkspacePageContainer>
-      </LibraryFrame>
-    );
-  } else if (role !== null && library !== null) {
-    return (
-      <LibraryFrame title={title} actions={null}>
-        <WorkspacePageContainer>
-          <RoleEditorForm
-            key={`${library.environmentId}:${role.id}:${formRevision}`}
-            environmentId={library.environmentId}
-            role={role}
-            defaultModel={role.modelSelection}
-            onSaved={() => {}}
-            onCancel={() => setFormRevision((revision) => revision + 1)}
-          />
-        </WorkspacePageContainer>
-      </LibraryFrame>
-    );
-  } else if (selecting) {
-    body = (
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>{search.workflowId ? "Workflow unavailable" : "Role unavailable"}</EmptyTitle>
-          <EmptyDescription>
-            {search.workflowId ? "This workflow no longer exists." : "This role no longer exists."}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  } else {
-    body = (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <LayersIcon />
-          </EmptyMedia>
-          <EmptyTitle>Pick a workflow or role</EmptyTitle>
-          <EmptyDescription>
-            A feature follows a workflow: its lead role takes the brief and hands work to its crew.
-          </EmptyDescription>
-        </EmptyHeader>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => void navigate({ to: LIBRARY_PATH, search: { new: "workflow" } })}
-          >
-            <PlusIcon />
-            New workflow
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void navigate({ to: LIBRARY_PATH, search: { new: "role" } })}
-          >
-            <PlusIcon />
-            New role
-          </Button>
-        </div>
-      </Empty>
+      </CrewSettingsFrame>
     );
   }
 
+  if (workflow !== null && library !== null) {
+    return (
+      <CrewSettingsFrame back={back} title={workflow.name} actions={null}>
+        <WorkflowEditorForm
+          key={`${library.environmentId}:${workflow.id}:${formRevision}`}
+          environmentId={library.environmentId}
+          workflow={workflow}
+          roles={library.roles}
+          onSaved={() => {}}
+          onCancel={() => setFormRevision((revision) => revision + 1)}
+          onDeleted={close}
+        />
+      </CrewSettingsFrame>
+    );
+  }
+  if (role !== null && library !== null) {
+    return (
+      <CrewSettingsFrame back={back} title={role.name} actions={null}>
+        <RoleEditorForm
+          key={`${library.environmentId}:${role.id}:${formRevision}`}
+          environmentId={library.environmentId}
+          role={role}
+          defaultModel={role.modelSelection}
+          onSaved={() => {}}
+          onCancel={() => setFormRevision((revision) => revision + 1)}
+        />
+      </CrewSettingsFrame>
+    );
+  }
   return (
-    <LibraryFrame title={title} actions={null}>
-      <WorkspacePageContainer>{body}</WorkspacePageContainer>
-    </LibraryFrame>
+    <CrewSettingsFrame back={back} title={listTitle} actions={null}>
+      {library === null ? (
+        <LibraryStatus status={status} />
+      ) : (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>
+              {kind === "workflow" ? "Workflow unavailable" : "Role unavailable"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {kind === "workflow"
+                ? "This workflow no longer exists."
+                : "This role no longer exists."}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
+    </CrewSettingsFrame>
   );
 }
 

@@ -11,8 +11,8 @@ import { toggleThemeEditorForTheme } from "../components/settings/themeEditorSto
 import { openNextNeedsYou } from "../components/features/featuresNavigation";
 import {
   AUTOMATIONS_PATH,
-  BOTS_PATH,
-  LIBRARY_PATH,
+  BOTS_SETTINGS_PATH,
+  WORKFLOWS_SETTINGS_PATH,
   toggleMainView,
 } from "../components/sidebar/mainAppLocation";
 import { toastManager } from "../components/ui/toast";
@@ -108,8 +108,8 @@ export function installCommandPaletteCommands(
         void router.navigate({ to: "/usage" });
       },
       "automations.open": openPage(AUTOMATIONS_PATH),
-      "library.open": openPage(LIBRARY_PATH),
-      "bots.open": openPage(BOTS_PATH),
+      "library.open": openPage(WORKFLOWS_SETTINGS_PATH),
+      "bots.open": openPage(BOTS_SETTINGS_PATH),
       "board.toggle": (event) => {
         consume(event);
         dispatchCommandPalette({ _tag: "SetOpen", open: false });

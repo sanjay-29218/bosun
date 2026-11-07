@@ -20,36 +20,31 @@ export function isAppModalPage(pathname: string) {
 }
 
 export const AUTOMATIONS_PATH = "/automations";
-export const LIBRARY_PATH = "/library";
-export const BOTS_PATH = "/bots";
+/** Bots, workflows and roles are added and edited in Settings → Crew. */
+export const BOTS_SETTINGS_PATH = "/settings/bots";
+export const WORKFLOWS_SETTINGS_PATH = "/settings/workflows";
+export const ROLES_SETTINGS_PATH = "/settings/roles";
 
 export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
     pathname === "/pull-requests" ||
-    pathname === AUTOMATIONS_PATH ||
-    pathname === LIBRARY_PATH ||
-    pathname === BOTS_PATH
+    pathname === AUTOMATIONS_PATH
   );
 }
 
 /**
- * What the rail points at: the bots (each bot's or All bots' threads) or one of its places,
- * where `bot-list` is the Bots place that adds and edits them. The sidebar column shows the
- * destination's list.
+ * What the rail points at: the bots (the picked bot's threads) or one of its places. The sidebar
+ * column shows the destination's list.
  */
-export type RailDestination = "bots" | "bot-list" | "automations" | "library" | "pull-requests";
+export type RailDestination = "bots" | "automations" | "pull-requests";
 
 const railDestinationForPathname = (pathname: string): RailDestination =>
-  pathname === BOTS_PATH
-    ? "bot-list"
-    : pathname === AUTOMATIONS_PATH
-      ? "automations"
-      : pathname === LIBRARY_PATH
-        ? "library"
-        : pathname === "/pull-requests"
-          ? "pull-requests"
-          : "bots";
+  pathname === AUTOMATIONS_PATH
+    ? "automations"
+    : pathname === "/pull-requests"
+      ? "pull-requests"
+      : "bots";
 
 /** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
 export function useRailDestination(): RailDestination {
@@ -104,7 +99,7 @@ function readMainViews(): Record<string, MainView> {
   }
 }
 
-// Each bot remembers its view; All bots, or a rail that knows no bot yet, uses the environment.
+// Each bot remembers its view; a rail that knows no bot yet uses the environment.
 function mainViewKey(environmentId: EnvironmentId | null): string | null {
   const botKey = readActiveLogicalBotKey();
   return botKey === null ? environmentId : `bot:${botKey}`;

@@ -115,24 +115,27 @@ describe("LibraryPage", () => {
   it("keeps a selected role's unsaved edits across a disconnect and reconnect", async () => {
     setup([reviewer]);
     const selection = { environmentId, roleId: reviewer.id };
-    await using screen = await render(<LibraryPage {...selection} />);
+    await using screen = await render(<LibraryPage kind="role" search={selection} />);
     const instructions = page.getByRole("textbox", { name: "Instructions" });
     await expect.element(instructions).toHaveTextContent("Review the change");
     await userEvent.fill(instructions, "Review the change for security");
 
     state.connected = false;
-    await screen.rerender(<LibraryPage {...selection} />);
+    await screen.rerender(<LibraryPage kind="role" search={selection} />);
     await expect.element(instructions).toHaveTextContent("Review the change for security");
 
     state.connected = true;
-    await screen.rerender(<LibraryPage {...selection} />);
+    await screen.rerender(<LibraryPage kind="role" search={selection} />);
     await expect.element(instructions).toHaveTextContent("Review the change for security");
   });
 
   it("saves a workflow's crew, and keeps Feature delivery from being deleted", async () => {
     setup([featureManager, reviewer, designer], [featureDelivery]);
     await using _screen = await render(
-      <LibraryPage environmentId={environmentId} workflowId={FEATURE_DELIVERY_WORKFLOW_ID} />,
+      <LibraryPage
+        kind="workflow"
+        search={{ environmentId, workflowId: FEATURE_DELIVERY_WORKFLOW_ID }}
+      />,
     );
     await expect.element(page.getByRole("button", { name: "Save workflow" })).toBeDisabled();
     await expect
@@ -156,7 +159,7 @@ describe("LibraryPage", () => {
   it("says when the selected role no longer exists", async () => {
     setup([reviewer]);
     await using _screen = await render(
-      <LibraryPage environmentId={environmentId} roleId="role:designer" />,
+      <LibraryPage kind="role" search={{ environmentId, roleId: "role:designer" }} />,
     );
     await expect.element(page.getByText("Role unavailable")).toBeInTheDocument();
   });

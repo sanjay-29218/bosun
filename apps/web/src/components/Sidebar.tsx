@@ -282,6 +282,7 @@ import {
   SidebarWorkGroupEntry,
   type SidebarWorkGroup,
 } from "./sidebar/SidebarWorkGroup";
+import { ScopedProjectManagerCard } from "./sidebar/ProjectManagerCard";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider } from "./ui/tooltip";
@@ -3397,6 +3398,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {isSearchingThreads ? null : <ScopedProjectManagerCard />}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider

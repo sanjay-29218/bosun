@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { botHeadquartersThreadId, projectHeadquartersThreadId } from "@t3tools/contracts";
+import { botHeadquartersThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { ClipboardListIcon, PencilIcon, SettingsIcon } from "lucide-react";
+import { PencilIcon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
@@ -11,14 +11,8 @@ import { BotAvatar } from "../BotAvatar";
 import { Button } from "../ui/button";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { searchableSetting } from "../settings/settingsSearch";
-import { BOTS_PATH } from "./mainAppLocation";
+import { BOTS_SETTINGS_PATH } from "./mainAppLocation";
 import { headquartersMember, useOpenBotHeadquarters } from "./openBotHeadquarters";
-import {
-  type ScopedProjectManager,
-  useOpenProjectManager,
-  useScopedProjectManager,
-} from "./openProjectManager";
 import { useStandingStatus } from "./useStandingStatus";
 
 function StatusDot({ waiting, working }: { readonly waiting: boolean; readonly working: boolean }) {
@@ -28,9 +22,8 @@ function StatusDot({ waiting, working }: { readonly waiting: boolean; readonly w
 }
 
 /**
- * The sidebar's title row in place of the wordmark, which `fallback` is while no bot is picked.
- * Scoped to one project, it is that project's manager; otherwise the picked bot, whose
- * headquarters is its one thread over every project it owns.
+ * The sidebar's title row in place of the wordmark, which `fallback` is while no bot is picked:
+ * the picked bot, whose headquarters is its one thread over every project it owns.
  */
 export const SidebarBotHeader = memo(function SidebarBotHeader({
   onBackdrop,
@@ -39,8 +32,6 @@ export const SidebarBotHeader = memo(function SidebarBotHeader({
   readonly onBackdrop: boolean;
   readonly fallback: ReactNode;
 }) {
-  const manager = useScopedProjectManager();
-  if (manager) return <ProjectManagerHeader manager={manager} onBackdrop={onBackdrop} />;
   return <BotHeader onBackdrop={onBackdrop} fallback={fallback} />;
 });
 
@@ -52,100 +43,6 @@ const headerButtonClassName = (onBackdrop: boolean, open: boolean) =>
       : "text-sidebar-foreground hover:bg-sidebar-row-hover",
     open && (onBackdrop ? "bg-white/15" : "bg-sidebar-row-selected"),
   );
-
-function ProjectManagerHeader({
-  manager,
-  onBackdrop,
-}: {
-  readonly manager: ScopedProjectManager;
-  readonly onBackdrop: boolean;
-}) {
-  const openProjectManager = useOpenProjectManager();
-  const navigate = useNavigate();
-  const { isMobile, setOpenMobile } = useSidebar();
-  const threadId = projectHeadquartersThreadId(manager.projectId);
-  const { waiting, working, done, status } = useStandingStatus(
-    scopeThreadRef(manager.environmentId, threadId),
-  );
-  const open = useParams({ strict: false, select: (params) => params.threadId === threadId });
-  return (
-    <div className="group/bot-header relative z-10 ml-[calc(var(--workspace-titlebar-content-left)-0.375rem)] hidden min-w-0 flex-1 items-center md:flex">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label={`Open ${manager.title}'s project manager${status ? `, ${status}` : ""}`}
-              aria-current={open ? "page" : undefined}
-              onClick={() => {
-                if (isMobile) setOpenMobile(false);
-                void openProjectManager(manager);
-              }}
-              className={headerButtonClassName(onBackdrop, open)}
-            />
-          }
-        >
-          <ClipboardListIcon aria-hidden className="size-4 shrink-0" />
-          <span className="max-w-[60%] shrink-0 truncate">{manager.title}</span>
-          {/* Its thread is off the list, so the label carries what it would have shown there. */}
-          {waiting ? (
-            <span className="shrink-0 rounded-full bg-warning px-1.5 text-2xs leading-4 font-semibold text-black">
-              Needs you
-            </span>
-          ) : (
-            <>
-              <StatusDot waiting={false} working={working} />
-              {done ? (
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-1.5 shrink-0 rounded-full",
-                    onBackdrop ? "bg-white" : "bg-sidebar-foreground",
-                  )}
-                />
-              ) : null}
-              <span
-                className={cn(
-                  "min-w-0 truncate",
-                  done
-                    ? "font-semibold"
-                    : cn("font-normal", onBackdrop ? "text-white/75" : "text-muted-foreground"),
-                )}
-              >
-                {working ? "Working…" : done ? "Done" : "Project manager"}
-              </span>
-            </>
-          )}
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">Open {manager.title}'s project manager</TooltipPopup>
-      </Tooltip>
-      <span className="ms-auto opacity-0 group-hover/bot-header:opacity-100 focus-within:opacity-100">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label="Project manager settings"
-                onClick={() => {
-                  if (isMobile) setOpenMobile(false);
-                  void navigate({
-                    to: "/settings/projects",
-                    search: { project: manager.projectKey },
-                    hash: searchableSetting("project-manager").id,
-                  });
-                }}
-              />
-            }
-          >
-            <SettingsIcon />
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">Project manager settings</TooltipPopup>
-        </Tooltip>
-      </span>
-    </div>
-  );
-}
 
 function BotHeader({
   onBackdrop,
@@ -203,7 +100,7 @@ function BotHeader({
                 onClick={() => {
                   if (isMobile) setOpenMobile(false);
                   void navigate({
-                    to: BOTS_PATH,
+                    to: BOTS_SETTINGS_PATH,
                     search: { environmentId: member.environmentId, botId: member.botId },
                   });
                 }}

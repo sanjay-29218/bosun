@@ -40,21 +40,14 @@ import {
 } from "../panelAnimations";
 import { AutomationsSidebar } from "./automations/AutomationsSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
-import { AllBotsSidebar } from "./bots/AllBotsList";
-import { BotsSidebar } from "./bots/BotsSidebar";
-import { LibrarySidebar } from "./library/LibrarySidebar";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
-import { BOT_RAIL_WIDTH, BotRail } from "./sidebar/BotRail";
+import { BotRail, useBotRailWidth } from "./sidebar/BotRail";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage, mainViewForPathname, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
-import {
-  useShowBotRail,
-  useVisibleActiveLogicalBot,
-  useVisibleLogicalBots,
-} from "../state/botRail";
+import { useShowBotRail } from "../state/botRail";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import {
   clampThreadSidebarWidth,
@@ -423,8 +416,6 @@ function SidebarControl() {
   );
 }
 
-const BOT_RAIL_WIDTH_PX = 56;
-
 // In the mobile sidebar sheet the rail sits beside the sidebar's content.
 function MobileBotRailFrame({ show, children }: { show: boolean; children: ReactNode }) {
   if (!show) return children;
@@ -456,12 +447,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // the sidebar sheet instead.
   const isMobile = useMediaQuery("max-md");
   const showBotRail = useShowBotRail();
-  const multipleBots = useVisibleLogicalBots().length > 1;
-  const activeBot = useVisibleActiveLogicalBot();
-  // All bots exists beside two or more bots; a lone bot is always picked.
-  const showAllBots = showBotRail && multipleBots && activeBot === null;
   const pinnedBotRail = showBotRail && !isMobile;
-  const viewportWidth = windowWidth - (pinnedBotRail ? BOT_RAIL_WIDTH_PX : 0);
+  const botRailWidth = useBotRailWidth();
+  const viewportWidth = windowWidth - (pinnedBotRail ? botRailWidth : 0);
   const [brandWidth, setBrandWidth] = useState(0);
   const sidebarMinimumWidth = resolveThreadSidebarMinimumWidth(brandWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth, sidebarMinimumWidth);
@@ -486,7 +474,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
-    ...(pinnedBotRail ? { "--sidebar-leading-width": BOT_RAIL_WIDTH } : {}),
+    ...(pinnedBotRail ? { "--sidebar-leading-width": `${botRailWidth}px` } : {}),
   } as CSSProperties;
 
   return (
@@ -511,7 +499,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             minWidth: sidebarMinimumWidth,
             shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
               nextWidth <= currentWidth ||
-              wrapper.clientWidth - (pinnedBotRail ? BOT_RAIL_WIDTH_PX : 0) - nextWidth >=
+              wrapper.clientWidth - (pinnedBotRail ? botRailWidth : 0) - nextWidth >=
                 THREAD_MAIN_CONTENT_MIN_WIDTH,
             storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
             onResize: setSidebarWidth,
@@ -519,14 +507,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           style={windowControlsInsetStyle}
         >
           <MobileBotRailFrame show={showBotRail && isMobile}>
-            {railDestination === "bot-list" ? (
-              <BotsSidebar />
-            ) : railDestination === "automations" ? (
+            {railDestination === "automations" ? (
               <AutomationsSidebar />
-            ) : railDestination === "library" ? (
-              <LibrarySidebar />
-            ) : showAllBots ? (
-              <AllBotsSidebar />
             ) : (
               <ThreadSidebar routeReveal={sidebarRouteReveal} />
             )}

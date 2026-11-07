@@ -1,6 +1,8 @@
 import {
   AuthOrchestrationOperateScope,
+  headquartersProjectId,
   type EnvironmentId,
+  type ProjectId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -31,6 +33,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -85,6 +88,7 @@ export const ChatHeader = memo(function ChatHeader({
   onFindInThread,
 }: ChatHeaderProps) {
   const activeProjectName = activeProject?.isScratch ? "No project" : activeProject?.title;
+  const managedProjectId = headquartersProjectId(activeThreadId);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
@@ -392,6 +396,12 @@ export const ChatHeader = memo(function ChatHeader({
                   />
                 }
               >
+                {managedProjectId === null ? null : (
+                  <ManagerIcon
+                    environmentId={activeThreadEnvironmentId}
+                    projectId={managedProjectId}
+                  />
+                )}
                 <h2 className="min-w-0" dir={textDirection(activeThreadTitle)}>
                   <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
                 </h2>
@@ -435,3 +445,14 @@ export const ChatHeader = memo(function ChatHeader({
     </div>
   );
 });
+
+function ManagerIcon({
+  environmentId,
+  projectId,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+}) {
+  const icon = useProjectManagerIcon(environmentId, projectId);
+  return <ProjectManagerAvatar projectId={projectId} icon={icon} size={16} className="shrink-0" />;
+}

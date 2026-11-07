@@ -1,25 +1,35 @@
 import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   botRailSignal,
-  combineBotActivity,
+  createLogicalBotResolver,
+  projectBotId,
+  type BotActivity,
   type BotRailSignal,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
-import type { EnvironmentId } from "@t3tools/contracts";
+import {
+  botHeadquartersThreadId,
+  headquartersProjectId,
+  type EnvironmentId,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import {
   ChartNoAxesColumnIcon,
   ClockIcon,
-  LayersIcon,
-  LayoutGridIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PencilIcon,
   ServerIcon,
   SettingsIcon,
-  UsersRoundIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, type MouseEvent, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
+import { useResizeDrag } from "../../hooks/useResizeDrag";
 import { botJumpCommandForIndex, botJumpIndexFromCommand } from "../../keybindings";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
 import { cn, isMacPlatform } from "../../lib/utils";
@@ -34,41 +44,110 @@ import {
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../../state/botRail";
+import { useProjects, useQuietThreadShells, useThreadShell } from "../../state/entities";
 import {
   useConnectedEnvironmentIds,
   useEnvironmentIdentities,
   usePullRequestsSupported,
 } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
-import { useUiStateStore } from "../../uiStateStore";
+import {
+  BOT_RAIL_COLLAPSED_WIDTH,
+  BOT_RAIL_DEFAULT_WIDTH,
+  BOT_RAIL_MAX_WIDTH,
+  clampBotRailWidth,
+  useUiStateStore,
+} from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
+import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { searchableSetting } from "../settings/settingsSearch";
+import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { botListRowSummary } from "./botListRow.logic";
 import {
   AUTOMATIONS_PATH,
-  BOTS_PATH,
+  BOTS_SETTINGS_PATH,
   isSidebarUtilityPage,
-  LIBRARY_PATH,
   readBotHref,
   rememberBotHref,
   useRailDestination,
   useSwitchBotMainView,
 } from "./mainAppLocation";
-import { supersedeHeadquartersOpen, useOpenBotHeadquarters } from "./openBotHeadquarters";
+import {
+  headquartersMember,
+  supersedeHeadquartersOpen,
+  useOpenBotHeadquarters,
+} from "./openBotHeadquarters";
+import { useOpenProjectManager } from "./openProjectManager";
+import { RelativeTimeLabel } from "./SidebarThreadRow";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
+import { useStandingStatus } from "./useStandingStatus";
 
-/** The rail's width; the sidebar sits right of it. */
-export const BOT_RAIL_WIDTH = "3.5rem";
+// Dragging the edge under these widths collapses to icons on release.
+const SNAP_COLLAPSE_BELOW = 160;
+const SNAP_EXPAND_FROM = 120;
+
+/** The rail's width in px: the icon column, or the expanded list's chosen width. */
+export function useBotRailWidth(): number {
+  const collapsed = useUiStateStore((store) => store.botRailCollapsed);
+  const width = useUiStateStore((store) => store.botRailWidth);
+  return collapsed ? BOT_RAIL_COLLAPSED_WIDTH : width;
+}
+
+interface RailProjectManager {
+  readonly key: string;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly threadId: ThreadId;
+  readonly title: string;
+  /** The sidebar's key for the project, which scopes the thread list to it. */
+  readonly projectKey: string;
+  readonly botId: string;
+}
+
+/** Each project whose manager thread exists and isn't archived, by title. */
+function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
+  const shells = useQuietThreadShells();
+  const projects = useProjects();
+  const groups = useSettingsProjectGroups();
+  const environmentFilter = useEnvironmentFilter();
+  const entries: RailProjectManager[] = [];
+  for (const shell of shells) {
+    const projectId = headquartersProjectId(shell.id);
+    if (projectId === null || shell.archivedAt !== null) continue;
+    if (environmentFilter !== null && !environmentFilter.has(shell.environmentId)) continue;
+    const project = projects.find(
+      (candidate) => candidate.environmentId === shell.environmentId && candidate.id === projectId,
+    );
+    const group = groups.find((candidate) =>
+      candidate.memberProjects.some(
+        (member) => member.environmentId === shell.environmentId && member.id === projectId,
+      ),
+    );
+    if (!project || !group) continue;
+    entries.push({
+      key: `${shell.environmentId}:${shell.id}`,
+      environmentId: shell.environmentId,
+      projectId,
+      threadId: shell.id,
+      title: project.title,
+      projectKey: group.projectKey,
+      botId: projectBotId(project),
+    });
+  }
+  return entries.toSorted((left, right) => left.title.localeCompare(right.title));
+}
 
 /**
- * The bot rail: All bots and the bots, then its places, then Usage, Settings and app updates.
- * A bot narrows the sidebar, board and Needs you to its projects; a place swaps the sidebar's
- * list. `window` pins it to the window's left edge under the titlebar; `sheet` puts it in the
- * mobile sheet.
+ * The bot list: the bots, then the project managers, then the app's places, Usage, Settings
+ * and updates. Expanded it shows each one's latest message; collapsed it is an icon column.
+ * A bot narrows the thread list to its projects; a project manager to its project. `window`
+ * pins it to the window's left edge, resizable; `sheet` puts it, expanded, in the mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
@@ -83,6 +162,13 @@ export const BotRail = memo(function BotRail({
   const selectBot = useSelectLogicalBot();
   const switchBotMainView = useSwitchBotMainView();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const managers = useRailProjectManagers();
+  const openProjectManager = useOpenProjectManager();
+  const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
+  const setScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const collapsedPreference = useUiStateStore((store) => store.botRailCollapsed);
+  const collapsed = placement === "window" && collapsedPreference;
+  const toggleCollapsed = useUiStateStore((store) => store.toggleBotRailCollapsed);
   const multipleBots = bots.length > 1;
 
   const openHeadquarters = useOpenBotHeadquarters();
@@ -92,14 +178,14 @@ export const BotRail = memo(function BotRail({
   const onUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
-  // Null is All bots. Switching saves and restores List / Board per selection.
-  const switchTo = (bot: LogicalBot | null) => {
+  const scopedManager =
+    onBots && scopeKeys.length === 1
+      ? (managers.find((manager) => manager.projectKey === scopeKeys[0]) ?? null)
+      : null;
+  // Switching saves and restores List / Board per bot.
+  const switchTo = (bot: LogicalBot) => {
     supersedeHeadquartersOpen();
-    if ((bot?.key ?? null) !== (active?.key ?? null) || onUtilityPage) {
-      switchBotMainView(() => selectBot(bot));
-      return true;
-    }
-    return false;
+    if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
   };
   // A click returns to where the bot was left, or opens its headquarters the first time and when
   // it's the bot you're on; Mod+click always opens its headquarters. Selects without switchTo,
@@ -117,12 +203,26 @@ export const BotRail = memo(function BotRail({
     supersedeHeadquartersOpen();
     void navigate({ href });
   };
+  // The manager's bot is picked first, so the thread list knows the project it is scoped to.
+  const selectManager = (manager: RailProjectManager) => {
+    if (isMobile) setOpenMobile(false);
+    const ownerKey = createLogicalBotResolver(bots)(manager.environmentId, manager.botId);
+    const owner = bots.find((bot) => bot.key === ownerKey);
+    if (owner && owner.key !== active?.key) {
+      if (active) rememberBotHref(active.key);
+      selectBot(owner);
+    }
+    setScopeKeys([manager.projectKey]);
+    supersedeHeadquartersOpen();
+    void openProjectManager(manager);
+  };
   const headquartersHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its headquarters`;
 
-  // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9).
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot jump shortcuts, removed on unmount.
+  // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9); the
+  // `bot.inbox` command collapses or expands the list.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the bot list shortcuts, removed on unmount.
   useEffect(() => {
-    if (!multipleBots) return;
+    if (placement !== "window") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
@@ -130,8 +230,13 @@ export const BotRail = memo(function BotRail({
       const command = resolveShortcutCommand(event, keybindings, {
         context: { terminalFocus: isTerminalFocused(), multipleBots },
       });
+      if (command === "bot.inbox") {
+        event.preventDefault();
+        useUiStateStore.getState().toggleBotRailCollapsed();
+        return;
+      }
       const index = botJumpIndexFromCommand(command ?? "");
-      const bot = command === "bot.inbox" ? null : index === null ? undefined : bots[index];
+      const bot = index === null || !multipleBots ? undefined : bots[index];
       if (bot === undefined) return;
       event.preventDefault();
       event.stopPropagation();
@@ -139,7 +244,7 @@ export const BotRail = memo(function BotRail({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, multipleBots, switchTo, bots]);
+  }, [keybindings, multipleBots, placement, switchTo, bots]);
 
   const shortcutFor = (command: Parameters<typeof shortcutLabelForCommand>[1]) =>
     multipleBots
@@ -149,13 +254,14 @@ export const BotRail = memo(function BotRail({
   return (
     <nav
       aria-label="Bots"
+      data-collapsed={collapsed ? "" : undefined}
       // Takes the sidebar's palette so every theme paints the rail and sidebar as one surface.
       data-app-sidebar=""
       className={cn(
-        "flex w-(--sidebar-leading-width) shrink-0 flex-col bg-sidebar surface-grain text-sidebar-foreground",
+        "group/rail flex w-(--sidebar-leading-width) shrink-0 flex-col bg-sidebar surface-grain text-sidebar-foreground",
         placement === "window" ? "relative z-20 hidden md:flex" : "h-full",
       )}
-      style={placement === "sheet" ? { width: BOT_RAIL_WIDTH } : undefined}
+      style={placement === "sheet" ? { width: BOT_RAIL_DEFAULT_WIDTH } : undefined}
     >
       {placement === "window" ? (
         // The titlebar row: traffic lights on macOS, the sidebar toggle elsewhere.
@@ -163,134 +269,499 @@ export const BotRail = memo(function BotRail({
           className={cn("h-(--workspace-topbar-height) shrink-0", isElectron && "drag-region")}
         />
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 border-r border-sidebar-border pt-0.5 pb-2">
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-2 border-r border-sidebar-border pt-0.5 pb-2",
+          collapsed && "items-center",
+        )}
+      >
         {/* The padding sits inside the scroller so it doesn't clip the badges over the top avatar. */}
-        <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]">
-          {multipleBots ? (
-            <RailItem
-              label="All bots"
-              hint="Every bot's chat"
-              active={onBots && active === null}
-              signal={botRailSignal(
-                [...needsYou.values()].reduce((sum, count) => sum + count, 0),
-                combineBotActivity(activity.values()),
-              )}
-              shortcut={shortcutFor("bot.inbox")}
-              variant="icon"
-              // The sheet stays open, since the All bots list is what it shows next.
-              onSelect={() => switchTo(null)}
-            >
-              <LayoutGridIcon className="size-5" strokeWidth={1.75} />
-            </RailItem>
-          ) : null}
-          {bots.map((bot, index) => (
-            <RailItem
-              key={bot.key}
-              label={bot.name}
-              hint={headquartersHint}
-              active={onBots && bot.key === active?.key}
-              signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
-              shortcut={shortcutFor(botJumpCommandForIndex(index))}
-              onSelect={(event) => select(bot, event)}
-            >
-              <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
-            </RailItem>
-          ))}
+        <div
+          className={cn(
+            "flex min-h-0 w-full flex-col overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]",
+            collapsed ? "items-center gap-2" : "gap-0.5",
+          )}
+        >
+          {bots.map((bot, index) =>
+            collapsed ? (
+              <RailItem
+                key={bot.key}
+                label={bot.name}
+                hint={headquartersHint}
+                active={onBots && scopedManager === null && bot.key === active?.key}
+                signal={botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))}
+                shortcut={shortcutFor(botJumpCommandForIndex(index))}
+                onSelect={(event) => select(bot, event)}
+              >
+                <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
+              </RailItem>
+            ) : (
+              <BotListRow
+                key={bot.key}
+                bot={bot}
+                active={onBots && scopedManager === null && bot.key === active?.key}
+                needsYou={needsYou.get(bot.key) ?? 0}
+                activity={activity.get(bot.key)}
+                onSelect={(event) => select(bot, event)}
+              />
+            ),
+          )}
+          {managers.length === 0 ? null : collapsed ? (
+            <RailDivider />
+          ) : (
+            <h3 className="px-4 pt-4 pb-1 text-2xs text-muted-foreground">Project managers</h3>
+          )}
+          {managers.map((manager) =>
+            collapsed ? (
+              <ManagerRailItem
+                key={manager.key}
+                manager={manager}
+                active={scopedManager?.key === manager.key}
+                onSelect={() => selectManager(manager)}
+              />
+            ) : (
+              <ManagerListRow
+                key={manager.key}
+                manager={manager}
+                active={scopedManager?.key === manager.key}
+                onSelect={() => selectManager(manager)}
+              />
+            ),
+          )}
+          {collapsed ? <RailDivider /> : <div aria-hidden className="h-3 shrink-0" />}
+          <RailPlaces destination={destination} collapsed={collapsed} />
         </div>
-        <RailDivider />
-        <RailPlaces destination={destination} />
-        <div className="mt-auto flex w-full flex-col items-center gap-2">
-          <EnvironmentFilterMenu />
-          <RailAppPages />
+        <div
+          className={cn(
+            "mt-auto flex w-full flex-col",
+            collapsed ? "items-center gap-2" : "gap-0.5",
+          )}
+        >
+          <EnvironmentFilterMenu collapsed={collapsed} />
+          <RailAppPages collapsed={collapsed} />
           <SidebarUpdatePill placement="rail" />
+          {placement === "window" ? (
+            collapsed ? (
+              <RailItem
+                label="Expand bots"
+                hint={null}
+                active={false}
+                signal={null}
+                shortcut={null}
+                variant="icon"
+                onSelect={toggleCollapsed}
+              >
+                <PanelLeftOpenIcon className="size-5" strokeWidth={1.75} />
+              </RailItem>
+            ) : (
+              <RailRow
+                label="Collapse"
+                icon={<PanelLeftCloseIcon />}
+                active={false}
+                muted
+                onSelect={toggleCollapsed}
+              />
+            )
+          ) : null}
         </div>
       </div>
+      {placement === "window" ? <BotRailResizeHandle /> : null}
     </nav>
   );
 });
 
 /**
- * Bots (where bots are added and edited), then Automations, Library and pull requests:
- * monochrome icons that swap the sidebar's list.
+ * The rail's right edge. Dragging sets the expanded width; under the snap width it shows the
+ * icon column's outline and collapses there on release. Double-click resets the width.
  */
+function BotRailResizeHandle() {
+  const setLayout = useUiStateStore((store) => store.setBotRailLayout);
+  const {
+    ref: handleRef,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    onLostPointerCapture,
+  } = useResizeDrag<HTMLDivElement>((event) => {
+    const nav = event.currentTarget.closest<HTMLElement>("nav");
+    const wrapper = nav?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
+    if (!nav || !wrapper) return null;
+    const { botRailCollapsed, botRailWidth } = useUiStateStore.getState();
+    const startWidth = botRailCollapsed ? BOT_RAIL_COLLAPSED_WIDTH : botRailWidth;
+    const snapBelow = botRailCollapsed ? SNAP_EXPAND_FROM : SNAP_COLLAPSE_BELOW;
+    // The layout writes this property too; it is set here only for the drag, and on release
+    // to the width the store then renders.
+    const setLiveWidth = (width: number) =>
+      wrapper.style.setProperty("--sidebar-leading-width", `${width}px`);
+    return {
+      width: startWidth,
+      edge: "right",
+      bounds: { min: BOT_RAIL_COLLAPSED_WIDTH, max: BOT_RAIL_MAX_WIDTH },
+      resize(width) {
+        setLiveWidth(width);
+        nav.toggleAttribute("data-snap", width < snapBelow);
+        return width;
+      },
+      finish(width, moved) {
+        if (!moved) {
+          setLiveWidth(startWidth);
+          return;
+        }
+        const collapse = width < snapBelow;
+        setLiveWidth(collapse ? BOT_RAIL_COLLAPSED_WIDTH : clampBotRailWidth(width));
+        setLayout(
+          collapse
+            ? { botRailCollapsed: true }
+            : { botRailCollapsed: false, botRailWidth: clampBotRailWidth(width) },
+        );
+      },
+      cleanup(committed) {
+        nav.removeAttribute("data-snap");
+        if (!committed) setLiveWidth(startWidth);
+      },
+    };
+  });
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-(--workspace-topbar-height) bottom-2 left-1 z-30 hidden w-12 rounded-xl border border-dashed border-sidebar-foreground/40 group-data-[snap]/rail:block"
+      />
+      {/* Pointer only; Collapse and Expand are the keyboard way. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the bot list"
+        className="absolute inset-y-0 -right-[3px] z-30 w-1.5 cursor-col-resize after:absolute after:inset-y-0 after:left-[2px] after:w-[2px] hover:after:bg-primary"
+        ref={handleRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onLostPointerCapture}
+        onDoubleClick={() =>
+          setLayout({ botRailCollapsed: false, botRailWidth: BOT_RAIL_DEFAULT_WIDTH })
+        }
+      />
+    </>
+  );
+}
+
+const listRowClassName = (active: boolean) =>
+  cn(
+    "group/row relative mx-2 flex min-w-0 items-center gap-3 rounded-xl px-2.5 py-2",
+    active ? "bg-sidebar-row-selected" : "hover:bg-sidebar-row-hover",
+  );
+
+/** A row's top line: its name, and its time with the unread dot, or a hover action in its place. */
+function ListRowHead({
+  name,
+  emphasized,
+  time,
+  unread,
+  action,
+}: {
+  readonly name: string;
+  readonly emphasized: boolean;
+  readonly time: string | null;
+  readonly unread: boolean;
+  readonly action: ReactNode;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-sm font-medium",
+          emphasized ? "text-foreground" : "text-sidebar-foreground",
+        )}
+      >
+        {name}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground tabular-nums group-hover/row:hidden group-focus-within/row:hidden">
+        {unread ? (
+          <span aria-hidden className="size-1.5 rounded-full bg-sidebar-foreground" />
+        ) : null}
+        <RelativeTimeLabel timestamp={time} />
+      </span>
+      <span className="pointer-events-auto relative hidden shrink-0 group-hover/row:flex group-focus-within/row:flex">
+        {action}
+      </span>
+    </span>
+  );
+}
+
+function ListRowPreview({
+  mark,
+  preview,
+}: {
+  readonly mark: "needs-you" | "working" | null;
+  readonly preview: string;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {mark === "working" ? (
+        <span className="size-1.5 shrink-0 rounded-full bg-info">
+          <span className="sr-only">Working</span>
+        </span>
+      ) : mark === "needs-you" ? (
+        <span className="shrink-0 rounded-sm bg-warning px-1 text-2xs leading-4 font-semibold text-black">
+          Needs you
+        </span>
+      ) : null}
+      <span className="min-w-0 truncate text-xs text-muted-foreground">{preview}</span>
+    </span>
+  );
+}
+
+// Rows take their own counts so one change doesn't make every row rebuild every bot's totals.
+const BotListRow = memo(function BotListRow({
+  bot,
+  active,
+  needsYou,
+  activity,
+  onSelect,
+}: {
+  readonly bot: LogicalBot;
+  readonly active: boolean;
+  readonly needsYou: number;
+  readonly activity: BotActivity | undefined;
+  readonly onSelect: (event: MouseEvent) => void;
+}) {
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const connected = useConnectedEnvironmentIds();
+  const environmentFilter = useEnvironmentFilter();
+  const member = headquartersMember(bot, connected, environmentFilter);
+  const threadId = member ? botHeadquartersThreadId(member.botId) : null;
+  const shell = useThreadShell(
+    member && threadId ? scopeThreadRef(member.environmentId, threadId) : null,
+  );
+  const summary = botListRowSummary(needsYou, activity, shell?.source.latestVisibleMessage);
+  const editMember = member ?? bot.members[0];
+  return (
+    <div className={cn(listRowClassName(active), member === undefined && "opacity-60")}>
+      <button
+        type="button"
+        aria-current={active ? "page" : undefined}
+        aria-label={[bot.name, summary.mark === "needs-you" ? "needs you" : summary.mark]
+          .filter(Boolean)
+          .join(", ")}
+        className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        onClick={onSelect}
+      />
+      <BotAvatar
+        avatar={bot.avatar}
+        color={bot.color}
+        size={36}
+        shaded={false}
+        className="pointer-events-none shrink-0"
+      />
+      <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
+        <ListRowHead
+          name={bot.name}
+          emphasized={summary.unread}
+          time={summary.time}
+          unread={summary.unread}
+          action={
+            editMember ? (
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label={`Edit ${bot.name}`}
+                onClick={() => {
+                  if (isMobile) setOpenMobile(false);
+                  void navigate({
+                    to: BOTS_SETTINGS_PATH,
+                    search: { environmentId: editMember.environmentId, botId: editMember.botId },
+                  });
+                }}
+              >
+                <PencilIcon />
+              </Button>
+            ) : null
+          }
+        />
+        <ListRowPreview
+          mark={summary.mark}
+          preview={member === undefined ? "Offline" : summary.preview}
+        />
+      </span>
+    </div>
+  );
+});
+
+function useManagerStatus(manager: RailProjectManager) {
+  const ref = scopeThreadRef(manager.environmentId, manager.threadId);
+  const shell = useThreadShell(ref);
+  const status = useStandingStatus(ref);
+  const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
+  return { shell, icon, ...status };
+}
+
+const ManagerListRow = memo(function ManagerListRow({
+  manager,
+  active,
+  onSelect,
+}: {
+  readonly manager: RailProjectManager;
+  readonly active: boolean;
+  readonly onSelect: () => void;
+}) {
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const { shell, icon, waiting, working, done, status } = useManagerStatus(manager);
+  const latest = shell?.source.latestVisibleMessage;
+  const summary = botListRowSummary(0, undefined, latest);
+  return (
+    <div className={listRowClassName(active)}>
+      <button
+        type="button"
+        aria-current={active ? "page" : undefined}
+        aria-label={`${manager.title}'s project manager${status ? `, ${status}` : ""}`}
+        className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        onClick={onSelect}
+      />
+      <ProjectManagerAvatar
+        projectId={manager.projectId}
+        icon={icon}
+        size={36}
+        className="pointer-events-none shrink-0"
+      />
+      <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
+        <ListRowHead
+          name={manager.title}
+          emphasized={done}
+          time={summary.time}
+          unread={done}
+          action={
+            <Button
+              variant="ghost-muted"
+              size="icon-xs"
+              aria-label={`${manager.title}'s project manager settings`}
+              onClick={() => {
+                if (isMobile) setOpenMobile(false);
+                void navigate({
+                  to: "/settings/projects",
+                  search: { project: manager.projectKey },
+                  hash: searchableSetting("project-manager").id,
+                });
+              }}
+            >
+              <SettingsIcon />
+            </Button>
+          }
+        />
+        <ListRowPreview
+          mark={waiting ? "needs-you" : working ? "working" : null}
+          preview={latest ? summary.preview : "Project manager"}
+        />
+      </span>
+    </div>
+  );
+});
+
+const ManagerRailItem = memo(function ManagerRailItem({
+  manager,
+  active,
+  onSelect,
+}: {
+  readonly manager: RailProjectManager;
+  readonly active: boolean;
+  readonly onSelect: () => void;
+}) {
+  const { icon, waiting, working, done } = useManagerStatus(manager);
+  return (
+    <RailItem
+      label={manager.title}
+      hint="Project manager"
+      active={active}
+      signal={
+        waiting
+          ? { kind: "needs-you", count: 1 }
+          : working
+            ? { kind: "working" }
+            : done
+              ? { kind: "unread" }
+              : null
+      }
+      shortcut={null}
+      onSelect={onSelect}
+    >
+      <ProjectManagerAvatar projectId={manager.projectId} icon={icon} size={32} />
+    </RailItem>
+  );
+});
+
+/** Automations and pull requests: the places that swap the sidebar's list. */
 function RailPlaces({
   destination,
+  collapsed,
 }: {
   readonly destination: ReturnType<typeof useRailDestination>;
+  readonly collapsed: boolean;
 }) {
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
-  // Automations and Library keep the mobile sheet open, since their list is what it shows next.
-  const leaveSheet = () => {
-    if (isMobile) setOpenMobile(false);
-  };
-  return (
-    <>
+  const places = [
+    {
+      label: "Automations",
+      icon: ClockIcon,
+      active: destination === "automations",
+      signal: automationFailed ? ({ kind: "failed" } as const) : null,
+      // Its list is what the mobile sheet shows next, so the sheet stays open.
+      onSelect: () => {
+        if (destination !== "automations") void navigate({ to: AUTOMATIONS_PATH });
+      },
+    },
+    ...(pullRequestsSupported
+      ? [
+          {
+            label: "Pull requests",
+            icon: PullRequestGlyph.pullRequest,
+            active: destination === "pull-requests",
+            signal: null,
+            onSelect: () => {
+              if (isMobile) setOpenMobile(false);
+              if (destination !== "pull-requests") {
+                void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+              }
+            },
+          },
+        ]
+      : []),
+  ];
+  return places.map(({ label, icon: Icon, active, signal, onSelect }) =>
+    collapsed ? (
       <RailItem
-        label="Bots"
-        hint="Add and edit bots"
-        active={destination === "bot-list"}
-        signal={null}
-        shortcut={null}
-        variant="icon"
-        onSelect={() => {
-          if (destination !== "bot-list") void navigate({ to: BOTS_PATH });
-        }}
-      >
-        <UsersRoundIcon className="size-5" strokeWidth={1.75} />
-      </RailItem>
-      <RailItem
-        label="Automations"
+        key={label}
+        label={label}
         hint={null}
-        active={destination === "automations"}
-        signal={automationFailed ? { kind: "failed" } : null}
+        active={active}
+        signal={signal}
         shortcut={null}
         variant="icon"
-        onSelect={() => {
-          if (destination !== "automations") void navigate({ to: AUTOMATIONS_PATH });
-        }}
+        onSelect={onSelect}
       >
-        <ClockIcon className="size-5" strokeWidth={1.75} />
+        <Icon className="size-5" strokeWidth={1.75} />
       </RailItem>
-      <RailItem
-        label="Library"
-        hint={null}
-        active={destination === "library"}
-        signal={null}
-        shortcut={null}
-        variant="icon"
-        onSelect={() => {
-          if (destination !== "library") void navigate({ to: LIBRARY_PATH });
-        }}
-      >
-        <LayersIcon className="size-5" strokeWidth={1.75} />
-      </RailItem>
-      {pullRequestsSupported ? (
-        <RailItem
-          label="Pull requests"
-          hint={null}
-          active={destination === "pull-requests"}
-          signal={null}
-          shortcut={null}
-          variant="icon"
-          onSelect={() => {
-            leaveSheet();
-            if (destination !== "pull-requests") {
-              void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
-            }
-          }}
-        >
-          <PullRequestGlyph.pullRequest className="size-5" strokeWidth={1.75} />
-        </RailItem>
-      ) : null}
-    </>
+    ) : (
+      <RailRow
+        key={label}
+        label={label}
+        icon={<Icon />}
+        active={active}
+        signal={signal}
+        onSelect={onSelect}
+      />
+    ),
   );
 }
 
 /** Usage and Settings, which open as modals over whatever the rail points at. */
-function RailAppPages() {
+function RailAppPages({ collapsed }: { readonly collapsed: boolean }) {
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -298,31 +769,77 @@ function RailAppPages() {
     if (isMobile) setOpenMobile(false);
     void navigate({ to });
   };
+  const pages = [
+    {
+      label: "Usage",
+      icon: ChartNoAxesColumnIcon,
+      active: pathname === "/usage",
+      onSelect: () => open("/usage"),
+    },
+    {
+      label: "Settings",
+      icon: SettingsIcon,
+      active: pathname === "/settings" || pathname.startsWith("/settings/"),
+      onSelect: () => open("/settings"),
+    },
+  ];
+  return pages.map(({ label, icon: Icon, active, onSelect }) =>
+    collapsed ? (
+      <RailItem
+        key={label}
+        label={label}
+        hint={null}
+        active={active}
+        signal={null}
+        shortcut={null}
+        variant="icon"
+        onSelect={onSelect}
+      >
+        <Icon className="size-5" strokeWidth={1.75} />
+      </RailItem>
+    ) : (
+      <RailRow key={label} label={label} icon={<Icon />} active={active} onSelect={onSelect} />
+    ),
+  );
+}
+
+/** An expanded rail's place or page: a 16px icon and its label. */
+function RailRow({
+  label,
+  icon,
+  active,
+  signal = null,
+  muted = false,
+  onSelect,
+}: {
+  readonly label: string;
+  readonly icon: ReactNode;
+  readonly active: boolean;
+  readonly signal?: BotRailSignal | null;
+  readonly muted?: boolean;
+  readonly onSelect: () => void;
+}) {
   return (
-    <>
-      <RailItem
-        label="Usage"
-        hint={null}
-        active={pathname === "/usage"}
-        signal={null}
-        shortcut={null}
-        variant="icon"
-        onSelect={() => open("/usage")}
-      >
-        <ChartNoAxesColumnIcon className="size-5" strokeWidth={1.75} />
-      </RailItem>
-      <RailItem
-        label="Settings"
-        hint={null}
-        active={pathname === "/settings" || pathname.startsWith("/settings/")}
-        signal={null}
-        shortcut={null}
-        variant="icon"
-        onSelect={() => open("/settings")}
-      >
-        <SettingsIcon className="size-5" strokeWidth={1.75} />
-      </RailItem>
-    </>
+    <button
+      type="button"
+      aria-current={active ? "page" : undefined}
+      onClick={onSelect}
+      className={cn(
+        "mx-2 flex h-8 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-start text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
+        active
+          ? "bg-sidebar-row-selected text-sidebar-foreground"
+          : cn(
+              "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+              muted ? "text-muted-foreground" : "text-sidebar-muted-foreground",
+            ),
+      )}
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {signal?.kind === "failed" ? (
+        <span aria-label="a run failed" className="size-2 shrink-0 rounded-full bg-error" />
+      ) : null}
+    </button>
   );
 }
 
@@ -346,10 +863,10 @@ const signalLabel = (signal: BotRailSignal | null): string | null => {
 };
 
 /**
- * One rail entry with one signal: a count when threads wait on you, a red dot for a failed
- * run, a blue dot low on the corner while working (a ring would read as selected), and a
- * neutral dot for an unread run. Bots fade until picked or hovered; `icon`s (All bots and
- * the places) pick up a tile on hover and while selected.
+ * One collapsed rail entry with one signal: a count when threads wait on you, a red dot for a
+ * failed run, a blue dot low on the corner while working (a ring would read as selected), and a
+ * neutral dot for an unread run. Bots fade until picked or hovered; `icon`s (the places) pick up
+ * a tile on hover and while selected.
  */
 const RailItem = memo(function RailItem({
   label,
@@ -439,7 +956,7 @@ const RailItem = memo(function RailItem({
 });
 
 /** Narrows the rail, sidebar and board to some environments. Shown with two or more. */
-function EnvironmentFilterMenu() {
+function EnvironmentFilterMenu({ collapsed }: { readonly collapsed: boolean }) {
   const connected = useConnectedEnvironmentIds();
   const identities = useEnvironmentIdentities();
   const filter = useEnvironmentFilter();
@@ -461,24 +978,42 @@ function EnvironmentFilterMenu() {
   };
   return (
     <Menu>
-      <Tooltip>
-        <TooltipTrigger
+      {collapsed ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <MenuTrigger
+                render={
+                  <Button
+                    variant={filter === null ? "ghost-muted" : "secondary"}
+                    size="icon-sm"
+                    aria-label={`Environments: ${label}`}
+                  />
+                }
+              />
+            }
+          >
+            <ServerIcon />
+          </TooltipTrigger>
+          <TooltipPopup side="right">{label}</TooltipPopup>
+        </Tooltip>
+      ) : (
+        <MenuTrigger
           render={
-            <MenuTrigger
-              render={
-                <Button
-                  variant={filter === null ? "ghost-muted" : "secondary"}
-                  size="icon-sm"
-                  aria-label={`Environments: ${label}`}
-                />
-              }
+            <button
+              type="button"
+              aria-label={`Environments: ${label}`}
+              className={cn(
+                "mx-2 flex h-8 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-start text-sm outline-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
+                filter === null ? "text-sidebar-muted-foreground" : "text-sidebar-foreground",
+              )}
             />
           }
         >
           <ServerIcon />
-        </TooltipTrigger>
-        <TooltipPopup side="right">{label}</TooltipPopup>
-      </Tooltip>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </MenuTrigger>
+      )}
       <MenuPopup side="right" align="end">
         <MenuCheckboxItem
           checked={filter === null}

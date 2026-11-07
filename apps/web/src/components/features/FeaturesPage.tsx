@@ -455,7 +455,7 @@ export function FeaturesPage(props: {
       projectId: newFeatureProject.id,
     });
   };
-  const browseRoles = () => void navigate({ to: "/library", search: {} });
+  const browseRoles = () => void navigate({ to: "/settings/roles", search: {} });
   const newTodo = () =>
     openNewTodoDialog(
       newFeatureProject

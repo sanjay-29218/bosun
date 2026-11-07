@@ -1,8 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
+import { projectManagerLook } from "@t3tools/client-runtime/project-manager-look";
 import type {
   BotLongConversation,
   EnvironmentId,
   ProjectId,
+  ProjectManagerIcon,
   ProjectManagerSettings,
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
@@ -12,10 +14,14 @@ import { requestConfirmDialog } from "../../confirmDialog";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { BotAvatar } from "../BotAvatar";
 import { InstructionsEditor } from "../InstructionsEditor";
+import { BotAvatarPicker, BotColorPicker } from "../bots/BotLook";
+import { ProjectManagerAvatar } from "../bots/ProjectManagerIcon";
 import { RoleModelPicker } from "../library/RoleEditor";
 import { useOpenProjectManager } from "../sidebar/openProjectManager";
 import { Button } from "../ui/button";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
@@ -76,14 +82,131 @@ function ProjectManagerMember({
       />
     );
   }
-  // A new revision, from a save or a reset, starts the form over from it.
+  const settings = query.data;
+  // A save or a reset starts the form over; a new look or on/off keeps what's being typed.
+  const formKey = JSON.stringify([
+    settings.instructions,
+    settings.allowedTools,
+    settings.modelSelection,
+    settings.runtimeMode,
+    settings.longConversation,
+    settings.customized,
+  ]);
   return (
-    <ProjectManagerForm
-      key={query.data.revision}
-      member={member}
-      settings={query.data}
-      heading={showEnvironment ? member.environmentLabel : null}
-      onStale={query.refresh}
+    <>
+      <ProjectManagerIconRow member={member} settings={settings} />
+      <ProjectManagerForm
+        key={formKey}
+        member={member}
+        settings={settings}
+        heading={showEnvironment ? member.environmentLabel : null}
+        onStale={query.refresh}
+      />
+    </>
+  );
+}
+
+/** The manager's bot look, saved as soon as it's picked; it never marks the manager customized. */
+function ProjectManagerIconRow({
+  member,
+  settings,
+}: {
+  readonly member: ProjectMember;
+  readonly settings: ProjectManagerSettings;
+}) {
+  const setIcon = useAtomCommand(rolesEnvironment.setProjectManagerIcon, { reportFailure: false });
+  const canEdit = useAtomValue(
+    rolesEnvironment.setProjectManagerIcon.permissionAtom(member.environmentId),
+  );
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<ProjectManagerIcon>(() =>
+    projectManagerLook(member.id, settings.icon),
+  );
+  const [saving, setSaving] = useState(false);
+
+  const save = async (icon: ProjectManagerIcon | null) => {
+    setSaving(true);
+    const result = await setIcon({
+      environmentId: member.environmentId,
+      input: { projectId: member.id, icon },
+    });
+    setSaving(false);
+    if (result._tag === "Success") {
+      setOpen(false);
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Could not save the icon",
+      description: formatEnvironmentQueryError(result.cause),
+    });
+  };
+
+  return (
+    <SettingsRow
+      title="Icon"
+      description={
+        settings.icon === null
+          ? "Picked for this project automatically. Shows in the bot list, the thread list and this manager's chat."
+          : "Shows in the bot list, the thread list and this manager's chat."
+      }
+      control={
+        <div className="flex items-center gap-2">
+          <ProjectManagerAvatar projectId={member.id} icon={settings.icon} size={32} />
+          {settings.icon === null ? null : (
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              disabled={saving || !canEdit}
+              onClick={() => void save(null)}
+            >
+              Use automatic
+            </Button>
+          )}
+          <Popover
+            open={open}
+            onOpenChange={(next) => {
+              if (next) setDraft(projectManagerLook(member.id, settings.icon));
+              setOpen(next);
+            }}
+          >
+            <PopoverTrigger
+              render={<Button size="xs" variant="outline" disabled={saving || !canEdit} />}
+            >
+              Change
+            </PopoverTrigger>
+            <PopoverPopup
+              align="end"
+              width="lg"
+              aria-label={`${member.title}'s project manager icon`}
+            >
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                  <BotAvatar avatar={draft.avatar} color={draft.color} size={48} shaded={false} />
+                  <p className="text-sm font-medium">{member.title}'s project manager</p>
+                </div>
+                <BotAvatarPicker
+                  value={draft.avatar}
+                  color={draft.color}
+                  onChange={(avatar) => setDraft((current) => ({ ...current, avatar }))}
+                />
+                <BotColorPicker
+                  value={draft.color}
+                  onChange={(color) => setDraft((current) => ({ ...current, color }))}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" disabled={saving} onClick={() => void save(draft)}>
+                    Save icon
+                  </Button>
+                </div>
+              </div>
+            </PopoverPopup>
+          </Popover>
+        </div>
+      }
     />
   );
 }

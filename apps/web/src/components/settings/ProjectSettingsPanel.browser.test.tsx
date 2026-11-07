@@ -127,7 +127,7 @@ vi.mock(import("./ProjectActionsSettings"), async (original) => ({
   ProjectActionsSettings: (() => null) as never,
 }));
 // Crew sections build permission-guarded commands, which need a real connection runtime.
-vi.mock(import("./BotsSettings"), async (original) => ({
+vi.mock(import("./ProjectBotSettings"), async (original) => ({
   ...(await original()),
   ProjectBotSection: (() => null) as never,
 }));
