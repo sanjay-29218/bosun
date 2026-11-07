@@ -963,7 +963,9 @@ export const CrewServiceLive = Layer.effect(
       if (own !== null) {
         if (projectId !== undefined && projectId !== own) {
           return yield* Effect.fail(
-            new CrewValidationError("A project manager changes only its own instructions"),
+            new CrewValidationError(
+              "A project manager reads and changes only its own instructions",
+            ),
           );
         }
         return own;
