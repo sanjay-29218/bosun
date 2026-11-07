@@ -89,6 +89,10 @@ export const layerBosunWsRpc = ({
           features
             .setIssue({ id: input.featureId, projectId: input.projectId, url: input.url })
             .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
+        [WS_METHODS.threadsSetIssue]: (input) =>
+          features
+            .setThreadIssue(input.threadId, input.url)
+            .pipe(Effect.mapError((error) => new FeatureOperationError({ reason: String(error) }))),
         [WS_METHODS.botsList]: () =>
           bots.list.pipe(
             Effect.mapError((error) => new BotOperationError({ reason: error.message })),

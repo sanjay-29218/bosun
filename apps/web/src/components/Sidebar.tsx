@@ -2785,6 +2785,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               feature: thread.feature
                 ? { issueRef: thread.feature.issue ? featureIssueRef(thread.feature.issue) : null }
                 : null,
+              threadIssue: isStandingThread(thread.id)
+                ? null
+                : { issueRef: thread.issue ? featureIssueRef(thread.issue) : null },
             }),
             position,
           ),
@@ -2950,15 +2953,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "feature-issue":
           case "feature-open-issue":
-            if (thread.feature) {
-              runFeatureIssueAction(clicked.value, {
-                environmentId: thread.environmentId,
-                projectId: thread.projectId,
-                feature: thread.feature,
-              });
-            }
+            runFeatureIssueAction(clicked.value, {
+              environmentId: thread.environmentId,
+              projectId: thread.projectId,
+              id: thread.id,
+              title: thread.title,
+              feature: thread.feature,
+              issue: thread.issue,
+            });
             return;
           case "feature":
+          case "issue":
             return;
           case "new-session": {
             if (isStandingThread(thread.id)) {

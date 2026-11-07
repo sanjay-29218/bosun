@@ -29,6 +29,7 @@ export type ThreadActionMenuId =
   | "feature"
   | "feature-issue"
   | "feature-open-issue"
+  | "issue"
   | "new-session"
   | "archive"
   | "delete";
@@ -100,6 +101,13 @@ export interface ThreadActionMenuState {
     /** `#12` or `T-12`; null when the feature links none. */
     readonly issueRef: string | null;
   } | null;
+  /**
+   * The issue a thread outside a feature works on, for opening or changing it; null where a
+   * thread doesn't link one, such as a standing thread. A feature's thread uses `feature`.
+   */
+  readonly threadIssue?: {
+    readonly issueRef: string | null;
+  } | null;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
   /**
@@ -126,6 +134,19 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-thread-id",
   ].includes(action);
 }
+
+/** Opens the linked issue, and links one or changes it; `issueRef` is null when none is linked. */
+const issueItems = (issueRef: string | null) => [
+  ...(issueRef === null
+    ? []
+    : [
+        {
+          id: "feature-open-issue" as const,
+          label: issueRef.startsWith("#") ? `Open issue ${issueRef}` : `Open ${issueRef}`,
+        },
+      ]),
+  { id: "feature-issue" as const, label: issueRef === null ? "Link issue…" : "Change issue…" },
+];
 
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
@@ -244,25 +265,20 @@ export function buildThreadActionMenuItems(
             label: "Feature",
             icon: "workflow",
             separatorBefore: true,
-            children: [
-              ...(state.feature.issueRef === null
-                ? []
-                : [
-                    {
-                      id: "feature-open-issue" as const,
-                      label: state.feature.issueRef.startsWith("#")
-                        ? `Open issue ${state.feature.issueRef}`
-                        : `Open ${state.feature.issueRef}`,
-                    },
-                  ]),
-              {
-                id: "feature-issue" as const,
-                label: state.feature.issueRef === null ? "Link issue…" : "Change issue…",
-              },
-            ],
+            children: issueItems(state.feature.issueRef),
           },
         ]
-      : []),
+      : state.threadIssue
+        ? [
+            {
+              id: "issue" as const,
+              label: "Issue",
+              icon: "circle-dot",
+              separatorBefore: true,
+              children: issueItems(state.threadIssue.issueRef),
+            },
+          ]
+        : []),
     ...(state.isStanding
       ? [
           {

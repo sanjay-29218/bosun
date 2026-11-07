@@ -1,5 +1,10 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { featureIssueRef, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
+import {
+  featureIssueRef,
+  isStandingThread,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { ChevronRightIcon, CircleDotIcon, WorkflowIcon } from "lucide-react";
 
 import { useThreadShell } from "../../state/entities";
@@ -12,8 +17,8 @@ import { openFeatureIssue } from "../features/todoDialogs";
 
 /**
  * The feature or bot request a thread works on, in its details panel: a row that opens the Crew
- * tab, and its linked issue. A delegated task's own issue shows here too, feature or not. Its
- * crew is its own section, `ThreadCrewSection`.
+ * tab, and its linked issue, which opens in the todo sheet. A thread without one, feature or not,
+ * offers to link one. Its crew is its own section, `ThreadCrewSection`.
  */
 export function ThreadFeatureRow(props: {
   readonly environmentId: EnvironmentId;
@@ -23,21 +28,33 @@ export function ThreadFeatureRow(props: {
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const thread = useThreadShell(threadRef);
   const group = useWorkGroup(thread?.feature || thread?.crewRequest ? threadRef : null);
-  if (!thread || (!group && !thread.issue)) return null;
+  if (!thread) return null;
   const feature = thread.feature;
-  // A task's own issue is linked by the agent that runs or delegated it, not from here.
-  const linkIssue =
-    feature && !thread.issue
-      ? () =>
-          openFeatureIssueDialog({
-            environmentId: thread.environmentId,
-            projectId: thread.projectId,
-            featureId: feature.id,
-            featureTitle: feature.title,
-            issue: feature.issue ?? null,
-          })
-      : null;
   const issue = thread.issue ?? feature?.issue;
+  // A feature links one issue for all its threads; any other thread links its own. A standing
+  // thread works on its project or bot as a whole.
+  const linkIssue =
+    issue || isStandingThread(thread.id)
+      ? null
+      : () =>
+          openFeatureIssueDialog(
+            feature
+              ? {
+                  environmentId: thread.environmentId,
+                  projectId: thread.projectId,
+                  featureId: feature.id,
+                  featureTitle: feature.title,
+                  issue: null,
+                }
+              : {
+                  environmentId: thread.environmentId,
+                  projectId: thread.projectId,
+                  threadId: thread.id,
+                  threadTitle: thread.title,
+                  issue: null,
+                },
+          );
+  if (!group && !issue && !linkIssue) return null;
   return (
     <>
       {group ? (

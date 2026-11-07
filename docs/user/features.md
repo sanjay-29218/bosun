@@ -121,7 +121,9 @@ description, status and comments as GitHub has them; close or reopen it there, a
 or description to edit it in place. Paste a screenshot into either description to add it. A
 ticket's images stay on its environment. GitHub takes no images through its API, so an issue's are
 committed to a `bosun-attachments` branch of its repository, which anyone who can see the repository
-can open. **Start feature** opens a new thread whose brief names the todo. The crew can list, read,
+can open. **Start feature** opens a new thread whose brief names the todo. Any other thread can
+link the issue or ticket it works on with **Link issue…** in its details panel or its menu's
+**Issue** item; a feature's threads share the feature's. The crew can list, read,
 create and close todos too.
 
 A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for

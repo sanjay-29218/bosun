@@ -91,6 +91,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.botsStartNewSession]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresSetIssue]: AuthOrchestrationOperateScope,
+  [WS_METHODS.threadsSetIssue]: AuthOrchestrationOperateScope,
   [WS_METHODS.issuesCreate]: AuthSourceControlWriteScope,
   [WS_METHODS.issuesSetState]: AuthSourceControlWriteScope,
   [WS_METHODS.issuesUpdate]: AuthSourceControlWriteScope,

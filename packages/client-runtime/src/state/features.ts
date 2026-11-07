@@ -185,6 +185,11 @@ export function createFeatureAtoms<R, ER>(
     start: action(WS_METHODS.featuresStart),
     /** Links an issue by its URL; null unlinks it. */
     setIssue: action(WS_METHODS.featuresSetIssue),
+    /** Links an issue to one thread, apart from any feature; null unlinks. */
+    setThreadIssue: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:threads:set-issue",
+      tag: WS_METHODS.threadsSetIssue,
+    }),
   };
 }
 

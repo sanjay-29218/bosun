@@ -156,6 +156,9 @@ export function useThreadActionMenu(input: {
         feature: thread.feature
           ? { issueRef: thread.feature.issue ? featureIssueRef(thread.feature.issue) : null }
           : null,
+        threadIssue: isStandingThread(thread.id)
+          ? null
+          : { issueRef: thread.issue ? featureIssueRef(thread.issue) : null },
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
@@ -257,15 +260,17 @@ export function useThreadActionMenu(input: {
           return;
         case "feature-issue":
         case "feature-open-issue":
-          if (thread.feature) {
-            runFeatureIssueAction(action, {
-              environmentId: threadRef.environmentId,
-              projectId: thread.projectId,
-              feature: thread.feature,
-            });
-          }
+          runFeatureIssueAction(action, {
+            environmentId: threadRef.environmentId,
+            projectId: thread.projectId,
+            id: thread.id,
+            title: thread.title,
+            feature: thread.feature,
+            issue: thread.issue,
+          });
           return;
         case "feature":
+        case "issue":
           return;
         case "new-session": {
           if (isStandingThread(thread.id)) {

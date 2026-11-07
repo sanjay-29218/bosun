@@ -73,6 +73,7 @@ import {
 import {
   FeatureCreateInput,
   FeatureGetInput,
+  FeatureIssue,
   FeatureOperationError,
   FeatureBoardCard,
   FeatureProjectInput,
@@ -81,6 +82,7 @@ import {
   FeatureSetStatusInput,
   FeatureStartInput,
   FeatureStartResult,
+  ThreadSetIssueInput,
 } from "./features.ts";
 import {
   IssueCreateInput,
@@ -479,6 +481,7 @@ export const WS_METHODS = {
   featuresSetStatus: "features.setStatus",
   featuresStart: "features.start",
   featuresSetIssue: "features.setIssue",
+  threadsSetIssue: "threads.setIssue",
   featuresBoard: "features.board",
   issuesList: "issues.list",
   issuesGet: "issues.get",
@@ -1230,6 +1233,11 @@ const WsFeaturesSetStatusRpc = Rpc.make(WS_METHODS.featuresSetStatus, {
 const WsFeaturesSetIssueRpc = Rpc.make(WS_METHODS.featuresSetIssue, {
   payload: FeatureSetIssueInput,
   success: FeatureRecord,
+  error: FeatureRpcError,
+});
+const WsThreadsSetIssueRpc = Rpc.make(WS_METHODS.threadsSetIssue, {
+  payload: ThreadSetIssueInput,
+  success: Schema.NullOr(FeatureIssue),
   error: FeatureRpcError,
 });
 const WsFeaturesStartRpc = Rpc.make(WS_METHODS.featuresStart, {
@@ -2370,6 +2378,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsFeaturesSetStatusRpc,
   WsFeaturesStartRpc,
   WsFeaturesSetIssueRpc,
+  WsThreadsSetIssueRpc,
   WsFeaturesBoardRpc,
   WsIssuesListRpc,
   WsIssuesGetRpc,

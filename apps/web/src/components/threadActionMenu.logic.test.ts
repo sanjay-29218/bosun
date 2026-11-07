@@ -88,4 +88,20 @@ describe("buildThreadActionMenuItems", () => {
     expect(issueItems("T-7")).toEqual(["Open T-7", "Change issue…"]);
     expect(issueItems(null)).toEqual(["Link issue…"]);
   });
+
+  it("links a thread outside a feature to its own issue, and offers none where it can't", () => {
+    const issueMenu = (state: Partial<Parameters<typeof buildThreadActionMenuItems>[0]>) =>
+      buildThreadActionMenuItems({ ...baseState, ...state })
+        .find((item) => item.id === "issue")
+        ?.children?.map((item) => item.label);
+    expect(issueMenu({ threadIssue: { issueRef: null } })).toEqual(["Link issue…"]);
+    expect(issueMenu({ threadIssue: { issueRef: "#9" } })).toEqual([
+      "Open issue #9",
+      "Change issue…",
+    ]);
+    expect(issueMenu({ threadIssue: null })).toBeUndefined();
+    expect(
+      issueMenu({ feature: { issueRef: null }, threadIssue: { issueRef: null } }),
+    ).toBeUndefined();
+  });
 });

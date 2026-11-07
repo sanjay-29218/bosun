@@ -243,6 +243,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.featuresGet]: "features",
   [WS_METHODS.featuresStart]: "features",
   [WS_METHODS.featuresSetIssue]: "features",
+  [WS_METHODS.threadsSetIssue]: "features",
   [WS_METHODS.botsList]: "bots",
   [WS_METHODS.botsCreate]: "bots",
   [WS_METHODS.botsUpdate]: "bots",

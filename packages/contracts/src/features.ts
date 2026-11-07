@@ -112,6 +112,14 @@ export const FeatureSetIssueInput = Schema.Struct({
   url: Schema.NullOr(Schema.String),
 });
 
+/** Links an issue to one thread rather than a feature: a plain thread, or a delegated task. */
+export const ThreadSetIssueInput = Schema.Struct({
+  threadId: ThreadId,
+  /** An issue link, `#56`, a ticket's `T-<number>` or a tracker key; null unlinks. */
+  url: Schema.NullOr(Schema.String),
+});
+export type ThreadSetIssueInput = typeof ThreadSetIssueInput.Type;
+
 export const FeatureStartInput = FeatureGetInput;
 /** A started feature and its lead's thread, where the brief went. */
 export const FeatureStartResult = Schema.Struct({
