@@ -7,12 +7,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { ProjectId, type RepositoryIssue } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
+import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as TicketService from "./TicketService.ts";
@@ -38,25 +40,34 @@ interface Calls {
   readonly created: Array<{ readonly title: string; readonly body: string }>;
   readonly states: Array<{ readonly number: number; readonly state: string }>;
   readonly links: Array<{ readonly id: string; readonly url: string | null }>;
+  readonly uploads: Array<{ readonly fileName: string; readonly dataUrl: string }>;
 }
 
 /** The service over a fresh database, with the host and features recording what they were asked. */
 const withTickets = <A, E>(
   exercise: (
     calls: Calls,
-  ) => Effect.Effect<A, E, TicketService.TicketService | SqlClient.SqlClient>,
+  ) => Effect.Effect<
+    A,
+    E,
+    | TicketService.TicketService
+    | SqlClient.SqlClient
+    | ServerConfig.ServerConfig
+    | FileSystem.FileSystem
+  >,
 ) =>
   Effect.gen(function* () {
     const directory = yield* Effect.promise(() =>
       NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "tickets-")),
     );
-    const calls: Calls = { created: [], states: [], links: [] };
+    const calls: Calls = { created: [], states: [], links: [], uploads: [] };
     const layer = TicketService.layer.pipe(
       Layer.provideMerge(
         Layer.mergeAll(
           SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite")).pipe(
             Layer.provide(NodeServices.layer),
           ),
+          ServerConfig.layerTest(directory, directory).pipe(Layer.provideMerge(NodeServices.layer)),
           Layer.mock(ProjectStore.ProjectStoreV2)({
             get: (id) =>
               Effect.succeed(
@@ -70,6 +81,11 @@ const withTickets = <A, E>(
               Effect.sync(() => {
                 calls.created.push({ title: input.title, body: input.body });
                 return filed;
+              }),
+            uploadImage: (input) =>
+              Effect.sync(() => {
+                calls.uploads.push({ fileName: input.fileName, dataUrl: input.dataUrl });
+                return { url: `https://github.com/acme/web/raw/sha/${input.fileName}` };
               }),
             setState: (input) =>
               Effect.sync(() => {
@@ -182,6 +198,52 @@ it.effect("moves a closed ticket to a closed issue and relinks its features", ()
       assert.deepStrictEqual(calls.states, [{ number: 41, state: "closed" }]);
       assert.deepStrictEqual(calls.links, [{ id: "feature:linked", url: filed.url }]);
       assert.deepStrictEqual(yield* tickets.list(web), []);
+    }),
+  ),
+);
+
+it.effect("moves a ticket's pasted images to GitHub with it, and stays when one is missing", () =>
+  withTickets((calls) =>
+    Effect.gen(function* () {
+      const tickets = yield* TicketService.TicketService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const id = "ticket-0b6f2a5e-8d1c-4f3a-9e2b-7c4d1a6e5f30";
+      yield* fileSystem.makeDirectory(config.attachmentsDir, { recursive: true });
+      yield* fileSystem.writeFile(
+        NodePath.join(config.attachmentsDir, `${id}.png`),
+        new Uint8Array([0x89, 0x50]),
+      );
+      const ticket = yield* tickets.create({
+        projectId: web,
+        title: "Board",
+        description: `Before\n![shot](attachment:${id})\nAgain ![shot](attachment:${id})`,
+      });
+      yield* tickets.moveToIssue(web, ticket.id);
+      const url = `https://github.com/acme/web/raw/sha/${id}.png`;
+      assert.deepStrictEqual(calls.uploads, [
+        { fileName: `${id}.png`, dataUrl: "data:image/png;base64,iVA=" },
+      ]);
+      assert.deepStrictEqual(calls.created, [
+        { title: "Board", body: `Before\n![shot](${url})\nAgain ![shot](${url})` },
+      ]);
+
+      const gone = "ticket-1c7e3b6f-9e2d-4a4b-8f3c-8d5e2b7f6a41";
+      const broken = yield* tickets.create({
+        projectId: web,
+        title: "Lanes",
+        description: `![shot](attachment:${gone})`,
+      });
+      const failure = yield* Effect.flip(tickets.moveToIssue(web, broken.id));
+      assert.strictEqual(
+        failure.reason,
+        `The ticket's image ${gone} couldn't be read, so the ticket stays.`,
+      );
+      assert.deepStrictEqual(
+        (yield* tickets.list(web)).map((ticket) => ticket.title),
+        ["Lanes"],
+      );
+      assert.strictEqual(calls.created.length, 1);
     }),
   ),
 );

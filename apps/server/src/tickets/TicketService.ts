@@ -13,13 +13,16 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
+import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as TicketImages from "./TicketImages.ts";
 import { listTickets, readTicket, readTicketByNumber } from "./ticketRows.ts";
 
 const TITLE_MAX = 300;
@@ -78,6 +81,8 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
+  const config = yield* ServerConfig.ServerConfig;
+  const fileSystem = yield* FileSystem.FileSystem;
 
   const storageFailure = (operation: string) => (error: unknown) =>
     Effect.logWarning(`Ticket ${operation} failed`, { error }).pipe(
@@ -192,8 +197,17 @@ const make = Effect.gen(function* () {
     ticketId: string,
   ) {
     const ticket = yield* get(projectId, ticketId);
+    // The ticket's own images live on this environment, which GitHub can't reach.
+    const body = yield* TicketImages.withUploadedImages(ticket.description, (image) =>
+      issues
+        .uploadImage({ projectId, ...image })
+        .pipe(Effect.mapError((error) => new TicketOperationError({ reason: error.reason }))),
+    ).pipe(
+      Effect.provideService(ServerConfig.ServerConfig, config),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+    );
     const issue = yield* issues
-      .create({ projectId, title: ticket.title, body: ticket.description })
+      .create({ projectId, title: ticket.title, body })
       .pipe(Effect.mapError((error) => new TicketOperationError({ reason: error.reason })));
     if (ticket.state === "closed") {
       yield* issues
