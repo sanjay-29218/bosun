@@ -103,8 +103,8 @@ thread is archived until you turn it on again.
 The bot list sits at the left edge of the window: your bots, then your project managers, each with
 its latest message and how long ago it came. **Needs you** marks one waiting on you, a blue dot one
 that's working, and a plain dot before the time a finished run you haven't opened. Below them are
-**Automations** and **Pull requests**, and at the bottom the environment filter, **Usage**,
-**Settings** and **Collapse**.
+**Automations** and **Pull requests**, and at the bottom the environment filter, **Usage** and
+**Settings**.
 
 Clicking a bot narrows the thread list and the board to its projects and takes you back to where
 you left it, such as its board or a thread. The first time, and when you click the bot you're
@@ -117,8 +117,9 @@ list that opens the bot's first thread. With several bots, jumping to a thread m
 Drag the list's right edge to make it wider or narrower; drag it far enough left and it becomes a
 column of icons, each with one mark: an amber count of threads waiting on you, a red dot when a
 run failed, a blue dot while it works, or a plain dot for a finished run you haven't opened.
-**Collapse** and **Expand** at the bottom do the same, as does **Collapse the bot list** in the
-command palette, which you can give a shortcut in **Settings → Keybindings**. Double-click the
+The round arrow tab that shows on the list's right edge when you point at it does the same, as
+does **Toggle bot list** in the command palette, which you can give a shortcut in
+**Settings → Keybindings**. Double-click the
 edge to go back to the default width. The width and collapse are remembered on each device.
 
 **Automations** lists your scheduled tasks by bot, with each one's schedule and next run; pick one

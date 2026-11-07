@@ -66,12 +66,12 @@ import {
   ListTodoIcon,
   CheckIcon,
   ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
-  PanelLeftCloseIcon,
-  PanelLeftOpenIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
@@ -1916,12 +1916,13 @@ function OpenCommandPaletteDialog(props: {
     botItems.push({
       kind: "action",
       value: "bot-list:toggle",
-      searchTerms: ["bot list", "bots", "rail", "collapse", "expand", "icons"],
-      title: botRailCollapsed ? "Expand the bot list" : "Collapse the bot list",
+      searchTerms: ["toggle bot list", "bots", "rail", "collapse", "expand", "icons"],
+      title: "Toggle bot list",
+      description: botRailCollapsed ? "Expand it" : "Collapse it to icons",
       icon: botRailCollapsed ? (
-        <PanelLeftOpenIcon className={ITEM_ICON_CLASS} />
+        <ChevronsRightIcon className={ITEM_ICON_CLASS} />
       ) : (
-        <PanelLeftCloseIcon className={ITEM_ICON_CLASS} />
+        <ChevronsLeftIcon className={ITEM_ICON_CLASS} />
       ),
       shortcutCommand: "bot.inbox",
       run: async () => useUiStateStore.getState().toggleBotRailCollapsed(),

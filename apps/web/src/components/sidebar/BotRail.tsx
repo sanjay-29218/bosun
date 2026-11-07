@@ -17,9 +17,9 @@ import {
 } from "@t3tools/contracts";
 import {
   ChartNoAxesColumnIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
   ClockIcon,
-  PanelLeftCloseIcon,
-  PanelLeftOpenIcon,
   PencilIcon,
   ServerIcon,
   SettingsIcon,
@@ -294,7 +294,7 @@ export const BotRail = memo(function BotRail({
                 <BotAvatar
                   avatar={bot.avatar}
                   color={bot.color}
-                  size={32}
+                  size={36}
                   working={
                     botRailSignal(needsYou.get(bot.key) ?? 0, activity.get(bot.key))?.kind ===
                     "working"
@@ -346,32 +346,18 @@ export const BotRail = memo(function BotRail({
           <EnvironmentFilterMenu collapsed={collapsed} />
           <RailAppPages collapsed={collapsed} />
           <SidebarUpdatePill placement="rail" />
-          {placement === "window" ? (
-            collapsed ? (
-              <RailItem
-                label="Expand bots"
-                hint={null}
-                active={false}
-                signal={null}
-                shortcut={null}
-                variant="icon"
-                onSelect={toggleCollapsed}
-              >
-                <PanelLeftOpenIcon className="size-5" strokeWidth={1.75} />
-              </RailItem>
-            ) : (
-              <RailRow
-                label="Collapse"
-                icon={<PanelLeftCloseIcon />}
-                active={false}
-                muted
-                onSelect={toggleCollapsed}
-              />
-            )
-          ) : null}
         </div>
       </div>
-      {placement === "window" ? <BotRailResizeHandle /> : null}
+      {placement === "window" ? (
+        <>
+          <BotRailResizeHandle />
+          <BotRailCollapseTab
+            collapsed={collapsed}
+            shortcut={shortcutLabelForCommand(keybindings, "bot.inbox")}
+            onToggle={toggleCollapsed}
+          />
+        </>
+      ) : null}
     </nav>
   );
 });
@@ -432,7 +418,7 @@ function BotRailResizeHandle() {
         aria-hidden
         className="pointer-events-none absolute top-(--workspace-topbar-height) bottom-2 left-1 z-30 hidden w-12 rounded-xl border border-dashed border-sidebar-foreground/40 group-data-[snap]/rail:block"
       />
-      {/* Pointer only; Collapse and Expand are the keyboard way. */}
+      {/* Pointer only; the collapse tab and the palette's Toggle bot list are the keyboard way. */}
       <div
         role="separator"
         aria-orientation="vertical"
@@ -452,13 +438,57 @@ function BotRailResizeHandle() {
   );
 }
 
+/**
+ * Collapses or expands the list: a round tab on the rail's right edge, below the titlebar, in the
+ * same place at both widths. It shows while the rail is hovered or focused; the 20px it covers
+ * isn't part of the resize edge.
+ */
+function BotRailCollapseTab({
+  collapsed,
+  shortcut,
+  onToggle,
+}: {
+  readonly collapsed: boolean;
+  readonly shortcut: string | null;
+  readonly onToggle: () => void;
+}) {
+  const label = collapsed ? "Expand bot list" : "Collapse bot list";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            onClick={onToggle}
+            className="pointer-events-none absolute top-[calc(var(--workspace-topbar-height)+8px)] -right-2.5 z-40 grid size-5 cursor-pointer place-items-center rounded-full border border-sidebar-border bg-sidebar text-muted-foreground opacity-0 outline-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/rail:pointer-events-auto group-hover/rail:opacity-100 group-focus-within/rail:pointer-events-auto group-focus-within/rail:opacity-100"
+          />
+        }
+      >
+        {collapsed ? (
+          <ChevronsRightIcon aria-hidden className="size-3" />
+        ) : (
+          <ChevronsLeftIcon aria-hidden className="size-3" />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="right">
+        {label}
+        {shortcut ? ` (${shortcut})` : ""}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 const listRowClassName = (active: boolean) =>
   cn(
     "group/row relative mx-2 flex min-w-0 items-center gap-3 rounded-xl px-2.5 py-2",
     active ? "bg-sidebar-row-selected" : "hover:bg-sidebar-row-hover",
   );
 
-/** A row's top line: its name, and its time with the unread dot, or a hover action in its place. */
+/**
+ * A row's top line: its name, then a fixed slot holding its time and unread dot, with a hover
+ * action laid over it. Hover only fades them, so nothing in the row moves or re-truncates.
+ */
 function ListRowHead({
   name,
   emphasized,
@@ -482,14 +512,19 @@ function ListRowHead({
       >
         {name}
       </span>
-      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground tabular-nums group-hover/row:hidden group-focus-within/row:hidden">
-        {unread ? (
-          <span aria-hidden className="size-1.5 rounded-full bg-sidebar-foreground" />
+      <span className="relative flex h-4 min-w-8 shrink-0 items-center justify-end">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums group-hover/row:opacity-0 group-focus-within/row:opacity-0">
+          {unread ? (
+            <span aria-hidden className="size-1.5 rounded-full bg-sidebar-foreground" />
+          ) : null}
+          <RelativeTimeLabel timestamp={time} />
+        </span>
+        {action ? (
+          // Out of flow, so the taller button overlaps the slot without growing the line.
+          <span className="pointer-events-none absolute top-1/2 right-0 -translate-y-1/2 opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100">
+            {action}
+          </span>
         ) : null}
-        <RelativeTimeLabel timestamp={time} />
-      </span>
-      <span className="pointer-events-auto relative hidden shrink-0 group-hover/row:flex group-focus-within/row:flex">
-        {action}
       </span>
     </span>
   );
@@ -557,7 +592,7 @@ const BotListRow = memo(function BotListRow({
       <BotAvatar
         avatar={bot.avatar}
         color={bot.color}
-        size={36}
+        size={40}
         working={summary.mark === "working"}
         className="pointer-events-none shrink-0"
       />
@@ -629,7 +664,7 @@ const ManagerListRow = memo(function ManagerListRow({
       <ProjectManagerAvatar
         projectId={manager.projectId}
         icon={icon}
-        size={36}
+        size={40}
         working={working}
         className="pointer-events-none shrink-0"
       />
@@ -693,7 +728,7 @@ const ManagerRailItem = memo(function ManagerRailItem({
       shortcut={null}
       onSelect={onSelect}
     >
-      <ProjectManagerAvatar projectId={manager.projectId} icon={icon} size={32} working={working} />
+      <ProjectManagerAvatar projectId={manager.projectId} icon={icon} size={36} working={working} />
     </RailItem>
   );
 });
@@ -814,14 +849,12 @@ function RailRow({
   icon,
   active,
   signal = null,
-  muted = false,
   onSelect,
 }: {
   readonly label: string;
   readonly icon: ReactNode;
   readonly active: boolean;
   readonly signal?: BotRailSignal | null;
-  readonly muted?: boolean;
   readonly onSelect: () => void;
 }) {
   return (
@@ -833,10 +866,7 @@ function RailRow({
         "mx-2 flex h-8 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-start text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
         active
           ? "bg-sidebar-row-selected text-sidebar-foreground"
-          : cn(
-              "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-              muted ? "text-muted-foreground" : "text-sidebar-muted-foreground",
-            ),
+          : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
       )}
     >
       {icon}
@@ -901,7 +931,7 @@ const RailItem = memo(function RailItem({
             <button
               type="button"
               className={cn(
-                "relative flex size-9 cursor-pointer items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                "relative flex size-10 cursor-pointer items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                 variant === "bot"
                   ? undefined
                   : active
