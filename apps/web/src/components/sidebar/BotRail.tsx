@@ -147,7 +147,7 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
  * The bot list: the bots, then the project managers, then the app's places, Usage, Settings
  * and updates. Expanded it shows each one's latest message; collapsed it is an icon column.
  * A bot narrows the thread list to its projects; a project manager to its project. `window`
- * pins it to the window's left edge, resizable; `sheet` puts it, expanded, in the mobile sheet.
+ * pins it to the window's left edge, resizable; `sheet` puts its icons in the mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
@@ -167,7 +167,8 @@ export const BotRail = memo(function BotRail({
   const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
   const collapsedPreference = useUiStateStore((store) => store.botRailCollapsed);
-  const collapsed = placement === "window" && collapsedPreference;
+  // The phone sheet keeps the icon column, leaving the thread list most of its width.
+  const collapsed = placement === "sheet" || collapsedPreference;
   const toggleCollapsed = useUiStateStore((store) => store.toggleBotRailCollapsed);
   const multipleBots = bots.length > 1;
 
@@ -193,6 +194,8 @@ export const BotRail = memo(function BotRail({
   const select = (bot: LogicalBot, event: MouseEvent) => {
     const same = bot.key === active?.key;
     if (isMobile) setOpenMobile(false);
+    // A bot shows its threads across all its projects.
+    if (scopeKeys.length > 0) setScopeKeys([]);
     if (active && !same) rememberBotHref(active.key);
     const href = same || event.metaKey || event.ctrlKey ? undefined : readBotHref(bot.key);
     if (!same) selectBot(bot);
@@ -261,7 +264,7 @@ export const BotRail = memo(function BotRail({
         "group/rail flex w-(--sidebar-leading-width) shrink-0 flex-col bg-sidebar surface-grain text-sidebar-foreground",
         placement === "window" ? "relative z-20 hidden md:flex" : "h-full",
       )}
-      style={placement === "sheet" ? { width: BOT_RAIL_DEFAULT_WIDTH } : undefined}
+      style={placement === "sheet" ? { width: BOT_RAIL_COLLAPSED_WIDTH } : undefined}
     >
       {placement === "window" ? (
         // The titlebar row: traffic lights on macOS, the sidebar toggle elsewhere.

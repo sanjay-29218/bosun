@@ -281,7 +281,7 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
 
 /**
  * A bot switch in thread view asks for that bot's first thread. Only the sidebar knows its order
- * once it shows the bot, so it opens the thread and clears this. Null bot key is All bots.
+ * once it shows the bot, so it opens the thread and clears this. A null bot key is no bot yet.
  */
 export const botFirstThreadRequestAtom = Atom.make<{ readonly botKey: string | null } | null>(
   null,

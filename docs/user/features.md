@@ -47,8 +47,7 @@ child to open its lead; its menu closes or reopens it.
 
 ## The lead and its crew
 
-A feature follows a workflow from the **Library** (from the bot rail or the bottom of the
-sidebar): the role that leads it, the crew roles it hands work to, and instructions for the lead.
+A feature follows a workflow from **Settings → Workflows**: the role that leads it, the crew roles it hands work to, and instructions for the lead.
 **Feature delivery** is led by the Feature manager with a Planner, Designer, Builder, QA Tester
 and Reviewer; you can edit it but not delete it. Crew roles that are turned off are skipped. The
 lead hands a crew member a task, such as a plan for the Planner, and

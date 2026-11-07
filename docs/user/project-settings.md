@@ -78,7 +78,7 @@ branch name remains.
 
 ## Scheduled tasks
 
-On web and desktop, scheduled tasks live in **Automations**, in the bot rail or
+On web and desktop, scheduled tasks live in **Automations**, in the bot list or
 at the bottom of the sidebar. On mobile, open **Settings → Scheduled tasks**, or
 **Automations** in the bot button's menu, and use the settings filter to narrow
 the list by environment or project. Each task runs on the environment you choose,

@@ -2,18 +2,19 @@
 
 A **bot** (Captain, Social, Finance…) owns projects and runs their work. A **role** is a kind of
 crew member, such as Planner or Builder, that a feature's lead can hand work to. Both belong to an
-environment and are shared by every project on it. Bots and the Library each have a place on the
-rail.
+environment and are shared by every project on it. You add and edit them in **Settings → Crew**:
+**Bots**, **Workflows** and **Roles**.
 
 ## Bots
 
-**Bots** on the rail lists each environment's bots in rail order; drag one to reorder them. Every
-environment starts with **Captain**, which owns projects that were never given to another bot.
-A new Captain starts with **Full access**. The pencil beside the bot's name at the
-top of the sidebar opens its page too.
+**Settings → Bots** lists each environment's bots in rail order; drag one to reorder them, and
+pick one to edit it. Every environment starts with **Captain**, which owns projects that were
+never given to another bot. A new Captain starts with **Full access**. The pencil on a bot in the
+bot list, or beside its name at the top of the sidebar, opens its settings too.
 
-Use **+ New** for another bot. A bot has a name, a robot avatar you build from parts (or
-**Shuffle**), a color, instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
+**Add bot** asks for a name, a robot avatar you build from parts (or **Shuffle**) and a color;
+**Create** makes the bot on your default model and opens its headquarters. In its settings a bot
+also has instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
 **Save**. A bot's threads, like a role's, get every T3 Code tool a thread you start gets, such as
 the browser, worktrees and pull requests; tick some under **T3 Code** only to limit it to those.
 They are offered only the crew tools its ticked crew tools allow. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
@@ -28,7 +29,7 @@ project's bot in **Settings → Project → Bot**. A bot can only be deleted onc
 also deletes the automations that run as it.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
-the rail opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
+the bot list opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
 (Ctrl-clicking) a bot always opens it. You can also open it from the bot at the top of the sidebar (or the thread list on
 mobile), or with **Open …'s thread** in the command palette. A dot there shows when it's
 working or needs you. From there the bot can list its projects, hand them work, and answer their
@@ -79,63 +80,69 @@ itself for pull requests into `main`.
 It reads the project's checkout but doesn't change it, and merges a pull request only when the
 request or its instructions say to.
 
-With one project picked in the sidebar's project filter, the sidebar's header shows that
-project's manager in place of the bot: click it to open the manager, or its ⚙ for its settings. It
+The bot list shows each project manager under the bots; clicking one opens it and narrows the
+thread list to its project. With one project picked, a card for its manager sits at the top of the
+thread list with what it's doing: click it to open the manager, or its ⚙ for its settings. It
 also opens with **Open project manager** in the project's right-click menu or the command palette,
 or from the link in the bot's reply; the thread is made the first time. A bot's **Lineage** lists
 the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
 back if it was archived, and **/new** or **Start new session…** starts it over.
 
-Its settings are in **Settings → Project → Project manager**: instructions, model and **Access**,
-tools and **Long conversations**. It needs no roles from the Library: until you save changes there
+Its settings are in **Settings → Project → Project manager**: its icon, instructions, model and
+**Access**, tools and **Long conversations**. Each manager gets a robot look picked from its
+project until you **Change** it; **Use automatic** goes back. The icon saves on its own and
+doesn't count as customizing the manager. It needs no roles: until you save changes there
 it uses built-in instructions on the model of the bot that owns the project, and **Reset to
 defaults** goes back to them. New instructions reach the thread when it next starts a new session;
 model, **Access** and tools apply right away. The switch at the top turns a project's manager off: its
 bot then does the project's work itself, requests still open go back to the bot, and the manager's
 thread is archived until you turn it on again.
 
-### The bot rail
+### The bot list
 
-A rail of bot avatars sits at the left edge of the window, with **Usage** and **Settings** at its
-bottom. Clicking a bot narrows the sidebar and the board to its projects and takes you back to
-where you left it, such as its board or a thread. The first time, and when you click the bot
-you're already on, it opens its headquarters; ⌘-click (Ctrl-click) always does. To narrow them
-without leaving the page, press **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or use **Switch to …** in the command
-palette; the List / Board choice is remembered per bot, and in the list that opens the bot's first
-thread. **Show All bots** in the command palette shows every bot's threads again; it has no
-shortcut until you give it one in **Settings → Keybindings**. With several bots, jumping to a
-thread moves to **Ctrl+Cmd+1–9** (**Ctrl+Alt+1–9**). On mobile, the bot button in the thread
-list header lists **All bots** first.
+The bot list sits at the left edge of the window: your bots, then your project managers, each with
+its latest message and how long ago it came. **Needs you** marks one waiting on you, a blue dot one
+that's working, and a plain dot before the time a finished run you haven't opened. Below them are
+**Automations** and **Pull requests**, and at the bottom the environment filter, **Usage**,
+**Settings** and **Collapse**.
 
-Each rail icon shows one thing at a time: an amber count of threads waiting on you, a red dot when
-a run failed, a blue dot on its lower corner while a bot works, or a plain dot when a run finished
-that you haven't opened. Bots other than the one you picked are dimmed until you point at them.
-All bots shows the same across every bot.
+Clicking a bot narrows the thread list and the board to its projects and takes you back to where
+you left it, such as its board or a thread. The first time, and when you click the bot you're
+already on, it opens its headquarters; ⌘-click (Ctrl-click) always does. To narrow them without
+leaving the page, press **Cmd+1–9** (**Ctrl+1–9** on Windows and Linux) on desktop, or use
+**Switch to …** in the command palette; the List / Board choice is remembered per bot, and in the
+list that opens the bot's first thread. With several bots, jumping to a thread moves to
+**Ctrl+Cmd+1–9** (**Ctrl+Alt+1–9**).
 
-Below the bots, the rail's places swap what the sidebar lists. **Bots** lists your bots to add and
-edit, as above. **Automations** lists your
-scheduled tasks by bot, with each one's schedule and next run; pick one to edit it and see its
-recent runs. A task can also run as a bot: see [Scheduled tasks](project-settings.md#scheduled-tasks). A red dot on Automations means a run failed and you haven't opened that task since.
-**Library** lists your workflows and roles; pick one to edit it. The pull request icon opens **Pull requests**. Pick a bot to go back to its threads. On a server without bots, open Bots, Automations and Library
-from the bottom of the sidebar, or **Open bots**, **Open automations** and **Open library** in the command palette; on mobile, they're the last entries in the bot button's
-menu.
+Drag the list's right edge to make it wider or narrower; drag it far enough left and it becomes a
+column of icons, each with one mark: an amber count of threads waiting on you, a red dot when a
+run failed, a blue dot while it works, or a plain dot for a finished run you haven't opened.
+**Collapse** and **Expand** at the bottom do the same, as does **Collapse the bot list** in the
+command palette, which you can give a shortcut in **Settings → Keybindings**. Double-click the
+edge to go back to the default width. The width and collapse are remembered on each device.
+
+**Automations** lists your scheduled tasks by bot, with each one's schedule and next run; pick one
+to edit it and see its recent runs. A task can also run as a bot: see
+[Scheduled tasks](project-settings.md#scheduled-tasks). A red mark on Automations means a run
+failed and you haven't opened that task since. **Pull requests** opens your pull requests. Pick a
+bot to go back to its threads. On a server without bots, open Automations from the bottom of the
+sidebar, or **Open automations** in the command palette; on mobile, Automations and Library are
+the last entries in the bot button's menu.
 
 Bots with the same name on different environments share one avatar, and new projects go to the
-bot you're looking at, or to Captain from All bots. **+** adds a bot, and the pencil on the bot at the top of the sidebar edits
-it. The server icon
-filters the rail and sidebar to some environments; pick **All environments** to show every one
-again. To move a project, right-click it in the sidebar's project picker and choose **Move to
-bot**.
+bot you're looking at. The server icon filters the bot list and thread list to some environments;
+pick **All environments** to show every one again. To move a project, right-click it in the
+sidebar's project picker and choose **Move to bot**.
 
 ## Workflows and roles
 
-A **Library** workflow is how a kind of feature runs: a name, the role that leads it, the crew
-roles the lead can hand work to, and instructions for the lead. **+ New** beside Workflows adds
-one. **Feature delivery** is the default and can be edited but not deleted. A role no workflow
+A workflow, in **Settings → Workflows**, is how a kind of feature runs: a name, the role that
+leads it, the crew roles the lead can hand work to, and instructions for the lead. **New
+workflow** adds one. **Feature delivery** is the default and can be edited but not deleted. A role no workflow
 uses says **Not in a workflow**.
 
-The **Library**'s Roles are who leads a feature and who its lead can hand work to. **+ New**
-beside Roles adds one, and offers **Add the starter roles** for a Feature manager, Planner,
+Roles, in **Settings → Roles**, are who leads a feature and who its lead can hand work to. **New
+role** adds one, and offers **Add the starter roles** for a Feature manager, Planner,
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research; give any
 role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
