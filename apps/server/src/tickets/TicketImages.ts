@@ -62,10 +62,12 @@ export const make = Effect.gen(function* () {
   return { upload };
 });
 
-const TICKET_IMAGE = new RegExp(
-  `!\\[[^\\]\\n]*\\]\\(${TICKET_IMAGE_PREFIX}([a-z0-9_-]+)\\)`,
-  "giu",
-);
+// An image's destination, with Markdown's optional angle brackets and title: `![a](attachment:id)`,
+// `![a](<attachment:id> "Caption")`. The scheme matches in any case, as a URL's does.
+const TICKET_IMAGE_DESTINATION =
+  /(!\[[^\]\n]*\]\(\s*)<?attachment:([a-z0-9_-]+)>?((?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\))/giu;
+// Any other place a stored image could be named, such as an HTML `<img src>`, which can't move.
+const ANY_TICKET_IMAGE = /(?:\(|<|["'=\s])attachment:[a-z0-9_-]+/iu;
 const MIME_TYPES: Readonly<Record<string, string>> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -88,8 +90,12 @@ export const withUploadedImages = Effect.fn("TicketImages.withUploadedImages")(f
 ) {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
-  const ids = [...new Set([...markdown.matchAll(TICKET_IMAGE)].map((match) => match[1]!))];
-  let rewritten = markdown;
+  const ids = [
+    ...new Set(
+      [...markdown.matchAll(TICKET_IMAGE_DESTINATION)].map((match) => match[2]!.toLowerCase()),
+    ),
+  ];
+  const urls = new Map<string, string>();
   for (const id of ids) {
     const missing = new TicketOperationError({
       reason: `The ticket's image ${id} couldn't be read, so the ticket stays.`,
@@ -106,7 +112,17 @@ export const withUploadedImages = Effect.fn("TicketImages.withUploadedImages")(f
       fileName: `${id}.${extension}`,
       dataUrl: `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
     });
-    rewritten = rewritten.replaceAll(`(${TICKET_IMAGE_PREFIX}${id})`, `(${url})`);
+    urls.set(id, url);
+  }
+  const rewritten = markdown.replace(
+    TICKET_IMAGE_DESTINATION,
+    (_match, before: string, id: string, after: string) =>
+      `${before}${urls.get(id.toLowerCase())}${after}`,
+  );
+  if (ANY_TICKET_IMAGE.test(rewritten)) {
+    return yield* new TicketOperationError({
+      reason: "The ticket names a stored image in a form that can't move to GitHub, so it stays.",
+    });
   }
   return rewritten;
 });

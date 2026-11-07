@@ -130,6 +130,14 @@ const make = Effect.gen(function* () {
           ),
         );
     }
+    // A thread outside a feature can link the ticket itself.
+    yield* features
+      .relinkTicketThreads(projectId, ticketId, url)
+      .pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Relinking a ticket's threads failed", { ticketId, error }),
+        ),
+      );
   });
 
   const create: TicketService["Service"]["create"] = Effect.fn("TicketService.create")(

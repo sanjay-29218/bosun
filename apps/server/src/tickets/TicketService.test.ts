@@ -40,6 +40,7 @@ interface Calls {
   readonly created: Array<{ readonly title: string; readonly body: string }>;
   readonly states: Array<{ readonly number: number; readonly state: string }>;
   readonly links: Array<{ readonly id: string; readonly url: string | null }>;
+  readonly threadLinks: Array<{ readonly ticketId: string; readonly url: string | null }>;
   readonly uploads: Array<{ readonly fileName: string; readonly dataUrl: string }>;
 }
 
@@ -60,7 +61,7 @@ const withTickets = <A, E>(
     const directory = yield* Effect.promise(() =>
       NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "tickets-")),
     );
-    const calls: Calls = { created: [], states: [], links: [], uploads: [] };
+    const calls: Calls = { created: [], states: [], links: [], threadLinks: [], uploads: [] };
     const layer = TicketService.layer.pipe(
       Layer.provideMerge(
         Layer.mergeAll(
@@ -98,6 +99,10 @@ const withTickets = <A, E>(
               Effect.sync(() => {
                 calls.links.push({ id: input.id, url: input.url });
                 return {} as never;
+              }),
+            relinkTicketThreads: (_projectId, ticketId, url) =>
+              Effect.sync(() => {
+                calls.threadLinks.push({ ticketId, url });
               }),
           }),
         ),
@@ -197,6 +202,7 @@ it.effect("moves a closed ticket to a closed issue and relinks its features", ()
       assert.deepStrictEqual(calls.created, [{ title: "Sketch the board", body: "- [ ] lanes" }]);
       assert.deepStrictEqual(calls.states, [{ number: 41, state: "closed" }]);
       assert.deepStrictEqual(calls.links, [{ id: "feature:linked", url: filed.url }]);
+      assert.deepStrictEqual(calls.threadLinks, [{ ticketId: ticket.id, url: filed.url }]);
       assert.deepStrictEqual(yield* tickets.list(web), []);
     }),
   ),
@@ -217,7 +223,11 @@ it.effect("moves a ticket's pasted images to GitHub with it, and stays when one 
       const ticket = yield* tickets.create({
         projectId: web,
         title: "Board",
-        description: `Before\n![shot](attachment:${id})\nAgain ![shot](attachment:${id})`,
+        description: [
+          "Before",
+          `![shot](attachment:${id})`,
+          `Again ![shot](<ATTACHMENT:${id}> "Caption")`,
+        ].join("\n"),
       });
       yield* tickets.moveToIssue(web, ticket.id);
       const url = `https://github.com/acme/web/raw/sha/${id}.png`;
@@ -225,7 +235,10 @@ it.effect("moves a ticket's pasted images to GitHub with it, and stays when one 
         { fileName: `${id}.png`, dataUrl: "data:image/png;base64,iVA=" },
       ]);
       assert.deepStrictEqual(calls.created, [
-        { title: "Board", body: `Before\n![shot](${url})\nAgain ![shot](${url})` },
+        {
+          title: "Board",
+          body: ["Before", `![shot](${url})`, `Again ![shot](${url} "Caption")`].join("\n"),
+        },
       ]);
 
       const gone = "ticket-1c7e3b6f-9e2d-4a4b-8f3c-8d5e2b7f6a41";
@@ -239,10 +252,20 @@ it.effect("moves a ticket's pasted images to GitHub with it, and stays when one 
         failure.reason,
         `The ticket's image ${gone} couldn't be read, so the ticket stays.`,
       );
-      assert.deepStrictEqual(
-        (yield* tickets.list(web)).map((ticket) => ticket.title),
-        ["Lanes"],
+      const inHtml = yield* tickets.create({
+        projectId: web,
+        title: "Html",
+        description: `<img src="attachment:${id}">`,
+      });
+      const html = yield* Effect.flip(tickets.moveToIssue(web, inHtml.id));
+      assert.strictEqual(
+        html.reason,
+        "The ticket names a stored image in a form that can't move to GitHub, so it stays.",
       );
+      assert.deepStrictEqual((yield* tickets.list(web)).map((ticket) => ticket.title).toSorted(), [
+        "Html",
+        "Lanes",
+      ]);
       assert.strictEqual(calls.created.length, 1);
     }),
   ),
@@ -261,6 +284,7 @@ it.effect("unlinks a deleted ticket's features", () =>
       `;
       yield* tickets.remove(web, ticket.id);
       assert.deepStrictEqual(calls.links, [{ id: "feature:linked", url: null }]);
+      assert.deepStrictEqual(calls.threadLinks, [{ ticketId: ticket.id, url: null }]);
       assert.deepStrictEqual(yield* tickets.list(web), []);
     }),
   ),

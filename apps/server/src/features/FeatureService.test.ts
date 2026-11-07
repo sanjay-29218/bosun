@@ -1593,6 +1593,23 @@ describe("feature lead and crew", () => {
 
         const missing = yield* Effect.flip(features.setIssue({ ...target, url: "T-8" }));
         expect(missing.message).toBe("No ticket T-8 in this project");
+
+        // A thread linking the ticket itself follows it when it moves, and lets go when deleted.
+        const engine = yield* OrchestrationEngineService;
+        const { leadThreadId } = yield* features.start(target.id, projectId);
+        const threadIssue = () =>
+          engine.getThreadShell(leadThreadId).pipe(Effect.map((shell) => shell!.issue ?? null));
+        yield* features.setThreadIssue(leadThreadId, "T-7");
+        expect((yield* threadIssue())?.ticketId).toBe("ticket:a");
+        yield* features.relinkTicketThreads(
+          projectId,
+          "ticket:a",
+          "https://github.com/owner/repo/issues/42",
+        );
+        expect((yield* threadIssue())?.url).toBe("https://github.com/owner/repo/issues/42");
+        yield* features.setThreadIssue(leadThreadId, "T-7");
+        yield* features.relinkTicketThreads(projectId, "ticket:a", null);
+        expect(yield* threadIssue()).toBeNull();
         expect(firstIssueRef("Sketch it\n\nTicket T-7")).toBe("T-7");
         expect(firstIssueRef("Fix T-7 later")).toBeNull();
       }),

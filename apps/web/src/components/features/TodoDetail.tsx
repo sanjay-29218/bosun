@@ -763,7 +763,10 @@ function DescriptionBody(props: {
       return ok;
     });
   };
+  // The newest text typed, read when a save started by leaving finishes.
+  const latestDraft = useRef<string | null>(null);
   const change = (body: string) => {
+    latestDraft.current = body;
     setDraft(body);
     cancelTimer();
     // Saving now would store an upload's placeholder; the image's own change saves.
@@ -785,6 +788,7 @@ function DescriptionBody(props: {
   const [openedAt, setOpenedAt] = useState<{ x: number; y: number } | true>(true);
   const startEditing = (point: { x: number; y: number } | true) => {
     saves.reset(shown);
+    latestDraft.current = shown;
     setOpenedAt(point);
     setDraft(shown);
   };
@@ -822,8 +826,13 @@ function DescriptionBody(props: {
         const wrapper = event.currentTarget;
         setTimeout(() => {
           if (wrapper.contains(document.activeElement)) return;
-          // Leaving keeps the editor open only when the save failed, so nothing typed is lost.
-          void flush(draft).then((ok) => ok && setDraft(null));
+          // Leaving keeps the editor open when the save failed, or when typing resumed while it
+          // ran, so nothing typed is lost.
+          void flush(draft).then((ok) => {
+            if (!ok || latestDraft.current !== draft) return;
+            if (wrapper.contains(document.activeElement)) return;
+            setDraft(null);
+          });
         }, 0);
       }}
     >

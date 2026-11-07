@@ -220,6 +220,15 @@ export interface FeatureServiceShape {
     threadId: ThreadId,
     ref: string | null,
   ) => Effect.Effect<FeatureIssue | null, FeatureServiceError>;
+  /**
+   * Points each of the project's threads that links ticket `ticketId` itself at `url`, the issue
+   * it moved to, or unlinks them when null because it was deleted.
+   */
+  readonly relinkTicketThreads: (
+    projectId: ProjectId,
+    ticketId: string,
+    url: string | null,
+  ) => Effect.Effect<void, FeatureServiceError>;
   readonly get: (id: string) => Effect.Effect<FeatureRecord | null, PersistenceSqlError>;
   readonly listByProject: (
     projectId: ProjectId,
@@ -988,6 +997,26 @@ export const FeatureServiceLive = Layer.effect(
         milestone: subject.milestone ?? null,
         subIssues: subject.subIssues ?? null,
       } satisfies FeatureIssue;
+    });
+
+    const setThreadIssue: FeatureServiceShape["setThreadIssue"] = Effect.fn(
+      "FeatureService.setThreadIssue",
+    )(function* (threadId, ref) {
+      const [thread] = yield* sql<{ readonly projectId: ProjectId }>`
+          SELECT project_id AS projectId FROM orchestration_v2_projection_threads
+          WHERE thread_id = ${threadId} AND deleted_at IS NULL
+        `.pipe(Effect.mapError(queryError));
+      if (!thread) return yield* Effect.fail(new FeatureValidationError("Thread not found"));
+      const issue = ref === null ? null : yield* resolveIssue(thread.projectId, ref);
+      yield* engine
+        .dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make(`task-issue:${NodeCrypto.randomUUID()}`),
+          threadId,
+          issue,
+        })
+        .pipe(Effect.mapError((error) => new FeatureValidationError(String(error))));
+      return issue;
     });
 
     const setIssue: FeatureServiceShape["setIssue"] = Effect.fn("FeatureService.setIssue")(
@@ -1767,23 +1796,17 @@ export const FeatureServiceLive = Layer.effect(
         return yield* bumped(setIssue)({ id: thread.featureId, projectId: thread.projectId, url });
       }),
       resolveIssue,
-      setThreadIssue: Effect.fn("FeatureService.setThreadIssue")(function* (threadId, ref) {
-        const [thread] = yield* sql<{ readonly projectId: ProjectId }>`
-            SELECT project_id AS projectId FROM orchestration_v2_projection_threads
-            WHERE thread_id = ${threadId} AND deleted_at IS NULL
+      setThreadIssue,
+      relinkTicketThreads: Effect.fn("FeatureService.relinkTicketThreads")(
+        function* (projectId, ticketId, url) {
+          const threads = yield* sql<{ readonly threadId: ThreadId }>`
+            SELECT thread_id AS threadId FROM orchestration_v2_projection_threads
+            WHERE project_id = ${projectId} AND deleted_at IS NULL
+              AND json_extract(payload_json, '$.issue.ticketId') = ${ticketId}
           `.pipe(Effect.mapError(queryError));
-        if (!thread) return yield* Effect.fail(new FeatureValidationError("Thread not found"));
-        const issue = ref === null ? null : yield* resolveIssue(thread.projectId, ref);
-        yield* engine
-          .dispatch({
-            type: "thread.crew-stage.set",
-            commandId: CommandId.make(`task-issue:${NodeCrypto.randomUUID()}`),
-            threadId,
-            issue,
-          })
-          .pipe(Effect.mapError((error) => new FeatureValidationError(String(error))));
-        return issue;
-      }),
+          for (const { threadId } of threads) yield* setThreadIssue(threadId, url);
+        },
+      ),
       get,
       setStatus: Effect.fn("FeatureService.setStatus")(function* (id, projectId, status) {
         const feature = yield* sql

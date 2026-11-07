@@ -32,13 +32,19 @@ export function PullRequestLinkedIssues(props: {
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-1">
       {props.refs.map((ref) => {
-        const url = `https://${host}/${ref.repository}/issues/${ref.number}`;
-        const local = ref.repository.toLowerCase() === reference.repository.toLowerCase();
+        const refHost = ref.host ?? host.toLowerCase();
+        const url = `https://${refHost}/${ref.repository}/issues/${ref.number}`;
+        // Only the PR's own repository on its own host is the project's issue by that number.
+        const local =
+          refHost === host.toLowerCase() &&
+          ref.repository.toLowerCase() === reference.repository.toLowerCase();
         // The project's list names issues in its repository, which is this pull request's.
         const issue = local
           ? (issues.data?.issues.find((candidate) => candidate.number === ref.number) ?? null)
           : null;
-        const label = local ? `#${ref.number}` : `${ref.repository}#${ref.number}`;
+        const label = local
+          ? `#${ref.number}`
+          : `${refHost === host.toLowerCase() ? "" : `${refHost}/`}${ref.repository}#${ref.number}`;
         const open = (event: MouseEvent<HTMLButtonElement>) => {
           if (event.metaKey || event.ctrlKey || event.button === 1 || !local) {
             void readLocalApi()?.shell.openExternal(url);

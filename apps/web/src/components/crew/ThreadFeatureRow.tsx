@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   featureIssueRef,
@@ -8,6 +9,7 @@ import {
 import { ChevronRightIcon, CircleDotIcon, WorkflowIcon } from "lucide-react";
 
 import { useThreadShell } from "../../state/entities";
+import { featuresEnvironment } from "../../state/features";
 import { useWorkGroup } from "../../state/workGroup";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { openFeatureIssueDialog } from "./FeatureIssue";
@@ -28,13 +30,19 @@ export function ThreadFeatureRow(props: {
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const thread = useThreadShell(threadRef);
   const group = useWorkGroup(thread?.feature || thread?.crewRequest ? threadRef : null);
+  const canLinkFeature = useAtomValue(
+    featuresEnvironment.setIssue.permissionAtom(props.environmentId),
+  );
+  const canLinkThread = useAtomValue(
+    featuresEnvironment.setThreadIssue.permissionAtom(props.environmentId),
+  );
   if (!thread) return null;
   const feature = thread.feature;
   const issue = thread.issue ?? feature?.issue;
   // A feature links one issue for all its threads; any other thread links its own. A standing
   // thread works on its project or bot as a whole.
   const linkIssue =
-    issue || isStandingThread(thread.id)
+    issue || isStandingThread(thread.id) || !(feature ? canLinkFeature : canLinkThread)
       ? null
       : () =>
           openFeatureIssueDialog(
