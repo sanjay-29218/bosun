@@ -334,6 +334,21 @@ export interface CrewServiceShape {
   readonly resetProjectManager: (
     input: ProjectManagerResetInput,
   ) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
+  /**
+   * The instructions of the manager `callerThreadId` may change: its own when it is a project's
+   * manager, or one of its projects' managers (`projectId`) when it is a bot's headquarters.
+   */
+  readonly projectManagerInstructions: (input: {
+    readonly callerThreadId: ThreadId;
+    readonly projectId?: ProjectId | undefined;
+  }) => Effect.Effect<ProjectManagerInstructions, CrewServiceError>;
+  /** Saves new instructions as a Settings edit would, keeping the manager's other settings. */
+  readonly updateProjectManagerInstructions: (input: {
+    readonly callerThreadId: ThreadId;
+    readonly projectId?: ProjectId | undefined;
+    readonly instructions: string;
+    readonly expectedRevision: number;
+  }) => Effect.Effect<ProjectManagerInstructions, CrewServiceError>;
   readonly getRun: (
     id: string,
   ) => Effect.Effect<CrewRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
@@ -345,6 +360,13 @@ export interface CrewServiceShape {
   readonly watchHeadquarters: () => Effect.Effect<void, never, Scope.Scope>;
   /** Starts a standing thread over in a fresh session now; refused while it works. */
   readonly startNewSession: (threadId: ThreadId) => Effect.Effect<void, CrewServiceError>;
+}
+
+export interface ProjectManagerInstructions {
+  readonly projectId: ProjectId;
+  readonly instructions: string;
+  readonly revision: number;
+  readonly customized: boolean;
 }
 
 export type CrewServiceError =
@@ -909,6 +931,78 @@ export const CrewServiceLive = Layer.effect(
         ),
       );
     });
+
+    /** Which project's manager the caller may change: its own, or its bot's project's. */
+    const instructionsProject = Effect.fn("CrewService.instructionsProject")(function* (
+      callerThreadId: ThreadId,
+      projectId: ProjectId | undefined,
+    ) {
+      const own = headquartersProjectId(callerThreadId);
+      if (own !== null) {
+        if (projectId !== undefined && projectId !== own) {
+          return yield* Effect.fail(
+            new CrewValidationError("A project manager changes only its own instructions"),
+          );
+        }
+        return own;
+      }
+      const botId = headquartersBotId(callerThreadId);
+      if (botId === null) {
+        return yield* Effect.fail(
+          new CrewValidationError(
+            "Only a project's manager, or the headquarters of the bot that owns the project, changes its instructions",
+          ),
+        );
+      }
+      if (projectId === undefined) {
+        return yield* Effect.fail(
+          new CrewValidationError("Name the projectId of one of this bot's projects"),
+        );
+      }
+      if ((yield* runtime.projectBotId(projectId)) !== botId) {
+        return yield* Effect.fail(
+          new CrewValidationError(`Project ${projectId} isn't one of this bot's projects`),
+        );
+      }
+      return projectId;
+    });
+
+    const instructionsOf = (settings: ProjectManagerSettings): ProjectManagerInstructions => ({
+      projectId: settings.projectId,
+      instructions: settings.instructions,
+      revision: settings.revision,
+      customized: settings.customized,
+    });
+
+    const projectManagerInstructions: CrewServiceShape["projectManagerInstructions"] = Effect.fn(
+      "CrewService.projectManagerInstructions",
+    )(function* (input) {
+      const projectId = yield* instructionsProject(input.callerThreadId, input.projectId);
+      return instructionsOf(yield* projectManagerSettings(projectId));
+    });
+
+    const updateProjectManagerInstructions: CrewServiceShape["updateProjectManagerInstructions"] =
+      Effect.fn("CrewService.updateProjectManagerInstructions")(function* (input) {
+        const projectId = yield* instructionsProject(input.callerThreadId, input.projectId);
+        const current = yield* projectManagerSettings(projectId);
+        if (current.revision !== input.expectedRevision) {
+          return yield* Effect.fail(
+            new CrewValidationError(
+              `The instructions changed since you read them (now revision ${current.revision}). Read them again, make your change on that text, and save it with the new revision.`,
+            ),
+          );
+        }
+        const saved = yield* updateProjectManager({
+          projectId,
+          instructions: input.instructions,
+          allowedTools: current.allowedTools,
+          modelSelection: current.modelSelection,
+          runtimeMode: current.runtimeMode,
+          longConversation: current.longConversation,
+          expectedRevision: input.expectedRevision,
+        });
+        return instructionsOf(saved);
+      });
 
     const ensureProjectLead: CrewServiceShape["ensureProjectLead"] = Effect.fn(
       "CrewService.ensureProjectLead",
@@ -1526,6 +1620,8 @@ export const CrewServiceLive = Layer.effect(
       projectManagerSettings,
       updateProjectManager,
       resetProjectManager,
+      projectManagerInstructions,
+      updateProjectManagerInstructions,
       getRun: (id) =>
         store.getRun(id).pipe(
           Effect.flatMap((run) =>

@@ -17,6 +17,7 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -134,6 +135,7 @@ const layerAs = (
             }),
         }),
         Layer.mock(FeatureService)(features),
+        Layer.mock(CrewService)({}),
         Layer.mock(IssueService.IssueService)({
           list: (project) =>
             project === projectId

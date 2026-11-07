@@ -2,6 +2,7 @@ import {
   IssueDetail,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
+  ProjectId,
   RepositoryIssue,
   ThreadId,
   Ticket,
@@ -9,6 +10,7 @@ import {
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -166,6 +168,41 @@ const UpdateMilestone = Tool.make("crew_update_milestone", {
   dependencies: [...dependencies, IssueService.IssueService],
 }).annotate(Tool.Destructive, false);
 
+const ManagerInstructions = Schema.Struct({
+  projectId: Schema.String,
+  instructions: Schema.String,
+  revision: Schema.Int,
+  /** True once someone edited them, in Settings or with crew_update_manager_instructions. */
+  customized: Schema.Boolean,
+});
+
+const ManagerProject = Schema.optional(ProjectId).annotate({
+  description:
+    "A bot's headquarters names one of its projects. A project manager leaves it out: it reads its own.",
+});
+
+const ReadManagerInstructions = Tool.make("crew_read_manager_instructions", {
+  description:
+    "Read a project manager's instructions and their revision: a project manager's own, or, from a bot's headquarters, those of a project the bot owns.",
+  parameters: Schema.Struct({ projectId: ManagerProject }),
+  success: ManagerInstructions,
+  failure,
+  dependencies: [...dependencies, CrewService],
+}).annotate(Tool.Readonly, true);
+
+const UpdateManagerInstructions = Tool.make("crew_update_manager_instructions", {
+  description:
+    "Save a project manager's instructions, to record a standing rule the person or its bot gave for the project. Read them with crew_read_manager_instructions first, then pass the whole new text, not only the change, with the revision you read; to add a rule, append it to the text you read. A stale revision is refused, so a person's edit is never overwritten. The manager shows as Customized in Settings, which can reset it. The new text applies from the manager's next session.",
+  parameters: Schema.Struct({
+    projectId: ManagerProject,
+    instructions: Schema.String,
+    expectedRevision: Schema.Int,
+  }),
+  success: Schema.Struct({ ...ManagerInstructions.fields, appliesFrom: Schema.String }),
+  failure,
+  dependencies: [...dependencies, CrewService],
+}).annotate(Tool.Destructive, false);
+
 export const CrewToolkit = Toolkit.make(
   LinkIssue,
   ListIssues,
@@ -174,4 +211,6 @@ export const CrewToolkit = Toolkit.make(
   UpdateTodo,
   CreateMilestone,
   UpdateMilestone,
+  ReadManagerInstructions,
+  UpdateManagerInstructions,
 );

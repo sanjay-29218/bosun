@@ -3,12 +3,14 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   ticketRef,
+  type ProjectId,
   type RepositoryIssue,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -75,6 +77,7 @@ function crewIssueRows(
 }
 
 const make = Effect.gen(function* () {
+  const crew = yield* CrewService;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
   const tickets = yield* TicketService;
@@ -104,11 +107,33 @@ const make = Effect.gen(function* () {
     requireCrewThread.pipe(
       Effect.flatMap(effect),
       Effect.mapError((error) =>
-        isAccessError(error) ? error : new CrewToolFailedError({ reason: String(error) }),
+        isAccessError(error)
+          ? error
+          : new CrewToolFailedError({
+              reason: error instanceof Error ? error.message : String(error),
+            }),
       ),
     );
 
   return {
+    crew_read_manager_instructions: McpToolAccess.readsAsCaller(
+      (input: { readonly projectId?: ProjectId | undefined }) =>
+        asCrewMember((callerThreadId) =>
+          crew.projectManagerInstructions({ callerThreadId, projectId: input.projectId }),
+        ),
+    ),
+    crew_update_manager_instructions: McpToolAccess.actsAsCaller(
+      (input: {
+        readonly projectId?: ProjectId | undefined;
+        readonly instructions: string;
+        readonly expectedRevision: number;
+      }) =>
+        asCrewMember((callerThreadId) =>
+          crew
+            .updateProjectManagerInstructions({ callerThreadId, ...input })
+            .pipe(Effect.map((saved) => ({ ...saved, appliesFrom: "the manager's next session" }))),
+        ),
+    ),
     crew_link_issue: McpToolAccess.actsAsCaller(
       (input: { readonly url: string | null; readonly threadId?: ThreadId | undefined }) =>
         asCrewMember((callerId) =>

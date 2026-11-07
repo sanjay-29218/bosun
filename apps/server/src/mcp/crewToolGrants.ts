@@ -1,4 +1,4 @@
-import type { CREW_TOOL_GRANTS } from "@t3tools/contracts";
+import { type CREW_TOOL_GRANTS, isStandingThread } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Fiber from "effect/Fiber";
 import { McpSchema, type Tool, Toolkit } from "effect/ai";
@@ -13,9 +13,10 @@ type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
 
 /**
  * What a crew thread needs from its run's grants: a grant, or `null` for none. Callers that
- * aren't crew threads see none of these tools. `linkOnly` tools are for linked environments alone.
+ * aren't crew threads see none of these tools. `linkOnly` tools are for linked environments alone,
+ * and `standing` ones for a bot's headquarters and projects' managers.
  */
-type Needs = Grant | null | "linkOnly";
+type Needs = Grant | null | "linkOnly" | "standing";
 
 /**
  * `McpSchema.EnabledWhen` reads only the MCP client profile, so read the caller from the request
@@ -32,6 +33,8 @@ const callerHolds = (needs: Needs, forLinks: boolean): boolean => {
   const grants = scope?.crewGrants;
   if (grants === undefined) return false;
   if (needs === null) return true;
+  if (needs === "standing")
+    return scope?.thread !== undefined && isStandingThread(scope.thread.threadId);
   return grants.includes(needs);
 };
 
@@ -80,6 +83,8 @@ export const CrewGatedToolkits = {
     crew_update_todo: null,
     crew_create_milestone: null,
     crew_update_milestone: null,
+    crew_read_manager_instructions: "standing",
+    crew_update_manager_instructions: "standing",
   }),
   features: gated(FeaturesToolkit, {
     t3_role_list: "crew.workflows",

@@ -7,6 +7,7 @@ import * as EffectNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
+  botHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   CommandId,
   EPIC_WORKFLOW_ID,
@@ -1794,6 +1795,94 @@ describe("feature lead and crew", () => {
           expect(yield* crew.ensureProjectManager(projectId)).toMatchObject({
             threadId: run.threadId,
           });
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "lets only a project's manager and its bot's headquarters save the manager's instructions",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const manager = projectHeadquartersThreadId(projectId);
+          const captainHq = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+          const otherProject = ProjectId.make("workflow-feature-other");
+          yield* seedCrewProject({
+            projectId: otherProject,
+            title: "Other project",
+            workspaceRoot: "/tmp/workflow-feature-other",
+          });
+          const refusal = (callerThreadId: ThreadId, target: ProjectId | null = projectId) =>
+            Effect.flip(
+              crew.projectManagerInstructions({ callerThreadId, projectId: target ?? undefined }),
+            ).pipe(Effect.map((error) => error.message));
+          expect(yield* refusal(manager, otherProject)).toContain("only its own");
+          expect(yield* refusal(projectHeadquartersThreadId(otherProject))).toContain(
+            "only its own",
+          );
+          for (const caller of [
+            ThreadId.make("plain-thread"),
+            ThreadId.make("bot-run:feature-lead:feature-1"),
+          ]) {
+            expect(yield* refusal(caller)).toContain("Only a project's manager");
+          }
+          expect(yield* refusal(captainHq, null)).toContain("Name the projectId");
+          expect(yield* refusal(botHeadquartersThreadId("other-bot"))).toContain(
+            "isn't one of this bot's projects",
+          );
+
+          const read = yield* crew.projectManagerInstructions({ callerThreadId: manager });
+          expect(read).toMatchObject({ projectId, revision: 0, customized: false });
+          expect(read.instructions).toContain("You manage one project");
+          const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_BOT_ID))!;
+          const icon = { avatar: captain.avatar, color: "teal" as const };
+          const before = yield* crew.setProjectManagerIcon({ projectId, icon });
+          const rule = `${read.instructions}\n\nEvery piece of work starts from a GitHub issue.`;
+          const saved = yield* crew.updateProjectManagerInstructions({
+            callerThreadId: manager,
+            instructions: rule,
+            expectedRevision: before.revision,
+          });
+          expect(saved).toEqual({
+            projectId,
+            instructions: rule,
+            revision: before.revision + 1,
+            customized: true,
+          });
+          const after = yield* crew.projectManagerSettings(projectId);
+          expect(after).toMatchObject({
+            icon,
+            enabled: true,
+            modelSelection: before.modelSelection,
+            runtimeMode: before.runtimeMode,
+            allowedTools: before.allowedTools,
+            longConversation: before.longConversation,
+          });
+
+          const stale = yield* Effect.flip(
+            crew.updateProjectManagerInstructions({
+              callerThreadId: captainHq,
+              projectId,
+              instructions: "Overwrite",
+              expectedRevision: before.revision,
+            }),
+          );
+          expect(stale.message).toContain("Read them again");
+          expect((yield* crew.projectManagerSettings(projectId)).instructions).toBe(rule);
+          const fromHq = yield* crew.updateProjectManagerInstructions({
+            callerThreadId: captainHq,
+            projectId,
+            instructions: `${rule}\nShip on Fridays.`,
+            expectedRevision: saved.revision,
+          });
+          expect(fromHq.revision).toBe(saved.revision + 1);
+
+          const reset = yield* crew.resetProjectManager({
+            projectId,
+            expectedRevision: fromHq.revision,
+          });
+          expect(reset).toMatchObject({ customized: false, instructions: read.instructions, icon });
         }),
       ),
   );
