@@ -140,6 +140,24 @@ describe("ProjectManagerSection", () => {
       .not.toBeInTheDocument();
   });
 
+  it("drops unsaved edits on reset, even when the server's settings come back unchanged", async () => {
+    // Customized, yet saved with what the defaults hold, so a reset changes no saved field.
+    await serverHolds(settings({ customized: true, revision: 4 }));
+    state.reset = vi.fn(async () => {
+      await serverHolds(settings({ customized: true, revision: 5 }));
+      return AsyncResult.success(settings({ customized: true, revision: 5 }));
+    });
+    await using _screen = await render(section());
+    const instructions = page.getByRole("textbox", { name: "Instructions" });
+    await userEvent.fill(instructions, "Not saved.");
+
+    await userEvent.click(page.getByRole("button", { name: "Reset to defaults" }));
+
+    expect(state.reset).toHaveBeenCalledOnce();
+    await expect.element(instructions).toHaveTextContent("Manage the web app.");
+    await expect.element(page.getByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
   it("saves a new look on its own, keeping what's being typed for the next save", async () => {
     await serverHolds(settings());
     const chosen = { avatar: expect.any(Object), color: "teal" };

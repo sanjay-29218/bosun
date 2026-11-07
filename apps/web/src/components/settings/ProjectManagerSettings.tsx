@@ -68,6 +68,7 @@ function ProjectManagerMember({
   readonly member: ProjectMember;
   readonly showEnvironment: boolean;
 }) {
+  const [formGeneration, setFormGeneration] = useState(0);
   const query = useEnvironmentQuery(
     rolesEnvironment.projectManager({
       environmentId: member.environmentId,
@@ -83,8 +84,10 @@ function ProjectManagerMember({
     );
   }
   const settings = query.data;
-  // A save or a reset starts the form over; a new look or on/off keeps what's being typed.
+  // A save or a reset here, or new settings from elsewhere, start the form over; a new look or
+  // on/off keeps what's being typed.
   const formKey = JSON.stringify([
+    formGeneration,
     settings.instructions,
     settings.allowedTools,
     settings.modelSelection,
@@ -101,6 +104,7 @@ function ProjectManagerMember({
         settings={settings}
         heading={showEnvironment ? member.environmentLabel : null}
         onStale={query.refresh}
+        onSaved={() => setFormGeneration((generation) => generation + 1)}
       />
     </>
   );
@@ -216,11 +220,14 @@ function ProjectManagerForm({
   settings,
   heading,
   onStale,
+  onSaved,
 }: {
   readonly member: ProjectMember;
   readonly settings: ProjectManagerSettings;
   readonly heading: string | null;
   readonly onStale: () => void;
+  /** After a save or reset, which starts the form over from the server's settings. */
+  readonly onSaved: () => void;
 }) {
   const update = useAtomCommand(rolesEnvironment.updateProjectManager, { reportFailure: false });
   const reset = useAtomCommand(rolesEnvironment.resetProjectManager, { reportFailure: false });
@@ -247,11 +254,15 @@ function ProjectManagerForm({
   const run = async <A, E>(
     action: () => Promise<AtomCommandResult<A, E>>,
     failureTitle: string,
+    onSuccess?: () => void,
   ): Promise<void> => {
     setSaving(true);
     const result = await action();
     setSaving(false);
-    if (result._tag === "Success") return;
+    if (result._tag === "Success") {
+      onSuccess?.();
+      return;
+    }
     // When someone else saved first, the newer revision replaces this form; otherwise it stays.
     onStale();
     toastManager.add({
@@ -277,6 +288,7 @@ function ProjectManagerForm({
           },
         }),
       "Could not save the project manager",
+      onSaved,
     );
 
   const toggle = (enabled: boolean) =>
@@ -301,6 +313,7 @@ function ProjectManagerForm({
           input: { projectId: member.id, expectedRevision: settings.revision },
         }),
       "Could not reset the project manager",
+      onSaved,
     );
   };
 
