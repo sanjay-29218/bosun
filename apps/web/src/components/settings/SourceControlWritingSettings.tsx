@@ -337,9 +337,7 @@ export function SourceControlWritingSettingsSection() {
                         usesReviewGuideModel && !mixedReviewGuideModel
                           ? {
                               options: reviewGuideSelection.options,
-                              planModeEnabled:
-                                settings.planModeEnabled ||
-                                selectsPlanAgent(reviewGuideSelection.options),
+                              includePlanAgent: selectsPlanAgent(reviewGuideSelection.options),
                               onChange: (options) =>
                                 updateSettings({
                                   reviewGuideModelSelection: createModelSelection(
@@ -530,8 +528,7 @@ export function SourceControlWritingSettingsSection() {
                       !mixedWriterModel
                         ? {
                             options: activeSelection.options,
-                            planModeEnabled:
-                              settings.planModeEnabled || selectsPlanAgent(activeSelection.options),
+                            includePlanAgent: selectsPlanAgent(activeSelection.options),
                             onChange: (options) =>
                               updateSettings({
                                 sourceControlWriterModelSelection: createModelSelection(

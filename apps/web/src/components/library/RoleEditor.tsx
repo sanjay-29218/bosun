@@ -62,7 +62,7 @@ export function RoleModelPicker({
   readonly onChange: (selection: ModelSelection) => void;
   readonly onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
-  const { settings, entries, modelOptions } = useModelPickerData(environmentId, selection);
+  const { entries, modelOptions } = useModelPickerData(environmentId, selection);
   return (
     <SettingsModelPicker
       environmentId={environmentId}
@@ -82,7 +82,6 @@ export function RoleModelPicker({
       }
       traits={{
         options: selection.options,
-        planModeEnabled: settings.planModeEnabled,
         onChange: (options) =>
           onChange(createModelSelection(selection.instanceId, selection.model, options)),
       }}

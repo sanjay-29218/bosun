@@ -5,6 +5,7 @@ import {
   ProviderInstanceId,
   ScheduledTaskId,
   type ScheduledTask,
+  ThreadId,
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -16,6 +17,7 @@ import {
   keepSavedOptions,
   scheduleFromDraft,
   taskToDraft,
+  unbindDraftFromThread,
 } from "./scheduledTaskEditor.logic";
 
 describe("new scheduled task project", () => {
@@ -83,6 +85,21 @@ describe("runs as", () => {
       workspaceStrategy: { type: "root" },
     });
     expect(runTargetFromDraft({ botId: "" }, thread)).toEqual({ ...thread, botId: null });
+  });
+});
+
+describe("scheduled task destination", () => {
+  it("unbinding leaves the shared checkout for a new worktree from the remote", () => {
+    const rootBound = taskToDraft({
+      ...legacyTask,
+      threadId: ThreadId.make("thread:bound"),
+      workspaceStrategy: { type: "root" },
+    });
+    expect(unbindDraftFromThread(rootBound)).toMatchObject({
+      threadId: "",
+      workspaceMode: "worktree",
+      startFromOrigin: true,
+    });
   });
 });
 

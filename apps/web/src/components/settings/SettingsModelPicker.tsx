@@ -38,7 +38,7 @@ export function SettingsModelPicker({
   /** Null where the options can't be edited, such as when environments differ. */
   readonly traits: {
     readonly options: ProviderOptions | null | undefined;
-    readonly planModeEnabled: boolean;
+    readonly includePlanAgent?: boolean | undefined;
     readonly onChange: (options: ProviderOptions | undefined) => void;
   } | null;
   readonly access?: {
@@ -60,7 +60,7 @@ export function SettingsModelPicker({
           modelOptions: traits.options ?? [],
           // Ultrathink is a word in a prompt, not a setting a saved model can keep.
           allowPromptInjectedEffort: false,
-          planModeEnabled: traits.planModeEnabled,
+          includePlanAgent: traits.includePlanAgent,
           onModelOptionsChange: traits.onChange,
         }
       : null;

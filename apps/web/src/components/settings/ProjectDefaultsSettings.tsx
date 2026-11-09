@@ -175,7 +175,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 !mixedModel && !effortDisabledReason
                   ? {
                       options: selection.options,
-                      planModeEnabled: settings.planModeEnabled,
                       onChange: (options) =>
                         setModel(
                           createModelSelection(selection.instanceId, selection.model, options),
@@ -289,7 +288,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 settings.fallbackModelSelection !== null && !mixedFallback
                   ? {
                       options: fallbackSelection.options,
-                      planModeEnabled: settings.planModeEnabled,
                       onChange: (options) =>
                         updateSettings({
                           fallbackModelSelection: createModelSelection(
