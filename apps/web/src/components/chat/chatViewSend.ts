@@ -326,12 +326,14 @@ export function resolveMultipleModelTargets(input: {
   });
 }
 
-/** Starts (or retries) each attachment's upload and waits for all of them to settle. */
-export async function uploadComposerAttachments(input: {
+interface ComposerAttachmentUploads {
   readonly environmentId: EnvironmentId;
   readonly attachments: ReadonlyArray<ComposerImageAttachment | ComposerFileAttachment>;
   readonly draftTarget: ComposerThreadTarget;
-}): Promise<void> {
+}
+
+/** Starts (or retries) each attachment's upload. */
+export function startComposerAttachmentUploads(input: ComposerAttachmentUploads): void {
   for (const attachment of input.attachments) {
     const upload =
       readAttachmentUpload(attachment.id)?.status === "failed"
@@ -343,12 +345,17 @@ export async function uploadComposerAttachments(input: {
       draftTarget: input.draftTarget,
     });
   }
+}
+
+/** Starts each attachment's upload and waits for all of them to settle. */
+export async function uploadComposerAttachments(input: ComposerAttachmentUploads): Promise<void> {
+  startComposerAttachmentUploads(input);
   await awaitAttachmentUploads(input.attachments.map((attachment) => attachment.id));
 }
 
 /**
  * The attachments a turn sends: the server's upload records when it takes uploads, otherwise
- * images inlined as data URLs. Rejects when an attachment cannot go out.
+ * images inlined as data URLs. Waits for in-flight uploads; rejects when one cannot go out.
  */
 export function prepareTurnAttachments(input: {
   readonly environmentId: EnvironmentId;
@@ -359,9 +366,10 @@ export function prepareTurnAttachments(input: {
   return Promise.all(
     input.attachments.map(async (attachment) => {
       if (usesAttachmentUploads) {
+        await awaitAttachmentUploads([attachment.id]);
         const uploaded = getUploadedAttachments({ environmentId, images: [attachment] })?.[0];
         if (!uploaded) {
-          throw new Error(`Attachment '${attachment.name}' did not finish uploading.`);
+          throw new Error(`Attachment '${attachment.name}' failed to upload.`);
         }
         return uploaded;
       }

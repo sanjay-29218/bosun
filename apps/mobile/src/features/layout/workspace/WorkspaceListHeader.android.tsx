@@ -3,7 +3,7 @@ import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { BackHandler, Keyboard, Pressable } from "react-native";
 
 import { BotAvatar } from "../../../components/BotAvatar";
-import { AndroidAnchoredMenu } from "../../../components/ui/AndroidAnchoredMenu";
+import { AndroidAnchoredMenu } from "../../../components/ui/AndroidAnchoredMenu.android";
 import { AppBar } from "../../../components/ui/AppBar";
 import { useAndroidControlSizing } from "../../../components/ui/useAndroidControlSizing";
 import { useWorkspaceConnectionState } from "../../../state/workspace";
