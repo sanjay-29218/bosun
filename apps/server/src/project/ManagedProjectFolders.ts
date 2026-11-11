@@ -22,6 +22,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
@@ -32,10 +33,16 @@ import * as ProjectService from "./ProjectService.ts";
 
 export class ScratchUnavailableError extends Schema.TaggedError<ScratchUnavailableError>()(
   "ScratchUnavailableError",
-  {},
+  {
+    baseDir: Schema.String,
+    repositoryRoot: Schema.optional(Schema.String),
+  },
 ) {
   override get message(): string {
-    return "Threads without a project are not available on this environment.";
+    if (this.repositoryRoot === undefined) {
+      return "Threads without a project are not available on this environment.";
+    }
+    return `Threads without a project are off because the T3 home ${this.baseDir} is inside the Git repository ${this.repositoryRoot}. If that repository was created by mistake, move ${this.repositoryRoot}/.git out of the way; otherwise point T3CODE_HOME (or --base-dir) at a folder outside it. Then restart T3 Code.`;
   }
 }
 
@@ -234,6 +241,11 @@ const isGitMissing = (error: GitManagerServiceError) =>
   PlatformError.isPlatformError(error.cause.cause) &&
   error.cause.cause.reason._tag === "NotFound";
 
+interface ManagedRoots {
+  readonly scratch: string;
+  readonly bots: string;
+}
+
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -267,35 +279,42 @@ const make = Effect.gen(function* () {
   // Scratch and bot homes inside a checkout would inherit its git status and checkpoints, so a
   // data dir in one (a dev worktree's) keeps them in the system temp folder, one per data dir.
   const [probe, invalidate] = yield* Effect.cachedInvalidateWithTTL(
-    gitWorkflow.isRepository(config.baseDir).pipe(
-      Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
-      Effect.flatMap((isRepository) =>
-        isRepository
-          ? digester.digest(Digest.sha256, new TextEncoder().encode(config.baseDir)).pipe(
-              Effect.map((hash) => {
-                const id = Hex.encode(hash).slice(0, 16);
-                return Option.some({
-                  scratch: path.join(NodeOS.tmpdir(), "bosun-scratch", id),
-                  bots: path.join(NodeOS.tmpdir(), "bosun-bots", id),
-                });
-              }),
-            )
-          : Effect.succeedSome({
-              scratch: path.resolve(config.baseDir, "scratch"),
-              bots: path.resolve(config.baseDir, "bots"),
-            }),
+    gitWorkflow.repositoryRoot(config.baseDir).pipe(
+      Effect.catchIf(isGitMissing, () => Effect.succeed(null)),
+      Effect.flatMap(
+        (repositoryRoot): Effect.Effect<Result.Result<ManagedRoots, ScratchUnavailableError>> =>
+          repositoryRoot !== null
+            ? digester.digest(Digest.sha256, new TextEncoder().encode(config.baseDir)).pipe(
+                Effect.map((hash) => {
+                  const id = Hex.encode(hash).slice(0, 16);
+                  return Result.succeed({
+                    scratch: path.join(NodeOS.tmpdir(), "bosun-scratch", id),
+                    bots: path.join(NodeOS.tmpdir(), "bosun-bots", id),
+                  });
+                }),
+              )
+            : Effect.succeed(
+                Result.succeed({
+                  scratch: path.resolve(config.baseDir, "scratch"),
+                  bots: path.resolve(config.baseDir, "bots"),
+                }),
+              ),
       ),
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause)
           ? Effect.interrupt
-          : Effect.succeed(Option.none<{ readonly scratch: string; readonly bots: string }>()),
+          : Effect.succeed(Result.fail(new ScratchUnavailableError({ baseDir: config.baseDir }))),
       ),
     ),
     Duration.infinity,
   );
   const roots = probe.pipe(Effect.onInterrupt(() => invalidate));
-  const scratchRoot = roots.pipe(Effect.map(Option.map((root) => root.scratch)));
-  const botHomesRoot = roots.pipe(Effect.map(Option.map((root) => root.bots)));
+  const scratchRoot = roots.pipe(
+    Effect.map((result) => Result.getSuccess(result).pipe(Option.map((root) => root.scratch))),
+  );
+  const botHomesRoot = roots.pipe(
+    Effect.map((result) => Result.getSuccess(result).pipe(Option.map((root) => root.bots))),
+  );
 
   const makeScratchFolder = (folder: string) =>
     fileSystem
@@ -304,13 +323,9 @@ const make = Effect.gen(function* () {
 
   const ensureScratchProject: ManagedProjectFolders["Service"]["ensureScratchProject"] = Effect.gen(
     function* () {
-      const workspaceRoot = yield* scratchRoot.pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.fail(new ScratchUnavailableError()),
-            onSome: Effect.succeed,
-          }),
-        ),
+      const workspaceRoot = yield* roots.pipe(
+        Effect.flatMap(Effect.fromResult),
+        Effect.map((root) => root.scratch),
       );
       yield* makeScratchFolder(workspaceRoot);
       const id = yield* random
