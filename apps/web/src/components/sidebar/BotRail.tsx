@@ -279,7 +279,7 @@ export const BotRail = memo(function BotRail({
         <div
           className={cn(
             "flex min-h-0 w-full flex-col overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]",
-            collapsed ? "items-center gap-2" : "gap-0.5",
+            collapsed ? "items-center gap-1" : "gap-0.5",
           )}
         >
           {bots.map((bot, index) =>
@@ -933,9 +933,9 @@ const RailItem = memo(function RailItem({
             <button
               type="button"
               className={cn(
-                "relative flex size-10 cursor-pointer items-center justify-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                "relative flex cursor-pointer flex-col items-center rounded-xl outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                 variant === "bot"
-                  ? undefined
+                  ? "w-12 gap-0.5 pb-0.5"
                   : active
                     ? "bg-sidebar-row-hover text-sidebar-foreground"
                     : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -946,40 +946,55 @@ const RailItem = memo(function RailItem({
             />
           }
         >
+          <span className="relative flex size-10 items-center justify-center">
+            {variant === "bot" ? (
+              // The signal stays at full strength on a faded bot.
+              <span
+                className={cn(
+                  "flex transition-[opacity,filter] duration-150",
+                  !active &&
+                    "opacity-50 saturate-50 group-hover/bot:opacity-100 group-hover/bot:saturate-100",
+                )}
+              >
+                {children}
+              </span>
+            ) : (
+              children
+            )}
+            {signal?.kind === "needs-you" ? (
+              <span
+                aria-hidden
+                className="absolute -top-1 -right-1.5 h-4 min-w-4 rounded-full bg-warning px-1 text-center text-3xs leading-4 font-semibold text-black tabular-nums ring-2 ring-sidebar"
+              >
+                {signal.count > 99 ? "99+" : signal.count}
+              </span>
+            ) : signal?.kind === "failed" || signal?.kind === "unread" ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute -top-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-sidebar",
+                  signal.kind === "failed" ? "bg-error" : "bg-sidebar-foreground",
+                )}
+              />
+            ) : signal?.kind === "working" ? (
+              <span
+                aria-hidden
+                className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
+              />
+            ) : null}
+          </span>
           {variant === "bot" ? (
-            // The signal stays at full strength on a faded bot.
-            <span
-              className={cn(
-                "flex transition-[opacity,filter] duration-150",
-                !active &&
-                  "opacity-50 saturate-50 group-hover/bot:opacity-100 group-hover/bot:saturate-100",
-              )}
-            >
-              {children}
-            </span>
-          ) : (
-            children
-          )}
-          {signal?.kind === "needs-you" ? (
-            <span
-              aria-hidden
-              className="absolute -top-1 -right-1.5 h-4 min-w-4 rounded-full bg-warning px-1 text-center text-3xs leading-4 font-semibold text-black tabular-nums ring-2 ring-sidebar"
-            >
-              {signal.count > 99 ? "99+" : signal.count}
-            </span>
-          ) : signal?.kind === "failed" || signal?.kind === "unread" ? (
             <span
               aria-hidden
               className={cn(
-                "absolute -top-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-sidebar",
-                signal.kind === "failed" ? "bg-error" : "bg-sidebar-foreground",
+                "w-full truncate text-center text-3xs",
+                active
+                  ? "font-semibold text-sidebar-foreground"
+                  : "text-sidebar-muted-foreground group-hover/bot:text-sidebar-foreground",
               )}
-            />
-          ) : signal?.kind === "working" ? (
-            <span
-              aria-hidden
-              className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
-            />
+            >
+              {label}
+            </span>
           ) : null}
         </TooltipTrigger>
         <TooltipPopup side="right">
