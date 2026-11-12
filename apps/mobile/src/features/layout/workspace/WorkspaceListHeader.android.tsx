@@ -5,6 +5,7 @@ import { BackHandler, Keyboard, Pressable } from "react-native";
 import { BotAvatar } from "../../../components/BotAvatar";
 import { AndroidAnchoredMenu } from "../../../components/ui/AndroidAnchoredMenu.android";
 import { AppBar } from "../../../components/ui/AppBar";
+import { AppText as Text } from "../../../components/ui/AppText";
 import { useAndroidControlSizing } from "../../../components/ui/useAndroidControlSizing";
 import { useWorkspaceConnectionState } from "../../../state/workspace";
 import { threadListViewToggleButton, type BotSwitcherMenu } from "../../home/thread-list-chrome";
@@ -104,7 +105,7 @@ export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
   );
 }
 
-/** The active bot's avatar in an icon-button slot; the menu lists every bot and what waits. */
+/** The active bot's avatar and name in an icon-button slot; the menu lists every bot and what waits. */
 function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
   const { menu } = props;
   const { buttonSize, iconSize } = useAndroidControlSizing();
@@ -129,7 +130,16 @@ function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
           style={{ width: buttonSize, height: buttonSize }}
           onPress={open}
         >
-          <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 10} />
+          <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 4} />
+          <Text
+            accessible={false}
+            importantForAccessibility="no"
+            className="text-center text-3xs text-foreground-muted"
+            style={{ width: buttonSize }}
+            numberOfLines={1}
+          >
+            {menu.name}
+          </Text>
         </Pressable>
       )}
     </AndroidAnchoredMenu>
