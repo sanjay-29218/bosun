@@ -134,7 +134,7 @@ function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
           <Text
             accessible={false}
             importantForAccessibility="no"
-            className="text-center text-3xs leading-3 text-foreground-muted"
+            className="text-center text-3xs text-foreground-muted"
             style={{ width: buttonSize }}
             numberOfLines={1}
           >
