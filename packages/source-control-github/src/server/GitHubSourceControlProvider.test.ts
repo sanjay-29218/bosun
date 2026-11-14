@@ -961,7 +961,7 @@ describe("GitHubSourceControlProvider writes", () => {
     return Effect.gen(function* () {
       const gh = yield* GitHubSourceControlProvider.make;
       const issue = yield* gh.updateIssue!({ cwd: "/repo", number: 12, ...change });
-      assert.deepStrictEqual(
+      assert.deepStrictEqual<ReadonlyArray<ReadonlyArray<unknown>>>(
         requests.map((request) => [request.method ?? "GET", request.path, request.body]),
         expected,
       );
