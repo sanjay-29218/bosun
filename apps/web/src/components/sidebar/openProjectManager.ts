@@ -67,15 +67,11 @@ export const OPEN_PROJECT_MANAGER_ITEM = {
 export function useOpenProjectManager() {
   const navigate = useNavigate();
   const open = useAtomCommand(rolesEnvironment.openProjectManager, { reportFailure: false });
-  /** `leaveRail` keeps the rail's bot and scope, as the Bots list does. */
-  return (
-    project: {
-      readonly environmentId: EnvironmentId;
-      readonly projectId: ProjectId;
-      readonly title: string;
-    },
-    options?: { readonly leaveRail?: boolean },
-  ) =>
+  return (project: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+    readonly title: string;
+  }) =>
     latestStandingOpen(
       open({ environmentId: project.environmentId, input: { projectId: project.projectId } }),
     ).then((latest) => {
@@ -87,7 +83,6 @@ export function useOpenProjectManager() {
           params: buildThreadRouteParams(
             scopeThreadRef(project.environmentId, result.value.threadId),
           ),
-          ...(options?.leaveRail ? { state: { leaveRail: true } } : {}),
         });
       } else {
         toastManager.add({

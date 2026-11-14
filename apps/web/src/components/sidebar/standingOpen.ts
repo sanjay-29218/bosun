@@ -16,13 +16,3 @@ export function latestStandingOpen<A>(pending: Promise<A>): Promise<{ readonly v
   const request = latestOpen;
   return pending.then((value) => (request === latestOpen ? { value } : null));
 }
-
-declare module "@tanstack/react-router" {
-  interface HistoryState {
-    /**
-     * Set on the navigation to a standing thread the Bots list opened: the rail keeps its bot and
-     * scope. It travels with the navigation, so one that is cancelled or never made carries none.
-     */
-    leaveRail?: boolean;
-  }
-}

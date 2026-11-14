@@ -8,11 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  followStandingThread,
-  standingFollowAction,
-  standingThreadSelection,
-} from "./standingThreadSelection";
+import { followStandingThread, standingThreadSelection } from "./standingThreadSelection";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -136,25 +132,35 @@ describe("followStandingThread", () => {
   });
 });
 
-describe("standingFollowAction", () => {
-  it("leaves the rail for the Bots list's own navigation, and follows every other one", () => {
-    expect(standingFollowAction({ key: "env:a", followedKey: null, leaveRail: true })).toBe(
-      "leave",
-    );
-    // The next navigation carries no intent of its own, so the rail follows it.
-    expect(standingFollowAction({ key: "env:b", followedKey: "env:a", leaveRail: false })).toBe(
-      "follow",
-    );
-    expect(standingFollowAction({ key: "env:b", followedKey: "env:b", leaveRail: false })).toBe(
-      "none",
-    );
+describe("an unpinned bot", () => {
+  // A and B are pinned, C isn't, and B is the bot in use.
+  const idle: LogicalBot = { ...bot("name:idle", "bot-idle"), pinned: false };
+  const gamma = ProjectId.make("project-gamma");
+  const withIdle = {
+    bots: [captain, navigator, idle],
+    projects: [...projects, { environmentId: local, id: gamma, botId: "bot-idle" }],
+  };
+  const keyOf = (_environmentId: EnvironmentId, projectId: ProjectId) =>
+    projectId === gamma ? "github.com/acme/gamma" : projectKeyOf(_environmentId, projectId);
+  const open = (threadId: ThreadId) =>
+    standingThreadSelection({ environmentId: local, threadId, projectKeyOf: keyOf, ...withIdle });
+
+  it("keeps the bot in use and scopes to the project when its pinned manager opens", () => {
+    const selection = open(projectHeadquartersThreadId(gamma));
+    expect(selection).toEqual({
+      kind: "select",
+      botKey: null,
+      projectKey: "github.com/acme/gamma",
+    });
+    expect(
+      followStandingThread(
+        { activeBotKey: navigator.key, scopeKeys: [] },
+        selection as Extract<typeof selection, { kind: "select" }>,
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: ["github.com/acme/gamma"] });
   });
 
-  it("follows an open after a cancelled one, since the cancelled navigation left nothing behind", () => {
-    // An unsaved-editor guard cancels the Bots list's navigation: the route never lands on
-    // env:a with `leaveRail`. A later open of env:a from the palette is followed.
-    expect(standingFollowAction({ key: "env:a", followedKey: null, leaveRail: false })).toBe(
-      "follow",
-    );
+  it("leaves the rail where it is when its headquarters opens", () => {
+    expect(open(botHeadquartersThreadId("bot-idle"))).toEqual({ kind: "none" });
   });
 });

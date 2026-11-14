@@ -424,7 +424,7 @@ const BotsListBotRow = memo(function BotsListBotRow({
       onOpen={() => {
         if (member === undefined) return;
         onNavigate();
-        openHeadquarters(bot, { leaveRail: true });
+        openHeadquarters(bot);
       }}
       onSettings={
         editMember
@@ -478,7 +478,7 @@ const BotsListManagerRow = memo(function BotsListManagerRow({
       pinned={pinned}
       onOpen={() => {
         onNavigate();
-        void openProjectManager(manager, { leaveRail: true });
+        void openProjectManager(manager);
       }}
       onSettings={() => {
         onNavigate();

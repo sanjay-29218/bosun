@@ -33,8 +33,7 @@ export function useOpenBotHeadquarters() {
   const connected = useConnectedEnvironmentIds();
   const environmentFilter = useEnvironmentFilter();
   const open = useAtomCommand(botsEnvironment.openHeadquarters, { reportFailure: false });
-  /** `leaveRail` keeps the rail's bot and scope, as the Bots list does. */
-  return (bot: LogicalBot, options?: { readonly leaveRail?: boolean }) => {
+  return (bot: LogicalBot) => {
     const member = headquartersMember(bot, connected, environmentFilter);
     if (!member) return;
     void latestStandingOpen(
@@ -48,7 +47,6 @@ export function useOpenBotHeadquarters() {
           params: buildThreadRouteParams(
             scopeThreadRef(member.environmentId, result.value.threadId),
           ),
-          ...(options?.leaveRail ? { state: { leaveRail: true } } : {}),
         });
       } else {
         toastManager.add({

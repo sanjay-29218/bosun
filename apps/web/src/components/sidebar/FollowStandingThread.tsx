@@ -1,18 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import { selectLogicalBot } from "@t3tools/client-runtime/state/bot-rail";
 import { EnvironmentId } from "@t3tools/contracts";
-import { useLocation, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
 import { logicalBotsAtom, readActiveLogicalBotKey } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { useUiStateStore } from "../../uiStateStore";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
-import {
-  followStandingThread,
-  standingFollowAction,
-  standingThreadSelection,
-} from "./standingThreadSelection";
+import { followStandingThread, standingThreadSelection } from "./standingThreadSelection";
 
 /**
  * Keeps the rail on the open standing thread when it was opened from outside the rail (a link,
@@ -22,8 +18,6 @@ import {
 export function FollowStandingThread() {
   const environmentId = useParams({ strict: false, select: (params) => params.environmentId });
   const threadId = useParams({ strict: false, select: (params) => params.threadId });
-  // The Bots list opens a thread with this set, and the rail then stays as it is.
-  const leaveRail = useLocation({ select: (location) => location.state.leaveRail === true });
   const bots = useAtomValue(logicalBotsAtom);
   const projects = useProjects();
   const groups = useSettingsProjectGroups();
@@ -32,12 +26,7 @@ export function FollowStandingThread() {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the rail's pick follows a standing thread opened outside it, once per opened thread and only after its bot and project load, so it never fights a later pick.
   useEffect(() => {
     const key = environmentId && threadId ? `${environmentId}:${threadId}` : null;
-    const action = standingFollowAction({ key, followedKey: followedRef.current, leaveRail });
-    if (action === "none") return;
-    if (action === "leave") {
-      followedRef.current = key;
-      return;
-    }
+    if (key === followedRef.current) return;
     if (environmentId === undefined || threadId === undefined) {
       followedRef.current = null;
       return;
@@ -69,7 +58,7 @@ export function FollowStandingThread() {
     if (change.scopeKeys !== null) {
       useUiStateStore.getState().setSidebarProjectScopeKeys(change.scopeKeys);
     }
-  }, [environmentId, threadId, leaveRail, bots, projects, groups]);
+  }, [environmentId, threadId, bots, projects, groups]);
 
   return null;
 }

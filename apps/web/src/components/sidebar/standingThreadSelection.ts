@@ -15,15 +15,19 @@ export type StandingThreadSelection =
   | { readonly kind: "pending" }
   | {
       readonly kind: "select";
-      /** Null keeps the picked bot: a project with no bot shows under every bot. */
+      /**
+       * Null keeps the picked bot: the project has no bot, or its bot isn't pinned and so can't
+       * be picked; the scope still shows the project.
+       */
       readonly botKey: string | null;
       readonly projectKey: string | null;
     };
 
 /**
- * What an open standing thread implies for the rail: a bot's headquarters picks that bot; a
- * project manager picks the project's bot and scopes the thread list to the project. `pending`
- * until the bot or project it names has loaded.
+ * What an open standing thread implies for the rail: a pinned bot's headquarters picks that bot;
+ * a project manager picks the project's bot when it's pinned and scopes the thread list to the
+ * project. An unpinned bot isn't in the rail, so the rail stays where it is. `pending` until the
+ * bot or project it names has loaded.
  */
 export function standingThreadSelection(input: {
   readonly environmentId: EnvironmentId;
@@ -44,7 +48,8 @@ export function standingThreadSelection(input: {
         (member) => member.environmentId === environmentId && member.botId === botId,
       ),
     );
-    return bot ? { kind: "select", botKey: bot.key, projectKey: null } : { kind: "pending" };
+    if (!bot) return { kind: "pending" };
+    return bot.pinned ? { kind: "select", botKey: bot.key, projectKey: null } : { kind: "none" };
   }
   const projectId = headquartersProjectId(threadId);
   if (projectId === null) return { kind: "none" };
@@ -56,9 +61,9 @@ export function standingThreadSelection(input: {
   const ownerId = projectBotId(project);
   if (ownerId === null) return { kind: "select", botKey: null, projectKey };
   const ownerKey = createLogicalBotResolver(bots)(environmentId, ownerId);
-  return ownerKey !== null && bots.some((bot) => bot.key === ownerKey)
-    ? { kind: "select", botKey: ownerKey, projectKey }
-    : { kind: "pending" };
+  const owner = bots.find((bot) => bot.key === ownerKey);
+  if (!owner) return { kind: "pending" };
+  return { kind: "select", botKey: owner.pinned ? owner.key : null, projectKey };
 }
 
 /**
@@ -77,17 +82,4 @@ export function followStandingThread(
   const selectBot = target.botKey !== null && current.activeBotKey !== target.botKey;
   // Picking another bot clears the scope, so a matching one must be set again.
   return { selectBot, scopeKeys: sameScope && !selectBot ? null : scopeKeys };
-}
-
-/**
- * What the rail does when the route lands on `key`: nothing for a thread it already followed or
- * one whose navigation asked to leave the rail (`leaveRail`), else follow it.
- */
-export function standingFollowAction(input: {
-  readonly key: string | null;
-  readonly followedKey: string | null;
-  readonly leaveRail: boolean;
-}): "none" | "leave" | "follow" {
-  if (input.key === input.followedKey) return "none";
-  return input.leaveRail ? "leave" : "follow";
 }
