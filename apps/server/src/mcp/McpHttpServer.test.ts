@@ -32,6 +32,7 @@ import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
 import * as BotService from "../bots/BotService.ts";
+import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
@@ -1855,6 +1856,7 @@ it.effect(
                   return Effect.succeed(input as never);
                 },
               }),
+              Layer.mock(CrewApprovals)({}),
               Layer.mock(CrewService)({}),
               Layer.mock(CrewStore)({}),
               Layer.mock(ProjectRequests)({

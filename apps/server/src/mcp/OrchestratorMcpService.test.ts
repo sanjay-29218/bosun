@@ -1281,6 +1281,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     "child run completion",
     "child question",
     "child approval",
+    "crew member asking the person",
     "Node fetch's 300 s idle timeout",
   ] as const)("a task wait still returns on %s", (wake) =>
     Effect.gen(function* () {
@@ -1290,10 +1291,11 @@ describe("OrchestratorMcpService provider resolution", () => {
       const childRunId = RunId.make("run:mcp-wait-child");
       const childRootId = NodeId.make("node:mcp-wait-child-root");
       const eventThreadId = wake === "parent completion" ? parentThreadId : childThreadId;
+      const askedPerson = wake === "crew member asking the person";
       const eventType =
         wake === "child run completion"
           ? "run.updated"
-          : wake === "child question" || wake === "child approval"
+          : wake === "child question" || wake === "child approval" || askedPerson
             ? "runtime-request.updated"
             : "subagent.updated";
       const terminal = wake.endsWith("completion");
@@ -1319,9 +1321,11 @@ describe("OrchestratorMcpService provider resolution", () => {
               id: childRunId,
               ordinal: 1,
               status:
-                wake === "nested child completion" || (ready && terminal) ? "completed" : "running",
+                wake === "nested child completion" || (ready && (terminal || askedPerson))
+                  ? "completed"
+                  : "running",
               startedAt: DateTime.makeUnsafe(0),
-              completedAt: ready && terminal ? DateTime.makeUnsafe(1) : null,
+              completedAt: ready && (terminal || askedPerson) ? DateTime.makeUnsafe(1) : null,
             },
           ],
           subagents:
@@ -1335,9 +1339,10 @@ describe("OrchestratorMcpService provider resolution", () => {
                   {
                     id: "request:mcp-wait-answer",
                     nodeId: childRootId,
-                    kind: wake === "child question" ? "user_input" : "command",
+                    kind: wake === "child question" || askedPerson ? "user_input" : "command",
                     status: "pending",
-                    responseCapability: { type: "live" },
+                    responseCapability: askedPerson ? { type: "message" } : { type: "live" },
+                    ...(askedPerson ? { owner: "crew" } : {}),
                     createdAt: DateTime.makeUnsafe(0),
                   },
                 ]
@@ -1432,7 +1437,13 @@ describe("OrchestratorMcpService provider resolution", () => {
         } else {
           assert.equal(result.status, "running");
           if (wake === "child question") assert.isTrue(result.hasPendingQuestion);
-          else {
+          else if (askedPerson) {
+            // The lead stops waiting without being asked to answer for the person.
+            assert.isTrue(result.awaitingPerson);
+            assert.isFalse(result.hasPendingQuestion);
+            assert.equal(result.workState, "working");
+            assert.include(result.next, "Waiting on the person in Child's thread");
+          } else {
             assert.deepEqual(result.pendingApproval, {
               requestId: "request:mcp-wait-answer",
               kind: "command",

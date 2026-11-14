@@ -13,7 +13,12 @@ import * as Stream from "effect/Stream";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
-import { FeatureService, featureReportLabel } from "./FeatureService.ts";
+import {
+  FeatureService,
+  featureNeedsYouText,
+  featureReportLabel,
+  hearsNeedsYou,
+} from "./FeatureService.ts";
 import { NoticeInbox } from "./NoticeInbox.ts";
 
 /** Requests that wait on the person; auth refreshes and tool calls resolve without them. */
@@ -27,8 +32,8 @@ const ASKING_KINDS = new Set<string>([
 ]);
 
 /**
- * Tells the thread that started a feature, or a child's parent lead, when the lead waits on the
- * person. Its stage-end reports come from `FeatureService`.
+ * Tells the thread that started a feature, or a child's parent lead, when the lead or one of its
+ * crew members waits on the person. Its stage-end reports come from `FeatureService`.
  */
 export class FeatureReportReactor extends Context.Service<
   FeatureReportReactor,
@@ -54,6 +59,21 @@ const make = Effect.gen(function* () {
       return null;
     }
     return feature;
+  });
+
+  /**
+   * Who asks on `threadId`: the feature's lead, or a crew member the lead delegated to. A crew
+   * member's own questions go to the lead; only its approvals and asks of the person count.
+   */
+  const askerOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const thread = yield* projections.getThread(threadId);
+    const member = thread.feature?.member;
+    const parentThreadId = thread.lineage.parentThreadId;
+    if (member === undefined || parentThreadId === null) {
+      return { leadThreadId: threadId, asker: "its lead", crewMember: false };
+    }
+    if ((yield* featureLedBy(parentThreadId)) === null) return null;
+    return { leadThreadId: parentThreadId, asker: member, crewMember: true };
   });
 
   /** `threadId` when it is another live thread than the lead's. */
@@ -100,26 +120,38 @@ const make = Effect.gen(function* () {
 
   const reportKey = (key: string) => `feature-report:${key}`;
 
-  /** Tells the requester the lead waits on the person; `request` is pending on `threadId`. */
+  /**
+   * Tells the requester, in one line linked to the asking thread, that the person is needed:
+   * `request` is pending on the lead's thread or a crew member's. A bot's headquarters doesn't
+   * hear these.
+   */
   const reportRequest = Effect.fnUntraced(function* (
     threadId: ThreadId,
     request: OrchestrationV2RuntimeRequest,
   ) {
     if (request.status !== "pending" || !ASKING_KINDS.has(request.kind)) return;
-    if (request.owner !== undefined) return;
-    const target = yield* askedOf(threadId);
-    if (target === null) return;
-    const asks = request.kind === "user_input" ? "a question" : "an approval";
+    if (request.owner === "workflow") return;
+    const asking = yield* askerOf(threadId);
+    if (asking === null) return;
+    // The lead answers its crew member's own questions.
+    if (asking.crewMember && request.kind === "user_input" && request.owner === undefined) return;
+    if (!asking.crewMember && request.owner !== undefined) return;
+    const target = yield* askedOf(asking.leadThreadId);
+    if (target === null || !hearsNeedsYou(target.requesterId)) return;
     yield* inbox.post({
       threadId: target.requesterId,
       key: reportKey(`request:${request.id}`),
       subject: target.feature.id,
       requestId: request.id,
-      text: `${yield* featureLabel(target.feature, threadId)} is waiting on the person: ${asks} in its lead's thread.`,
+      text: featureNeedsYouText(
+        yield* featureLabel(target.feature, asking.leadThreadId),
+        asking.asker,
+        threadId,
+      ),
       notification: {
         childThreadId: threadId,
         outcome: "updated",
-        summary: `Feature "${target.feature.title}" is waiting on you`,
+        summary: `Feature "${target.feature.title}" needs you`,
       },
     });
   });
@@ -153,16 +185,23 @@ const make = Effect.gen(function* () {
         function* (leadThreadId: ThreadId) {
           const asked = yield* askedOf(leadThreadId);
           if (asked === null) return;
-          const lead = yield* projections.getThreadRecords(leadThreadId, ["runtimeRequests"], {
-            runtimeRequestStatuses: ["pending"],
-          });
-          for (const request of lead.runtimeRequests) {
-            const { messages } = yield* projections.getThreadRecords(
-              asked.requesterId,
-              ["messages"],
-              { messageIds: [MessageId.make(`message:${reportKey(`request:${request.id}`)}`)] },
-            );
-            if (messages.length === 0) yield* reportRequest(leadThreadId, request);
+          const { subagents } = yield* projections.getThreadRecords(leadThreadId, ["subagents"]);
+          const askingThreads = [
+            leadThreadId,
+            ...new Set(subagents.flatMap((task) => (task.childThreadId ? [task.childThreadId] : []))),
+          ];
+          for (const threadId of askingThreads) {
+            const asking = yield* projections.getThreadRecords(threadId, ["runtimeRequests"], {
+              runtimeRequestStatuses: ["pending"],
+            });
+            for (const request of asking.runtimeRequests) {
+              const { messages } = yield* projections.getThreadRecords(
+                asked.requesterId,
+                ["messages"],
+                { messageIds: [MessageId.make(`message:${reportKey(`request:${request.id}`)}`)] },
+              );
+              if (messages.length === 0) yield* reportRequest(threadId, request);
+            }
           }
         },
         // One lead failing to check doesn't keep the others from theirs.

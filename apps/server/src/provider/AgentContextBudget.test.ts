@@ -20,6 +20,7 @@ import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
 import { BotReach } from "../bots/BotReach.ts";
+import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -105,6 +106,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(VcsStatusBroadcaster)({}),
   // Bosun's crew tools.
   Layer.mock(BotService)({}),
+  Layer.mock(CrewApprovals)({}),
   Layer.mock(CrewService)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(ProjectRequests)({}),

@@ -248,10 +248,16 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       Effect.gen(function* () {
         const requestId = yield* required(input.requestId, "requestId");
         const answers = yield* required(input.answers, "answers");
-        const { threads, projection } = yield* readQuestion({
+        const { threads, projection, request } = yield* readQuestion({
           threadId: input.threadId,
           requestId,
         });
+        if (request.owner !== undefined)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "This question is for the person, who answers it in that thread. Don't answer it; end your turn.",
+          });
         const result = yield* threads
           .dispatch({
             type: "runtime-request.respond",

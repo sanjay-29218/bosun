@@ -1272,6 +1272,9 @@ export function latestProviderTurnForAttempt<
   return latest;
 }
 
+export const OrchestrationV2RuntimeRequestOwner = Schema.Literals(["workflow", "crew"]);
+export type OrchestrationV2RuntimeRequestOwner = typeof OrchestrationV2RuntimeRequestOwner.Type;
+
 export const OrchestrationV2RuntimeRequest = Schema.Struct({
   id: RuntimeRequestId,
   nodeId: NodeId,
@@ -1298,9 +1301,10 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   answers: Schema.optional(ProviderUserInputAnswers),
   /**
    * Server code that asked instead of a provider. Its answer resolves the request and goes to
-   * that owner; no message reaches the thread's agent.
+   * that owner; no message reaches the thread's agent. "crew" is a feature crew member asking
+   * the person for approval in its own thread; its delegated task stays open until it's answered.
    */
-  owner: Schema.optional(Schema.Literal("workflow")),
+  owner: Schema.optional(OrchestrationV2RuntimeRequestOwner),
 });
 export type OrchestrationV2RuntimeRequest = typeof OrchestrationV2RuntimeRequest.Type;
 
@@ -3814,7 +3818,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     requestId: RuntimeRequestId,
-    owner: Schema.Literal("workflow"),
+    owner: OrchestrationV2RuntimeRequestOwner,
     questions: Schema.Array(OrchestrationV2UserInputQuestion),
   }),
   /**

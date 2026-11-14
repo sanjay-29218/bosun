@@ -9,6 +9,7 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as TicketService from "../tickets/TicketService.ts";
 import { CrewChangesLive } from "../crew/CrewChanges.ts";
 import { CrewRuntimeLive } from "../crew/runtimeLayer.ts";
+import * as CrewApprovals from "../crew/CrewApprovals.ts";
 import { dismissRetiredWorkflowQuestions } from "../crew/retiredWorkflowQuestions.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import * as ProjectRequests from "../crew/ProjectRequests.ts";
@@ -92,6 +93,15 @@ const FeatureReportsLive = Layer.effectDiscard(
   Layer.provide(Layer.merge(FeatureServiceLive, ProjectionStore.layer)),
 );
 
+/** A crew member's ask of the person resumes it with their answer, after a restart too. */
+const CrewApprovalsLive = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const approvals = yield* CrewApprovals.CrewApprovals;
+    yield* approvals.start();
+    yield* forkParked(approvals.catchUp());
+  }),
+);
+
 const RetiredWorkflowQuestionsLive = Layer.effectDiscard(
   dismissRetiredWorkflowQuestions().pipe(
     Effect.catchCause((cause) =>
@@ -136,7 +146,9 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   ProjectRequestsWatchLive.pipe(Layer.provideMerge(ProjectRequestsLive)),
   MergeNoticesLive,
   NoticeInboxWatchLive,
+  CrewApprovalsLive,
 ).pipe(
+  Layer.provideMerge(CrewApprovals.layer.pipe(Layer.provide(ProjectionStore.layer))),
   Layer.provideMerge(NoticeInbox.layer),
   Layer.provideMerge(FeatureWorkspacesLive),
   Layer.provideMerge(CrewRuntimeLive),

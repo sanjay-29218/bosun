@@ -8,6 +8,7 @@ import {
   type ModelSelection,
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
+  orchestratorMcpAwaitingPersonNext,
   TurnItemId,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
@@ -93,6 +94,7 @@ import * as Stream from "effect/Stream";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
+  awaitsPerson,
   delegatedTaskProgress,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
@@ -526,6 +528,7 @@ function isTerminalTaskStatus(
 function endsTaskWait(result: OrchestratorMcpDelegateTaskResult): boolean {
   return (
     result.hasPendingQuestion ||
+    result.awaitingPerson === true ||
     result.pendingApproval !== null ||
     isTerminalTaskStatus(result.status)
   );
@@ -1736,7 +1739,9 @@ const make = Effect.gen(function* () {
           ? "working"
           : delegatedTaskAwaitsWork(followupRuns, childControls)
             ? "waiting_for_children"
-            : "result_available";
+            : awaitsPerson(childControls.runtimeRequests)
+              ? "waiting_for_person"
+              : "result_available";
     const resultRunIds = [
       ...new Set(
         [taskResultRun?.id, terminalRun?.id].filter((id): id is RunId => id !== undefined),
@@ -1761,8 +1766,14 @@ const make = Effect.gen(function* () {
       (yield* threadManagement
         .delegatedTaskResultPending(task.childThreadId, childRun?.delegatedTaskId)
         .pipe(Effect.mapError(threadManagementFailure)));
+    const awaitingPerson = task.result === null && taskWorkState === "waiting_for_person";
+    // Linked environments on older versions don't know "waiting_for_person"; `awaitingPerson` says it.
     const workState =
-      task.result !== null ? "result_available" : heldForRestart ? "working" : taskWorkState;
+      task.result !== null
+        ? "result_available"
+        : heldForRestart || taskWorkState === "waiting_for_person"
+          ? "working"
+          : taskWorkState;
     const status =
       task.result !== null
         ? taskStatusForRun(
@@ -1847,12 +1858,14 @@ const make = Effect.gen(function* () {
         latestTerminalResultContextTransferId === resultContextTransferId
           ? null
           : latestTerminalResultContextTransferId,
+      ...(awaitingPerson ? { awaitingPerson } : {}),
       hasPendingQuestion:
         !isTerminalTaskStatus(status) &&
         childControls.runtimeRequests.some(
           (request) =>
             request.kind === "user_input" &&
             request.status === "pending" &&
+            request.owner === undefined &&
             request.responseCapability.type === "live",
         ),
       pendingApproval:
@@ -1861,8 +1874,14 @@ const make = Effect.gen(function* () {
           : pendingTaskApproval(childControls, task.id, childRun),
       waitTimedOut,
     } satisfies OrchestratorMcpDelegateTaskResult;
-    const response: OrchestratorMcpDelegateTaskResult =
-      endsTaskWait(result) || task.completionDelivery?.state === "disposed"
+    const response: OrchestratorMcpDelegateTaskResult = awaitingPerson
+      ? {
+          ...result,
+          next: orchestratorMcpAwaitingPersonNext(
+            childControls.thread.feature?.member ?? childControls.thread.title,
+          ),
+        }
+      : endsTaskWait(result) || task.completionDelivery?.state === "disposed"
         ? result
         : { ...result, next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT };
     if (

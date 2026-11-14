@@ -56,9 +56,25 @@ const crewAncestor = (sql: SqlClient.SqlClient, threadId: string) =>
     Effect.orElseSucceed(() => undefined),
   );
 
+/** Held by a feature crew member's thread, which a feature lead delegated to by name. */
+export const CREW_MEMBER_GRANT = "crew.member";
+
+/** Whether `threadId` is a crew member its feature's lead (`leadThreadId`) delegated to. */
+const isFeatureCrewMember = (sql: SqlClient.SqlClient, threadId: string, leadThreadId: string) =>
+  sql<{ readonly found: number }>`
+    SELECT 1 AS found FROM orchestration_v2_projection_threads
+    WHERE thread_id = ${threadId} AND json_valid(payload_json)
+      AND json_extract(payload_json, '$.feature.member') IS NOT NULL
+      AND json_extract(payload_json, '$.lineage.parentThreadId') = ${leadThreadId}
+  `.pipe(
+    Effect.map((rows) => rows.length > 0),
+    Effect.orElseSucceed(() => false),
+  );
+
 /**
  * A crew thread's grants, or undefined for an ordinary thread. A crew thread's subagents, at any
- * depth, keep its T3 tool grants but not its crew ones, since they aren't crew members.
+ * depth, keep its T3 tool grants but not its crew ones, since they aren't crew members. A feature
+ * crew member the lead delegated to directly also holds `CREW_MEMBER_GRANT`.
  */
 export const crewThreadGrants = Effect.fn("crewThreadGrants")(function* (threadId: ThreadId) {
   const database = yield* Effect.serviceOption(SqlClient.SqlClient);
@@ -68,7 +84,12 @@ export const crewThreadGrants = Effect.fn("crewThreadGrants")(function* (threadI
   if (Option.isNone(database)) return undefined;
   const ancestor = yield* crewAncestor(database.value, threadId);
   if (ancestor === undefined) return undefined;
-  return (yield* runGrants(database.value, ancestor)).filter((grant) => !grant.startsWith("crew."));
+  const grants = (yield* runGrants(database.value, ancestor)).filter(
+    (grant) => !grant.startsWith("crew."),
+  );
+  return (yield* isFeatureCrewMember(database.value, threadId, ancestor))
+    ? [...grants, CREW_MEMBER_GRANT]
+    : grants;
 });
 
 const T3_TOOL_GRANTS = ["preview", "device", "pull-requests", "orchestration", "worktree"] as const;

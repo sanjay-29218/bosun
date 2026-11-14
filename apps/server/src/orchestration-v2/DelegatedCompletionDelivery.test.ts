@@ -34,6 +34,7 @@ import * as Tracer from "effect/Tracer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+import * as CrewApprovals from "../crew/CrewApprovals.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -48,6 +49,7 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
@@ -1406,6 +1408,7 @@ const seedRestartCancelledChild = (input: {
   readonly continuationPending: boolean;
   readonly runStatus?: "cancelled" | "completed";
   readonly lostWork?: OrchestrationV2Run["restartCancelledBackgroundWork"];
+  readonly member?: string;
   readonly now: DateTime.Utc;
 }) =>
   Effect.gen(function* () {
@@ -1440,6 +1443,9 @@ const seedRestartCancelledChild = (input: {
               rootThreadId: input.parentThreadId,
             },
             forkedFrom: { type: "node", nodeId: taskId },
+            ...(input.member === undefined
+              ? {}
+              : { feature: { id: `feature:${input.name}`, title: "Feature", member: input.member } }),
             createdAt: input.now,
             updatedAt: input.now,
             archivedAt: null,
@@ -5341,5 +5347,178 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
         assert.equal(finished?.status, "completed");
         assert.notEqual(finished?.completionDelivery?.state, "disposed");
       }),
+  );
+});
+
+// The answer's run reuses the orchestrator the tasks settle through, as in production.
+const layerCrewApprovalsTest = CrewApprovals.layer.pipe(
+  Layer.provide(ProjectionStore.layer),
+  Layer.provide(SqlitePersistence.layerMemory),
+  Layer.provideMerge(layerTest),
+);
+
+it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
+  const seedAsking = (name: string) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const parentThreadId = ThreadId.make(`thread:${name}-parent`);
+      const projectId = ProjectId.make(`project:${name}`);
+      const parentRunId = RunId.make(`run:${name}-parent`);
+      const rootNodeId = NodeId.make(`node:${name}-parent-root`);
+      yield* seedParentWithTerminalTask({
+        threadId: parentThreadId,
+        projectId,
+        runId: parentRunId,
+        rootNodeId,
+        taskId: NodeId.make(`node:${name}-settled`),
+        deliveryState: "delivered",
+        now,
+      });
+      // The member showed its work, asked, and ended its turn.
+      const child = yield* seedRestartCancelledChild({
+        parentThreadId,
+        projectId,
+        parentRunId,
+        rootNodeId,
+        name: `${name}-designer`,
+        completionWake: "always",
+        continuationPending: false,
+        runStatus: "completed",
+        member: "Designer",
+        now,
+      });
+      const approvals = yield* CrewApprovals.CrewApprovals;
+      const asked = yield* approvals.ask(child.childThreadId, { question: "Approve the design?" });
+      return { ...child, parentThreadId, requestId: asked.requestId, now };
+    });
+  const taskOf = (parentThreadId: ThreadId, taskId: NodeId) =>
+    Orchestrator.OrchestratorV2.pipe(
+      Effect.flatMap((orchestrator) => orchestrator.getThreadProjection(parentThreadId)),
+      Effect.map((parent) => parent.subagents.find((task) => task.id === taskId)),
+    );
+
+  it.effect("holds the task until the answer resumes the member, whose outcome settles it", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const approvals = yield* CrewApprovals.CrewApprovals;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const asking = yield* seedAsking("crew-ask-approve");
+      // Asking again while one is open returns the same question.
+      assert.equal(
+        (yield* approvals.ask(asking.childThreadId, { question: "Approve it?" })).requestId,
+        asking.requestId,
+      );
+
+      yield* orchestrator.recoverDelegatedTasks;
+      const held = yield* taskOf(asking.parentThreadId, asking.taskId);
+      assert.isNull(held?.result ?? null, "the task settled while the person's answer was pending");
+
+      yield* orchestrator.dispatch({
+        type: "runtime-request.respond",
+        commandId: CommandId.make("command:crew-ask-approve-answer"),
+        threadId: asking.childThreadId,
+        requestId: asking.requestId,
+        answers: { approval: "Approve" },
+      });
+      // Start-up catch-up forwards an answer no event reached, once.
+      yield* approvals.catchUp();
+      yield* approvals.catchUp();
+      const child = yield* orchestrator.getThreadProjection(asking.childThreadId);
+      const forwarded = child.messages.filter(
+        (message) => message.id === `message:crew-answer:${asking.requestId}`,
+      );
+      assert.lengthOf(forwarded, 1);
+      assert.match(forwarded[0]!.text, /^The person approved\./);
+      const answerRun = child.runs.find((run) => run.userMessageId === forwarded[0]!.id)!;
+      assert.isUndefined(answerRun.delegatedTaskId, "the answer started a follow-up task");
+
+      const outcomeId = MessageId.make("message:crew-ask-approve-outcome");
+      yield* eventSink.write({
+        commandId: reconcileCommandId("crew-ask-approve-outcome"),
+        events: [
+          {
+            id: EventId.make("event:crew-ask-approve-outcome"),
+            type: "message.updated",
+            threadId: asking.childThreadId,
+            runId: answerRun.id,
+            occurredAt: asking.now,
+            payload: {
+              id: outcomeId,
+              threadId: asking.childThreadId,
+              runId: answerRun.id,
+              nodeId: null,
+              role: "assistant",
+              text: "Design approved: design.html",
+              attachments: [],
+              streaming: false,
+              createdBy: "agent",
+              creationSource: "provider",
+              createdAt: asking.now,
+              updatedAt: asking.now,
+            },
+          },
+          {
+            ...runEvent({
+              threadId: asking.childThreadId,
+              runId: answerRun.id,
+              ordinal: answerRun.ordinal,
+              status: "completed",
+              userMessageId: answerRun.userMessageId,
+              now: asking.now,
+            }),
+            id: EventId.make("event:crew-ask-approve-answer-run-completed"),
+          },
+        ],
+      });
+      yield* orchestrator.recoverDelegatedTasks;
+      const settled = yield* taskOf(asking.parentThreadId, asking.taskId);
+      assert.equal(settled?.status, "completed");
+      assert.include(settled?.result ?? "", "Design approved: design.html");
+    }),
+  );
+
+  it.effect("settles normally once the question is dismissed, or the lead cancels the task", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const approvals = yield* CrewApprovals.CrewApprovals;
+      const dismissed = yield* seedAsking("crew-ask-dismissed");
+      yield* orchestrator.dispatch({
+        type: "thread.user-input.dismiss",
+        commandId: CommandId.make("command:crew-ask-dismissed"),
+        threadId: dismissed.childThreadId,
+        requestId: dismissed.requestId,
+      });
+      yield* approvals.catchUp();
+      // The member hears it was dismissed, and its reply settles the task as usual.
+      assert.match(
+        (yield* orchestrator.getThreadProjection(dismissed.childThreadId)).messages.find(
+          (message) => message.id === `message:crew-answer:${dismissed.requestId}`,
+        )?.text ?? "",
+        /dismissed your question/,
+      );
+
+      const cancelled = yield* seedAsking("crew-ask-cancelled");
+      yield* orchestrator.cancelDelegatedTask({
+        parentThreadId: cancelled.parentThreadId,
+        taskId: cancelled.taskId,
+        command: {
+          type: "thread.stop",
+          commandId: CommandId.make("command:crew-ask-cancelled"),
+          threadId: cancelled.childThreadId,
+          stopDelegatedTasks: false,
+        },
+        stopDescendants: () => Effect.void,
+      });
+      const task = yield* taskOf(cancelled.parentThreadId, cancelled.taskId);
+      assert.isNotNull(task?.result ?? null, "a cancel waited on the person's answer");
+      // Nothing is left to answer, so the question goes and the member isn't woken.
+      yield* approvals.catchUp();
+      const child = yield* orchestrator.getThreadProjection(cancelled.childThreadId);
+      assert.equal(
+        child.runtimeRequests.find((request) => request.id === cancelled.requestId)?.status,
+        "resolved",
+      );
+      assert.isFalse(child.messages.some((message) => message.id.startsWith("message:crew-answer:")));
+    }),
   );
 });

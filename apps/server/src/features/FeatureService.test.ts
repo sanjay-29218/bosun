@@ -857,13 +857,40 @@ describe("feature lead and crew", () => {
         const [, digest, ...rest] = yield* userTexts(hq);
         expect(rest).toEqual([]);
         expect(digest).toMatch(/^3 updates arrived while you were busy:/);
+        // Headlines only: the lead's own words never travel up.
         expect(digest).toContain(
-          `Feature "CSV export" (lead thread ${csv.leadThreadId}) [finished]:\nCSV export is merged`,
+          `Feature "CSV export" (lead thread ${csv.leadThreadId}) finished: CSV export is merged`,
         );
         expect(digest).toContain(
-          `Feature "PDF export" (lead thread ${pdf.leadThreadId}) [stopped]`,
+          `Feature "PDF export" (lead thread ${pdf.leadThreadId}) needs you: its lead is asking in thread ${pdf.leadThreadId}.`,
         );
-        expect(digest).toContain(`Feature "Charts" (lead thread ${charts.leadThreadId}) [failed]`);
+        expect(digest).toContain(
+          `Feature "Charts" (lead thread ${charts.leadThreadId}) failed: its lead's turn ended with an error.`,
+        );
+
+        // Stopping again before the person answers is the same open question: no second line.
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        yield* inbox.flush(hq);
+        expect(yield* userTexts(hq)).toHaveLength(2);
+        // Once the person writes to the lead, its next quiet stop is a new question.
+        yield* engine.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("pdf:answer"),
+          threadId: pdf.leadThreadId,
+          messageId: MessageId.make("message:pdf:answer"),
+          text: "Use A4",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        yield* inbox.flush(hq);
+        const [, , again, ...none] = yield* userTexts(hq);
+        expect(none).toEqual([]);
+        expect(again).toContain(`Feature "PDF export" (lead thread ${pdf.leadThreadId}) needs you`);
         // The board reads only the finish.
         const reports = (yield* features.board(projectId)).map((card) => [
           card.title,
@@ -1011,7 +1038,7 @@ describe("feature lead and crew", () => {
           expect(digest).toContain('Feature "PDF export"');
           expect(digest).toContain('Feature "Charts"');
           expect(digest).toContain('Feature "Dark mode" (lead thread');
-          expect(digest).toContain("is waiting on the person: a question");
+          expect(digest).toContain("needs you: its lead is asking");
           expect(digest).not.toContain("Paused export");
 
           // Catching up again reports nothing twice.

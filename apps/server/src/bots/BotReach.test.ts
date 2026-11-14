@@ -19,6 +19,7 @@ import * as Ref from "effect/Ref";
 import { McpSchema, McpServer } from "effect/ai";
 
 import type { CreateCrewRunInput } from "../crew/CrewService.ts";
+import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
@@ -124,6 +125,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
             : [],
         ),
     }),
+    Layer.mock(CrewApprovals)({}),
     Layer.mock(CrewService)({
       // Each environment's Feature delivery: the laptop's is at revision 3 with an extra role.
       getWorkflow: () =>

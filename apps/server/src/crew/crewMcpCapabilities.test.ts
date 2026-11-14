@@ -4,7 +4,11 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { McpCapability } from "../mcp/McpInvocationContext.ts";
-import { crewMcpCapabilities as capabilitiesWith } from "./crewMcpCapabilities.ts";
+import {
+  CREW_MEMBER_GRANT,
+  crewMcpCapabilities as capabilitiesWith,
+  crewThreadGrants,
+} from "./crewMcpCapabilities.ts";
 
 const DEFAULTS: ReadonlySet<McpCapability> = new Set([
   "orchestration",
@@ -75,13 +79,24 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
       `;
       yield* sql`INSERT INTO crew_runs VALUES
         ('stage', 'role', 'bot-run:stage', '["crew.workflows","orchestration","worktree"]')`;
-      const lineage = (parent: string, relationship: string) =>
-        JSON.stringify({ lineage: { parentThreadId: parent, relationshipToParent: relationship } });
+      const lineage = (parent: string, relationship: string, member?: string) =>
+        JSON.stringify({
+          lineage: { parentThreadId: parent, relationshipToParent: relationship },
+          ...(member === undefined ? {} : { feature: { id: "feature", title: "F", member } }),
+        });
       yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES
         ('helper', ${lineage("bot-run:stage", "subagent")}),
         ('helper-of-helper', ${lineage("helper", "subagent")}),
         ('fork', ${lineage("bot-run:stage", "fork")}),
-        ('plain-helper', ${lineage("ordinary", "subagent")})`;
+        ('plain-helper', ${lineage("ordinary", "subagent")}),
+        ('designer', ${lineage("bot-run:stage", "subagent", "Designer")}),
+        ('designer-helper', ${lineage("designer", "subagent", "Designer")})`;
+
+      // Only a crew member its lead delegated to asks the person, not that member's helpers.
+      assert.include(yield* crewThreadGrants(ThreadId.make("designer")), CREW_MEMBER_GRANT);
+      for (const id of ["helper", "designer-helper"]) {
+        assert.notInclude(yield* crewThreadGrants(ThreadId.make(id)), CREW_MEMBER_GRANT);
+      }
 
       for (const id of ["helper", "helper-of-helper"]) {
         assert.deepStrictEqual(

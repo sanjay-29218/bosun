@@ -194,6 +194,7 @@ import {
   endRunlessRootTurns,
   makeSubagentChildThread,
   subagentResultForRun,
+  awaitsPerson,
   delegatedTaskProgress,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
@@ -14670,8 +14671,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) {
     const childControls = yield* projectionStore.getThreadRecords(
       childThreadId,
-      ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-      { messageRoles: ["user"] },
+      [
+        "runs",
+        "messages",
+        "subagents",
+        "providerThreads",
+        "providerTurns",
+        "attempts",
+        "runtimeRequests",
+      ],
+      { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
     );
     const parentThreadId = childControls.thread.lineage.parentThreadId;
     if (
@@ -14681,6 +14690,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     )
       return;
     const progress = delegatedTaskProgress(childControls);
+    // The member asked the person in its thread; its answer starts the turn that settles the task.
+    const askedPerson = awaitsPerson(childControls.runtimeRequests);
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -14691,6 +14702,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         task.origin !== "app_owned" ||
         task.childThreadId !== childThreadId ||
+        (askedPerson && !cancelled) ||
         (task.id === childControls.thread.forkedFrom.nodeId &&
           (cancelled ? progress.state === "working" : progress.state !== "result_available")) ||
         (task.result !== null &&
@@ -16045,8 +16057,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     function* (childThreadId: ThreadId, taskId?: NodeId) {
       const child = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-        { messageRoles: ["user"] },
+        [
+          "runs",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "runtimeRequests",
+        ],
+        { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
       );
       if (taskId !== undefined) {
         const runs = delegatedTaskRuns(child, taskId);
@@ -16054,7 +16074,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (
           run === undefined ||
           delegatedTaskTerminalStatus(run.status) === null ||
-          delegatedTaskAwaitsWork(runs, child)
+          delegatedTaskAwaitsWork(runs, child) ||
+          awaitsPerson(child.runtimeRequests)
         )
           return true;
         return yield* childAwaitsRestartContinuation(runs, run);
@@ -16137,8 +16158,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const child = yield* projectionStore
           .getThreadRecords(
             command.threadId,
-            ["runs", "messages", "subagents", "providerThreads"],
-            { messageRoles: ["user"] },
+            ["runs", "messages", "subagents", "providerThreads", "runtimeRequests"],
+            { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
           )
           .pipe(mapDispatchError(command));
         const followUpRun = child.runs
@@ -16150,7 +16171,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               child.thread.forkedFrom.nodeId === input.taskId &&
               progressAfterTurn(child).state !== "result_available"
             : delegatedTaskTerminalStatus(runOutcome(followUpRun)) === null ||
-              delegatedTaskAwaitsWork(delegatedTaskRuns(child, input.taskId), child);
+              delegatedTaskAwaitsWork(delegatedTaskRuns(child, input.taskId), child) ||
+              awaitsPerson(child.runtimeRequests);
         yield* threadDispatch.withLock(
           command.threadId,
           Effect.gen(function* () {

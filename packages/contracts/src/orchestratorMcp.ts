@@ -213,6 +213,9 @@ export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTas
 // Set only on results for still-running tasks whose completion will wake the parent.
 export const ORCHESTRATOR_MCP_RUNNING_TASK_NEXT =
   "Completion wakes this thread. Do not wait on it or poll it. Continue other work, and end your turn when none is left.";
+/** The wait's `next` while a crew member waits on the person's answer in its own thread. */
+export const orchestratorMcpAwaitingPersonNext = (member: string) =>
+  `Waiting on the person in ${member}'s thread, where they answer it. Don't ask them here or relay the work; end your turn. Its outcome wakes this thread.`;
 // A string, not a literal: linked environments on other versions send their own wording.
 const OrchestratorMcpRunningTaskNext = Schema.String;
 
@@ -246,6 +249,10 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   options: Schema.optional(Schema.Array(ProviderOptionSelection)),
   summary: Schema.NullOr(Schema.String),
   resultContextTransferId: Schema.NullOr(ContextTransferId),
+  awaitingPerson: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "True while the child waits on the person's answer in its own thread. Ends a wait; don't answer it.",
+  }),
   hasPendingQuestion: Schema.Boolean.annotate({
     description:
       "A question blocks the child and ends a wait. Answer via `t3_pending_request` on `childThreadId`, or the user does.",
