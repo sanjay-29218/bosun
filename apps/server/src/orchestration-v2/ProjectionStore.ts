@@ -8363,14 +8363,26 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       SELECT thread_id, subagent_id FROM orchestration_v2_projection_subagents
       WHERE origin = 'app_owned'
         AND child_thread_id IS NULL
-        AND json_type(payload_json, '$.remoteChild') = 'object'
         AND (
-          json_type(payload_json, '$.result') = 'null'
-          OR (
-            json_extract(payload_json, '$.status') IN ('cancelled', 'interrupted')
-            AND json_type(payload_json, '$.remoteChild.stoppedThere') IS NOT 'true'
+          (
+            json_type(payload_json, '$.remoteChild') = 'object'
+            AND (
+              json_type(payload_json, '$.result') = 'null'
+              OR (
+                json_extract(payload_json, '$.status') IN ('cancelled', 'interrupted')
+                AND json_type(payload_json, '$.remoteChild.stoppedThere') IS NOT 'true'
+              )
+              OR json_type(payload_json, '$.remoteChild.stoppedThere') = 'false'
+            )
           )
-          OR json_type(payload_json, '$.remoteChild.stoppedThere') = 'false'
+          OR (
+            json_type(payload_json, '$.pendingRemote') = 'object'
+            AND json_type(payload_json, '$.remoteChild') IS NULL
+            AND (
+              json_type(payload_json, '$.result') = 'null'
+              OR json_type(payload_json, '$.pendingRemote.settled') IS NOT 'true'
+            )
+          )
         )
     `.pipe(
       Effect.map((rows) =>
@@ -8967,7 +8979,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             SELECT subagent.thread_id FROM orchestration_v2_projection_subagents subagent
             WHERE subagent.origin = 'app_owned'
               AND subagent.child_thread_id IS NULL
-              AND json_type(subagent.payload_json, '$.remoteChild') = 'object'
+              AND (
+                json_type(subagent.payload_json, '$.remoteChild') = 'object'
+                OR json_type(subagent.payload_json, '$.pendingRemote') = 'object'
+              )
           ) AS has_remote_tasks
         FROM orchestration_v2_projection_threads t
         WHERE t.deleted_at IS NULL

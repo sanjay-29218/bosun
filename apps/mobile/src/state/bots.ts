@@ -54,6 +54,11 @@ const logicalBotsAtom = Atom.make((get) =>
   ),
 ).pipe(Atom.withLabel("mobile-bots:logical"));
 
+/** Every connected environment's bots, each under its home. */
+export function useLogicalBots() {
+  return useAtomValue(logicalBotsAtom);
+}
+
 /**
  * The Bots screen's list, as a stable key: connected bot environments, then known ones that
  * aren't connected, with the bots they had when last seen. Each entry is `environmentId` and

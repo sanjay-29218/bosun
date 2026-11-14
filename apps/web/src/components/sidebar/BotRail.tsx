@@ -4,7 +4,7 @@ import {
   botRailSignal,
   createLogicalBotResolver,
   pinnedProjectManagers,
-  projectBotId,
+  projectOwner,
   type BotActivity,
   type BotRailSignal,
   type LogicalBot,
@@ -110,7 +110,8 @@ interface RailProjectManager {
   readonly title: string;
   /** The sidebar's key for the project, which scopes the thread list to it. */
   readonly projectKey: string;
-  readonly botId: string | null;
+  /** Its bot, here or on the machine it lives on. */
+  readonly owner: { readonly environmentId: EnvironmentId; readonly botId: string } | null;
 }
 
 /**
@@ -157,7 +158,7 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
           threadId,
           title: project.title,
           projectKey: group.projectKey,
-          botId: projectBotId(project),
+          owner: projectOwner(project),
         },
       ];
     },
@@ -232,7 +233,10 @@ export const BotRail = memo(function BotRail({
   // bot isn't pinned (or has no bot) still shows under the bot that stays picked.
   const selectManager = (manager: RailProjectManager) => {
     if (isMobile) setOpenMobile(false);
-    const ownerKey = createLogicalBotResolver(allBots)(manager.environmentId, manager.botId);
+    const ownerKey =
+      manager.owner === null
+        ? null
+        : createLogicalBotResolver(allBots)(manager.owner.environmentId, manager.owner.botId);
     const owner = bots.find((bot) => bot.key === ownerKey);
     if (owner && owner.key !== active?.key) {
       if (active) rememberBotHref(active.key);

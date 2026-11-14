@@ -128,7 +128,10 @@ describe("groupAutomationsByBot", () => {
         },
         {
           environmentId: remote,
-          tasks: [task("Analytics", { projectId: ProjectId.make("site") })],
+          tasks: [
+            task("Analytics", { projectId: ProjectId.make("site") }),
+            task("Docs build", { projectId: ProjectId.make("docs") }),
+          ],
         },
       ],
       projects: [
@@ -136,6 +139,18 @@ describe("groupAutomationsByBot", () => {
         { environmentId: local, id: ProjectId.make("loose"), botId: null },
         { environmentId: local, id: ProjectId.make("blog"), botId: "bot-social" },
         { environmentId: remote, id: ProjectId.make("site"), botId: "bot-social-2" },
+        // Given from remote to the local Social, which lives on another environment.
+        {
+          environmentId: remote,
+          id: ProjectId.make("docs"),
+          botId: null,
+          remoteBot: {
+            environmentId: local,
+            botId: "bot-social",
+            name: "Social",
+            homeLabel: "Laptop",
+          },
+        },
       ],
       bots,
     });
@@ -143,7 +158,7 @@ describe("groupAutomationsByBot", () => {
       groups.map((group) => [group.bot?.name, group.entries.map((entry) => entry.key)]),
     ).toEqual([
       ["Captain", ["local:Nightly build"]],
-      ["Social", ["local:Triage"]],
+      ["Social", ["remote:Docs build", "local:Triage"]],
       // The same-named bot on remote is its own bot.
       ["Social", ["remote:Analytics"]],
       // A project with no bot files its tasks under No bot, last.

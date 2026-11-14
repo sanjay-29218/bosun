@@ -1,9 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   botListSubtitle,
-  createLogicalBotResolver,
+  createProjectOwnerResolver,
   isManagerPinned,
-  projectBotId,
   writePins,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
@@ -57,7 +56,7 @@ export function SettingsBotsRouteScreen() {
   const [botsError, setBotsError] = useState<string | null>(null);
   const [managersError, setManagersError] = useState<string | null>(null);
 
-  const ownerOf = createLogicalBotResolver(activeBot.bots);
+  const ownerOf = createProjectOwnerResolver(activeBot.bots);
   const botNames = new Map(activeBot.bots.map((bot) => [bot.key, bot.name]));
   const managers = projects
     .filter(
@@ -133,9 +132,7 @@ export function SettingsBotsRouteScreen() {
               const online = botList.online.has(home);
               const count = projects.filter(
                 (project) =>
-                  !project.isScratch &&
-                  !project.isBotHome &&
-                  ownerOf(project.environmentId, projectBotId(project)) === bot.key,
+                  !project.isScratch && !project.isBotHome && ownerOf(project) === bot.key,
               ).length;
               return (
                 <BotsRow
@@ -175,7 +172,7 @@ export function SettingsBotsRouteScreen() {
             {managers.map((project) => {
               const key = `${project.environmentId}:${project.id}`;
               const pinned = pending.get(key) ?? isManagerPinned(project);
-              const owner = ownerOf(project.environmentId, projectBotId(project));
+              const owner = ownerOf(project);
               const look = projectManagerLook(project.id, null);
               return (
                 <BotsRow

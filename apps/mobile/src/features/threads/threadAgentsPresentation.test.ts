@@ -4,8 +4,11 @@ import {
   projectedSubagentsToRuntime,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
+  EnvironmentId,
   NodeId,
+  ProjectId,
   ProviderDriverKind,
+  ProviderInstanceId,
   RunId,
   ThreadId,
   type OrchestrationV2SubagentWorkflow,
@@ -262,6 +265,18 @@ describe("workflow member rows", () => {
   });
 });
 
+const box = EnvironmentId.make("box");
+const waitingOnBox = {
+  environmentId: box,
+  label: "Box",
+  projectId: ProjectId.make("project:box"),
+  botId: "bot-ops",
+  title: "Fix the pricing page typo",
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+  runtimeMode: "full-access" as const,
+  clientRequestId: "delegate:typo",
+};
+
 const stopAgent = {
   id: NodeId.make("agent"),
   threadId: ThreadId.make("parent"),
@@ -282,6 +297,18 @@ describe("resolveSubagentStopTarget", () => {
         input: { threadId: stopAgent.threadId, subagentId: stopAgent.id },
       });
       expect(resolveSubagentStopTarget({ ...stopAgent, status, childThreadId: null })).toBeNull();
+      // One running in a linked environment, or waiting to start there, is cancelled here too.
+      for (const remote of [
+        { remoteChild: { environmentId: box, threadId: ThreadId.make("there"), label: "Box" } },
+        { pendingRemote: waitingOnBox },
+      ]) {
+        expect(
+          resolveSubagentStopTarget({ ...stopAgent, status, childThreadId: null, ...remote }),
+        ).toEqual({
+          kind: "subagent",
+          input: { threadId: stopAgent.threadId, subagentId: stopAgent.id },
+        });
+      }
     },
   );
 

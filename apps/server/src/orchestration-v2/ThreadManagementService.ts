@@ -122,6 +122,8 @@ function existingThreadIdsForCommand(
     case "delegated_task.completion-delivery.acknowledge":
     case "delegated_task.completion-delivery.dispose":
     case "delegated_task.remote.request":
+    case "delegated_task.remote.launched":
+    case "delegated_task.remote.wait":
     case "delegated_task.remote.complete":
     case "delegated_task.remote.stop":
       return [command.parentThreadId];
@@ -1597,7 +1599,12 @@ const make = Effect.gen(function* () {
       if (task.childThreadId === null) {
         // A task in a linked environment ends here; its follower then stops it there.
         // One with its result keeps it, but its thread there may run follow-up work.
-        if (task.remoteChild === undefined) continue;
+        // One still waiting to start there just ends.
+        if (
+          task.remoteChild === undefined &&
+          (task.pendingRemote === undefined || task.result !== null)
+        )
+          continue;
         const commandId = CommandId.make(`${input.commandId}:stop:${task.id}`);
         yield* (input.remoteDispatch ?? dispatch)(
           task.result === null

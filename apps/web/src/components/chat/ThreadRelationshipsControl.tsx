@@ -17,7 +17,10 @@ import {
   type EnvironmentThreadShell,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
+import {
+  formatSubagentDisplayTitle,
+  subagentRunsOn,
+} from "@t3tools/client-runtime/state/subagent-display";
 import { workThreadLabel } from "@t3tools/client-runtime/state/work-groups";
 import { deriveProviderSubagentStatus } from "@t3tools/client-runtime/state/thread-execution";
 import {
@@ -41,7 +44,6 @@ import {
   NodeId,
   type EnvironmentId,
   type OrchestrationV2DelegatedFrom,
-  type OrchestrationV2RemoteTaskChild,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadShell,
   type ServerProvider,
@@ -150,9 +152,11 @@ function ThreadLineageRowList(props: {
   );
 }
 
-type RemoteSubagent = OrchestrationV2Subagent & {
-  readonly remoteChild: OrchestrationV2RemoteTaskChild;
-};
+/** A task in a linked environment, or a bot's request waiting to start there. */
+type RemoteSubagent = OrchestrationV2Subagent;
+
+const remoteEnvironmentId = (agent: RemoteSubagent) =>
+  (agent.remoteChild ?? agent.pendingRemote)!.environmentId;
 
 /** A task delegated to a linked environment has no thread here, so it gets its own row kind. */
 type LineageRow = ThreadRelationshipWalkRow | { readonly remote: RemoteSubagent };
@@ -292,22 +296,29 @@ function currentSubagent<Agent extends RuntimeSubagent>(
 
 /**
  * A task delegated to a linked environment. It has no thread here, so it opens
- * the thread there, when this client is connected to that environment.
+ * the thread there, when this client is connected to that environment. One still
+ * waiting to start there opens nothing.
  */
 function RemoteSubagentRow(props: {
   readonly agent: RemoteSubagent;
   readonly provider: ServerProvider | undefined;
+  readonly stopping: boolean;
+  readonly onStop: (() => void) | null;
 }) {
   const navigate = useNavigate();
-  const environment = useEnvironment(props.agent.remoteChild.environmentId);
   const { remoteChild } = props.agent;
+  const environment = useEnvironment(remoteChild?.environmentId ?? null);
+  const label = subagentRunsOn(props.agent) ?? "";
   const status = props.agent.status;
   const failed = status === "failed";
   const finished = FINISHED_STATUSES.includes(status);
+  const waiting = remoteChild === undefined;
+  const opens = remoteChild !== undefined && environment !== null;
   const title = relationshipThreadTitle({
     title: props.agent.title ?? "Subagent",
     isSubagent: true,
   });
+  const stopLabel = waiting ? "Cancel request" : "Stop subagent";
   return (
     <li className={cn("group relative flex h-8 items-center rounded-lg", FINISHED_ROW_GROUP_CLASS)}>
       <Tooltip>
@@ -318,9 +329,9 @@ function RemoteSubagentRow(props: {
               size="sm"
               variant="ghost"
               part="row"
-              aria-disabled={environment === null || undefined}
+              aria-disabled={!opens || undefined}
               onClick={() => {
-                if (environment === null) return;
+                if (!opens) return;
                 void navigate({
                   to: "/$environmentId/$threadId",
                   params: buildThreadRouteParams(
@@ -358,7 +369,7 @@ function RemoteSubagentRow(props: {
           <span
             className={`flex max-w-1/2 shrink-0 gap-1 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"}`}
           >
-            <span className="truncate">on {remoteChild.label}</span>
+            <span className="truncate">on {label}</span>
             <span className="shrink-0">· {threadRelationshipStatusLabel(status)}</span>
           </span>
         </TooltipTrigger>
@@ -366,13 +377,41 @@ function RemoteSubagentRow(props: {
           <LineageTooltipContent
             title={title}
             hint={
-              environment === null
-                ? `Runs on ${remoteChild.label}. Connect to it to open the thread there.`
-                : `Open on ${remoteChild.label}`
+              waiting
+                ? `Runs on ${label}. It starts when ${label} is back.`
+                : environment === null
+                  ? `Runs on ${label}. Connect to it to open the thread there.`
+                  : `Open on ${label}`
             }
           />
         </TooltipPopup>
       </Tooltip>
+      {props.onStop !== null ? (
+        <div className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ThreadDetailsControl
+                  size="icon-xs"
+                  variant="ghost"
+                  part="icon"
+                  tone="destructive"
+                  aria-label={`${stopLabel} ${title}`}
+                  disabled={props.stopping}
+                  onClick={props.onStop}
+                />
+              }
+            >
+              {props.stopping ? (
+                <Spinner aria-hidden size="xs" />
+              ) : (
+                <SquareIcon aria-hidden className="size-3 fill-current" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup side="left">{stopLabel}</TooltipPopup>
+          </Tooltip>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -655,7 +694,7 @@ export function ThreadRelationshipsPanel(props: {
   );
   const { remoteActive = [], remotePrevious = [] } = groupBy(
     (projection?.subagents ?? [])
-      .filter((agent): agent is RemoteSubagent => agent.remoteChild !== undefined)
+      .filter((agent) => agent.remoteChild !== undefined || agent.pendingRemote !== undefined)
       .map((remote) => ({ remote })),
     ({ remote }) => (isFinishedAgentStatus(remote.status) ? "remotePrevious" : "remoteActive"),
   );
@@ -764,11 +803,11 @@ export function ThreadRelationshipsPanel(props: {
   };
 
   const stopSubagent = async (
-    childThreadId: ThreadId,
+    stopKey: string,
     agent: Pick<OrchestrationV2Subagent, "id" | "threadId">,
   ) => {
     if (stoppingId !== null) return;
-    setStoppingId(childThreadId);
+    setStoppingId(stopKey);
     const result = await interruptTurn({
       environmentId: props.environmentId,
       input: { threadId: agent.threadId, subagentId: agent.id },
@@ -1137,8 +1176,14 @@ export function ThreadRelationshipsPanel(props: {
                       agent={row.remote}
                       // Its provider instance belongs to the environment it runs in.
                       provider={providersByEnvironment
-                        .get(row.remote.remoteChild.environmentId)
+                        .get(remoteEnvironmentId(row.remote))
                         ?.find((entry) => entry.instanceId === row.remote.providerInstanceId)}
+                      stopping={stoppingId === row.remote.id}
+                      onStop={
+                        isOrchestrationV2WorkActive(row.remote.status) && row.remote.runId !== null
+                          ? () => void stopSubagent(row.remote.id, row.remote)
+                          : null
+                      }
                     />
                   ) : (
                     renderRelationshipRow(row)

@@ -357,10 +357,13 @@ export interface CrewStoreShape {
   readonly getThreadWorkflow: (
     threadId: ThreadId,
   ) => Effect.Effect<LinkedWorkflow | null, PersistenceSqlError>;
+  /** Deletes run `id`, and the workflow kept for it, if it is still queued. */
+  readonly deleteQueuedRun: (id: string) => Effect.Effect<void, PersistenceSqlError>;
+  /** Marks run `id` started; false when its record is gone, as a cancelled queued run's is. */
   readonly markStarted: (
     id: string,
     dispatchedAt: string,
-  ) => Effect.Effect<void, PersistenceSqlError>;
+  ) => Effect.Effect<boolean, PersistenceSqlError>;
   /** Moves a long-lived run to another project, for a headquarters whose project was deleted. */
   readonly moveRun: (id: string, projectId: ProjectId) => Effect.Effect<void, PersistenceSqlError>;
   /** Points a standing run's briefing at its owner's current instructions. */
@@ -777,12 +780,30 @@ export const CrewStoreLive = Layer.effect(
           Effect.asVoid,
           Effect.mapError(queryError),
         ),
+      deleteQueuedRun: (id) =>
+        sql<{ readonly id: string }>`
+          DELETE FROM crew_runs
+          WHERE id = ${id} AND dispatch_state = ${CREW_DISPATCH_STATE.QUEUED}
+          RETURNING id
+        `.pipe(
+          Effect.flatMap((rows) =>
+            rows.length === 0
+              ? Effect.void
+              : sql`DELETE FROM crew_run_workflows WHERE run_id = ${id}`.pipe(Effect.asVoid),
+          ),
+          sql.withTransaction,
+          Effect.mapError(queryError),
+        ),
       markStarted: (id, dispatchedAt) =>
-        sql`
+        sql<{ readonly id: string }>`
           UPDATE crew_runs SET dispatch_state = ${CREW_DISPATCH_STATE.STARTED},
             last_error = NULL, dispatched_at = ${dispatchedAt}
           WHERE id = ${id}
-        `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+          RETURNING id
+        `.pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
       nextRecoveryAttempt: (id) =>
         sql<{ readonly recoveryAttempt: number }>`
           UPDATE crew_runs SET recovery_attempt = recovery_attempt + 1

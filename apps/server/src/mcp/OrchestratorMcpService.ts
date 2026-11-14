@@ -1699,7 +1699,12 @@ const make = Effect.gen(function* () {
         candidate.origin === "app_owned" &&
         candidate.threadId === scope.thread.threadId,
     );
-    if (task === undefined || (task.childThreadId === null && task.remoteChild === undefined)) {
+    if (
+      task === undefined ||
+      (task.childThreadId === null &&
+        task.remoteChild === undefined &&
+        task.pendingRemote === undefined)
+    ) {
       return yield* failure(
         "task_not_found",
         `Delegated task ${taskId} does not belong to thread ${scope.thread.threadId}.`,
@@ -1980,9 +1985,13 @@ const make = Effect.gen(function* () {
     waitTimedOut: boolean,
     acknowledgeTerminal: boolean,
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
+    // A bot's request waiting for its environment says so, as its progress.
+    const waiting = task.result === null && task.remoteChild === undefined;
     const status: OrchestratorMcpDelegateTaskResult["status"] =
       task.result === null
-        ? "running"
+        ? waiting
+          ? "waiting"
+          : "running"
         : task.status === "completed" ||
             task.status === "failed" ||
             task.status === "cancelled" ||
@@ -2040,7 +2049,7 @@ const make = Effect.gen(function* () {
       providerInstanceId: task.providerInstanceId,
       model: task.model,
       executedModel: null,
-      summary: task.result,
+      summary: task.result ?? (waiting ? (task.progress ?? null) : null),
       resultContextTransferId: null,
       latestTerminalRunId: null,
       latestTerminalStatus: terminal
@@ -3009,7 +3018,7 @@ const make = Effect.gen(function* () {
           (task) =>
             task.id === input.taskId &&
             task.origin === "app_owned" &&
-            task.remoteChild !== undefined,
+            (task.remoteChild !== undefined || task.pendingRemote !== undefined),
         );
         if (remoteTask === undefined) {
           return yield* failure(

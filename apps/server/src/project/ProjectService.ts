@@ -5,6 +5,7 @@ import {
   ProjectId,
   type Project,
   type ProjectCreatePayload,
+  type ProjectRemoteBot,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
   type ThreadId,
@@ -162,11 +163,15 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
-    /** Gives the project to another bot, or to none when `botId` is null. */
+    /**
+     * Gives the project to another bot, or to none when `botId` is null. With `remoteBot`, its
+     * owner is that bot on another environment instead, and `botId` is ignored.
+     */
     readonly assignBot: (input: {
       readonly commandId: CommandId;
       readonly projectId: ProjectId;
       readonly botId: string | null;
+      readonly remoteBot?: ProjectRemoteBot | undefined;
     }) => Effect.Effect<Project, ProjectServiceError>;
     /** Shows the project's manager in the main rail, or hides it there. */
     readonly setManagerPinned: (input: {
@@ -243,6 +248,7 @@ export const make = Effect.gen(function* () {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    remoteBot: row.remoteBot,
     managerPinned: row.managerPinned,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
@@ -527,17 +533,25 @@ export const make = Effect.gen(function* () {
       if (Option.isNone(yield* readRow(input.projectId))) {
         return yield* new ProjectNotFoundError({ projectId: input.projectId });
       }
+      const { remoteBot } = input;
       yield* bots.withOwnership(
-        requireBot(input.projectId, input.botId).pipe(
-          Effect.andThen(
-            commit({
+        remoteBot === undefined
+          ? requireBot(input.projectId, input.botId).pipe(
+              Effect.andThen(
+                commit({
+                  type: "project.meta.update",
+                  commandId: input.commandId,
+                  projectId: input.projectId,
+                  botId: input.botId,
+                }),
+              ),
+            )
+          : commit({
               type: "project.meta.update",
               commandId: input.commandId,
               projectId: input.projectId,
-              botId: input.botId,
+              remoteBot,
             }),
-          ),
-        ),
       );
       return yield* readCommitted(input.projectId);
     },

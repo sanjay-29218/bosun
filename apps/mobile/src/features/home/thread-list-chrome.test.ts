@@ -11,6 +11,7 @@ const bot = (key: string, name: string, eyes: BotAvatar["eyes"], pinned = true):
   avatar: { head: "round", eyes, face: "visor", top: "ball", cheeks: false, smile: false },
   color: "blue",
   members: [{ environmentId, botId: key }],
+  permittedEnvironmentIds: [],
   pinned,
 });
 const places = {

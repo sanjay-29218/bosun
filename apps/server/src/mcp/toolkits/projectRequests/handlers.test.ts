@@ -13,6 +13,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
+import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -48,6 +49,7 @@ const sendAs = (threadId: ThreadId, runtimeMode: RuntimeMode = "approval-require
           Layer.mock(FeatureService)({
             projectBot: (project) => Effect.succeed(project === projectId ? "bot-social" : null),
           }),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
           Layer.mock(ProjectRequests)({
             send: (input) =>
               Ref.update(senders, (all) => [...all, input.requesterThreadId]).pipe(

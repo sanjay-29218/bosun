@@ -24,7 +24,6 @@ import {
   countNeedsYouByLogicalBot,
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
-  logicalBotMemberOn,
   logicalBotProjectKeys,
   logicalBotProjectLists,
   projectBotId,
@@ -399,18 +398,37 @@ describe("logicalBotProjectKeys", () => {
     expect([...logicalBotProjectKeys(bots[0]!, bots, projects)]).toEqual(["remote:c", "local:d"]);
   });
 
-  it("splits an entry's projects into owned, takeable, and on environments without bots", () => {
+  it("splits an entry's projects into owned, takeable, not allowed, and without bots", () => {
     const vps = EnvironmentId.make("vps");
     const withVps = [...projects, { environmentId: vps, id: "omni" }];
     const social = bots[1]!;
     const lists = logicalBotProjectLists(social, bots, withVps, new Set([local, remote]));
     expect(lists.owned.map((project) => project.id)).toEqual(["a"]);
-    expect(lists.available.map((project) => project.id)).toEqual(["b", "c", "d"]);
+    expect(lists.available.map((project) => project.id)).toEqual(["d"]);
+    // Social may not work on the remote environment until it is ticked there.
+    expect(lists.notAllowed.map((project) => project.id)).toEqual(["b", "c"]);
     expect(lists.withoutBots.map((project) => project.id)).toEqual(["omni"]);
-    // Finance has no bot here, so a move here creates it first.
-    const finance = bots.find((entry) => entry.name === "Finance")!;
-    expect(logicalBotMemberOn(finance, remote)).toBe("bot-finance");
-    expect(logicalBotMemberOn(finance, local)).toBeNull();
+
+    const permitted = { ...social, permittedEnvironmentIds: [remote] };
+    const given = [
+      ...withVps,
+      // Given to Social from its home: owned without a copy of Social there.
+      {
+        environmentId: remote,
+        id: "e",
+        botId: null,
+        remoteBot: {
+          environmentId: local,
+          botId: "bot-social",
+          name: "Social",
+          homeLabel: "Laptop",
+        },
+      },
+    ];
+    const reach = logicalBotProjectLists(permitted, bots, given, new Set([local, remote]));
+    expect(reach.owned.map((project) => project.id)).toEqual(["a", "e"]);
+    expect(reach.available.map((project) => project.id)).toEqual(["b", "c", "d"]);
+    expect(reach.notAllowed).toEqual([]);
   });
 });
 

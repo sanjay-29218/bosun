@@ -3,6 +3,7 @@ import {
   headquartersBotId,
   type EnvironmentId,
   type ProjectId,
+  type ProjectRemoteBot,
   type FeatureBoardCard,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -280,6 +281,8 @@ export interface BotOwnedProject {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
   readonly botId?: string | null | undefined;
+  /** An owner on another environment; its threads count for that bot. */
+  readonly remoteBot?: ProjectRemoteBot | null | undefined;
 }
 
 /**
@@ -289,7 +292,21 @@ export interface BotOwnedProject {
 export function createThreadBotKeyResolver(projects: ReadonlyArray<BotOwnedProject>) {
   const owners = new Map(
     projects.flatMap((project) =>
-      project.botId == null ? [] : [[`${project.environmentId}:${project.id}`, project.botId]],
+      project.remoteBot != null
+        ? [
+            [
+              `${project.environmentId}:${project.id}`,
+              botNeedsYouKey(project.remoteBot.environmentId, project.remoteBot.botId),
+            ],
+          ]
+        : project.botId == null
+          ? []
+          : [
+              [
+                `${project.environmentId}:${project.id}`,
+                botNeedsYouKey(project.environmentId, project.botId),
+              ],
+            ],
     ),
   );
   return (shell: {
@@ -297,9 +314,10 @@ export function createThreadBotKeyResolver(projects: ReadonlyArray<BotOwnedProje
     readonly id: string;
     readonly projectId: ProjectId;
   }): string | undefined => {
-    const botId =
-      headquartersBotId(shell.id) ?? owners.get(`${shell.environmentId}:${shell.projectId}`);
-    return botId === undefined ? undefined : botNeedsYouKey(shell.environmentId, botId);
+    const headquarters = headquartersBotId(shell.id);
+    return headquarters !== null
+      ? botNeedsYouKey(shell.environmentId, headquarters)
+      : owners.get(`${shell.environmentId}:${shell.projectId}`);
   };
 }
 

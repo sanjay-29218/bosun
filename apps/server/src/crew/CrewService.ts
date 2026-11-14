@@ -362,6 +362,16 @@ export interface CrewServiceShape {
   readonly getRun: (
     id: string,
   ) => Effect.Effect<CrewRunView | null, PersistenceSqlError | ProjectionRepositoryError>;
+  /**
+   * Cancels run `id` if it hasn't started: it is deleted, so neither `reconcileRuns` nor anything
+   * else starts it. Null when there is no such run; `started` says whether its thread exists.
+   */
+  readonly cancelQueuedRun: (
+    id: string,
+  ) => Effect.Effect<
+    { readonly run: CrewRun; readonly started: boolean } | null,
+    PersistenceSqlError
+  >;
   readonly reconcileRuns: () => Effect.Effect<void, PersistenceSqlError>;
   /**
    * For bots set to start a new session, starts a headquarters over once its conversation grows
@@ -449,9 +459,16 @@ export const CrewServiceLive = Layer.effect(
       effect: Effect.Effect<void, OrchestrationDispatchError | PersistenceSqlError>,
     ) =>
       effect.pipe(
-        Effect.flatMap(() =>
-          DateTime.now.pipe(
-            Effect.flatMap((now) => store.markStarted(run.id, DateTime.formatIso(now))),
+        Effect.flatMap(() => DateTime.now),
+        Effect.flatMap((now) =>
+          store.markStarted(run.id, DateTime.formatIso(now)).pipe(
+            // Its record was deleted meanwhile, as a cancelled queued run's is: the thread this
+            // dispatch just made must not keep running.
+            Effect.flatMap((marked) =>
+              marked
+                ? Effect.void
+                : runtime.interrupt(run.threadId, `cancelled:${run.id}`, DateTime.formatIso(now)),
+            ),
           ),
         ),
         Effect.tapError(() =>
@@ -459,7 +476,17 @@ export const CrewServiceLive = Layer.effect(
         ),
       );
 
-    const dispatch = (run: CrewRun) => markDispatched(run, runtime.start(threadInput(run)));
+    // Read again just before it starts, so a run cancelled meanwhile stays unstarted.
+    const dispatch = (run: CrewRun) =>
+      store
+        .getRun(run.id)
+        .pipe(
+          Effect.flatMap((current) =>
+            current?.dispatchState === CREW_DISPATCH_STATE.QUEUED
+              ? markDispatched(run, runtime.start(threadInput(run)))
+              : Effect.void,
+          ),
+        );
     const replayPending = (run: CrewRun) =>
       store
         .nextRecoveryAttempt(run.id)
@@ -1096,6 +1123,15 @@ export const CrewServiceLive = Layer.effect(
         : Effect.fail(new CrewValidationError(`Choose a default model for ${actor.name}`));
     };
 
+    /** Run `id` as stored now; a run cancelled before it started fails instead. */
+    const currentRun = (id: string) =>
+      store.getRun(id).pipe(
+        Effect.filterOrFail(
+          (run): run is CrewRun => run !== null,
+          () => new CrewValidationError("Run was cancelled before it started"),
+        ),
+      );
+
     const createRun: CrewServiceShape["createRun"] = Effect.fn("CrewService.createRun")(
       function* (input) {
         const id = yield* Effect.try({
@@ -1113,7 +1149,7 @@ export const CrewServiceLive = Layer.effect(
             return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
           }
           if (existing.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(existing);
-          return (yield* store.getRun(id))!;
+          return yield* currentRun(id);
         }
         if (!(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
@@ -1150,7 +1186,7 @@ export const CrewServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
         }
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
-        return (yield* store.getRun(id))!;
+        return yield* currentRun(id);
       },
     );
 
@@ -1684,6 +1720,14 @@ export const CrewServiceLive = Layer.effect(
                 ),
           ),
         ),
+      cancelQueuedRun: Effect.fn("CrewService.cancelQueuedRun")(function* (id) {
+        const run = yield* store.getRun(id);
+        if (run === null) return null;
+        yield* store.deleteQueuedRun(id);
+        // A dispatch that got past its last check may have made the thread anyway.
+        const turnState = yield* runtime.getTurnState(run.threadId);
+        return { run, started: turnState !== CREW_TURN_STATE.MISSING };
+      }),
       reconcileRuns: Effect.fn("CrewService.reconcileRuns")(function* () {
         // Recover accepted turns from a prior process before dispatching new queued runs.
         // Otherwise a newly dispatched turn could look stale before its reactor worker starts.

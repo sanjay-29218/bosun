@@ -5,7 +5,10 @@ import {
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
-import { summarizeSubagentStatuses } from "@t3tools/client-runtime/state/subagent-display";
+import {
+  subagentRunsOn,
+  summarizeSubagentStatuses,
+} from "@t3tools/client-runtime/state/subagent-display";
 import { isActiveSubagentStatus } from "@t3tools/client-runtime/state/subagentRuntime";
 import type {
   EnvironmentId,
@@ -127,6 +130,8 @@ export function ThreadSubagentGroup(props: {
       completedAt: live?.completedAt ?? item.completedAt,
       result: live?.result ?? item.result,
       progress: live?.progress ?? item.progress,
+      // A waiting request's turn item keeps its pending launch until it starts there.
+      runsOn: subagentRunsOn(live ?? item),
       model: live?.model ?? null,
       modelSelection: live?.modelSelection,
     };
@@ -201,8 +206,8 @@ export function ThreadSubagentGroup(props: {
                 accessibilityHint={
                   target !== null
                     ? "Opens this agent's thread"
-                    : agent.remoteChild !== undefined
-                      ? `Runs on ${agent.remoteChild.label}`
+                    : agent.runsOn !== null
+                      ? `Runs on ${agent.runsOn}`
                       : "Provider-managed agent"
                 }
                 disabled={target === null}

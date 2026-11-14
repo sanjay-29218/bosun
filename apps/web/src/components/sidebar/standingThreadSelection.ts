@@ -1,6 +1,6 @@
 import {
-  createLogicalBotResolver,
-  projectBotId,
+  createProjectOwnerResolver,
+  projectOwner,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import {
@@ -8,6 +8,7 @@ import {
   headquartersProjectId,
   type EnvironmentId,
   type ProjectId,
+  type ProjectRemoteBot,
 } from "@t3tools/contracts";
 
 export type StandingThreadSelection =
@@ -37,6 +38,7 @@ export function standingThreadSelection(input: {
     readonly environmentId: EnvironmentId;
     readonly id: ProjectId;
     readonly botId?: string | null | undefined;
+    readonly remoteBot?: ProjectRemoteBot | null | undefined;
   }>;
   readonly projectKeyOf: (environmentId: EnvironmentId, projectId: ProjectId) => string | null;
 }): StandingThreadSelection {
@@ -58,9 +60,8 @@ export function standingThreadSelection(input: {
   );
   const projectKey = project ? input.projectKeyOf(environmentId, projectId) : null;
   if (!project || projectKey === null) return { kind: "pending" };
-  const ownerId = projectBotId(project);
-  if (ownerId === null) return { kind: "select", botKey: null, projectKey };
-  const ownerKey = createLogicalBotResolver(bots)(environmentId, ownerId);
+  if (projectOwner(project) === null) return { kind: "select", botKey: null, projectKey };
+  const ownerKey = createProjectOwnerResolver(bots)(project);
   const owner = bots.find((bot) => bot.key === ownerKey);
   if (!owner) return { kind: "pending" };
   return { kind: "select", botKey: owner.pinned ? owner.key : null, projectKey };

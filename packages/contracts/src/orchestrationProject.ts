@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { ProjectRemoteBot, ProjectScript, ReceivedProjectIcon } from "./project.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
   id: ProjectId,
@@ -22,6 +22,8 @@ export const OrchestrationProjectShell = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   /** The bot that owns the project; null or absent when it has none. */
   botId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The owning bot when it lives on another environment. Absent from older servers. */
+  remoteBot: Schema.optional(Schema.NullOr(ProjectRemoteBot)),
   /** The project's manager shows in the main rail. Absent from older servers: pinned. */
   managerPinned: Schema.optional(Schema.Boolean),
   // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.

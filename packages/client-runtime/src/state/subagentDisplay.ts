@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  OrchestrationV2Subagent,
   OrchestrationV2TurnItemStatus,
   OrchestrationV2ThreadShell,
   OrchestrationProjectShell,
@@ -9,6 +10,13 @@ import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/mod
 import { fileBasename } from "@t3tools/shared/path";
 import { resolveModelShortName } from "../providerClients.ts";
 import { isTerminalSubagentStatus } from "./subagentRuntime.ts";
+
+/** The linked machine a task runs on, or waits to start on; null for a task here. */
+export function subagentRunsOn(
+  agent: Partial<Pick<OrchestrationV2Subagent, "remoteChild" | "pendingRemote">>,
+): string | null {
+  return agent.remoteChild?.label ?? agent.pendingRemote?.label ?? null;
+}
 
 export function subagentGroupSummary(
   members: ReadonlyArray<{ readonly status: OrchestrationV2TurnItemStatus }>,

@@ -5,7 +5,6 @@ import {
   type BotCreateInput,
   type BotMoveProjectInput,
   type BotSetPinInput,
-  logicalBotKey,
   type BotUpdateInput,
   LEGACY_TOOLS_MESSAGE,
   type Project,
@@ -63,9 +62,9 @@ export class BotService extends Context.Service<
       botIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
     /**
-     * Gives a project to another bot, or to none when `botId` is null. With `ensureBot`, that's
-     * the bot here with the same name, created once however many moves ask for it at the same
-     * time. Such a copy gets its home when it first needs one. Scratch and bots' homes never move.
+     * Gives a project to another bot, or to none when `botId` is null. With `remoteBot`, to that
+     * bot on another environment, which works on it over the link. Scratch and bots' homes never
+     * move.
      */
     readonly moveProject: (
       input: BotMoveProjectInput,
@@ -183,29 +182,8 @@ const make = Effect.gen(function* () {
     return yield* new BotValidationError({ reason: "Bot ID is already in use" });
   });
 
-  // Creates and find-or-creates run one at a time, so a move never adds a copy of a bot
-  // that a racing move or create already made.
+  // Creates run one at a time, so each reads the rail position the one before it wrote.
   const creating = yield* Semaphore.make(1);
-
-  /** The bot here with the template's name, made from `template` when there's none. */
-  const ensureBot = (template: NonNullable<BotMoveProjectInput["ensureBot"]>) =>
-    creating.withPermits(1)(
-      Effect.gen(function* () {
-        const key = logicalBotKey(template);
-        const here = (yield* store.list).find((bot) => logicalBotKey(bot) === key);
-        if (here) return here.id;
-        const made = yield* createUnlocked({
-          id: `bot-${yield* random.uuidV4()}`,
-          name: template.name,
-          avatar: template.avatar,
-          color: template.color,
-          ...(template.modelSelection === undefined
-            ? {}
-            : { modelSelection: template.modelSelection }),
-        });
-        return made.id;
-      }),
-    );
 
   const service = BotService.of({
     list: store.list.pipe(Effect.flatMap(Effect.forEach(withHome))),
@@ -319,13 +297,12 @@ const make = Effect.gen(function* () {
       if (yield* folders.isHiddenProject(projectId)) {
         return yield* new BotValidationError({ reason: "Scratch and bots' homes can't move" });
       }
-      const botId =
-        input.botId === null
-          ? null
-          : input.ensureBot === undefined
-            ? (yield* requireBot(input.botId)).id
-            : yield* ensureBot(input.ensureBot);
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
+      const { remoteBot } = input;
+      if (remoteBot !== undefined) {
+        return yield* projects.assignBot({ commandId, projectId, botId: null, remoteBot });
+      }
+      const botId = input.botId === null ? null : (yield* requireBot(input.botId)).id;
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),
     setPin: Effect.fn("BotService.setPin")(function* (input) {

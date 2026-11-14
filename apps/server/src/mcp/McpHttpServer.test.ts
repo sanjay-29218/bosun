@@ -36,6 +36,7 @@ import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
+import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import * as IssueService from "../issues/IssueService.ts";
@@ -1868,6 +1869,7 @@ it.effect(
                   ),
               }),
               Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
+              Layer.mock(RemoteDelegation.RemoteDelegation)({}),
               Layer.mock(FeatureService)({
                 get: (id) =>
                   Effect.succeed(

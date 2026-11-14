@@ -145,6 +145,43 @@ its agents can already do anything that user can, so the fence would only stop
 T3's own tools. Its work still carries `linkOrigin`, so clients show where it
 came from. A stamp without the access, from before it was recorded, is fenced.
 
+### Pending launches
+
+A bot's request to a linked environment is recorded before anything is sent:
+`delegated_task.remote.request` records the task with a `pendingRemote`
+(environment, project, bot, and the launch input) instead of a `remoteChild`,
+so a restart or a lost answer can't lose it. Its first attempt runs right
+after, and a replayed request finds the task and sends nothing. The same
+follower that follows open remote tasks makes every attempt: it re-checks that
+the bot may still work there, picks a `driverKind`'s instance there, and tries
+the launch. On success it records `delegated_task.remote.launched`, after
+which the task is an ordinary remote task. An unreachable answer
+(`orchestration_error`) marks it waiting and retries with the follower's
+back-off, capped at a minute; any other refusal fails the task with its
+message. Every attempt uses one forwarding namespace per parent thread
+(`remote-launch:<thread>`) and the same request key, so the other side sees
+the same key each time.
+
+An attempt's answer can be lost after the other side accepted the request, so
+a pending request that ends here first (cancelled, stopped or refused) isn't
+done yet: its follower calls there again with the same key and
+`cancelIfStarted`. That side deletes the crew run if it is still queued, so its
+dispatch retry or `reconcileRuns` never starts it, and names the run's thread
+if it started; that thread gets a stop owed through the usual stop path. Only
+that side's `run_not_found`, or a link that can never answer again, marks the
+launch `settled`; any other failure, including one here, asks again later. The
+cleanup uses the request's own record, so it doesn't need the bot or its
+permission, and still runs after the bot is deleted or the machine unticked.
+
+That other side keys the run by the bot's home environment and the request
+key, not the link session, so a retry after a lost answer or a re-link finds
+the run it already started. Its link call carries the bot's `home`
+(environment, bot id, name, label), and it accepts work only for a project
+whose `remoteBot` names that home and bot. The calling link asserts `home`;
+starting work needs a full-access link, which can already do anything the
+receiving user can, so a false `home` grants nothing new. A side from before
+`home` refuses the input, and the caller reports that it needs updating.
+
 ## Hosted web is a client
 
 The hosted web app stores its connection catalog in the browser and connects

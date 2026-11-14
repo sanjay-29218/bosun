@@ -151,7 +151,7 @@ export const BOT_DEFAULT_INSTRUCTIONS =
   "Coordinate the person's requests for your projects. Hand each request to its project's Project manager with t3_project_send; it replies to this thread. Relay it clearly, and never claim work is done before it reports.";
 
 /** How a bot's headquarters briefs a task it starts itself. */
-const TASK_BRIEF =
+export const TASK_BRIEF =
   "You do one request in this worktree. Do small work yourself, commit it, and open a pull request; never merge or force-push. When the work needs planning, design or several steps, start a feature with t3_feature_start instead, and report that it started: the feature's lead runs it with its crew. Report what you did, or the question a person must answer.";
 
 /** What a bot's headquarters does; its runs keep the text they started with. */

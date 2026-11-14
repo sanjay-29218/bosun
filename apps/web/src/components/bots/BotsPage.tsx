@@ -209,6 +209,7 @@ function EnvironmentBotPage({
             bots={railBots}
             ownedProjects={projectLists.owned}
             availableProjects={projectLists.available}
+            notAllowedProjects={projectLists.notAllowed}
             projectsWithoutBots={projectLists.withoutBots}
             environmentLabels={environmentLabels}
           />
