@@ -34,6 +34,7 @@ import * as Stream from "effect/Stream";
 import * as Tool from "effect/ai/Tool";
 import { withExecutedModelNote } from "@t3tools/provider-core/server/subagentProjection";
 
+import * as BotEnvironmentGuard from "../bots/BotEnvironmentGuard.ts";
 import * as BotReach from "../bots/BotReach.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { ProjectToolkit } from "../mcp/toolkits/project/tools.ts";
@@ -156,6 +157,8 @@ const make = Effect.gen(function* () {
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const random = yield* SecureRandom.SecureRandom;
   const botReach = yield* BotReach.BotReach;
+  // Optional so delegation tests run without bots; the server always provides it.
+  const guard = yield* Effect.serviceOption(BotEnvironmentGuard.BotEnvironmentGuard);
   const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
     Effect.flatMap((environment) => environment.getEnvironmentId),
   );
@@ -345,6 +348,10 @@ const make = Effect.gen(function* () {
       const title =
         input.title ??
         (headquartersOf === null ? parent.thread.title : task.trim().split("\n")[0]!.slice(0, 80));
+      // A headquarters' launch is checked by BotReach; any other bot thread's here.
+      if (headquartersOf === null && Option.isSome(guard)) {
+        yield* guard.value.check(scope.thread.threadId, target.environmentId);
+      }
       const launched =
         headquartersOf === null
           ? yield* forwarding.call(

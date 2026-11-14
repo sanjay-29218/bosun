@@ -54,7 +54,12 @@ const box = descriptorOf("environment-box", "Box");
 const couch = descriptorOf("environment-couch", "Couch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
 
-const bot = (id: string, name: string, position: number): Bot => ({
+const bot = (
+  id: string,
+  name: string,
+  position: number,
+  permittedEnvironmentIds = [box.environmentId, couch.environmentId],
+): Bot => ({
   id,
   name,
   avatar: { head: "round", face: "visor", eyes: "round", top: "none", cheeks: false, smile: true },
@@ -64,6 +69,7 @@ const bot = (id: string, name: string, position: number): Bot => ({
   runtimeMode: "full-access",
   modelSelection,
   longConversation: "compact",
+  permittedEnvironmentIds,
   position,
   revision: 1,
   createdAt: "2026-11-05T00:00:00.000Z",
@@ -206,7 +212,7 @@ const serveBox = (seen: Ref.Ref<Seen>) =>
       Layer.provide(layerData(boxData, seen)),
       Layer.provide(layerToolServices),
       Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
-      Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
+      Layer.provide(Layer.mock(PeerLinks.PeerLinks)({ list: Effect.succeed([]) })),
     ),
   );
 
@@ -240,46 +246,47 @@ const headquartersScope: McpInvocationContext.McpThreadInvocationScope = {
 };
 
 /** The laptop: Captain's headquarters calls its own crew toolkits, which reach its links. */
-const makeLaptop = Effect.gen(function* () {
-  const seen = yield* Ref.make<Seen>({ moves: [], runs: [] });
-  const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
-  const here = yield* McpHttpServer.layerCrewTools.pipe(
-    Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
-    Layer.provideMerge(BotReach.layer),
-    Layer.provide(
-      layerData(
-        {
-          bots: [bot(CAPTAIN_ID, "Captain", 0)],
-          projects: [
-            project("project:laptop", "laptop-app", CAPTAIN_ID),
-            project("project:scratch:hidden", "No project", CAPTAIN_ID),
-            project("project:captain-home:hidden", "Captain", CAPTAIN_ID),
-          ],
-          workflowRevision: 3,
-        },
-        seen,
-      ),
-    ),
-    Layer.provide(PeerForwarding.layer),
-    Layer.provide(layerToolServices),
-    Layer.provide(Layer.succeedContext(linking)),
-    Layer.provide(NodeCrypto.layer),
-    Layer.fresh,
-    Layer.build,
-  );
-  const server = Context.get(here, McpServer.McpServer);
-  return {
-    links: Context.get(linking, PeerLinks.PeerLinks),
-    reach: Context.get(here, BotReach.BotReach),
-    call: (name: string, args: Record<string, unknown>) =>
-      server
-        .callTool({ name, arguments: args })
-        .pipe(
-          Effect.provideService(McpInvocationContext.McpInvocationContext, headquartersScope),
-          Effect.provideService(McpSchema.McpServerClient, mcpClient),
+const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0)) =>
+  Effect.gen(function* () {
+    const seen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+    const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
+    const here = yield* McpHttpServer.layerCrewTools.pipe(
+      Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+      Layer.provideMerge(BotReach.layer),
+      Layer.provide(
+        layerData(
+          {
+            bots: [captain],
+            projects: [
+              project("project:laptop", "laptop-app", CAPTAIN_ID),
+              project("project:scratch:hidden", "No project", CAPTAIN_ID),
+              project("project:captain-home:hidden", "Captain", CAPTAIN_ID),
+            ],
+            workflowRevision: 3,
+          },
+          seen,
         ),
-  };
-});
+      ),
+      Layer.provide(PeerForwarding.layer),
+      Layer.provide(layerToolServices),
+      Layer.provide(Layer.succeedContext(linking)),
+      Layer.provide(NodeCrypto.layer),
+      Layer.fresh,
+      Layer.build,
+    );
+    const server = Context.get(here, McpServer.McpServer);
+    return {
+      links: Context.get(linking, PeerLinks.PeerLinks),
+      reach: Context.get(here, BotReach.BotReach),
+      call: (name: string, args: Record<string, unknown>) =>
+        server
+          .callTool({ name, arguments: args })
+          .pipe(
+            Effect.provideService(McpInvocationContext.McpInvocationContext, headquartersScope),
+            Effect.provideService(McpSchema.McpServerClient, mcpClient),
+          ),
+    };
+  });
 
 /** Links the laptop to a couch, on its own server, that then goes to sleep. */
 const linkSleepingCouch = (links: PeerLinks.PeerLinks["Service"]) =>
@@ -304,7 +311,7 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
     Effect.gen(function* () {
       const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
       const b = yield* serveBox(boxSeen);
-      const a = yield* makeLaptop;
+      const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "full-access");
       yield* linkSleepingCouch(a.links);
 
@@ -344,7 +351,25 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
       const bots = yield* a.call("t3_bot_list", { environmentId: box.environmentId });
       expect(bots.isError, JSON.stringify(bots.content)).toBe(false);
       expect(bots.structuredContent).toMatchObject({
-        bots: [{ id: CAPTAIN_ID }, { id: "bot:social-box", name: "Social" }],
+        bots: [
+          { id: CAPTAIN_ID, home: { environmentId: box.environmentId, label: "Box" } },
+          { id: "bot:social-box", name: "Social" },
+        ],
+      });
+      // Here, Captain may work on the box, which answers, and the couch, which is asleep.
+      const own = yield* a.call("t3_bot_list", {});
+      expect(own.isError, JSON.stringify(own.content)).toBe(false);
+      expect(own.structuredContent).toMatchObject({
+        bots: [
+          {
+            id: CAPTAIN_ID,
+            home: { environmentId: laptop.environmentId, label: "Laptop" },
+            permittedEnvironments: [
+              { environmentId: box.environmentId, label: "Box", reachable: true },
+              { environmentId: couch.environmentId, label: "Couch", reachable: false },
+            ],
+          },
+        ],
       });
       const moved = yield* a.call("t3_bot_move_project", {
         environmentId: box.environmentId,
@@ -374,7 +399,7 @@ it.live("starts the project manager there, or says before starting anything why 
     Effect.gen(function* () {
       const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
       const b = yield* serveBox(boxSeen);
-      const a = yield* makeLaptop;
+      const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "full-access");
       const start = (input: ReturnType<typeof launch>) =>
         a.reach.launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, input).pipe(
@@ -446,7 +471,7 @@ it.effect("refuses a bot's project work over a link below full access", () =>
     Effect.gen(function* () {
       const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
       const b = yield* serveBox(boxSeen);
-      const a = yield* makeLaptop;
+      const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "auto");
 
       const refused = yield* a.reach
@@ -459,6 +484,34 @@ it.effect("refuses a bot's project work over a link below full access", () =>
         .pipe(Effect.flip);
       expect(refused.message).toContain("Link Box again with full access");
       expect((yield* Ref.get(boxSeen)).runs).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("refuses new work on a linked environment the bot isn't allowed on", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+      const b = yield* serveBox(boxSeen);
+      const a = yield* makeLaptop(bot(CAPTAIN_ID, "Captain", 0, [couch.environmentId]));
+      yield* linkTo(a.links, b, "full-access");
+
+      const refused = yield* a.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          CAPTAIN_ID,
+          launch("project:omni"),
+        )
+        .pipe(Effect.flip);
+      expect(refused.code).toBe("capability_denied");
+      expect(refused.message).toContain("Captain isn't allowed to start work on Box");
+      expect((yield* Ref.get(boxSeen)).runs).toEqual([]);
+      // Listing its projects there is still allowed.
+      const listed = yield* a.call("t3_bot_projects", {});
+      expect(listed.structuredContent).toMatchObject({
+        projects: expect.arrayContaining([expect.objectContaining({ projectId: "project:omni" })]),
+      });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

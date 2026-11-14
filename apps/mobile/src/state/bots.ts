@@ -1,5 +1,7 @@
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
+  botListEnvironmentIds,
+  buildConnectedLogicalBots,
   buildLogicalBots,
   countNeedsYouByLogicalBot,
   pinnedProjectManagers,
@@ -9,6 +11,7 @@ import {
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { createBotsAtoms } from "@t3tools/client-runtime/state/bots";
+import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
 import { EnvironmentId, headquartersProjectId, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -16,8 +19,10 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { useCallback, useContext, useEffect, useMemo } from "react";
 import { AppState } from "react-native";
 
+import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "./preferences";
+import { connectedEnvironmentIdsAtom } from "./presentation";
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
@@ -35,9 +40,9 @@ const botEnvironmentIdsKeyAtom = Atom.make((get) =>
 const botEnvironmentIds = (key: string) =>
   key ? key.split(",").map((environmentId) => EnvironmentId.make(environmentId)) : [];
 
-/** Bots of every connected environment, merged the way web's rail merges them. */
+/** Bots of every connected environment, one entry each, as web's rail lists them. */
 const logicalBotsAtom = Atom.make((get) =>
-  buildLogicalBots(
+  buildConnectedLogicalBots(
     botEnvironmentIds(get(botEnvironmentIdsKeyAtom)).map((environmentId) => ({
       environmentId,
       bots: Option.getOrElse(
@@ -45,8 +50,55 @@ const logicalBotsAtom = Atom.make((get) =>
         () => [],
       ),
     })),
+    get(connectedEnvironmentIdsAtom),
   ),
 ).pipe(Atom.withLabel("mobile-bots:logical"));
+
+/**
+ * The Bots screen's list, as a stable key: connected bot environments, then known ones that
+ * aren't connected, with the bots they had when last seen. Each entry is `environmentId` and
+ * whether it is online.
+ */
+const botListEnvironmentsKeyAtom = Atom.make((get) => {
+  const connected = get(connectedEnvironmentIdsAtom);
+  return botListEnvironmentIds({
+    botEnvironmentIds: botEnvironmentIds(get(botEnvironmentIdsKeyAtom)),
+    knownEnvironmentIds: [...enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom))],
+    connectedEnvironmentIds: connected,
+  })
+    .filter((environmentId) =>
+      Option.isSome(AsyncResult.value(get(botsEnvironment.list({ environmentId, input: {} })))),
+    )
+    .map((environmentId) => `${environmentId}=${connected.includes(environmentId) ? 1 : 0}`)
+    .join(",");
+}).pipe(Atom.withLabel("mobile-bots:list-environments"));
+
+const botListAtom = Atom.make((get) => {
+  const environments = (get(botListEnvironmentsKeyAtom) || null)?.split(",") ?? [];
+  const online = new Set<string>();
+  const listed = environments.map((entry) => {
+    const [id, isOnline] = entry.split("=");
+    const environmentId = EnvironmentId.make(id!);
+    if (isOnline === "1") online.add(environmentId);
+    return {
+      environmentId,
+      bots: Option.getOrElse(
+        AsyncResult.value(get(botsEnvironment.list({ environmentId, input: {} }))),
+        () => [],
+      ),
+    };
+  });
+  return {
+    bots: buildLogicalBots(listed),
+    environmentCount: listed.length,
+    online: online as ReadonlySet<string>,
+  };
+}).pipe(Atom.withLabel("mobile-bots:list"));
+
+/** Every bot for the Bots screen, offline machines' last-known ones included. */
+export function useBotList() {
+  return useAtomValue(botListAtom);
+}
 
 /**
  * Threads waiting on you per logical bot, as a sorted `key=count` string so streamed thread

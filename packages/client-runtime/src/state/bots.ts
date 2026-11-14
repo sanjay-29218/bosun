@@ -1,18 +1,22 @@
-import { WS_METHODS, type CrewRevision, type EnvironmentId } from "@t3tools/contracts";
+import { Bot, WS_METHODS, type CrewRevision, type EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { persistQuery } from "./queryPersistence.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 /**
  * Top-level bots of one environment. The list is fetched, not streamed: bots change rarely,
- * and a project moving between bots already arrives as a project shell update.
+ * and a project moving between bots already arrives as a project shell update. The last answer
+ * is kept on the device, so an offline environment's bots still show.
  */
 export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>) {
   const list = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:bots:list",
     tag: WS_METHODS.botsList,
+    persistence: persistQuery(Schema.Array(Bot)),
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
   });

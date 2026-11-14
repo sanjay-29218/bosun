@@ -35,13 +35,7 @@ export const layer = McpToolAccess.toLayer(
   Effect.gen(function* () {
     const reach = yield* BotReach.BotReach;
     return {
-      t3_bot_list: McpToolAccess.reads(() =>
-        BotService.BotService.pipe(
-          Effect.flatMap((bots) => bots.list),
-          Effect.map((bots) => ({ bots })),
-          Effect.mapError(failed),
-        ),
-      ),
+      t3_bot_list: McpToolAccess.reads(() => reach.list.pipe(Effect.map((bots) => ({ bots })))),
       t3_bot_create: McpToolAccess.writesWithCapability((input) =>
         Effect.gen(function* () {
           // A bot can't run without a model, and the editor always sets one; a bot an agent

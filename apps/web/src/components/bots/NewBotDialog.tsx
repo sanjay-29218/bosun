@@ -9,7 +9,9 @@ import type {
 import { useState } from "react";
 
 import { randomUUID } from "../../lib/utils";
+import { useConnectedBotEnvironmentIds } from "../../state/botRail";
 import { botsEnvironment } from "../../state/bots";
+import { useEnvironmentIdentities } from "../../state/environments";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
@@ -24,12 +26,15 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { EditorField } from "../settings/CrewAgentFields";
 import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { BotAvatarPicker, BotColorPicker } from "./BotLook";
 
 /**
- * Adds a bot from a name and a look, on the environment's default model with no projects. The
- * rest (instructions, projects, tools) waits in its editor.
+ * Adds a bot from a name and a look, on its home's default model with no projects. The rest
+ * (instructions, projects, tools) waits in its editor. With several connected environments that
+ * run bots, the person picks its home, starting from `environmentId`.
  */
 export function NewBotDialog({
   environmentId,
@@ -43,7 +48,7 @@ export function NewBotDialog({
   readonly usedAvatars: ReadonlyArray<BotAvatarParts>;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onCreated: (bot: Bot) => void;
+  readonly onCreated: (bot: Bot, environmentId: EnvironmentId) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,7 +68,7 @@ export function NewBotDialog({
 }
 
 function NewBotForm({
-  environmentId,
+  environmentId: suggested,
   usedAvatars,
   onCancel,
   onCreated,
@@ -71,8 +76,20 @@ function NewBotForm({
   readonly environmentId: EnvironmentId;
   readonly usedAvatars: ReadonlyArray<BotAvatarParts>;
   readonly onCancel: () => void;
-  readonly onCreated: (bot: Bot) => void;
+  readonly onCreated: (bot: Bot, environmentId: EnvironmentId) => void;
 }) {
+  const identities = useEnvironmentIdentities();
+  const labelOf = (id: EnvironmentId) =>
+    identities.find((identity) => identity.environmentId === id)?.label ?? id;
+  // Primary first, then by name.
+  const [primary, ...others] = useConnectedBotEnvironmentIds();
+  const homes =
+    primary === undefined
+      ? []
+      : [primary, ...others.toSorted((left, right) => labelOf(left).localeCompare(labelOf(right)))];
+  const [picked, setPicked] = useState<EnvironmentId>(suggested);
+  // A home that disconnects while the dialog is open falls back to the first one left.
+  const environmentId = homes.includes(picked) ? picked : (homes[0] ?? suggested);
   const create = useAtomCommand(botsEnvironment.create, { reportFailure: false });
   const canCreate = useAtomValue(botsEnvironment.create.permissionAtom(environmentId));
   const defaultModel = useEnvironmentDefaultModel(environmentId);
@@ -106,7 +123,7 @@ function NewBotForm({
     });
     setSaving(false);
     if (result._tag === "Success") {
-      onCreated(result.value);
+      onCreated(result.value, environmentId);
       return;
     }
     setError(formatEnvironmentQueryError(result.cause));
@@ -146,6 +163,33 @@ function NewBotForm({
             </p>
           ) : null}
         </div>
+        {homes.length > 1 ? (
+          <EditorField label="Lives on">
+            <div className="space-y-1.5">
+              <Select
+                value={environmentId}
+                onValueChange={(next) => {
+                  const home = homes.find((id) => id === next);
+                  if (home !== undefined) setPicked(home);
+                }}
+              >
+                <SelectTrigger aria-label="Lives on">
+                  <SelectValue>{(value: string) => labelOf(value as EnvironmentId)}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {homes.map((home) => (
+                    <SelectItem key={home} value={home}>
+                      {labelOf(home)}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Its chat, memory and home folder stay on this machine.
+              </p>
+            </div>
+          </EditorField>
+        ) : null}
         <BotAvatarPicker value={avatar} color={color} onChange={setAvatar} />
         <BotColorPicker value={color} onChange={setColor} />
       </DialogPanel>

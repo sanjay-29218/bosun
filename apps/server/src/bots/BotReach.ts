@@ -32,6 +32,7 @@ import {
   type BotProjectsResult,
   LinkBotProjects,
   LinkBotTask,
+  type ListedBot,
 } from "../mcp/toolkits/bots/linkTools.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { LINKED_ENVIRONMENT_STOPPED_ANSWERING } from "../peer/PeerMcpClient.ts";
@@ -39,6 +40,7 @@ import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
 type Scope = McpInvocationContext.McpInvocationScope;
@@ -76,6 +78,8 @@ export interface LaunchedProjectManager {
 export class BotReach extends Context.Service<
   BotReach,
   {
+    /** This environment's bots, each with its home here and the linked environments it may use. */
+    readonly list: Effect.Effect<ReadonlyArray<ListedBot>, OrchestratorMcpFailure>;
     /** The bot's projects here and on every linked environment that answers. */
     readonly projects: (
       scope: Scope,
@@ -326,6 +330,9 @@ const make = Effect.gen(function* () {
       yield* links.get(environmentId).pipe(Effect.orElseSucceed(() => Option.none())),
     );
     const label = link?.label ?? environmentId;
+    if (!bot.permittedEnvironmentIds.includes(environmentId)) {
+      return yield* notPermitted(bot.name, label);
+    }
     // Nothing is queued: the person decides whether to wait for it or not.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
@@ -466,7 +473,25 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const list: BotReach["Service"]["list"] = Effect.gen(function* () {
+    const home = yield* here;
+    const listed = yield* bots.list.pipe(Effect.mapError(unavailable));
+    const linked = yield* links.list.pipe(Effect.orElseSucceed(() => []));
+    return listed.map((bot) => ({
+      ...bot,
+      home,
+      permittedEnvironments: linked
+        .filter((link) => bot.permittedEnvironmentIds.includes(link.environmentId))
+        .map((link) => ({
+          environmentId: link.environmentId,
+          label: link.label,
+          reachable: link.status === "reachable",
+        })),
+    }));
+  }).pipe(Effect.withSpan("BotReach.list"));
+
   return BotReach.of({
+    list,
     projects: projectsOf,
     projectsForLink,
     launchProjectManager,

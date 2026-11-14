@@ -15,7 +15,10 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 
+import * as BotEnvironmentGuard from "../bots/BotEnvironmentGuard.ts";
+import * as BotStore from "../bots/BotStore.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
+import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -450,6 +453,57 @@ it.effect.each([
   call(tool, scope, args).pipe(
     Effect.map((outcome) => expect(outcome).toBe(expected)),
     Effect.provide(linkedProbeServer),
+  ),
+);
+
+// Captain owns the probe threads' project and may work on the box only.
+const couch = EnvironmentId.make("environment-couch");
+const captain = { id: "bot-captain", name: "Captain", permittedEnvironmentIds: [box] };
+const guardedProbeServer = McpHttpServer.toolkitRegistration(
+  LinkedProbeToolkit,
+  McpToolAccess.toLayer(LinkedProbeToolkit, {
+    reads: McpToolAccess.reads(ranHere),
+    writes: McpToolAccess.writes(ranHere),
+    writes_with_capability: McpToolAccess.writesWithCapability(ranHere),
+    writes_threads: McpToolAccess.writesThreads((input) => [input.threadId], ranHere),
+    starts_threads: McpToolAccess.startsThreads((input) => input, ranHere, "stamped"),
+    writes_environment: McpToolAccess.writesEnvironment(ranHere),
+  }),
+).pipe(
+  Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+  Layer.provide(BotEnvironmentGuard.layer),
+  Layer.provideMerge(
+    Layer.mock(ThreadManagement.ThreadManagementService)({
+      getThreadShell: (threadId) => Effect.succeed(shells.get(threadId) ?? null),
+    }),
+  ),
+  Layer.provide(
+    Layer.mock(BotStore.BotStore)({
+      projectOwner: (projectId) =>
+        Effect.succeed(projectId === "project:mcp-test" ? captain.id : null),
+      get: (id) => Effect.succeed(id === captain.id ? (captain as never) : null),
+    }),
+  ),
+  Layer.provide(Layer.mock(PeerLinks.PeerLinks)({ get: () => Effect.succeedNone })),
+  Layer.provide(
+    Layer.mock(PeerForwarding.PeerForwarding)({
+      call: (_scope, tool, environmentId) =>
+        Effect.succeed({ ran: `${tool.name} in ${environmentId}` } as never),
+    }),
+  ),
+);
+
+it.effect.each([
+  ["starts_threads", plan, { environmentId: box }, "starts_threads in environment-box"],
+  ["starts_threads", plan, { environmentId: couch }, "capability_denied"],
+  ["reads", supervised, { environmentId: couch }, "capability_denied"],
+  // Its own environment, and callers that aren't a bot's threads, aren't limited.
+  ["starts_threads", plan, { environmentId: here }, "here"],
+  ["reads", supervisedClient, { environmentId: couch }, "reads in environment-couch"],
+] as const)("a bot's %s from %o with %o: %s", ([tool, scope, args, expected]) =>
+  call(tool, scope, args).pipe(
+    Effect.map((outcome) => expect(outcome).toBe(expected)),
+    Effect.provide(guardedProbeServer),
   ),
 );
 

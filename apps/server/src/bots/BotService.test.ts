@@ -3,6 +3,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
+  EnvironmentId,
   LEGACY_TOOLS_MESSAGE,
   ProjectId,
   ProviderInstanceId,
@@ -214,6 +215,29 @@ it.layer(layer)("BotService", (it) => {
       ]) {
         assert.strictEqual((yield* Effect.flip(save)).message, LEGACY_TOOLS_MESSAGE);
       }
+    }),
+  );
+
+  it.effect("new bots may work on every linked environment until one is unticked", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      for (const id of ["vps", "studio"]) {
+        yield* sql`
+          INSERT INTO peer_environment_links (
+            environment_id, secret_name, label, urls_json, access, linked_at, expires_at
+          ) VALUES (${id}, ${`secret-${id}`}, ${id}, '[]', 'full-access', '2026-11-01', '2027-11-01')
+        `;
+      }
+      const bots = yield* BotService.BotService;
+      const bot = yield* bots.create({ ...social, id: "bot:reach" });
+      const vps = EnvironmentId.make("vps");
+      assert.deepStrictEqual(bot.permittedEnvironmentIds, [EnvironmentId.make("studio"), vps]);
+      yield* bots.update({ id: bot.id, expectedRevision: 1, permittedEnvironmentIds: [vps, vps] });
+      assert.deepStrictEqual((yield* bots.get(bot.id))?.permittedEnvironmentIds, [vps]);
+      // Other edits keep the choice.
+      yield* bots.update({ id: bot.id, expectedRevision: 2, name: "Reach" });
+      assert.deepStrictEqual((yield* bots.get(bot.id))?.permittedEnvironmentIds, [vps]);
+      yield* sql`DELETE FROM peer_environment_links`;
     }),
   );
 

@@ -41,6 +41,7 @@ const captain: Bot = {
   runtimeMode: "full-access",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   longConversation: "compact",
+  permittedEnvironmentIds: [],
   position: 0,
   revision: 1,
   createdAt: "2026-11-07T00:00:00.000Z",

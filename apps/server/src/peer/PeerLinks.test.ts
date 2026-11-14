@@ -28,6 +28,8 @@ import {
 } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { insertTestBot } from "../bots/BotStore.testkit.ts";
+import { CrewChanges } from "../crew/CrewChanges.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as McpToolAccess from "../mcp/McpToolAccess.ts";
@@ -95,6 +97,7 @@ const makeA = (
       links: Context.get(context, PeerLinks.PeerLinks),
       peer: Context.get(context, PeerMcpClient.PeerMcpClient),
       sql: Context.get(context, SqlClient.SqlClient),
+      crewChanges: Context.get(context, CrewChanges),
       settings: Context.get(context, ServerSettings.ServerSettingsService),
     })),
   );
@@ -532,8 +535,31 @@ it.effect("reads one stored link without asking the peer", () =>
     Effect.gen(function* () {
       const b = yield* serveB(box);
       const a = yield* makeA(laptop);
-      const pairing = yield* b.auth.issuePairingCredential();
-      yield* a.links.link({ url: b.url, pairingCode: pairing.credential, access: "auto" });
+      yield* insertTestBot("bot-captain", "Captain").pipe(
+        Effect.provideService(SqlClient.SqlClient, a.sql),
+      );
+      const permitted = a.sql<{ readonly ids: string; readonly revision: number }>`
+        SELECT permitted_environment_ids_json AS ids, revision FROM bots
+      `;
+      const botsRevision = a.crewChanges.revision.pipe(Effect.map((revision) => revision.bots));
+      const link = Effect.flatMap(b.auth.issuePairingCredential(), (pairing) =>
+        a.links.link({ url: b.url, pairingCode: pairing.credential, access: "auto" }),
+      );
+      // A grant that fails takes the link with it, so linking again still grants.
+      yield* a.sql`ALTER TABLE bots RENAME TO bots_away`;
+      expect(yield* Effect.flip(link)).toMatchObject({ reason: "storage" });
+      expect(Option.isNone(yield* a.links.get(box.environmentId))).toBe(true);
+      yield* a.sql`ALTER TABLE bots_away RENAME TO bots`;
+      expect(yield* botsRevision).toBe(0);
+      yield* link;
+      // A machine linked for the first time is one existing bots may work on, and clients hear.
+      expect(yield* permitted).toEqual([{ ids: `["${box.environmentId}"]`, revision: 2 }]);
+      expect(yield* botsRevision).toBe(1);
+      // Re-linking it keeps a person's unticking.
+      yield* a.sql`UPDATE bots SET permitted_environment_ids_json = '[]'`;
+      yield* link;
+      expect(yield* permitted).toEqual([{ ids: "[]", revision: 2 }]);
+      expect(yield* botsRevision).toBe(1);
       yield* Ref.set(b.probes, 0);
 
       const stored = yield* a.links.get(box.environmentId);

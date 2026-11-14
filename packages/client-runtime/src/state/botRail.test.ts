@@ -12,7 +12,10 @@ import {
   botActivityByBot,
   botActivityByLogicalBot,
   botRailShowsThread,
+  botListEnvironmentIds,
+  botListSubtitle,
   botRailSignal,
+  buildConnectedLogicalBots,
   buildLogicalBots,
   countHiddenNeedsYou,
   pinnedProjectManagers,
@@ -76,22 +79,50 @@ describe("projectBotId", () => {
 });
 
 describe("buildLogicalBots", () => {
-  it("merges bots by name, in priority then rail order", () => {
+  it("keeps every bot its own entry, same-named ones too, in priority then rail order", () => {
     const bots = buildLogicalBots(environments);
-    expect(bots.map((entry) => [entry.name, entry.avatar.eyes, entry.members.length])).toEqual([
-      ["Captain", "star", 2],
-      ["Social", "happy", 2],
-      ["Finance", "round", 1],
+    expect(bots.map((entry) => [entry.key, entry.name, entry.avatar.eyes])).toEqual([
+      [`id:local:${CAPTAIN_ID}`, "Captain", "star"],
+      ["id:local:bot-social", "Social", "happy"],
+      [`id:remote:${CAPTAIN_ID}`, " captain", "visor"],
+      ["id:remote:bot-finance", "Finance", "round"],
+      ["id:remote:bot-social-2", " social ", "round"],
     ]);
-    expect(bots[1]!.members).toEqual([
-      { environmentId: local, botId: "bot-social", pinned: true },
-      { environmentId: remote, botId: "bot-social-2", pinned: true },
-    ]);
+    expect(bots[1]!.members).toEqual([{ environmentId: local, botId: "bot-social", pinned: true }]);
+  });
+});
+
+describe("bot lists across machines", () => {
+  it("reads connected bot environments first, then known ones that are offline", () => {
+    const vps = EnvironmentId.make("vps");
+    const plain = EnvironmentId.make("plain");
+    expect(
+      botListEnvironmentIds({
+        botEnvironmentIds: [local, remote],
+        knownEnvironmentIds: [local, vps, remote, plain],
+        connectedEnvironmentIds: [remote, plain],
+      }),
+    ).toEqual([remote, local, vps]);
+  });
+
+  it("names the machine when several are known, and Offline when it can't be reached", () => {
+    expect(botListSubtitle({ machine: null, online: true, projects: "2 projects" })).toBe(
+      "2 projects",
+    );
+    expect(botListSubtitle({ machine: "VPS", online: true, projects: "No projects" })).toBe(
+      "VPS · No projects",
+    );
+    expect(botListSubtitle({ machine: "VPS", online: false, projects: "2 projects" })).toBe(
+      "VPS · Offline",
+    );
+    expect(botListSubtitle({ machine: null, online: false, projects: "2 projects" })).toBe(
+      "Offline",
+    );
   });
 });
 
 describe("pins", () => {
-  it("reads a bot as pinned when any environment pins it, and older servers as pinned", () => {
+  it("reads each bot's own pin, and older servers as pinned", () => {
     const bots = buildLogicalBots([
       { environmentId: local, bots: [{ ...bot("bot-a", "Social", 0), pinned: false }] },
       { environmentId: remote, bots: [bot("bot-b", "Social", 0), bot("bot-c", "Finance", 1)] },
@@ -101,6 +132,7 @@ describe("pins", () => {
       },
     ]);
     expect(bots.map((entry) => [entry.name, entry.pinned])).toEqual([
+      ["Social", false],
       ["Social", true],
       ["Finance", true],
       ["Ops", false],
@@ -108,7 +140,7 @@ describe("pins", () => {
   });
 
   it("tells lists apart when only one environment's pin changed", () => {
-    // Another client unpinned the bot on remote; local still pins it, so the entry stays pinned.
+    // Another client unpinned the bot on remote; local's same-named bot stays pinned.
     const before = buildLogicalBots([
       { environmentId: local, bots: [bot("bot-a", "Social", 0)] },
       { environmentId: remote, bots: [bot("bot-b", "Social", 0)] },
@@ -117,10 +149,8 @@ describe("pins", () => {
       { environmentId: local, bots: [bot("bot-a", "Social", 0)] },
       { environmentId: remote, bots: [{ ...bot("bot-b", "Social", 0), pinned: false }] },
     ]);
-    expect(after[0]!.pinned).toBe(true);
+    expect(after.map((entry) => entry.pinned)).toEqual([true, false]);
     expect(logicalBotsSignature(after)).not.toBe(logicalBotsSignature(before));
-    // So a failed unpin rolls remote back to what it is now, not what it was.
-    expect(after[0]!.members.map((member) => member.pinned)).toEqual([true, false]);
   });
 
   it("counts threads waiting on you that only an unpinned bot or manager shows", () => {
@@ -321,10 +351,20 @@ describe("resolveActiveLogicalBot", () => {
     expect(resolveActiveLogicalBot([], {}, [local])).toBeNull();
   });
 
-  it("remembers the bot on each of its environments", () => {
+  it("remembers the bot on its environment", () => {
     const next = selectLogicalBot(bots[1]!);
-    expect(next).toEqual({ local: "bot-social", remote: "bot-social-2" });
+    expect(next).toEqual({ local: "bot-social" });
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Social");
+  });
+
+  it("ignores a remembered bot whose machine is offline, though its list was kept", () => {
+    // After a reload `local` is offline with its kept list; its remembered bot isn't active.
+    const live = buildConnectedLogicalBots(environments, [remote]);
+    expect(live.every((entry) => entry.members[0]!.environmentId === remote)).toBe(true);
+    expect(
+      resolveActiveLogicalBot(live, { local: "bot-social", remote: "bot-finance" }, [local, remote])
+        ?.key,
+    ).toBe("id:remote:bot-finance");
   });
 
   it("selects a bot that only a later environment has", () => {
@@ -347,6 +387,11 @@ describe("logicalBotProjectKeys", () => {
   it("selects the projects each entry owns, and those with no bot under every entry", () => {
     expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual([
       "local:a",
+      "remote:c",
+      "local:d",
+    ]);
+    // The same-named bot on remote is another entry, with its own project.
+    expect([...logicalBotProjectKeys(bots[4]!, bots, projects)]).toEqual([
       "remote:b",
       "remote:c",
       "local:d",
@@ -359,8 +404,8 @@ describe("logicalBotProjectKeys", () => {
     const withVps = [...projects, { environmentId: vps, id: "omni" }];
     const social = bots[1]!;
     const lists = logicalBotProjectLists(social, bots, withVps, new Set([local, remote]));
-    expect(lists.owned.map((project) => project.id)).toEqual(["a", "b"]);
-    expect(lists.available.map((project) => project.id)).toEqual(["c", "d"]);
+    expect(lists.owned.map((project) => project.id)).toEqual(["a"]);
+    expect(lists.available.map((project) => project.id)).toEqual(["b", "c", "d"]);
     expect(lists.withoutBots.map((project) => project.id)).toEqual(["omni"]);
     // Finance has no bot here, so a move here creates it first.
     const finance = bots.find((entry) => entry.name === "Finance")!;
@@ -370,7 +415,7 @@ describe("logicalBotProjectKeys", () => {
 });
 
 describe("countNeedsYouByLogicalBot", () => {
-  it("sums member counts per entry", () => {
+  it("counts each bot's own threads", () => {
     const bots = buildLogicalBots(environments);
     const counts = countNeedsYouByLogicalBot(
       bots,
@@ -381,9 +426,10 @@ describe("countNeedsYouByLogicalBot", () => {
         [botNeedsYouKey(local, "bot-unknown"), 5],
       ]),
     );
-    expect(counts.get(bots[1]!.key)).toBe(3);
-    expect(counts.get(bots[0]!.key)).toBe(4);
-    expect(counts.get(bots[2]!.key)).toBeUndefined();
+    expect(counts.get(bots[1]!.key)).toBe(2);
+    expect(counts.get(bots[4]!.key)).toBe(1);
+    expect(counts.get(bots[2]!.key)).toBe(4);
+    expect(counts.get(bots[0]!.key)).toBeUndefined();
   });
 });
 

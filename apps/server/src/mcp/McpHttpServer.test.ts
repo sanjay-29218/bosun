@@ -1867,7 +1867,7 @@ it.effect(
                     projectId === "project:mcp-test" && requestId === "R-7" ? ({} as never) : null,
                   ),
               }),
-              Layer.mock(BotReach.BotReach)({}),
+              Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
               Layer.mock(FeatureService)({
                 get: (id) =>
                   Effect.succeed(
