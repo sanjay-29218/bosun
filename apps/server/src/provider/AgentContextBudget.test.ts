@@ -232,8 +232,9 @@ it.effect("a project manager holding every grant is listed every tool but the li
         projectHeadquartersThreadId(ProjectId.make("context-budget")),
       ),
     );
-    const linkOnly = new Set(["t3_bot_link_projects", "t3_bot_link_task"]);
-    const all = mcp.tools.map(({ tool }) => tool.name).filter((name) => !linkOnly.has(name));
+    // Only a feature's crew member asks the person in its own thread.
+    const notListed = new Set(["t3_bot_link_projects", "t3_bot_link_task", "crew_ask_person"]);
+    const all = mcp.tools.map(({ tool }) => tool.name).filter((name) => !notListed.has(name));
     expect(listed.map(({ tool }) => tool.name)).toEqual(all);
     // A feature lead or crew member holding the same grants doesn't see the manager's own tools.
     const lead = yield* listedTo(

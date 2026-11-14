@@ -893,6 +893,8 @@ describe("feature lead and crew", () => {
         );
 
         // Stopping again before the person answers is the same open question: no second line.
+        // HQ reads the digest in a turn of its own first.
+        yield* setRun(hq, "completed");
         yield* setRun(pdf.leadThreadId, "completed");
         yield* features.reportIfQuiet(pdf.leadThreadId);
         yield* inbox.flush(hq);

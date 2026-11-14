@@ -49,7 +49,7 @@ const AskPerson = Tool.make("crew_ask_person", {
   }),
   success: Schema.Struct({ requestId: Schema.String, next: Schema.String }),
   failure,
-  dependencies: [McpInvocationContext, CrewApprovals],
+  dependencies: [...dependencies, CrewApprovals],
 }).annotate(Tool.Destructive, false);
 
 const LinkIssue = Tool.make("crew_link_issue", {

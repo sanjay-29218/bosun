@@ -151,9 +151,9 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
         ('designer-helper', ${lineage("designer", "subagent", "Designer")})`;
 
       // Only a crew member its lead delegated to asks the person, not that member's helpers.
-      assert.include(yield* crewThreadGrants(ThreadId.make("designer")), CREW_MEMBER_GRANT);
+      assert.include((yield* crewThreadGrants(ThreadId.make("designer"))) ?? [], CREW_MEMBER_GRANT);
       for (const id of ["helper", "designer-helper"]) {
-        assert.notInclude(yield* crewThreadGrants(ThreadId.make(id)), CREW_MEMBER_GRANT);
+        assert.notInclude((yield* crewThreadGrants(ThreadId.make(id))) ?? [], CREW_MEMBER_GRANT);
       }
 
       for (const id of ["helper", "helper-of-helper"]) {
