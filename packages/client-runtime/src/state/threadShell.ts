@@ -11,6 +11,7 @@ import {
   isProviderNativeSubagentThread,
   OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
@@ -160,6 +161,42 @@ const sameRequests = (
 ) =>
   left.size === right.size &&
   [...right].every(([threadId, request]) => left.get(threadId) === request);
+
+/**
+ * The subagent under `topLevelThreadId` whose request the user must answer, such as a crew member
+ * asking for approval, newest first; null when none. A wait it drives opens there, not on top.
+ */
+export function askingSubagentThreadId(
+  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  topLevelThreadId: ThreadId,
+): ThreadId | null {
+  const byId = new Map(threads.map((thread) => [thread.id, thread] as const));
+  let asking: OrchestrationV2ThreadShell | null = null;
+  for (const child of threads) {
+    if (child.lineage.relationshipToParent !== "subagent") continue;
+    const request = rolledUpRequest(child, subagentRequest(child));
+    // The coordinator answers a child's own questions.
+    if (request === null || request === "user_input") continue;
+    let parentId = child.lineage.parentThreadId;
+    const seen = new Set<ThreadId>([child.id]);
+    while (parentId !== null && parentId !== topLevelThreadId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      parentId =
+        parent?.lineage.relationshipToParent === "subagent" || parent?.lineage.sideChat === true
+          ? parent.lineage.parentThreadId
+          : null;
+    }
+    if (parentId !== topLevelThreadId) continue;
+    if (
+      asking === null ||
+      DateTime.toEpochMillis(child.pendingRuntimeRequest!.createdAt) >
+        DateTime.toEpochMillis(asking.pendingRuntimeRequest!.createdAt)
+    )
+      asking = child;
+  }
+  return asking?.id ?? null;
+}
 
 export function childThreadInputsTitle(
   children: ReadonlyArray<Pick<EnvironmentThreadShell, "hasPendingApprovals" | "lineage">>,

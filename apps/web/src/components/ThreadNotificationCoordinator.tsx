@@ -3,7 +3,7 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { askingSubagentThreadId, isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
@@ -42,6 +42,8 @@ import { toastManager } from "./ui/toast";
 
 interface NotificationState extends ThreadNotificationObservation {
   readonly raw: OrchestrationV2ThreadShell;
+  /** The thread an input notification opens: this one, or the subagent whose request it waits on. */
+  readonly asking: ThreadId;
   readonly subagentRequest: PendingSubagentRequest | null;
   readonly thread: EnvironmentThreadShell;
   readonly status: SidebarThreadStatus;
@@ -133,6 +135,8 @@ export function startThreadNotifications(
     kind: ThreadNotificationKind,
   ) => {
     const { thread, status } = state;
+    // A wait a subagent drives, such as a crew member's question, opens the thread that asks.
+    const openThreadId = kind === "input" ? state.asking : thread.id;
     if (
       registry
         .get(environmentThreadShells.hiddenThreadKeysAtom)
@@ -191,7 +195,7 @@ export function startThreadNotifications(
             toastManager.close(toastId);
             void router.navigate({
               to: "/$environmentId/$threadId",
-              params: { environmentId, threadId: thread.id },
+              params: { environmentId, threadId: openThreadId },
             });
           },
         },
@@ -221,7 +225,7 @@ export function startThreadNotifications(
         void window.desktopBridge?.revealWindow().catch(() => undefined);
         void router.navigate({
           to: "/$environmentId/$threadId",
-          params: { environmentId, threadId: thread.id },
+          params: { environmentId, threadId: openThreadId },
         });
       });
     } catch {
@@ -283,8 +287,13 @@ export function startThreadNotifications(
       const settled = completed && !monitorHoldsWakeCompletion(rawThread);
       const parsedCompletedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const completedAt = Number.isFinite(parsedCompletedAt) ? parsedCompletedAt : null;
+      const ownRequest = rawThread.pendingRuntimeRequest;
       const state = {
         raw: rawThread,
+        asking:
+          subagentRequest !== null && (ownRequest == null || ownRequest.kind === "auth_refresh")
+            ? (askingSubagentThreadId(threads, rawThread.id) ?? rawThread.id)
+            : rawThread.id,
         subagentRequest,
         thread,
         status,

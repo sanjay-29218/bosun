@@ -16,7 +16,11 @@ import { PrimaryConnectionTarget } from "../connection/model.ts";
 import { v2Now, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
 import { isThreadWorking } from "./threadInbox.ts";
-import { childThreadInputsTitle, createEnvironmentThreadShellAtoms } from "./threadShell.ts";
+import {
+  askingSubagentThreadId,
+  childThreadInputsTitle,
+  createEnvironmentThreadShellAtoms,
+} from "./threadShell.ts";
 
 const environmentId = EnvironmentId.make("environment-v2");
 const remoteEnvironmentId = EnvironmentId.make("remote-environment-v2");
@@ -199,6 +203,17 @@ describe("v2 thread shell lists", () => {
       registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
         ?.pendingSubagentRequest,
     ).toBe("user_input");
+    // Its notification opens the member's thread, where the question is, not the parent.
+    expect(askingSubagentThreadId([root, asked], root.id)).toBe(asked.id);
+    expect(
+      askingSubagentThreadId(
+        [
+          root,
+          { ...asked, pendingRuntimeRequest: { ...asked.pendingRuntimeRequest, userOnly: false } },
+        ],
+        root.id,
+      ),
+    ).toBeNull();
     // A question its lead answers stops counting once the child's turn ends.
     registry.set(snapshotAtom(environmentId), {
       ...v2ShellSnapshot,
