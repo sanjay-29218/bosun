@@ -9,7 +9,7 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { toastManager } from "../ui/toast";
-import { latestStandingOpen, leaveRailOnNextOpen } from "./standingOpen";
+import { latestStandingOpen } from "./standingOpen";
 
 /**
  * Opens a bot's headquarters: the one thread where it sees all its projects. The server
@@ -43,12 +43,12 @@ export function useOpenBotHeadquarters() {
       if (latest === null) return;
       const result = latest.value;
       if (result._tag === "Success") {
-        if (options?.leaveRail) leaveRailOnNextOpen(member.environmentId, result.value.threadId);
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(
             scopeThreadRef(member.environmentId, result.value.threadId),
           ),
+          ...(options?.leaveRail ? { state: { leaveRail: true } } : {}),
         });
       } else {
         toastManager.add({

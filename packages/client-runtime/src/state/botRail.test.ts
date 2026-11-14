@@ -19,6 +19,7 @@ import {
   railProjectKeys,
   writePins,
   countNeedsYouByLogicalBot,
+  logicalBotsSignature,
   logicalBotHeadquartersKeys,
   logicalBotMemberOn,
   logicalBotProjectKeys,
@@ -106,6 +107,22 @@ describe("pins", () => {
     ]);
   });
 
+  it("tells lists apart when only one environment's pin changed", () => {
+    // Another client unpinned the bot on remote; local still pins it, so the entry stays pinned.
+    const before = buildLogicalBots([
+      { environmentId: local, bots: [bot("bot-a", "Social", 0)] },
+      { environmentId: remote, bots: [bot("bot-b", "Social", 0)] },
+    ]);
+    const after = buildLogicalBots([
+      { environmentId: local, bots: [bot("bot-a", "Social", 0)] },
+      { environmentId: remote, bots: [{ ...bot("bot-b", "Social", 0), pinned: false }] },
+    ]);
+    expect(after[0]!.pinned).toBe(true);
+    expect(logicalBotsSignature(after)).not.toBe(logicalBotsSignature(before));
+    // So a failed unpin rolls remote back to what it is now, not what it was.
+    expect(after[0]!.members.map((member) => member.pinned)).toEqual([true, false]);
+  });
+
   it("counts threads waiting on you that only an unpinned bot or manager shows", () => {
     const bots = buildLogicalBots([
       {
@@ -180,6 +197,19 @@ describe("railProjectKeys", () => {
         environmentFilter: null,
       })!,
     ]).toEqual(["local:a", "local:loose"]);
+  });
+
+  it("shows a project the list is scoped to even when its bot isn't pinned", () => {
+    // Picking the pinned manager of Idle's project keeps the rail on A and scopes to it.
+    const keys = railProjectKeys({
+      active: pinned[0]!,
+      pinnedBots: pinned,
+      allBots: all,
+      projects,
+      environmentFilter: null,
+      scopedProjects: [{ environmentId: local, id: "idle" }],
+    });
+    expect([...keys!]).toEqual(["local:a", "local:loose", "local:idle"]);
   });
 
   it("doesn't scope with fewer than two pinned bots", () => {

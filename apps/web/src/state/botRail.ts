@@ -5,6 +5,7 @@ import {
   buildLogicalBots,
   countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
+  logicalBotsSignature,
   logicalBotHeadquartersKeys,
   railProjectKeys,
   resolveActiveLogicalBot,
@@ -18,6 +19,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
+import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useUiStateStore } from "../uiStateStore";
 import { botsEnvironment } from "./bots";
@@ -42,14 +44,6 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   const previous = Option.getOrNull(get.self<ReadonlyArray<EnvironmentId>>());
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
-
-const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
-  bots
-    .map(
-      (bot) =>
-        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.members.map((member) => `${member.environmentId}/${member.botId}`).join(",")}`,
-    )
-    .join("\n");
 
 /** Rail entries: every environment's bots merged. The same array returns until one changes. */
 export const logicalBotsAtom = Atom.make((get): ReadonlyArray<LogicalBot> => {
@@ -301,7 +295,19 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
   const projects = useAtomValue(environmentProjects.projectsAtom);
-  return railProjectKeys({ active, pinnedBots: bots, allBots, projects, environmentFilter });
+  const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
+  const groups = useSettingsProjectGroups();
+  const scopedProjects = groups
+    .filter((group) => scopeKeys.includes(group.projectKey))
+    .flatMap((group) => group.memberProjects);
+  return railProjectKeys({
+    active,
+    pinnedBots: bots,
+    allBots,
+    projects,
+    environmentFilter,
+    scopedProjects,
+  });
 }
 
 /**

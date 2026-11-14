@@ -10,7 +10,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { useUiStateStore } from "../../uiStateStore";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { toastManager } from "../ui/toast";
-import { latestStandingOpen, leaveRailOnNextOpen } from "./standingOpen";
+import { latestStandingOpen } from "./standingOpen";
 
 export interface ScopedProjectManager {
   readonly environmentId: EnvironmentId;
@@ -82,12 +82,12 @@ export function useOpenProjectManager() {
       if (latest === null) return;
       const result = latest.value;
       if (result._tag === "Success") {
-        if (options?.leaveRail) leaveRailOnNextOpen(project.environmentId, result.value.threadId);
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(
             scopeThreadRef(project.environmentId, result.value.threadId),
           ),
+          ...(options?.leaveRail ? { state: { leaveRail: true } } : {}),
         });
       } else {
         toastManager.add({

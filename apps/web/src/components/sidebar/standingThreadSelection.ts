@@ -78,3 +78,16 @@ export function followStandingThread(
   // Picking another bot clears the scope, so a matching one must be set again.
   return { selectBot, scopeKeys: sameScope && !selectBot ? null : scopeKeys };
 }
+
+/**
+ * What the rail does when the route lands on `key`: nothing for a thread it already followed or
+ * one whose navigation asked to leave the rail (`leaveRail`), else follow it.
+ */
+export function standingFollowAction(input: {
+  readonly key: string | null;
+  readonly followedKey: string | null;
+  readonly leaveRail: boolean;
+}): "none" | "leave" | "follow" {
+  if (input.key === input.followedKey) return "none";
+  return input.leaveRail ? "leave" : "follow";
+}

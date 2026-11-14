@@ -41,6 +41,7 @@ import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useHasUnseenAutomationFailure } from "../../state/automations";
 import {
   useActivityByLogicalBot,
+  useAllVisibleLogicalBots,
   useEnvironmentFilter,
   useHiddenNeedsYouCount,
   useNeedsYouByLogicalBot,
@@ -176,6 +177,7 @@ export const BotRail = memo(function BotRail({
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const bots = useVisibleLogicalBots();
+  const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const needsYou = useNeedsYouByLogicalBot();
   const activity = useActivityByLogicalBot();
@@ -226,10 +228,11 @@ export const BotRail = memo(function BotRail({
     supersedeStandingOpen();
     void navigate({ href });
   };
-  // The manager's bot is picked first, so the thread list knows the project it is scoped to.
+  // A pinned owner is picked first. Either way the scope shows the manager's project, so one whose
+  // bot isn't pinned (or has no bot) still shows under the bot that stays picked.
   const selectManager = (manager: RailProjectManager) => {
     if (isMobile) setOpenMobile(false);
-    const ownerKey = createLogicalBotResolver(bots)(manager.environmentId, manager.botId);
+    const ownerKey = createLogicalBotResolver(allBots)(manager.environmentId, manager.botId);
     const owner = bots.find((bot) => bot.key === ownerKey);
     if (owner && owner.key !== active?.key) {
       if (active) rememberBotHref(active.key);

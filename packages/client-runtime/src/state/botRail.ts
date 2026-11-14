@@ -84,6 +84,20 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
 }
 
 /**
+ * Changes whenever anything a client shows or writes from the rail entries does, each
+ * environment's own pin included: a rollback after a failed pin restores those.
+ */
+export const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
+  bots
+    .map(
+      (bot) =>
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.members
+          .map((member) => `${member.environmentId}/${member.botId}/${member.pinned ?? true}`)
+          .join(",")}`,
+    )
+    .join("\n");
+
+/**
  * The selected rail entry, null only while no bot is listed. Each environment remembers its own
  * active bot; the first environment (primary first) whose remembered bot is still listed wins.
  * Nothing remembered, or a deleted bot, selects the first bot.
@@ -153,9 +167,9 @@ export function logicalBotProjectKeys(
 }
 
 /**
- * `${environmentId}:${projectId}` keys the thread list shows for the rail's pick, or null when
- * nothing narrows it. The rail scopes by bot once two bots are pinned; ownership is read from
- * every bot, pinned or not, so an unpinned bot's projects never land under another bot.
+ * Keys the thread list shows for the rail's pick, or null when nothing narrows it. Owners are
+ * read from every bot, pinned or not; projects the list is scoped to always show, such as a
+ * picked manager's whose bot isn't pinned.
  */
 export function railProjectKeys(input: {
   readonly active: LogicalBot | null;
@@ -167,6 +181,11 @@ export function railProjectKeys(input: {
     readonly botId?: string | null | undefined;
   }>;
   readonly environmentFilter: ReadonlySet<EnvironmentId> | null;
+  /** The projects the thread list is scoped to, if any. */
+  readonly scopedProjects?: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+  }>;
 }): Set<string> | null {
   const { active, environmentFilter } = input;
   const filterByBot = active !== null && input.pinnedBots.length > 1;
@@ -178,7 +197,13 @@ export function railProjectKeys(input: {
   if (!filterByBot) {
     return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
   }
-  return logicalBotProjectKeys(active, input.allBots, inEnvironment);
+  const keys = logicalBotProjectKeys(active, input.allBots, inEnvironment);
+  for (const project of input.scopedProjects ?? []) {
+    if (environmentFilter === null || environmentFilter.has(project.environmentId)) {
+      keys.add(`${project.environmentId}:${project.id}`);
+    }
+  }
+  return keys;
 }
 
 /**

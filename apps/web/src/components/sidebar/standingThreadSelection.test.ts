@@ -8,7 +8,11 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { followStandingThread, standingThreadSelection } from "./standingThreadSelection";
+import {
+  followStandingThread,
+  standingFollowAction,
+  standingThreadSelection,
+} from "./standingThreadSelection";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -129,5 +133,28 @@ describe("followStandingThread", () => {
         { botKey: captain.key, projectKey: null },
       ),
     ).toEqual({ selectBot: false, scopeKeys: null });
+  });
+});
+
+describe("standingFollowAction", () => {
+  it("leaves the rail for the Bots list's own navigation, and follows every other one", () => {
+    expect(standingFollowAction({ key: "env:a", followedKey: null, leaveRail: true })).toBe(
+      "leave",
+    );
+    // The next navigation carries no intent of its own, so the rail follows it.
+    expect(standingFollowAction({ key: "env:b", followedKey: "env:a", leaveRail: false })).toBe(
+      "follow",
+    );
+    expect(standingFollowAction({ key: "env:b", followedKey: "env:b", leaveRail: false })).toBe(
+      "none",
+    );
+  });
+
+  it("follows an open after a cancelled one, since the cancelled navigation left nothing behind", () => {
+    // An unsaved-editor guard cancels the Bots list's navigation: the route never lands on
+    // env:a with `leaveRail`. A later open of env:a from the palette is followed.
+    expect(standingFollowAction({ key: "env:a", followedKey: null, leaveRail: false })).toBe(
+      "follow",
+    );
   });
 });
