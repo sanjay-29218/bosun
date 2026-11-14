@@ -3,7 +3,7 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import { askingSubagentThreadId, isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { askingSubagent, isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
@@ -35,6 +35,7 @@ import { resolveBackgroundThreadRequest } from "./backgroundThreadAnnouncement";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "./Sidebar.logic";
 import {
   createThreadNotificationGate,
+  threadAttention,
   type ThreadNotificationKind,
   type ThreadNotificationObservation,
 } from "./ThreadNotificationCoordinator.logic";
@@ -44,6 +45,7 @@ interface NotificationState extends ThreadNotificationObservation {
   readonly raw: OrchestrationV2ThreadShell;
   /** The thread an input notification opens: this one, or the subagent whose request it waits on. */
   readonly asking: ThreadId;
+  readonly askingRequestId: string | null;
   readonly subagentRequest: PendingSubagentRequest | null;
   readonly thread: EnvironmentThreadShell;
   readonly status: SidebarThreadStatus;
@@ -258,10 +260,17 @@ export function startThreadNotifications(
       }
       const prior = previous.get(rawThread.id);
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
+      const ownRequest = rawThread.pendingRuntimeRequest;
+      // Which child asks can change while the rolled-up kind and this shell stay the same.
+      const asking =
+        subagentRequest !== null && (ownRequest == null || ownRequest.kind === "auth_refresh")
+          ? askingSubagent(threads, rawThread.id)
+          : null;
       if (
         !entry.reconnecting &&
         prior?.raw === rawThread &&
-        prior.subagentRequest === subagentRequest
+        prior.subagentRequest === subagentRequest &&
+        prior.askingRequestId === (asking?.requestId ?? null)
       ) {
         next.set(rawThread.id, prior);
         continue;
@@ -275,25 +284,21 @@ export function startThreadNotifications(
         status === "approval" ||
         status === "failed" ||
         status === "limited";
-      const requestId = needsAttention ? resolveBackgroundThreadRequest(thread).requestId : null;
-      // Queued messages become the latest run while a request stays pending, so a request
-      // with an id is keyed by that id alone and announces once.
-      const attention = !needsAttention
-        ? null
-        : requestId !== null
-          ? `${status}:${requestId}`
-          : `${thread.latestRun?.runId ?? ""}:${status}`;
+      const { attention, requestId } = threadAttention({
+        status,
+        needsAttention,
+        requestId: needsAttention ? resolveBackgroundThreadRequest(thread).requestId : null,
+        askingRequestId: asking?.requestId ?? null,
+        latestRunId: thread.latestRun?.runId ?? null,
+      });
       const completed = status === "ready" && thread.latestRun?.status === "completed";
       const settled = completed && !monitorHoldsWakeCompletion(rawThread);
       const parsedCompletedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const completedAt = Number.isFinite(parsedCompletedAt) ? parsedCompletedAt : null;
-      const ownRequest = rawThread.pendingRuntimeRequest;
       const state = {
         raw: rawThread,
-        asking:
-          subagentRequest !== null && (ownRequest == null || ownRequest.kind === "auth_refresh")
-            ? (askingSubagentThreadId(threads, rawThread.id) ?? rawThread.id)
-            : rawThread.id,
+        asking: asking?.threadId ?? rawThread.id,
+        askingRequestId: asking?.requestId ?? null,
         subagentRequest,
         thread,
         status,

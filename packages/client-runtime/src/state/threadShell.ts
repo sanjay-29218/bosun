@@ -164,12 +164,13 @@ const sameRequests = (
 
 /**
  * The subagent under `topLevelThreadId` whose request the user must answer, such as a crew member
- * asking for approval, newest first; null when none. A wait it drives opens there, not on top.
+ * asking for approval, and that request, newest first; null when none. A wait it drives opens
+ * there, not on top, and each new request is news.
  */
-export function askingSubagentThreadId(
+export function askingSubagent(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
   topLevelThreadId: ThreadId,
-): ThreadId | null {
+): { readonly threadId: ThreadId; readonly requestId: string } | null {
   const byId = new Map(threads.map((thread) => [thread.id, thread] as const));
   let asking: OrchestrationV2ThreadShell | null = null;
   for (const child of threads) {
@@ -195,7 +196,9 @@ export function askingSubagentThreadId(
     )
       asking = child;
   }
-  return asking?.id ?? null;
+  return asking === null
+    ? null
+    : { threadId: asking.id, requestId: asking.pendingRuntimeRequest!.id };
 }
 
 export function childThreadInputsTitle(

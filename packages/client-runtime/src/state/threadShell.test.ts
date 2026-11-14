@@ -17,7 +17,7 @@ import { v2Now, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixt
 import { applyShellStreamEvent } from "./shellReducer.ts";
 import { isThreadWorking } from "./threadInbox.ts";
 import {
-  askingSubagentThreadId,
+  askingSubagent,
   childThreadInputsTitle,
   createEnvironmentThreadShellAtoms,
 } from "./threadShell.ts";
@@ -204,9 +204,29 @@ describe("v2 thread shell lists", () => {
         ?.pendingSubagentRequest,
     ).toBe("user_input");
     // Its notification opens the member's thread, where the question is, not the parent.
-    expect(askingSubagentThreadId([root, asked], root.id)).toBe(asked.id);
+    expect(askingSubagent([root, asked], root.id)).toEqual({
+      threadId: asked.id,
+      requestId: asked.pendingRuntimeRequest.id,
+    });
+    // A second member asking later is the newest ask; once it's answered, the first is again.
+    const second = {
+      ...asked,
+      id: ThreadId.make("second-child"),
+      pendingRuntimeRequest: {
+        ...asked.pendingRuntimeRequest,
+        id: RuntimeRequestId.make("second-ask"),
+        createdAt: DateTime.add(v2Now, { seconds: 1 }),
+      },
+    };
+    expect(askingSubagent([root, asked, second], root.id)).toEqual({
+      threadId: second.id,
+      requestId: "second-ask",
+    });
     expect(
-      askingSubagentThreadId(
+      askingSubagent([root, asked, { ...second, pendingRuntimeRequest: null }], root.id)?.threadId,
+    ).toBe(asked.id);
+    expect(
+      askingSubagent(
         [
           root,
           { ...asked, pendingRuntimeRequest: { ...asked.pendingRuntimeRequest, userOnly: false } },
