@@ -18,9 +18,9 @@ time the board opens, **Start a feature** adds the starter roles first.
 
 Most features start from a bot's request: the bot hands it to the project's
 [Project manager](./bots.md#project-managers), which starts a feature when the work needs one,
-links the issue it tracks, and hears from the feature's lead when it finishes, needs the person,
-fails or stops with nothing left running, not with each step. Notices that arrive while a thread is
-busy reach it as one message when it is free. Ask a bot to start
+links the issue it tracks, and hears one line when the feature needs the person, finishes or
+fails, not with each step. Notices that arrive while a thread is busy reach it as one message when
+it is free. Ask a bot to start
 the feature itself, and it does the same as **New feature** without the Project manager.
 
 Attach images or files to the brief to send them to the lead with it.
@@ -55,10 +55,17 @@ the member's thread shows under the lead in the thread's **Crew** tab, named by 
 member runs with its role's instructions and model, in the feature's worktree, and its result
 comes back to the lead. The lead does small steps itself and skips what the work doesn't need.
 
-The lead asks you in its thread when it needs your decision, such as approving a plan, and waits
-for your answer. To ask for changes, reply in the lead's thread. When the work is done, the lead
-reports it, and its card reads **Ready for review**; close the feature from the board once you're
-happy with it.
+When a step needs your approval, such as a plan or a design, the crew member who did it asks you
+in its own thread, next to the work, with its name on the question ("Designer is asking for your
+approval"). Pick **Approve**, or type what to change, and the member carries on; the lead hears
+only the outcome. Dismissing the question tells the member it wasn't approved. The feature's card,
+its notification and a push all open the thread that is asking. The lead asks its own questions
+in its thread and waits for your answer; to ask the lead for changes, reply there. When the work
+is done, the lead reports it, and its card reads **Ready for review**; close the feature from the
+board once you're happy with it.
+
+A needs-you line links to the thread that asks, and a finish line carries the pull request. A
+bot's headquarters hears only when a feature finishes or fails.
 
 ## The board
 
