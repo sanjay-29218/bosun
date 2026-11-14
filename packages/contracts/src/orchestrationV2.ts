@@ -2179,7 +2179,10 @@ export const OrchestrationV2PendingRuntimeRequestSummary = Schema.Struct({
   createdAt: Schema.DateTimeUtc,
   /** False for async questions the run keeps working past. Absent from older servers. */
   blocking: Schema.optional(Schema.Boolean),
-  /** Secret and link cards: only the user can answer them, never a coordinating agent. */
+  /**
+   * Secret and link cards, and a crew member's ask of the person: only the user can answer them,
+   * never a coordinating agent.
+   */
   userOnly: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2PendingRuntimeRequestSummary =

@@ -62,6 +62,10 @@ export class CrewApprovals extends Context.Service<
   }
 >()("t3/crew/CrewApprovals") {}
 
+/** The question's header names who asks, which every client already shows. */
+const crewQuestionHeader = (member: string | undefined, approval: boolean) =>
+  `${member?.trim() || "A crew member"} is asking${approval ? " for your approval" : ""}`;
+
 const answerText = (request: OrchestrationV2RuntimeRequest, options: ReadonlyArray<string>) => {
   const raw = request.answers?.[QUESTION_ID];
   const text = (Array.isArray(raw) ? raw.join(", ") : typeof raw === "string" ? raw : "").trim();
@@ -129,9 +133,10 @@ const make = Effect.gen(function* () {
       }
       const [open] = yield* pendingQuestions(threadId).pipe(Effect.mapError(unavailable));
       if (open !== undefined) return { requestId: open.id, next: CREW_ASKED_NEXT };
+      const approval = input.options === undefined || input.options.length === 0;
       const labels = [
         ...new Set(
-          (input.options ?? [APPROVE, REQUEST_CHANGES])
+          (approval ? [APPROVE, REQUEST_CHANGES] : (input.options ?? []))
             .map((label) => label.trim())
             .filter((label) => label.length > 0),
         ),
@@ -142,9 +147,9 @@ const make = Effect.gen(function* () {
         label,
         description:
           label === APPROVE
-            ? "Approve the work shown in this thread."
+            ? "Continue with this as it is."
             : label === REQUEST_CHANGES
-              ? "Type what to change instead, or pick this to be asked."
+              ? "Say what to change below."
               : label,
       }));
       const requestId = RuntimeRequestId.make(`crew-ask:${NodeCrypto.randomUUID()}`);
@@ -158,7 +163,7 @@ const make = Effect.gen(function* () {
           questions: [
             {
               id: QUESTION_ID,
-              header: "Approval",
+              header: crewQuestionHeader(thread.feature.member, approval),
               question,
               options,
               allowCustomAnswer: true,

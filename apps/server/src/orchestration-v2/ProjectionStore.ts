@@ -1686,6 +1686,8 @@ function pendingRuntimeRequestSummary(
     kind: request.kind,
     createdAt: request.createdAt,
     blocking: request.responseCapability.type !== "message",
+    // A crew member asked the person; its lead must not answer for them.
+    ...(request.owner === "crew" ? { userOnly: true } : {}),
   };
 }
 

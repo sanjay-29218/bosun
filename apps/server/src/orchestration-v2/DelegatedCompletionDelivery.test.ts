@@ -1445,7 +1445,9 @@ const seedRestartCancelledChild = (input: {
             forkedFrom: { type: "node", nodeId: taskId },
             ...(input.member === undefined
               ? {}
-              : { feature: { id: `feature:${input.name}`, title: "Feature", member: input.member } }),
+              : {
+                  feature: { id: `feature:${input.name}`, title: "Feature", member: input.member },
+                }),
             createdAt: input.now,
             updatedAt: input.now,
             archivedAt: null,
@@ -5409,6 +5411,19 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         asking.requestId,
       );
 
+      // The header names who asks, so every client shows it without a change of its own.
+      const card = (yield* orchestrator.getThreadProjection(asking.childThreadId)).turnItems.find(
+        (item) => item.type === "user_input_request" && item.requestId === asking.requestId,
+      );
+      assert.equal(
+        card?.type === "user_input_request" ? card.questions[0]?.header : undefined,
+        "Designer is asking for your approval",
+      );
+      // Only the person answers it, so clients count it as Needs you after the member's turn.
+      assert.isTrue(
+        (yield* orchestrator.getThreadShell(asking.childThreadId))?.pendingRuntimeRequest?.userOnly,
+      );
+
       yield* orchestrator.recoverDelegatedTasks;
       const held = yield* taskOf(asking.parentThreadId, asking.taskId);
       assert.isNull(held?.result ?? null, "the task settled while the person's answer was pending");
@@ -5518,7 +5533,9 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         child.runtimeRequests.find((request) => request.id === cancelled.requestId)?.status,
         "resolved",
       );
-      assert.isFalse(child.messages.some((message) => message.id.startsWith("message:crew-answer:")));
+      assert.isFalse(
+        child.messages.some((message) => message.id.startsWith("message:crew-answer:")),
+      );
     }),
   );
 });
