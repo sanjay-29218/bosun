@@ -60,6 +60,19 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
   );
 }
 
+/**
+ * Rail entries from connected environments only. An offline environment's kept bots list is
+ * for the Bots lists; here it would keep a bot of that machine active and hide others' projects.
+ */
+export function buildConnectedLogicalBots(
+  environments: ReadonlyArray<EnvironmentBots>,
+  connectedEnvironmentIds: ReadonlyArray<EnvironmentId>,
+): LogicalBot[] {
+  return buildLogicalBots(
+    environments.filter(({ environmentId }) => connectedEnvironmentIds.includes(environmentId)),
+  );
+}
+
 /** The rail entry for one environment's bot. */
 export function logicalBotOf(
   environmentId: EnvironmentId,

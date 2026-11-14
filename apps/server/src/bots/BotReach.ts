@@ -40,6 +40,7 @@ import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
 type Scope = McpInvocationContext.McpInvocationScope;
@@ -330,10 +331,7 @@ const make = Effect.gen(function* () {
     );
     const label = link?.label ?? environmentId;
     if (!bot.permittedEnvironmentIds.includes(environmentId)) {
-      return yield* failure(
-        "capability_denied",
-        `${bot.name} isn't allowed to start work on ${label}. Nothing was started there. The person can allow it in Bots → ${bot.name} → Projects → Can work on.`,
-      );
+      return yield* notPermitted(bot.name, label);
     }
     // Nothing is queued: the person decides whether to wait for it or not.
     const unreachable = Effect.gen(function* () {

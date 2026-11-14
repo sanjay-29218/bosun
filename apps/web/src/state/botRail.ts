@@ -3,6 +3,7 @@ import {
   botListEnvironmentIds,
   botActivityByBot,
   botActivityByLogicalBot,
+  buildConnectedLogicalBots,
   buildLogicalBots,
   countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
@@ -48,7 +49,10 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
 
-/** Rail entries: every environment's bots merged. The same array returns until one changes. */
+/**
+ * Rail entries: connected environments' bots, behind the rail, the active bot, pins and activity.
+ * The same array returns until one changes.
+ */
 export const logicalBotsAtom = Atom.make((get): ReadonlyArray<LogicalBot> => {
   const environments = get(botEnvironmentIdsAtom).flatMap((environmentId) => {
     const bots = Option.getOrNull(
@@ -56,7 +60,10 @@ export const logicalBotsAtom = Atom.make((get): ReadonlyArray<LogicalBot> => {
     );
     return bots ? [{ environmentId, bots }] : [];
   });
-  const next = buildLogicalBots(environments);
+  const next = buildConnectedLogicalBots(
+    environments,
+    get(environmentSummaries.connectedEnvironmentIdsAtom),
+  );
   const previous = Option.getOrNull(get.self<ReadonlyArray<LogicalBot>>());
   return previous !== null && logicalBotsSignature(previous) === logicalBotsSignature(next)
     ? previous

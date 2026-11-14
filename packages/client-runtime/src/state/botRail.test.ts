@@ -15,6 +15,7 @@ import {
   botListEnvironmentIds,
   botListSubtitle,
   botRailSignal,
+  buildConnectedLogicalBots,
   buildLogicalBots,
   countHiddenNeedsYou,
   pinnedProjectManagers,
@@ -354,6 +355,16 @@ describe("resolveActiveLogicalBot", () => {
     const next = selectLogicalBot(bots[1]!);
     expect(next).toEqual({ local: "bot-social" });
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Social");
+  });
+
+  it("ignores a remembered bot whose machine is offline, though its list was kept", () => {
+    // After a reload `local` is offline with its kept list; its remembered bot isn't active.
+    const live = buildConnectedLogicalBots(environments, [remote]);
+    expect(live.every((entry) => entry.members[0]!.environmentId === remote)).toBe(true);
+    expect(
+      resolveActiveLogicalBot(live, { local: "bot-social", remote: "bot-finance" }, [local, remote])
+        ?.key,
+    ).toBe("id:remote:bot-finance");
   });
 
   it("selects a bot that only a later environment has", () => {

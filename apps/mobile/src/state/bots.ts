@@ -1,6 +1,7 @@
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
   botListEnvironmentIds,
+  buildConnectedLogicalBots,
   buildLogicalBots,
   countNeedsYouByLogicalBot,
   pinnedProjectManagers,
@@ -39,9 +40,9 @@ const botEnvironmentIdsKeyAtom = Atom.make((get) =>
 const botEnvironmentIds = (key: string) =>
   key ? key.split(",").map((environmentId) => EnvironmentId.make(environmentId)) : [];
 
-/** Bots of every connected environment, merged the way web's rail merges them. */
+/** Bots of every connected environment, one entry each, as web's rail lists them. */
 const logicalBotsAtom = Atom.make((get) =>
-  buildLogicalBots(
+  buildConnectedLogicalBots(
     botEnvironmentIds(get(botEnvironmentIdsKeyAtom)).map((environmentId) => ({
       environmentId,
       bots: Option.getOrElse(
@@ -49,6 +50,7 @@ const logicalBotsAtom = Atom.make((get) =>
         () => [],
       ),
     })),
+    get(connectedEnvironmentIdsAtom),
   ),
 ).pipe(Atom.withLabel("mobile-bots:logical"));
 
