@@ -220,23 +220,23 @@ const make = Effect.gen(function* () {
 
   /**
    * One attempt to start a bot's request there, checking the bot may still work there first, or
-   * with `onlyIfStarted` to find the run an earlier attempt started without starting one.
+   * with `cancelIfStarted` to find the run an earlier attempt started without starting one.
    */
   const launchThere = Effect.fn("RemoteDelegation.launchThere")(function* (
     parentThreadId: ThreadId,
     providerInstanceId: ProviderInstanceId,
     pending: OrchestrationV2PendingRemoteLaunch,
     task: string,
-    onlyIfStarted: boolean,
+    cancelIfStarted: boolean,
   ) {
     const scope = launchScope(parentThreadId, providerInstanceId);
     // Picked now, from what that environment runs; unreachable, the request waits.
     const instanceId =
-      pending.driverKind === undefined || onlyIfStarted
+      pending.driverKind === undefined || cancelIfStarted
         ? pending.modelSelection.instanceId
         : yield* resolveRemoteInstance(scope, pending.environmentId, {
             driverKind: pending.driverKind,
-            providerInstanceId: undefined,
+            providerInstanceId: pending.providerInstanceId,
             inheritedInstanceId: pending.modelSelection.instanceId,
           });
     return yield* botReach.launchProjectManager(scope, pending.environmentId, pending.botId, {
@@ -246,7 +246,7 @@ const make = Effect.gen(function* () {
       modelSelection: { ...pending.modelSelection, instanceId },
       runtimeMode: pending.runtimeMode,
       clientRequestId: pending.clientRequestId,
-      ...(onlyIfStarted ? { onlyIfStarted } : {}),
+      ...(cancelIfStarted ? { cancelIfStarted } : {}),
     });
   });
 
@@ -316,6 +316,12 @@ const make = Effect.gen(function* () {
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
           message: `Provider instance ${named.providerInstanceId} there uses driver ${named.driverKind}, not ${requested.driverKind}.`,
+        });
+      }
+      if (named === undefined || !named.canRunChildTask) {
+        return yield* new OrchestratorMcpFailure({
+          code: "provider_unavailable",
+          message: `Provider instance ${requested.providerInstanceId} there can't run a child task. orchestrator_capabilities with this environmentId lists its providers.`,
         });
       }
       return requested.providerInstanceId;
@@ -572,7 +578,11 @@ const make = Effect.gen(function* () {
     // Another driver's instance there is picked when the request starts there, which may be
     // after it comes back, so its model is named now.
     const inherited = parent.thread.modelSelection;
-    const instanceId = target.providerInstanceId ?? inherited.instanceId;
+    // With a driver, the instance named is checked there when it starts.
+    const instanceId =
+      target.driverKind === undefined
+        ? (target.providerInstanceId ?? inherited.instanceId)
+        : inherited.instanceId;
     const model =
       target.model ??
       (target.driverKind === undefined && instanceId === inherited.instanceId
@@ -617,6 +627,9 @@ const make = Effect.gen(function* () {
       runtimeMode,
       clientRequestId: `delegate:${scope.requestNamespace}:${key}`,
       ...(target.driverKind === undefined ? {} : { driverKind: target.driverKind }),
+      ...(target.driverKind === undefined || target.providerInstanceId === undefined
+        ? {}
+        : { providerInstanceId: target.providerInstanceId }),
     };
     const recorded = yield* threads
       .dispatch({
@@ -915,6 +928,15 @@ const make = Effect.gen(function* () {
         ),
       );
 
+  /** The link to `environmentId` can never answer again: revoked, expired or forgotten here. */
+  const linkGone = (environmentId: EnvironmentId, error: OrchestratorMcpFailure) =>
+    error.code === "capability_denied"
+      ? Effect.succeed(true)
+      : links.get(environmentId).pipe(
+          Effect.map(Option.isNone),
+          Effect.orElseSucceed(() => false),
+        );
+
   /**
    * A request that ended here before it started there may still have started from an attempt
    * whose answer was lost, so it asks there with the same key, starting nothing: a run there gets
@@ -942,9 +964,16 @@ const make = Effect.gen(function* () {
       true,
     ).pipe(
       Effect.asSome,
-      Effect.catchIf(isWaitable, () => Effect.undefined),
-      // Nothing there, or a link that can never answer: nothing is left to stop.
-      Effect.catchTags({ OrchestratorMcpFailure: () => Effect.succeedNone }),
+      // Only the other side saying nothing runs, or a link that can never reach it again,
+      // settles it; anything else (asleep, a failure here) asks again later.
+      Effect.catchTags({
+        OrchestratorMcpFailure: (error) =>
+          error.code === "run_not_found"
+            ? Effect.succeedNone
+            : linkGone(pending.environmentId, error).pipe(
+                Effect.map((gone) => (gone ? Option.none() : undefined)),
+              ),
+      }),
     );
     if (found === undefined) return false;
     if (Option.isSome(found)) {

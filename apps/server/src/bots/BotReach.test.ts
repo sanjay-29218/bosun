@@ -199,7 +199,8 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
         } as never),
       ensureFeatureManager: (projectId) =>
         Effect.succeed({ id: `bot-manager:${projectId}` } as never),
-      getRun: (id) =>
+      // A run whose task says so is still queued, as one whose dispatch failed.
+      cancelQueuedRun: (id) =>
         Ref.get(seen).pipe(
           Effect.map((current) => {
             const run = current.runs.find((candidate) => candidate.id === id);
@@ -207,6 +208,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
               ? null
               : ({
                   run: { threadId: `bot-run:${id}`, modelSelection: run.carried?.modelSelection },
+                  started: !run.taskText.startsWith("Queued:"),
                 } as never);
           }),
         ),
@@ -323,7 +325,7 @@ const headquartersScope: McpInvocationContext.McpThreadInvocationScope = {
 };
 
 /** The laptop: Captain's headquarters calls its own crew toolkits, which reach its links. */
-const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0)) =>
+const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0), botsHere = [captain]) =>
   Effect.gen(function* () {
     const seen = yield* Ref.make<Seen>(nothingSeen);
     const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
@@ -333,7 +335,7 @@ const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0)) =>
       Layer.provide(
         layerData(
           {
-            bots: [captain],
+            bots: botsHere,
             projects: [
               project("project:laptop", "laptop-app", CAPTAIN_ID),
               project("project:scratch:hidden", "No project", CAPTAIN_ID),
@@ -540,7 +542,7 @@ it.live("starts the project manager there, or says before starting anything why 
         CAPTAIN_ID,
         {
           ...launch("project:omni"),
-          onlyIfStarted: true,
+          cancelIfStarted: true,
         },
       );
       expect(found.threadId).toBe(launched.threadId);
@@ -548,11 +550,44 @@ it.live("starts the project manager there, or says before starting anything why 
         .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
           ...launch("project:omni"),
           clientRequestId: "never-sent",
-          onlyIfStarted: true,
+          cancelIfStarted: true,
         })
         .pipe(Effect.flip);
       expect(none.code).toBe("run_not_found");
       expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+      // A run still queued there is cancelled there, and reads as nothing running.
+      yield* a.reach.launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
+        ...launch("project:omni"),
+        task: "Queued: its dispatch failed there.",
+        clientRequestId: "queued-there",
+      });
+      const queued = yield* a.reach
+        .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
+          ...launch("project:omni"),
+          clientRequestId: "queued-there",
+          cancelIfStarted: true,
+        })
+        .pipe(Effect.flip);
+      expect(queued.code).toBe("run_not_found");
+      // With Captain since deleted here, cleanup still reaches the box by the request's record.
+      const deleted = yield* makeLaptop(undefined, []);
+      yield* linkTo(deleted.links, b, "full-access");
+      const stillFound = yield* deleted.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        CAPTAIN_ID,
+        { ...launch("project:omni"), cancelIfStarted: true },
+      );
+      expect(stillFound.threadId).toBe(launched.threadId);
+      const noNewWork = yield* deleted.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          CAPTAIN_ID,
+          launch("project:omni"),
+        )
+        .pipe(Effect.flip);
+      expect(noNewWork.message).toContain("bot is gone");
       // A task the box refuses as it is stays refused, so it can't wait forever.
       const invalid = yield* a.reach
         .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
@@ -574,7 +609,8 @@ it.live("starts the project manager there, or says before starting anything why 
       expect(yield* start(launch("project:omni", "gpt-elsewhere"))).toContain(
         "runs on gpt-elsewhere (codex), which isn't available on Box",
       );
-      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+      // The omni run, and the one left queued above; refusals start nothing.
+      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(2);
 
       yield* linkSleepingCouch(a.links);
       const asleep = yield* a.reach

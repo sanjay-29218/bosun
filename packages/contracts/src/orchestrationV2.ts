@@ -949,6 +949,8 @@ export const OrchestrationV2PendingRemoteLaunch = Schema.Struct({
   clientRequestId: Schema.String,
   /** Resolved to that environment's instance of this driver when it launches. */
   driverKind: Schema.optional(ProviderDriverKind),
+  /** The instance there the caller named with `driverKind`, checked when it launches. */
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   /**
    * Ended here before it started there, and that environment confirmed no attempt started a
    * run, or it was stopped. Until then its follower asks, since an attempt's answer may be lost.

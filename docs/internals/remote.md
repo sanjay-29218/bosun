@@ -162,12 +162,16 @@ message. Every attempt uses one forwarding namespace per parent thread
 (`remote-launch:<thread>`) and the same request key, so the other side sees
 the same key each time.
 
-An attempt's answer can be lost after the other side started the run, so a
-pending request that ends here first (cancelled, stopped or refused) isn't done
-yet: its follower asks there with the same key and `onlyIfStarted`, which finds
-a run without starting one. A run found gets a stop owed through the usual
-stop path; none found marks the launch `settled`. Until then the task stays an
-open remote task, across restarts.
+An attempt's answer can be lost after the other side accepted the request, so
+a pending request that ends here first (cancelled, stopped or refused) isn't
+done yet: its follower calls there again with the same key and
+`cancelIfStarted`. That side deletes the crew run if it is still queued, so its
+dispatch retry or `reconcileRuns` never starts it, and names the run's thread
+if it started; that thread gets a stop owed through the usual stop path. Only
+that side's `run_not_found`, or a link that can never answer again, marks the
+launch `settled`; any other failure, including one here, asks again later. The
+cleanup uses the request's own record, so it doesn't need the bot or its
+permission, and still runs after the bot is deleted or the machine unticked.
 
 That other side keys the run by the bot's home environment and the request
 key, not the link session, so a retry after a lost answer or a re-link finds

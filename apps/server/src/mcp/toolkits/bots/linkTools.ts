@@ -112,8 +112,11 @@ export const LinkBotTask = Tool.make("t3_bot_link_task", {
     clientRequestId: Schema.String,
     /** The workflow a feature for this request runs on, by value. */
     workflow: Schema.optional(WorkflowSnapshot),
-    /** Only returns the run an earlier call with this key started; fails `run_not_found` else. */
-    onlyIfStarted: Schema.optional(Schema.Boolean),
+    /**
+     * Starts nothing: cancels the run an earlier call with this key left queued, and returns its
+     * thread if it started; fails `run_not_found` when none runs.
+     */
+    cancelIfStarted: Schema.optional(Schema.Boolean),
   }),
   success: Schema.Struct({
     threadId: ThreadId,

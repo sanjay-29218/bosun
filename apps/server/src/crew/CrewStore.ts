@@ -357,6 +357,8 @@ export interface CrewStoreShape {
   readonly getThreadWorkflow: (
     threadId: ThreadId,
   ) => Effect.Effect<LinkedWorkflow | null, PersistenceSqlError>;
+  /** Deletes run `id`, and the workflow kept for it, if it is still queued. */
+  readonly deleteQueuedRun: (id: string) => Effect.Effect<void, PersistenceSqlError>;
   readonly markStarted: (
     id: string,
     dispatchedAt: string,
@@ -775,6 +777,19 @@ export const CrewStoreLive = Layer.effect(
       setRunInstructions: (id, instructions) =>
         sql`UPDATE crew_runs SET instructions = ${instructions} WHERE id = ${id}`.pipe(
           Effect.asVoid,
+          Effect.mapError(queryError),
+        ),
+      deleteQueuedRun: (id) =>
+        sql<{ readonly id: string }>`
+          DELETE FROM crew_runs
+          WHERE id = ${id} AND dispatch_state = ${CREW_DISPATCH_STATE.QUEUED}
+          RETURNING id
+        `.pipe(
+          Effect.flatMap((rows) =>
+            rows.length === 0
+              ? Effect.void
+              : sql`DELETE FROM crew_run_workflows WHERE run_id = ${id}`.pipe(Effect.asVoid),
+          ),
           Effect.mapError(queryError),
         ),
       markStarted: (id, dispatchedAt) =>

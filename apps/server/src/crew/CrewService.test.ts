@@ -538,78 +538,93 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect("retains a failed dispatch and retries it without a new run", () =>
-    Effect.gen(function* () {
-      let attempts = 0;
-      const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
-        projectExists: () => Effect.succeed(true),
-        projectBotId: () => Effect.succeed(null),
-        projectModelSelection: () => Effect.succeed(null),
-        archive: () => Effect.void,
-        isHiddenProject: () => Effect.succeed(false),
-        botHome: () => Effect.die("unused"),
-        moveThread: () => Effect.die("unused"),
-        restore: () => Effect.void,
-        syncSettings: () => Effect.void,
-        completedRuns: Stream.empty,
-        freshStartRecords: () => Effect.die("unused"),
-        startFresh: () => Effect.void,
-        pin: () => Effect.void,
-        unpin: () => Effect.void,
-        start: () =>
-          Effect.sync(() => ++attempts).pipe(
-            Effect.flatMap((attempt) =>
-              attempt === 1
-                ? Effect.fail(
-                    new OrchestrationCommandInvariantError({
-                      commandType: "thread.create",
-                      commandId: CommandId.make("test-failure"),
-                      cause: new Error("test failure"),
-                    }),
-                  )
-                : Effect.void,
+  effectIt.effect.each(["retried", "cancelled from its link"] as const)(
+    "retains a failed dispatch and, unless %s ends it first, retries it without a new run",
+    (outcome) =>
+      Effect.gen(function* () {
+        let attempts = 0;
+        const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
+          projectExists: () => Effect.succeed(true),
+          projectBotId: () => Effect.succeed(null),
+          projectModelSelection: () => Effect.succeed(null),
+          archive: () => Effect.void,
+          isHiddenProject: () => Effect.succeed(false),
+          botHome: () => Effect.die("unused"),
+          moveThread: () => Effect.die("unused"),
+          restore: () => Effect.void,
+          syncSettings: () => Effect.void,
+          completedRuns: Stream.empty,
+          freshStartRecords: () => Effect.die("unused"),
+          startFresh: () => Effect.void,
+          pin: () => Effect.void,
+          unpin: () => Effect.void,
+          start: () =>
+            Effect.sync(() => ++attempts).pipe(
+              Effect.flatMap((attempt) =>
+                attempt === 1
+                  ? Effect.fail(
+                      new OrchestrationCommandInvariantError({
+                        commandType: "thread.create",
+                        commandId: CommandId.make("test-failure"),
+                        cause: new Error("test failure"),
+                      }),
+                    )
+                  : Effect.void,
+              ),
             ),
-          ),
-        getTurnState: () => Effect.succeed("pending" as const),
-        replayPending: () => Effect.void,
-        interrupt: () => Effect.void,
-        listPendingStartedRunIds: () => Effect.succeed([]),
-      });
-      const layer = CrewServiceLive.pipe(
-        Layer.provideMerge(CrewStoreLive),
-        Layer.provideMerge(BotStore.layer),
-        Layer.provide(fakeRuntime),
-        Layer.provide(SqlitePersistence.layerMemory),
-      );
-      yield* Effect.gen(function* () {
-        const bots = yield* CrewService;
-        const bot = yield* bots.createMember({
-          id: "retry-bot",
-          projectId,
-          name: "Retry bot",
-          instructions: "Try this task.",
-          modelSelection,
-          runtimeMode: "approval-required",
+          // Its thread exists once a dispatch got through.
+          getTurnState: () =>
+            Effect.succeed(attempts >= 2 ? ("pending" as const) : ("missing" as const)),
+          replayPending: () => Effect.void,
+          interrupt: () => Effect.void,
+          listPendingStartedRunIds: () => Effect.succeed([]),
         });
-        const first = yield* bots
-          .createRun({
-            id: "retry-run",
-            memberId: bot.id,
+        const layer = CrewServiceLive.pipe(
+          Layer.provideMerge(CrewStoreLive),
+          Layer.provideMerge(BotStore.layer),
+          Layer.provide(fakeRuntime),
+          Layer.provide(SqlitePersistence.layerMemory),
+        );
+        yield* Effect.gen(function* () {
+          const bots = yield* CrewService;
+          const bot = yield* bots.createMember({
+            id: "retry-bot",
             projectId,
-            taskText: "Retry after failure",
-          })
-          .pipe(Effect.result);
-        expect(first._tag).toBe("Failure");
-        const queued = yield* bots.getRun("retry-run");
-        expect(queued?.run.dispatchState).toBe("queued");
-        expect(queued?.run.lastError).toContain("retry pending");
-        yield* bots.reconcileRuns();
-        const resumed = yield* bots.getRun("retry-run");
-        expect(resumed?.run.dispatchState).toBe("started");
-        expect(resumed?.run.lastError).toBeNull();
-        expect(attempts).toBe(2);
-      }).pipe(Effect.provide(layer));
-    }),
+            name: "Retry bot",
+            instructions: "Try this task.",
+            modelSelection,
+            runtimeMode: "approval-required",
+          });
+          const first = yield* bots
+            .createRun({
+              id: "retry-run",
+              memberId: bot.id,
+              projectId,
+              taskText: "Retry after failure",
+            })
+            .pipe(Effect.result);
+          expect(first._tag).toBe("Failure");
+          const queued = yield* bots.getRun("retry-run");
+          expect(queued?.run.dispatchState).toBe("queued");
+          expect(queued?.run.lastError).toContain("retry pending");
+          if (outcome === "cancelled from its link") {
+            // A linked environment ended the request: the queued run never starts.
+            expect(yield* bots.cancelQueuedRun("retry-run")).toMatchObject({ started: false });
+            yield* bots.reconcileRuns();
+            expect(yield* bots.getRun("retry-run")).toBeNull();
+            expect(attempts).toBe(1);
+            return;
+          }
+          yield* bots.reconcileRuns();
+          const resumed = yield* bots.getRun("retry-run");
+          expect(resumed?.run.dispatchState).toBe("started");
+          expect(resumed?.run.lastError).toBeNull();
+          expect(attempts).toBe(2);
+          // Once started, cancelling leaves it as it is and says it started.
+          expect(yield* bots.cancelQueuedRun("retry-run")).toMatchObject({ started: true });
+          expect((yield* bots.getRun("retry-run"))?.run.dispatchState).toBe("started");
+        }).pipe(Effect.provide(layer));
+      }),
   );
 
   effectIt.effect(

@@ -59,8 +59,12 @@ export interface ProjectManagerLaunch {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly clientRequestId: string;
-  /** Only finds the run an earlier attempt with this key started; starts nothing. */
-  readonly onlyIfStarted?: boolean | undefined;
+  /**
+   * Starts nothing: cancels the run an earlier attempt with this key left queued there, and
+   * returns its thread if it started, for the caller to stop; `run_not_found` when none runs.
+   * Needs neither the bot nor its permission, so cleanup works after either is gone.
+   */
+  readonly cancelIfStarted?: boolean | undefined;
 }
 
 /** What a linked environment's headquarters asks for: a launch, with its bot and workflow. */
@@ -389,7 +393,6 @@ const make = Effect.gen(function* () {
   const permitted = Effect.fn("BotReach.permitted")(function* (
     environmentId: EnvironmentId,
     botId: string,
-    lookupOnly: boolean,
   ) {
     const bot = yield* bots.get(botId).pipe(Effect.mapError(unavailable));
     if (bot === null) return yield* failure("invalid_request", "This headquarters' bot is gone.");
@@ -397,24 +400,32 @@ const make = Effect.gen(function* () {
       yield* links.get(environmentId).pipe(Effect.orElseSucceed(() => Option.none())),
     );
     const label = link?.label ?? environmentId;
-    // Finding what an earlier attempt started, to stop it, is always allowed.
-    if (!lookupOnly && !bot.permittedEnvironmentIds.includes(environmentId)) {
+    if (!bot.permittedEnvironmentIds.includes(environmentId)) {
       return yield* notPermitted(bot.name, label);
     }
     return { bot, link, label };
   });
 
   const checkLaunch: BotReach["Service"]["checkLaunch"] = (environmentId, botId) =>
-    permitted(environmentId, botId, false).pipe(Effect.asVoid);
+    permitted(environmentId, botId).pipe(Effect.asVoid);
 
   const launchProjectManager: BotReach["Service"]["launchProjectManager"] = Effect.fn(
     "BotReach.launchProjectManager",
   )(function* (scope, environmentId, botId, input) {
-    const { bot, link, label } = yield* permitted(
-      environmentId,
-      botId,
-      input.onlyIfStarted === true,
-    );
+    const cleanup = input.cancelIfStarted === true;
+    // Cleanup goes by the request's own record, whatever became of the bot or its permission.
+    const { bot, link, label } = cleanup
+      ? yield* Effect.gen(function* () {
+          const found = Option.getOrUndefined(
+            yield* links.get(environmentId).pipe(Effect.orElseSucceed(() => Option.none())),
+          );
+          return {
+            bot: yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null)),
+            link: found,
+            label: found?.label ?? environmentId,
+          };
+        })
+      : yield* permitted(environmentId, botId);
     // Unreachable is the one failure a waiting request retries.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
@@ -426,15 +437,15 @@ const make = Effect.gen(function* () {
     yield* links
       .resolve(environmentId)
       .pipe(Effect.catch((error) => (error.reason === "unreachable" ? unreachable : Effect.void)));
-    const workflow = yield* workflowSnapshot();
+    const workflow = cleanup ? undefined : yield* workflowSnapshot();
     const self = yield* here;
     return yield* forwarding
       .call(scope, LinkBotTask, environmentId, {
         ...input,
         home: {
           environmentId: self.environmentId,
-          botId: bot.id,
-          botName: bot.name,
+          botId,
+          botName: bot?.name ?? botId,
           label: self.label,
         },
         ...(workflow === undefined ? {} : { workflow }),
@@ -489,10 +500,12 @@ const make = Effect.gen(function* () {
       // environment came back mid-launch finds the run the first attempt started.
       const key = hash(`${input.home.environmentId}\n${input.clientRequestId}`).slice(0, 24);
       const runId = `link-task:${key}`;
-      if (input.onlyIfStarted === true) {
-        const existing = yield* crew.getRun(runId).pipe(Effect.mapError(unavailable));
-        if (existing === null) {
-          return yield* failure("run_not_found", "Nothing started here for this request.");
+      // The caller ended the request: a run still queued here never starts; one that started
+      // is named for the caller to stop.
+      if (input.cancelIfStarted === true) {
+        const existing = yield* crew.cancelQueuedRun(runId).pipe(Effect.mapError(unavailable));
+        if (existing === null || !existing.started) {
+          return yield* failure("run_not_found", "Nothing runs here for this request.");
         }
         return {
           threadId: existing.run.threadId,

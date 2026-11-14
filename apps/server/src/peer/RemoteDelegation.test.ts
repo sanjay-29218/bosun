@@ -1359,6 +1359,8 @@ const makeBotBox = (thread: BoxThread) =>
     const asked = yield* Ref.make<ReadonlyArray<BotReach.ProjectManagerLaunch>>([]);
     /** Runs as each launch there arrives, before anything starts. */
     const onLaunch = yield* Ref.make<Effect.Effect<void>>(Effect.void);
+    /** The next cleanups fail here before reaching the box, as a deleted bot once made them. */
+    const failCleanup = yield* Ref.make(0);
     const notReachable = new OrchestratorMcpFailure({
       code: "orchestration_error",
       message: "Project project:box is on Box, which isn't reachable.",
@@ -1376,7 +1378,13 @@ const makeBotBox = (thread: BoxThread) =>
           const key = `${scope.requestNamespace}\n${input.clientRequestId}`;
           const threadId = ThreadId.make("thread:box-task");
           // Finding what an earlier attempt started is always allowed, and starts nothing.
-          if (input.onlyIfStarted === true) {
+          if (input.cancelIfStarted === true) {
+            if ((yield* Ref.getAndUpdate(failCleanup, (left) => Math.max(0, left - 1))) > 0) {
+              return yield* new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: "This headquarters' bot is gone.",
+              });
+            }
             if (yield* Ref.get(asleep)) return yield* notReachable;
             if (!(yield* Ref.get(started)).includes(key)) {
               return yield* new OrchestratorMcpFailure({
@@ -1403,7 +1411,7 @@ const makeBotBox = (thread: BoxThread) =>
     };
     /** The launches that could start something there, lookups left out. */
     const launches = Ref.get(asked).pipe(
-      Effect.map((seen) => seen.filter((input) => input.onlyIfStarted !== true)),
+      Effect.map((seen) => seen.filter((input) => input.cancelIfStarted !== true)),
     );
     return {
       asleep,
@@ -1414,6 +1422,7 @@ const makeBotBox = (thread: BoxThread) =>
       asked,
       launches,
       onLaunch,
+      failCleanup,
       reach,
     };
   });
@@ -1559,10 +1568,15 @@ it.effect("a request the box refuses fails with why, and is only asked about aft
       const a = yield* makeLaptop(database, offers, undefined, {
         checkLaunch: () => Effect.void,
         launchProjectManager: (_scope, _environmentId, _botId, input) =>
-          Ref.update(asked, (seen) => [...seen, input.onlyIfStarted === true]).pipe(
+          Ref.update(asked, (seen) => [...seen, input.cancelIfStarted === true]).pipe(
             Effect.andThen(
               Effect.fail(
-                new OrchestratorMcpFailure({ code: "invalid_request", message: "Refused there." }),
+                input.cancelIfStarted === true
+                  ? new OrchestratorMcpFailure({ code: "run_not_found", message: "Nothing runs." })
+                  : new OrchestratorMcpFailure({
+                      code: "invalid_request",
+                      message: "Refused there.",
+                    }),
               ),
             ),
           ),
@@ -1826,6 +1840,115 @@ it.effect("a request cancelled after the box started it, its answer lost, is sto
       expect((yield* botBox.launches).length).toBe(launchesBefore);
       expect(yield* Ref.get(botBox.started)).toHaveLength(1);
       expect(yield* a.projections.getOpenRemoteDelegatedTasks).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect(
+  "cleanup that fails here, then a restart and an asleep box, still stops the run there",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const b = yield* serveBox(thread);
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
+        const botBox = yield* makeBotBox(thread);
+        // The box starts the run, the laptop never hears, and the box goes to sleep.
+        yield* Ref.set(botBox.loseAnswer, true);
+        yield* Ref.set(botBox.sleepAfterLostAnswer, true);
+        const waiting = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const retries = yield* steppedRetries;
+            const before = yield* makeLaptop(database, offers, linking, botBox.reach).pipe(
+              Effect.provideService(RemoteDelegation.FollowRetrySchedule, retries.schedule),
+            );
+            yield* linkTo(before.links, b, "full-access");
+            yield* seedParent(before, headquarters);
+            const task = requested(yield* requestOnBox(before));
+            yield* Queue.take(retries.failed);
+            yield* before.call("task_cancel", { taskId: task.taskId }, headquartersScope);
+            // Cleanup fails here once, as when the bot was deleted: that says nothing about the
+            // box, so the request isn't settled.
+            yield* Ref.set(botBox.failCleanup, 1);
+            yield* Queue.offer(retries.retry, undefined);
+            yield* Queue.take(retries.failed);
+            const [open] = yield* before.projections.getOpenRemoteDelegatedTasks;
+            expect(open?.taskId).toBe(task.taskId);
+            return task;
+          }),
+        );
+
+        // After a restart, the box is still asleep, then comes back.
+        const retries = yield* steppedRetries;
+        const after = yield* makeLaptop(database, offers, linking, botBox.reach).pipe(
+          Effect.provideService(RemoteDelegation.FollowRetrySchedule, retries.schedule),
+        );
+        yield* after.remote.start();
+        yield* Queue.take(retries.failed);
+        yield* Ref.set(botBox.asleep, false);
+        yield* Queue.offer(retries.retry, undefined);
+        yield* Deferred.await(thread.interruptedOnce);
+        yield* taskWhen(
+          after,
+          waiting.taskId,
+          (task) => task.remoteChild?.stoppedThere === true,
+          headquarters,
+        );
+        expect(yield* Ref.get(botBox.started)).toHaveLength(1);
+        expect(yield* after.projections.getOpenRemoteDelegatedTasks).toEqual([]);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect.each([
+  ["the instance named", "claudeAgent", "claude-box", null],
+  ["an instance there doesn't have", "claudeAgent", "claude-elsewhere", "can't run a child task"],
+  ["an instance of another driver", "codex", "claude-box", "uses driver claudeAgent, not codex"],
+] as const)("a request naming a driver runs on %s, or fails", ([, driverKind, instance, refusal]) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const botBox = yield* makeBotBox(thread);
+      const a = yield* makeLaptop(database, offers, undefined, botBox.reach);
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedParent(a, headquarters);
+
+      const sent = requested(
+        yield* a.call(
+          "delegate_task",
+          {
+            task: "Start a feature: dark mode.",
+            target: {
+              environmentId: box.environmentId,
+              projectId: boxProject,
+              driverKind,
+              providerInstanceId: instance,
+              model: "claude-sonnet-4-6",
+            },
+            isolation: "worktree",
+            clientRequestId: "named-instance",
+          },
+          headquartersScope,
+        ),
+      );
+      if (refusal === null) {
+        expect(sent.status).toBe("running");
+        const [launch] = yield* botBox.launches;
+        expect(launch?.modelSelection.instanceId).toBe(instance);
+      } else {
+        // A refusal, not a wait: no instance there can change that.
+        expect(sent).toMatchObject({ status: "failed", summary: expect.stringContaining(refusal) });
+        expect(yield* botBox.launches).toEqual([]);
+      }
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
