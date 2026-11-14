@@ -316,47 +316,42 @@ it.layer(layer)("BotService", (it) => {
     }),
   );
 
-  it.effect("moves projects to a bot it creates once, however many moves ask at once", () =>
+  it.effect("gives a project to a bot on another environment without a copy of it here", () =>
     Effect.gen(function* () {
       const bots = yield* BotService.BotService;
       const projects = yield* ProjectService.ProjectService;
-      const project = (id: string) =>
-        projects.create({
-          commandId: CommandId.make(`command:${id}`),
-          projectId: ProjectId.make(id),
-          title: id,
-          workspaceRoot: `/work/${id}`,
-        });
-      const drafts = [yield* project("project:draft-a"), yield* project("project:draft-b")];
-      // The bot's ID where it came from is taken here by a namesake renamed since.
-      yield* bots.create({ ...social, id: "bot:writer", name: "Not the writer" });
-      const writer = { name: "Writer", avatar: social.avatar, color: social.color };
-
-      const moved = yield* Effect.forEach(
-        drafts,
-        (draft) =>
-          bots.moveProject({ projectId: draft.id, botId: "bot:writer", ensureBot: writer }),
-        { concurrency: "unbounded" },
-      );
-      const writers = (yield* bots.list).filter((bot) => bot.name === "Writer");
-      assert.lengthOf(writers, 1);
-      // A copy gets its home when it first needs one.
-      assert.isNull(writers[0]!.homePath);
-      assert.notStrictEqual(writers[0]!.id, "bot:writer");
-      assert.deepStrictEqual(
-        moved.map((each) => each.botId),
-        [writers[0]!.id, writers[0]!.id],
-      );
-
-      // Captain is an ordinary bot: found or made by name like any other.
-      const toCaptain = yield* bots.moveProject({
-        projectId: drafts[0]!.id,
-        botId: "bot-ops",
-        ensureBot: { ...writer, name: "Captain" },
+      const draft = yield* projects.create({
+        commandId: CommandId.make("command:project:draft"),
+        projectId: ProjectId.make("project:draft"),
+        title: "draft",
+        workspaceRoot: "/work/draft",
       });
-      const captains = (yield* bots.list).filter((bot) => bot.name === "Captain");
-      assert.lengthOf(captains, 1);
-      assert.strictEqual(toCaptain.botId, captains[0]!.id);
+      yield* bots.create(social);
+      const before = (yield* bots.list).length;
+      const atlas = {
+        environmentId: EnvironmentId.make("studio"),
+        botId: "bot:atlas",
+        name: "Atlas",
+        homeLabel: "Mac Studio",
+      };
+
+      const remote = yield* bots.moveProject({
+        projectId: draft.id,
+        botId: atlas.botId,
+        remoteBot: atlas,
+      });
+      assert.strictEqual(remote.botId, null);
+      assert.deepStrictEqual(remote.remoteBot, atlas);
+      assert.lengthOf(yield* bots.list, before);
+
+      // A bot here, or none, replaces the one elsewhere.
+      const local = yield* bots.moveProject({ projectId: draft.id, botId: "bot:social" });
+      assert.strictEqual(local.botId, "bot:social");
+      assert.strictEqual(local.remoteBot, null);
+      yield* bots.moveProject({ projectId: draft.id, botId: atlas.botId, remoteBot: atlas });
+      const none = yield* bots.moveProject({ projectId: draft.id, botId: null });
+      assert.strictEqual(none.botId, null);
+      assert.strictEqual(none.remoteBot, null);
     }),
   );
 

@@ -5,6 +5,7 @@ import {
   type OrchestrationProjectShell,
   StoredProjectIcon,
   ProjectId,
+  ProjectRemoteBot,
   ProjectScript,
   ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -41,6 +42,7 @@ export const ProjectRow = Schema.Struct({
   projectIcon: Schema.NullOr(StoredProjectIcon),
   scripts: Schema.Array(ProjectScript),
   botId: Schema.NullOr(Schema.String),
+  remoteBot: Schema.NullOr(ProjectRemoteBot),
   managerPinned: Schema.Boolean,
   pinnedAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
@@ -58,6 +60,7 @@ const ProjectDbRow = Schema.Struct({
   managerPinned: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  remoteBot: Schema.NullOr(Schema.fromJsonString(ProjectRemoteBot)),
 });
 
 function toShell(row: ProjectRow): OrchestrationProjectShell {
@@ -74,6 +77,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    remoteBot: row.remoteBot,
     managerPinned: row.managerPinned,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
@@ -134,6 +138,7 @@ export const make = Effect.gen(function* () {
         project_icon_json AS "projectIcon",
         scripts_json AS "scripts",
         bot_id AS "botId",
+        remote_bot_json AS "remoteBot",
         manager_pinned AS "managerPinned",
         pinned_at AS "pinnedAt",
         archived_at AS "archivedAt",
@@ -169,6 +174,7 @@ export const make = Effect.gen(function* () {
             project_icon_json,
             scripts_json,
             bot_id,
+            remote_bot_json,
             manager_pinned,
             pinned_at,
             archived_at,
@@ -188,6 +194,7 @@ export const make = Effect.gen(function* () {
             ${encoded.projectIcon},
             ${encoded.scripts},
             ${encoded.botId},
+            ${encoded.remoteBot},
             ${encoded.managerPinned},
             ${encoded.pinnedAt},
             ${encoded.archivedAt},
@@ -211,6 +218,7 @@ export const make = Effect.gen(function* () {
             project_icon_json = excluded.project_icon_json,
             scripts_json = excluded.scripts_json,
             bot_id = excluded.bot_id,
+            remote_bot_json = excluded.remote_bot_json,
             manager_pinned = excluded.manager_pinned,
             pinned_at = excluded.pinned_at,
             archived_at = excluded.archived_at,
@@ -264,6 +272,7 @@ export const make = Effect.gen(function* () {
           projectIcon: payload.projectIcon ?? null,
           scripts: payload.scripts,
           botId: payload.botId ?? null,
+          remoteBot: null,
           managerPinned: false,
           pinnedAt: null,
           archivedAt: null,
@@ -297,7 +306,13 @@ export const make = Effect.gen(function* () {
         ...(payload.faviconPath === undefined ? {} : { faviconPath: payload.faviconPath }),
         ...(payload.projectIcon === undefined ? {} : { projectIcon: payload.projectIcon }),
         ...(payload.scripts === undefined ? {} : { scripts: payload.scripts }),
-        ...(payload.botId === undefined ? {} : { botId: payload.botId }),
+        // A project has one owner: a bot here or one on another environment.
+        ...(payload.botId === undefined ? {} : { botId: payload.botId, remoteBot: null }),
+        ...(payload.remoteBot === undefined
+          ? {}
+          : payload.remoteBot === null
+            ? { remoteBot: null }
+            : { remoteBot: payload.remoteBot, botId: null }),
         ...(payload.managerPinned === undefined ? {} : { managerPinned: payload.managerPinned }),
         ...(payload.pinnedAt === undefined ? {} : { pinnedAt: payload.pinnedAt }),
         ...(payload.archivedAt === undefined ? {} : { archivedAt: payload.archivedAt }),

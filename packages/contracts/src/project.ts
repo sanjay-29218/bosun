@@ -4,6 +4,7 @@ import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
   CommandId,
+  EnvironmentId,
   ForwardCompatibleUnion,
   isUnknownUnionMember,
   IsoDateTime,
@@ -151,6 +152,18 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+/**
+ * A bot from another environment that owns a project here; the project's `botId` is null then.
+ * `name` and `homeLabel` are as that environment last sent them.
+ */
+export const ProjectRemoteBot = Schema.Struct({
+  environmentId: EnvironmentId,
+  botId: Schema.String,
+  name: Schema.String,
+  homeLabel: Schema.String,
+});
+export type ProjectRemoteBot = typeof ProjectRemoteBot.Type;
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -165,6 +178,8 @@ export const Project = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   /** The bot that owns the project; null or absent when it has none. */
   botId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The owning bot when it lives on another environment. Absent from older servers. */
+  remoteBot: Schema.optional(Schema.NullOr(ProjectRemoteBot)),
   /** The project's manager shows in the main rail. Absent from older servers: pinned. */
   managerPinned: Schema.optional(Schema.Boolean),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),

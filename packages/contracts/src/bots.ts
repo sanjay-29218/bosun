@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 
 import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectIconColor } from "./project.ts";
+import { ProjectIconColor, ProjectRemoteBot } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
@@ -33,13 +33,6 @@ export const headquartersProjectId = (threadId: string): ProjectId | null =>
 /** A thread that lives as long as its owner: a bot's headquarters or a project's manager. */
 export const isStandingThread = (threadId: string) =>
   headquartersBotId(threadId) !== null || headquartersProjectId(threadId) !== null;
-/**
- * How one environment finds its bot's counterpart on a linked one: the bot there with the same
- * name. Clients list each bot once, under its home.
- */
-export const logicalBotKey = (bot: { readonly name: string }): string =>
-  `name:${bot.name.trim().toLocaleLowerCase()}`;
-
 /** A bot's avatar: a small robot built from these parts and tinted with the bot's color. */
 export const BOT_HEADS = [
   "squircle",
@@ -182,24 +175,14 @@ export const BotDeleteInput = Schema.Struct({ id: Schema.String });
 /** The whole rail order: every bot exactly once. */
 export const BotReorderInput = Schema.Struct({ botIds: Schema.Array(Schema.String) });
 /**
- * Gives a project to `botId`, or to no bot when it is null. With `ensureBot`, `botId` names the
- * bot where it came from instead: the project goes to the bot here with the same name, made from
- * `ensureBot` under a new ID when this environment doesn't have it yet.
+ * Gives a project to `botId`, or to no bot when it is null. With `remoteBot`, the project goes to
+ * that bot on another environment instead, and `botId` repeats its id, so an older server that
+ * doesn't know `remoteBot` refuses the move rather than clearing the owner.
  */
 export const BotMoveProjectInput = Schema.Struct({
   projectId: ProjectId,
   botId: Schema.NullOr(Schema.String),
-  ensureBot: Schema.optionalKey(
-    Schema.Struct({
-      name: Schema.String,
-      avatar: BotAvatar,
-      color: ProjectIconColor,
-      modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-    }).annotate({
-      description:
-        "The bot from another environment, made here under a new ID if no bot here has its name.",
-    }),
-  ),
+  remoteBot: Schema.optionalKey(ProjectRemoteBot),
 });
 export type BotMoveProjectInput = typeof BotMoveProjectInput.Type;
 

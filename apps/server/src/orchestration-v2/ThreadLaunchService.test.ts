@@ -270,6 +270,7 @@ function makeHarness(options: HarnessOptions = {}) {
               hasCustomTitle: false,
               autoPull: false,
               botId: "bot-ops",
+              remoteBot: null,
               managerPinned: false,
               faviconPath: null,
               projectIcon: null,

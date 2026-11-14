@@ -5,6 +5,7 @@ import {
   type ModelSelection,
   type ProjectIconOverride,
   ProjectId,
+  type ProjectRemoteBot,
   type ProjectScript,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
@@ -41,6 +42,8 @@ export interface ProjectMetaUpdateCommand {
   readonly scripts?: ReadonlyArray<ProjectScript>;
   /** Moves the project to this bot, or to none when null; the caller has checked it exists. */
   readonly botId?: string | null;
+  /** Moves the project to a bot on another environment, which clears `botId`. */
+  readonly remoteBot?: ProjectRemoteBot;
   /** Shows the project's manager in the main rail, or hides it there. */
   readonly managerPinned?: boolean;
   readonly pinned?: boolean;
@@ -218,6 +221,7 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           ...(command.botId === undefined ? {} : { botId: command.botId }),
+          ...(command.remoteBot === undefined ? {} : { remoteBot: command.remoteBot }),
           ...(command.managerPinned === undefined ? {} : { managerPinned: command.managerPinned }),
           // Repeating a pin or archive keeps the original time.
           ...(command.pinned === undefined

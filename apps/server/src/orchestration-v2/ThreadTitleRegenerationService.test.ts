@@ -84,6 +84,7 @@ function makeHarness(
               hasCustomTitle: false,
               autoPull: false,
               botId: "bot-ops",
+              remoteBot: null,
               managerPinned: false,
               faviconPath: null,
               projectIcon: null,
