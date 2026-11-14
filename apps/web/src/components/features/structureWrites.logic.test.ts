@@ -52,4 +52,19 @@ describe("createStructureWrites", () => {
     expect(await third).toBe(true);
     expect(written).toEqual([{ parent: 48 }, { parent: null, milestone: 8 }]);
   });
+
+  it("keeps a failed write's milestone in the queued parent change that relied on it", async () => {
+    const { written, write, started, settle } = host();
+    const edit = createStructureWrites(write);
+    void edit({ parent: 48, milestone: 8 });
+    await started();
+    const second = edit({ parent: 50 });
+    await settle(false);
+    await settle(true);
+    expect(await second).toBe(true);
+    expect(written).toEqual([
+      { parent: 48, milestone: 8 },
+      { parent: 50, milestone: 8 },
+    ]);
+  });
 });

@@ -1,7 +1,8 @@
 /**
  * Changes to one issue's milestone and parent, one write at a time. A change asked while a write
  * runs merges into the next write, each field's newest value winning, so an older pick can never
- * land after a newer one. Callers merged into one write share its result.
+ * land after a newer one. Callers merged into one write share its result. A failed write's fields
+ * carry into the queued one, which the caller computed against the failed write's optimistic state.
  */
 export function createStructureWrites<Change extends object>(
   write: (change: Change) => Promise<boolean>,
@@ -19,7 +20,12 @@ export function createStructureWrites<Change extends object>(
     };
     entry.result = tail.then(() => {
       if (queued === entry) queued = null;
-      return write(entry.change).catch(() => false);
+      return write(entry.change)
+        .catch(() => false)
+        .then((ok) => {
+          if (!ok && queued) queued.change = { ...entry.change, ...queued.change };
+          return ok;
+        });
     });
     queued = entry;
     tail = entry.result;
