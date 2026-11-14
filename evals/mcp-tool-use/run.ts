@@ -39,6 +39,8 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
 import {
+  crewMemberInstructions,
+  crewMemberTask,
   crewRunPrompt,
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
@@ -324,6 +326,8 @@ export const McpToolUseCase = Schema.Struct({
     role: Schema.Literals([
       "top",
       "delegated-child",
+      /** A feature crew member the lead delegated to by name; it alone lists crew_ask_person. */
+      "crew-member",
       "native-subagent",
       "feature-lead",
       "headquarters",
@@ -346,6 +350,8 @@ export const McpToolUseCase = Schema.Struct({
         epic: Schema.optional(Schema.Boolean),
       }),
     ),
+    /** The crew member a "crew-member" case plays, such as "Designer", with its built-in role. */
+    crewMember: Schema.optional(Schema.String),
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
@@ -571,6 +577,8 @@ const crewTools = new Set(
     (tool) => `${T3_PREFIX}${tool.name}`,
   ),
 );
+// Only a feature's crew member asks the person in its own thread.
+const askPersonTool = `${T3_PREFIX}${CrewToolkit.tools.crew_ask_person.name}`;
 // Only a project's manager answers requests, so only its cases list t3_project_reply.
 const replyTools = new Set([`${T3_PREFIX}${ProjectRequestsToolkit.tools.t3_project_reply.name}`]);
 const linkOnlyTools = new Set(
@@ -581,6 +589,7 @@ const visibleT3Tools = (options: {
   readonly links?: boolean;
   readonly headquarters?: boolean;
   readonly projectManager?: boolean;
+  readonly crewMember?: boolean;
 }) =>
   t3Tools.filter(
     (tool) =>
@@ -588,9 +597,11 @@ const visibleT3Tools = (options: {
       !(options.subagent === true && hiddenFromSubagents.has(tool.name)) &&
       (options.headquarters === true || !botTools.has(tool.name)) &&
       (options.projectManager === true || !replyTools.has(tool.name)) &&
-      (options.headquarters === true ||
-        options.projectManager === true ||
-        !crewTools.has(tool.name)) &&
+      (tool.name === askPersonTool
+        ? options.crewMember === true
+        : options.headquarters === true ||
+          options.projectManager === true ||
+          !crewTools.has(tool.name)) &&
       !linkOnlyTools.has(tool.name),
   );
 
@@ -703,6 +714,7 @@ export const buildBase = (
     readonly links?: boolean;
     readonly headquarters?: boolean;
     readonly projectManager?: boolean;
+    readonly crewMember?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -801,6 +813,7 @@ const buildCodexBase = (
     readonly links?: boolean;
     readonly headquarters?: boolean;
     readonly projectManager?: boolean;
+    readonly crewMember?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
@@ -1230,15 +1243,20 @@ export const buildMessages = (sample: Sample) => {
       text(
         role === "delegated-child"
           ? childPrompt()
-          : role === "feature-lead" && leadBrief === undefined
-            ? leadPrompt(prompt)
-            : role === "project-manager"
-              ? projectRequestText({
-                  id: "R-1",
-                  requesterThreadId: Contracts.botHeadquartersThreadId(EVAL_BOT_ID),
-                  text: prompt,
-                })
-              : prompt,
+          : role === "crew-member"
+            ? crewMemberTask(
+                crewMemberInstructions(testCase.setup.crewMember ?? "Designer"),
+                childPrompt(),
+              )
+            : role === "feature-lead" && leadBrief === undefined
+              ? leadPrompt(prompt)
+              : role === "project-manager"
+                ? projectRequestText({
+                    id: "R-1",
+                    requesterThreadId: Contracts.botHeadquartersThreadId(EVAL_BOT_ID),
+                    text: prompt,
+                  })
+                : prompt,
       ),
     );
   // Claude Code gives a subagent its SubagentStart hooks' context as a reminder after the task.
@@ -1507,6 +1525,10 @@ const unsavedSecretNote = (Contracts as Record<string, unknown>).SECRET_REQUEST_
   | undefined;
 
 /** Fields T3 adds to real thread and task results, applied to mocks and defaults alike. */
+/** Roles T3 runs as a delegated child of another thread. */
+const isChildRole = (role: McpToolUseCase["setup"]["role"]) =>
+  role === "delegated-child" || role === "crew-member";
+
 const withProductFields = (name: string, value: unknown, child: boolean): unknown => {
   if (!isRecord(value)) return value;
   const linked = (thread: unknown, idKey = "threadId") => {
@@ -1836,12 +1858,12 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
       call.id,
       name === "orchestrator_capabilities"
         ? capabilities(sample, mock)
-        : withProductFields(name, mock, testCase.setup.role === "delegated-child"),
+        : withProductFields(name, mock, isChildRole(testCase.setup.role)),
     );
   }
   if (isT3Name(call.name)) {
     // T3 refuses a watch from a delegated child.
-    if (name === "watch_pull_request" && testCase.setup.role === "delegated-child") {
+    if (name === "watch_pull_request" && isChildRole(testCase.setup.role)) {
       return failed(SUBAGENT_WATCH_ERROR);
     }
     const value = t3Default(sample, name, input);
@@ -1850,7 +1872,7 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
       call.id,
       name === "orchestrator_capabilities"
         ? capabilities(sample, value)
-        : withProductFields(name, value, testCase.setup.role === "delegated-child"),
+        : withProductFields(name, value, isChildRole(testCase.setup.role)),
     );
   }
   if (call.name === "clock__curr_time")
@@ -2705,9 +2727,10 @@ const main = Effect.gen(function* () {
               model: flags.model,
               keepUserInstructions,
               effort: flags.effort,
-              subagent: role === "delegated-child",
+              subagent: role === "delegated-child" || role === "crew-member",
               headquarters: role === "headquarters",
               projectManager: role === "project-manager",
+              crewMember: role === "crew-member",
               links,
               deviceAccess,
               browserAccess,
@@ -2719,9 +2742,10 @@ const main = Effect.gen(function* () {
             const built = buildBase(capture.request.provider_native, {
               model: flags.model,
               keepUserInstructions,
-              subagent: role === "delegated-child",
+              subagent: role === "delegated-child" || role === "crew-member",
               headquarters: role === "headquarters",
               projectManager: role === "project-manager",
+              crewMember: role === "crew-member",
               nativeSubagent: role === "native-subagent",
               links,
               deviceAccess,
