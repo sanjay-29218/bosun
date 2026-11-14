@@ -75,6 +75,7 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { resolveRuntimeMode } from "./delegatedTaskModes.ts";
+import { crewMemberTask } from "../crew/crewPrompts.ts";
 import type { ProjectionRecordFilter } from "../orchestration-v2/ProjectionStore.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -2437,7 +2438,12 @@ describe("OrchestratorMcpService provider resolution", () => {
         // Named after the lead's task, not the instructions put in front of it.
         assert.equal(request!.title, "Planner: Plan dark mode.");
         assert.equal(request!.modelSelection.model, plannerModel.model);
-        assert.equal(request!.task, "You are the Planner on a feature's crew.\n\nPlan dark mode.");
+        // Every crew member hears how to get the person's approval, whatever its role says.
+        assert.equal(
+          request!.task,
+          crewMemberTask("You are the Planner on a feature's crew.", "Plan dark mode."),
+        );
+        assert.include(request!.task, "crew_ask_person");
         const stranger = yield* mcp
           .delegateTask(scope, {
             task: "Style it.",

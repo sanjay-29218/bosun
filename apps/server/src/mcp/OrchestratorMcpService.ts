@@ -135,6 +135,7 @@ import {
   runtimeModeRank,
   taskPrompt,
 } from "./delegatedTaskModes.ts";
+import { crewMemberTask } from "../crew/crewPrompts.ts";
 import { CrewDelegation } from "./CrewDelegation.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -2935,7 +2936,7 @@ const make = Effect.gen(function* () {
           task:
             crewMember === null
               ? taskPrompt(input, issue)
-              : `${crewMember.instructions.trim()}\n\n${taskPrompt(input, issue)}`,
+              : crewMemberTask(crewMember.instructions, taskPrompt(input, issue)),
           // A crew thread is named from the lead's task, not the instructions put before it.
           ...(input.title !== undefined
             ? { title: input.title }

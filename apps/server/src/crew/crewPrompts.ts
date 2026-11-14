@@ -36,11 +36,27 @@ export const projectRequestText = (request: {
 
 /** The built-in workflow's instructions, which people can edit. */
 export const FEATURE_DELIVERY_INSTRUCTIONS =
-  "Have the Planner plan it, then ask the person to approve the plan. Have the Designer design it if it needs one. Have the Builder build it, then the QA Tester check it and the Reviewer review the diff; send what they find back to the Builder until both pass. Then have the Builder commit, push and open the pull request. Skip what the work doesn't need.";
+  "Have the Planner plan it and get the person's approval of the plan. Have the Designer design it if it needs one. Have the Builder build it, then the QA Tester check it and the Reviewer review the diff; send what they find back to the Builder until both pass. Then have the Builder commit, push and open the pull request. Skip what the work doesn't need.";
 
 /** The built-in Epic workflow's instructions, for work that ships as several features. */
 export const EPIC_INSTRUCTIONS =
-  "This work ships as several child features, each with its own worktree, branch, crew and pull request. Have the Planner propose the split: a short list of child features, each one reviewable pull request, saying which builds on which. Ask the person to approve the split, and revise it until they do. Then start each child with t3_feature_start, with a title and a brief that stands on its own. A child that builds on another's work sets baseBranch to that child's branch and starts only after that child reports done. Each child's lead reports back here when it finishes, with its summary and pull request; to answer or redirect a child, use t3_thread_send to its lead's thread. When every child is in, have the QA Tester run the final integration check in this feature's worktree: merge the children's branches in order, then build and run the tests. Send what fails to the child that owns it, and check again once it reports back. Then report each child's pull request in merge order. Don't build the children's work in this feature yourself.";
+  "This work ships as several child features, each with its own worktree, branch, crew and pull request. Have the Planner propose the split: a short list of child features, each one reviewable pull request, saying which builds on which. Have the Planner get the person's approval of the split, revising it until they approve. Then start each child with t3_feature_start, with a title and a brief that stands on its own. A child that builds on another's work sets baseBranch to that child's branch and starts only after that child reports done. Each child's lead reports back here when it finishes, with its summary and pull request; to answer or redirect a child, use t3_thread_send to its lead's thread. When every child is in, have the QA Tester run the final integration check in this feature's worktree: merge the children's branches in order, then build and run the tests. Send what fails to the child that owns it, and check again once it reports back. Then report each child's pull request in merge order. Don't build the children's work in this feature yourself.";
+
+/** Several crew threads run at once on one machine, so each keeps its checks and servers small. */
+const CREW_CHECKS =
+  "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you finish.";
+
+/** A built-in crew role's instructions, until a person edits them. */
+export const crewMemberInstructions = (name: string) =>
+  `You are the ${name} on a feature's crew. Its lead gives you a task: do it in this thread's checkout, then end with a clear summary of the result and its evidence; that message goes back to the lead. If information is missing, say exactly what you need in that message instead of guessing. ${CREW_CHECKS}`;
+
+/** Every crew member hears this, whatever its role's instructions say. */
+const CREW_MEMBER_APPROVALS =
+  'When your task asks for the person\'s approval, get it in this thread, where they see your work: show the work here (the plan, design or file, and what it covers), call crew_ask_person with a one-line question, and end your turn. Their answer arrives as your next message. If they ask for changes, revise and ask again. Once they approve, end with a one-line outcome for the lead, such as "Design approved: design.html". Never put a question for the person in your final message.';
+
+/** What a feature's lead delegates to a crew member: its role's instructions, then the task. */
+export const crewMemberTask = (instructions: string, task: string) =>
+  `${instructions.trim()}\n\n${CREW_MEMBER_APPROVALS}\n\n${task}`;
 
 /** What a crew run's thread is first told: its role's instructions and its task. */
 export const crewRunPrompt = (run: { readonly instructions: string; readonly taskText: string }) =>
@@ -74,7 +90,7 @@ export const featureLeadTask = (
         ]
       : []),
     crew.length > 0
-      ? `Crew: ${crew.join(", ")}. Give one a task with delegate_task, setting crewMember to their name; their result comes back here.`
+      ? `Crew: ${crew.join(", ")}. Give one a task with delegate_task, setting crewMember to their name; their result comes back here. When a step needs the person's approval, such as a plan or a design, say so in that member's task: they ask the person in their own thread, and you get the outcome. Never copy a member's plan or design into this thread or ask the person about it here; your own questions stay in this thread.`
       : "Crew: none. Do the work yourself.",
     `Brief:\n${feature.brief.slice(0, 8_000)}`,
     'When you start another feature, decide yourself whether it is a child or separate, and never ask the person. It is a child when this feature needs that work done to count as finished: leave parentFeatureId out. Otherwise it is separate: set parentFeatureId to null, and it reports back to this thread. When you split this feature into parts, they are children. After starting one, say which in one line, such as "Started child 3 of 4: Invoice page" or "Started a separate feature: Fix the login 500".',
