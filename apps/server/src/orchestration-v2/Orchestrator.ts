@@ -14685,12 +14685,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
-  // Bosun: a crew member waiting on the person's answer holds its tasks (see crewApprovalRules).
-  const crewAwaitsPerson = (threadId: ThreadId) =>
-    projectionStore
-      .getThreadRecords(threadId, ["runtimeRequests"], { runtimeRequestStatuses: ["pending"] })
-      .pipe(Effect.map(({ runtimeRequests }) => crewQuestionHoldsTask(runtimeRequests)));
-
   // A waiting run has ended its turn, so its task waits only on the work it left.
   const progressAfterTurn = (child: Parameters<typeof delegatedTaskProgress>[0]) =>
     delegatedTaskProgress({
@@ -14706,8 +14700,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) {
     const childControls = yield* projectionStore.getThreadRecords(
       childThreadId,
-      ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-      { messageRoles: ["user"] },
+      [
+        "runs",
+        "messages",
+        "subagents",
+        "providerThreads",
+        "providerTurns",
+        "attempts",
+        "runtimeRequests",
+      ],
+      { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
     );
     const parentThreadId = childControls.thread.lineage.parentThreadId;
     if (
@@ -14717,7 +14719,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     )
       return;
     const progress = delegatedTaskProgress(childControls);
-    const askedPerson = yield* crewAwaitsPerson(childThreadId);
+    // Bosun: read with the runs above, so a dismissal can't land between them.
+    const askedPerson = crewQuestionHoldsTask(childControls.runtimeRequests);
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -16090,8 +16093,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     function* (childThreadId: ThreadId, taskId?: NodeId) {
       const child = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-        { messageRoles: ["user"] },
+        [
+          "runs",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "runtimeRequests",
+        ],
+        { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
       );
       if (taskId !== undefined) {
         const runs = delegatedTaskRuns(child, taskId);
@@ -16100,13 +16111,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           run === undefined ||
           delegatedTaskTerminalStatus(run.status) === null ||
           delegatedTaskAwaitsWork(runs, child) ||
-          (yield* crewAwaitsPerson(childThreadId))
+          crewQuestionHoldsTask(child.runtimeRequests)
         )
           return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
       const progress = delegatedTaskProgress(child);
-      if (progress.state !== "result_available" || (yield* crewAwaitsPerson(childThreadId)))
+      if (progress.state !== "result_available" || crewQuestionHoldsTask(child.runtimeRequests))
         return true;
       if (progress.resultRun === undefined) return false;
       return yield* childAwaitsRestartContinuation(child.runs, progress.resultRun);
@@ -16184,15 +16195,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const child = yield* projectionStore
           .getThreadRecords(
             command.threadId,
-            ["runs", "messages", "subagents", "providerThreads"],
-            { messageRoles: ["user"] },
+            ["runs", "messages", "subagents", "providerThreads", "runtimeRequests"],
+            { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
           )
           .pipe(mapDispatchError(command));
         const followUpRun = child.runs
           .filter((run) => run.delegatedTaskId === input.taskId)
           .toSorted((a, b) => b.ordinal - a.ordinal)[0];
         const unsettled =
-          (yield* crewAwaitsPerson(command.threadId).pipe(mapDispatchError(command))) ||
+          crewQuestionHoldsTask(child.runtimeRequests) ||
           (followUpRun === undefined
             ? child.thread.forkedFrom?.type === "node" &&
               child.thread.forkedFrom.nodeId === input.taskId &&

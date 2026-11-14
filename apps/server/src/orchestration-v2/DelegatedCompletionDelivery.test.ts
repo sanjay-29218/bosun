@@ -5354,7 +5354,7 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
 
 // The answer's run reuses the orchestrator the tasks settle through, as in production.
 const layerCrewApprovalsTest = CrewApprovals.layer.pipe(
-  Layer.provide(ProjectionStore.layer),
+  Layer.provideMerge(ProjectionStore.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provideMerge(layerTest),
 );
@@ -5636,6 +5636,60 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         child.messages.some((message) => message.id.startsWith("message:crew-answer:")),
       );
       assert.isNotNull((yield* taskOf(asking.parentThreadId, asking.taskId))?.result ?? null);
+    }),
+  );
+
+  it.effect("doesn't settle a member's turn from before a dismissal that lands mid-check", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const asking = yield* seedAsking("crew-ask-dismiss-mid-check");
+      const runsRead = yield* Deferred.make<void>();
+      const dismissed = yield* Deferred.make<void>();
+      const read = projections.getThreadRecords;
+      let armed = true;
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() =>
+          vi.spyOn(projections, "getThreadRecords").mockImplementation(((
+            threadId: ThreadId,
+            ...rest: Parameters<typeof read> extends [unknown, ...infer R] ? R : never
+          ) => {
+            const records = read(threadId, ...rest);
+            // Settlement's read of the member's runs; the dismissal commits right after it.
+            if (!armed || threadId !== asking.childThreadId || !rest[0].includes("runs"))
+              return records;
+            armed = false;
+            return records.pipe(
+              Effect.tap(() => Deferred.succeed(runsRead, undefined)),
+              Effect.tap(() => Deferred.await(dismissed)),
+            );
+          }) as typeof read),
+        ),
+        () =>
+          Effect.gen(function* () {
+            const settling = yield* orchestrator.recoverDelegatedTasks.pipe(Effect.forkChild);
+            yield* Deferred.await(runsRead);
+            yield* orchestrator.dispatch({
+              type: "thread.user-input.dismiss",
+              commandId: CommandId.make("command:crew-ask-dismiss-mid-check"),
+              threadId: asking.childThreadId,
+              requestId: asking.requestId,
+            });
+            yield* Deferred.succeed(dismissed, undefined);
+            yield* Fiber.join(settling);
+          }),
+        (spy) => Effect.sync(() => spy.mockRestore()),
+      );
+      // The dismissal's continuation is running, so its outcome, not the earlier turn, settles it.
+      assert.isNull(
+        (yield* taskOf(asking.parentThreadId, asking.taskId))?.result ?? null,
+        "settlement delivered the member's turn from before the dismissal",
+      );
+      assert.isTrue(
+        (yield* orchestrator.getThreadProjection(asking.childThreadId)).messages.some(
+          (message) => message.id === `message:crew-answer:${asking.requestId}`,
+        ),
+      );
     }),
   );
 });
