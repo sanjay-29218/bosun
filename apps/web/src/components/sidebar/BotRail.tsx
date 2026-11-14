@@ -3,7 +3,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   botRailSignal,
   createLogicalBotResolver,
-  isManagerPinned,
+  pinnedProjectManagers,
   projectBotId,
   type BotActivity,
   type BotRailSignal,
@@ -12,6 +12,7 @@ import {
 import {
   botHeadquartersThreadId,
   headquartersProjectId,
+  projectHeadquartersThreadId,
   type EnvironmentId,
   type ProjectId,
   type ThreadId,
@@ -51,6 +52,7 @@ import { useProjects, useQuietThreadShells, useThreadShell } from "../../state/e
 import {
   useConnectedEnvironmentIds,
   useEnvironmentIdentities,
+  useEnvironments,
   usePullRequestsSupported,
 } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -110,37 +112,55 @@ interface RailProjectManager {
   readonly botId: string | null;
 }
 
-/** Each pinned project manager whose thread exists and isn't archived, by title. */
+/**
+ * Each pinned project manager, by title, whether or not its thread exists yet: opening one makes
+ * it. A manager turned off (its thread archived) is left out.
+ */
 function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
   const shells = useQuietThreadShells();
   const projects = useProjects();
   const groups = useSettingsProjectGroups();
+  const { environments } = useEnvironments();
   const environmentFilter = useEnvironmentFilter();
-  const entries: RailProjectManager[] = [];
-  for (const shell of shells) {
-    const projectId = headquartersProjectId(shell.id);
-    if (projectId === null || shell.archivedAt !== null) continue;
-    if (environmentFilter !== null && !environmentFilter.has(shell.environmentId)) continue;
-    const project = projects.find(
-      (candidate) => candidate.environmentId === shell.environmentId && candidate.id === projectId,
-    );
-    const group = groups.find((candidate) =>
-      candidate.memberProjects.some(
-        (member) => member.environmentId === shell.environmentId && member.id === projectId,
-      ),
-    );
-    if (!project || !group || !isManagerPinned(project)) continue;
-    entries.push({
-      key: `${shell.environmentId}:${shell.id}`,
-      environmentId: shell.environmentId,
-      projectId,
-      threadId: shell.id,
-      title: project.title,
-      projectKey: group.projectKey,
-      botId: projectBotId(project),
-    });
-  }
-  return entries.toSorted((left, right) => left.title.localeCompare(right.title));
+  const archivedManagers = new Set(
+    shells.flatMap((shell) => {
+      const projectId = headquartersProjectId(shell.id);
+      return projectId === null || shell.archivedAt === null
+        ? []
+        : [`${shell.environmentId}:${projectId}`];
+    }),
+  );
+  const managerEnvironmentIds = new Set(
+    environments
+      .filter(
+        (environment) =>
+          environment.serverConfig?.environment.capabilities.workflows === true &&
+          (environmentFilter === null || environmentFilter.has(environment.environmentId)),
+      )
+      .map((environment) => environment.environmentId),
+  );
+  return pinnedProjectManagers({ projects, managerEnvironmentIds, archivedManagers }).flatMap(
+    (project) => {
+      const group = groups.find((candidate) =>
+        candidate.memberProjects.some(
+          (member) => member.environmentId === project.environmentId && member.id === project.id,
+        ),
+      );
+      if (!group) return [];
+      const threadId = projectHeadquartersThreadId(project.id);
+      return [
+        {
+          key: `${project.environmentId}:${threadId}`,
+          environmentId: project.environmentId,
+          projectId: project.id,
+          threadId,
+          title: project.title,
+          projectKey: group.projectKey,
+          botId: projectBotId(project),
+        },
+      ];
+    },
+  );
 }
 
 /**

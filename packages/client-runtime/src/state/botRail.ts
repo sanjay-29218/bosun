@@ -31,6 +31,8 @@ export interface EnvironmentBots {
 export interface LogicalBotMember {
   readonly environmentId: EnvironmentId;
   readonly botId: string;
+  /** This environment's own pin; absent reads as pinned. */
+  readonly pinned?: boolean;
 }
 
 /**
@@ -63,7 +65,7 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
       const existing = byKey.get(key);
       if (existing) {
         if (!existing.members.some((member) => member.environmentId === environmentId)) {
-          existing.members.push({ environmentId, botId: bot.id });
+          existing.members.push({ environmentId, botId: bot.id, pinned: bot.pinned ?? true });
           existing.pinned ||= bot.pinned ?? true;
           continue;
         }
@@ -73,7 +75,7 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
         name: bot.name,
         avatar: bot.avatar,
         color: bot.color,
-        members: [{ environmentId, botId: bot.id }],
+        members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
         pinned: bot.pinned ?? true,
       });
     }
@@ -148,6 +150,35 @@ export function logicalBotProjectKeys(
     if (owner === null || owner === bot.key) keys.add(`${project.environmentId}:${project.id}`);
   }
   return keys;
+}
+
+/**
+ * `${environmentId}:${projectId}` keys the thread list shows for the rail's pick, or null when
+ * nothing narrows it. The rail scopes by bot once two bots are pinned; ownership is read from
+ * every bot, pinned or not, so an unpinned bot's projects never land under another bot.
+ */
+export function railProjectKeys(input: {
+  readonly active: LogicalBot | null;
+  readonly pinnedBots: ReadonlyArray<LogicalBot>;
+  readonly allBots: ReadonlyArray<LogicalBot>;
+  readonly projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+    readonly botId?: string | null | undefined;
+  }>;
+  readonly environmentFilter: ReadonlySet<EnvironmentId> | null;
+}): Set<string> | null {
+  const { active, environmentFilter } = input;
+  const filterByBot = active !== null && input.pinnedBots.length > 1;
+  if (!filterByBot && environmentFilter === null) return null;
+  const inEnvironment =
+    environmentFilter === null
+      ? input.projects
+      : input.projects.filter((project) => environmentFilter.has(project.environmentId));
+  if (!filterByBot) {
+    return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
+  }
+  return logicalBotProjectKeys(active, input.allBots, inEnvironment);
 }
 
 /**
@@ -383,13 +414,67 @@ export function countHiddenNeedsYou(input: {
   const ownerKey = createThreadBotKeyResolver(input.projects);
   let count = 0;
   for (const shell of input.shells) {
+    // A manager's thread shows with the manager, whatever its bot's pin.
     const managerOf = headquartersProjectId(shell.id);
-    if (managerOf !== null && unpinnedManagers.has(`${shell.environmentId}:${managerOf}`)) {
-      count += 1;
+    if (managerOf !== null) {
+      if (unpinnedManagers.has(`${shell.environmentId}:${managerOf}`)) count += 1;
       continue;
     }
     const owner = ownerKey(shell);
     if (owner !== undefined && unpinnedBots.has(owner)) count += 1;
   }
   return count;
+}
+
+/**
+ * Pinned project managers the rail lists, by title: one per project whose manager is pinned,
+ * whether or not its thread exists yet (opening it makes one). Scratch, bots' homes, servers
+ * without features and managers turned off (their thread archived) are left out.
+ */
+export function pinnedProjectManagers<
+  Project extends {
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+    readonly title: string;
+    readonly managerPinned?: boolean | undefined;
+    readonly isScratch?: true;
+    readonly isBotHome?: true;
+  },
+>(input: {
+  readonly projects: ReadonlyArray<Project>;
+  readonly managerEnvironmentIds: ReadonlySet<EnvironmentId>;
+  /** `${environmentId}:${projectId}` of managers whose thread is archived. */
+  readonly archivedManagers: ReadonlySet<string>;
+}): Project[] {
+  return input.projects
+    .filter(
+      (project) =>
+        !project.isScratch &&
+        !project.isBotHome &&
+        isManagerPinned(project) &&
+        input.managerEnvironmentIds.has(project.environmentId) &&
+        !input.archivedManagers.has(`${project.environmentId}:${project.id}`),
+    )
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
+
+/**
+ * Writes one pin to every target. If any write fails, the targets already written go back to
+ * their previous value, so a bot isn't left pinned on some environments only. Returns the first
+ * failure, or null.
+ */
+export async function writePins<Target extends { readonly previous: boolean }, Failure>(
+  targets: ReadonlyArray<Target>,
+  pinned: boolean,
+  write: (target: Target, pinned: boolean) => Promise<Failure | null>,
+): Promise<Failure | null> {
+  const results = await Promise.all(targets.map((target) => write(target, pinned)));
+  const failure = results.find((result) => result !== null) ?? null;
+  if (failure === null) return null;
+  await Promise.all(
+    targets.flatMap((target, index) =>
+      results[index] === null && target.previous !== pinned ? [write(target, target.previous)] : [],
+    ),
+  );
+  return failure;
 }

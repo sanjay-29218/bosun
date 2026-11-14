@@ -10,7 +10,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { useUiStateStore } from "../../uiStateStore";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { toastManager } from "../ui/toast";
-import { latestStandingOpen } from "./standingOpen";
+import { latestStandingOpen, leaveRailOnNextOpen } from "./standingOpen";
 
 export interface ScopedProjectManager {
   readonly environmentId: EnvironmentId;
@@ -67,17 +67,22 @@ export const OPEN_PROJECT_MANAGER_ITEM = {
 export function useOpenProjectManager() {
   const navigate = useNavigate();
   const open = useAtomCommand(rolesEnvironment.openProjectManager, { reportFailure: false });
-  return (project: {
-    readonly environmentId: EnvironmentId;
-    readonly projectId: ProjectId;
-    readonly title: string;
-  }) =>
+  /** `leaveRail` keeps the rail's bot and scope, as the Bots list does. */
+  return (
+    project: {
+      readonly environmentId: EnvironmentId;
+      readonly projectId: ProjectId;
+      readonly title: string;
+    },
+    options?: { readonly leaveRail?: boolean },
+  ) =>
     latestStandingOpen(
       open({ environmentId: project.environmentId, input: { projectId: project.projectId } }),
     ).then((latest) => {
       if (latest === null) return;
       const result = latest.value;
       if (result._tag === "Success") {
+        if (options?.leaveRail) leaveRailOnNextOpen(project.environmentId, result.value.threadId);
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(

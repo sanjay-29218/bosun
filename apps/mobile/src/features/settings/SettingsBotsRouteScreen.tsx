@@ -3,13 +3,15 @@ import {
   createLogicalBotResolver,
   isManagerPinned,
   projectBotId,
+  writePins,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { projectManagerLook } from "@t3tools/client-runtime/project-manager-look";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import * as Cause from "effect/Cause";
-import { useState } from "react";
+import { Atom } from "effect/reactivity";
+import { useMemo, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -61,29 +63,33 @@ export function SettingsBotsRouteScreen() {
     navigation.dispatch(
       StackActions.push("Thread", { environmentId: String(environmentId), threadId }),
     );
+  // A bot on several environments is pinned on all of them or, after a failure, on none that
+  // changed.
   const toggle = async (
     key: string,
     pinned: boolean,
     targets: ReadonlyArray<{
       readonly environmentId: EnvironmentId;
       readonly input: { readonly botId: string } | { readonly projectId: ProjectId };
+      readonly previous: boolean;
     }>,
     onError: (message: string | null) => void,
   ) => {
     onError(null);
     setPending((current) => new Map(current).set(key, pinned));
-    const results = await Promise.all(
-      targets.map((target) =>
-        setPin({ environmentId: target.environmentId, input: { ...target.input, pinned } }),
-      ),
-    );
+    const failure = await writePins(targets, pinned, async (target, value) => {
+      const result = await setPin({
+        environmentId: target.environmentId,
+        input: { ...target.input, pinned: value },
+      });
+      return result._tag === "Failure" ? Cause.pretty(result.cause) : null;
+    });
     setPending((current) => {
       const next = new Map(current);
       next.delete(key);
       return next;
     });
-    const failure = results.find((result) => result._tag === "Failure");
-    if (failure?._tag === "Failure") onError(Cause.pretty(failure.cause));
+    if (failure !== null) onError(failure);
   };
   const openBot = async (bot: LogicalBot) => {
     const member = bot.members[0];
@@ -123,6 +129,7 @@ export function SettingsBotsRouteScreen() {
               return (
                 <BotsRow
                   key={bot.key}
+                  environmentIds={bot.members.map((member) => member.environmentId)}
                   name={bot.name}
                   subtitle={
                     count === 0 ? "No projects" : `${count} project${count === 1 ? "" : "s"}`
@@ -137,6 +144,7 @@ export function SettingsBotsRouteScreen() {
                       bot.members.map((member) => ({
                         environmentId: member.environmentId,
                         input: { botId: member.botId },
+                        previous: member.pinned ?? true,
                       })),
                       setBotsError,
                     )
@@ -157,6 +165,7 @@ export function SettingsBotsRouteScreen() {
               return (
                 <BotsRow
                   key={key}
+                  environmentIds={[project.environmentId]}
                   name={project.title}
                   subtitle={owner === null ? "No bot" : (botNames.get(owner) ?? "No bot")}
                   avatar={<BotAvatar avatar={look.avatar} color={look.color} size={32} />}
@@ -179,7 +188,13 @@ export function SettingsBotsRouteScreen() {
                     void toggle(
                       key,
                       !pinned,
-                      [{ environmentId: project.environmentId, input: { projectId: project.id } }],
+                      [
+                        {
+                          environmentId: project.environmentId,
+                          input: { projectId: project.id },
+                          previous: pinned,
+                        },
+                      ],
                       setManagersError,
                     )
                   }
@@ -196,7 +211,26 @@ export function SettingsBotsRouteScreen() {
   );
 }
 
+/** Whether pins can be written on every one of these environments. */
+function useCanPin(environmentIds: ReadonlyArray<EnvironmentId>): boolean {
+  const key = environmentIds.join(",");
+  const atom = useMemo(
+    () =>
+      Atom.make((get) =>
+        key
+          .split(",")
+          .every((environmentId) =>
+            get(botsEnvironment.setPin.permissionAtom(environmentId as EnvironmentId)),
+          ),
+      ),
+    [key],
+  );
+  return useAtomValue(atom);
+}
+
 function BotsRow(props: {
+  /** Where the pin is written; the pin is off unless every one allows it. */
+  readonly environmentIds: ReadonlyArray<EnvironmentId>;
   readonly name: string;
   readonly subtitle: string;
   readonly avatar: React.ReactNode;
@@ -204,6 +238,7 @@ function BotsRow(props: {
   readonly onOpen: () => void;
   readonly onTogglePin: () => void;
 }) {
+  const canPin = useCanPin(props.environmentIds);
   return (
     <View className="flex-row items-center gap-3 py-2 pr-1 pl-4">
       <Pressable
@@ -224,7 +259,8 @@ function BotsRow(props: {
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityState={{ selected: props.pinned }}
+        accessibilityState={{ selected: props.pinned, disabled: !canPin }}
+        disabled={!canPin}
         accessibilityLabel={props.pinned ? `Unpin ${props.name}` : `Pin ${props.name}`}
         className="size-11 items-center justify-center"
         onPress={props.onTogglePin}

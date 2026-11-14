@@ -8,15 +8,8 @@ import { logicalBotsAtom, readActiveLogicalBotKey } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { useUiStateStore } from "../../uiStateStore";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
+import { consumeLeaveRail } from "./standingOpen";
 import { followStandingThread, standingThreadSelection } from "./standingThreadSelection";
-
-// The Bots list opens a thread without changing the rail; the rail skips following that one.
-let leaveRailFor: string | null = null;
-
-/** Opening this standing thread next leaves the rail's bot and scope as they are. */
-export function leaveRailOnStandingOpen(environmentId: string, threadId: string): void {
-  leaveRailFor = `${environmentId}:${threadId}`;
-}
 
 /**
  * Keeps the rail on the open standing thread when it was opened from outside the rail (a link,
@@ -35,8 +28,7 @@ export function FollowStandingThread() {
   useEffect(() => {
     const key = environmentId && threadId ? `${environmentId}:${threadId}` : null;
     if (key === followedRef.current) return;
-    if (key !== null && key === leaveRailFor) {
-      leaveRailFor = null;
+    if (consumeLeaveRail(key)) {
       followedRef.current = key;
       return;
     }

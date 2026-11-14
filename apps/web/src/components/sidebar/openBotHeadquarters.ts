@@ -9,7 +9,7 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { toastManager } from "../ui/toast";
-import { latestStandingOpen } from "./standingOpen";
+import { latestStandingOpen, leaveRailOnNextOpen } from "./standingOpen";
 
 /**
  * Opens a bot's headquarters: the one thread where it sees all its projects. The server
@@ -33,7 +33,8 @@ export function useOpenBotHeadquarters() {
   const connected = useConnectedEnvironmentIds();
   const environmentFilter = useEnvironmentFilter();
   const open = useAtomCommand(botsEnvironment.openHeadquarters, { reportFailure: false });
-  return (bot: LogicalBot) => {
+  /** `leaveRail` keeps the rail's bot and scope, as the Bots list does. */
+  return (bot: LogicalBot, options?: { readonly leaveRail?: boolean }) => {
     const member = headquartersMember(bot, connected, environmentFilter);
     if (!member) return;
     void latestStandingOpen(
@@ -42,6 +43,7 @@ export function useOpenBotHeadquarters() {
       if (latest === null) return;
       const result = latest.value;
       if (result._tag === "Success") {
+        if (options?.leaveRail) leaveRailOnNextOpen(member.environmentId, result.value.threadId);
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(

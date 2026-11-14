@@ -2,7 +2,7 @@ import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
   buildLogicalBots,
   countNeedsYouByLogicalBot,
-  isManagerPinned,
+  pinnedProjectManagers,
   logicalBotProjectKeys,
   resolveActiveLogicalBot,
   selectLogicalBot,
@@ -74,28 +74,28 @@ export interface PinnedManager {
 }
 
 /**
- * Pinned project managers whose thread exists, by title, as a JSON string so streamed thread
- * updates that change none of them re-render nothing.
+ * Pinned project managers, by title, whether or not their thread exists yet (opening one makes
+ * it), as a JSON string so streamed thread updates that change none of them re-render nothing.
  */
 const pinnedManagersKeyAtom = Atom.make((get) => {
-  const managerThreads = new Set(
+  const archivedManagers = new Set(
     get(environmentThreadShells.threadShellsAtom).flatMap((shell) => {
       const projectId = headquartersProjectId(shell.id);
-      return projectId === null || shell.archivedAt !== null
+      return projectId === null || shell.archivedAt === null
         ? []
         : [`${shell.environmentId}:${projectId}`];
     }),
   );
-  const managers = get(environmentProjects.projectsAtom)
-    .filter(
-      (project) =>
-        !project.isScratch &&
-        !project.isBotHome &&
-        isManagerPinned(project) &&
-        managerThreads.has(`${project.environmentId}:${project.id}`),
-    )
-    .sort((left, right) => left.title.localeCompare(right.title))
-    .map((project) => [project.environmentId, project.id, project.title]);
+  const managerEnvironmentIds = new Set(
+    [...get(environmentServerConfigsAtom)]
+      .filter(([, config]) => config.environment.capabilities.workflows === true)
+      .map(([environmentId]) => environmentId),
+  );
+  const managers = pinnedProjectManagers({
+    projects: get(environmentProjects.projectsAtom),
+    managerEnvironmentIds,
+    archivedManagers,
+  }).map((project) => [project.environmentId, project.id, project.title]);
   return JSON.stringify(managers);
 }).pipe(Atom.withLabel("mobile-bots:pinned-managers"));
 
@@ -157,7 +157,7 @@ export interface ActiveBot {
    * The remembered bot, pinned or not, else the first pinned one; null with no bot to show.
    */
   readonly active: LogicalBot | null;
-  /** Pinned project managers whose thread exists, by title. */
+  /** Pinned project managers, by title; opening one makes its thread. */
   readonly managers: ReadonlyArray<PinnedManager>;
   readonly needsYou: ReadonlyMap<string, number>;
   /**

@@ -6,7 +6,7 @@ import {
   countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
-  logicalBotProjectKeys,
+  railProjectKeys,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
@@ -297,19 +297,11 @@ export function useBotRailHeadquartersKeys(): ReadonlySet<string> | null {
  */
 export function useBotRailProjectKeys(): ReadonlySet<string> | null {
   const bots = useVisibleLogicalBots();
+  const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
   const projects = useAtomValue(environmentProjects.projectsAtom);
-  const filterByBot = active !== null && bots.length > 1;
-  if (!filterByBot && environmentFilter === null) return null;
-  const inEnvironment =
-    environmentFilter === null
-      ? projects
-      : projects.filter((project) => environmentFilter.has(project.environmentId));
-  if (!filterByBot) {
-    return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
-  }
-  return logicalBotProjectKeys(active, bots, inEnvironment);
+  return railProjectKeys({ active, pinnedBots: bots, allBots, projects, environmentFilter });
 }
 
 /**

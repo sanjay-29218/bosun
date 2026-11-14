@@ -1,13 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { BotActivity, LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
 import {
-  botHeadquartersThreadId,
-  projectHeadquartersThreadId,
-  type EnvironmentId,
-} from "@t3tools/contracts";
+  writePins,
+  type BotActivity,
+  type LogicalBot,
+} from "@t3tools/client-runtime/state/bot-rail";
+import { projectHeadquartersThreadId, type EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { BotIcon, PinIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { Atom } from "effect/reactivity";
 import { memo, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
@@ -31,7 +32,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { searchableSetting } from "../settings/settingsSearch";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
-import { leaveRailOnStandingOpen } from "../sidebar/FollowStandingThread";
 import { BOTS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
 import { headquartersMember, useOpenBotHeadquarters } from "../sidebar/openBotHeadquarters";
 import { useOpenProjectManager } from "../sidebar/openProjectManager";
@@ -175,6 +175,7 @@ export function BotsListSidebar() {
                         bot.members.map((member) => ({
                           environmentId: member.environmentId,
                           input: { botId: member.botId },
+                          previous: member.pinned ?? true,
                         })),
                       )
                     }
@@ -203,6 +204,7 @@ export function BotsListSidebar() {
                           {
                             environmentId: manager.environmentId,
                             input: { projectId: manager.projectId },
+                            previous: manager.pinned,
                           },
                         ],
                       )
@@ -220,7 +222,17 @@ export function BotsListSidebar() {
   );
 }
 
-/** Pins show the new state at once and fall back, with a toast, if the server refuses. */
+interface PinTarget {
+  readonly environmentId: EnvironmentId;
+  readonly input: { readonly botId: string } | { readonly projectId: BotsListManager["projectId"] };
+  /** This environment's pin before the toggle, restored if another environment refuses. */
+  readonly previous: boolean;
+}
+
+/**
+ * Pins show the new state at once and fall back, with a toast, if the server refuses. A bot on
+ * several environments is pinned on all of them or, after a failure, on none that changed.
+ */
 function usePinToggle() {
   const setPin = useAtomCommand(botsEnvironment.setPin, { reportFailure: false });
   const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -232,35 +244,35 @@ function usePinToggle() {
     });
   return {
     shown: (key: string, pinned: boolean) => pending.get(key) ?? pinned,
-    toggle: (
-      key: string,
-      name: string,
-      pinned: boolean,
-      targets: ReadonlyArray<{
-        readonly environmentId: EnvironmentId;
-        readonly input:
-          | { readonly botId: string }
-          | { readonly projectId: BotsListManager["projectId"] };
-      }>,
-    ) => {
+    toggle: (key: string, name: string, pinned: boolean, targets: ReadonlyArray<PinTarget>) => {
       setPending((current) => new Map(current).set(key, pinned));
-      void Promise.all(
-        targets.map((target) =>
-          setPin({ environmentId: target.environmentId, input: { ...target.input, pinned } }),
-        ),
-      ).then((results) => {
+      void writePins(targets, pinned, async (target, value) => {
+        const result = await setPin({
+          environmentId: target.environmentId,
+          input: { ...target.input, pinned: value },
+        });
+        return result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null;
+      }).then((failure) => {
         settle(key);
-        const failure = results.find((result) => result._tag !== "Success");
-        if (failure !== undefined && failure._tag === "Failure") {
-          toastManager.add({
-            type: "error",
-            title: `Could not pin ${name}`,
-            description: formatEnvironmentQueryError(failure.cause),
-          });
+        if (failure !== null) {
+          toastManager.add({ type: "error", title: `Could not pin ${name}`, description: failure });
         }
       });
     },
   };
+}
+
+/** Whether pins can be written on every one of these environments. */
+function useCanPin(environmentIds: ReadonlyArray<EnvironmentId>): boolean {
+  const key = environmentIds.join(",");
+  const atom = Atom.make((get) =>
+    key
+      .split(",")
+      .every((environmentId) =>
+        get(botsEnvironment.setPin.permissionAtom(environmentId as EnvironmentId)),
+      ),
+  );
+  return useAtomValue(atom);
 }
 
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
@@ -294,6 +306,7 @@ function ListRow({
   avatar,
   mark,
   pinned,
+  canPin,
   dimmed = false,
   onOpen,
   onSettings,
@@ -304,6 +317,7 @@ function ListRow({
   readonly avatar: ReactNode;
   readonly mark: { readonly needsYou: number } | "working" | null;
   readonly pinned: boolean;
+  readonly canPin: boolean;
   readonly dimmed?: boolean;
   readonly onOpen: () => void;
   readonly onSettings: (() => void) | null;
@@ -356,6 +370,7 @@ function ListRow({
           variant={pinned ? "ghost" : "ghost-muted"}
           size="icon-xs"
           aria-pressed={pinned}
+          disabled={!canPin}
           aria-label={pinned ? `Unpin ${name} from rail` : `Pin ${name} to rail`}
           onClick={onTogglePin}
         >
@@ -389,8 +404,10 @@ const BotsListBotRow = memo(function BotsListBotRow({
   const environmentFilter = useEnvironmentFilter();
   const member = headquartersMember(bot, connected, environmentFilter);
   const editMember = member ?? bot.members[0];
+  const canPin = useCanPin(bot.members.map((candidate) => candidate.environmentId));
   return (
     <ListRow
+      canPin={canPin}
       name={bot.name}
       subtitle={member === undefined ? "Offline" : subtitle}
       dimmed={member === undefined}
@@ -407,8 +424,7 @@ const BotsListBotRow = memo(function BotsListBotRow({
       onOpen={() => {
         if (member === undefined) return;
         onNavigate();
-        leaveRailOnStandingOpen(member.environmentId, botHeadquartersThreadId(member.botId));
-        openHeadquarters(bot);
+        openHeadquarters(bot, { leaveRail: true });
       }}
       onSettings={
         editMember
@@ -444,8 +460,10 @@ const BotsListManagerRow = memo(function BotsListManagerRow({
   const threadId = projectHeadquartersThreadId(manager.projectId);
   const { waiting, working } = useStandingStatus(scopeThreadRef(manager.environmentId, threadId));
   const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
+  const canPin = useAtomValue(botsEnvironment.setPin.permissionAtom(manager.environmentId));
   return (
     <ListRow
+      canPin={canPin}
       name={manager.title}
       subtitle={subtitle}
       avatar={
@@ -460,8 +478,7 @@ const BotsListManagerRow = memo(function BotsListManagerRow({
       pinned={pinned}
       onOpen={() => {
         onNavigate();
-        leaveRailOnStandingOpen(manager.environmentId, threadId);
-        void openProjectManager(manager);
+        void openProjectManager(manager, { leaveRail: true });
       }}
       onSettings={() => {
         onNavigate();

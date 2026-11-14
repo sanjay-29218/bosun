@@ -16,3 +16,19 @@ export function latestStandingOpen<A>(pending: Promise<A>): Promise<{ readonly v
   const request = latestOpen;
   return pending.then((value) => (request === latestOpen ? { value } : null));
 }
+
+// The Bots list opens a thread without changing the rail. Armed only once its open succeeded,
+// right before navigating, and cleared by the next navigation, whichever thread it lands on.
+let leaveRailFor: string | null = null;
+
+/** The navigation to `${environmentId}:${threadId}` that follows leaves the rail as it is. */
+export function leaveRailOnNextOpen(environmentId: string, threadId: string): void {
+  leaveRailFor = `${environmentId}:${threadId}`;
+}
+
+/** Whether the rail should leave this navigation alone. Disarms whatever was armed. */
+export function consumeLeaveRail(key: string | null): boolean {
+  const leave = key !== null && key === leaveRailFor;
+  leaveRailFor = null;
+  return leave;
+}

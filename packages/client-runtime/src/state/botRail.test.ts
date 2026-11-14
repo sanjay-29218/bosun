@@ -15,6 +15,9 @@ import {
   botRailSignal,
   buildLogicalBots,
   countHiddenNeedsYou,
+  pinnedProjectManagers,
+  railProjectKeys,
+  writePins,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
   logicalBotMemberOn,
@@ -80,8 +83,8 @@ describe("buildLogicalBots", () => {
       ["Finance", "round", 1],
     ]);
     expect(bots[1]!.members).toEqual([
-      { environmentId: local, botId: "bot-social" },
-      { environmentId: remote, botId: "bot-social-2" },
+      { environmentId: local, botId: "bot-social", pinned: true },
+      { environmentId: remote, botId: "bot-social-2", pinned: true },
     ]);
   });
 });
@@ -140,10 +143,118 @@ describe("pins", () => {
           shell("bot-run:project-hq:quiet", "quiet"),
           // A pinned manager, and a project with no bot, show in the rail.
           shell("bot-run:project-hq:shown", "shown"),
+          // A pinned manager shows even when its bot isn't pinned.
+          shell("bot-run:project-hq:hidden", "hidden"),
           shell("c", "loose"),
         ],
       }),
     ).toBe(3);
+  });
+});
+
+describe("railProjectKeys", () => {
+  const all = buildLogicalBots([
+    {
+      environmentId: local,
+      bots: [
+        bot("bot-a", "A", 0),
+        bot("bot-b", "B", 1),
+        { ...bot("bot-idle", "Idle", 2), pinned: false },
+      ],
+    },
+  ]);
+  const pinned = all.filter((entry) => entry.pinned);
+  const projects = [
+    { environmentId: local, id: "a", botId: "bot-a" },
+    { environmentId: local, id: "idle", botId: "bot-idle" },
+    { environmentId: local, id: "loose", botId: null },
+  ];
+
+  it("keeps an unpinned bot's projects its own, and shows no-bot projects everywhere", () => {
+    expect([
+      ...railProjectKeys({
+        active: pinned[0]!,
+        pinnedBots: pinned,
+        allBots: all,
+        projects,
+        environmentFilter: null,
+      })!,
+    ]).toEqual(["local:a", "local:loose"]);
+  });
+
+  it("doesn't scope with fewer than two pinned bots", () => {
+    expect(
+      railProjectKeys({
+        active: pinned[0]!,
+        pinnedBots: pinned.slice(0, 1),
+        allBots: all,
+        projects,
+        environmentFilter: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("pinnedProjectManagers", () => {
+  it("lists pinned managers by title, threads or not, leaving out what has no manager", () => {
+    const project = (id: string, title: string, extra: object = {}) => ({
+      environmentId: local,
+      id: ProjectId.make(id),
+      title,
+      managerPinned: true,
+      ...extra,
+    });
+    const managers = pinnedProjectManagers({
+      projects: [
+        project("web", "web"),
+        project("api", "api"),
+        project("quiet", "quiet", { managerPinned: false }),
+        project("off", "off"),
+        project("scratch", "Scratch", { isScratch: true }),
+        project("home", "Ops", { isBotHome: true }),
+        { ...project("plain", "plain"), environmentId: remote },
+      ],
+      managerEnvironmentIds: new Set([local]),
+      archivedManagers: new Set([`${local}:off`]),
+    });
+    expect(managers.map((manager) => manager.id)).toEqual(["api", "web"]);
+  });
+});
+
+describe("writePins", () => {
+  it("puts back the targets that were written when another fails", async () => {
+    const writes: Array<[string, boolean]> = [];
+    const failure = await writePins(
+      [
+        { id: "a", previous: false },
+        { id: "b", previous: true },
+        { id: "c", previous: false },
+      ],
+      true,
+      async (target, pinned) => {
+        writes.push([target.id, pinned]);
+        return target.id === "c" && pinned ? "offline" : null;
+      },
+    );
+    expect(failure).toBe("offline");
+    // b was already pinned, so only a goes back.
+    expect(writes).toEqual([
+      ["a", true],
+      ["b", true],
+      ["c", true],
+      ["a", false],
+    ]);
+  });
+
+  it("writes nothing back when every target succeeds", async () => {
+    const writes: string[] = [];
+    expect(
+      await writePins([{ id: "a", previous: true }], false, async (target) => {
+        writes.push(target.id);
+        return null;
+      }),
+    ).toBeNull();
+    expect(writes).toEqual(["a"]);
   });
 });
 
