@@ -46,8 +46,7 @@ again keeps what you unticked. **Link an environment** links another machine wit
 
 When the bot hands work to a project on a machine that's asleep or offline, the request waits
 instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
-is back**, and it starts by itself once that machine answers, even after a restart. Stop the row to
-cancel it, and it never starts there. Unticking the machine while a request waits fails it.
+is back**, and it starts by itself once that machine answers, even after a restart. Stop the row to cancel it; if it had already reached that machine, it's stopped there once that machine answers. Unticking the machine while a request waits fails it.
 
 #### Projects owned by a copy of a bot on another machine
 

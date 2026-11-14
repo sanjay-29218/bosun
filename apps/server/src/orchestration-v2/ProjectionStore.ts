@@ -8377,7 +8377,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           )
           OR (
             json_type(payload_json, '$.pendingRemote') = 'object'
-            AND json_type(payload_json, '$.result') = 'null'
+            AND json_type(payload_json, '$.remoteChild') IS NULL
+            AND (
+              json_type(payload_json, '$.result') = 'null'
+              OR json_type(payload_json, '$.pendingRemote.settled') IS NOT 'true'
+            )
           )
         )
     `.pipe(

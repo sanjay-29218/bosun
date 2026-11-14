@@ -702,6 +702,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "delegated_task.request":
     case "delegated_task.remote.request":
     case "delegated_task.remote.launched":
+    case "delegated_task.remote.wait":
     case "delegated_task.remote.complete":
     case "delegated_task.remote.stop":
     case "delegated_task.wake-policy":
@@ -9893,8 +9894,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           task.remoteChild?.environmentId === remoteChild.environmentId &&
           task.remoteChild.threadId === remoteChild.threadId,
       );
-    // A request that couldn't reach its environment waits until its follower starts it there.
-    const status = remoteChild === undefined ? "waiting" : "running";
+    // A bot's request is queued until its first attempt there, and waits while it can't reach it.
+    const status =
+      remoteChild !== undefined
+        ? "running"
+        : command.progress === undefined
+          ? "pending"
+          : "waiting";
     const remote = {
       ...(remoteChild === undefined ? {} : { remoteChild }),
       ...(command.pendingRemote === undefined ? {} : { pendingRemote: command.pendingRemote }),
@@ -10079,8 +10085,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // the dispatcher refuses. A stop there after the result is still recorded, but
     // a run that ended by itself does not settle a stop the task here still owes.
     if (task.result !== null) {
-      // Never started there: nothing to stop.
-      if (task.remoteChild === undefined) return;
+      // A request that never started there: its environment confirmed nothing is left to stop.
+      if (task.remoteChild === undefined) {
+        if (command.stoppedThere === undefined || task.pendingRemote?.settled === true) return;
+        const now = yield* DateTime.now;
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "subagent.updated",
+          threadId: command.parentThreadId,
+          ...(task.runId === null ? {} : { runId: task.runId }),
+          nodeId: task.id,
+          driver: task.driver,
+          occurredAt: now,
+          payload: {
+            ...task,
+            pendingRemote: { ...task.pendingRemote!, settled: true },
+            updatedAt: now,
+          },
+        });
+        return;
+      }
       // A Stop or cancel here that lost the race to the result still owes its stop.
       if (command.stoppedThere === undefined) {
         return yield* emitRemoteStopOwed(events, command, task, task.remoteChild!);
@@ -10185,7 +10211,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const pendingRemoteTask = Effect.fn("orchestrationV2.dispatch.pendingRemoteTask")(function* (
     command: Extract<
       OrchestrationV2InternalCommand,
-      { readonly type: "delegated_task.remote.launched" }
+      { readonly type: "delegated_task.remote.launched" | "delegated_task.remote.wait" }
     >,
   ) {
     const parentProjection = yield* projectionStore
@@ -10246,20 +10272,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       driver: task.driver,
       occurredAt: now,
     };
-    const { pendingRemote: _launched, ...started } = task;
+    // The pending launch stays, so a replayed request still finds its task by its key.
     if (task.result !== null) {
       yield* emitEvent({
         ...common,
         type: "subagent.updated",
         payload: {
-          ...started,
+          ...task,
           remoteChild: { ...command.remoteChild, stoppedThere: false },
           updatedAt: now,
         },
       });
       return;
     }
-    const { progress: _progress, ...running } = started;
+    const { progress: _progress, ...running } = task;
     yield* emitEvent({
       ...common,
       type: "subagent.updated",
@@ -10273,7 +10299,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     if (item?.type === "subagent") {
-      const { pendingRemote: _itemLaunched, progress: _itemProgress, ...itemRunning } = item;
+      const { progress: _itemProgress, ...itemRunning } = item;
       yield* emitEvent({
         ...common,
         type: "turn-item.updated",
@@ -10283,6 +10309,49 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           status: "running",
           updatedAt: now,
         },
+      });
+    }
+  });
+
+  /** A waiting remote task couldn't reach its environment; `progress` says what it waits for. */
+  const dispatchRemoteDelegatedTaskWait = Effect.fn(
+    "orchestrationV2.dispatch.remoteDelegatedTaskWait",
+  )(function* (
+    command: Extract<
+      OrchestrationV2InternalCommand,
+      { readonly type: "delegated_task.remote.wait" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const { task, node, item } = yield* pendingRemoteTask(command);
+    if (task.result !== null || (task.status === "waiting" && task.progress === command.progress))
+      return;
+    const now = yield* DateTime.now;
+    const emitEvent = emit(events, command);
+    const common = {
+      threadId: command.parentThreadId,
+      ...(task.runId === null ? {} : { runId: task.runId }),
+      nodeId: task.id,
+      driver: task.driver,
+      occurredAt: now,
+    };
+    yield* emitEvent({
+      ...common,
+      type: "subagent.updated",
+      payload: { ...task, status: "waiting", progress: command.progress, updatedAt: now },
+    });
+    if (node !== undefined) {
+      yield* emitEvent({
+        ...common,
+        type: "node.updated",
+        payload: { ...node, status: "waiting" },
+      });
+    }
+    if (item?.type === "subagent") {
+      yield* emitEvent({
+        ...common,
+        type: "turn-item.updated",
+        payload: { ...item, status: "waiting", progress: command.progress, updatedAt: now },
       });
     }
   });
@@ -13240,7 +13309,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           status: "cancelled",
           result:
             subagent.remoteChild === undefined && subagent.pendingRemote !== undefined
-              ? `Cancelled. It never started on ${subagent.pendingRemote.label}.`
+              ? `Cancelled while waiting for ${subagent.pendingRemote.label}.`
               : "Cancelled.",
         },
         events,
@@ -15550,6 +15619,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "delegated_task.remote.launched":
         yield* dispatchRemoteDelegatedTaskLaunched(command, events);
+        break;
+      case "delegated_task.remote.wait":
+        yield* dispatchRemoteDelegatedTaskWait(command, events);
         break;
       case "delegated_task.remote.complete":
         yield* dispatchRemoteDelegatedTaskComplete(command, events);

@@ -59,6 +59,8 @@ export interface ProjectManagerLaunch {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly clientRequestId: string;
+  /** Only finds the run an earlier attempt with this key started; starts nothing. */
+  readonly onlyIfStarted?: boolean | undefined;
 }
 
 /** What a linked environment's headquarters asks for: a launch, with its bot and workflow. */
@@ -92,6 +94,11 @@ export class BotReach extends Context.Service<
     readonly projectsForLink: (
       home: BotHome,
     ) => Effect.Effect<ReadonlyArray<BotProject>, OrchestratorMcpFailure>;
+    /** Fails, naming why, unless the bot may start work on linked environment `environmentId`. */
+    readonly checkLaunch: (
+      environmentId: EnvironmentId,
+      botId: string,
+    ) => Effect.Effect<void, OrchestratorMcpFailure>;
     /**
      * From a bot's headquarters here: starts a request as a task of the Feature manager of a project on
      * linked environment `environmentId`, checking the bot may work there first. Fails with
@@ -378,18 +385,36 @@ const make = Effect.gen(function* () {
     return snapshot;
   });
 
-  const launchProjectManager: BotReach["Service"]["launchProjectManager"] = Effect.fn(
-    "BotReach.launchProjectManager",
-  )(function* (scope, environmentId, botId, input) {
+  /** The bot and the link's label, failing unless the bot may start work there. */
+  const permitted = Effect.fn("BotReach.permitted")(function* (
+    environmentId: EnvironmentId,
+    botId: string,
+    lookupOnly: boolean,
+  ) {
     const bot = yield* bots.get(botId).pipe(Effect.mapError(unavailable));
     if (bot === null) return yield* failure("invalid_request", "This headquarters' bot is gone.");
     const link = Option.getOrUndefined(
       yield* links.get(environmentId).pipe(Effect.orElseSucceed(() => Option.none())),
     );
     const label = link?.label ?? environmentId;
-    if (!bot.permittedEnvironmentIds.includes(environmentId)) {
+    // Finding what an earlier attempt started, to stop it, is always allowed.
+    if (!lookupOnly && !bot.permittedEnvironmentIds.includes(environmentId)) {
       return yield* notPermitted(bot.name, label);
     }
+    return { bot, link, label };
+  });
+
+  const checkLaunch: BotReach["Service"]["checkLaunch"] = (environmentId, botId) =>
+    permitted(environmentId, botId, false).pipe(Effect.asVoid);
+
+  const launchProjectManager: BotReach["Service"]["launchProjectManager"] = Effect.fn(
+    "BotReach.launchProjectManager",
+  )(function* (scope, environmentId, botId, input) {
+    const { bot, link, label } = yield* permitted(
+      environmentId,
+      botId,
+      input.onlyIfStarted === true,
+    );
     // Unreachable is the one failure a waiting request retries.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
@@ -459,6 +484,21 @@ const make = Effect.gen(function* () {
           "capability_denied",
           `${self.label} is linked with ${client.access} access, and a bot's project work there needs full access. Link ${self.label} again with full access in Settings → Environments → Linked environments.`,
         );
+      }
+      // Keyed by the bot's home, not the link session, so a re-link or a retry after this
+      // environment came back mid-launch finds the run the first attempt started.
+      const key = hash(`${input.home.environmentId}\n${input.clientRequestId}`).slice(0, 24);
+      const runId = `link-task:${key}`;
+      if (input.onlyIfStarted === true) {
+        const existing = yield* crew.getRun(runId).pipe(Effect.mapError(unavailable));
+        if (existing === null) {
+          return yield* failure("run_not_found", "Nothing started here for this request.");
+        }
+        return {
+          threadId: existing.run.threadId,
+          runId: null,
+          modelSelection: existing.run.modelSelection,
+        };
       }
       const project = Option.getOrUndefined(
         yield* projects.getById(input.projectId).pipe(Effect.mapError(unavailable)),
@@ -530,16 +570,13 @@ const make = Effect.gen(function* () {
       const manager = yield* crew
         .ensureFeatureManager(project.id)
         .pipe(Effect.mapError(unavailable));
-      // Keyed by the bot's home, not the link session, so a re-link or a retry after this
-      // environment came back mid-launch finds the run the first attempt started.
-      const key = hash(`${home.environmentId}\n${input.clientRequestId}`).slice(0, 24);
       // As a request here does: its own worktree, branched from the project's current branch.
       const base = yield* git
         .currentBranch(project.workspaceRoot)
         .pipe(Effect.orElseSucceed(() => null));
       const run = yield* crew
         .createRun({
-          id: `link-task:${key}`,
+          id: runId,
           memberId: manager.id,
           projectId: project.id,
           taskText: input.task,
@@ -557,7 +594,15 @@ const make = Effect.gen(function* () {
                 },
               }),
         })
-        .pipe(Effect.mapError(unavailable));
+        .pipe(
+          // A request this environment refuses as it is stays refused; anything else may pass.
+          Effect.mapError((error) =>
+            failure(
+              error._tag === "CrewValidationError" ? "invalid_request" : "orchestration_error",
+              error.message,
+            ),
+          ),
+        );
       return { threadId: run.threadId, runId: null, modelSelection: run.modelSelection };
     },
   );
@@ -583,6 +628,7 @@ const make = Effect.gen(function* () {
     list,
     projects: projectsOf,
     projectsForLink,
+    checkLaunch,
     launchProjectManager,
     startForLink,
   });

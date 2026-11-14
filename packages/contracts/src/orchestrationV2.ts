@@ -934,9 +934,9 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 
 /**
- * A bot's request for a project on a linked environment, recorded before it starts there. Its
- * follower launches it, retrying while that environment can't be reached; once it starts, the
- * task has a `remoteChild` instead. The task's prompt is the request.
+ * A bot's request for a project on a linked environment, recorded before any attempt to start
+ * it there. Its follower launches it, retrying while that environment can't be reached; once it
+ * starts, the task also has a `remoteChild`. The task's prompt is the request.
  */
 export const OrchestrationV2PendingRemoteLaunch = Schema.Struct({
   environmentId: EnvironmentId,
@@ -947,6 +947,13 @@ export const OrchestrationV2PendingRemoteLaunch = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   clientRequestId: Schema.String,
+  /** Resolved to that environment's instance of this driver when it launches. */
+  driverKind: Schema.optional(ProviderDriverKind),
+  /**
+   * Ended here before it started there, and that environment confirmed no attempt started a
+   * run, or it was stopped. Until then its follower asks, since an attempt's answer may be lost.
+   */
+  settled: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2PendingRemoteLaunch = typeof OrchestrationV2PendingRemoteLaunch.Type;
 
@@ -3741,8 +3748,8 @@ const OrchestrationV2InternalCommand = Schema.Union([
   }),
   /**
    * A pending remote launch started there: the task follows `remoteChild` from now on. On a
-   * task that already ended here (cancelled while it launched), the thread there is recorded
-   * with a stop owed, so its follower stops it.
+   * task that already ended here, the thread there is recorded with a stop owed, so its
+   * follower stops it.
    */
   Schema.Struct({
     type: Schema.Literal("delegated_task.remote.launched"),
@@ -3750,6 +3757,14 @@ const OrchestrationV2InternalCommand = Schema.Union([
     parentThreadId: ThreadId,
     taskId: NodeId,
     remoteChild: OrchestrationV2RemoteTaskChild,
+  }),
+  /** A pending remote launch couldn't reach its environment and waits; `progress` says for what. */
+  Schema.Struct({
+    type: Schema.Literal("delegated_task.remote.wait"),
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    taskId: NodeId,
+    progress: TrimmedNonEmptyString,
   }),
 
   /**

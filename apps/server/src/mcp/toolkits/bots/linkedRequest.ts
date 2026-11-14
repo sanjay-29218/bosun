@@ -1,4 +1,5 @@
 import {
+  CommandId,
   type EnvironmentId,
   headquartersBotId,
   OrchestratorMcpFailure,
@@ -47,8 +48,8 @@ export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(
     clientRequestId: input.key,
   });
   const threads = yield* ThreadManagementService.ThreadManagementService;
-  const { subagents } = yield* threads
-    .getThreadRecords(scope.thread.threadId, ["subagents"], { subagentIds: [taskId] })
+  const { subagents, runs } = yield* threads
+    .getThreadRecords(scope.thread.threadId, ["subagents", "runs"], { subagentIds: [taskId] })
     .pipe(
       Effect.mapError(
         () =>
@@ -59,11 +60,25 @@ export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(
           }),
       ),
     );
-  const remote = subagents[0]?.remoteChild;
+  const task = subagents[0];
+  // Refused there: the caller hears why now, and its thread isn't woken with it again.
+  if (task?.status === "failed" && task.result !== null) {
+    yield* threads
+      .dispatch({
+        type: "delegated_task.completion-delivery.acknowledge",
+        commandId: CommandId.make(`command:linked-request-refused:${taskId}`),
+        parentThreadId: scope.thread.threadId,
+        taskId,
+        observedByRunId: ThreadManagementService.latestActiveRun({ runs })?.id ?? null,
+      })
+      .pipe(Effect.ignoreCause({ log: true }));
+    return yield* new OrchestratorMcpFailure({ code: "invalid_request", message: task.result });
+  }
+  const remote = task?.remoteChild;
   return {
     taskId,
     threadId: remote?.threadId ?? null,
     link: remote === undefined ? null : formatThreadLink(remote, remote.title),
-    waiting: remote === undefined ? (subagents[0]?.progress ?? null) : null,
+    waiting: remote === undefined ? (task?.progress ?? null) : null,
   };
 });

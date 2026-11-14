@@ -199,18 +199,33 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
         } as never),
       ensureFeatureManager: (projectId) =>
         Effect.succeed({ id: `bot-manager:${projectId}` } as never),
-      // Idempotent on its id, as the real one is.
-      createRun: (input) =>
-        Ref.update(seen, (current) =>
-          current.runs.some((run) => run.id === input.id)
-            ? current
-            : { ...current, runs: [...current.runs, input] },
-        ).pipe(
-          Effect.as({
-            threadId: `bot-run:${input.id}`,
-            modelSelection: input.carried?.modelSelection,
-          } as never),
+      getRun: (id) =>
+        Ref.get(seen).pipe(
+          Effect.map((current) => {
+            const run = current.runs.find((candidate) => candidate.id === id);
+            return run === undefined
+              ? null
+              : ({
+                  run: { threadId: `bot-run:${id}`, modelSelection: run.carried?.modelSelection },
+                } as never);
+          }),
         ),
+      // Idempotent on its id, as the real one is; refuses a task as CrewService does.
+      createRun: (input) =>
+        input.taskText.length > 16_000
+          ? Effect.fail(
+              Object.assign(new Error("Invalid task"), { _tag: "CrewValidationError" }) as never,
+            )
+          : Ref.update(seen, (current) =>
+              current.runs.some((run) => run.id === input.id)
+                ? current
+                : { ...current, runs: [...current.runs, input] },
+            ).pipe(
+              Effect.as({
+                threadId: `bot-run:${input.id}`,
+                modelSelection: input.carried?.modelSelection,
+              } as never),
+            ),
     }),
     Layer.mock(ProviderRegistry.ProviderRegistry)({
       getProviders: Effect.succeed([
@@ -518,6 +533,35 @@ it.live("starts the project manager there, or says before starting anything why 
       );
       expect(retried.threadId).toBe(launched.threadId);
       expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+      // Asked only for what started, it finds that run, and starts nothing for another key.
+      const found = yield* a.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        CAPTAIN_ID,
+        {
+          ...launch("project:omni"),
+          onlyIfStarted: true,
+        },
+      );
+      expect(found.threadId).toBe(launched.threadId);
+      const none = yield* a.reach
+        .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
+          ...launch("project:omni"),
+          clientRequestId: "never-sent",
+          onlyIfStarted: true,
+        })
+        .pipe(Effect.flip);
+      expect(none.code).toBe("run_not_found");
+      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+      // A task the box refuses as it is stays refused, so it can't wait forever.
+      const invalid = yield* a.reach
+        .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
+          ...launch("project:omni"),
+          task: "x".repeat(16_001),
+          clientRequestId: "too-long",
+        })
+        .pipe(Effect.flip);
+      expect(invalid).toMatchObject({ code: "invalid_request", message: "Invalid task" });
 
       expect(yield* start(launch("project:blog"))).toContain(
         "blog on Box belongs to Social on Box, not Captain from Laptop",

@@ -147,20 +147,27 @@ came from. A stamp without the access, from before it was recorded, is fenced.
 
 ### Pending launches
 
-A bot's request to a linked environment that can't be reached isn't lost or
-failed: `delegated_task.remote.request` records the task with a
-`pendingRemote` (environment, project, bot, and the launch input) instead of a
-`remoteChild`, as `waiting`. The same follower that follows open remote tasks
-starts it: it re-checks that the bot may still work there, tries the launch,
-and on success records `delegated_task.remote.launched`, after which the task
-is an ordinary remote task. An unreachable answer (`orchestration_error`)
-retries with the follower's back-off, capped at a minute; any other refusal
-fails the task with its message. Pending launches are open remote tasks, so a
-restart picks them up. A cancel completes the task here, and a launch that
-lands after it records the thread there with a stop owed, so the follower
-stops it. Every attempt uses one forwarding namespace per parent thread
+A bot's request to a linked environment is recorded before anything is sent:
+`delegated_task.remote.request` records the task with a `pendingRemote`
+(environment, project, bot, and the launch input) instead of a `remoteChild`,
+so a restart or a lost answer can't lose it. Its first attempt runs right
+after, and a replayed request finds the task and sends nothing. The same
+follower that follows open remote tasks makes every attempt: it re-checks that
+the bot may still work there, picks a `driverKind`'s instance there, and tries
+the launch. On success it records `delegated_task.remote.launched`, after
+which the task is an ordinary remote task. An unreachable answer
+(`orchestration_error`) marks it waiting and retries with the follower's
+back-off, capped at a minute; any other refusal fails the task with its
+message. Every attempt uses one forwarding namespace per parent thread
 (`remote-launch:<thread>`) and the same request key, so the other side sees
 the same key each time.
+
+An attempt's answer can be lost after the other side started the run, so a
+pending request that ends here first (cancelled, stopped or refused) isn't done
+yet: its follower asks there with the same key and `onlyIfStarted`, which finds
+a run without starting one. A run found gets a stop owed through the usual
+stop path; none found marks the launch `settled`. Until then the task stays an
+open remote task, across restarts.
 
 That other side keys the run by the bot's home environment and the request
 key, not the link session, so a retry after a lost answer or a re-link finds
