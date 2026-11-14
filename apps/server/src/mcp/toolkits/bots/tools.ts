@@ -1,9 +1,12 @@
 import {
   Bot,
   BotCreateInput,
+  BotDeleteInput,
   BotMoveProjectInput,
   BotReorderInput,
+  BotSetPinInput,
   BotUpdateInput,
+  CREW_TOOL_GRANTS,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
   Project,
@@ -26,10 +29,19 @@ const shared = {
   ],
 };
 
+const withheldTools = Schema.optionalKey(
+  Schema.Array(Schema.String).annotate({
+    description: `Tools the bot can't use, by id: ${CREW_TOOL_GRANTS.map((grant) => `"${grant.id}" (${grant.label})`).join(", ")}. Omit or [] for every tool.`,
+  }),
+);
+// Agents read today's schema, so they never send the key older clients did.
+const { allowedTools: _createLegacy, ...createFields } = BotCreateInput.fields;
+const { allowedTools: _updateLegacy, ...updateFields } = BotUpdateInput.fields;
+
 const List = Tool.make("t3_bot_list", {
   ...shared,
   description:
-    "List an environment's bots in rail order. Each bot owns projects (a project's botId); Captain owns projects created without a bot.",
+    "List an environment's bots in rail order; there may be none. Each bot owns projects (a project's botId); a project with a null botId has no bot.",
   parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
   success: Schema.Struct({ bots: Schema.Array(Bot) }),
 })
@@ -39,24 +51,24 @@ const List = Tool.make("t3_bot_list", {
 const Create = Tool.make("t3_bot_create", {
   ...shared,
   description:
-    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Without modelSelection it runs on this thread's model. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
-  parameters: BotCreateInput,
+    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Without modelSelection it runs on this thread's model. It gets every tool and full access unless you pass withheldTools or runtimeMode. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
+  parameters: Schema.Struct({ ...createFields, withheldTools }),
   success: Bot,
 }).annotate(Tool.Idempotent, true);
 
 const Update = Tool.make("t3_bot_update", {
   ...shared,
   description:
-    "Change a bot's name, avatar, color, instructions, allowed tools, runtime mode, default model, default workflow or what its headquarters does when its conversation grows long. Omitted fields are kept. Pass the bot's current revision as expectedRevision.",
-  parameters: BotUpdateInput,
+    "Change a bot's name, avatar, color, instructions, withheld tools, runtime mode, default model, default workflow or what its headquarters does when its conversation grows long. Omitted fields are kept; withheldTools replaces the whole list. Pass the bot's current revision as expectedRevision.",
+  parameters: Schema.Struct({ ...updateFields, withheldTools }),
   success: Bot,
 });
 
 const Delete = Tool.make("t3_bot_delete", {
   ...shared,
   description:
-    "Delete a bot and the automations that run as it. Refused while it owns any project (move them with t3_bot_move_project first) and always for Captain.",
-  parameters: Schema.Struct({ id: Schema.String }),
+    "Delete a bot and the automations that run as it. Refused while it owns any project: unlink each first with t3_bot_move_project (botId null, or another bot).",
+  parameters: BotDeleteInput,
   success: Schema.Struct({ deleted: Schema.Boolean }),
 }).annotate(Tool.Destructive, true);
 
@@ -70,7 +82,7 @@ const Reorder = Tool.make("t3_bot_reorder", {
 const MoveProject = Tool.make("t3_bot_move_project", {
   ...shared,
   description:
-    "Give a project to another bot. Requests and features already running keep the bot that started them. With environmentId, projectId and botId are that environment's (t3_bot_list there).",
+    "Give a project to another bot, or botId null for no bot. Requests and features already running keep the bot that started them. With environmentId, projectId and botId are that environment's (t3_bot_list there).",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     ...BotMoveProjectInput.fields,
@@ -78,10 +90,21 @@ const MoveProject = Tool.make("t3_bot_move_project", {
   success: Project,
 }).annotate(Tool.Idempotent, true);
 
+const Pin = Tool.make("t3_bot_pin", {
+  ...shared,
+  description:
+    "Pin a bot (botId) or a project's manager (projectId) to the person's main rail, or unpin it with pinned false. Every bot and manager stays listed under Bots either way.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    ...BotSetPinInput.fields,
+  }),
+  success: Schema.Struct({ pinned: Schema.Boolean }),
+}).annotate(Tool.Idempotent, true);
+
 const Projects = Tool.make("t3_bot_projects", {
   ...shared,
   description:
-    "List a bot's projects on this environment and on every linked environment, where a bot with the same name (Captain: Captain) owns them. Default bot: the one whose headquarters calls. Each project names its environmentId and open features; each environment says whether it answered. Hand work to a project on another environment with delegate_task, target.environmentId and target.projectId.",
+    "List a bot's projects on this environment and on every linked environment, where a bot with the same name owns them. Default bot: the one whose headquarters calls. Each project names its environmentId and open features; each environment says whether it answered. Hand work to a project on another environment with delegate_task, target.environmentId and target.projectId.",
   parameters: Schema.Struct({
     botId: Schema.optional(
       Schema.String.annotate({ description: "This environment's bot (t3_bot_list id)." }),
@@ -99,6 +122,7 @@ export const BotsToolkit = Toolkit.make(
   Delete,
   Reorder,
   MoveProject,
+  Pin,
   Projects,
   LinkBotProjects,
   LinkBotTask,

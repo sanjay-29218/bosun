@@ -1,5 +1,6 @@
 import {
   BOT_HEADQUARTERS_RUN_PREFIX,
+  grantedTools,
   PROJECT_HEADQUARTERS_RUN_PREFIX,
   ThreadId,
 } from "@t3tools/contracts";
@@ -9,19 +10,25 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { McpCapability } from "../mcp/McpInvocationContext.ts";
 
-const decodeGrants = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
+const MANAGE_CREW = "crew.workflows";
+
+const decodeWithheld = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Array(Schema.String)),
+);
 
 const isCrewThread = (threadId: string) =>
   threadId.startsWith("bot-run:") || threadId.startsWith("bosun-run:");
 
 /**
- * The grants saved on a crew thread's run. Standing threads use their owner's current ones: a
- * bot's headquarters its bot's, a project's manager its member's.
+ * The tools a crew thread's run holds. Standing threads use their owner's current withheld list:
+ * a bot's headquarters its bot's, a project's manager its member's. Bot-only grants go to runs a
+ * bot acts in. An unreadable list withholds only those.
  */
 const runGrants = (sql: SqlClient.SqlClient, threadId: string) =>
-  sql<{ readonly allowedTools: string }>`
-    SELECT COALESCE(b.allowed_tools_json, m.allowed_tools_json, r.allowed_tools_json)
-      AS allowedTools
+  sql<{ readonly withheldTools: string; readonly bot: number }>`
+    SELECT COALESCE(b.withheld_tools_json, m.withheld_tools_json, r.withheld_tools_json)
+        AS withheldTools,
+      EXISTS (SELECT 1 FROM bots WHERE bots.id = r.member_id) AS bot
     FROM crew_runs AS r
     LEFT JOIN bots AS b
       ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
@@ -30,8 +37,13 @@ const runGrants = (sql: SqlClient.SqlClient, threadId: string) =>
     WHERE r.thread_id = ${threadId}
   `.pipe(
     Effect.orElseSucceed(() => []),
-    Effect.flatMap((rows) => decodeGrants(rows[0]?.allowedTools ?? "[]")),
-    Effect.orElseSucceed((): ReadonlyArray<string> => []),
+    Effect.flatMap((rows) => {
+      const bot = rows[0]?.bot === 1;
+      return decodeWithheld(rows[0]?.withheldTools ?? "[]").pipe(
+        Effect.orElseSucceed((): ReadonlyArray<string> => (bot ? [MANAGE_CREW] : [])),
+        Effect.map((withheld) => grantedTools(withheld, { bot })),
+      );
+    }),
   );
 
 /** The nearest crew thread `threadId` descends from as a subagent, if any. */
@@ -92,12 +104,10 @@ export const crewThreadGrants = Effect.fn("crewThreadGrants")(function* (threadI
     : grants;
 });
 
-const T3_TOOL_GRANTS = ["preview", "device", "pull-requests", "orchestration", "worktree"] as const;
-
 /**
- * A crew thread gets the T3 toolkits an ordinary thread gets (`defaults`), plus `crew`, whose
- * tools each check their own grant. Its subagents don't get `crew`: they aren't crew members.
- * Grants that name T3 toolkits are an opt-in limit to those toolkits.
+ * A crew thread gets the T3 toolkits an ordinary thread gets (`defaults`) that it wasn't denied,
+ * plus `crew`, whose tools each check their own grant. Its subagents don't get `crew`: they
+ * aren't crew members.
  */
 export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (
   threadId: ThreadId,
@@ -105,9 +115,8 @@ export const crewMcpCapabilities = Effect.fn("crewMcpCapabilities")(function* (
 ) {
   const grants = yield* crewThreadGrants(threadId);
   if (grants === undefined) return defaults;
-  const limit = T3_TOOL_GRANTS.filter((grant) => grants.includes(grant));
   const capabilities = new Set<McpCapability>(
-    limit.length === 0 ? defaults : limit.filter((grant) => defaults.has(grant)),
+    [...defaults].filter((capability) => grants.includes(capability)),
   );
   if (isCrewThread(threadId)) capabilities.add("crew");
   return capabilities;

@@ -13,7 +13,7 @@ import { type Notice, NoticeInbox } from "./NoticeInbox.ts";
 const leadThreadId = ThreadId.make("thread:lead");
 const designerThreadId = ThreadId.make("thread:designer");
 const managerId = ThreadId.make("bot-run:project-hq:project:dark");
-const headquartersId = ThreadId.make("bot-run:bot-hq:bot-captain");
+const headquartersId = ThreadId.make("bot-run:bot-hq:bot-ops");
 const parentLeadId = ThreadId.make("thread:epic-lead");
 const brokenLeadId = ThreadId.make("thread:broken-lead");
 
@@ -164,13 +164,15 @@ it.effect("links a crew member's ask of the person to its own thread", () =>
   }),
 );
 
-it.effect("tells a bot's headquarters only how its features end, not that they need the person", () =>
-  Effect.gen(function* () {
-    const { reactor, posted } = yield* setup({ requester: headquartersId });
-    yield* reactor.handle(requestUpdated("pending"));
-    yield* reactor.handle(requestUpdated("pending", "user_input", designerThreadId, "crew"));
-    assert.deepEqual(yield* Ref.get(posted), []);
-  }),
+it.effect(
+  "tells a bot's headquarters only how its features end, not that they need the person",
+  () =>
+    Effect.gen(function* () {
+      const { reactor, posted } = yield* setup({ requester: headquartersId });
+      yield* reactor.handle(requestUpdated("pending"));
+      yield* reactor.handle(requestUpdated("pending", "user_input", designerThreadId, "crew"));
+      assert.deepEqual(yield* Ref.get(posted), []);
+    }),
 );
 
 it.effect("stays quiet for crew threads and with no one to tell", () =>

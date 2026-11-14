@@ -60,7 +60,7 @@ export interface ProjectCloneHooks {
     readonly title: string;
     readonly workspaceRoot: string;
     readonly createdAt: string;
-    readonly botId?: string;
+    readonly botId?: string | null;
   }) => Effect.Effect<void, OrchestrationDispatchCommandError | ProjectConflictError>;
   readonly onCloned: (input: {
     readonly projectId: ProjectId;

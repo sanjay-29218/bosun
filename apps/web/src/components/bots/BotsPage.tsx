@@ -105,6 +105,7 @@ export function BotsPage(search: BotsSearch) {
               avatar: bot.avatar,
               color: bot.color,
               members: [{ environmentId: newEnvironmentId, botId: bot.id }],
+              pinned: bot.pinned ?? true,
             };
             selectBot(logicalBot);
             openHeadquarters(logicalBot);
@@ -189,6 +190,7 @@ function EnvironmentBotPage({
     avatar: bot.avatar,
     color: bot.color,
     members: [{ environmentId, botId: bot.id }],
+    pinned: bot.pinned ?? true,
   };
   const railBots = logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot];
   const projectLists = logicalBotProjectLists(logicalBot, railBots, allProjects, botEnvironmentIds);
@@ -253,7 +255,7 @@ function BotActions({
   const openHeadquarters = useOpenBotHeadquarters();
   const [busy, setBusy] = useState(false);
   const botIds = bots.map((candidate) => candidate.id);
-  const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects);
+  const deleteBlocker = botDeleteBlocker(ownedProjects);
 
   const move = async (offset: -1 | 1) => {
     const next = moveBotInOrder(botIds, bot.id, offset);
@@ -303,6 +305,7 @@ function BotActions({
             avatar: bot.avatar,
             color: bot.color,
             members: [{ environmentId, botId: bot.id }],
+            pinned: bot.pinned ?? true,
           })
         }
       >

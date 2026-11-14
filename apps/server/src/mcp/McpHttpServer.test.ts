@@ -1762,12 +1762,14 @@ it.effect(
         const sqlContext = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
         const sql = Context.get(sqlContext, SqlClient.SqlClient);
         yield* sql`
-        CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+        CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
       `;
-        yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
-        yield* sql`CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)`;
+        yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
+        yield* sql`CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)`;
+        // The builder run is a bot's, so it can hold Manage bots, roles and workflows.
+        yield* sql`INSERT INTO bots VALUES ('ops', '[]')`;
         yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'role', 'bot-run:builder', '["worktree"]'),
+        ('builder', 'ops', 'bot-run:builder', '["crew.workflows","worktree"]'),
         ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]'),
         ('lead:dark', 'lead', 'bot-run:lead:dark', '[]'),
         ('planner:dark', 'planner', 'bot-run:planner:dark', '[]')`;
@@ -1977,7 +1979,7 @@ it.effect(
         // A grant change shows on the session's next tools/list: Manage bots and roles unlocks
         // the bot and role tools.
         yield* sql`
-        UPDATE crew_runs SET allowed_tools_json = '["crew.workflows"]' WHERE id = 'builder'
+        UPDATE crew_runs SET withheld_tools_json = '["worktree"]' WHERE id = 'builder'
       `;
         expect(yield* crew.listed).toEqual(
           [
@@ -1985,6 +1987,7 @@ it.effect(
             "t3_bot_create",
             "t3_bot_delete",
             "t3_bot_move_project",
+            "t3_bot_pin",
             "t3_bot_reorder",
             "t3_bot_update",
             "t3_feature_workflow_create",

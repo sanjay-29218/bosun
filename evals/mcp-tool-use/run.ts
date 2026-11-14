@@ -563,6 +563,8 @@ const botTools = new Set(
 );
 /** The project a Project manager case's thread manages. */
 const EVAL_PROJECT_ID = "project:acme-app";
+/** The bot whose headquarters a "headquarters" case plays. */
+const EVAL_BOT_ID = "bot-ops";
 // T3 lists the crew's todo and request tools to crew threads: here a headquarters or a manager.
 const crewTools = new Set(
   [...Object.values(CrewToolkit.tools), ...Object.values(ProjectRequestsToolkit.tools)].map(
@@ -1216,7 +1218,7 @@ export const buildMessages = (sample: Sample) => {
       text(
         crewRunPrompt({
           instructions: BOT_DEFAULT_INSTRUCTIONS,
-          taskText: headquartersTask(Contracts.CAPTAIN_BOT_ID),
+          taskText: headquartersTask(EVAL_BOT_ID),
         }),
       ),
     );
@@ -1233,7 +1235,7 @@ export const buildMessages = (sample: Sample) => {
             : role === "project-manager"
               ? projectRequestText({
                   id: "R-1",
-                  requesterThreadId: Contracts.botHeadquartersThreadId(Contracts.CAPTAIN_BOT_ID),
+                  requesterThreadId: Contracts.botHeadquartersThreadId(EVAL_BOT_ID),
                   text: prompt,
                 })
               : prompt,

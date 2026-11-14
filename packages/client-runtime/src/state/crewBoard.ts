@@ -1,5 +1,4 @@
 import {
-  CAPTAIN_BOT_ID,
   featureIssueRef,
   headquartersBotId,
   type EnvironmentId,
@@ -260,7 +259,7 @@ export const botNeedsYouKey = (environmentId: EnvironmentId, botId: string) =>
 
 /**
  * Threads waiting on you per bot, keyed by `botNeedsYouKey`, from the shells and project
- * shells every client already has. A project without a `botId` (an older server) is Captain's.
+ * shells every client already has. Threads in a project with no bot count for no bot.
  */
 export function countNeedsYouByBot(
   shells: ReadonlyArray<NeedsYouShell & { readonly projectId: ProjectId }>,
@@ -280,19 +279,18 @@ export function countNeedsYouByBot(
 export interface BotOwnedProject {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
-  readonly botId?: string | undefined;
+  readonly botId?: string | null | undefined;
 }
 
 /**
- * The `botNeedsYouKey` of the bot a thread works for, or undefined when its project isn't
- * loaded. A headquarters belongs to its bot, not to the project it lives in.
+ * The `botNeedsYouKey` of the bot a thread works for, or undefined when its project has no bot
+ * or isn't loaded. A headquarters belongs to its bot, not to the project it lives in.
  */
 export function createThreadBotKeyResolver(projects: ReadonlyArray<BotOwnedProject>) {
   const owners = new Map(
-    projects.map((project) => [
-      `${project.environmentId}:${project.id}`,
-      project.botId ?? CAPTAIN_BOT_ID,
-    ]),
+    projects.flatMap((project) =>
+      project.botId == null ? [] : [[`${project.environmentId}:${project.id}`, project.botId]],
+    ),
   );
   return (shell: {
     readonly environmentId: EnvironmentId;

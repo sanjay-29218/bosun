@@ -28,6 +28,7 @@ import { BOTS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { groupProjectsByBot, moveBotTo } from "./bots.logic";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 
 /**
  * Settings → Bots' list: each shown environment's bots in rail order, dragged to reorder.
@@ -141,9 +142,17 @@ function EnvironmentBots({
           Loading bots…
         </p>
       ) : bots.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted-foreground">
-          No bots yet. A bot runs your projects and talks to you in its own thread.
-        </p>
+        <Empty size="compact">
+          <EmptyHeader>
+            <EmptyTitle>No bots yet</EmptyTitle>
+            <EmptyDescription>
+              A bot runs your projects and talks to you in its own thread.
+            </EmptyDescription>
+          </EmptyHeader>
+          <Button size="sm" disabled={!canAdd} onClick={onNew}>
+            Create a bot
+          </Button>
+        </Empty>
       ) : (
         <DndContext
           sensors={sensors}

@@ -6,7 +6,7 @@ import {
   type EnvironmentId,
   type ThreadId,
 } from "@t3tools/contracts";
-import { ChevronRightIcon, CircleDotIcon, WorkflowIcon } from "lucide-react";
+import { ChevronRightIcon, CircleDotIcon, CornerLeftUpIcon, WorkflowIcon } from "lucide-react";
 
 import { useThreadShell } from "../../state/entities";
 import { featuresEnvironment } from "../../state/features";
@@ -96,6 +96,13 @@ export function ThreadFeatureRow(props: {
           <span className="min-w-0 truncate">
             {featureIssueRef(issue)} {issue.title}
           </span>
+          {issue.parent != null ? (
+            <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+              ·
+              <CornerLeftUpIcon aria-hidden className="size-3" />
+              Part of #{issue.parent}
+            </span>
+          ) : null}
         </ThreadDetailsControl>
       ) : linkIssue ? (
         <ThreadDetailsControl part="row" tone="muted" onClick={linkIssue}>

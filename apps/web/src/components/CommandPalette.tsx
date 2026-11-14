@@ -292,6 +292,7 @@ import {
   activeBotInput,
   useEnvironmentFilter,
   useSelectLogicalBot,
+  useAllVisibleLogicalBots,
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../state/botRail";
@@ -559,7 +560,9 @@ function OpenCommandPaletteDialog(props: {
   // Side chats and subagents open inside their parent, so opening a project never lands on one.
   const threads = useVisibleThreadShells().filter((thread) => !isSidebarHiddenThread(thread));
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  // Switching follows the rail's pinned bots; opening a bot works for every bot.
   const railBots = useVisibleLogicalBots();
+  const allBots = useAllVisibleLogicalBots();
   const activeRailBot = useVisibleActiveLogicalBot();
   const selectRailBot = useSelectLogicalBot();
   const openBotHeadquarters = useOpenBotHeadquarters();
@@ -1798,7 +1801,7 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:bots",
-    searchTerms: ["bots", "bot", "captain", "add bot", "new bot", "edit bot", "avatar"],
+    searchTerms: ["bots", "bot", "add bot", "new bot", "edit bot", "avatar", "pin"],
     title: "Open bots",
     description: "Settings",
     icon: <BotIcon className={ITEM_ICON_CLASS} />,
@@ -2001,8 +2004,8 @@ function OpenCommandPaletteDialog(props: {
       run: async () => useUiStateStore.getState().toggleBotRailCollapsed(),
     });
   }
-  // Every bot's headquarters, so a single bot (no rail) can be reached too.
-  for (const bot of railBots) {
+  // Every bot's headquarters, pinned or not.
+  for (const bot of allBots) {
     botItems.push({
       kind: "action",
       value: `bot-headquarters:${bot.key}`,

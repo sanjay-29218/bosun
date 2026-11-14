@@ -2,7 +2,6 @@
 import * as NodeCrypto from "node:crypto";
 
 import {
-  CAPTAIN_BOT_ID,
   type EnvironmentId,
   FEATURE_DELIVERY_WORKFLOW_ID,
   headquartersBotId,
@@ -161,8 +160,10 @@ const make = Effect.gen(function* () {
     const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
     // Scratch and bots' homes are where headquarters work, not projects to hand work to.
     const owned = yield* Effect.filter(
-      snapshot.projects.filter(
-        (project) => project.deletedAt === null && owners.has(project.botId ?? CAPTAIN_BOT_ID),
+      snapshot.projects.flatMap((project) =>
+        project.deletedAt === null && project.botId != null && owners.has(project.botId)
+          ? [{ ...project, botId: project.botId }]
+          : [],
       ),
       (project) => Effect.map(folders.isHiddenProject(project.id), (hidden) => !hidden),
     );
@@ -175,7 +176,7 @@ const make = Effect.gen(function* () {
           projectId: project.id,
           title: project.title,
           workspaceRoot: project.workspaceRoot,
-          botId: project.botId ?? CAPTAIN_BOT_ID,
+          botId: project.botId,
           openFeatures: records
             .filter((feature) => feature.status === "open")
             .map((feature) => ({ featureId: feature.id, title: feature.title })),
@@ -305,7 +306,7 @@ const make = Effect.gen(function* () {
                 id: role.id,
                 name: role.name,
                 instructions: role.instructions,
-                allowedTools: role.allowedTools,
+                withheldTools: role.withheldTools,
                 modelSelection: role.modelSelection,
                 runtimeMode: role.runtimeMode,
               },
@@ -397,9 +398,13 @@ const make = Effect.gen(function* () {
           `No project ${input.projectId} on ${self.label}. t3_bot_projects lists the bot's projects there.`,
         );
       }
-      const owner = yield* bots
-        .get(project.botId ?? CAPTAIN_BOT_ID)
-        .pipe(Effect.mapError(unavailable));
+      if (project.botId == null) {
+        return yield* failure(
+          "capability_denied",
+          `${project.title} on ${self.label} has no bot. Give it to ${input.botName} there first (Bots → ${input.botName} → Projects).`,
+        );
+      }
+      const owner = yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
       if (owner === null || logicalBotKey(owner) !== input.botKey) {
         return yield* failure(
           "capability_denied",
@@ -410,6 +415,13 @@ const make = Effect.gen(function* () {
         return yield* failure(
           "invalid_request",
           `${input.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${input.botName}'s model.`,
+        );
+      }
+      // Builds before withheld tools sent roles' tools with the opposite meaning.
+      if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
+        return yield* failure(
+          "invalid_request",
+          "This Bosun is newer than the environment that sent this; update it to share roles.",
         );
       }
       // Its features run on these roles, so each must be able to run here too.

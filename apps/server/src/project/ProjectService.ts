@@ -1,5 +1,4 @@
 import {
-  CAPTAIN_BOT_ID,
   CommandId,
   headquartersBotId,
   type OrchestrationProjectShell,
@@ -163,11 +162,17 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
-    /** Gives the project to another bot. */
+    /** Gives the project to another bot, or to none when `botId` is null. */
     readonly assignBot: (input: {
       readonly commandId: CommandId;
       readonly projectId: ProjectId;
-      readonly botId: string;
+      readonly botId: string | null;
+    }) => Effect.Effect<Project, ProjectServiceError>;
+    /** Shows the project's manager in the main rail, or hides it there. */
+    readonly setManagerPinned: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly pinned: boolean;
     }) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
@@ -238,6 +243,7 @@ export const make = Effect.gen(function* () {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    managerPinned: row.managerPinned,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -426,12 +432,12 @@ export const make = Effect.gen(function* () {
     return Option.isNone(row) ? Option.none() : Option.some(yield* hydrate(row.value));
   });
 
-  /** Fails unless `botId` names a bot. Captain always exists. */
+  /** Fails unless `botId` names a bot; null means no bot. */
   const requireBot = Effect.fn("ProjectService.requireBot")(function* (
     projectId: ProjectId,
-    botId: string,
+    botId: string | null,
   ) {
-    if (botId === CAPTAIN_BOT_ID) return;
+    if (botId === null) return;
     const bot = yield* bots
       .get(botId)
       .pipe(
@@ -444,7 +450,7 @@ export const make = Effect.gen(function* () {
 
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
-      const botId = input.botId ?? CAPTAIN_BOT_ID;
+      const botId = input.botId ?? null;
       const workspaceRoot = yield* normalizeWorkspaceRoot({
         projectId: input.projectId,
         workspaceRoot: input.workspaceRoot,
@@ -536,6 +542,21 @@ export const make = Effect.gen(function* () {
       return yield* readCommitted(input.projectId);
     },
   );
+
+  const setManagerPinned: ProjectService["Service"]["setManagerPinned"] = Effect.fn(
+    "ProjectService.setManagerPinned",
+  )(function* (input) {
+    if (Option.isNone(yield* readRow(input.projectId))) {
+      return yield* new ProjectNotFoundError({ projectId: input.projectId });
+    }
+    yield* commit({
+      type: "project.meta.update",
+      commandId: input.commandId,
+      projectId: input.projectId,
+      managerPinned: input.pinned,
+    });
+    return yield* readCommitted(input.projectId);
+  });
 
   const bootstrap: ProjectService["Service"]["bootstrap"] = Effect.fn("ProjectService.bootstrap")(
     function* (input) {
@@ -749,6 +770,7 @@ export const make = Effect.gen(function* () {
     bootstrap,
     update,
     assignBot,
+    setManagerPinned,
     delete: deleteProject,
     getById,
     getByWorkspaceRoot,

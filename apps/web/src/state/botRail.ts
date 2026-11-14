@@ -3,9 +3,11 @@ import {
   botActivityByBot,
   botActivityByLogicalBot,
   buildLogicalBots,
+  countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
+  logicalBotsSignature,
   logicalBotHeadquartersKeys,
-  logicalBotProjectKeys,
+  railProjectKeys,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
@@ -17,6 +19,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
+import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useUiStateStore } from "../uiStateStore";
 import { botsEnvironment } from "./bots";
@@ -41,14 +44,6 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   const previous = Option.getOrNull(get.self<ReadonlyArray<EnvironmentId>>());
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
-
-const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
-  bots
-    .map(
-      (bot) =>
-        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.members.map((member) => `${member.environmentId}/${member.botId}`).join(",")}`,
-    )
-    .join("\n");
 
 /** Rail entries: every environment's bots merged. The same array returns until one changes. */
 export const logicalBotsAtom = Atom.make((get): ReadonlyArray<LogicalBot> => {
@@ -148,7 +143,7 @@ export function useShownBotEnvironmentIds(): ReadonlyArray<EnvironmentId> {
   );
 }
 
-const visibleLogicalBots = (
+const onShownEnvironment = (
   bots: ReadonlyArray<LogicalBot>,
   environmentFilter: ReadonlySet<EnvironmentId> | null,
 ) =>
@@ -157,6 +152,12 @@ const visibleLogicalBots = (
     : bots.filter((bot) =>
         bot.members.some((member) => environmentFilter.has(member.environmentId)),
       );
+
+// The rail, its shortcuts and the thread list's bot scope cover pinned bots only.
+const visibleLogicalBots = (
+  bots: ReadonlyArray<LogicalBot>,
+  environmentFilter: ReadonlySet<EnvironmentId> | null,
+) => onShownEnvironment(bots, environmentFilter).filter((bot) => bot.pinned);
 
 function readActiveLogicalBot(): LogicalBot | null {
   const { activeBotIdByEnvironmentId, sidebarEnvironmentIds } = useUiStateStore.getState();
@@ -194,7 +195,7 @@ export function readActiveLogicalBotKey(): string | null {
 
 /**
  * Spread into a project create input: the active bot's copy on `environmentId` owns the new
- * project, or the server's Captain when the active bot doesn't exist there.
+ * project; with no active bot there, the project has no bot.
  */
 export function activeBotInput(environmentId: EnvironmentId): { botId?: string } {
   const botId = readActiveLogicalBot()?.members.find(
@@ -216,8 +217,15 @@ export function useEnvironmentFilter(): ReadonlySet<EnvironmentId> | null {
   return resolveEnvironmentFilter(selected, connected);
 }
 
+/** Every bot the environment filter leaves visible, pinned or not, for the Bots list. */
+export function useAllVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
+  const bots = useLogicalBots();
+  const environmentFilter = useEnvironmentFilter();
+  return onShownEnvironment(bots, environmentFilter);
+}
+
 /**
- * Rail entries the environment filter leaves visible: an entry shows while one of its
+ * Pinned rail entries the environment filter leaves visible: an entry shows while one of its
  * environments does.
  */
 export function useVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
@@ -238,11 +246,30 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** The rail holds the app's places too, so it shows whenever there is a bot or a second environment. */
+/**
+ * The rail holds the app's places too, Bots among them, so it shows wherever bots can run or
+ * there is a second environment.
+ */
 export function useShowBotRail(): boolean {
-  const botCount = useLogicalBots().length;
+  const botEnvironmentCount = useBotEnvironmentIds().length;
   const environmentCount = useConnectedEnvironmentIds().length;
-  return botCount > 0 || environmentCount > 1;
+  return botEnvironmentCount > 0 || environmentCount > 1;
+}
+
+/** Threads waiting on you that only an unpinned bot or project manager shows. */
+export function useHiddenNeedsYouCount(): number {
+  const bots = useLogicalBots();
+  const shells = useAtomValue(needsYouThreadsAtom);
+  const projects = useAtomValue(environmentProjects.projectsAtom);
+  const environmentFilter = useEnvironmentFilter();
+  return countHiddenNeedsYou({
+    bots,
+    projects,
+    shells:
+      environmentFilter === null
+        ? shells
+        : shells.filter((shell) => environmentFilter.has(shell.environmentId)),
+  });
 }
 
 /**
@@ -264,19 +291,23 @@ export function useBotRailHeadquartersKeys(): ReadonlySet<string> | null {
  */
 export function useBotRailProjectKeys(): ReadonlySet<string> | null {
   const bots = useVisibleLogicalBots();
+  const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
   const projects = useAtomValue(environmentProjects.projectsAtom);
-  const filterByBot = active !== null && bots.length > 1;
-  if (!filterByBot && environmentFilter === null) return null;
-  const inEnvironment =
-    environmentFilter === null
-      ? projects
-      : projects.filter((project) => environmentFilter.has(project.environmentId));
-  if (!filterByBot) {
-    return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
-  }
-  return logicalBotProjectKeys(active, bots, inEnvironment);
+  const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
+  const groups = useSettingsProjectGroups();
+  const scopedProjects = groups
+    .filter((group) => scopeKeys.includes(group.projectKey))
+    .flatMap((group) => group.memberProjects);
+  return railProjectKeys({
+    active,
+    pinnedBots: bots,
+    allBots,
+    projects,
+    environmentFilter,
+    scopedProjects,
+  });
 }
 
 /**

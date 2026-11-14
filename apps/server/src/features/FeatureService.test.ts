@@ -8,7 +8,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   CommandId,
   EPIC_WORKFLOW_ID,
   MessageId,
@@ -16,12 +15,16 @@ import {
   FEATURE_MANAGER_ROLE_ID,
   projectHeadquartersThreadId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
+  LEGACY_TOOLS_MESSAGE,
   ThreadId,
+  type ServerProvider,
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
@@ -35,6 +38,7 @@ import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
   CrewTestOrchestration as OrchestrationLayerLive,
+  makeCrewTestOrchestration,
   seedCrewProject,
 } from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
@@ -55,9 +59,27 @@ import FeatureManagerMigration from "../persistence/Migrations/103_FeatureManage
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
 
+const CAPTAIN_ID = "bot-ops";
+
 const projectId = ProjectId.make("workflow-feature-project");
 const scratchProjectId = ProjectId.make("workflow-feature-scratch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+/** A signed-in Codex, the only provider: what a fresh install's new threads run on. */
+const readyCodex: ServerProvider = {
+  instanceId: ProviderInstanceId.make("codex"),
+  driver: ProviderDriverKind.make("codex"),
+  enabled: true,
+  installed: true,
+  version: "test",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: "2026-11-01T00:00:00.000Z",
+  models: [
+    { slug: "gpt-5.4", name: "GPT-5.4", isDefault: true, isCustom: false, capabilities: null },
+  ],
+  slashCommands: [],
+  skills: [],
+};
 /** Title generation that never finishes, so a test decides when a title arrives. */
 const TextGenerationPending = Layer.mock(TextGeneration.TextGeneration)({
   generateThreadTitle: () => Effect.never,
@@ -74,6 +96,7 @@ const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceContr
             state: "open" as const,
             milestone: "v0.4",
             subIssues: { completed: 1, total: 3 },
+            parent: 40,
           })
         : undefined,
     resolveHandle: () =>
@@ -88,6 +111,7 @@ const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceContr
               state: "open",
               milestone: { number: 1, title: "v0.4" },
               subIssues: { completed: 1, total: 3 },
+              parent: 40,
             }),
         },
       } as never),
@@ -110,12 +134,12 @@ const withSystem = <E>(
     | NoticeInbox.NoticeInbox
     | ProjectionStore.ProjectionStoreV2
   >,
+  orchestration: typeof OrchestrationLayerLive = OrchestrationLayerLive,
 ) =>
   Effect.gen(function* () {
     const directory = yield* Effect.promise(() =>
       NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "feature-integration-")),
     );
-    const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
       Layer.provideMerge(NoticeInbox.layer),
       Layer.provideMerge(FeatureWorkspacesLive),
@@ -225,25 +249,25 @@ describe("feature lead and crew", () => {
             workspace: "local",
             requesterThreadId,
           });
-        const first = yield* launch(ThreadId.make("bot-run:bot-hq:bot-captain"));
+        const first = yield* launch(ThreadId.make("bot-run:bot-hq:bot-ops"));
         // A retry from elsewhere starts nothing new and keeps who asked first.
         const retry = yield* launch(ThreadId.make("thread:someone-else"));
         expect(retry.leadThreadId).toBe(first.leadThreadId);
         expect(yield* features.requesterThreadId("launched-feature")).toBe(
-          "bot-run:bot-hq:bot-captain",
+          "bot-run:bot-hq:bot-ops",
         );
         const engine = yield* OrchestrationEngineService;
         const requesterOf = () =>
           engine
             .getThreadShell(first.leadThreadId)
             .pipe(Effect.map((shell) => shell?.feature?.requesterThreadId));
-        expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-captain");
+        expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-ops");
         yield* features.setIssue({
           id: "launched-feature",
           projectId,
           url: "https://github.com/owner/repo/issues/42",
         });
-        expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-captain");
+        expect(yield* requesterOf()).toBe("bot-run:bot-hq:bot-ops");
         // Its lead is caught up on after a restart.
         expect(yield* features.reportingLeads).toEqual([first.leadThreadId]);
       }),
@@ -325,7 +349,7 @@ describe("feature lead and crew", () => {
             id,
             name,
             instructions: `You are the laptop's ${name}.`,
-            allowedTools: [],
+            withheldTools: [],
             modelSelection,
             runtimeMode: "full-access" as const,
           });
@@ -397,7 +421,7 @@ describe("feature lead and crew", () => {
             title: "Local work",
             brief: "Local work",
             workspace: "local",
-            requesterThreadId: ThreadId.make("bot-run:bot-hq:bot-captain"),
+            requesterThreadId: ThreadId.make("bot-run:bot-hq:bot-ops"),
           });
           expect(Object.keys(local.feature.crewAssignments)).not.toContain(
             "role:security-reviewer",
@@ -1342,10 +1366,10 @@ describe("feature lead and crew", () => {
           yield* sql`DELETE FROM roles WHERE id = 'role:project-manager'`;
           yield* sql`
           INSERT INTO roles (
-            id, name, instructions, allowed_tools_json, model_selection_json, runtime_mode,
+            id, name, instructions, withheld_tools_json, model_selection_json, runtime_mode,
             enabled, auto_create_for_feature, revision, created_at, updated_at
           )
-          SELECT 'role:project-manager', 'Project manager', instructions, allowed_tools_json,
+          SELECT 'role:project-manager', 'Project manager', instructions, withheld_tools_json,
             model_selection_json, runtime_mode, enabled, auto_create_for_feature, revision,
             created_at, updated_at
           FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}
@@ -1364,7 +1388,10 @@ describe("feature lead and crew", () => {
             (yield* features.crewMember("managed-feature", "role:project-manager"))?.name,
           ).toBe("Project manager");
 
+          // 103 ran before 116 renamed the roles' tools column.
+          yield* sql`ALTER TABLE roles RENAME COLUMN withheld_tools_json TO allowed_tools_json`;
           yield* FeatureManagerMigration;
+          yield* sql`ALTER TABLE roles RENAME COLUMN allowed_tools_json TO withheld_tools_json`;
 
           expect((yield* features.crewMember("managed-feature", "Project manager"))?.name).toBe(
             "Project manager",
@@ -1546,6 +1573,7 @@ describe("feature lead and crew", () => {
           state: "open",
           milestone: "v0.4",
           subIssues: { completed: 1, total: 3 },
+          parent: 40,
         };
         expect(linked.issue).toEqual(issue);
         expect((yield* features.get(target.id))?.issue).toEqual(issue);
@@ -1654,7 +1682,7 @@ describe("feature lead and crew", () => {
           const crew = yield* CrewService;
           const bots = yield* BotStore.BotStore;
           const engine = yield* OrchestrationEngineService;
-          const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_ID);
           const shell = () => engine.getThreadShell(headquarters.threadId);
 
           yield* engine.dispatch({
@@ -1662,7 +1690,7 @@ describe("feature lead and crew", () => {
             commandId: CommandId.make("test:archive-hq"),
             threadId: headquarters.threadId,
           });
-          yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          yield* crew.ensureHeadquarters(CAPTAIN_ID);
           const unarchived = yield* shell();
           expect(unarchived).not.toBeNull();
           expect(unarchived!.archivedAt).toBeNull();
@@ -1680,7 +1708,7 @@ describe("feature lead and crew", () => {
           expect(kept!.pinnedAt).toBeTruthy();
 
           // Switching the bot to Ask first reaches its headquarters' next turns.
-          const captain = (yield* bots.get(CAPTAIN_BOT_ID))!;
+          const captain = (yield* bots.get(CAPTAIN_ID))!;
           const runtimeMode =
             captain.runtimeMode === "full-access" ? "approval-required" : "full-access";
           expect(
@@ -1689,7 +1717,7 @@ describe("feature lead and crew", () => {
               captain.revision,
             ),
           ).toBe(true);
-          yield* crew.ensureHeadquarters(CAPTAIN_BOT_ID);
+          yield* crew.ensureHeadquarters(CAPTAIN_ID);
           expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
         }),
       ),
@@ -1703,7 +1731,7 @@ describe("feature lead and crew", () => {
           const crew = yield* CrewService;
           const engine = yield* OrchestrationEngineService;
           const crewStore = yield* CrewStore;
-          const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_BOT_ID))!;
+          const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_ID))!;
           // No Library role: it starts on built-in instructions and its bot's model.
           expect(yield* crewStore.getRole("role:project-manager")).toBeNull();
           const before = yield* crew.projectManagerSettings(projectId);
@@ -1763,7 +1791,7 @@ describe("feature lead and crew", () => {
           const saved = yield* crew.updateProjectManager({
             projectId,
             instructions: "Manage it my way.",
-            allowedTools: ["worktree"],
+            withheldTools: ["worktree"],
             modelSelection: created.modelSelection,
             runtimeMode,
             longConversation: "new-session",
@@ -1777,12 +1805,17 @@ describe("feature lead and crew", () => {
           });
           // The open thread follows: its mode now, its grants on the next tool call.
           expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
-          expect((yield* crewStore.getRun(run.id))?.allowedTools).toEqual(["worktree"]);
+          expect((yield* crewStore.getRun(run.id))?.withheldTools).toEqual(["worktree"]);
           expect(
             (yield* crew
               .updateProjectManager({ ...saved, instructions: "Stale", expectedRevision: 1 })
               .pipe(Effect.flip)).message,
           ).toContain("reload");
+          expect(
+            (yield* crew
+              .updateProjectManager({ ...saved, allowedTools: [], expectedRevision: 3 })
+              .pipe(Effect.flip)).message,
+          ).toBe(LEGACY_TOOLS_MESSAGE);
 
           // A customized manager stays customized.
           const withIcon = yield* crew.setProjectManagerIcon({ projectId, icon });
@@ -1798,7 +1831,7 @@ describe("feature lead and crew", () => {
             customized: false,
             revision: 5,
             instructions: before.instructions,
-            allowedTools: [],
+            withheldTools: [],
             modelSelection: captain.modelSelection,
             runtimeMode: "full-access",
             longConversation: "compact",
@@ -1828,6 +1861,65 @@ describe("feature lead and crew", () => {
       ),
   );
 
+  // No bot and no saved default model, as on a fresh install: a project's manager and features
+  // run on the model new threads there get, from the first usable provider.
+  const looseProject = Effect.gen(function* () {
+    const features = yield* FeatureService;
+    const loose = ProjectId.make("workflow-feature-loose");
+    const home = (yield* (yield* ProjectStore.ProjectStoreV2).get(projectId)).pipe(
+      Option.getOrThrow,
+    ).workspaceRoot;
+    yield* seedCrewProject({
+      projectId: loose,
+      title: "Loose project",
+      workspaceRoot: home,
+      botId: null,
+    });
+    const target = { id: "loose-feature", projectId: loose };
+    yield* features.create({ ...target, title: "Loose", brief: "Tidy up", workspace: "local" });
+    return target;
+  });
+
+  effectIt.effect(
+    "gives a project with no bot a manager and features on the model new threads get",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const features = yield* FeatureService;
+          const settings = yield* ServerSettingsService;
+          expect((yield* settings.getSettings).defaultModelSelection).toBeNull();
+          const target = yield* looseProject;
+          const inherited = { instanceId: readyCodex.instanceId, model: "gpt-5.4" };
+          expect(yield* crew.projectManagerSettings(target.projectId)).toMatchObject({
+            modelSelection: inherited,
+            runtimeMode: "full-access",
+          });
+          const manager = yield* crew.ensureProjectManager(target.projectId);
+          expect(manager.threadId).toBe(projectHeadquartersThreadId(target.projectId));
+          const started = yield* features.start(target.id, target.projectId);
+          expect(started.leadThreadId).toBeDefined();
+        }),
+        makeCrewTestOrchestration({ providers: [readyCodex] }),
+      ),
+  );
+
+  effectIt.effect("refuses a project with no bot and no usable model", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const features = yield* FeatureService;
+        const target = yield* looseProject;
+        expect(
+          (yield* Effect.flip(crew.projectManagerSettings(target.projectId))).message,
+        ).toContain("Choose a default model for this project");
+        expect((yield* Effect.flip(features.start(target.id, target.projectId))).message).toContain(
+          "Set up the crew",
+        );
+      }),
+    ),
+  );
+
   effectIt.effect(
     "lets only a project's manager and its bot's headquarters save the manager's instructions",
     () =>
@@ -1835,7 +1927,7 @@ describe("feature lead and crew", () => {
         Effect.gen(function* () {
           const crew = yield* CrewService;
           const manager = projectHeadquartersThreadId(projectId);
-          const captainHq = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+          const captainHq = botHeadquartersThreadId(CAPTAIN_ID);
           const otherProject = ProjectId.make("workflow-feature-other");
           yield* seedCrewProject({
             projectId: otherProject,
@@ -1904,7 +1996,7 @@ describe("feature lead and crew", () => {
           expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(
             read.instructions,
           );
-          const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_BOT_ID))!;
+          const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_ID))!;
           const icon = { avatar: captain.avatar, color: "teal" as const };
           const before = yield* crew.setProjectManagerIcon({ projectId, icon });
           const rule = `${read.instructions}\n\nEvery piece of work starts from a GitHub issue.`;
@@ -1927,7 +2019,7 @@ describe("feature lead and crew", () => {
             enabled: true,
             modelSelection: before.modelSelection,
             runtimeMode: before.runtimeMode,
-            allowedTools: before.allowedTools,
+            withheldTools: before.withheldTools,
             longConversation: before.longConversation,
           });
 

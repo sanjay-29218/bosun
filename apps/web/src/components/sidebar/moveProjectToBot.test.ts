@@ -1,4 +1,4 @@
-import { CAPTAIN_BOT_ID, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildMoveToBotMenuItem, parseMoveToBotMenuId } from "./moveProjectToBot";
@@ -8,7 +8,7 @@ const remote = EnvironmentId.make("remote");
 
 const bots = [
   {
-    key: "id:bot-captain",
+    key: "name:captain",
     name: "Captain",
     avatar: {
       head: "squircle",
@@ -19,9 +19,10 @@ const bots = [
       smile: true,
     } as const,
     color: "blue" as const,
+    pinned: true,
     members: [
-      { environmentId: local, botId: CAPTAIN_BOT_ID },
-      { environmentId: remote, botId: CAPTAIN_BOT_ID },
+      { environmentId: local, botId: "bot-ops" },
+      { environmentId: remote, botId: "bot-ops" },
     ],
   },
   {
@@ -36,6 +37,7 @@ const bots = [
       smile: false,
     } as const,
     color: "pink" as const,
+    pinned: true,
     members: [{ environmentId: local, botId: "bot-social" }],
   },
 ];
@@ -51,13 +53,17 @@ const member = (environmentId: EnvironmentId, botId?: string) => ({
 const botEnvironments = new Set([local, remote]);
 
 describe("buildMoveToBotMenuItem", () => {
-  it("lists every bot with the owner checked", () => {
-    const item = buildMoveToBotMenuItem([member(local)], bots, botEnvironments);
+  it("lists every bot, then No bot, with the owner checked", () => {
+    const item = buildMoveToBotMenuItem([member(local, "bot-ops")], bots, botEnvironments);
     expect(item?.label).toBe("Move to bot");
     expect(item?.children?.map((child) => [child.label, child.checked ?? false])).toEqual([
       ["Captain", true],
       ["Social", false],
+      ["No bot", false],
     ]);
+    const loose = buildMoveToBotMenuItem([member(local)], bots, botEnvironments);
+    expect(loose?.children?.map((child) => child.checked ?? false)).toEqual([false, false, true]);
+    expect(parseMoveToBotMenuId(loose!.children![2]!.id)?.botKey).toBe("");
     expect(parseMoveToBotMenuId(item!.children![1]!.id)).toEqual({
       environmentId: local,
       projectId: "p",
@@ -76,6 +82,7 @@ describe("buildMoveToBotMenuItem", () => {
     expect(item?.children?.[1]?.children?.map((child) => child.label)).toEqual([
       "Captain",
       "Social",
+      "No bot",
     ]);
     expect(buildMoveToBotMenuItem([member(remote)], bots, new Set([local]))).toBeNull();
   });

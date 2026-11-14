@@ -56,6 +56,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.botsDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsReorder]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsMoveProject]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsSetPin]: AuthOrchestrationOperateScope,
   [WS_METHODS.rolesList]: AuthOrchestrationReadScope,
   [WS_METHODS.rolesCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.rolesUpdate]: AuthOrchestrationOperateScope,

@@ -44,6 +44,7 @@ import { useWorkspaceState } from "../../state/workspace";
 import { useActiveBot, useRefreshBotsWhileOpen } from "../../state/bots";
 import { useBoardProjects } from "../../state/features";
 import { FeatureBoard } from "../crew/FeatureBoard";
+import { useOpenProjectManager } from "../home/useOpenProjectManager";
 import { buildBotSwitcherMenu } from "../home/thread-list-chrome";
 import { BotHeaderRow } from "../home/BotHeaderRow";
 import { useOpenBotHeadquarters } from "../home/useOpenBotHeadquarters";
@@ -108,6 +109,7 @@ interface ThreadNavigationSidebarProps {
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironmentSettings: () => void;
   readonly onOpenAutomations: () => void;
+  readonly onOpenBots: () => void;
   readonly onOpenLibrary: () => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
@@ -172,6 +174,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const childFeatures = useChildFeatureExpansion(workGroups, props.selectedThreadKey ?? null);
   const { selectedRowKey } = childFeatures;
   const openHeadquarters = useOpenBotHeadquarters(props.onSelectThread);
+  const openProjectManager = useOpenProjectManager(props.onSelectThread);
   const botProjectCount = useMemo(
     () =>
       activeBot.active === null
@@ -188,10 +191,19 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
       buildBotSwitcherMenu({
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
+        openManager: (manager) => void openProjectManager(manager),
+        openBotsList: props.onOpenBots,
         openAutomations: props.onOpenAutomations,
         openLibrary: props.onOpenLibrary,
       }),
-    [activeBot, openHeadquarters, props.onOpenAutomations, props.onOpenLibrary],
+    [
+      activeBot,
+      openHeadquarters,
+      openProjectManager,
+      props.onOpenAutomations,
+      props.onOpenBots,
+      props.onOpenLibrary,
+    ],
   );
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);

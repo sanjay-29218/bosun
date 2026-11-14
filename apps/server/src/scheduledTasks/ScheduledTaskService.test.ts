@@ -5,7 +5,6 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it, vi } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   ProjectId,
   ProviderInstanceId,
   ScheduledTaskError,
@@ -36,6 +35,9 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { insertTestBot } from "../bots/BotStore.testkit.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
 
@@ -469,11 +471,12 @@ const botTaskLayer = (
 
 it.effect("a bot task runs in its bot's headquarters and outlives the headquarters thread", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
     );
     const opened = yield* Ref.make<ReadonlyArray<string>>([]);
-    const headquarters = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+    const headquarters = botHeadquartersThreadId(CAPTAIN_ID);
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       // Stands in for the crew, which creates or restores the headquarters on open.
@@ -482,16 +485,16 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
           Effect.as({ threadId: headquarters, projectId: ProjectId.make("project:scratch") }),
         ),
       );
-      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
-      assert.strictEqual(task.botId, CAPTAIN_BOT_ID);
+      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_ID));
+      assert.strictEqual(task.botId, CAPTAIN_ID);
       assert.isNull(task.threadId);
       // Filed in the bot's home, whatever project the client passed.
-      assert.strictEqual(task.projectId, `home:${CAPTAIN_BOT_ID}`);
+      assert.strictEqual(task.projectId, `home:${CAPTAIN_ID}`);
 
       const run = yield* service.runNow({ id: task.id });
       assert.strictEqual(run.threadId, headquarters);
       assert.strictEqual(run.task.lastRunStatus, "succeeded");
-      assert.deepStrictEqual(yield* Ref.get(opened), [CAPTAIN_BOT_ID]);
+      assert.deepStrictEqual(yield* Ref.get(opened), [CAPTAIN_ID]);
       const [send] = yield* Ref.get(sent);
       assert.strictEqual(send?.threadId, headquarters);
       assert.strictEqual(send?.projectId, "project:scratch");
@@ -503,14 +506,14 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
       // Headquarters threads get deleted and restored; the task stays.
       yield* service.deleteForThread(headquarters);
       // A client that predates bot tasks re-saves without botId and keeps the bot.
-      const { botId: _botId, ...legacySave } = botTaskInput(CAPTAIN_BOT_ID);
+      const { botId: _botId, ...legacySave } = botTaskInput(CAPTAIN_ID);
       yield* service.upsert(legacySave);
       const [kept] = (yield* service.list()).tasks;
-      assert.strictEqual(kept?.botId, CAPTAIN_BOT_ID);
+      assert.strictEqual(kept?.botId, CAPTAIN_ID);
 
       // Null turns it back into a task that starts a thread per run.
       const { task: plain } = yield* service.upsert({
-        ...botTaskInput(CAPTAIN_BOT_ID),
+        ...botTaskInput(CAPTAIN_ID),
         botId: null,
         threadId: null,
       });
@@ -521,15 +524,16 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
 
 it.effect("files only bots' tasks in their homes, once", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sql = yield* SqlClient.SqlClient;
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
     );
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
-      const { task: botTask } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      const { task: botTask } = yield* service.upsert(botTaskInput(CAPTAIN_ID));
       const { task: plain } = yield* service.upsert({
-        ...botTaskInput(CAPTAIN_BOT_ID),
+        ...botTaskInput(CAPTAIN_ID),
         id: ScheduledTaskId.make("task:plain"),
         botId: null,
         threadId: null,
@@ -543,7 +547,7 @@ it.effect("files only bots' tasks in their homes, once", () =>
       const projects = new Map(
         (yield* service.list()).tasks.map((task) => [task.id, task.projectId]),
       );
-      assert.strictEqual(projects.get(botTask.id), `home:${CAPTAIN_BOT_ID}`);
+      assert.strictEqual(projects.get(botTask.id), `home:${CAPTAIN_ID}`);
       assert.strictEqual(projects.get(plain.id), "project:scratch");
     }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
@@ -551,6 +555,7 @@ it.effect("files only bots' tasks in their homes, once", () =>
 
 it.effect("refuses unknown bots and fails a run whose bot is gone with a clear error", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sql = yield* SqlClient.SqlClient;
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
@@ -560,13 +565,13 @@ it.effect("refuses unknown bots and fails a run whose bot is gone with a clear e
       const unknown = yield* Effect.flip(service.upsert(botTaskInput("bot:missing")));
       assert.strictEqual(unknown.message, "That bot doesn't exist.");
 
-      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_ID));
       // Nothing connected the crew yet.
       const early = yield* service.runNow({ id: task.id });
       assert.strictEqual(early.task.lastRunStatus, "failed");
       assert.strictEqual(early.task.lastRunError, "Bots aren't available on this server.");
 
-      yield* sql`UPDATE bots SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ${CAPTAIN_BOT_ID}`;
+      yield* sql`UPDATE bots SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ${CAPTAIN_ID}`;
       const gone = yield* service.runNow({ id: task.id });
       assert.strictEqual(gone.task.lastRunStatus, "failed");
       assert.strictEqual(gone.task.lastRunError, "The bot this task runs as no longer exists.");

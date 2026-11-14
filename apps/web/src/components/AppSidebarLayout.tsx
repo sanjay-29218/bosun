@@ -39,6 +39,7 @@ import {
   usePanelNavigationSuppression,
 } from "../panelAnimations";
 import { AutomationsSidebar } from "./automations/AutomationsSidebar";
+import { BotsListSidebar } from "./bots/BotsListSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
@@ -524,6 +525,8 @@ export function AppSidebarLayout({
               <MobileBotRailFrame show={showBotRail && isMobile}>
                 {railDestination === "automations" ? (
                   <AutomationsSidebar />
+                ) : railDestination === "bots-list" ? (
+                  <BotsListSidebar />
                 ) : (
                   <ThreadSidebar routeReveal={sidebarRouteReveal} />
                 )}

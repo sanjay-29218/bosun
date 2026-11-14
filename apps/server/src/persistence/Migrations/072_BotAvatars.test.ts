@@ -22,7 +22,7 @@ it.effect("gives Captain the first avatar and other bots one by rail position", 
     yield* bot("finance", "💰", 2);
     yield* bot("social", "📣", 1);
 
-    yield* runMigrations();
+    yield* BosunMigrations.runMigrations(72);
 
     const rows = yield* sql<{ readonly id: string; readonly avatar: string }>`
       SELECT id, avatar_json AS avatar FROM bots ORDER BY position

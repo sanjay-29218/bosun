@@ -12,8 +12,9 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 const BotRow = Schema.Struct({
   ...Bot.fields,
   avatar: Schema.fromJsonString(Bot.fields.avatar),
-  allowedTools: Schema.fromJsonString(Bot.fields.allowedTools),
+  withheldTools: Schema.fromJsonString(Bot.fields.withheldTools),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
+  pinned: Schema.BooleanFromBit,
 });
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(BotRow));
 const encodeRow = Schema.encodeSync(BotRow);
@@ -42,6 +43,11 @@ export class BotStore extends Context.Service<
       deletedAt: string,
       homeWorkspaceRoot: string | null,
     ) => Effect.Effect<DeleteBotResult, PersistenceSqlError>;
+    /** Pins the bot to the main rail or unpins it; false when there's no such bot. */
+    readonly setPinned: (
+      id: string,
+      pinned: boolean,
+    ) => Effect.Effect<boolean, PersistenceSqlError>;
     /** Writes rail positions in the given order. */
     readonly setPositions: (
       botIds: ReadonlyArray<string>,
@@ -54,7 +60,7 @@ export class BotStore extends Context.Service<
     readonly withOwnership: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
     /** Whether any bot, deleted or not, has this ID. Bots and crew members share IDs' space. */
     readonly idTaken: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
-    /** The bot that owns an active project, or null for a missing project. */
+    /** The bot that owns an active project, or null for a missing project or one with no bot. */
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
   }
 >()("t3/bots/BotStore") {}
@@ -68,10 +74,10 @@ const make = Effect.gen(function* () {
 
   const select = (id?: string) =>
     sql`
-      SELECT id, name, avatar_json AS "avatar", color, instructions, allowed_tools_json AS "allowedTools",
+      SELECT id, name, avatar_json AS "avatar", color, instructions, withheld_tools_json AS "withheldTools",
         runtime_mode AS "runtimeMode", model_selection_json AS "modelSelection",
         long_conversation AS "longConversation",
-        position, revision,
+        position, pinned, revision,
         created_at AS "createdAt", updated_at AS "updatedAt"
       FROM bots WHERE deleted_at IS NULL AND ${id === undefined ? sql`1 = 1` : sql`id = ${id}`}
       ORDER BY position, created_at, id
@@ -84,16 +90,16 @@ const make = Effect.gen(function* () {
     list: select(),
     get: Effect.fn("BotStore.get")((id) => select(id).pipe(Effect.map((rows) => rows[0] ?? null))),
     insert: Effect.fn("BotStore.insert")((bot) => {
-      const row = encodeRow(bot);
+      const row = encodeRow({ ...bot, pinned: bot.pinned ?? true });
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
-          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
-          model_selection_json, long_conversation, position, revision,
+          id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
+          model_selection_json, long_conversation, position, pinned, revision,
           created_at, updated_at
         )
         SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
-          ${row.allowedTools}, ${row.runtimeMode}, ${row.modelSelection},
-          ${row.longConversation}, ${row.position}, ${row.revision},
+          ${row.withheldTools}, ${row.runtimeMode}, ${row.modelSelection},
+          ${row.longConversation}, ${row.position}, ${row.pinned}, ${row.revision},
           ${row.createdAt}, ${row.updatedAt}
         WHERE NOT EXISTS (SELECT 1 FROM crew_members WHERE id = ${row.id})
         RETURNING id
@@ -103,11 +109,11 @@ const make = Effect.gen(function* () {
       );
     }),
     update: Effect.fn("BotStore.update")((bot, expectedRevision) => {
-      const row = encodeRow(bot);
+      const row = encodeRow({ ...bot, pinned: bot.pinned ?? true });
       return sql<{ readonly id: string }>`
         UPDATE bots SET
           name = ${row.name}, avatar_json = ${row.avatar}, color = ${row.color},
-          instructions = ${row.instructions}, allowed_tools_json = ${row.allowedTools},
+          instructions = ${row.instructions}, withheld_tools_json = ${row.withheldTools},
           runtime_mode = ${row.runtimeMode}, model_selection_json = ${row.modelSelection},
           long_conversation = ${row.longConversation}, revision = ${row.revision},
           updated_at = ${row.updatedAt}
@@ -139,6 +145,15 @@ const make = Effect.gen(function* () {
           )
           .pipe(Effect.mapError(queryError)),
     ),
+    setPinned: Effect.fn("BotStore.setPinned")((id, pinned) =>
+      sql<{ readonly id: string }>`
+        UPDATE bots SET pinned = ${pinned ? 1 : 0} WHERE id = ${id} AND deleted_at IS NULL
+        RETURNING id
+      `.pipe(
+        Effect.map((rows) => rows.length > 0),
+        Effect.mapError(queryError),
+      ),
+    ),
     setPositions: Effect.fn("BotStore.setPositions")((botIds, updatedAt) =>
       sql
         .withTransaction(
@@ -159,7 +174,7 @@ const make = Effect.gen(function* () {
       ),
     ),
     projectOwner: Effect.fn("BotStore.projectOwner")((projectId) =>
-      sql<{ readonly botId: string }>`
+      sql<{ readonly botId: string | null }>`
         SELECT bot_id AS "botId" FROM projection_projects
         WHERE project_id = ${projectId} AND deleted_at IS NULL
       `.pipe(

@@ -23,6 +23,8 @@ export interface SourceControlLinkSubject {
   readonly state?: "open" | "closed";
   readonly milestone?: string | null;
   readonly subIssues?: { readonly completed: number; readonly total: number } | null;
+  /** The issue's parent issue number, when it is a sub-issue. */
+  readonly parent?: number | null;
 }
 
 /** Return undefined synchronously for unsupported URLs, without starting a lookup. */
@@ -207,12 +209,17 @@ export class SourceControlProvider extends Context.Service<
       readonly state: "open" | "closed";
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryMilestone, SourceControlProviderError>;
-    /** Changes an issue's title or Markdown body, whichever is given. Absent means unsupported. */
+    /**
+     * Changes an issue's title, Markdown body, milestone (its number) or parent (its number),
+     * whichever is given; null clears a milestone or parent. Absent means unsupported.
+     */
     readonly updateIssue?: (input: {
       readonly cwd: string;
       readonly number: number;
       readonly title?: string | undefined;
       readonly body?: string | undefined;
+      readonly milestone?: number | null | undefined;
+      readonly parent?: number | null | undefined;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
     /**

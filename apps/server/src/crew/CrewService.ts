@@ -4,6 +4,7 @@ import {
   type BotLongConversation,
   CREW_DISPATCH_STATE,
   CREW_TOOL_GRANTS,
+  LEGACY_TOOLS_MESSAGE,
   CREW_TURN_STATE,
   headquartersBotId,
   headquartersProjectId,
@@ -128,7 +129,7 @@ const DEFAULT_ROLES = [
   {
     id: FEATURE_MANAGER_ROLE_ID,
     name: "Feature manager",
-    allowedTools: [],
+    withheldTools: [],
     instructions: FEATURE_MANAGER_INSTRUCTIONS,
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
@@ -141,7 +142,7 @@ const DEFAULT_ROLES = [
   { id: "role:qa-tester", name: "QA Tester" },
   { id: "role:reviewer", name: "Reviewer" },
 ].map((role) => ({
-  allowedTools: [],
+  withheldTools: [],
   instructions: crewInstructions(role.name),
   ...role,
 }));
@@ -153,7 +154,7 @@ export interface CreateCrewMemberInput {
   readonly roleId?: string | null;
   readonly name: string;
   readonly instructions: string;
-  readonly allowedTools?: ReadonlyArray<string>;
+  readonly withheldTools?: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
 }
@@ -162,9 +163,11 @@ export interface CreateRoleInput {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly allowedTools?: ReadonlyArray<string>;
+  readonly withheldTools?: ReadonlyArray<string>;
+  /** Sent only by builds before withheld tools; refused with `LEGACY_TOOLS_MESSAGE`. */
+  readonly allowedTools?: unknown;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
+  readonly runtimeMode?: RuntimeMode;
 }
 
 export interface CreateWorkflowInput {
@@ -405,18 +408,18 @@ const validTools = (tools: ReadonlyArray<string> | undefined) => {
   return [...new Set(list.map((tool) => nonEmpty(tool, "Tool", 100)))];
 };
 
-/** Grants that act for the bot behind a run, which a role's members must never hold. */
+/** Grants only bots hold; a role or project manager withholding one changes nothing. */
 const BOT_ONLY_GRANTS: ReadonlySet<string> = new Set(
   CREW_TOOL_GRANTS.filter((grant) => "botOnly" in grant).map((grant) => grant.id),
 );
-const validRoleTools = (tools: ReadonlyArray<string> | undefined) => {
-  const list = validTools(tools);
-  const botOnly = list.find((tool) => BOT_ONLY_GRANTS.has(tool));
-  if (botOnly !== undefined) {
-    throw new CrewValidationError(`${botOnly} is for bots and can't be given to a role`);
-  }
-  return list;
-};
+const validRoleTools = (tools: ReadonlyArray<string> | undefined) =>
+  validTools(tools).filter((tool) => !BOT_ONLY_GRANTS.has(tool));
+
+/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
+const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
+  input.allowedTools === undefined
+    ? Effect.void
+    : Effect.fail(new CrewValidationError(LEGACY_TOOLS_MESSAGE));
 
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
@@ -488,8 +491,8 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.instructions, "Member instructions", 16_000),
           catch: () => new CrewValidationError("Invalid crew member instructions"),
         });
-        const allowedTools = yield* Effect.try({
-          try: () => validTools(input.allowedTools),
+        const withheldTools = yield* Effect.try({
+          try: () => validTools(input.withheldTools),
           catch: () => new CrewValidationError("Invalid tool grants"),
         });
         const featureId = input.featureId ?? null;
@@ -517,7 +520,7 @@ export const CrewServiceLive = Layer.effect(
           roleRevision: role?.revision ?? null,
           name,
           instructions,
-          allowedTools,
+          withheldTools,
           enabled: true,
           longConversation: "compact",
           icon: null,
@@ -558,6 +561,7 @@ export const CrewServiceLive = Layer.effect(
 
     const createRole: CrewServiceShape["createRole"] = Effect.fn("CrewService.createRole")(
       function* (input) {
+        yield* refuseLegacyTools(input);
         const id = yield* Effect.try({
           try: () => nonEmpty(input.id, "Role ID", 128),
           catch: () => new CrewValidationError("Invalid role ID"),
@@ -573,8 +577,8 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.instructions, "Role instructions", 16_000),
           catch: () => new CrewValidationError("Invalid role instructions"),
         });
-        const allowedTools = yield* Effect.try({
-          try: () => validRoleTools(input.allowedTools),
+        const withheldTools = yield* Effect.try({
+          try: () => validRoleTools(input.withheldTools),
           catch: (cause) =>
             cause instanceof CrewValidationError
               ? cause
@@ -582,11 +586,12 @@ export const CrewServiceLive = Layer.effect(
         });
         const now = DateTime.formatIso(yield* DateTime.now);
         const role: Role = {
-          ...input,
           id,
           name,
           instructions,
-          allowedTools,
+          withheldTools,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode ?? "full-access",
           enabled: true,
           revision: 1,
           createdAt: now,
@@ -612,7 +617,7 @@ export const CrewServiceLive = Layer.effect(
         roleRevision: role.revision,
         name: role.name,
         instructions: `${role.instructions}\n\n${context}`,
-        allowedTools: role.allowedTools,
+        withheldTools: role.withheldTools,
         modelSelection: role.modelSelection,
         runtimeMode: role.runtimeMode,
         revision: member.revision + 1,
@@ -624,6 +629,7 @@ export const CrewServiceLive = Layer.effect(
 
     const updateRole: CrewServiceShape["updateRole"] = Effect.fn("CrewService.updateRole")(
       function* (input) {
+        yield* refuseLegacyTools(input);
         const previous = yield* store.getRole(input.id);
         if (!previous) {
           return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.id}`));
@@ -643,8 +649,8 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.instructions, "Role instructions", 16_000),
           catch: () => new CrewValidationError("Invalid role instructions"),
         });
-        const allowedTools = yield* Effect.try({
-          try: () => validRoleTools(input.allowedTools),
+        const withheldTools = yield* Effect.try({
+          try: () => validRoleTools(input.withheldTools ?? previous.withheldTools),
           catch: (cause) =>
             cause instanceof CrewValidationError
               ? cause
@@ -654,9 +660,9 @@ export const CrewServiceLive = Layer.effect(
           ...previous,
           name,
           instructions,
-          allowedTools,
+          withheldTools,
           modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
+          runtimeMode: input.runtimeMode ?? previous.runtimeMode,
           enabled: input.enabled,
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
@@ -769,7 +775,7 @@ export const CrewServiceLive = Layer.effect(
         roleId,
         name: role.name,
         instructions: `${role.instructions}\n\n${projectMemberContext(id, projectId)}`,
-        allowedTools: role.allowedTools,
+        withheldTools: role.withheldTools,
         modelSelection: role.modelSelection,
         runtimeMode: role.runtimeMode,
       });
@@ -803,21 +809,32 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
-    /** What a project's manager starts with: built-in instructions on its owning bot's model. */
+    /**
+     * What a project's manager starts with: built-in instructions on its owning bot's model, or
+     * with no bot, the project's default model.
+     */
     const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (
       projectId: ProjectId,
     ) {
       const botId = yield* runtime.projectBotId(projectId);
       const bot = botId === null ? null : yield* bots.get(botId);
-      if (bot?.modelSelection == null) {
+      const modelSelection =
+        botId === null
+          ? yield* runtime.projectModelSelection(projectId)
+          : (bot?.modelSelection ?? null);
+      if (modelSelection === null) {
         return yield* Effect.fail(
-          new CrewValidationError(`Choose a default model for ${bot?.name ?? "the project's bot"}`),
+          new CrewValidationError(
+            botId === null
+              ? "Choose a default model for this project or in Settings"
+              : `Choose a default model for ${bot?.name ?? "the project's bot"}`,
+          ),
         );
       }
       return {
         instructions: builtInManagerInstructions(projectId),
-        allowedTools: [] as ReadonlyArray<string>,
-        modelSelection: bot.modelSelection,
+        withheldTools: [] as ReadonlyArray<string>,
+        modelSelection,
         runtimeMode: "full-access" as const,
         longConversation: "compact" as const,
       };
@@ -836,7 +853,7 @@ export const CrewServiceLive = Layer.effect(
         roleId: null,
         name: "Project manager",
         instructions: defaults.instructions,
-        allowedTools: defaults.allowedTools,
+        withheldTools: defaults.withheldTools,
         modelSelection: defaults.modelSelection,
         runtimeMode: defaults.runtimeMode,
       });
@@ -855,7 +872,7 @@ export const CrewServiceLive = Layer.effect(
           projectId,
           enabled: member.enabled,
           instructions: managerInstructions(member, projectId),
-          allowedTools: member.allowedTools,
+          withheldTools: member.withheldTools,
           modelSelection: member.modelSelection,
           runtimeMode: member.runtimeMode,
           longConversation: member.longConversation,
@@ -905,12 +922,14 @@ export const CrewServiceLive = Layer.effect(
     const updateProjectManager: CrewServiceShape["updateProjectManager"] = Effect.fn(
       "CrewService.updateProjectManager",
     )(function* (input) {
+      yield* refuseLegacyTools(input);
       const instructions = yield* Effect.try({
         try: () => nonEmpty(input.instructions, "Instructions", 16_000),
         catch: () => new CrewValidationError("Give the project manager instructions"),
       });
-      const allowedTools = yield* Effect.try({
-        try: () => validRoleTools(input.allowedTools),
+      const withheldTools = yield* Effect.try({
+        try: () =>
+          input.withheldTools === undefined ? undefined : validRoleTools(input.withheldTools),
         catch: (cause) =>
           cause instanceof CrewValidationError
             ? cause
@@ -920,7 +939,7 @@ export const CrewServiceLive = Layer.effect(
         Effect.succeed({
           ...member,
           instructions,
-          allowedTools,
+          withheldTools: withheldTools ?? member.withheldTools,
           modelSelection: input.modelSelection,
           runtimeMode: input.runtimeMode,
           longConversation: input.longConversation,
@@ -1019,7 +1038,7 @@ export const CrewServiceLive = Layer.effect(
         const saved = yield* updateProjectManager({
           projectId,
           instructions: input.instructions,
-          allowedTools: current.allowedTools,
+          withheldTools: current.withheldTools,
           modelSelection: current.modelSelection,
           runtimeMode: current.runtimeMode,
           longConversation: current.longConversation,
@@ -1115,7 +1134,7 @@ export const CrewServiceLive = Layer.effect(
           taskText,
           title: input.title ?? `${member.name}: ${taskText.slice(0, 80)}`,
           instructions: member.instructions,
-          allowedTools: member.allowedTools,
+          withheldTools: member.withheldTools,
           memberRevision: member.revision,
           modelSelection: yield* modelFor(
             member,
@@ -1150,7 +1169,7 @@ export const CrewServiceLive = Layer.effect(
       readonly actorId: string;
       readonly name: string;
       readonly instructions: string;
-      readonly allowedTools: ReadonlyArray<string>;
+      readonly withheldTools: ReadonlyArray<string>;
       readonly revision: number;
       readonly modelSelection: ModelSelection | null;
       readonly runtimeMode: RuntimeMode;
@@ -1192,7 +1211,7 @@ export const CrewServiceLive = Layer.effect(
         actorId: bot.id,
         name: bot.name,
         instructions: bot.instructions,
-        allowedTools: bot.allowedTools,
+        withheldTools: bot.withheldTools,
         revision: bot.revision,
         modelSelection: bot.modelSelection,
         runtimeMode: bot.runtimeMode,
@@ -1211,7 +1230,7 @@ export const CrewServiceLive = Layer.effect(
         actorId: member.id,
         name: "Project manager",
         instructions: managerInstructions(member, projectId),
-        allowedTools: member.allowedTools,
+        withheldTools: member.withheldTools,
         revision: member.revision,
         modelSelection: member.modelSelection,
         runtimeMode: member.runtimeMode,
@@ -1267,7 +1286,7 @@ export const CrewServiceLive = Layer.effect(
           taskText: owner.taskText,
           title: owner.name,
           instructions: owner.instructions,
-          allowedTools: owner.allowedTools,
+          withheldTools: owner.withheldTools,
           memberRevision: owner.revision,
           modelSelection,
           runtimeMode: owner.runtimeMode,
@@ -1597,7 +1616,7 @@ export const CrewServiceLive = Layer.effect(
           roleId,
           name: role.name,
           instructions: role.instructions,
-          allowedTools: role.allowedTools,
+          withheldTools: role.withheldTools,
           modelSelection: role.modelSelection,
           runtimeMode: role.runtimeMode,
         });

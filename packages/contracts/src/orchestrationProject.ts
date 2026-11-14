@@ -20,8 +20,10 @@ export const OrchestrationProjectShell = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
   scripts: Schema.Array(ProjectScript),
-  /** The bot that owns the project. Absent from older servers and cached snapshots: Captain. */
-  botId: Schema.optional(Schema.String),
+  /** The bot that owns the project; null or absent when it has none. */
+  botId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The project's manager shows in the main rail. Absent from older servers: pinned. */
+  managerPinned: Schema.optional(Schema.Boolean),
   // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),

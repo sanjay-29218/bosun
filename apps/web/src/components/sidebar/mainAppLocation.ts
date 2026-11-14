@@ -24,6 +24,8 @@ export function isAppModalPage(pathname: string) {
 }
 
 export const AUTOMATIONS_PATH = "/automations";
+/** Every bot and project manager, pinned to the rail or not. */
+export const BOTS_LIST_PATH = "/bots/all";
 /** Bots, workflows and roles are added and edited in Settings → Crew. */
 export const BOTS_SETTINGS_PATH = "/settings/bots";
 export const WORKFLOWS_SETTINGS_PATH = "/settings/workflows";
@@ -33,7 +35,8 @@ export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
     pathname === "/pull-requests" ||
-    pathname === AUTOMATIONS_PATH
+    pathname === AUTOMATIONS_PATH ||
+    pathname === BOTS_LIST_PATH
   );
 }
 
@@ -41,14 +44,16 @@ export function isSidebarUtilityPage(pathname: string) {
  * What the rail points at: the bots (the picked bot's threads) or one of its places. The sidebar
  * column shows the destination's list.
  */
-export type RailDestination = "bots" | "automations" | "pull-requests";
+export type RailDestination = "bots" | "bots-list" | "automations" | "pull-requests";
 
 const railDestinationForPathname = (pathname: string): RailDestination =>
   pathname === AUTOMATIONS_PATH
     ? "automations"
-    : pathname === "/pull-requests"
-      ? "pull-requests"
-      : "bots";
+    : pathname === BOTS_LIST_PATH
+      ? "bots-list"
+      : pathname === "/pull-requests"
+        ? "pull-requests"
+        : "bots";
 
 /** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
 export function useRailDestination(): RailDestination {

@@ -6,12 +6,6 @@ import { ProjectIconColor } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
- * Top-level bots (Captain, Social, Finance...) own projects; each project has exactly one.
- * Bots are environment-local. Captain always exists and owns projects created without a bot.
- */
-export const CAPTAIN_BOT_ID = "bot-captain";
-
-/**
  * Every bot has one headquarters: a crew run in the bot's home, created when first needed.
  * It sees all the bot's projects and leads their features, so clients can find its thread by id.
  */
@@ -40,14 +34,12 @@ export const headquartersProjectId = (threadId: string): ProjectId | null =>
 export const isStandingThread = (threadId: string) =>
   headquartersBotId(threadId) !== null || headquartersProjectId(threadId) !== null;
 /**
- * Which bots across environments are the same bot: Captain by id, the rest by name. Bots stay
+ * Which bots across environments are the same bot: the ones with the same name. Bots stay
  * environment-local; this key is how clients merge them in the rail and how one environment
  * finds its bot's counterpart on a linked one.
  */
-export const logicalBotKey = (bot: { readonly id: string; readonly name: string }): string =>
-  bot.id === CAPTAIN_BOT_ID
-    ? `id:${CAPTAIN_BOT_ID}`
-    : `name:${bot.name.trim().toLocaleLowerCase()}`;
+export const logicalBotKey = (bot: { readonly name: string }): string =>
+  `name:${bot.name.trim().toLocaleLowerCase()}`;
 
 /** A bot's avatar: a small robot built from these parts and tinted with the bot's color. */
 export const BOT_HEADS = [
@@ -115,19 +107,29 @@ export const isBotFreshStartContext = (
   context: { readonly records: ReadonlyArray<unknown> } | undefined,
 ): boolean => context?.records.some(isFreshStartRecord) ?? false;
 
+/**
+ * Builds before #96 sent `allowedTools`, a list with the opposite meaning. Inputs accept the key
+ * only so the server can refuse it with a plain message instead of flipping access.
+ */
+export const LEGACY_ALLOWED_TOOLS = Schema.optionalKey(Schema.Unknown);
+export const LEGACY_TOOLS_MESSAGE = "This Bosun is newer; update the app to edit tools.";
+
 export const Bot = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.String,
-  allowedTools: Schema.Array(Schema.String),
+  /** The tools a person withheld; every other tool is on. */
+  withheldTools: Schema.Array(Schema.String),
   runtimeMode: RuntimeMode,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
   longConversation: BotLongConversation,
   /** Rail order, counted from 0. */
   position: Schema.Int,
+  /** Shown in the main rail; every bot is listed under Bots either way. Absent: pinned. */
+  pinned: Schema.optional(Schema.Boolean),
   revision: Schema.Int,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -146,7 +148,8 @@ export const BotCreateInput = Schema.Struct({
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.optionalKey(Schema.String),
-  allowedTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  allowedTools: LEGACY_ALLOWED_TOOLS,
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),
@@ -161,25 +164,26 @@ export const BotUpdateInput = Schema.Struct({
   avatar: Schema.optionalKey(BotAvatar),
   color: Schema.optionalKey(ProjectIconColor),
   instructions: Schema.optionalKey(Schema.String),
-  allowedTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  allowedTools: LEGACY_ALLOWED_TOOLS,
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotUpdateInput = typeof BotUpdateInput.Type;
 
-/** Refused while the bot owns a project, and always for Captain. */
+/** Refused while the bot owns a project; give its projects to another bot or to none first. */
 export const BotDeleteInput = Schema.Struct({ id: Schema.String });
 /** The whole rail order: every bot exactly once. */
 export const BotReorderInput = Schema.Struct({ botIds: Schema.Array(Schema.String) });
 /**
- * Gives a project to `botId`. With `ensureBot`, `botId` names the bot where it came from instead:
- * the project goes to the bot here with the same logical key (Captain: Captain), made from
+ * Gives a project to `botId`, or to no bot when it is null. With `ensureBot`, `botId` names the
+ * bot where it came from instead: the project goes to the bot here with the same name, made from
  * `ensureBot` under a new ID when this environment doesn't have it yet.
  */
 export const BotMoveProjectInput = Schema.Struct({
   projectId: ProjectId,
-  botId: Schema.String,
+  botId: Schema.NullOr(Schema.String),
   ensureBot: Schema.optionalKey(
     Schema.Struct({
       name: Schema.String,
@@ -188,11 +192,19 @@ export const BotMoveProjectInput = Schema.Struct({
       modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
     }).annotate({
       description:
-        "The bot from another environment, made here under a new ID if no bot here has its name (Captain: always Captain).",
+        "The bot from another environment, made here under a new ID if no bot here has its name.",
     }),
   ),
 });
 export type BotMoveProjectInput = typeof BotMoveProjectInput.Type;
+
+/** Pins a bot, or a project's manager, to the main rail, or unpins it. Names exactly one. */
+export const BotSetPinInput = Schema.Struct({
+  botId: Schema.optionalKey(Schema.String),
+  projectId: Schema.optionalKey(ProjectId),
+  pinned: Schema.Boolean,
+});
+export type BotSetPinInput = typeof BotSetPinInput.Type;
 
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",

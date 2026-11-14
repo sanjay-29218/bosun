@@ -2,8 +2,8 @@ import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
-  CAPTAIN_BOT_ID,
   CommandId,
+  LEGACY_TOOLS_MESSAGE,
   ProjectId,
   ProviderInstanceId,
   type ScheduledTaskUpsertInput,
@@ -144,8 +144,11 @@ it.layer(layer)("BotService", (it) => {
       // Clients re-read the bots when their count moves, whoever created one.
       assert.strictEqual((yield* changes.revision).bots, before + 1);
       assert.deepStrictEqual(yield* bots.create(social), created);
-      assert.strictEqual(created.position, 1);
+      assert.strictEqual(created.position, 0);
       assert.strictEqual(created.modelSelection, null);
+      // A new bot gets every tool and full access.
+      assert.deepStrictEqual(created.withheldTools, []);
+      assert.strictEqual(created.runtimeMode, "full-access");
       const counted = (yield* changes.revision).bots;
       const conflict = yield* Effect.exit(bots.create({ ...social, name: "Other" }));
       assert.isTrue(Exit.isFailure(conflict));
@@ -153,7 +156,7 @@ it.layer(layer)("BotService", (it) => {
       // Bots and crew members act in the same runs, so they can't share an ID.
       const sql = yield* SqlClient.SqlClient;
       yield* sql`
-        INSERT INTO crew_members (id, name, instructions, allowed_tools_json,
+        INSERT INTO crew_members (id, name, instructions, withheld_tools_json,
           model_selection_json, runtime_mode, created_at, updated_at)
         VALUES ('member:taken', 'Taken', 'x', '[]', '{}', 'auto', '2026-10-01', '2026-10-01')
       `;
@@ -176,18 +179,17 @@ it.layer(layer)("BotService", (it) => {
       });
       assert.deepStrictEqual(
         (yield* bots.list).map((bot) => bot.id),
-        [CAPTAIN_BOT_ID, social.id, finance.id],
+        [social.id, finance.id],
       );
-      const reordered = yield* bots.reorder([finance.id, CAPTAIN_BOT_ID, social.id]);
+      const reordered = yield* bots.reorder([finance.id, social.id]);
       assert.deepStrictEqual(
         reordered.map((bot) => [bot.id, bot.position]),
         [
           [finance.id, 0],
-          [CAPTAIN_BOT_ID, 1],
-          [social.id, 2],
+          [social.id, 1],
         ],
       );
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.reorder([finance.id, social.id]))));
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.reorder([finance.id]))));
     }),
   );
 
@@ -205,10 +207,17 @@ it.layer(layer)("BotService", (it) => {
       assert.strictEqual(renamed.revision, 2);
       const stale = yield* Effect.exit(bots.update({ id: bot.id, expectedRevision: 1, name: "X" }));
       assert.isTrue(Exit.isFailure(stale));
+      // An older client's tool list meant the opposite, so it is refused in plain words.
+      for (const save of [
+        bots.update({ id: bot.id, expectedRevision: 2, allowedTools: ["preview"] }),
+        bots.create({ ...social, id: "bot:old-client", allowedTools: [] }),
+      ]) {
+        assert.strictEqual((yield* Effect.flip(save)).message, LEGACY_TOOLS_MESSAGE);
+      }
     }),
   );
 
-  it.effect("gives new projects to Captain or the requested bot, and moves them", () =>
+  it.effect("gives new projects to no bot or the requested bot, and moves them", () =>
     Effect.gen(function* () {
       const bots = yield* BotService.BotService;
       const projects = yield* ProjectService.ProjectService;
@@ -218,17 +227,15 @@ it.layer(layer)("BotService", (it) => {
       const home = ProjectId.make("project:home:bot:owner");
       assert.strictEqual((yield* bots.get(bot.id))?.homePath, "/bots/bot:owner");
       assert.isTrue(
-        Exit.isFailure(
-          yield* Effect.exit(bots.moveProject({ projectId: home, botId: CAPTAIN_BOT_ID })),
-        ),
+        Exit.isFailure(yield* Effect.exit(bots.moveProject({ projectId: home, botId: null }))),
       );
-      const captainProject = yield* projects.create({
-        commandId: CommandId.make("command:captain-project"),
-        projectId: ProjectId.make("project:captain"),
-        title: "Captain's",
-        workspaceRoot: "/work/captain",
+      const loose = yield* projects.create({
+        commandId: CommandId.make("command:loose-project"),
+        projectId: ProjectId.make("project:loose"),
+        title: "Loose",
+        workspaceRoot: "/work/loose",
       });
-      assert.strictEqual(captainProject.botId, CAPTAIN_BOT_ID);
+      assert.strictEqual(loose.botId, null);
       const owned = yield* projects.create({
         commandId: CommandId.make("command:owned-project"),
         projectId: ProjectId.make("project:owned"),
@@ -248,12 +255,13 @@ it.layer(layer)("BotService", (it) => {
       );
       assert.isTrue(Exit.isFailure(unknown));
 
-      // Deleting is refused while the bot owns a project, and allowed once it is moved.
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.delete(bot.id))));
-      const moved = yield* bots.moveProject({ projectId: owned.id, botId: CAPTAIN_BOT_ID });
-      assert.strictEqual(moved.botId, CAPTAIN_BOT_ID);
+      // Deleting is refused while the bot owns a project, and allowed once it is unlinked.
+      const refused = yield* Effect.flip(bots.delete(bot.id));
+      assert.strictEqual(refused.message, "Unlink this bot's projects before deleting it");
+      const moved = yield* bots.moveProject({ projectId: owned.id, botId: null });
+      assert.strictEqual(moved.botId, null);
       const shell = yield* projects.getShell(owned.id);
-      assert.strictEqual(shell._tag === "Some" ? shell.value.botId : null, CAPTAIN_BOT_ID);
+      assert.strictEqual(Option.getOrUndefined(shell)?.botId, null);
       // Its home doesn't hold the delete up, and stays for a restore to find.
       yield* bots.delete(bot.id);
       assert.strictEqual(yield* bots.get(bot.id), null);
@@ -276,7 +284,6 @@ it.layer(layer)("BotService", (it) => {
           ),
         ),
       );
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.delete(CAPTAIN_BOT_ID))));
       assert.isTrue(
         Exit.isFailure(
           yield* Effect.exit(bots.moveProject({ projectId: owned.id, botId: "bot:missing" })),
@@ -317,14 +324,69 @@ it.layer(layer)("BotService", (it) => {
         [writers[0]!.id, writers[0]!.id],
       );
 
-      // Captain is never created: every environment has it, whatever it's called there.
+      // Captain is an ordinary bot: found or made by name like any other.
       const toCaptain = yield* bots.moveProject({
         projectId: drafts[0]!.id,
-        botId: CAPTAIN_BOT_ID,
-        ensureBot: { ...writer, name: "Skipper" },
+        botId: "bot-ops",
+        ensureBot: { ...writer, name: "Captain" },
       });
-      assert.strictEqual(toCaptain.botId, CAPTAIN_BOT_ID);
-      assert.isFalse((yield* bots.list).some((bot) => bot.name === "Skipper"));
+      const captains = (yield* bots.list).filter((bot) => bot.name === "Captain");
+      assert.lengthOf(captains, 1);
+      assert.strictEqual(toCaptain.botId, captains[0]!.id);
+    }),
+  );
+
+  it.effect("Captain is deleted like any bot once it owns nothing", () =>
+    Effect.gen(function* () {
+      const bots = yield* BotService.BotService;
+      const projects = yield* ProjectService.ProjectService;
+      const captain = yield* bots.create({ ...social, id: "bot:captain", name: "Captain" });
+      const project = yield* projects.create({
+        commandId: CommandId.make("command:captain-owned"),
+        projectId: ProjectId.make("project:captain-owned"),
+        title: "Captain's",
+        workspaceRoot: "/work/captain-owned",
+        botId: captain.id,
+      });
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(bots.delete(captain.id))));
+      yield* bots.moveProject({ projectId: project.id, botId: null });
+      yield* bots.delete(captain.id);
+      assert.strictEqual(yield* bots.get(captain.id), null);
+      const kept = yield* projects.getById(project.id);
+      assert.strictEqual(Option.getOrUndefined(kept)?.botId, null);
+    }),
+  );
+
+  it.effect("pins bots on create, and pins or unpins bots and project managers", () =>
+    Effect.gen(function* () {
+      const bots = yield* BotService.BotService;
+      const projects = yield* ProjectService.ProjectService;
+      const bot = yield* bots.create({ ...social, id: "bot:pinned", name: "Pinned" });
+      assert.isTrue(bot.pinned);
+      yield* bots.setPin({ botId: bot.id, pinned: false });
+      assert.isFalse((yield* bots.get(bot.id))?.pinned);
+
+      const project = yield* projects.create({
+        commandId: CommandId.make("command:pinned-project"),
+        projectId: ProjectId.make("project:pinned"),
+        title: "Pinned",
+        workspaceRoot: "/work/pinned",
+      });
+      // A new project's manager waits under Bots until someone pins it.
+      assert.isFalse(project.managerPinned);
+      yield* bots.setPin({ projectId: project.id, pinned: true });
+      const pinned = yield* projects.getById(project.id);
+      assert.isTrue(Option.getOrUndefined(pinned)?.managerPinned);
+
+      const refused = (input: Parameters<typeof bots.setPin>[0]) =>
+        Effect.exit(bots.setPin(input)).pipe(Effect.map(Exit.isFailure));
+      assert.isTrue(yield* refused({ pinned: true }));
+      assert.isTrue(yield* refused({ botId: bot.id, projectId: project.id, pinned: true }));
+      assert.isTrue(yield* refused({ botId: "bot:missing", pinned: true }));
+      // Bots' homes have no manager to pin.
+      assert.isTrue(
+        yield* refused({ projectId: ProjectId.make("project:home:bot:pinned"), pinned: true }),
+      );
     }),
   );
 
@@ -334,15 +396,15 @@ it.layer(layer)("BotService", (it) => {
       const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
       const bot = yield* bots.create({ ...social, id: "bot:automations" });
       const asBot = (yield* scheduledTasks.upsert(automation("Weekly post", bot.id))).task;
-      const asCaptain = (yield* scheduledTasks.upsert(automation("Captain's", CAPTAIN_BOT_ID)))
-        .task;
+      const other = yield* bots.create({ ...social, id: "bot:other", name: "Other" });
+      const asOther = (yield* scheduledTasks.upsert(automation("Other's", other.id))).task;
       const plain = (yield* scheduledTasks.upsert(automation("Plain", null))).task;
       assert.strictEqual(asBot.botId, bot.id);
 
       yield* bots.delete(bot.id);
       assert.deepStrictEqual(
         (yield* scheduledTasks.list()).tasks.map((task) => task.id).toSorted(),
-        [asCaptain.id, plain.id].toSorted(),
+        [asOther.id, plain.id].toSorted(),
       );
       // A deleted bot can't be given new automations either.
       assert.isTrue(

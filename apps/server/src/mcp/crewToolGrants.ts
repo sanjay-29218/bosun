@@ -77,6 +77,7 @@ export const CrewGatedToolkits = {
       t3_bot_delete: "crew.workflows",
       t3_bot_reorder: "crew.workflows",
       t3_bot_move_project: "crew.workflows",
+      t3_bot_pin: "crew.workflows",
       t3_bot_projects: null,
       t3_bot_link_projects: "linkOnly",
       t3_bot_link_task: "linkOnly",

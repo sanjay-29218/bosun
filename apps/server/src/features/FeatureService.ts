@@ -547,17 +547,22 @@ export const FeatureServiceLive = Layer.effect(
         ),
       );
 
-    /** The bot that owns the project, once it can run: the crew is set up and it has a model. */
+    /**
+     * Fails until the project can run work: its bot has a model, or with no bot, the project or
+     * this environment has a default model.
+     */
     const readyOwner = Effect.fn("FeatureService.readyOwner")(function* (
       projectId: ProjectId,
       action: string,
     ) {
       const ownerId = yield* bots.projectOwner(projectId);
-      const owner = ownerId === null ? null : yield* bots.get(ownerId);
-      if (!owner?.modelSelection) {
+      const modelSelection =
+        ownerId === null
+          ? yield* runtime.projectModelSelection(projectId)
+          : ((yield* bots.get(ownerId))?.modelSelection ?? null);
+      if (modelSelection === null) {
         return yield* Effect.fail(new FeatureValidationError(`Set up the crew before ${action}`));
       }
-      return owner;
     });
 
     /** The names of the feature's crew members, as its lead addresses them. */
@@ -620,7 +625,7 @@ export const FeatureServiceLive = Layer.effect(
         roleId: null,
         name: role.name,
         instructions: role.instructions,
-        allowedTools: role.allowedTools,
+        withheldTools: role.withheldTools ?? [],
         modelSelection: role.modelSelection,
         runtimeMode: role.runtimeMode,
       });
@@ -736,7 +741,7 @@ export const FeatureServiceLive = Layer.effect(
           roleId: snapshot === undefined ? role.id : null,
           name: role.name,
           instructions: role.instructions,
-          allowedTools: role.allowedTools,
+          withheldTools: role.withheldTools ?? [],
           modelSelection: role.modelSelection,
           runtimeMode: role.runtimeMode,
         });
@@ -981,6 +986,7 @@ export const FeatureServiceLive = Layer.effect(
           state: detail.state,
           milestone: detail.milestone?.title ?? null,
           subIssues: detail.subIssues,
+          parent: detail.parent,
         } satisfies FeatureIssue;
       }
       const candidate = ref.trim();
@@ -1009,6 +1015,7 @@ export const FeatureServiceLive = Layer.effect(
         state: subject.state ?? "open",
         milestone: subject.milestone ?? null,
         subIssues: subject.subIssues ?? null,
+        parent: subject.parent ?? null,
       } satisfies FeatureIssue;
     });
 
@@ -1404,7 +1411,9 @@ export const FeatureServiceLive = Layer.effect(
         .find((line) => line.length > 0)
         ?.slice(0, 300);
       const pullRequests =
-        input.outcome === "finished" ? (yield* featurePullRequests(feature.id, leadThreadId)).urls : [];
+        input.outcome === "finished"
+          ? (yield* featurePullRequests(feature.id, leadThreadId)).urls
+          : [];
       const text =
         input.outcome === "finished"
           ? [
@@ -1439,7 +1448,8 @@ export const FeatureServiceLive = Layer.effect(
     const latestPersonMessageId = (leadThreadId: ThreadId) =>
       engine.getThreadRecords(leadThreadId, ["messages"], { messageRoles: ["user"] }).pipe(
         Effect.map(
-          ({ messages }) => messages.findLast((message) => message.createdBy === "user")?.id ?? null,
+          ({ messages }) =>
+            messages.findLast((message) => message.createdBy === "user")?.id ?? null,
         ),
         Effect.orElseSucceed(() => null),
       );
@@ -1798,7 +1808,10 @@ export const FeatureServiceLive = Layer.effect(
               return check(event.threadId);
             case "message.updated":
               return event.payload.role === "user" && idleCompactionOf(event.payload) === undefined
-                ? withdrawFinished(event.threadId, DateTime.formatIso(event.payload.createdAt)).pipe(
+                ? withdrawFinished(
+                    event.threadId,
+                    DateTime.formatIso(event.payload.createdAt),
+                  ).pipe(
                     Effect.andThen(
                       event.payload.createdBy === "user"
                         ? withdrawLeadStop(event.threadId)

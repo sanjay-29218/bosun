@@ -36,7 +36,7 @@ const REQUEST_CHANGES = "Request changes";
 const QUESTION_ID = "approval";
 
 /** What the asking member reads once it has asked. */
-export const CREW_ASKED_NEXT =
+const CREW_ASKED_NEXT =
   "Asked. End your turn now; the person's answer arrives as your next message.";
 
 /**
@@ -104,11 +104,9 @@ const make = Effect.gen(function* () {
   });
 
   const pendingQuestions = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const { runtimeRequests } = yield* projections.getThreadRecords(
-      threadId,
-      ["runtimeRequests"],
-      { runtimeRequestStatuses: ["pending"] },
-    );
+    const { runtimeRequests } = yield* projections.getThreadRecords(threadId, ["runtimeRequests"], {
+      runtimeRequestStatuses: ["pending"],
+    });
     return runtimeRequests.filter((request) => request.owner === "crew");
   });
 
@@ -150,22 +148,24 @@ const make = Effect.gen(function* () {
               : label,
       }));
       const requestId = RuntimeRequestId.make(`crew-ask:${NodeCrypto.randomUUID()}`);
-      yield* engine.dispatch({
-        type: "user-input.open",
-        commandId: CommandId.make(`server:crew-ask:${requestId}`),
-        threadId,
-        requestId,
-        owner: "crew",
-        questions: [
-          {
-            id: QUESTION_ID,
-            header: "Approval",
-            question,
-            options,
-            allowCustomAnswer: true,
-          },
-        ],
-      }).pipe(Effect.mapError(unavailable));
+      yield* engine
+        .dispatch({
+          type: "user-input.open",
+          commandId: CommandId.make(`server:crew-ask:${requestId}`),
+          threadId,
+          requestId,
+          owner: "crew",
+          questions: [
+            {
+              id: QUESTION_ID,
+              header: "Approval",
+              question,
+              options,
+              allowCustomAnswer: true,
+            },
+          ],
+        })
+        .pipe(Effect.mapError(unavailable));
       return { requestId, next: CREW_ASKED_NEXT };
     },
   );
@@ -183,16 +183,15 @@ const make = Effect.gen(function* () {
       request.decision !== "decline";
     // Dismissed after its task settled, as on a cancel, there is no one left to tell.
     if (!answered && !(yield* hasOpenTask(threadId))) return;
-    const options =
-      answered
-        ? (yield* projections.getThreadRecords(threadId, ["turnItems"], {
-            turnItemTypes: ["user_input_request"],
-          })).turnItems.flatMap((item) =>
-            item.type === "user_input_request" && item.requestId === request.id
-              ? item.questions.flatMap((question) => question.options.map((option) => option.label))
-              : [],
-          )
-        : [];
+    const options = answered
+      ? (yield* projections.getThreadRecords(threadId, ["turnItems"], {
+          turnItemTypes: ["user_input_request"],
+        })).turnItems.flatMap((item) =>
+          item.type === "user_input_request" && item.requestId === request.id
+            ? item.questions.flatMap((question) => question.options.map((option) => option.label))
+            : [],
+        )
+      : [];
     const reply = answered
       ? answerText(request, options)
       : {

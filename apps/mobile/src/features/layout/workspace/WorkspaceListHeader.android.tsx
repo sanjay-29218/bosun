@@ -130,7 +130,9 @@ function BotSwitcherButton(props: { readonly menu: BotSwitcherMenu }) {
           style={{ width: buttonSize, height: buttonSize }}
           onPress={open}
         >
-          <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 4} />
+          {menu.bot ? (
+            <BotAvatar avatar={menu.bot.avatar} color={menu.bot.color} size={iconSize + 4} />
+          ) : null}
           <Text
             accessible={false}
             importantForAccessibility="no"

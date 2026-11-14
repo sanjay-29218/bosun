@@ -6,6 +6,7 @@ import {
   type ModelSelection,
   type ProviderInstanceId,
   type RuntimeMode,
+  grantedTools,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useState } from "react";
@@ -122,7 +123,7 @@ export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
 type RoleChange = Partial<
   Pick<
     RoleConfig,
-    "name" | "instructions" | "allowedTools" | "modelSelection" | "runtimeMode" | "enabled"
+    "name" | "instructions" | "withheldTools" | "modelSelection" | "runtimeMode" | "enabled"
   >
 >;
 
@@ -136,7 +137,7 @@ function useSaveRole(environmentId: EnvironmentId) {
         id: role.id,
         name: next.name,
         instructions: next.instructions,
-        allowedTools: [...next.allowedTools],
+        withheldTools: [...next.withheldTools],
         modelSelection: next.modelSelection,
         runtimeMode: next.runtimeMode,
         enabled: next.enabled,
@@ -174,25 +175,23 @@ export function RoleEditorForm({
   );
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(role?.allowedTools ?? []);
+  const [tools, setTools] = useState<ReadonlyArray<string>>(role?.withheldTools ?? []);
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
-    role?.runtimeMode ?? "auto-accept-edits",
-  );
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(role?.runtimeMode ?? "full-access");
   // Turning a role off retires it: new features skip it, and running ones keep it.
   const [enabled, setEnabled] = useState(role?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const fields = {
     name: name.trim(),
     instructions: instructions.trim(),
-    allowedTools: tools,
+    withheldTools: tools,
     modelSelection,
     runtimeMode,
   };
   const edited = role
     ? fields.name !== role.name ||
       fields.instructions !== role.instructions ||
-      fields.allowedTools.join("\n") !== role.allowedTools.join("\n") ||
+      fields.withheldTools.join("\n") !== role.withheldTools.join("\n") ||
       JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection) ||
       fields.runtimeMode !== role.runtimeMode ||
       enabled !== role.enabled
@@ -285,7 +284,7 @@ export function RoleEditorForm({
             />
           ) : null}
         </SettingsSection>
-        <SettingsSection title={`Tools · ${tools.length}`}>
+        <SettingsSection title={`Tools · ${grantedTools(tools, { bot: false }).length}`}>
           <div className="px-3 py-4 sm:px-4">
             <CrewToolPicker value={tools} onChange={setTools} />
           </div>
