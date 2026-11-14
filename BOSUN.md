@@ -1,8 +1,9 @@
 # Bosun
 
-Bosun is an agentic software factory: a Captain coordinating Managers, each running a
-crew of planner/designer/execution/reviewer bots across Projects and Features. It is
-built on the T3 Code harness and tracks T3 Code as its upstream.
+Bosun is an agentic software factory: bots own projects, each project's project manager
+turns requests into tasks and features, and each feature's lead runs a crew of roles from
+a workflow. See the [README](./README.md). It is built on the T3 Code harness and tracks
+T3 Code as its upstream.
 
 The name comes from _boatswain_ ("bosun") — the officer who runs the deck crew under
 the captain.
