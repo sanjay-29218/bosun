@@ -41,7 +41,8 @@ import {
   type FeatureShelf,
 } from "./FeatureCard";
 import { FeatureNow } from "./FeatureNow";
-import { PartOf, PartsChip, featureIssueStructure, type PartsFold } from "./IssueStructure";
+import { featureIssueStructure } from "./boardNesting.logic";
+import { PartOf, PartsChip, type PartsFold } from "./IssueStructure";
 import { CloseTodoButton, ReopenTodoButton } from "./todoState";
 
 /** A long stack shows its first page, then a button for the rest. */

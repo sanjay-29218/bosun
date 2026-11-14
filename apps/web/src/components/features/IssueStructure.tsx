@@ -28,37 +28,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 import { featureStatus } from "./FeatureCard";
 
-/** Where a feature's issue sits: its parent's number and its sub-issues' progress. */
-export interface IssueStructureFacts {
-  readonly url: string;
-  readonly parent: number | null;
-  readonly parentTitle: string | null;
-  readonly subIssues: { readonly completed: number; readonly total: number } | null;
-}
-
-/**
- * A feature's issue as the board last read it, falling back to what the feature recorded when
- * it linked the issue. Tickets and tracker keys have no structure.
- */
-export function featureIssueStructure(
-  card: EnvironmentFeatureCard,
-  handlers: Pick<FeatureBoardHandlers, "issueAt">,
-): IssueStructureFacts | null {
-  const issue = card.issue;
-  if (!issue || issue.ticketId !== undefined || issue.key !== undefined || !issue.url) return null;
-  const loaded = handlers.issueAt(card.environmentId, issue.url);
-  const parent = loaded ? loaded.parent : (issue.parent ?? null);
-  return {
-    url: issue.url,
-    parent,
-    parentTitle:
-      parent === null
-        ? null
-        : (handlers.issueAt(card.environmentId, issue.url, parent)?.title ?? null),
-    subIssues: loaded ? loaded.subIssues : issue.subIssues,
-  };
-}
-
 const chipClassName =
   "flex h-5 shrink-0 items-center gap-1 rounded-full border border-border/70 px-2 text-xs text-muted-foreground tabular-nums";
 

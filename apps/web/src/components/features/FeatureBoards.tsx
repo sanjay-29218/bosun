@@ -8,12 +8,9 @@ import {
   type FeatureColumnGroup,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
-  groupIssueParts,
   issueKey,
-  issuePlace,
   type EnvironmentIssue,
   type EnvironmentMilestone,
-  type IssuePlace,
 } from "@t3tools/client-runtime/state/issue-board";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -40,12 +37,12 @@ import { FeatureChildList } from "./FeatureChildList";
 import { FeatureNow } from "./FeatureNow";
 import { ChatRow, FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
 import {
-  IssuePartList,
-  MilestoneHeader,
-  PartsGroup,
   featureIssueStructure,
-  type PartsFold,
-} from "./IssueStructure";
+  listItemKey,
+  nestListParts,
+  type ListItem,
+} from "./boardNesting.logic";
+import { IssuePartList, MilestoneHeader, PartsGroup, type PartsFold } from "./IssueStructure";
 
 const PAGE = 10;
 
@@ -566,70 +563,7 @@ function MoreRow(props: { readonly children: ReactNode }) {
   );
 }
 
-type ListItem =
-  | { readonly kind: "card"; readonly card: EnvironmentFeatureCard; readonly section: BoardSection }
-  | { readonly kind: "todo"; readonly issue: EnvironmentIssue; readonly section: BoardSection };
-
-const listItemKey = (item: ListItem) =>
-  item.kind === "card" ? featureCardKey(item.card) : issueKey(item.issue);
-
 const shelfOf = (section: BoardSection) => (isShelf(section) ? section : null);
-
-/**
- * Parents with their loaded parts nested under them. Narrowed to a milestone, each parent with
- * parts in view leads the list with all of them, whatever their status; otherwise a part nests
- * only under a parent in its own section, so every section stays true to its status.
- */
-function nestListParts(
-  sections: ReadonlyArray<SectionItems>,
-  handlers: FeatureBoardHandlers,
-  liftParents: boolean,
-) {
-  const places = new Map<ListItem, IssuePlace | null>();
-  const placeOf = (item: ListItem) => {
-    if (!places.has(item)) {
-      const facts =
-        item.kind === "card"
-          ? featureIssueStructure(item.card, handlers)
-          : item.issue.ticketId
-            ? null
-            : item.issue;
-      const environmentId =
-        item.kind === "card" ? item.card.environmentId : item.issue.environmentId;
-      places.set(item, facts ? issuePlace(environmentId, facts) : null);
-    }
-    return places.get(item) ?? null;
-  };
-  const pools = sections.map((items): ReadonlyArray<ListItem> => [
-    ...items.cards.map((card) => ({ kind: "card" as const, card, section: items.section })),
-    ...items.todos.map((issue) => ({ kind: "todo" as const, issue, section: items.section })),
-  ]);
-  const parts = new Map<string, ReadonlyArray<ListItem>>();
-  /** Items shown elsewhere than their section's own list. */
-  const moved = new Set<string>();
-  const lifted: ListItem[] = [];
-  for (const pool of liftParents ? [pools.flat()] : pools) {
-    const grouped = groupIssueParts(pool, placeOf);
-    for (const item of pool) {
-      const place = placeOf(item);
-      if (!place) continue;
-      const itemParts = grouped.parts.get(place.key);
-      if (itemParts) {
-        parts.set(listItemKey(item), itemParts);
-        if (liftParents) {
-          lifted.push(item);
-          moved.add(listItemKey(item));
-        }
-      }
-      if (grouped.nested.has(place.key)) moved.add(listItemKey(item));
-    }
-  }
-  return {
-    lifted,
-    partsFor: (item: ListItem) => parts.get(listItemKey(item)) ?? [],
-    shows: (item: ListItem) => !moved.has(listItemKey(item)),
-  };
-}
 
 /** One row per feature or todo, in full-width sections, like an issue tracker's list. */
 function FeatureStatusList(props: {
@@ -653,19 +587,15 @@ function FeatureStatusList(props: {
           nested={options.nested}
           fold={options.fold}
         />
-        {options.nested
-          ? null
-          : handlers
-              .childrenFor(item.card)
-              .map((child) => (
-                <FeatureRow
-                  key={featureCardKey(child)}
-                  card={child}
-                  handlers={handlers}
-                  shelf={shelfOf(item.section)}
-                  nested
-                />
-              ))}
+        {nesting.childrenFor(item.card).map((child) => (
+          <FeatureRow
+            key={featureCardKey(child)}
+            card={child}
+            handlers={handlers}
+            shelf={shelfOf(item.section)}
+            nested
+          />
+        ))}
       </Fragment>
     ) : (
       <TodoRow

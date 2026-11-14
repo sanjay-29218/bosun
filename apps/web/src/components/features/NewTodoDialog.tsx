@@ -96,7 +96,7 @@ function NewTodoDialog(props: {
   // Bumped after a create with Create more on, so the editor starts empty again.
   const [editorKey, setEditorKey] = useState(0);
   const [preferredKind, setPreferredKind] = useState<TodoKind>(
-    () => readFeaturesPagePreferences().newTodoKind ?? "ticket",
+    () => props.target.kind ?? readFeaturesPagePreferences().newTodoKind ?? "ticket",
   );
   const [createMore, setCreateMore] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -113,6 +113,8 @@ function NewTodoDialog(props: {
   );
   const repository = issues.data?.unavailable === null ? issues.data.repository : null;
   const kind: TodoKind = repository ? preferredKind : "ticket";
+  // A sub-issue can only be an issue; until the repository is known it can't be filed.
+  const awaitingIssueHost = props.target.kind === "issue" && repository === null;
   const milestones = issues.data?.milestones ?? [];
   const loadedIssues = issues.data?.issues ?? [];
   const parentIssue = loadedIssues.find((issue) => issue.number === parent) ?? null;
@@ -127,7 +129,7 @@ function NewTodoDialog(props: {
 
   const submit = async () => {
     const trimmed = title.trim();
-    if (!project || !trimmed || busy) return;
+    if (!project || !trimmed || busy || awaitingIssueHost) return;
     setBusy(true);
     setError(null);
     const target = { environmentId: project.environmentId };
@@ -354,7 +356,7 @@ function NewTodoDialog(props: {
             <Button type="button" variant="ghost" onClick={closeNewTodoDialog} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !project || !title.trim()}>
+            <Button type="submit" disabled={busy || !project || !title.trim() || awaitingIssueHost}>
               {kind === "issue" ? "Create issue" : "Create ticket"}
               <Kbd>{formatShortcutLabel(SUBMIT_SHORTCUT)}</Kbd>
             </Button>

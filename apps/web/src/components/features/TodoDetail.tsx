@@ -72,6 +72,7 @@ import {
   type TodoTarget,
 } from "./todoDialogs";
 import { createSerialSaves } from "./descriptionSaves.logic";
+import { createStructureWrites } from "./structureWrites.logic";
 import { CloseTodoButton, failureText, ReopenTodoButton } from "./todoState";
 
 /**
@@ -870,6 +871,23 @@ function DescriptionBody(props: {
   );
 }
 
+/** Sets or clears an issue's milestone or parent on its host. */
+const updateIssueStructure = (owner: TodoOwner, number: number, change: StructureChange) =>
+  runAtomCommand(
+    appAtomRegistry,
+    featuresEnvironment.updateIssue,
+    {
+      environmentId: owner.environmentId,
+      input: {
+        projectId: owner.projectId,
+        number,
+        ...(change.milestone === undefined ? {} : { milestone: change.milestone?.number ?? null }),
+        ...(change.parent === undefined ? {} : { parent: change.parent }),
+      },
+    },
+    { reportFailure: false },
+  );
+
 function GitHubIssueDetail(props: {
   readonly owner: TodoOwner;
   readonly number: number;
@@ -898,6 +916,17 @@ function GitHubIssueDetail(props: {
     null,
   );
   const [structureError, setStructureError] = useState<string | null>(null);
+  // One write at a time for this issue, so a quick second pick can't be overtaken by the first.
+  const [writeStructure] = useState(() =>
+    createStructureWrites(async (change: StructureChange) => {
+      const result = await updateIssueStructure(owner, props.number, change);
+      if (result._tag === "Success") return true;
+      if (!isAtomCommandInterrupted(result)) {
+        setStructureError(failureText(result, "GitHub did not change the issue."));
+      }
+      return false;
+    }),
+  );
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed url={props.url} /> : <DetailSkeleton />;
   }
@@ -933,36 +962,20 @@ function GitHubIssueDetail(props: {
       }),
     );
   const updateStructure = (number: number, change: StructureChange) =>
-    runAtomCommand(
-      appAtomRegistry,
-      featuresEnvironment.updateIssue,
-      {
-        environmentId: owner.environmentId,
-        input: {
-          projectId: owner.projectId,
-          number,
-          ...(change.milestone === undefined
-            ? {}
-            : { milestone: change.milestone?.number ?? null }),
-          ...(change.parent === undefined ? {} : { parent: change.parent }),
-        },
-      },
-      { reportFailure: false },
-    );
+    updateIssueStructure(owner, number, change);
   const editStructure = async (change: StructureChange) => {
     const over = issue.readAt;
     setPending((current) => ({ ...(current?.over === over ? current : {}), ...change, over }));
     setStructureError(null);
-    const result = await updateStructure(issue.number, change);
-    if (result._tag === "Success") {
+    const previousParent = parent;
+    if (await writeStructure(change)) {
       // Both parents' sub-issue lists changed.
-      for (const number of [parent, change.parent]) if (number != null) refreshDetail(number);
+      for (const number of [previousParent, change.parent]) {
+        if (number != null) refreshDetail(number);
+      }
       return;
     }
     setPending(null);
-    if (!isAtomCommandInterrupted(result)) {
-      setStructureError(failureText(result, "GitHub did not change the issue."));
-    }
   };
   /** A parent with a milestone gives it to a part that has none. */
   const inheritedMilestone = (
@@ -1118,6 +1131,7 @@ function GitHubIssueDetail(props: {
         onNew={() =>
           openNewTodoDialog({
             project: owner,
+            kind: "issue",
             parent: issue.number,
             ...(milestone ? { milestone: milestone.number } : {}),
           })

@@ -34,6 +34,8 @@ export type TodoTarget = TodoOwner &
 export interface NewTodoTarget {
   /** The project to start in; the first one when absent. */
   readonly project?: TodoOwner;
+  /** Files a GitHub issue rather than the kind last chosen, as a sub-issue must be. */
+  readonly kind?: "issue";
   /** The milestone a new issue starts in, by number. */
   readonly milestone?: number;
   /** The issue a new issue starts as a sub-issue of. */
