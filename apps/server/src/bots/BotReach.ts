@@ -306,7 +306,7 @@ const make = Effect.gen(function* () {
                 id: role.id,
                 name: role.name,
                 instructions: role.instructions,
-                allowedTools: role.allowedTools,
+                withheldTools: role.withheldTools,
                 modelSelection: role.modelSelection,
                 runtimeMode: role.runtimeMode,
               },
@@ -415,6 +415,13 @@ const make = Effect.gen(function* () {
         return yield* failure(
           "invalid_request",
           `${input.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${input.botName}'s model.`,
+        );
+      }
+      // Builds before withheld tools sent roles' tools with the opposite meaning.
+      if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
+        return yield* failure(
+          "invalid_request",
+          "This Bosun is newer than the environment that sent this; update it to share roles.",
         );
       }
       // Its features run on these roles, so each must be able to run here too.

@@ -236,12 +236,12 @@ export const seedCrewTestBot = Effect.flatMap(
   SqlClient.SqlClient,
   (sql) => sql`
     INSERT OR IGNORE INTO bots (
-      id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+      id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
       model_selection_json, position, revision, created_at, updated_at
     ) VALUES (
       ${CREW_TEST_BOT_ID}, 'Captain',
       '{"head":"squircle","face":"visor","eyes":"round","top":"ball","cheeks":false,"smile":true}',
-      'blue', 'Coordinate the person''s requests.', '["crew.workflows"]', 'full-access', NULL,
+      'blue', 'Coordinate the person''s requests.', '[]', 'full-access', NULL,
       0, 1, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z'
     )
   `,

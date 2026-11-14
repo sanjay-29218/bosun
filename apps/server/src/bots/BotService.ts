@@ -7,6 +7,7 @@ import {
   type BotSetPinInput,
   logicalBotKey,
   type BotUpdateInput,
+  LEGACY_TOOLS_MESSAGE,
   type Project,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -95,6 +96,12 @@ const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.cheeks === right.cheeks &&
   left.smile === right.smile;
 
+/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
+const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
+  input.allowedTools === undefined
+    ? Effect.void
+    : Effect.fail(new BotValidationError({ reason: LEGACY_TOOLS_MESSAGE }));
+
 const sameCreate = (bot: Bot, input: BotCreateInput) =>
   bot.name === input.name.trim() &&
   sameAvatar(bot.avatar, input.avatar) &&
@@ -139,6 +146,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((error) => new BotValidationError({ reason: error.message })));
 
   const createUnlocked = Effect.fn("BotService.insertBot")(function* (input: BotCreateInput) {
+    yield* refuseLegacyTools(input);
     const id = yield* text(input.id, "Bot ID", 128);
     const existing = yield* store.get(id);
     if (existing) {
@@ -157,8 +165,8 @@ const make = Effect.gen(function* () {
         "Bot instructions",
         16_000,
       ),
-      allowedTools: yield* tools(input.allowedTools ?? []),
-      runtimeMode: input.runtimeMode ?? "approval-required",
+      withheldTools: yield* tools(input.withheldTools ?? []),
+      runtimeMode: input.runtimeMode ?? "full-access",
       modelSelection: input.modelSelection ?? null,
       longConversation: input.longConversation ?? "compact",
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
@@ -210,6 +218,7 @@ const make = Effect.gen(function* () {
       return { ...bot, homePath: home.workspaceRoot };
     }),
     update: Effect.fn("BotService.update")(function* (input) {
+      yield* refuseLegacyTools(input);
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
@@ -222,9 +231,9 @@ const make = Effect.gen(function* () {
         ...(input.instructions === undefined
           ? {}
           : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
-        ...(input.allowedTools === undefined
+        ...(input.withheldTools === undefined
           ? {}
-          : { allowedTools: yield* tools(input.allowedTools) }),
+          : { withheldTools: yield* tools(input.withheldTools) }),
         ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
         ...(input.longConversation === undefined

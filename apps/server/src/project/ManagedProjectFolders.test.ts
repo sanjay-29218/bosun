@@ -203,7 +203,7 @@ const insertBot = (id: string, name: string) =>
     Effect.flatMap(
       (sql) => sql`
         INSERT INTO bots (
-          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+          id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
           model_selection_json, position, revision, created_at, updated_at
         ) VALUES (
           ${id}, ${name},

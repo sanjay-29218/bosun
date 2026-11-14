@@ -12,7 +12,7 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 const BotRow = Schema.Struct({
   ...Bot.fields,
   avatar: Schema.fromJsonString(Bot.fields.avatar),
-  allowedTools: Schema.fromJsonString(Bot.fields.allowedTools),
+  withheldTools: Schema.fromJsonString(Bot.fields.withheldTools),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   pinned: Schema.BooleanFromBit,
 });
@@ -74,7 +74,7 @@ const make = Effect.gen(function* () {
 
   const select = (id?: string) =>
     sql`
-      SELECT id, name, avatar_json AS "avatar", color, instructions, allowed_tools_json AS "allowedTools",
+      SELECT id, name, avatar_json AS "avatar", color, instructions, withheld_tools_json AS "withheldTools",
         runtime_mode AS "runtimeMode", model_selection_json AS "modelSelection",
         long_conversation AS "longConversation",
         position, pinned, revision,
@@ -93,12 +93,12 @@ const make = Effect.gen(function* () {
       const row = encodeRow({ ...bot, pinned: bot.pinned ?? true });
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
-          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+          id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
           model_selection_json, long_conversation, position, pinned, revision,
           created_at, updated_at
         )
         SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
-          ${row.allowedTools}, ${row.runtimeMode}, ${row.modelSelection},
+          ${row.withheldTools}, ${row.runtimeMode}, ${row.modelSelection},
           ${row.longConversation}, ${row.position}, ${row.pinned}, ${row.revision},
           ${row.createdAt}, ${row.updatedAt}
         WHERE NOT EXISTS (SELECT 1 FROM crew_members WHERE id = ${row.id})
@@ -113,7 +113,7 @@ const make = Effect.gen(function* () {
       return sql<{ readonly id: string }>`
         UPDATE bots SET
           name = ${row.name}, avatar_json = ${row.avatar}, color = ${row.color},
-          instructions = ${row.instructions}, allowed_tools_json = ${row.allowedTools},
+          instructions = ${row.instructions}, withheld_tools_json = ${row.withheldTools},
           runtime_mode = ${row.runtimeMode}, model_selection_json = ${row.modelSelection},
           long_conversation = ${row.longConversation}, revision = ${row.revision},
           updated_at = ${row.updatedAt}

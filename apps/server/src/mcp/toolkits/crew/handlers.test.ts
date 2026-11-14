@@ -207,11 +207,11 @@ it.effect("lets every crew thread list issues without a crew grant, but not its 
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`
-      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
     `;
-    yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+    yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
     yield* sql`
-      CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)
+      CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)
     `;
     yield* sql`
       CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)

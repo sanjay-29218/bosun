@@ -612,7 +612,7 @@ export const FeatureServiceLive = Layer.effect(
         roleId: null,
         name: role.name,
         instructions: role.instructions,
-        allowedTools: role.allowedTools,
+        withheldTools: role.withheldTools ?? [],
         modelSelection: role.modelSelection,
         runtimeMode: role.runtimeMode,
       });
@@ -728,7 +728,7 @@ export const FeatureServiceLive = Layer.effect(
           roleId: snapshot === undefined ? role.id : null,
           name: role.name,
           instructions: role.instructions,
-          allowedTools: role.allowedTools,
+          withheldTools: role.withheldTools ?? [],
           modelSelection: role.modelSelection,
           runtimeMode: role.runtimeMode,
         });

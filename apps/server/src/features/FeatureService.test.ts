@@ -17,6 +17,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  LEGACY_TOOLS_MESSAGE,
   ThreadId,
   type ServerProvider,
   type WorkflowSnapshot,
@@ -348,7 +349,7 @@ describe("feature lead and crew", () => {
             id,
             name,
             instructions: `You are the laptop's ${name}.`,
-            allowedTools: [],
+            withheldTools: [],
             modelSelection,
             runtimeMode: "full-access" as const,
           });
@@ -1338,10 +1339,10 @@ describe("feature lead and crew", () => {
           yield* sql`DELETE FROM roles WHERE id = 'role:project-manager'`;
           yield* sql`
           INSERT INTO roles (
-            id, name, instructions, allowed_tools_json, model_selection_json, runtime_mode,
+            id, name, instructions, withheld_tools_json, model_selection_json, runtime_mode,
             enabled, auto_create_for_feature, revision, created_at, updated_at
           )
-          SELECT 'role:project-manager', 'Project manager', instructions, allowed_tools_json,
+          SELECT 'role:project-manager', 'Project manager', instructions, withheld_tools_json,
             model_selection_json, runtime_mode, enabled, auto_create_for_feature, revision,
             created_at, updated_at
           FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}
@@ -1360,7 +1361,10 @@ describe("feature lead and crew", () => {
             (yield* features.crewMember("managed-feature", "role:project-manager"))?.name,
           ).toBe("Project manager");
 
+          // 103 ran before 116 renamed the roles' tools column.
+          yield* sql`ALTER TABLE roles RENAME COLUMN withheld_tools_json TO allowed_tools_json`;
           yield* FeatureManagerMigration;
+          yield* sql`ALTER TABLE roles RENAME COLUMN allowed_tools_json TO withheld_tools_json`;
 
           expect((yield* features.crewMember("managed-feature", "Project manager"))?.name).toBe(
             "Project manager",
@@ -1760,7 +1764,7 @@ describe("feature lead and crew", () => {
           const saved = yield* crew.updateProjectManager({
             projectId,
             instructions: "Manage it my way.",
-            allowedTools: ["worktree"],
+            withheldTools: ["worktree"],
             modelSelection: created.modelSelection,
             runtimeMode,
             longConversation: "new-session",
@@ -1774,12 +1778,17 @@ describe("feature lead and crew", () => {
           });
           // The open thread follows: its mode now, its grants on the next tool call.
           expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
-          expect((yield* crewStore.getRun(run.id))?.allowedTools).toEqual(["worktree"]);
+          expect((yield* crewStore.getRun(run.id))?.withheldTools).toEqual(["worktree"]);
           expect(
             (yield* crew
               .updateProjectManager({ ...saved, instructions: "Stale", expectedRevision: 1 })
               .pipe(Effect.flip)).message,
           ).toContain("reload");
+          expect(
+            (yield* crew
+              .updateProjectManager({ ...saved, allowedTools: [], expectedRevision: 3 })
+              .pipe(Effect.flip)).message,
+          ).toBe(LEGACY_TOOLS_MESSAGE);
 
           // A customized manager stays customized.
           const withIcon = yield* crew.setProjectManagerIcon({ projectId, icon });
@@ -1795,7 +1804,7 @@ describe("feature lead and crew", () => {
             customized: false,
             revision: 5,
             instructions: before.instructions,
-            allowedTools: [],
+            withheldTools: [],
             modelSelection: captain.modelSelection,
             runtimeMode: "full-access",
             longConversation: "compact",
@@ -1983,7 +1992,7 @@ describe("feature lead and crew", () => {
             enabled: true,
             modelSelection: before.modelSelection,
             runtimeMode: before.runtimeMode,
-            allowedTools: before.allowedTools,
+            withheldTools: before.withheldTools,
             longConversation: before.longConversation,
           });
 
