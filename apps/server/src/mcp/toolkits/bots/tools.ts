@@ -85,7 +85,8 @@ const MoveProject = Tool.make("t3_bot_move_project", {
     "Give a project to another bot, or botId null for no bot. Requests and features already running keep the bot that started them. With environmentId, projectId and botId are that environment's (t3_bot_list there).",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
-    ...BotMoveProjectInput.fields,
+    projectId: BotMoveProjectInput.fields.projectId,
+    botId: BotMoveProjectInput.fields.botId,
   }),
   success: Project,
 }).annotate(Tool.Idempotent, true);
@@ -104,7 +105,7 @@ const Pin = Tool.make("t3_bot_pin", {
 const Projects = Tool.make("t3_bot_projects", {
   ...shared,
   description:
-    "List a bot's projects on this environment and on every linked environment, where a bot with the same name owns them. Default bot: the one whose headquarters calls. Each project names its environmentId and open features; each environment says whether it answered. Hand work to a project on another environment with delegate_task, target.environmentId and target.projectId.",
+    "List a bot's projects on this environment and on linked environments that gave them to it. Default bot: the one whose headquarters calls. Each project names its environmentId and open features. Each environment says whether it answered, and lists the bot's requests waiting for it, which start once it answers. Hand work to a project on another environment with t3_project_send or delegate_task and its environmentId.",
   parameters: Schema.Struct({
     botId: Schema.optional(
       Schema.String.annotate({ description: "This environment's bot (t3_bot_list id)." }),

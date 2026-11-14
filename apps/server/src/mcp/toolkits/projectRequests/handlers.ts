@@ -1,12 +1,19 @@
-import { headquartersBotId, OrchestratorMcpFailure, type ProjectId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  headquartersBotId,
+  OrchestratorMcpFailure,
+  type ProjectId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { ProjectRequests, type ProjectRequest } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { sendToLinkedProject } from "../bots/linkedRequest.ts";
 import { fullAccessCaller } from "../features/access.ts";
 import { ProjectRequestsToolkit } from "./tools.ts";
 
@@ -49,9 +56,29 @@ const requesterThread = Effect.fn("ProjectRequestsToolkit.requesterThread")(func
 
 export const layer = McpToolAccess.toLayer(ProjectRequestsToolkit, {
   t3_project_send: McpToolAccess.actsAsCaller(
-    (input: { readonly projectId: ProjectId; readonly message: string; readonly key: string }) =>
+    (input: {
+      readonly environmentId?: EnvironmentId | undefined;
+      readonly projectId: ProjectId;
+      readonly message: string;
+      readonly key: string;
+    }) =>
       Effect.gen(function* () {
         const { scope, threadId } = yield* requesterThread("t3_project_send");
+        const environmentId = PeerForwarding.remoteTarget(scope, input.environmentId);
+        if (environmentId !== undefined) {
+          const sent = yield* sendToLinkedProject("t3_project_send", {
+            environmentId,
+            projectId: input.projectId,
+            request: input.message,
+            key: input.key,
+          });
+          return {
+            requestId: sent.taskId,
+            managerThreadId: sent.threadId,
+            link: sent.link,
+            ...(sent.waiting === null ? {} : { waiting: sent.waiting }),
+          };
+        }
         const features = yield* FeatureService;
         // A bot's headquarters sends to the projects its bot owns; anyone else needs full access.
         const botId = headquartersBotId(scope.thread.threadId);

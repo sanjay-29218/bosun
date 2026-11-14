@@ -2,13 +2,15 @@
 import * as NodeCrypto from "node:crypto";
 
 import {
+  botHeadquartersThreadId,
+  CommandId,
   type EnvironmentId,
   FEATURE_DELIVERY_WORKFLOW_ID,
   headquartersBotId,
   isProviderAvailable,
-  logicalBotKey,
   type ModelSelection,
   OrchestratorMcpFailure,
+  type Project,
   type ProjectId,
   type RunId,
   type RuntimeMode,
@@ -28,6 +30,7 @@ import { FeatureService } from "../features/FeatureService.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import {
+  type BotHome,
   type BotProject,
   type BotProjectsResult,
   LinkBotProjects,
@@ -37,6 +40,7 @@ import {
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { LINKED_ENVIRONMENT_STOPPED_ANSWERING } from "../peer/PeerMcpClient.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -59,8 +63,7 @@ export interface ProjectManagerLaunch {
 
 /** What a linked environment's headquarters asks for: a launch, with its bot and workflow. */
 export interface LinkedProjectManagerLaunch extends ProjectManagerLaunch {
-  readonly botKey: string;
-  readonly botName: string;
+  readonly home: BotHome;
   readonly workflow?: WorkflowSnapshot | undefined;
 }
 
@@ -71,9 +74,9 @@ export interface LaunchedProjectManager {
 }
 
 /**
- * A bot's reach beyond its own environment. Bots stay environment-local; the same bot on a
- * linked environment is the one with the same `logicalBotKey`, and work for its projects there
- * runs there, as that project's manager.
+ * A bot's reach beyond its own environment. Bots stay environment-local; a project on a linked
+ * environment is the bot's when its `remoteBot` names the bot and its home, and work for it runs
+ * there, as that project's Feature manager.
  */
 export class BotReach extends Context.Service<
   BotReach,
@@ -85,13 +88,15 @@ export class BotReach extends Context.Service<
       scope: Scope,
       botId: string | undefined,
     ) => Effect.Effect<BotProjectsResult, OrchestratorMcpFailure>;
-    /** For a linked environment: the projects here its bot (`botKey`) owns. */
+    /** For a linked environment: the projects here its bot (`home`) owns. */
     readonly projectsForLink: (
-      botKey: string,
+      home: BotHome,
     ) => Effect.Effect<ReadonlyArray<BotProject>, OrchestratorMcpFailure>;
     /**
      * From a bot's headquarters here: starts a request as a task of the Feature manager of a project on
-     * linked environment `environmentId`. Fails before anything starts when it can't run there.
+     * linked environment `environmentId`, checking the bot may work there first. Fails with
+     * `orchestration_error` while that environment can't be reached; the same `clientRequestId`
+     * from the same scope never starts a second run there.
      */
     readonly launchProjectManager: (
       scope: McpInvocationContext.McpThreadInvocationScope,
@@ -123,6 +128,10 @@ const branchSlug = (title: string) =>
 
 const hash = (value: string) => NodeCrypto.createHash("sha256").update(value).digest("hex");
 
+/** An environment on a Bosun from before `home` refuses the input with the field it missed. */
+const isOlderPeer = (error: OrchestratorMcpFailure) =>
+  error.code === "invalid_request" && error.message.includes("botKey");
+
 const sinceText = (lastReachedAt: DateTime.Utc | null, now: DateTime.Utc) => {
   if (lastReachedAt === null) return "never reached";
   const minutes = Math.round(
@@ -147,6 +156,7 @@ const make = Effect.gen(function* () {
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const threads = yield* ThreadManagement.ThreadManagementService;
 
   const here = environment.getDescriptor.pipe(
     Effect.map((descriptor) => ({
@@ -155,19 +165,21 @@ const make = Effect.gen(function* () {
     })),
   );
 
-  const ownedHere = Effect.fn("BotReach.ownedHere")(function* (botKey: string) {
+  /** The projects here a bot owns: one living here (`botId`), or one elsewhere (`home`). */
+  const ownedHere = Effect.fn("BotReach.ownedHere")(function* (
+    owner: { readonly botId: string } | BotHome,
+  ) {
     const { environmentId, label } = yield* here;
-    const listed = yield* bots.list.pipe(Effect.mapError(unavailable));
-    const owners = new Set(
-      listed.filter((bot) => logicalBotKey(bot) === botKey).map((bot) => bot.id),
-    );
+    const owns = (project: Project) =>
+      "environmentId" in owner
+        ? project.remoteBot?.environmentId === owner.environmentId &&
+          project.remoteBot.botId === owner.botId
+        : project.botId === owner.botId;
     const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
     // Scratch and bots' homes are where headquarters work, not projects to hand work to.
     const owned = yield* Effect.filter(
       snapshot.projects.flatMap((project) =>
-        project.deletedAt === null && project.botId != null && owners.has(project.botId)
-          ? [{ ...project, botId: project.botId }]
-          : [],
+        project.deletedAt === null && owns(project) ? [{ ...project, botId: owner.botId }] : [],
       ),
       (project) => Effect.map(folders.isHiddenProject(project.id), (hidden) => !hidden),
     );
@@ -189,7 +201,27 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const projectsForLink: BotReach["Service"]["projectsForLink"] = (botKey) => ownedHere(botKey);
+  const projectsForLink: BotReach["Service"]["projectsForLink"] = (home) => ownedHere(home);
+
+  /** The bot's requests on its headquarters that wait for a linked environment to answer. */
+  const waitingRequests = (botId: string) =>
+    threads
+      .getThreadRecords(botHeadquartersThreadId(botId), ["subagents"], {
+        omitSettledSubagents: true,
+      })
+      .pipe(
+        Effect.map(({ subagents }) =>
+          subagents.flatMap((task) =>
+            task.pendingRemote !== undefined &&
+            task.remoteChild === undefined &&
+            task.result === null
+              ? [{ environmentId: task.pendingRemote.environmentId, task }]
+              : [],
+          ),
+        ),
+        // A bot that never opened its headquarters has nothing waiting.
+        Effect.orElseSucceed(() => []),
+      );
 
   const projectsOf: BotReach["Service"]["projects"] = Effect.fn("BotReach.projects")(
     function* (scope, requestedBotId) {
@@ -209,9 +241,27 @@ const make = Effect.gen(function* () {
           "The bot was not found; t3_bot_list shows this environment's bots.",
         );
       }
-      const botKey = logicalBotKey(bot);
       const self = yield* here;
-      const local = yield* ownedHere(botKey);
+      const home: BotHome = {
+        environmentId: self.environmentId,
+        botId: bot.id,
+        botName: bot.name,
+        label: self.label,
+      };
+      const local = yield* ownedHere({ botId: bot.id });
+      const waiting = yield* waitingRequests(bot.id);
+      const waitingFor = (environmentId: EnvironmentId) =>
+        waiting.flatMap((entry) =>
+          entry.environmentId === environmentId && entry.task.pendingRemote !== undefined
+            ? [
+                {
+                  taskId: entry.task.id,
+                  projectId: entry.task.pendingRemote.projectId,
+                  title: entry.task.pendingRemote.title,
+                },
+              ]
+            : [],
+        );
       // Work a link started never reaches further links, and with the beta off there are none.
       const reachesLinks = scope.client?.linked !== true && scope.linkedEnvironments !== false;
       const linked = reachesLinks ? yield* links.list.pipe(Effect.orElseSucceed(() => [])) : [];
@@ -227,6 +277,7 @@ const make = Effect.gen(function* () {
             lastReachedAt:
               link.lastReachedAt === null ? null : DateTime.formatIso(link.lastReachedAt),
             lastError,
+            waiting: waitingFor(link.environmentId),
           });
           if (link.status !== "reachable") {
             return Effect.succeed({
@@ -239,7 +290,7 @@ const make = Effect.gen(function* () {
               projects: [] as ReadonlyArray<BotProject>,
             });
           }
-          return forwarding.call(scope, LinkBotProjects, link.environmentId, { botKey }).pipe(
+          return forwarding.call(scope, LinkBotProjects, link.environmentId, { home }).pipe(
             Effect.timeoutOrElse({
               duration: LINK_LIST_TIMEOUT,
               orElse: () =>
@@ -252,7 +303,12 @@ const make = Effect.gen(function* () {
             }),
             Effect.match({
               onFailure: (error) => ({
-                environment: entry(false, error.message),
+                environment: entry(
+                  false,
+                  isOlderPeer(error)
+                    ? `Update Bosun on ${link.label} to give it work from ${self.label}.`
+                    : error.message,
+                ),
                 projects: [] as ReadonlyArray<BotProject>,
               }),
               onSuccess: (answered) => ({
@@ -274,6 +330,7 @@ const make = Effect.gen(function* () {
             reachable: true,
             lastReachedAt: null,
             lastError: null,
+            waiting: [],
           },
           ...remote.map(({ environment }) => environment),
         ],
@@ -333,7 +390,7 @@ const make = Effect.gen(function* () {
     if (!bot.permittedEnvironmentIds.includes(environmentId)) {
       return yield* notPermitted(bot.name, label);
     }
-    // Nothing is queued: the person decides whether to wait for it or not.
+    // Unreachable is the one failure a waiting request retries.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
       return yield* failure(
@@ -345,17 +402,28 @@ const make = Effect.gen(function* () {
       .resolve(environmentId)
       .pipe(Effect.catch((error) => (error.reason === "unreachable" ? unreachable : Effect.void)));
     const workflow = yield* workflowSnapshot();
+    const self = yield* here;
     return yield* forwarding
       .call(scope, LinkBotTask, environmentId, {
         ...input,
-        botKey: logicalBotKey(bot),
-        botName: bot.name,
+        home: {
+          environmentId: self.environmentId,
+          botId: bot.id,
+          botName: bot.name,
+          label: self.label,
+        },
         ...(workflow === undefined ? {} : { workflow }),
       })
       .pipe(
         Effect.catchIf(
           (error) => error.message === LINKED_ENVIRONMENT_STOPPED_ANSWERING,
           () => unreachable,
+        ),
+        Effect.catchIf(isOlderPeer, () =>
+          failure(
+            "invalid_request",
+            `Update Bosun on ${label} to give it work from ${self.label}.`,
+          ),
         ),
       );
   });
@@ -405,23 +473,42 @@ const make = Effect.gen(function* () {
           `No project ${input.projectId} on ${self.label}. t3_bot_projects lists the bot's projects there.`,
         );
       }
-      if (project.botId == null) {
+      const { home } = input;
+      const owner = project.remoteBot;
+      if (owner?.environmentId !== home.environmentId || owner.botId !== home.botId) {
+        const local =
+          project.botId == null
+            ? null
+            : yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
+        const holder =
+          owner != null
+            ? `${owner.name} on ${owner.homeLabel}`
+            : project.botId == null
+              ? null
+              : `${local?.name ?? "another bot"} on ${self.label}`;
+        const giveIt = `Give it to ${home.botName} there first (Bots → ${home.botName} → Projects).`;
         return yield* failure(
           "capability_denied",
-          `${project.title} on ${self.label} has no bot. Give it to ${input.botName} there first (Bots → ${input.botName} → Projects).`,
+          holder === null
+            ? `${project.title} on ${self.label} has no bot. ${giveIt}`
+            : `${project.title} on ${self.label} belongs to ${holder}, not ${home.botName} from ${home.label}. ${giveIt}`,
         );
       }
-      const owner = yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
-      if (owner === null || logicalBotKey(owner) !== input.botKey) {
-        return yield* failure(
-          "capability_denied",
-          `${project.title} on ${self.label} belongs to ${owner?.name ?? "another bot"}, not ${input.botName}. Give it to ${input.botName} there first (Bots → ${input.botName} → Projects).`,
-        );
+      // The owner shows here under the name its home last sent.
+      if (owner.name !== home.botName || owner.homeLabel !== home.label) {
+        yield* projects
+          .assignBot({
+            commandId: CommandId.make(`remote-bot-name:${NodeCrypto.randomUUID()}`),
+            projectId: project.id,
+            botId: null,
+            remoteBot: { ...owner, name: home.botName, homeLabel: home.label },
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
       }
       if (!(yield* modelAvailable(input.modelSelection))) {
         return yield* failure(
           "invalid_request",
-          `${input.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${input.botName}'s model.`,
+          `${home.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${home.botName}'s model.`,
         );
       }
       // Builds before withheld tools sent roles' tools with the opposite meaning.
@@ -443,7 +530,9 @@ const make = Effect.gen(function* () {
       const manager = yield* crew
         .ensureFeatureManager(project.id)
         .pipe(Effect.mapError(unavailable));
-      const key = hash(`${client.sessionId}\n${input.clientRequestId}`).slice(0, 24);
+      // Keyed by the bot's home, not the link session, so a re-link or a retry after this
+      // environment came back mid-launch finds the run the first attempt started.
+      const key = hash(`${home.environmentId}\n${input.clientRequestId}`).slice(0, 24);
       // As a request here does: its own worktree, branched from the project's current branch.
       const base = yield* git
         .currentBranch(project.workspaceRoot)

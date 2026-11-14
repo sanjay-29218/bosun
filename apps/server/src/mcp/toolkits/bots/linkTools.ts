@@ -2,6 +2,7 @@ import {
   Bot,
   EnvironmentId,
   ModelSelection,
+  NodeId,
   OrchestratorMcpFailure,
   ProjectId,
   RunId,
@@ -37,6 +38,11 @@ export const BotProjectsResult = Schema.Struct({
       reachable: Schema.Boolean,
       lastReachedAt: Schema.NullOr(Schema.String),
       lastError: Schema.NullOr(Schema.String),
+      waiting: Schema.Array(
+        Schema.Struct({ taskId: NodeId, projectId: ProjectId, title: Schema.String }),
+      ).annotate({
+        description: "This bot's requests that wait for the environment to answer, then start.",
+      }),
     }),
   ),
   projects: Schema.Array(BotProject),
@@ -60,6 +66,15 @@ export const ListedBot = Schema.Struct({
 });
 export type ListedBot = typeof ListedBot.Type;
 
+/** The calling environment's bot, as it names itself; it owns projects here by `remoteBot`. */
+export const BotHome = Schema.Struct({
+  environmentId: EnvironmentId,
+  botId: Schema.String,
+  botName: Schema.String,
+  label: Schema.String,
+});
+export type BotHome = typeof BotHome.Type;
+
 const shared = {
   failure: OrchestratorMcpFailure,
   failureMode: "return" as const,
@@ -76,8 +91,8 @@ const shared = {
 export const LinkBotProjects = Tool.make("t3_bot_link_projects", {
   ...shared,
   description:
-    "The projects here whose owner is the same bot as the calling environment's (`botKey`), with their open features.",
-  parameters: Schema.Struct({ botKey: Schema.String }),
+    "The projects here owned by the calling environment's bot (`home`), with their open features.",
+  parameters: Schema.Struct({ home: BotHome }),
   success: Schema.Struct({ projects: Schema.Array(BotProject) }),
 })
   .annotate(Tool.Readonly, true)
@@ -89,8 +104,7 @@ export const LinkBotTask = Tool.make("t3_bot_link_task", {
     "Starts a request from the calling environment's bot headquarters as this project's manager, in a new worktree.",
   parameters: Schema.Struct({
     projectId: ProjectId,
-    botKey: Schema.String,
-    botName: Schema.String,
+    home: BotHome,
     task: Schema.String,
     title: Schema.String,
     modelSelection: ModelSelection,

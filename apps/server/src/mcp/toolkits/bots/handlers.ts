@@ -72,7 +72,7 @@ export const layer = McpToolAccess.toLayer(
         ),
       ),
       t3_bot_link_projects: McpToolAccess.reads((input) =>
-        reach.projectsForLink(input.botKey).pipe(Effect.map((projects) => ({ projects }))),
+        reach.projectsForLink(input.home).pipe(Effect.map((projects) => ({ projects }))),
       ),
       // The link's own access is checked by the service, which names what to change.
       t3_bot_link_task: McpToolAccess.writes(

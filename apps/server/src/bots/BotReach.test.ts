@@ -4,9 +4,12 @@ import {
   type Bot,
   type BotMoveProjectInput,
   botHeadquartersThreadId,
+  NodeId,
+  type OrchestrationV2Subagent,
   FEATURE_DELIVERY_WORKFLOW_ID,
   type Project,
   ProjectId,
+  type ProjectRemoteBot,
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -31,6 +34,7 @@ import { liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import {
   descriptorOf,
   layerLinkingEnvironment,
@@ -46,8 +50,8 @@ import * as BotService from "./BotService.ts";
 
 const CAPTAIN_ID = "bot-ops";
 
-// Captain on the laptop reaches the projects its namesake owns on a linked box: both are real
-// /mcp toolkits and real BotReach, the box behind real OAuth, with their data mocked.
+// Captain on the laptop reaches the projects the box gave it: both are real /mcp toolkits and
+// real BotReach, the box behind real OAuth, with their data mocked.
 
 const laptop = descriptorOf("environment-laptop", "Laptop");
 const box = descriptorOf("environment-box", "Box");
@@ -75,14 +79,28 @@ const bot = (
   createdAt: "2026-11-05T00:00:00.000Z",
   updatedAt: "2026-11-05T00:00:00.000Z",
 });
-const project = (id: string, title: string, botId: string | null) =>
+const project = (
+  id: string,
+  title: string,
+  botId: string | null,
+  remoteBot: ProjectRemoteBot | null = null,
+) =>
   ({
     id: ProjectId.make(id),
     title,
     workspaceRoot: `/home/user/${title}`,
     botId,
+    remoteBot,
     deletedAt: null,
   }) as unknown as Project;
+
+/** Captain on the laptop, as the box last heard of it. */
+const captainFromLaptop: ProjectRemoteBot = {
+  environmentId: laptop.environmentId,
+  botId: CAPTAIN_ID,
+  name: "Captain",
+  homeLabel: "Old laptop",
+};
 
 interface Environment {
   readonly bots: ReadonlyArray<Bot>;
@@ -95,6 +113,23 @@ interface Seen {
   readonly moves: ReadonlyArray<BotMoveProjectInput>;
   readonly runs: ReadonlyArray<CreateCrewRunInput>;
 }
+
+const nothingSeen: Seen = { moves: [], runs: [] };
+
+const waitingForCouch = {
+  id: NodeId.make("task:couch"),
+  result: null,
+  pendingRemote: {
+    environmentId: couch.environmentId,
+    label: "Couch",
+    projectId: ProjectId.make("project:couch"),
+    botId: CAPTAIN_ID,
+    title: "Fix the couch",
+    modelSelection,
+    runtimeMode: "full-access",
+    clientRequestId: "delegate:couch",
+  },
+} as unknown as OrchestrationV2Subagent;
 
 /** One environment's bots, projects, features, crew and providers, around real BotReach. */
 const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
@@ -120,6 +155,14 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
         Effect.succeed(
           Option.fromNullishOr(data.projects.find((candidate) => candidate.id === id)),
         ),
+      assignBot: ({ projectId, botId, remoteBot }) =>
+        Ref.update(seen, (current) => ({
+          ...current,
+          moves: [
+            ...current.moves,
+            { projectId, botId, ...(remoteBot === undefined ? {} : { remoteBot }) },
+          ],
+        })).pipe(Effect.as({} as never)),
     }),
     Layer.mock(FeatureService)({
       listByProject: (projectId) =>
@@ -156,8 +199,13 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
         } as never),
       ensureFeatureManager: (projectId) =>
         Effect.succeed({ id: `bot-manager:${projectId}` } as never),
+      // Idempotent on its id, as the real one is.
       createRun: (input) =>
-        Ref.update(seen, (current) => ({ ...current, runs: [...current.runs, input] })).pipe(
+        Ref.update(seen, (current) =>
+          current.runs.some((run) => run.id === input.id)
+            ? current
+            : { ...current, runs: [...current.runs, input] },
+        ).pipe(
           Effect.as({
             threadId: `bot-run:${input.id}`,
             modelSelection: input.carried?.modelSelection,
@@ -184,6 +232,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
 
 /** The crew toolkits and what they read besides BotReach's data. */
 const layerToolServices = Layer.mergeAll(
+  Layer.mock(RemoteDelegation.RemoteDelegation)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(ProjectRequests)({}),
   Layer.mock(IssueService.IssueService)({}),
@@ -191,15 +240,28 @@ const layerToolServices = Layer.mergeAll(
   Layer.mock(ThreadManagement.ThreadManagementService)({
     getThreadShell: (threadId) =>
       Effect.succeed(liveThreadShell(threadId, { runtimeMode: "full-access" })),
+    // Captain's headquarters has one request waiting for the asleep couch.
+    getThreadRecords: (threadId) =>
+      Effect.succeed({
+        subagents:
+          threadId === botHeadquartersThreadId(CAPTAIN_ID)
+            ? [
+                waitingForCouch,
+                { ...waitingForCouch, id: NodeId.make("task:done"), result: "Done." },
+              ]
+            : [],
+      } as never),
   }),
 );
 
 const boxData: Environment = {
-  bots: [bot(CAPTAIN_ID, "Captain", 0), bot("bot:social-box", "Social", 1)],
+  // A copy of Captain made on the box before bots could own projects elsewhere.
+  bots: [bot("bot:captain-copy", "Captain", 0), bot("bot:social-box", "Social", 1)],
   projects: [
-    project("project:omni", "omni-mono", CAPTAIN_ID),
+    project("project:omni", "omni-mono", null, captainFromLaptop),
     project("project:blog", "blog", "bot:social-box"),
     project("project:notes", "notes", null),
+    project("project:api", "api", "bot:captain-copy"),
   ],
 };
 
@@ -248,7 +310,7 @@ const headquartersScope: McpInvocationContext.McpThreadInvocationScope = {
 /** The laptop: Captain's headquarters calls its own crew toolkits, which reach its links. */
 const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0)) =>
   Effect.gen(function* () {
-    const seen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+    const seen = yield* Ref.make<Seen>(nothingSeen);
     const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
     const here = yield* McpHttpServer.layerCrewTools.pipe(
       Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
@@ -309,7 +371,7 @@ const launch = (projectId: string, model = modelSelection.model) => ({
 it.live("Captain here lists, sees and takes its projects on a linked environment", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+      const boxSeen = yield* Ref.make<Seen>(nothingSeen);
       const b = yield* serveBox(boxSeen);
       const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "full-access");
@@ -345,14 +407,18 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
       );
       // The asleep couch is listed as unreachable, with when it last answered.
       const asleep = environments.find((entry) => entry.environmentId === couch.environmentId);
-      expect(asleep).toMatchObject({ reachable: false });
+      // ...with the request waiting for it, and not the one that already ended.
+      expect(asleep).toMatchObject({
+        reachable: false,
+        waiting: [{ taskId: "task:couch", projectId: "project:couch", title: "Fix the couch" }],
+      });
       expect(asleep?.lastReachedAt).toEqual(expect.any(String));
 
       const bots = yield* a.call("t3_bot_list", { environmentId: box.environmentId });
       expect(bots.isError, JSON.stringify(bots.content)).toBe(false);
       expect(bots.structuredContent).toMatchObject({
         bots: [
-          { id: CAPTAIN_ID, home: { environmentId: box.environmentId, label: "Box" } },
+          { id: "bot:captain-copy", home: { environmentId: box.environmentId, label: "Box" } },
           { id: "bot:social-box", name: "Social" },
         ],
       });
@@ -371,24 +437,15 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
           },
         ],
       });
+      // An agent moves projects there between that environment's own bots only.
       const moved = yield* a.call("t3_bot_move_project", {
         environmentId: box.environmentId,
         projectId: "project:blog",
-        botId: CAPTAIN_ID,
+        botId: "bot:social-box",
       });
       expect(moved.isError, JSON.stringify(moved.content)).toBe(false);
-      // A bot the box doesn't have is made there by the same move, by its logical key.
-      const ensureBot = { name: "Writer", avatar: boxData.bots[0]!.avatar, color: "blue" };
-      const ensured = yield* a.call("t3_bot_move_project", {
-        environmentId: box.environmentId,
-        projectId: "project:omni",
-        botId: "bot:writer",
-        ensureBot,
-      });
-      expect(ensured.isError, JSON.stringify(ensured.content)).toBe(false);
       expect((yield* Ref.get(boxSeen)).moves).toEqual([
-        { projectId: "project:blog", botId: CAPTAIN_ID },
-        { projectId: "project:omni", botId: "bot:writer", ensureBot },
+        { projectId: "project:blog", botId: "bot:social-box" },
       ]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -397,7 +454,7 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
 it.live("starts the project manager there, or says before starting anything why not", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+      const boxSeen = yield* Ref.make<Seen>(nothingSeen);
       const b = yield* serveBox(boxSeen);
       const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "full-access");
@@ -441,10 +498,35 @@ it.live("starts the project manager there, or says before starting anything why 
         },
       ]);
 
+      // The box shows Captain under the name and home it now has.
+      expect((yield* Ref.get(boxSeen)).moves).toEqual([
+        {
+          projectId: "project:omni",
+          botId: null,
+          remoteBot: { ...captainFromLaptop, homeLabel: "Laptop" },
+        },
+      ]);
+
+      // The same request again, even over a new link session as after a re-link, or once the
+      // box is back after it started the run but its answer was lost, finds that run.
+      yield* linkTo(a.links, b, "full-access");
+      const retried = yield* a.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        CAPTAIN_ID,
+        launch("project:omni"),
+      );
+      expect(retried.threadId).toBe(launched.threadId);
+      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+
       expect(yield* start(launch("project:blog"))).toContain(
-        "blog on Box belongs to Social, not Captain",
+        "blog on Box belongs to Social on Box, not Captain from Laptop",
       );
       expect(yield* start(launch("project:notes"))).toContain("notes on Box has no bot");
+      // A copy of Captain made there keeps its project until the person moves it.
+      expect(yield* start(launch("project:api"))).toContain(
+        "api on Box belongs to Captain on Box, not Captain from Laptop",
+      );
       expect(yield* start(launch("project:omni", "gpt-elsewhere"))).toContain(
         "runs on gpt-elsewhere (codex), which isn't available on Box",
       );
@@ -469,7 +551,7 @@ it.live("starts the project manager there, or says before starting anything why 
 it.effect("refuses a bot's project work over a link below full access", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+      const boxSeen = yield* Ref.make<Seen>(nothingSeen);
       const b = yield* serveBox(boxSeen);
       const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "auto");
@@ -491,7 +573,7 @@ it.effect("refuses a bot's project work over a link below full access", () =>
 it.effect("refuses new work on a linked environment the bot isn't allowed on", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
+      const boxSeen = yield* Ref.make<Seen>(nothingSeen);
       const b = yield* serveBox(boxSeen);
       const a = yield* makeLaptop(bot(CAPTAIN_ID, "Captain", 0, [couch.environmentId]));
       yield* linkTo(a.links, b, "full-access");

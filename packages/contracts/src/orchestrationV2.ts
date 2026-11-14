@@ -933,6 +933,23 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 
+/**
+ * A bot's request for a project on a linked environment, recorded before it starts there. Its
+ * follower launches it, retrying while that environment can't be reached; once it starts, the
+ * task has a `remoteChild` instead. The task's prompt is the request.
+ */
+export const OrchestrationV2PendingRemoteLaunch = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: Schema.String,
+  projectId: ProjectId,
+  botId: Schema.String,
+  title: Schema.String,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  clientRequestId: Schema.String,
+});
+export type OrchestrationV2PendingRemoteLaunch = typeof OrchestrationV2PendingRemoteLaunch.Type;
+
 export const OrchestrationV2Subagent = Schema.Struct({
   id: NodeId,
   threadId: ThreadId,
@@ -945,6 +962,7 @@ export const OrchestrationV2Subagent = Schema.Struct({
   providerThreadId: Schema.NullOr(ProviderThreadId),
   childThreadId: Schema.NullOr(ThreadId),
   remoteChild: Schema.optional(OrchestrationV2RemoteTaskChild),
+  pendingRemote: Schema.optional(OrchestrationV2PendingRemoteLaunch),
   nativeTaskRef: Schema.NullOr(OrchestrationV2ProviderRef),
   prompt: Schema.String,
   title: Schema.NullOr(Schema.String),
@@ -1916,6 +1934,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     providerInstanceId: ProviderInstanceId,
     childThreadId: Schema.NullOr(ThreadId),
     remoteChild: Schema.optional(OrchestrationV2RemoteTaskChild),
+    pendingRemote: Schema.optional(OrchestrationV2PendingRemoteLaunch),
     prompt: Schema.String,
     progress: Schema.optional(Schema.String),
     result: Schema.NullOr(Schema.String),
@@ -2807,6 +2826,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     providerInstanceId: ProviderInstanceId,
     childThreadId: Schema.NullOr(ThreadId),
     remoteChild: Schema.optional(OrchestrationV2RemoteTaskChild),
+    pendingRemote: Schema.optional(OrchestrationV2PendingRemoteLaunch),
     prompt: Schema.String,
     progress: Schema.optional(Schema.String),
     result: Schema.NullOr(Schema.String),
@@ -3700,10 +3720,9 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
   }),
   /**
-   * Records a delegated task that runs in a linked environment: the task, its
-   * node and its turn item on the parent, as `delegated_task.request` does,
-   * without a child thread here. `remoteChild` is the thread already launched
-   * there. The ids derive from `commandId`, so a retry records nothing new.
+   * Records a task that runs in a linked environment, without a child thread here:
+   * `remoteChild` is the thread launched there, or a bot's request that couldn't reach it
+   * names `pendingRemote` and waits (`progress` says why). Ids derive from `commandId`.
    */
   Schema.Struct({
     type: Schema.Literal("delegated_task.remote.request"),
@@ -3715,9 +3734,24 @@ const OrchestrationV2InternalCommand = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
     driver: ProviderDriverKind,
     modelSelection: ModelSelection,
-    remoteChild: OrchestrationV2RemoteTaskChild,
+    remoteChild: Schema.optional(OrchestrationV2RemoteTaskChild),
+    pendingRemote: Schema.optional(OrchestrationV2PendingRemoteLaunch),
+    progress: Schema.optional(TrimmedNonEmptyString),
     completionWake: Schema.optional(Schema.Literals(["always", "settled_only"])),
   }),
+  /**
+   * A pending remote launch started there: the task follows `remoteChild` from now on. On a
+   * task that already ended here (cancelled while it launched), the thread there is recorded
+   * with a stop owed, so its follower stops it.
+   */
+  Schema.Struct({
+    type: Schema.Literal("delegated_task.remote.launched"),
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    taskId: NodeId,
+    remoteChild: OrchestrationV2RemoteTaskChild,
+  }),
+
   /**
    * Completes a delegated task that ran in a linked environment, with what its
    * thread there ended as. The parent wakes exactly as for a child here. A
