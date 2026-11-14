@@ -19,6 +19,7 @@ import {
   ticketRef,
   type EnvironmentId,
   type IssueDetail,
+  type IssueList,
   type Ticket,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -28,8 +29,6 @@ import {
   CircleDotIcon,
   EllipsisIcon,
   ExternalLinkIcon,
-  ListTreeIcon,
-  MilestoneIcon,
   NotebookTextIcon,
   PlayIcon,
   RefreshCwIcon,
@@ -57,7 +56,16 @@ import { featureStatus } from "./FeatureCard";
 import { readFileAsDataUrl } from "../../lib/imageCompression";
 import { cn } from "../../lib/utils";
 import {
+  MilestoneChip,
+  ParentChip,
+  SubIssuesSection,
+  parentChoices,
+  useShowMilestoneOnBoard,
+  type StructureChange,
+} from "./IssueStructureDetail";
+import {
   closeTodo,
+  openNewTodoDialog,
   openTodo,
   todoDetailAtom,
   type TodoOwner,
@@ -203,6 +211,7 @@ function TodoDetail({ target }: { readonly target: TodoTarget }) {
       number={target.number}
       {...(target.url === undefined ? {} : { url: target.url })}
       project={project}
+      issueList={issues.data ?? null}
       featureFor={(row) => featureForIssue(features, row)}
     />
   );
@@ -867,6 +876,8 @@ function GitHubIssueDetail(props: {
   /** The link it was opened from; a different issue by that number isn't shown as this one. */
   readonly url?: string;
   readonly project: EnvironmentProject | null;
+  /** The repository's loaded issues and open milestones, for the structure pickers. */
+  readonly issueList: IssueList | null;
   readonly featureFor: (row: EnvironmentIssue) => EnvironmentFeatureCard | null;
 }) {
   const { owner } = props;
@@ -880,6 +891,13 @@ function GitHubIssueDetail(props: {
   const issue = detail.data;
   const save = useIssueEditSaver(owner, issue);
   const canEdit = useAtomValue(featuresEnvironment.updateIssue.permissionAtom(owner.environmentId));
+  const place = use(TodoDetailPlace);
+  const showOnBoard = useShowMilestoneOnBoard();
+  // A milestone or parent picked here shows at once, until the read after saving lands.
+  const [pending, setPending] = useState<(StructureChange & { readonly over: string }) | null>(
+    null,
+  );
+  const [structureError, setStructureError] = useState<string | null>(null);
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed url={props.url} /> : <DetailSkeleton />;
   }
@@ -894,6 +912,80 @@ function GitHubIssueDetail(props: {
   }
   const row: EnvironmentIssue = { ...issue, ...owner, ticketId: null };
   const feature = props.featureFor(row);
+
+  const shownChange = pending !== null && pending.over === issue.readAt ? pending : null;
+  const milestone = shownChange?.milestone === undefined ? issue.milestone : shownChange.milestone;
+  const parent = shownChange?.parent === undefined ? issue.parent : shownChange.parent;
+  const loadedIssues = props.issueList?.issues ?? [];
+  const parentTitle =
+    parent === null
+      ? null
+      : issue.parentIssue?.number === parent
+        ? issue.parentIssue.title
+        : (loadedIssues.find((candidate) => candidate.number === parent)?.title ?? null);
+  const choices = parentChoices(loadedIssues, issue);
+  const openIssue = (number: number) => place.open({ ...owner, number });
+  const refreshDetail = (number: number) =>
+    appAtomRegistry.refresh(
+      featuresEnvironment.issueDetail({
+        environmentId: owner.environmentId,
+        input: { projectId: owner.projectId, number },
+      }),
+    );
+  const updateStructure = (number: number, change: StructureChange) =>
+    runAtomCommand(
+      appAtomRegistry,
+      featuresEnvironment.updateIssue,
+      {
+        environmentId: owner.environmentId,
+        input: {
+          projectId: owner.projectId,
+          number,
+          ...(change.milestone === undefined
+            ? {}
+            : { milestone: change.milestone?.number ?? null }),
+          ...(change.parent === undefined ? {} : { parent: change.parent }),
+        },
+      },
+      { reportFailure: false },
+    );
+  const editStructure = async (change: StructureChange) => {
+    const over = issue.readAt;
+    setPending((current) => ({ ...(current?.over === over ? current : {}), ...change, over }));
+    setStructureError(null);
+    const result = await updateStructure(issue.number, change);
+    if (result._tag === "Success") {
+      // Both parents' sub-issue lists changed.
+      for (const number of [parent, change.parent]) if (number != null) refreshDetail(number);
+      return;
+    }
+    setPending(null);
+    if (!isAtomCommandInterrupted(result)) {
+      setStructureError(failureText(result, "GitHub did not change the issue."));
+    }
+  };
+  /** A parent with a milestone gives it to a part that has none. */
+  const inheritedMilestone = (
+    part: { readonly milestone: StructureChange["milestone"] },
+    from: StructureChange["milestone"],
+  ) => (part.milestone == null && from ? { milestone: from } : {});
+  const chooseParent = (choice: IssueList["issues"][number] | null) =>
+    void editStructure(
+      choice === null
+        ? { parent: null }
+        : { parent: choice.number, ...inheritedMilestone({ milestone }, choice.milestone) },
+    );
+  const addExisting = async (choice: IssueList["issues"][number]) => {
+    setStructureError(null);
+    const result = await updateStructure(choice.number, {
+      parent: issue.number,
+      ...inheritedMilestone(choice, milestone),
+    });
+    if (result._tag === "Success") refreshDetail(issue.number);
+    else if (!isAtomCommandInterrupted(result)) {
+      setStructureError(failureText(result, `GitHub did not move #${choice.number}.`));
+    }
+  };
   const repository = new URL(issue.url).pathname.split("/").slice(1, 3).join("/");
 
   const markdown = (text: string) => (
@@ -957,18 +1049,25 @@ function GitHubIssueDetail(props: {
           </span>
         </Chip>
         <FeatureChip feature={feature} />
-        {issue.milestone ? (
-          <Chip>
-            <MilestoneIcon aria-hidden className="size-3.5 shrink-0" />
-            <span className="truncate">{issue.milestone.title}</span>
-          </Chip>
-        ) : null}
-        {issue.subIssues ? (
-          <Chip>
-            <ListTreeIcon aria-hidden className="size-3.5 shrink-0" />
-            {issue.subIssues.completed}/{issue.subIssues.total}
-          </Chip>
-        ) : null}
+        <MilestoneChip
+          milestone={milestone}
+          milestones={props.issueList?.milestones ?? []}
+          editable={canEdit}
+          onChange={(change) => void editStructure(change)}
+          onShowOnBoard={() => {
+            if (!milestone) return;
+            closeTodo();
+            showOnBoard(owner, milestone.number);
+          }}
+        />
+        <ParentChip
+          parent={parent}
+          parentTitle={parentTitle}
+          choices={choices}
+          editable={canEdit}
+          onOpen={openIssue}
+          onChange={chooseParent}
+        />
         {issue.labels.map((label) => (
           <Chip key={label.name}>
             <span
@@ -991,6 +1090,11 @@ function GitHubIssueDetail(props: {
           </Chip>
         ))}
       </div>
+      {structureError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {structureError}
+        </p>
+      ) : null}
       <DescriptionBody
         text={issue.body}
         version={issue.updatedAt}
@@ -998,6 +1102,26 @@ function GitHubIssueDetail(props: {
         uploadImage={(file) => uploadTodoImage("issue", owner, file)}
         markdown={markdown}
         editable={canEdit}
+      />
+      <SubIssuesSection
+        owner={owner}
+        issue={issue}
+        refreshing={detail.isPending && issue.subIssueList === null}
+        onRetry={detail.refresh}
+        loaded={loadedIssues}
+        choices={choices.filter((choice) => choice.number !== parent)}
+        editable={canEdit}
+        featureFor={props.featureFor}
+        onOpen={openIssue}
+        onStart={(part) => startFeature(todoProject(part), { issue: part })}
+        onAddExisting={(choice) => void addExisting(choice)}
+        onNew={() =>
+          openNewTodoDialog({
+            project: owner,
+            parent: issue.number,
+            ...(milestone ? { milestone: milestone.number } : {}),
+          })
+        }
       />
       {issue.commentCount > 0 ? (
         <section className="mt-4 flex flex-col">

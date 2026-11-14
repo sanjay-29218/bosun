@@ -27,6 +27,7 @@ import {
   CircleDashedIcon,
   CircleIcon,
   GitBranchIcon,
+  ListTreeIcon,
   MessageCircleQuestionIcon,
   MessageSquareIcon,
   MilestoneIcon,
@@ -53,6 +54,7 @@ import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
+import { PartOf, type IssueStructureFacts } from "./IssueStructure";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
@@ -462,6 +464,8 @@ export const FeatureCard = memo(function FeatureCard(props: {
   readonly subfeatures?: ReactNode;
   /** Where it stands now, in its hover card. */
   readonly now?: ReactNode;
+  /** Its issue's parent and sub-issue progress. */
+  readonly structure?: IssueStructureFacts | null;
   readonly onDragStart?: (card: EnvironmentFeatureCard, event: DragEvent) => void;
 }) {
   const { card } = props;
@@ -526,6 +530,14 @@ export const FeatureCard = memo(function FeatureCard(props: {
             ) : ref ? (
               <span className="shrink-0 tabular-nums">{ref}</span>
             ) : null}
+            {props.structure?.parent != null ? (
+              <PartOf
+                parent={props.structure.parent}
+                title={props.structure.parentTitle}
+                variant="inline"
+              />
+            ) : null}
+            {props.structure?.subIssues ? <PartsProgress {...props.structure.subIssues} /> : null}
             {shell?.branch ? (
               <span className="flex min-w-0 flex-1 items-center gap-1">
                 <GitBranchIcon aria-hidden className="size-3 shrink-0" />
@@ -578,6 +590,10 @@ export const FeatureCard = memo(function FeatureCard(props: {
 export const TodoCard = memo(function TodoCard(props: {
   readonly issue: EnvironmentIssue;
   readonly project: EnvironmentProject | null;
+  /** Its parent issue's title, when the board has it. */
+  readonly parentTitle?: string | null;
+  /** Its loaded sub-issues, listed under its details. */
+  readonly parts?: ReactNode;
   readonly onOpen: (issue: EnvironmentIssue) => void;
   readonly onStart: (issue: EnvironmentIssue) => void;
 }) {
@@ -596,14 +612,18 @@ export const TodoCard = memo(function TodoCard(props: {
         </span>
       </CardHeader>
       <CardTitle title={issue.title} onOpen={() => props.onOpen(issue)} />
-      {issue.milestone || labels.length > 0 ? (
+      {issue.milestone || labels.length > 0 || issue.parent !== null || issue.subIssues ? (
         <div className="mt-1 flex min-w-0 items-center gap-2 text-secondary-label">
+          {issue.parent !== null ? (
+            <PartOf parent={issue.parent} title={props.parentTitle ?? null} variant="inline" />
+          ) : null}
           {issue.milestone ? (
             <span className="flex min-w-0 items-center gap-1">
               <MilestoneIcon aria-hidden className="size-3 shrink-0" />
               <span className="truncate">{issue.milestone.title}</span>
             </span>
           ) : null}
+          {issue.subIssues ? <PartsProgress {...issue.subIssues} /> : null}
           {labels.map((label) => (
             <span key={label.name} className="flex min-w-0 items-center gap-1">
               <span
@@ -616,6 +636,7 @@ export const TodoCard = memo(function TodoCard(props: {
           ))}
         </div>
       ) : null}
+      {props.parts}
       {issue.state === "closed" ? (
         <div className="relative z-10 mt-2 flex items-center gap-2">
           <ReopenTodoButton todo={issue} />
@@ -637,3 +658,13 @@ export const TodoCard = memo(function TodoCard(props: {
     </div>
   );
 });
+
+/** `0/3`: a parent's closed sub-issues of all of them. */
+function PartsProgress(props: { readonly completed: number; readonly total: number }) {
+  return (
+    <span aria-label="Sub-issues closed" className="flex shrink-0 items-center gap-1 tabular-nums">
+      <ListTreeIcon aria-hidden className="size-3" />
+      {props.completed}/{props.total}
+    </span>
+  );
+}
