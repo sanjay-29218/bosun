@@ -60,6 +60,7 @@ export function WorkspaceThreadSidebar() {
       onOpenSettings={() => openWorkspaceTab("settings")}
       onOpenEnvironmentSettings={() => openSettings(navigation, "SettingsEnvironments")}
       onOpenAutomations={() => openSettings(navigation, "SettingsScheduledTasks")}
+      onOpenBots={() => openSettings(navigation, "SettingsBots")}
       onOpenLibrary={() => openSettings(navigation, "SettingsRoles")}
       onNewThreadInProject={(project: EnvironmentProject) =>
         selectThreadRoute({

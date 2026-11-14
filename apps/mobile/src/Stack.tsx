@@ -92,6 +92,7 @@ import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppea
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
+import { SettingsBotsRouteScreen } from "./features/settings/SettingsBotsRouteScreen";
 import { SettingsRolesRouteScreen } from "./features/settings/SettingsRolesRouteScreen";
 import { SettingsWorkflowsRouteScreen } from "./features/settings/SettingsWorkflowsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
@@ -288,6 +289,11 @@ const SETTINGS_SCREENS = {
     screen: SettingsFollowUpRouteScreen,
     linking: "settings/follow-ups",
     options: settingsPage("Chat"),
+  }),
+  SettingsBots: createNativeStackScreen({
+    screen: SettingsBotsRouteScreen,
+    linking: "settings/bots",
+    options: settingsPage("Bots"),
   }),
   SettingsRoles: createNativeStackScreen({
     screen: SettingsRolesRouteScreen,

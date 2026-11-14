@@ -12,7 +12,10 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 
-/** The bot that owns the project, and moving it to another bot (or back). */
+// The menu's "No bot" action; bot ids are never empty.
+const NO_BOT = "";
+
+/** The bot that owns the project, and moving it to another bot or to none. */
 export function MobileProjectBotSection(props: {
   readonly project: EnvironmentProject;
   readonly environmentLabel: string;
@@ -27,7 +30,8 @@ export function MobileProjectBotSection(props: {
   const list = bots.data ?? [];
   const owner = list.find((bot) => bot.id === ownerId);
 
-  const move = async (botId: string) => {
+  const move = async (action: string) => {
+    const botId = action === NO_BOT ? null : action;
     if (botId === ownerId) return;
     setError(null);
     const result = await moveProject({
@@ -44,18 +48,21 @@ export function MobileProjectBotSection(props: {
           <Text className="text-sm font-t3-medium text-foreground-muted">Owned by</Text>
           <Menu
             accessibilityLabel="Move to another bot"
-            title="Move to bot"
-            actions={list.map((bot) => ({
-              id: bot.id,
-              title: bot.name,
-              state: bot.id === ownerId ? "on" : "off",
-            }))}
+            title="Owner"
+            actions={[
+              ...list.map((bot) => ({
+                id: bot.id,
+                title: bot.name,
+                state: bot.id === ownerId ? ("on" as const) : ("off" as const),
+              })),
+              { id: NO_BOT, title: "No bot", state: ownerId === null ? "on" : "off" },
+            ]}
             onPressAction={({ nativeEvent }) => void move(nativeEvent.event)}
           >
             <View className="flex-row items-center gap-2 rounded-full bg-subtle-strong py-1.5 pr-3.5 pl-1.5">
               {owner ? <BotAvatar avatar={owner.avatar} color={owner.color} size={24} /> : null}
               <Text className="text-sm font-t3-medium text-foreground">
-                {owner?.name ?? "Captain"} ▾
+                {owner?.name ?? (bots.data ? "No bot" : "Loading…")} ▾
               </Text>
             </View>
           </Menu>
