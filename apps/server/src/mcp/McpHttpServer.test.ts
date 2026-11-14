@@ -1983,6 +1983,7 @@ it.effect(
             "t3_bot_create",
             "t3_bot_delete",
             "t3_bot_move_project",
+            "t3_bot_pin",
             "t3_bot_reorder",
             "t3_bot_update",
             "t3_feature_workflow_create",

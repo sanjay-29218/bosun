@@ -22,6 +22,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   hasCustomTitle: false,
   autoPull: false,
   botId: "bot-ops",
+  managerPinned: false,
   faviconPath: null,
   projectIcon: null,
   scripts: [],

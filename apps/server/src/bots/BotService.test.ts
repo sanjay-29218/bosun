@@ -346,6 +346,39 @@ it.layer(layer)("BotService", (it) => {
     }),
   );
 
+  it.effect("pins bots on create, and pins or unpins bots and project managers", () =>
+    Effect.gen(function* () {
+      const bots = yield* BotService.BotService;
+      const projects = yield* ProjectService.ProjectService;
+      const bot = yield* bots.create({ ...social, id: "bot:pinned", name: "Pinned" });
+      assert.isTrue(bot.pinned);
+      yield* bots.setPin({ botId: bot.id, pinned: false });
+      assert.isFalse((yield* bots.get(bot.id))?.pinned);
+
+      const project = yield* projects.create({
+        commandId: CommandId.make("command:pinned-project"),
+        projectId: ProjectId.make("project:pinned"),
+        title: "Pinned",
+        workspaceRoot: "/work/pinned",
+      });
+      // A new project's manager waits under Bots until someone pins it.
+      assert.isFalse(project.managerPinned);
+      yield* bots.setPin({ projectId: project.id, pinned: true });
+      const pinned = yield* projects.getById(project.id);
+      assert.isTrue(Option.getOrUndefined(pinned)?.managerPinned);
+
+      const refused = (input: Parameters<typeof bots.setPin>[0]) =>
+        Effect.exit(bots.setPin(input)).pipe(Effect.map(Exit.isFailure));
+      assert.isTrue(yield* refused({ pinned: true }));
+      assert.isTrue(yield* refused({ botId: bot.id, projectId: project.id, pinned: true }));
+      assert.isTrue(yield* refused({ botId: "bot:missing", pinned: true }));
+      // Bots' homes have no manager to pin.
+      assert.isTrue(
+        yield* refused({ projectId: ProjectId.make("project:home:bot:pinned"), pinned: true }),
+      );
+    }),
+  );
+
   it.effect("deleting a bot deletes the automations that run as it, and only those", () =>
     Effect.gen(function* () {
       const bots = yield* BotService.BotService;

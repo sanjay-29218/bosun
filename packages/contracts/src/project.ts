@@ -165,6 +165,8 @@ export const Project = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   /** The bot that owns the project; null or absent when it has none. */
   botId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The project's manager shows in the main rail. Absent from older servers: pinned. */
+  managerPinned: Schema.optional(Schema.Boolean),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,

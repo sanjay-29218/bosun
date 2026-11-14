@@ -1,11 +1,13 @@
 import {
   botHeadquartersThreadId,
   headquartersBotId,
+  headquartersProjectId,
   logicalBotKey,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
   type ProjectIconColor,
+  type ProjectId,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -21,7 +23,9 @@ export function projectBotId(project: {
 
 export interface EnvironmentBots {
   readonly environmentId: EnvironmentId;
-  readonly bots: ReadonlyArray<Pick<Bot, "id" | "name" | "avatar" | "color" | "position">>;
+  readonly bots: ReadonlyArray<
+    Pick<Bot, "id" | "name" | "avatar" | "color" | "position" | "pinned">
+  >;
 }
 
 export interface LogicalBotMember {
@@ -39,6 +43,8 @@ export interface LogicalBot {
   readonly avatar: BotAvatar;
   readonly color: ProjectIconColor;
   readonly members: ReadonlyArray<LogicalBotMember>;
+  /** Shown in the main rail: pinned on any of its environments. */
+  readonly pinned: boolean;
 }
 
 /**
@@ -47,7 +53,10 @@ export interface LogicalBot {
  * the same name on one environment stay separate entries; only the first one merges.
  */
 export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): LogicalBot[] {
-  const byKey = new Map<string, Omit<LogicalBot, "key"> & { members: LogicalBotMember[] }>();
+  const byKey = new Map<
+    string,
+    Omit<LogicalBot, "key"> & { members: LogicalBotMember[]; pinned: boolean }
+  >();
   for (const { environmentId, bots } of environments) {
     for (const bot of [...bots].sort((left, right) => left.position - right.position)) {
       let key = logicalBotKey(bot);
@@ -55,6 +64,7 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
       if (existing) {
         if (!existing.members.some((member) => member.environmentId === environmentId)) {
           existing.members.push({ environmentId, botId: bot.id });
+          existing.pinned ||= bot.pinned ?? true;
           continue;
         }
         key = `id:${environmentId}:${bot.id}`;
@@ -64,6 +74,7 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
         avatar: bot.avatar,
         color: bot.color,
         members: [{ environmentId, botId: bot.id }],
+        pinned: bot.pinned ?? true,
       });
     }
   }
@@ -332,4 +343,53 @@ export function resolveEnvironmentFilter(
   const wanted = new Set(selected);
   const visible = available.filter((environmentId) => wanted.has(environmentId));
   return visible.length === 0 || visible.length === available.length ? null : new Set(visible);
+}
+
+/** Whether a project's manager shows in the main rail. Older servers send no flag: pinned. */
+export function isManagerPinned(project: {
+  readonly managerPinned?: boolean | undefined;
+}): boolean {
+  return project.managerPinned ?? true;
+}
+
+/**
+ * Threads waiting on you that the main rail hides: a project manager's thread when that manager
+ * isn't pinned, and any other thread whose bot isn't pinned. The Bots place shows this count, so
+ * nothing unpinned goes silent.
+ */
+export function countHiddenNeedsYou(input: {
+  readonly bots: ReadonlyArray<LogicalBot>;
+  readonly shells: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+    readonly projectId: ProjectId;
+  }>;
+  readonly projects: ReadonlyArray<
+    BotOwnedProject & { readonly managerPinned?: boolean | undefined }
+  >;
+}): number {
+  const unpinnedManagers = new Set(
+    input.projects
+      .filter((project) => !isManagerPinned(project))
+      .map((project) => `${project.environmentId}:${project.id}`),
+  );
+  const unpinnedBots = new Set<string>();
+  for (const bot of input.bots) {
+    if (bot.pinned) continue;
+    for (const member of bot.members) {
+      unpinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
+    }
+  }
+  const ownerKey = createThreadBotKeyResolver(input.projects);
+  let count = 0;
+  for (const shell of input.shells) {
+    const managerOf = headquartersProjectId(shell.id);
+    if (managerOf !== null && unpinnedManagers.has(`${shell.environmentId}:${managerOf}`)) {
+      count += 1;
+      continue;
+    }
+    const owner = ownerKey(shell);
+    if (owner !== undefined && unpinnedBots.has(owner)) count += 1;
+  }
+  return count;
 }

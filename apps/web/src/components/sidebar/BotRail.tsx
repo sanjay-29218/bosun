@@ -3,6 +3,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   botRailSignal,
   createLogicalBotResolver,
+  isManagerPinned,
   projectBotId,
   type BotActivity,
   type BotRailSignal,
@@ -16,6 +17,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import {
+  BotIcon,
   ChartNoAxesColumnIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -39,6 +41,7 @@ import { useHasUnseenAutomationFailure } from "../../state/automations";
 import {
   useActivityByLogicalBot,
   useEnvironmentFilter,
+  useHiddenNeedsYouCount,
   useNeedsYouByLogicalBot,
   useSelectLogicalBot,
   useVisibleActiveLogicalBot,
@@ -72,6 +75,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { botListRowSummary } from "./botListRow.logic";
 import {
   AUTOMATIONS_PATH,
+  BOTS_LIST_PATH,
   BOTS_SETTINGS_PATH,
   isSidebarUtilityPage,
   readBotHref,
@@ -106,7 +110,7 @@ interface RailProjectManager {
   readonly botId: string | null;
 }
 
-/** Each project whose manager thread exists and isn't archived, by title. */
+/** Each pinned project manager whose thread exists and isn't archived, by title. */
 function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
   const shells = useQuietThreadShells();
   const projects = useProjects();
@@ -125,7 +129,7 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
         (member) => member.environmentId === shell.environmentId && member.id === projectId,
       ),
     );
-    if (!project || !group) continue;
+    if (!project || !group || !isManagerPinned(project)) continue;
     entries.push({
       key: `${shell.environmentId}:${shell.id}`,
       environmentId: shell.environmentId,
@@ -735,7 +739,7 @@ const ManagerRailItem = memo(function ManagerRailItem({
   );
 });
 
-/** Automations and pull requests: the places that swap the sidebar's list. */
+/** Bots, automations and pull requests: the places that swap the sidebar's list. */
 function RailPlaces({
   destination,
   collapsed,
@@ -747,7 +751,18 @@ function RailPlaces({
   const { isMobile, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
+  const hiddenNeedsYou = useHiddenNeedsYouCount();
   const places = [
+    {
+      label: "Bots",
+      icon: BotIcon,
+      active: destination === "bots-list",
+      // Unpinned bots and managers aren't in the rail, so their waiting threads count here.
+      signal: hiddenNeedsYou > 0 ? ({ kind: "needs-you", count: hiddenNeedsYou } as const) : null,
+      onSelect: () => {
+        if (destination !== "bots-list") void navigate({ to: BOTS_LIST_PATH });
+      },
+    },
     {
       label: "Automations",
       icon: ClockIcon,
@@ -875,6 +890,11 @@ function RailRow({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {signal?.kind === "failed" ? (
         <span aria-label="a run failed" className="size-2 shrink-0 rounded-full bg-error" />
+      ) : signal?.kind === "needs-you" ? (
+        <span className="shrink-0 rounded-sm bg-warning px-1 text-2xs leading-4 font-semibold text-black tabular-nums">
+          {signal.count > 99 ? "99+" : signal.count}
+          <span className="sr-only"> need{signal.count === 1 ? "s" : ""} you</span>
+        </span>
       ) : null}
     </button>
   );

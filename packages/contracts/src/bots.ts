@@ -120,6 +120,8 @@ export const Bot = Schema.Struct({
   longConversation: BotLongConversation,
   /** Rail order, counted from 0. */
   position: Schema.Int,
+  /** Shown in the main rail; every bot is listed under Bots either way. Absent: pinned. */
+  pinned: Schema.optional(Schema.Boolean),
   revision: Schema.Int,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -185,6 +187,14 @@ export const BotMoveProjectInput = Schema.Struct({
   ),
 });
 export type BotMoveProjectInput = typeof BotMoveProjectInput.Type;
+
+/** Pins a bot, or a project's manager, to the main rail, or unpins it. Names exactly one. */
+export const BotSetPinInput = Schema.Struct({
+  botId: Schema.optionalKey(Schema.String),
+  projectId: Schema.optionalKey(ProjectId),
+  pinned: Schema.Boolean,
+});
+export type BotSetPinInput = typeof BotSetPinInput.Type;
 
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",

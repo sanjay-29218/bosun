@@ -17,6 +17,7 @@ const bot = (key: string, botId: string): LogicalBot => ({
   name: key,
   avatar: { head: "round", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
   color: "blue",
+  pinned: true,
   members: [{ environmentId: local, botId }],
 });
 const captain = bot("name:captain", "bot-ops");

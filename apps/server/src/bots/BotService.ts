@@ -4,6 +4,7 @@ import {
   type BotAvatar,
   type BotCreateInput,
   type BotMoveProjectInput,
+  type BotSetPinInput,
   logicalBotKey,
   type BotUpdateInput,
   type Project,
@@ -68,6 +69,10 @@ export class BotService extends Context.Service<
     readonly moveProject: (
       input: BotMoveProjectInput,
     ) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
+    /** Pins a bot or a project's manager to the main rail, or unpins it. */
+    readonly setPin: (
+      input: BotSetPinInput,
+    ) => Effect.Effect<void, BotServiceError | ProjectService.ProjectServiceError>;
   }
 >()("t3/bots/BotService") {}
 
@@ -157,6 +162,7 @@ const make = Effect.gen(function* () {
       modelSelection: input.modelSelection ?? null,
       longConversation: input.longConversation ?? "compact",
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
+      pinned: true,
       revision: 1,
       createdAt: now,
       updatedAt: now,
@@ -309,6 +315,28 @@ const make = Effect.gen(function* () {
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),
+    setPin: Effect.fn("BotService.setPin")(function* (input) {
+      const { botId, projectId } = input;
+      if ((botId === undefined) === (projectId === undefined)) {
+        return yield* new BotValidationError({ reason: "Name exactly one of botId and projectId" });
+      }
+      if (projectId === undefined) {
+        if (botId === undefined || !(yield* store.setPinned(botId, input.pinned))) {
+          return yield* new BotValidationError({ reason: "Bot not found" });
+        }
+        return;
+      }
+      if (yield* folders.isHiddenProject(projectId)) {
+        return yield* new BotValidationError({
+          reason: "Scratch and bots' homes have no project manager",
+        });
+      }
+      yield* projects.setManagerPinned({
+        commandId: CommandId.make(`manager-pin:${yield* random.uuidV4()}`),
+        projectId,
+        pinned: input.pinned,
+      });
+    }),
   });
   // Every change tells clients to re-read the bots, whoever asked for it.
   const bots = (yield* crewChangeNotifier).notifying("bots");
@@ -319,6 +347,7 @@ const make = Effect.gen(function* () {
     delete: bots(service.delete),
     reorder: bots(service.reorder),
     moveProject: bots(service.moveProject),
+    setPin: bots(service.setPin),
   });
 });
 

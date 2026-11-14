@@ -14,6 +14,7 @@ import {
   botRailShowsThread,
   botRailSignal,
   buildLogicalBots,
+  countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
   logicalBotMemberOn,
@@ -82,6 +83,67 @@ describe("buildLogicalBots", () => {
       { environmentId: local, botId: "bot-social" },
       { environmentId: remote, botId: "bot-social-2" },
     ]);
+  });
+});
+
+describe("pins", () => {
+  it("reads a bot as pinned when any environment pins it, and older servers as pinned", () => {
+    const bots = buildLogicalBots([
+      { environmentId: local, bots: [{ ...bot("bot-a", "Social", 0), pinned: false }] },
+      { environmentId: remote, bots: [bot("bot-b", "Social", 0), bot("bot-c", "Finance", 1)] },
+      {
+        environmentId: EnvironmentId.make("other"),
+        bots: [{ ...bot("bot-d", "Ops", 0), pinned: false }],
+      },
+    ]);
+    expect(bots.map((entry) => [entry.name, entry.pinned])).toEqual([
+      ["Social", true],
+      ["Finance", true],
+      ["Ops", false],
+    ]);
+  });
+
+  it("counts threads waiting on you that only an unpinned bot or manager shows", () => {
+    const bots = buildLogicalBots([
+      {
+        environmentId: local,
+        bots: [bot("bot-shown", "Shown", 0), { ...bot("bot-hidden", "Hidden", 1), pinned: false }],
+      },
+    ]);
+    const project = (id: string, botId: string | null, managerPinned?: boolean) => ({
+      environmentId: local,
+      id: ProjectId.make(id),
+      botId,
+      ...(managerPinned === undefined ? {} : { managerPinned }),
+    });
+    const shell = (id: string, projectId: string) => ({
+      environmentId: local,
+      id,
+      projectId: ProjectId.make(projectId),
+    });
+    const projects = [
+      project("shown", "bot-shown", true),
+      project("hidden", "bot-hidden", true),
+      project("quiet", "bot-shown", false),
+      project("loose", null),
+    ];
+    expect(
+      countHiddenNeedsYou({
+        bots,
+        projects,
+        shells: [
+          shell("a", "shown"),
+          // Under an unpinned bot.
+          shell("b", "hidden"),
+          shell(botHeadquartersThreadId("bot-hidden"), "scratch"),
+          // An unpinned manager's own thread, though its bot is pinned.
+          shell("bot-run:project-hq:quiet", "quiet"),
+          // A pinned manager, and a project with no bot, show in the rail.
+          shell("bot-run:project-hq:shown", "shown"),
+          shell("c", "loose"),
+        ],
+      }),
+    ).toBe(3);
   });
 });
 

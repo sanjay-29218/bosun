@@ -16,46 +16,72 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { useMoveProjectToLogicalBot } from "../sidebar/moveProjectToBot";
 import { Button } from "../ui/button";
-import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 
 /** Which bot owns a project. Picking another bot moves the project; work already running stays. */
+// The Select's value for a project with no bot; bot ids never take this form.
+const NO_BOT = "";
+
 export function BotOwnerSelect({
   environmentId,
   projectId,
   projectTitle,
   botId,
   bots,
+  loading,
 }: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly projectTitle: string;
   readonly botId: string | null;
   readonly bots: readonly Bot[];
+  /** The bot list hasn't arrived yet. */
+  readonly loading: boolean;
 }) {
   const { canMove, moving, move } = useMoveProject(environmentId);
-  const owner = bots.find((bot) => bot.id === botId);
+  const owner = botId === null ? undefined : bots.find((bot) => bot.id === botId);
 
   const change = (next: string) => {
-    if (next === botId) return;
-    void move({ id: projectId, title: projectTitle }, next);
+    const nextBotId = next === NO_BOT ? null : next;
+    if (nextBotId === botId) return;
+    void move({ id: projectId, title: projectTitle }, nextBotId);
   };
 
   return (
     <Select
-      value={botId}
-      disabled={moving || !canMove || bots.length === 0}
+      value={botId ?? NO_BOT}
+      disabled={moving || !canMove || loading || bots.length === 0}
       onValueChange={(next) => {
         if (typeof next === "string") change(next);
       }}
     >
       <SelectTrigger size="sm" aria-label={`Bot that owns ${projectTitle}`}>
         <SelectValue>
-          {() => (owner ? <BotOption bot={owner} /> : bots.length === 0 ? "Loading…" : "")}
+          {() =>
+            owner ? (
+              <BotOption bot={owner} />
+            ) : loading ? (
+              "Loading…"
+            ) : (
+              <span className="text-muted-foreground">No bot</span>
+            )
+          }
         </SelectValue>
       </SelectTrigger>
       <SelectPopup align="end" alignItemWithTrigger={false}>
+        <SelectItem value={NO_BOT}>
+          <span className="text-muted-foreground">No bot</span>
+        </SelectItem>
         {bots.map((bot) => (
           <SelectItem key={bot.id} value={bot.id}>
             <BotOption bot={bot} />
@@ -71,7 +97,7 @@ function useMoveProject(environmentId: EnvironmentId) {
   const moveProject = useAtomCommand(botsEnvironment.moveProject);
   const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(environmentId));
   const [moving, setMoving] = useState(false);
-  const move = async (project: { id: ProjectId; title: string }, botId: string) => {
+  const move = async (project: { id: ProjectId; title: string }, botId: string | null) => {
     setMoving(true);
     const result = await moveProject({ environmentId, input: { projectId: project.id, botId } });
     if (result._tag !== "Success")
@@ -131,7 +157,7 @@ export function BotProjectList({
   // Only another environment's projects name theirs.
   const elsewhere = (project: EnvironmentProject) =>
     project.environmentId === environmentId ? null : labelOf(project.environmentId);
-  const move = async (project: EnvironmentProject, target: LogicalBot) => {
+  const move = async (project: EnvironmentProject, target: LogicalBot | null) => {
     setMoving(true);
     const error = await moveToBot(project, target);
     if (error !== null)
@@ -168,34 +194,36 @@ export function BotProjectList({
                 : `${elsewhere(project)} · ${project.workspaceRoot}`}
             </span>
           </span>
-          {otherBots.length > 0 ? (
-            <Menu>
-              <MoveTrigger
-                environmentId={project.environmentId}
-                moving={moving}
-                render={(disabled) => (
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    disabled={disabled}
-                    aria-label={`Move ${project.title} to another bot`}
-                  />
-                )}
-              >
-                <ArrowRightLeftIcon className="size-4" />
-              </MoveTrigger>
-              <MenuPopup align="end">
-                <MenuGroup>
-                  <MenuGroupLabel>Move to</MenuGroupLabel>
-                  {otherBots.map((target) => (
-                    <MenuItem key={target.key} onClick={() => void move(project, target)}>
-                      <BotOption bot={target} />
-                    </MenuItem>
-                  ))}
-                </MenuGroup>
-              </MenuPopup>
-            </Menu>
-          ) : null}
+          <Menu>
+            <MoveTrigger
+              environmentId={project.environmentId}
+              moving={moving}
+              render={(disabled) => (
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={disabled}
+                  aria-label={`Move ${project.title} to another bot`}
+                />
+              )}
+            >
+              <ArrowRightLeftIcon className="size-4" />
+            </MoveTrigger>
+            <MenuPopup align="end">
+              <MenuGroup>
+                <MenuGroupLabel>Move to</MenuGroupLabel>
+                {otherBots.map((target) => (
+                  <MenuItem key={target.key} onClick={() => void move(project, target)}>
+                    <BotOption bot={target} />
+                  </MenuItem>
+                ))}
+              </MenuGroup>
+              <MenuSeparator />
+              <MenuItem onClick={() => void move(project, null)}>
+                <span className="text-muted-foreground">No bot</span>
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
         </div>
       ))}
       {ownedProjects.length === 0 || canAdd ? (

@@ -64,6 +64,7 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   /** Moves the project to another bot; null leaves it with no bot. */
   botId: Schema.optional(Schema.NullOr(Schema.String)),
+  managerPinned: Schema.optional(Schema.Boolean),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,

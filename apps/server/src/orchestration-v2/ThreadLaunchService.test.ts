@@ -190,6 +190,7 @@ function makeHarness(options: HarnessOptions = {}) {
       bootstrap: () => Effect.die("unused"),
       update: () => Effect.die("unused"),
       assignBot: () => Effect.die("unused"),
+      setManagerPinned: () => Effect.die("unused"),
       delete: () => Effect.die("unused"),
       listPage: () => Effect.die("unused"),
       getById: (id) =>
@@ -269,6 +270,7 @@ function makeHarness(options: HarnessOptions = {}) {
               hasCustomTitle: false,
               autoPull: false,
               botId: "bot-ops",
+              managerPinned: false,
               faviconPath: null,
               projectIcon: null,
               scripts: project.scripts,

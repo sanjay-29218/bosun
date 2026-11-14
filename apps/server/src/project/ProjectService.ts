@@ -168,6 +168,12 @@ export class ProjectService extends Context.Service<
       readonly projectId: ProjectId;
       readonly botId: string | null;
     }) => Effect.Effect<Project, ProjectServiceError>;
+    /** Shows the project's manager in the main rail, or hides it there. */
+    readonly setManagerPinned: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly pinned: boolean;
+    }) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
@@ -237,6 +243,7 @@ export const make = Effect.gen(function* () {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    managerPinned: row.managerPinned,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -536,6 +543,21 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const setManagerPinned: ProjectService["Service"]["setManagerPinned"] = Effect.fn(
+    "ProjectService.setManagerPinned",
+  )(function* (input) {
+    if (Option.isNone(yield* readRow(input.projectId))) {
+      return yield* new ProjectNotFoundError({ projectId: input.projectId });
+    }
+    yield* commit({
+      type: "project.meta.update",
+      commandId: input.commandId,
+      projectId: input.projectId,
+      managerPinned: input.pinned,
+    });
+    return yield* readCommitted(input.projectId);
+  });
+
   const bootstrap: ProjectService["Service"]["bootstrap"] = Effect.fn("ProjectService.bootstrap")(
     function* (input) {
       const existing = yield* getByWorkspaceRoot(input.workspaceRoot);
@@ -748,6 +770,7 @@ export const make = Effect.gen(function* () {
     bootstrap,
     update,
     assignBot,
+    setManagerPinned,
     delete: deleteProject,
     getById,
     getByWorkspaceRoot,

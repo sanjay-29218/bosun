@@ -4,6 +4,7 @@ import {
   BotDeleteInput,
   BotMoveProjectInput,
   BotReorderInput,
+  BotSetPinInput,
   BotUpdateInput,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
@@ -79,6 +80,17 @@ const MoveProject = Tool.make("t3_bot_move_project", {
   success: Project,
 }).annotate(Tool.Idempotent, true);
 
+const Pin = Tool.make("t3_bot_pin", {
+  ...shared,
+  description:
+    "Pin a bot (botId) or a project's manager (projectId) to the person's main rail, or unpin it with pinned false. Every bot and manager stays listed under Bots either way.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    ...BotSetPinInput.fields,
+  }),
+  success: Schema.Struct({ pinned: Schema.Boolean }),
+}).annotate(Tool.Idempotent, true);
+
 const Projects = Tool.make("t3_bot_projects", {
   ...shared,
   description:
@@ -100,6 +112,7 @@ export const BotsToolkit = Toolkit.make(
   Delete,
   Reorder,
   MoveProject,
+  Pin,
   Projects,
   LinkBotProjects,
   LinkBotTask,

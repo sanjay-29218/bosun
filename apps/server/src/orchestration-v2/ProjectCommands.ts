@@ -41,6 +41,8 @@ export interface ProjectMetaUpdateCommand {
   readonly scripts?: ReadonlyArray<ProjectScript>;
   /** Moves the project to this bot, or to none when null; the caller has checked it exists. */
   readonly botId?: string | null;
+  /** Shows the project's manager in the main rail, or hides it there. */
+  readonly managerPinned?: boolean;
   readonly pinned?: boolean;
   readonly archived?: boolean;
 }
@@ -216,6 +218,7 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           ...(command.botId === undefined ? {} : { botId: command.botId }),
+          ...(command.managerPinned === undefined ? {} : { managerPinned: command.managerPinned }),
           // Repeating a pin or archive keeps the original time.
           ...(command.pinned === undefined
             ? {}

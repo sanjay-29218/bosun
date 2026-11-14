@@ -1798,7 +1798,7 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:bots",
-    searchTerms: ["bots", "bot", "captain", "add bot", "new bot", "edit bot", "avatar"],
+    searchTerms: ["bots", "bot", "add bot", "new bot", "edit bot", "avatar", "pin"],
     title: "Open bots",
     description: "Settings",
     icon: <BotIcon className={ITEM_ICON_CLASS} />,

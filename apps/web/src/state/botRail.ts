@@ -3,6 +3,7 @@ import {
   botActivityByBot,
   botActivityByLogicalBot,
   buildLogicalBots,
+  countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
   logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
@@ -46,7 +47,7 @@ const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
   bots
     .map(
       (bot) =>
-        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.members.map((member) => `${member.environmentId}/${member.botId}`).join(",")}`,
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.members.map((member) => `${member.environmentId}/${member.botId}`).join(",")}`,
     )
     .join("\n");
 
@@ -148,7 +149,7 @@ export function useShownBotEnvironmentIds(): ReadonlyArray<EnvironmentId> {
   );
 }
 
-const visibleLogicalBots = (
+const onShownEnvironment = (
   bots: ReadonlyArray<LogicalBot>,
   environmentFilter: ReadonlySet<EnvironmentId> | null,
 ) =>
@@ -157,6 +158,12 @@ const visibleLogicalBots = (
     : bots.filter((bot) =>
         bot.members.some((member) => environmentFilter.has(member.environmentId)),
       );
+
+// The rail, its shortcuts and the thread list's bot scope cover pinned bots only.
+const visibleLogicalBots = (
+  bots: ReadonlyArray<LogicalBot>,
+  environmentFilter: ReadonlySet<EnvironmentId> | null,
+) => onShownEnvironment(bots, environmentFilter).filter((bot) => bot.pinned);
 
 function readActiveLogicalBot(): LogicalBot | null {
   const { activeBotIdByEnvironmentId, sidebarEnvironmentIds } = useUiStateStore.getState();
@@ -194,7 +201,7 @@ export function readActiveLogicalBotKey(): string | null {
 
 /**
  * Spread into a project create input: the active bot's copy on `environmentId` owns the new
- * project, or the server's Captain when the active bot doesn't exist there.
+ * project; with no active bot there, the project has no bot.
  */
 export function activeBotInput(environmentId: EnvironmentId): { botId?: string } {
   const botId = readActiveLogicalBot()?.members.find(
@@ -216,8 +223,15 @@ export function useEnvironmentFilter(): ReadonlySet<EnvironmentId> | null {
   return resolveEnvironmentFilter(selected, connected);
 }
 
+/** Every bot the environment filter leaves visible, pinned or not, for the Bots list. */
+export function useAllVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
+  const bots = useLogicalBots();
+  const environmentFilter = useEnvironmentFilter();
+  return onShownEnvironment(bots, environmentFilter);
+}
+
 /**
- * Rail entries the environment filter leaves visible: an entry shows while one of its
+ * Pinned rail entries the environment filter leaves visible: an entry shows while one of its
  * environments does.
  */
 export function useVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
@@ -238,11 +252,30 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** The rail holds the app's places too, so it shows whenever there is a bot or a second environment. */
+/**
+ * The rail holds the app's places too, Bots among them, so it shows wherever bots can run or
+ * there is a second environment.
+ */
 export function useShowBotRail(): boolean {
-  const botCount = useLogicalBots().length;
+  const botEnvironmentCount = useBotEnvironmentIds().length;
   const environmentCount = useConnectedEnvironmentIds().length;
-  return botCount > 0 || environmentCount > 1;
+  return botEnvironmentCount > 0 || environmentCount > 1;
+}
+
+/** Threads waiting on you that only an unpinned bot or project manager shows. */
+export function useHiddenNeedsYouCount(): number {
+  const bots = useLogicalBots();
+  const shells = useAtomValue(needsYouThreadsAtom);
+  const projects = useAtomValue(environmentProjects.projectsAtom);
+  const environmentFilter = useEnvironmentFilter();
+  return countHiddenNeedsYou({
+    bots,
+    projects,
+    shells:
+      environmentFilter === null
+        ? shells
+        : shells.filter((shell) => environmentFilter.has(shell.environmentId)),
+  });
 }
 
 /**

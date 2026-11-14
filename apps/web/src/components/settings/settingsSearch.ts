@@ -1234,7 +1234,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-bot",
     title: "Project bot",
     to: "/settings/projects",
-    searchTerms: ["owner move project to another bot captain"],
+    searchTerms: ["owner move project to another bot no bot"],
   },
   {
     id: "project-manager",
@@ -1365,7 +1365,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "bots",
     title: "Bots",
     to: "/settings/bots",
-    searchTerms: ["captain add new edit manage reorder delete bots avatar model"],
+    searchTerms: ["add new edit manage reorder delete bots avatar model"],
   },
   {
     id: "workflows",

@@ -102,6 +102,7 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
             hasCustomTitle: false,
             autoPull: false,
             botId: "bot-ops",
+            managerPinned: false,
             faviconPath: null,
             projectIcon: null,
             scripts: [],

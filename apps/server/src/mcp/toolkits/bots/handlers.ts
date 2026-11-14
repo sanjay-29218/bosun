@@ -69,6 +69,9 @@ export const layer = McpToolAccess.toLayer(
       t3_bot_move_project: McpToolAccess.writesWithCapability((input) =>
         changingBots((bots) => bots.moveProject(input)),
       ),
+      t3_bot_pin: McpToolAccess.writesWithCapability((input) =>
+        changingBots((bots) => bots.setPin(input)).pipe(Effect.as({ pinned: input.pinned })),
+      ),
       t3_bot_projects: McpToolAccess.reads((input) =>
         McpInvocationContext.McpInvocationContext.pipe(
           Effect.flatMap((scope) => reach.projects(scope, input.botId)),
