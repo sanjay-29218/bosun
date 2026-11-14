@@ -40,7 +40,7 @@ const failure = Schema.Union([
 ]);
 const AskPerson = Tool.make("crew_ask_person", {
   description:
-    "Ask the person for approval in your own thread, where they see your work. First show the work here (the design, plan or file), then call this; it returns at once. End your turn right after: the person's answer arrives as your next message. Options default to Approve and Request changes, and the person can also type an answer. Don't put the question in your final message instead.",
+    "Ask the person for approval in your own thread, where they see your work. First show the work here (the design, plan or file), then call this; it returns at once. End your turn right after: the person's answer arrives as your next message. By default the person picks Approve or writes what to change. Don't put the question in your final message instead.",
   parameters: Schema.Struct({
     question: Schema.String.annotate({
       description: 'One line, such as "Approve the design in design.html?"',

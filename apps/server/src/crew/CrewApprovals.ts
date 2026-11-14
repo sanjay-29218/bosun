@@ -31,11 +31,7 @@ export class CrewApprovalError extends Schema.TaggedError<CrewApprovalError>()(
   }
 }
 
-const {
-  approve: APPROVE,
-  requestChanges: REQUEST_CHANGES,
-  questionId: QUESTION_ID,
-} = CREW_APPROVAL;
+const { approve: APPROVE, questionId: QUESTION_ID } = CREW_APPROVAL;
 
 /** What the asking member reads once it has asked. */
 const CREW_ASKED_NEXT =
@@ -102,21 +98,18 @@ const make = Effect.gen(function* () {
       const approval = input.options === undefined || input.options.length === 0;
       const labels = [
         ...new Set(
-          (approval ? [APPROVE, REQUEST_CHANGES] : (input.options ?? []))
+          (approval ? [APPROVE] : (input.options ?? []))
             .map((label) => label.trim())
             .filter((label) => label.length > 0),
         ),
       ].slice(0, 6);
       const options: OrchestrationV2UserInputQuestion["options"] = (
-        labels.length > 0 ? labels : [APPROVE, REQUEST_CHANGES]
+        labels.length > 0 ? labels : [APPROVE]
       ).map((label) => ({
         label,
+        // Picking an option sends it at once, so changes go in the answer box instead.
         description:
-          label === APPROVE
-            ? "Continue with this as it is."
-            : label === REQUEST_CHANGES
-              ? "Say what to change below."
-              : label,
+          label === APPROVE ? "Continue with this as it is, or write below what to change." : label,
       }));
       const requestId = RuntimeRequestId.make(`crew-ask:${NodeCrypto.randomUUID()}`);
       yield* engine

@@ -5419,6 +5419,13 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         card?.type === "user_input_request" ? card.questions[0]?.header : undefined,
         "Designer is asking for your approval",
       );
+      // Picking an option sends it, so changes are written in the answer box, not picked.
+      assert.deepEqual(
+        card?.type === "user_input_request"
+          ? card.questions[0]?.options.map((option) => option.label)
+          : [],
+        ["Approve"],
+      );
       // Only the person answers it, so clients count it as Needs you after the member's turn.
       assert.isTrue(
         (yield* orchestrator.getThreadShell(asking.childThreadId))?.pendingRuntimeRequest?.userOnly,
@@ -5508,6 +5515,22 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         threadId: dismissed.childThreadId,
         requestId: dismissed.requestId,
       });
+      // What the person writes instead of approving reaches the member as the changes to make.
+      const changes = yield* seedAsking("crew-ask-changes");
+      yield* orchestrator.dispatch({
+        type: "runtime-request.respond",
+        commandId: CommandId.make("command:crew-ask-changes"),
+        threadId: changes.childThreadId,
+        requestId: changes.requestId,
+        answers: { approval: "Make the headline shorter" },
+      });
+      assert.match(
+        (yield* orchestrator.getThreadProjection(changes.childThreadId)).messages.find(
+          (message) => message.id === `message:crew-answer:${changes.requestId}`,
+        )?.text ?? "",
+        /^The person asked for changes: Make the headline shorter/,
+      );
+
       // The member hears it was dismissed, and its reply settles the task as usual.
       assert.match(
         (yield* orchestrator.getThreadProjection(dismissed.childThreadId)).messages.find(
@@ -5635,7 +5658,11 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
       assert.isFalse(
         child.messages.some((message) => message.id.startsWith("message:crew-answer:")),
       );
-      assert.isNotNull((yield* taskOf(asking.parentThreadId, asking.taskId))?.result ?? null);
+      // The lead hears the question went unanswered, not the member's last message.
+      assert.equal(
+        (yield* taskOf(asking.parentThreadId, asking.taskId))?.result,
+        "Designer's question went unanswered: its thread was archived.",
+      );
     }),
   );
 

@@ -54,7 +54,10 @@ export const crewMemberInstructions = (name: string) =>
 const CREW_MEMBER_APPROVALS =
   'When your task asks for the person\'s approval, get it in this thread, where they see your work: show the work here (the plan, design or file, and what it covers), call crew_ask_person with a one-line question, and end your turn. Their answer arrives as your next message. If they ask for changes, revise and ask again. Once they approve, end with a one-line outcome for the lead, such as "Design approved: design.html". Never put a question for the person in your final message.';
 
-/** A crew member's approval question: its options and the id its answer is filed under. */
+/**
+ * A crew member's approval question: Approve, or what to change written in the answer box, and
+ * the id its answer is filed under. Questions asked before that offered Request changes too.
+ */
 export const CREW_APPROVAL = {
   questionId: "approval",
   approve: "Approve",
@@ -87,7 +90,7 @@ export const crewQuestionReply = (answer: string | null, options: ReadonlyArray<
     );
   if (options.includes(answer))
     return reply("The person answered", `The person chose "${answer}".`);
-  return options.includes(approve) && options.includes(requestChanges)
+  return options.includes(approve)
     ? reply("The person asked for changes", `The person asked for changes: ${answer}`)
     : reply("The person answered", `The person answered: ${answer}`);
 };

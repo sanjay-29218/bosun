@@ -1,8 +1,10 @@
+import * as DateTime from "effect/DateTime";
 import {
   type CommandId,
   isOrchestrationV2WorkActive,
   MessageId,
   type OrchestrationV2Command,
+  type OrchestrationV2Run,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
@@ -20,6 +22,10 @@ import { CREW_APPROVAL, crewQuestionReply } from "./crewPrompts.ts";
  */
 
 type Request = Pick<OrchestrationV2RuntimeRequest, "status" | "owner">;
+
+/** The message that resumes the member after its question `requestId` closes. */
+const crewAnswerMessageId = (requestId: string) =>
+  MessageId.make(`message:crew-answer:${requestId}`);
 
 /** A crew member asked the person and ended its turn: its task has no result until they answer. */
 export const crewQuestionHoldsTask = (requests: ReadonlyArray<Request>) =>
@@ -77,7 +83,7 @@ export const crewAnswerContinuation = (input: {
     type: "message.dispatch",
     commandId: input.commandId,
     threadId: input.child.id as ThreadId,
-    messageId: MessageId.make(`message:crew-answer:${input.requestId}`),
+    messageId: crewAnswerMessageId(input.requestId),
     text: reply.text,
     // A wake continues the member's open follow-up task, as it continues the original.
     notification: { source: { kind: "system" }, outcome: "updated", summary: reply.summary },
@@ -86,4 +92,42 @@ export const crewAnswerContinuation = (input: {
     creationSource: "server",
     dispatchMode: { type: "queue_after_active" },
   };
+};
+
+/**
+ * The lead's result when the member's last question closed unanswered with nothing after it, as
+ * when its thread was archived: one line, never the member's last message, which can be the
+ * whole design it asked about. Null otherwise.
+ */
+export const crewUnansweredResult = (input: {
+  readonly thread: Pick<
+    OrchestrationV2ThreadProjection["thread"],
+    "title" | "archivedAt" | "deletedAt" | "feature"
+  >;
+  readonly requests: ReadonlyArray<
+    Pick<OrchestrationV2RuntimeRequest, "id" | "owner" | "status" | "answers" | "createdAt">
+  >;
+  readonly resultRun: Pick<OrchestrationV2Run, "requestedAt" | "userMessageId">;
+}): string | null => {
+  const last = input.requests
+    .filter((request) => request.owner === "crew")
+    .toSorted(
+      (a, b) => DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
+    )[0];
+  if (
+    last === undefined ||
+    last.status === "pending" ||
+    last.answers !== undefined ||
+    input.resultRun.userMessageId === crewAnswerMessageId(last.id) ||
+    DateTime.isGreaterThan(input.resultRun.requestedAt, last.createdAt)
+  )
+    return null;
+  const member = input.thread.feature?.member ?? input.thread.title;
+  const why =
+    input.thread.deletedAt !== null
+      ? "its thread was deleted"
+      : input.thread.archivedAt !== null
+        ? "its thread was archived"
+        : "it was closed";
+  return `${member}'s question went unanswered: ${why}.`;
 };

@@ -191,6 +191,7 @@ import {
   crewAnswerContinuation,
   crewQuestionClosed,
   crewQuestionHoldsTask,
+  crewUnansweredResult,
 } from "../crew/crewApprovalRules.ts";
 import { isAutomaticCompletionRun, queuedRunsInDeliveryOrder } from "./QueuedRunOrder.ts";
 import { isRuntimePolicyAboveCeilingError, RuntimePolicyV2 } from "./RuntimePolicy.ts";
@@ -14502,7 +14503,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
       const childResult = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["messages", "turnItems"],
+        ["messages", "turnItems", "runtimeRequests"],
         {
           messageRoles: ["assistant"],
           messageRunIds: [childRun.id],
@@ -14568,7 +14569,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...task,
         providerThreadId: childRun.providerThreadId,
         status: terminalStatus,
-        result: result.text,
+        result:
+          crewUnansweredResult({
+            thread: childControls.thread,
+            requests: childResult.runtimeRequests,
+            resultRun: childRun,
+          }) ?? result.text,
         completedAt: now,
         updatedAt: now,
         // The cancelling parent gets no wake, and the task records the run it settled from.
