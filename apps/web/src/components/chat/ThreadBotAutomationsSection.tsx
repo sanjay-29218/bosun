@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { CalendarClockIcon } from "lucide-react";
 
 import { useEnvironmentScheduledTasks } from "../../state/automations";
-import { scheduleLabel } from "../automations/ScheduledTaskEditor";
+import { scheduleLabel } from "../automations/scheduledTaskEditor.logic";
 import { AUTOMATIONS_PATH } from "../sidebar/mainAppLocation";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";

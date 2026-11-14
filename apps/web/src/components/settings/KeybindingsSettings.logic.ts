@@ -388,6 +388,7 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "bot.inbox") return "Bots: Toggle Bot List";
   const botJump = /^bot\.jump\.(\d)$/.exec(command);
   if (botJump) return `Bots: Switch to Bot ${botJump[1]}`;
+  if (command === "preview.find") return "Preview: Find on Page";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;

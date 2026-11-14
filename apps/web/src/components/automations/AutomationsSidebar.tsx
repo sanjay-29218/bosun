@@ -20,7 +20,8 @@ import { BotAvatar } from "../BotAvatar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import { SidebarHeaderIconButton } from "../sidebar/SidebarThreadHeader";
 import { SidebarContent, SidebarGroup, useSidebar } from "../ui/sidebar";
-import { ScheduledRelativeLabel, scheduleLabel } from "./ScheduledTaskEditor";
+import { ScheduledRelativeLabel } from "./ScheduledTaskEditor";
+import { scheduleLabel } from "./scheduledTaskEditor.logic";
 
 /**
  * The sidebar column on the Automations destination: every shown environment's scheduled

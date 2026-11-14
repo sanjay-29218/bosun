@@ -295,7 +295,7 @@ const launch = (projectId: string, model = modelSelection.model) => ({
   clientRequestId: `delegate:${projectId}:${model}`,
 });
 
-it.effect("Captain here lists, sees and takes its projects on a linked environment", () =>
+it.live("Captain here lists, sees and takes its projects on a linked environment", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });
@@ -365,7 +365,7 @@ it.effect("Captain here lists, sees and takes its projects on a linked environme
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("starts the project manager there, or says before starting anything why not", () =>
+it.live("starts the project manager there, or says before starting anything why not", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const boxSeen = yield* Ref.make<Seen>({ moves: [], runs: [] });

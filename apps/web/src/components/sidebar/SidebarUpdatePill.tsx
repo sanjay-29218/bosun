@@ -333,6 +333,7 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
       try {
         confirmed = await ensureLocalApi().dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(state),
+          { initialFocus: "confirm" },
         );
       } catch (error) {
         setIsActionPending(false);

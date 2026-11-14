@@ -193,6 +193,7 @@ export const makeCrewTestOrchestration = (
       Layer.provide(
         Layer.mergeAll(
           RuntimeLayer.layer,
+          RuntimeLayer.layerEventSink,
           CommandReceiptStore.layer,
           IdAllocator.layer,
           WorktreeSetupTracker.layer,

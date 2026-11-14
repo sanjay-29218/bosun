@@ -31,9 +31,8 @@ import {
   ScheduledRelativeLabel,
   ScheduledTaskActions,
   ScheduledTaskEditorForm,
-  scheduleLabel,
 } from "./ScheduledTaskEditor";
-import type { AutomationsSearch } from "./scheduledTaskEditor.logic";
+import { scheduleLabel, type AutomationsSearch } from "./scheduledTaskEditor.logic";
 
 const RECENT_RUN_LIMIT = 10;
 
