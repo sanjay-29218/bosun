@@ -56,7 +56,7 @@ const LinkIssue = Tool.make("crew_link_issue", {
 
 const ListIssues = Tool.make("crew_list_issues", {
   description:
-    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue, and sub-issues: their progress and the numbers of those listed. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
+    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue, and sub-issues: their progress and the numbers of those listed. When a parent's listed numbers fall short of its total, `crew_read_todo` on the parent lists every sub-issue, closed ones too. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
   parameters: Schema.Struct({
     state: Schema.optional(Schema.Literals(["open", "closed", "all"])),
     milestone: Schema.optional(Schema.String),
