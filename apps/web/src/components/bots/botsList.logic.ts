@@ -1,16 +1,16 @@
 import {
-  createLogicalBotResolver,
+  createProjectOwnerResolver,
   isManagerPinned,
-  projectBotId,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ProjectRemoteBot } from "@t3tools/contracts";
 
 interface ListedProject {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
   readonly title: string;
   readonly botId?: string | null | undefined;
+  readonly remoteBot?: ProjectRemoteBot | null | undefined;
   readonly managerPinned?: boolean | undefined;
   readonly isScratch?: true;
   readonly isBotHome?: true;
@@ -38,7 +38,7 @@ export function botsListManagers(input: {
   readonly managerEnvironmentIds: ReadonlySet<EnvironmentId>;
   readonly projectKeyOf: (environmentId: EnvironmentId, projectId: ProjectId) => string | null;
 }): BotsListManager[] {
-  const ownerOf = createLogicalBotResolver(input.bots);
+  const ownerOf = createProjectOwnerResolver(input.bots);
   return input.projects
     .flatMap((project) => {
       if (project.isScratch || project.isBotHome) return [];
@@ -52,7 +52,7 @@ export function botsListManagers(input: {
           projectId: project.id,
           title: project.title,
           projectKey,
-          ownerKey: ownerOf(project.environmentId, projectBotId(project)),
+          ownerKey: ownerOf(project),
           pinned: isManagerPinned(project),
         },
       ];
@@ -66,12 +66,9 @@ export function botProjectsLabel(
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<ListedProject>,
 ): string {
-  const ownerOf = createLogicalBotResolver(bots);
+  const ownerOf = createProjectOwnerResolver(bots);
   const count = projects.filter(
-    (project) =>
-      !project.isScratch &&
-      !project.isBotHome &&
-      ownerOf(project.environmentId, projectBotId(project)) === bot.key,
+    (project) => !project.isScratch && !project.isBotHome && ownerOf(project) === bot.key,
   ).length;
   return count === 0 ? "No projects" : `${count} project${count === 1 ? "" : "s"}`;
 }

@@ -7,6 +7,7 @@ import {
   type EnvironmentId,
   type ProjectIconColor,
   type ProjectId,
+  type ProjectRemoteBot,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -20,10 +21,32 @@ export function projectBotId(project: {
   return project.botId ?? null;
 }
 
+export interface OwnedProject {
+  readonly environmentId: EnvironmentId;
+  readonly botId?: string | null | undefined;
+  readonly remoteBot?: ProjectRemoteBot | null | undefined;
+}
+
+/**
+ * The bot that owns a project and the environment it lives on: one on the project's own
+ * environment, or one elsewhere (`remoteBot`). Null when it has none.
+ */
+export function projectOwner(
+  project: OwnedProject,
+): { readonly environmentId: EnvironmentId; readonly botId: string } | null {
+  if (project.remoteBot != null) {
+    return { environmentId: project.remoteBot.environmentId, botId: project.remoteBot.botId };
+  }
+  return project.botId == null
+    ? null
+    : { environmentId: project.environmentId, botId: project.botId };
+}
+
 export interface EnvironmentBots {
   readonly environmentId: EnvironmentId;
   readonly bots: ReadonlyArray<
-    Pick<Bot, "id" | "name" | "avatar" | "color" | "position" | "pinned">
+    Pick<Bot, "id" | "name" | "avatar" | "color" | "position" | "pinned"> &
+      Partial<Pick<Bot, "permittedEnvironmentIds">>
   >;
 }
 
@@ -46,6 +69,8 @@ export interface LogicalBot {
   readonly members: ReadonlyArray<LogicalBotMember>;
   /** Shown in the main rail. */
   readonly pinned: boolean;
+  /** Linked environments besides its home that it may start work on. */
+  readonly permittedEnvironmentIds: ReadonlyArray<EnvironmentId>;
 }
 
 /**
@@ -85,8 +110,16 @@ export function logicalBotOf(
     color: bot.color,
     members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
     pinned: bot.pinned ?? true,
+    permittedEnvironmentIds: bot.permittedEnvironmentIds ?? [],
   };
 }
+
+/** The environment a rail entry's bot lives on. */
+export const logicalBotHome = (bot: LogicalBot): EnvironmentId => bot.members[0]!.environmentId;
+
+/** Whether the bot may own and start work on projects on `environmentId`. */
+export const logicalBotWorksOn = (bot: LogicalBot, environmentId: EnvironmentId): boolean =>
+  logicalBotHome(bot) === environmentId || bot.permittedEnvironmentIds.includes(environmentId);
 
 /**
  * The environments a bot list reads, primary first: bot environments that are connected, then
@@ -126,7 +159,7 @@ export const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
   bots
     .map(
       (bot) =>
-        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.members
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.permittedEnvironmentIds.join(",")}|${bot.members
           .map((member) => `${member.environmentId}/${member.botId}/${member.pinned ?? true}`)
           .join(",")}`,
     )
@@ -179,6 +212,15 @@ export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
     botId === null ? null : (byMember.get(botNeedsYouKey(environmentId, botId)) ?? null);
 }
 
+/** The rail entry that owns a project, here or from another environment; null for none. */
+export function createProjectOwnerResolver(bots: ReadonlyArray<LogicalBot>) {
+  const resolve = createLogicalBotResolver(bots);
+  return (project: OwnedProject): string | null => {
+    const owner = projectOwner(project);
+    return owner === null ? null : resolve(owner.environmentId, owner.botId);
+  };
+}
+
 /**
  * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and the
  * ones with no bot, which every bot shows so they are never hidden.
@@ -186,16 +228,12 @@ export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
 export function logicalBotProjectKeys(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
-  projects: ReadonlyArray<{
-    readonly environmentId: EnvironmentId;
-    readonly id: string;
-    readonly botId?: string | null | undefined;
-  }>,
+  projects: ReadonlyArray<OwnedProject & { readonly id: string }>,
 ): Set<string> {
-  const resolve = createLogicalBotResolver(bots);
+  const resolve = createProjectOwnerResolver(bots);
   const keys = new Set<string>();
   for (const project of projects) {
-    const owner = resolve(project.environmentId, projectBotId(project));
+    const owner = resolve(project);
     if (owner === null || owner === bot.key) keys.add(`${project.environmentId}:${project.id}`);
   }
   return keys;
@@ -210,11 +248,7 @@ export function railProjectKeys(input: {
   readonly active: LogicalBot | null;
   readonly pinnedBots: ReadonlyArray<LogicalBot>;
   readonly allBots: ReadonlyArray<LogicalBot>;
-  readonly projects: ReadonlyArray<{
-    readonly environmentId: EnvironmentId;
-    readonly id: string;
-    readonly botId?: string | null | undefined;
-  }>;
+  readonly projects: ReadonlyArray<OwnedProject & { readonly id: string }>;
   readonly environmentFilter: ReadonlySet<EnvironmentId> | null;
   /** The projects the thread list is scoped to, if any. */
   readonly scopedProjects?: ReadonlyArray<{
@@ -243,17 +277,11 @@ export function railProjectKeys(input: {
 
 /**
  * A rail entry's projects on every connected environment: the ones it owns, the ones it can
- * take, and the ones on environments without bots (`botEnvironmentIds` leaves them out), which
- * no bot can take until that environment runs Bosun. Moving a project goes to the entry's bot on
- * the project's own environment, which `logicalBotMemberOn` finds or a move creates.
+ * take (on its home and the environments it may work on), the ones on environments it may not
+ * work on, and the ones on environments without bots (`botEnvironmentIds` leaves them out),
+ * which no bot can take until that environment runs Bosun.
  */
-export function logicalBotProjectLists<
-  Project extends {
-    readonly environmentId: EnvironmentId;
-    readonly id: string;
-    readonly botId?: string | null | undefined;
-  },
->(
+export function logicalBotProjectLists<Project extends OwnedProject & { readonly id: string }>(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<Project>,
@@ -261,23 +289,21 @@ export function logicalBotProjectLists<
 ): {
   readonly owned: ReadonlyArray<Project>;
   readonly available: ReadonlyArray<Project>;
+  readonly notAllowed: ReadonlyArray<Project>;
   readonly withoutBots: ReadonlyArray<Project>;
 } {
-  const resolve = createLogicalBotResolver(bots);
+  const resolve = createProjectOwnerResolver(bots);
   const owned: Project[] = [];
   const available: Project[] = [];
+  const notAllowed: Project[] = [];
   const withoutBots: Project[] = [];
   for (const project of projects) {
-    if (!botEnvironmentIds.has(project.environmentId)) withoutBots.push(project);
-    else if (resolve(project.environmentId, projectBotId(project)) === bot.key) owned.push(project);
-    else available.push(project);
+    if (resolve(project) === bot.key) owned.push(project);
+    else if (!botEnvironmentIds.has(project.environmentId)) withoutBots.push(project);
+    else if (logicalBotWorksOn(bot, project.environmentId)) available.push(project);
+    else notAllowed.push(project);
   }
-  return { owned, available, withoutBots };
-}
-
-/** The entry's bot on `environmentId`, or null when moving a project there creates it first. */
-export function logicalBotMemberOn(bot: LogicalBot, environmentId: EnvironmentId): string | null {
-  return bot.members.find((member) => member.environmentId === environmentId)?.botId ?? null;
+  return { owned, available, notAllowed, withoutBots };
 }
 
 /**

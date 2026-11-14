@@ -20,7 +20,10 @@ import {
   type HandoffTimelineRun,
   resolveModelSwitchChange,
 } from "@t3tools/client-runtime/handoff";
-import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
+import {
+  formatSubagentDisplayTitle,
+  subagentRunsOn,
+} from "@t3tools/client-runtime/state/subagent-display";
 import {
   ProviderDriverKind,
   type ModelSelection,
@@ -161,6 +164,7 @@ export function V2LifecycleRow(props: {
         completedAt={item.completedAt}
         threadId={item.childThreadId}
         remote={item.remoteChild}
+        pendingRemote={item.pendingRemote}
         onOpenThread={props.onOpenThread}
       />
     );
@@ -409,6 +413,8 @@ function SubagentTimelineLink(props: {
   readonly threadId: ThreadId | null;
   /** The thread in a linked environment that runs this task, when it runs there. */
   readonly remote?: OrchestrationV2RemoteTaskChild | undefined;
+  /** A bot's request waiting to start in a linked environment. */
+  readonly pendingRemote?: OrchestrationV2Subagent["pendingRemote"];
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly event?: {
     readonly status: OrchestrationV2TurnItem["status"] | null;
@@ -421,6 +427,10 @@ function SubagentTimelineLink(props: {
     (thread) => thread?.projection.subagents.find((agent) => agent.id === props.subagentId) ?? null,
   );
   const remote = props.remote ?? agent?.remoteChild;
+  const runsOn = subagentRunsOn({
+    remoteChild: remote,
+    pendingRemote: agent?.pendingRemote ?? props.pendingRemote,
+  });
   const remoteEnvironment = useEnvironment(remote?.environmentId ?? null);
   const navigate = useNavigate();
   const threadId = props.threadId;
@@ -464,8 +474,8 @@ function SubagentTimelineLink(props: {
           <span className="min-w-0 truncate text-xs font-medium text-foreground">
             {props.title}
           </span>
-          {remote !== undefined ? (
-            <span className="shrink-0 text-xs text-muted-foreground">on {remote.label}</span>
+          {runsOn !== null ? (
+            <span className="shrink-0 text-xs text-muted-foreground">on {runsOn}</span>
           ) : null}
         </span>
         <span

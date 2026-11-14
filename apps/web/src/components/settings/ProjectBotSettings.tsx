@@ -1,5 +1,5 @@
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ProjectRemoteBot } from "@t3tools/contracts";
 
 import { botsEnvironment } from "../../state/bots";
 import { useEnvironmentQuery } from "../../state/query";
@@ -16,6 +16,7 @@ export function ProjectBotSection({
     readonly id: ProjectId;
     readonly title: string;
     readonly botId?: string | null | undefined;
+    readonly remoteBot?: ProjectRemoteBot | null | undefined;
     readonly environmentLabel: string | null;
   }>;
 }) {
@@ -48,7 +49,9 @@ function ProjectBotRow({
       title={showEnvironment ? (member.environmentLabel ?? "Environment") : "Owner"}
       description={
         bots.error ??
-        "The bot that runs this project's work. With no bot, its project manager still runs it."
+        (member.remoteBot != null
+          ? `${member.remoteBot.name} lives on ${member.remoteBot.homeLabel} and starts this project's work over the link. With no bot, its project manager still runs it.`
+          : "The bot that runs this project's work. With no bot, its project manager still runs it.")
       }
       control={
         <BotOwnerSelect
@@ -56,6 +59,7 @@ function ProjectBotRow({
           projectId={member.id}
           projectTitle={member.title}
           botId={projectBotId(member)}
+          remoteBot={member.remoteBot ?? null}
           bots={bots.data ?? []}
           loading={!bots.data && !bots.error}
         />

@@ -1,17 +1,21 @@
 import {
-  createLogicalBotResolver,
-  logicalBotMemberOn,
-  projectBotId,
+  createProjectOwnerResolver,
+  logicalBotHome,
+  logicalBotWorksOn,
+  projectOwner,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
-import type { ContextMenuItem, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type {
+  ContextMenuItem,
+  EnvironmentId,
+  ProjectId,
+  ProjectRemoteBot,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import * as Option from "effect/Option";
-import { AsyncResult } from "effect/reactivity";
 
-import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { botsEnvironment } from "../../state/bots";
 import { logicalBotsAtom, useBotEnvironmentIds } from "../../state/botRail";
+import { useEnvironmentIdentities } from "../../state/environments";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { toastManager } from "../ui/toast";
@@ -21,6 +25,7 @@ export interface MoveProjectMember {
   readonly id: ProjectId;
   readonly title: string;
   readonly botId?: string | null | undefined;
+  readonly remoteBot?: ProjectRemoteBot | null | undefined;
   /** Names the checkout when a project lives on several environments. */
   readonly environmentLabel: string | null;
 }
@@ -30,28 +35,62 @@ const MOVE_PREFIX = "move-to-bot:";
 const NO_BOT_KEY = "";
 
 /**
- * "Move to bot" for a project's context menu: every bot, on each checkout's environment that
- * runs bots, the current owner checked. A bot that environment doesn't have yet is created there
- * by the move. A project on several environments gets one submenu per checkout, since bots are
- * environment-local. Null when there is nowhere to move it.
+ * "Move to bot" for a project's context menu: on each checkout's environment that runs bots, every
+ * bot under its home once there are several, the owner checked and bots not allowed there
+ * disabled. Several checkouts get a submenu each. Null when there is nowhere to move it.
  */
 export function buildMoveToBotMenuItem(
   members: ReadonlyArray<MoveProjectMember>,
   bots: ReadonlyArray<LogicalBot>,
   botEnvironmentIds: ReadonlySet<EnvironmentId>,
+  environmentLabels: ReadonlyMap<EnvironmentId, string> = new Map(),
 ): ContextMenuItem<string> | null {
-  const ownerOf = createLogicalBotResolver(bots);
+  const ownerOf = createProjectOwnerResolver(bots);
+  const labelOf = (environmentId: EnvironmentId) =>
+    environmentLabels.get(environmentId) ?? environmentId;
+  const homes = [...new Set(bots.map(logicalBotHome))];
   const botItems = (member: MoveProjectMember): ContextMenuItem<string>[] => {
     if (!botEnvironmentIds.has(member.environmentId)) return [];
-    const owner = ownerOf(member.environmentId, projectBotId(member));
-    const item = (key: string, label: string, checked: boolean) => ({
-      id: `${MOVE_PREFIX}${JSON.stringify([member.environmentId, member.id, key])}`,
-      label,
-      ...(checked ? { checked: true, disabled: true } : {}),
-    });
+    const owner = ownerOf(member);
+    const id = (key: string) =>
+      `${MOVE_PREFIX}${JSON.stringify([member.environmentId, member.id, key])}`;
+    const botItem = (bot: LogicalBot): ContextMenuItem<string> => {
+      if (bot.key === owner)
+        return { id: id(bot.key), label: bot.name, checked: true, disabled: true };
+      return logicalBotWorksOn(bot, member.environmentId)
+        ? { id: id(bot.key), label: bot.name }
+        : {
+            id: id(bot.key),
+            label: bot.name,
+            disabled: true,
+            detail: `Not allowed on ${labelOf(member.environmentId)}`,
+          };
+    };
+    const ordered = [
+      ...homes.filter((home) => home === member.environmentId),
+      ...homes
+        .filter((home) => home !== member.environmentId)
+        .toSorted((left, right) => labelOf(left).localeCompare(labelOf(right))),
+    ];
+    const grouped =
+      homes.length <= 1
+        ? bots.map(botItem)
+        : ordered.flatMap((home) => [
+            {
+              id: `${MOVE_PREFIX}home:${member.environmentId}:${home}`,
+              label: labelOf(home),
+              header: true,
+            },
+            ...bots.filter((bot) => logicalBotHome(bot) === home).map(botItem),
+          ]);
     return [
-      ...bots.map((bot) => item(bot.key, bot.name, bot.key === owner)),
-      { ...item(NO_BOT_KEY, "No bot", projectBotId(member) === null), separatorBefore: true },
+      ...grouped,
+      {
+        id: id(NO_BOT_KEY),
+        label: "No bot",
+        ...(projectOwner(member) === null ? { checked: true, disabled: true } : {}),
+        separatorBefore: true,
+      },
     ];
   };
   const perMember = members
@@ -75,7 +114,12 @@ export function buildMoveToBotMenuItem(
 export function parseMoveToBotMenuId(
   id: string,
 ): { environmentId: EnvironmentId; projectId: ProjectId; botKey: string } | null {
-  if (!id.startsWith(MOVE_PREFIX) || id.startsWith(`${MOVE_PREFIX}menu`)) return null;
+  if (
+    !id.startsWith(MOVE_PREFIX) ||
+    id.startsWith(`${MOVE_PREFIX}menu`) ||
+    id.startsWith(`${MOVE_PREFIX}home:`)
+  )
+    return null;
   try {
     const [environmentId, projectId, botKey] = JSON.parse(id.slice(MOVE_PREFIX.length)) as [
       EnvironmentId,
@@ -89,54 +133,37 @@ export function parseMoveToBotMenuId(
 }
 
 /**
- * Moves a project to a rail entry's bot on the project's own environment. Bots are
- * environment-local, so when the rail knows none there the server finds the bot with the entry's
- * logical key, or creates it once with the entry's name, look and model. Returns an error
- * description, or null once moved.
+ * Gives a project to a rail entry's bot, or to none. A bot from another environment owns it
+ * there as its `remoteBot`, and works on it over the link. Returns an error description, or null
+ * once moved.
  */
 export function useMoveProjectToLogicalBot() {
   const moveProject = useAtomCommand(botsEnvironment.moveProject, { reportFailure: false });
+  const labels = new Map(
+    useEnvironmentIdentities().map((environment) => [environment.environmentId, environment.label]),
+  );
   return async (
     project: { readonly environmentId: EnvironmentId; readonly id: ProjectId },
     bot: LogicalBot | null,
   ): Promise<string | null> => {
-    if (bot === null) {
-      const cleared = await moveProject({
-        environmentId: project.environmentId,
-        input: { projectId: project.id, botId: null },
-      });
-      return cleared._tag === "Success" ? null : formatEnvironmentQueryError(cleared.cause);
-    }
-    const member = logicalBotMemberOn(bot, project.environmentId);
-    // Every entry has a bot somewhere; the first one is the copy's source.
-    const source = bot.members[0]!;
-    const definition =
-      member !== null
-        ? undefined
-        : Option.getOrNull(
-            AsyncResult.value(
-              appAtomRegistry.get(
-                botsEnvironment.list({ environmentId: source.environmentId, input: {} }),
-              ),
-            ),
-          )?.find((candidate) => candidate.id === source.botId);
+    const home = bot === null ? null : bot.members[0]!;
     const moved = await moveProject({
       environmentId: project.environmentId,
       input:
-        member !== null
-          ? { projectId: project.id, botId: member }
-          : {
-              projectId: project.id,
-              botId: source.botId,
-              ensureBot: {
-                name: bot.name,
-                avatar: bot.avatar,
-                color: bot.color,
-                ...(definition?.modelSelection
-                  ? { modelSelection: definition.modelSelection }
-                  : {}),
+        home === null
+          ? { projectId: project.id, botId: null }
+          : home.environmentId === project.environmentId
+            ? { projectId: project.id, botId: home.botId }
+            : {
+                projectId: project.id,
+                botId: home.botId,
+                remoteBot: {
+                  environmentId: home.environmentId,
+                  botId: home.botId,
+                  name: bot!.name,
+                  homeLabel: labels.get(home.environmentId) ?? home.environmentId,
+                },
               },
-            },
     });
     return moved._tag === "Success" ? null : formatEnvironmentQueryError(moved.cause);
   };
@@ -149,9 +176,12 @@ export function useMoveProjectToLogicalBot() {
 export function useMoveProjectToBotMenu() {
   const bots = useAtomValue(logicalBotsAtom);
   const botEnvironmentIds = new Set(useBotEnvironmentIds());
+  const environmentLabels = new Map(
+    useEnvironmentIdentities().map((environment) => [environment.environmentId, environment.label]),
+  );
   const moveToBot = useMoveProjectToLogicalBot();
   const build = (members: ReadonlyArray<MoveProjectMember>) =>
-    buildMoveToBotMenuItem(members, bots, botEnvironmentIds);
+    buildMoveToBotMenuItem(members, bots, botEnvironmentIds, environmentLabels);
   const run = (id: string, members: ReadonlyArray<MoveProjectMember>): boolean => {
     const move = parseMoveToBotMenuId(id);
     if (!move) return false;
