@@ -75,6 +75,7 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { resolveRuntimeMode } from "./delegatedTaskModes.ts";
+import { crewMemberTask } from "../crew/crewPrompts.ts";
 import type { ProjectionRecordFilter } from "../orchestration-v2/ProjectionStore.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -1281,6 +1282,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     "child run completion",
     "child question",
     "child approval",
+    "crew member asking the person",
     "Node fetch's 300 s idle timeout",
   ] as const)("a task wait still returns on %s", (wake) =>
     Effect.gen(function* () {
@@ -1290,10 +1292,11 @@ describe("OrchestratorMcpService provider resolution", () => {
       const childRunId = RunId.make("run:mcp-wait-child");
       const childRootId = NodeId.make("node:mcp-wait-child-root");
       const eventThreadId = wake === "parent completion" ? parentThreadId : childThreadId;
+      const askedPerson = wake === "crew member asking the person";
       const eventType =
         wake === "child run completion"
           ? "run.updated"
-          : wake === "child question" || wake === "child approval"
+          : wake === "child question" || wake === "child approval" || askedPerson
             ? "runtime-request.updated"
             : "subagent.updated";
       const terminal = wake.endsWith("completion");
@@ -1319,9 +1322,11 @@ describe("OrchestratorMcpService provider resolution", () => {
               id: childRunId,
               ordinal: 1,
               status:
-                wake === "nested child completion" || (ready && terminal) ? "completed" : "running",
+                wake === "nested child completion" || (ready && (terminal || askedPerson))
+                  ? "completed"
+                  : "running",
               startedAt: DateTime.makeUnsafe(0),
-              completedAt: ready && terminal ? DateTime.makeUnsafe(1) : null,
+              completedAt: ready && (terminal || askedPerson) ? DateTime.makeUnsafe(1) : null,
             },
           ],
           subagents:
@@ -1335,9 +1340,10 @@ describe("OrchestratorMcpService provider resolution", () => {
                   {
                     id: "request:mcp-wait-answer",
                     nodeId: childRootId,
-                    kind: wake === "child question" ? "user_input" : "command",
+                    kind: wake === "child question" || askedPerson ? "user_input" : "command",
                     status: "pending",
-                    responseCapability: { type: "live" },
+                    responseCapability: askedPerson ? { type: "message" } : { type: "live" },
+                    ...(askedPerson ? { owner: "crew" } : {}),
                     createdAt: DateTime.makeUnsafe(0),
                   },
                 ]
@@ -1432,7 +1438,13 @@ describe("OrchestratorMcpService provider resolution", () => {
         } else {
           assert.equal(result.status, "running");
           if (wake === "child question") assert.isTrue(result.hasPendingQuestion);
-          else {
+          else if (askedPerson) {
+            // The lead stops waiting without being asked to answer for the person.
+            assert.isTrue(result.awaitingPerson);
+            assert.isFalse(result.hasPendingQuestion);
+            assert.equal(result.workState, "working");
+            assert.include(result.next, "Waiting on the person in Child's thread");
+          } else {
             assert.deepEqual(result.pendingApproval, {
               requestId: "request:mcp-wait-answer",
               kind: "command",
@@ -2426,7 +2438,12 @@ describe("OrchestratorMcpService provider resolution", () => {
         // Named after the lead's task, not the instructions put in front of it.
         assert.equal(request!.title, "Planner: Plan dark mode.");
         assert.equal(request!.modelSelection.model, plannerModel.model);
-        assert.equal(request!.task, "You are the Planner on a feature's crew.\n\nPlan dark mode.");
+        // Every crew member hears how to get the person's approval, whatever its role says.
+        assert.equal(
+          request!.task,
+          crewMemberTask("You are the Planner on a feature's crew.", "Plan dark mode."),
+        );
+        assert.include(request!.task, "crew_ask_person");
         const stranger = yield* mcp
           .delegateTask(scope, {
             task: "Style it.",

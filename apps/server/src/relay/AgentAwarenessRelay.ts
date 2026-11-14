@@ -768,6 +768,7 @@ export const make = Effect.gen(function* () {
           requestId,
           updatedAt: child.updatedAt,
           waitsForInput: child.pendingRuntimeRequest?.kind === "user_input",
+          threadId: childId,
         };
       }
     }

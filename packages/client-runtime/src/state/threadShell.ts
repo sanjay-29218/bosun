@@ -11,6 +11,7 @@ import {
   isProviderNativeSubagentThread,
   OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
@@ -79,7 +80,8 @@ function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentReq
     kind === "auth_refresh" ||
     (thread.lineage.relationshipToParent !== "subagent" && thread.delegatedFrom === undefined) ||
     isProviderNativeSubagentThread(thread) ||
-    !isChildRunLive(thread)
+    // A crew member's ask of the person waits on them after its turn ends.
+    (!isChildRunLive(thread) && thread.pendingRuntimeRequest?.userOnly !== true)
   ) {
     return null;
   }
@@ -159,6 +161,45 @@ const sameRequests = (
 ) =>
   left.size === right.size &&
   [...right].every(([threadId, request]) => left.get(threadId) === request);
+
+/**
+ * The subagent under `topLevelThreadId` whose request the user must answer, such as a crew member
+ * asking for approval, and that request, newest first; null when none. A wait it drives opens
+ * there, not on top, and each new request is news.
+ */
+export function askingSubagent(
+  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  topLevelThreadId: ThreadId,
+): { readonly threadId: ThreadId; readonly requestId: string } | null {
+  const byId = new Map(threads.map((thread) => [thread.id, thread] as const));
+  let asking: OrchestrationV2ThreadShell | null = null;
+  for (const child of threads) {
+    if (child.lineage.relationshipToParent !== "subagent") continue;
+    const request = rolledUpRequest(child, subagentRequest(child));
+    // The coordinator answers a child's own questions.
+    if (request === null || request === "user_input") continue;
+    let parentId = child.lineage.parentThreadId;
+    const seen = new Set<ThreadId>([child.id]);
+    while (parentId !== null && parentId !== topLevelThreadId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      parentId =
+        parent?.lineage.relationshipToParent === "subagent" || parent?.lineage.sideChat === true
+          ? parent.lineage.parentThreadId
+          : null;
+    }
+    if (parentId !== topLevelThreadId) continue;
+    if (
+      asking === null ||
+      DateTime.toEpochMillis(child.pendingRuntimeRequest!.createdAt) >
+        DateTime.toEpochMillis(asking.pendingRuntimeRequest!.createdAt)
+    )
+      asking = child;
+  }
+  return asking === null
+    ? null
+    : { threadId: asking.id, requestId: asking.pendingRuntimeRequest!.id };
+}
 
 export function childThreadInputsTitle(
   children: ReadonlyArray<Pick<EnvironmentThreadShell, "hasPendingApprovals" | "lineage">>,

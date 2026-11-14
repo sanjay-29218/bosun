@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   createThreadNotificationGate,
   RELEASED_COMPLETION_GRACE_MS,
+  threadAttention,
   type ThreadNotificationObservation,
 } from "./ThreadNotificationCoordinator.logic";
 
@@ -193,5 +194,39 @@ describe("createThreadNotificationGate", () => {
       vi.advanceTimersByTime(RELEASED_COMPLETION_GRACE_MS);
       expect(notify).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("threadAttention", () => {
+  it("keys a wait each asking subagent drives by that subagent's request", () => {
+    const { notify, observe } = harness();
+    const waitingOn = (askingRequestId: string | null) => ({
+      ...working,
+      ...threadAttention({
+        status: "input",
+        needsAttention: true,
+        requestId: null,
+        askingRequestId,
+        latestRunId: "run-1",
+      }),
+    });
+    observe(working);
+    // The Designer asks, then the Planner asks too: both roll up the same way, yet each is news.
+    observe(waitingOn("designer-ask"));
+    observe(waitingOn("planner-ask"));
+    expect(notify).toHaveBeenCalledTimes(2);
+    // The Designer's answer leaves the Planner's ask, already announced.
+    observe(waitingOn("planner-ask"));
+    expect(notify).toHaveBeenCalledTimes(2);
+    // The thread's own request still comes first.
+    expect(
+      threadAttention({
+        status: "input",
+        needsAttention: true,
+        requestId: "own",
+        askingRequestId: "designer-ask",
+        latestRunId: "run-1",
+      }),
+    ).toEqual({ attention: "input:own", requestId: "own" });
   });
 });

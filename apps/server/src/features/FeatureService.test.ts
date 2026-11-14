@@ -27,7 +27,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
-import { describe, expect } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import * as BotStore from "../bots/BotStore.ts";
 import { CrewService } from "../crew/CrewService.ts";
@@ -51,7 +51,12 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
-import { FeatureService, FeatureServiceLive, generateFeatureTitle } from "./FeatureService.ts";
+import {
+  FeatureService,
+  FeatureServiceLive,
+  featurePullRequestUrls,
+  generateFeatureTitle,
+} from "./FeatureService.ts";
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import * as NoticeInbox from "./NoticeInbox.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
@@ -866,6 +871,19 @@ describe("feature lead and crew", () => {
         yield* fakeRun("run:builder", builder, "completed");
         yield* features.reportIfQuiet(csv.leadThreadId);
 
+        // A crew member's turn can end before its task settles: the idle lead isn't stopped yet.
+        const reported = (yield* held).length;
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_subagents (subagent_id, thread_id, run_id,
+            parent_node_id, provider, child_thread_id, origin, status, updated_at, payload_json)
+          VALUES ('task:pdf-designer', ${pdf.leadThreadId}, NULL, 'node:pdf-lead', 'codex',
+            'thread:pdf-designer', 'app_owned', 'running', '2026-11-05T00:00:00.000Z', '{}')
+        `;
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        expect(yield* held).toHaveLength(reported);
+        yield* sql`DELETE FROM orchestration_v2_projection_subagents WHERE subagent_id = 'task:pdf-designer'`;
+
         // Leads that stop with nothing left running report how their turn ended.
         yield* setRun(pdf.leadThreadId, "completed");
         yield* setRun(charts.leadThreadId, "failed");
@@ -881,13 +899,42 @@ describe("feature lead and crew", () => {
         const [, digest, ...rest] = yield* userTexts(hq);
         expect(rest).toEqual([]);
         expect(digest).toMatch(/^3 updates arrived while you were busy:/);
+        // Headlines only: the lead's own words never travel up.
         expect(digest).toContain(
-          `Feature "CSV export" (lead thread ${csv.leadThreadId}) [finished]:\nCSV export is merged`,
+          `Feature "CSV export" (lead thread ${csv.leadThreadId}) finished: CSV export is merged`,
         );
         expect(digest).toContain(
-          `Feature "PDF export" (lead thread ${pdf.leadThreadId}) [stopped]`,
+          `Feature "PDF export" (lead thread ${pdf.leadThreadId}) needs you: its lead is asking in thread ${pdf.leadThreadId}.`,
         );
-        expect(digest).toContain(`Feature "Charts" (lead thread ${charts.leadThreadId}) [failed]`);
+        expect(digest).toContain(
+          `Feature "Charts" (lead thread ${charts.leadThreadId}) failed: its lead's turn ended with an error.`,
+        );
+
+        // Stopping again before the person answers is the same open question: no second line.
+        // HQ reads the digest in a turn of its own first.
+        yield* setRun(hq, "completed");
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        yield* inbox.flush(hq);
+        expect(yield* userTexts(hq)).toHaveLength(2);
+        // Once the person writes to the lead, its next quiet stop is a new question.
+        yield* engine.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("pdf:answer"),
+          threadId: pdf.leadThreadId,
+          messageId: MessageId.make("message:pdf:answer"),
+          text: "Use A4",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        yield* inbox.flush(hq);
+        const [, , again, ...none] = yield* userTexts(hq);
+        expect(none).toEqual([]);
+        expect(again).toContain(`Feature "PDF export" (lead thread ${pdf.leadThreadId}) needs you`);
         // The board reads only the finish.
         const reports = (yield* features.board(projectId)).map((card) => [
           card.title,
@@ -1035,7 +1082,7 @@ describe("feature lead and crew", () => {
           expect(digest).toContain('Feature "PDF export"');
           expect(digest).toContain('Feature "Charts"');
           expect(digest).toContain('Feature "Dark mode" (lead thread');
-          expect(digest).toContain("is waiting on the person: a question");
+          expect(digest).toContain("needs you: its lead is asking");
           expect(digest).not.toContain("Paused export");
 
           // Catching up again reports nothing twice.
@@ -2022,4 +2069,34 @@ describe("feature lead and crew", () => {
         }),
       ),
   );
+});
+
+describe("featurePullRequestUrls", () => {
+  it("reads the pull requests link_pull_request records, open and ready first", () => {
+    const link = (url: string, state: string, isDraft = false, source = "agent") => ({
+      url,
+      source,
+      snapshot: { state, isDraft },
+    });
+    expect(
+      featurePullRequestUrls([
+        {
+          linkedPullRequest: null,
+          branchPullRequest: null,
+          pullRequests: [
+            link("https://github.com/acme/app/pull/1", "closed"),
+            link("https://github.com/acme/app/pull/2", "open", true),
+            link("https://github.com/acme/app/pull/3", "open"),
+            link("https://github.com/acme/app/pull/4", "open", false, "stack-dismissed"),
+          ],
+        },
+        { branchPullRequest: { url: "https://github.com/acme/app/pull/5" } },
+      ]),
+    ).toEqual([
+      "https://github.com/acme/app/pull/3",
+      "https://github.com/acme/app/pull/2",
+      "https://github.com/acme/app/pull/1",
+      "https://github.com/acme/app/pull/5",
+    ]);
+  });
 });

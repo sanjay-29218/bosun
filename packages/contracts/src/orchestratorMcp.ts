@@ -246,6 +246,10 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   options: Schema.optional(Schema.Array(ProviderOptionSelection)),
   summary: Schema.NullOr(Schema.String),
   resultContextTransferId: Schema.NullOr(ContextTransferId),
+  awaitingPerson: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "True while the child waits on the person's answer in its own thread. Ends a wait; don't answer it.",
+  }),
   hasPendingQuestion: Schema.Boolean.annotate({
     description:
       "A question blocks the child and ends a wait. Answer via `t3_pending_request` on `childThreadId`, or the user does.",

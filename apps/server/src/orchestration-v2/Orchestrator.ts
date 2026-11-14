@@ -187,6 +187,12 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import { ProviderSwitchServiceV2 } from "./ProviderSwitchService.ts";
+import {
+  crewAnswerContinuation,
+  crewQuestionClosed,
+  crewQuestionHoldsTask,
+  crewUnansweredResult,
+} from "../crew/crewApprovalRules.ts";
 import { isAutomaticCompletionRun, queuedRunsInDeliveryOrder } from "./QueuedRunOrder.ts";
 import { isRuntimePolicyAboveCeilingError, RuntimePolicyV2 } from "./RuntimePolicy.ts";
 import {
@@ -11139,6 +11145,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       if (runtimeRequest.responseCapability.type === "message") {
+        // Bosun: a crew member's continuation commits with its answer (see crewApprovalRules).
+        if (runtimeRequest.owner === "crew") {
+          const child = yield* projectionStore
+            .getThread(command.threadId)
+            .pipe(mapDispatchError(command));
+          const continuation = crewAnswerContinuation({
+            commandId: command.commandId,
+            requestId: command.requestId,
+            child,
+            parentTasks:
+              child.lineage.parentThreadId === null
+                ? []
+                : (yield* projectionStore
+                    .getThreadRecords(child.lineage.parentThreadId, ["subagents"])
+                    .pipe(mapDispatchError(command))).subagents,
+            answers: resolvedNodeStatus === "cancelled" ? undefined : answers,
+            questions:
+              approvalTurnItem?.type === "user_input_request" ? approvalTurnItem.questions : [],
+          });
+          if (continuation === null) return;
+          yield* dispatchMessage(continuation, events, effects);
+          return yield* recordSubagentFollowup(continuation, events).pipe(
+            mapDispatchError(continuation),
+          );
+        }
         if (resolvedNodeStatus === "cancelled" || runtimeRequest.owner !== undefined) return;
         let dispatchMode: Extract<
           OrchestrationV2Command,
@@ -14472,7 +14503,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
       const childResult = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["messages", "turnItems"],
+        ["messages", "turnItems", "runtimeRequests"],
         {
           messageRoles: ["assistant"],
           messageRunIds: [childRun.id],
@@ -14525,7 +14556,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
 
       const now = yield* DateTime.now;
-      const result = subagentResultForRun(childProjection, { ...childRun, status: outcome });
+      const runResult = subagentResultForRun(childProjection, { ...childRun, status: outcome });
+      const result = {
+        ...runResult,
+        text:
+          crewUnansweredResult({
+            thread: childControls.thread,
+            requests: childResult.runtimeRequests,
+            resultRun: childRun,
+          }) ?? runResult.text,
+      };
       const parentRun =
         task.runId === null
           ? undefined
@@ -14670,8 +14710,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) {
     const childControls = yield* projectionStore.getThreadRecords(
       childThreadId,
-      ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-      { messageRoles: ["user"] },
+      [
+        "runs",
+        "messages",
+        "subagents",
+        "providerThreads",
+        "providerTurns",
+        "attempts",
+        "runtimeRequests",
+      ],
+      { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
     );
     const parentThreadId = childControls.thread.lineage.parentThreadId;
     if (
@@ -14681,6 +14729,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     )
       return;
     const progress = delegatedTaskProgress(childControls);
+    // Bosun: read with the runs above, so a dismissal can't land between them.
+    const askedPerson = crewQuestionHoldsTask(childControls.runtimeRequests);
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -14691,6 +14741,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         task.origin !== "app_owned" ||
         task.childThreadId !== childThreadId ||
+        (askedPerson && !cancelled) ||
         (task.id === childControls.thread.forkedFrom.nodeId &&
           (cancelled ? progress.state === "working" : progress.state !== "result_available")) ||
         (task.result !== null &&
@@ -15910,6 +15961,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const providerThreadsWithBackgroundWork = new Set<string>();
   const settlesChildWork = (stored: OrchestrationV2StoredEvent) => {
     const { event } = stored;
+    if (event.type === "runtime-request.updated") return crewQuestionClosed(event.payload);
     if (event.type === "subagent.updated")
       return !isOrchestrationV2WorkActive(event.payload.status);
     if (event.type !== "provider-thread.updated") return false;
@@ -15926,6 +15978,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }),
     eventSink.stream({ afterSequence: terminalEventsAfterSequence, eventType: "subagent.updated" }),
   ).pipe(
+    Stream.merge(
+      eventSink.stream({
+        afterSequence: terminalEventsAfterSequence,
+        eventType: "runtime-request.updated",
+      }),
+    ),
     Stream.filter(settlesChildWork),
     Stream.runForEach((stored) =>
       Effect.gen(function* () {
@@ -16045,8 +16103,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     function* (childThreadId: ThreadId, taskId?: NodeId) {
       const child = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-        { messageRoles: ["user"] },
+        [
+          "runs",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "runtimeRequests",
+        ],
+        { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
       );
       if (taskId !== undefined) {
         const runs = delegatedTaskRuns(child, taskId);
@@ -16054,13 +16120,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (
           run === undefined ||
           delegatedTaskTerminalStatus(run.status) === null ||
-          delegatedTaskAwaitsWork(runs, child)
+          delegatedTaskAwaitsWork(runs, child) ||
+          crewQuestionHoldsTask(child.runtimeRequests)
         )
           return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
       const progress = delegatedTaskProgress(child);
-      if (progress.state !== "result_available") return true;
+      if (progress.state !== "result_available" || crewQuestionHoldsTask(child.runtimeRequests))
+        return true;
       if (progress.resultRun === undefined) return false;
       return yield* childAwaitsRestartContinuation(child.runs, progress.resultRun);
     },
@@ -16137,20 +16205,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const child = yield* projectionStore
           .getThreadRecords(
             command.threadId,
-            ["runs", "messages", "subagents", "providerThreads"],
-            { messageRoles: ["user"] },
+            ["runs", "messages", "subagents", "providerThreads", "runtimeRequests"],
+            { messageRoles: ["user"], runtimeRequestStatuses: ["pending"] },
           )
           .pipe(mapDispatchError(command));
         const followUpRun = child.runs
           .filter((run) => run.delegatedTaskId === input.taskId)
           .toSorted((a, b) => b.ordinal - a.ordinal)[0];
         const unsettled =
-          followUpRun === undefined
+          crewQuestionHoldsTask(child.runtimeRequests) ||
+          (followUpRun === undefined
             ? child.thread.forkedFrom?.type === "node" &&
               child.thread.forkedFrom.nodeId === input.taskId &&
               progressAfterTurn(child).state !== "result_available"
             : delegatedTaskTerminalStatus(runOutcome(followUpRun)) === null ||
-              delegatedTaskAwaitsWork(delegatedTaskRuns(child, input.taskId), child);
+              delegatedTaskAwaitsWork(delegatedTaskRuns(child, input.taskId), child));
         yield* threadDispatch.withLock(
           command.threadId,
           Effect.gen(function* () {

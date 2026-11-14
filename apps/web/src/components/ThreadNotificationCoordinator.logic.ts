@@ -13,6 +13,30 @@ export interface ThreadNotificationObservation {
   readonly backgroundWake: boolean;
 }
 
+/**
+ * What a thread needing attention is keyed by: its own request, else the request of the subagent
+ * that drives its wait (each child's ask is its own news), else its latest run.
+ */
+export function threadAttention(input: {
+  readonly status: string;
+  readonly needsAttention: boolean;
+  readonly requestId: string | null;
+  readonly askingRequestId: string | null;
+  readonly latestRunId: string | null;
+}): { readonly attention: string | null; readonly requestId: string | null } {
+  if (!input.needsAttention) return { attention: null, requestId: null };
+  const requestId = input.requestId ?? input.askingRequestId;
+  // Queued messages become the latest run while a request stays pending, so a request
+  // with an id is keyed by that id alone and announces once.
+  return {
+    attention:
+      requestId !== null
+        ? `${input.status}:${requestId}`
+        : `${input.latestRunId ?? ""}:${input.status}`,
+    requestId,
+  };
+}
+
 /** Matches the push relay's completion confirmation: a final wake can start right after a progress wake. */
 export const RELEASED_COMPLETION_GRACE_MS = 5_000;
 

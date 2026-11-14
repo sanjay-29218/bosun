@@ -29,6 +29,8 @@ export interface SubagentRequestAwareness {
   readonly updatedAt: DateTime.Utc;
   /** A card only the user can answer, rather than an approval. */
   readonly waitsForInput?: boolean;
+  /** The asking child, which the alert opens, since its card is answered there. */
+  readonly threadId?: ThreadId;
 }
 
 /**
@@ -56,8 +58,9 @@ export function subagentAwaitsUser(
     (kind !== "user_input" || thread.pendingRuntimeRequest?.userOnly === true) &&
     thread.lineage.relationshipToParent === "subagent" &&
     !isProviderNativeSubagentThread(thread) &&
-    // The activity run stays set when a follow-up is queued behind a blocked run.
-    thread.activityRunStatus != null
+    // The activity run stays set when a follow-up is queued behind a blocked run. A crew
+    // member's ask of the person outlives its turn.
+    (thread.activityRunStatus != null || thread.pendingRuntimeRequest?.userOnly === true)
   );
 }
 
@@ -103,6 +106,10 @@ export interface ProjectThreadAwarenessV2Input {
   readonly pendingSubagentRequest?: SubagentRequestAwareness | null;
 }
 
+/** Whether a child's request, not the thread's own, is what the thread waits on. */
+const childAsks = (thread: ProjectThreadAwarenessV2Input["thread"]) =>
+  thread.pendingRuntimeRequest === null || thread.pendingRuntimeRequest.kind === "auth_refresh";
+
 export function projectThreadAwarenessV2(
   input: ProjectThreadAwarenessV2Input,
 ): AgentAwarenessState | null {
@@ -147,7 +154,10 @@ export function projectThreadAwarenessV2(
         ? thread.updatedAt
         : DateTime.max(thread.updatedAt, subagentRequest.updatedAt),
     ),
-    deepLink: buildAgentAwarenessDeepLink({ environmentId, threadId: thread.id }),
+    deepLink: buildAgentAwarenessDeepLink({
+      environmentId,
+      threadId: childAsks(thread) ? (subagentRequest?.threadId ?? thread.id) : thread.id,
+    }),
   };
 }
 

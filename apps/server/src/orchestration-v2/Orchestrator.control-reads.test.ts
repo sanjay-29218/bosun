@@ -1578,9 +1578,15 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
     const asyncQuestion = requestEvent("event:async-question", "request:async-question");
     const answered = requestEvent("event:answered", "request:answered", "live");
     const approval = requestEvent("event:approval", "request:approval", "message", "command");
+    // A crew member asking the person: the parent waits on their answer, it doesn't give it.
+    const askedPerson = requestEvent("event:asked-person", "request:asked-person");
+    const ownedQuestion = {
+      ...askedPerson,
+      payload: { ...askedPerson.payload, owner: "crew" as const },
+    } satisfies OrchestrationV2DomainEvent;
     const eventSink = yield* EventSink.EventSinkV2;
     yield* eventSink.write({
-      events: [question, asyncQuestion, answered, approval],
+      events: [question, asyncQuestion, answered, approval, ownedQuestion],
     });
 
     yield* reactor.handle(question);
@@ -1609,6 +1615,7 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
     });
     yield* reactor.handle(answered);
     yield* reactor.handle(approval);
+    yield* reactor.handle(ownedQuestion);
 
     const wakes = (yield* projections.getThreadProjection(parentThreadId)).messages.filter(
       (message) => message.notification !== undefined,

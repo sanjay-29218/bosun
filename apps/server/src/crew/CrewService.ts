@@ -65,6 +65,7 @@ import {
   FEATURE_MANAGER_INSTRUCTIONS,
   PROJECT_MANAGER_INSTRUCTIONS,
   projectManagerTask,
+  crewMemberInstructions,
   crewRunPrompt,
   headquartersTask,
 } from "./crewPrompts.ts";
@@ -114,15 +115,9 @@ const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
 const PLANNER_SPLIT =
   "If the work is too big for one builder, say so in your plan and propose splitting it into separate features, each with its own branch and pull request.";
-/** Several crew threads run at once on one machine, so each keeps its checks and servers small. */
-const CREW_CHECKS =
-  "Keep checks in proportion: run the tests and type checks for what you changed, not whole-repo suites, unless the project's instructions require them. Reuse a dev server you already started, and stop the ones you start before you finish.";
-const crewInstructions = (name: string) =>
-  `You are the ${name} on a feature's crew. Its lead gives you a task: do it in this thread's checkout, then end with a clear summary of the result and its evidence; that message goes back to the lead. If information is missing, say exactly what you need in that message instead of guessing. ${CREW_CHECKS}`;
-
 /** A feature has one workspace and one builder; big work splits into features, not builders. */
-const BUILDER_INSTRUCTIONS = `${crewInstructions("Builder")} ${BUILDER_WORKSPACE}`;
-const PLANNER_INSTRUCTIONS = `${crewInstructions("Planner")} ${PLANNER_SPLIT}`;
+const BUILDER_INSTRUCTIONS = `${crewMemberInstructions("Builder")} ${BUILDER_WORKSPACE}`;
+const PLANNER_INSTRUCTIONS = `${crewMemberInstructions("Planner")} ${PLANNER_SPLIT}`;
 
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
@@ -143,7 +138,7 @@ const DEFAULT_ROLES = [
   { id: "role:reviewer", name: "Reviewer" },
 ].map((role) => ({
   withheldTools: [],
-  instructions: crewInstructions(role.name),
+  instructions: crewMemberInstructions(role.name),
   ...role,
 }));
 

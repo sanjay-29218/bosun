@@ -9,7 +9,7 @@ import type {
 import { ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import { projectThreadAwarenessV2 } from "./agentAwareness.ts";
+import { projectThreadAwarenessV2, subagentAwaitsUser } from "./agentAwareness.ts";
 
 const NOW = "2026-05-22T12:00:00.000Z";
 
@@ -248,6 +248,51 @@ describe("projectThreadAwarenessV2", () => {
       phase: "waiting_for_input",
       headline: "Waiting for input",
     });
+  });
+
+  it("opens the asking crew member's thread, whose ask waits on the person after its turn", () => {
+    const crewThreadId = "thread-designer" as ThreadId;
+    const asked = {
+      id: RuntimeRequestId.make("request-crew-ask"),
+      kind: "user_input" as const,
+      createdAt: updatedAt,
+      blocking: false,
+      userOnly: true,
+    };
+    // The member's turn has ended, yet its question still waits on the person.
+    expect(
+      subagentAwaitsUser({
+        creationSource: "mcp",
+        lineage: {
+          rootThreadId: "thread-2" as ThreadId,
+          parentThreadId: "thread-2" as ThreadId,
+          relationshipToParent: "subagent",
+        },
+        activityRunStatus: null,
+        pendingRuntimeRequest: asked,
+      }),
+    ).toBe(true);
+    const lead = {
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: v2Thread({ status: "completed" }),
+      pendingSubagentRequest: {
+        requestId: asked.id,
+        updatedAt,
+        waitsForInput: true,
+        threadId: crewThreadId,
+      },
+    };
+    const awareness = projectThreadAwarenessV2(lead);
+    expect(awareness?.phase).toBe("waiting_for_input");
+    expect(awareness?.deepLink).toContain(encodeURIComponent(crewThreadId));
+    // The lead's own question opens the lead.
+    expect(
+      projectThreadAwarenessV2({
+        ...lead,
+        thread: v2Thread({ pendingRuntimeRequest: { ...asked, id: RuntimeRequestId.make("own") } }),
+      })?.deepLink,
+    ).not.toContain(encodeURIComponent(crewThreadId));
   });
 
   it("does not present authentication refreshes as user approvals", () => {

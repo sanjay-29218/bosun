@@ -147,6 +147,7 @@ it.effect("checks capability through the production registration", () =>
 it.effect("an answered question reports already answered instead of not found", () => {
   const shell = McpToolAccessTestkit.liveThreadShell(threadId);
   const requestId = RuntimeRequestId.make("answered-question");
+  const askedPersonId = RuntimeRequestId.make("asked-person");
   const projection = McpToolAccessTestkit.idleThreadProjection(shell);
   return Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
@@ -167,6 +168,11 @@ it.effect("an answered question reports already answered instead of not found", 
     expect(declaredFailure(yield* respond("missing-question"))).toMatchObject({
       code: "invalid_request",
       message: "The pending user-input request was not found.",
+    });
+    // A crew member's ask is the person's to answer, in its thread.
+    expect(declaredFailure(yield* respond(askedPersonId))).toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("This question is for the person"),
     });
   }).pipe(
     Effect.provide(
@@ -192,6 +198,18 @@ it.effect("an answered question reports already answered instead of not found", 
                     resolvedAt: shell.updatedAt,
                     answers: { size: "large" },
                   },
+                  {
+                    id: askedPersonId,
+                    nodeId: NodeId.make("asked-person-node"),
+                    providerTurnId: null,
+                    nativeRequestRef: null,
+                    kind: "user_input",
+                    status: "pending",
+                    responseCapability: { type: "message" },
+                    createdAt: shell.createdAt,
+                    resolvedAt: null,
+                    owner: "crew",
+                  },
                 ],
                 turnItems: [
                   {
@@ -211,6 +229,25 @@ it.effect("an answered question reports already answered instead of not found", 
                     updatedAt: shell.updatedAt,
                     type: "user_input_request",
                     requestId,
+                    questions: [],
+                  },
+                  {
+                    id: TurnItemId.make("asked-person-item"),
+                    threadId,
+                    runId: null,
+                    nodeId: null,
+                    providerThreadId: null,
+                    providerTurnId: null,
+                    nativeItemRef: null,
+                    parentItemId: null,
+                    ordinal: 1,
+                    status: "waiting",
+                    title: null,
+                    startedAt: shell.createdAt,
+                    completedAt: null,
+                    updatedAt: shell.updatedAt,
+                    type: "user_input_request",
+                    requestId: askedPersonId,
                     questions: [],
                   },
                 ],

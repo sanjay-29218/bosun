@@ -133,6 +133,8 @@ import {
   runtimeModeRank,
   taskPrompt,
 } from "./delegatedTaskModes.ts";
+import { crewQuestionHoldsTask } from "../crew/crewApprovalRules.ts";
+import { crewAwaitingPersonNext, crewMemberTask } from "../crew/crewPrompts.ts";
 import { CrewDelegation } from "./CrewDelegation.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -526,6 +528,7 @@ function isTerminalTaskStatus(
 function endsTaskWait(result: OrchestratorMcpDelegateTaskResult): boolean {
   return (
     result.hasPendingQuestion ||
+    result.awaitingPerson === true ||
     result.pendingApproval !== null ||
     isTerminalTaskStatus(result.status)
   );
@@ -1761,8 +1764,14 @@ const make = Effect.gen(function* () {
       (yield* threadManagement
         .delegatedTaskResultPending(task.childThreadId, childRun?.delegatedTaskId)
         .pipe(Effect.mapError(threadManagementFailure)));
+    const awaitingPerson =
+      task.result === null && crewQuestionHoldsTask(childControls.runtimeRequests);
     const workState =
-      task.result !== null ? "result_available" : heldForRestart ? "working" : taskWorkState;
+      task.result !== null
+        ? "result_available"
+        : heldForRestart || awaitingPerson
+          ? "working"
+          : taskWorkState;
     const status =
       task.result !== null
         ? taskStatusForRun(
@@ -1847,6 +1856,7 @@ const make = Effect.gen(function* () {
         latestTerminalResultContextTransferId === resultContextTransferId
           ? null
           : latestTerminalResultContextTransferId,
+      ...(awaitingPerson ? { awaitingPerson } : {}),
       hasPendingQuestion:
         !isTerminalTaskStatus(status) &&
         childControls.runtimeRequests.some(
@@ -1861,8 +1871,9 @@ const make = Effect.gen(function* () {
           : pendingTaskApproval(childControls, task.id, childRun),
       waitTimedOut,
     } satisfies OrchestratorMcpDelegateTaskResult;
-    const response: OrchestratorMcpDelegateTaskResult =
-      endsTaskWait(result) || task.completionDelivery?.state === "disposed"
+    const response: OrchestratorMcpDelegateTaskResult = awaitingPerson
+      ? { ...result, next: crewAwaitingPersonNext(childControls.thread) }
+      : endsTaskWait(result) || task.completionDelivery?.state === "disposed"
         ? result
         : { ...result, next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT };
     if (
@@ -2916,7 +2927,7 @@ const make = Effect.gen(function* () {
           task:
             crewMember === null
               ? taskPrompt(input, issue)
-              : `${crewMember.instructions.trim()}\n\n${taskPrompt(input, issue)}`,
+              : crewMemberTask(crewMember.instructions, taskPrompt(input, issue)),
           // A crew thread is named from the lead's task, not the instructions put before it.
           ...(input.title !== undefined
             ? { title: input.title }

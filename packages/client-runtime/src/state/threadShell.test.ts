@@ -16,7 +16,11 @@ import { PrimaryConnectionTarget } from "../connection/model.ts";
 import { v2Now, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
 import { isThreadWorking } from "./threadInbox.ts";
-import { childThreadInputsTitle, createEnvironmentThreadShellAtoms } from "./threadShell.ts";
+import {
+  askingSubagent,
+  childThreadInputsTitle,
+  createEnvironmentThreadShellAtoms,
+} from "./threadShell.ts";
 
 const environmentId = EnvironmentId.make("environment-v2");
 const remoteEnvironmentId = EnvironmentId.make("remote-environment-v2");
@@ -187,6 +191,61 @@ describe("v2 thread shell lists", () => {
       registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
         ?.pendingSubagentRequest,
     ).toBe("user_input");
+    // A crew member asked the person and ended its turn: still Needs you, though no run is live.
+    const asked = {
+      ...child,
+      status: "completed" as const,
+      activityRunStatus: null,
+      pendingRuntimeRequest: { ...child.pendingRuntimeRequest, blocking: false },
+    };
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [root, asked] });
+    expect(
+      registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
+        ?.pendingSubagentRequest,
+    ).toBe("user_input");
+    // Its notification opens the member's thread, where the question is, not the parent.
+    expect(askingSubagent([root, asked], root.id)).toEqual({
+      threadId: asked.id,
+      requestId: asked.pendingRuntimeRequest.id,
+    });
+    // A second member asking later is the newest ask; once it's answered, the first is again.
+    const second = {
+      ...asked,
+      id: ThreadId.make("second-child"),
+      pendingRuntimeRequest: {
+        ...asked.pendingRuntimeRequest,
+        id: RuntimeRequestId.make("second-ask"),
+        createdAt: DateTime.add(v2Now, { seconds: 1 }),
+      },
+    };
+    expect(askingSubagent([root, asked, second], root.id)).toEqual({
+      threadId: second.id,
+      requestId: "second-ask",
+    });
+    expect(
+      askingSubagent([root, asked, { ...second, pendingRuntimeRequest: null }], root.id)?.threadId,
+    ).toBe(asked.id);
+    expect(
+      askingSubagent(
+        [
+          root,
+          { ...asked, pendingRuntimeRequest: { ...asked.pendingRuntimeRequest, userOnly: false } },
+        ],
+        root.id,
+      ),
+    ).toBeNull();
+    // A question its lead answers stops counting once the child's turn ends.
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [
+        root,
+        { ...asked, pendingRuntimeRequest: { ...asked.pendingRuntimeRequest, userOnly: false } },
+      ],
+    });
+    expect(
+      registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
+        ?.pendingSubagentRequest,
+    ).toBeNull();
     registry.dispose();
   });
 

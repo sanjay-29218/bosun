@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import * as Fiber from "effect/Fiber";
 import { McpSchema, type Tool, Toolkit } from "effect/ai";
 
+import { CREW_MEMBER_GRANT } from "../crew/crewMcpCapabilities.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import {
@@ -18,9 +19,10 @@ type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
 /**
  * What a crew thread needs from its run's grants: a grant, or `null` for none. Callers that
  * aren't crew threads see none of these tools. `linkOnly` tools are for linked environments alone,
- * and `standing` ones for a bot's headquarters and projects' managers.
+ * `standing` ones for a bot's headquarters and projects' managers, and `CREW_MEMBER_GRANT` ones
+ * for a feature's crew members.
  */
-type Needs = Grant | null | "linkOnly" | "standing";
+type Needs = Grant | null | "linkOnly" | "standing" | typeof CREW_MEMBER_GRANT;
 
 /**
  * `McpSchema.EnabledWhen` reads only the MCP client profile, so read the caller from the request
@@ -83,6 +85,7 @@ export const CrewGatedToolkits = {
     ["t3_bot_list", "t3_bot_move_project"],
   ),
   crew: gated(CrewToolkit, {
+    crew_ask_person: CREW_MEMBER_GRANT,
     crew_link_issue: null,
     crew_list_issues: null,
     crew_create_todo: null,
