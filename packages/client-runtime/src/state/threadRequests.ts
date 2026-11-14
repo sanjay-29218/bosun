@@ -257,8 +257,9 @@ export function derivePendingThreadRequests(
         })),
         responseCapability,
         // A workflow's question is how its stage waits, so it is decided rather than dismissed.
+        // Dismissing a crew member's question settles its task like any ended turn.
         dismissible:
-          request.owner === undefined &&
+          request.owner !== "workflow" &&
           (item.responseMode === "message" || responseCapability === "message"),
         ...(item.responseMode === "message" || responseCapability === "message"
           ? { responseMode: "message" as const }

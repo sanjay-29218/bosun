@@ -353,6 +353,15 @@ describe("pending v2 questions", () => {
       })),
     };
     expect(derivePendingThreadRequests(workflow).userInputs[0]?.dismissible).toBe(false);
+    // A crew member's ask of the person can be dismissed; its task then settles as usual.
+    const crew = {
+      ...projection,
+      runtimeRequests: projection.runtimeRequests.map((request) => ({
+        ...request,
+        owner: "crew" as const,
+      })),
+    };
+    expect(derivePendingThreadRequests(crew).userInputs[0]?.dismissible).toBe(true);
   });
 });
 
