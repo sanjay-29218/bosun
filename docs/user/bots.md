@@ -25,9 +25,12 @@ same goes for roles and project managers. **Open thread** opens its headquarters
 
 A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
 another bot, or bring one over; work that already started keeps running as the bot that started
-it. A project on another environment goes to the bot with the same name there, which is created
-there if that environment doesn't have it yet. Projects on an environment that runs T3 Code
-without Bosun are listed but can't be given to a bot until Bosun is installed there. You can also change a
+it. A bot can own a project on any machine it may work on (see **Can work on** below): the project
+stays on its machine, and the bot works on it from its own machine, with no copy of the bot
+there. That project's **Settings → Project → Bot** shows the owner as "Atlas · lives on Mac
+Studio". A project on a machine that isn't answering shows **Offline**; requests to it wait. Projects
+on a machine the bot may not work on, and on an environment that runs T3 Code without Bosun, are
+listed but can't be given to it until you tick that machine or install Bosun there. You can also change a
 project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
 its project manager, which runs on the project's default model (else the environment's), and it
 shows under every bot in the thread list. A bot can only be deleted once it owns no projects (its
@@ -40,6 +43,19 @@ bot may start new work on; unticking it stops new work there, while work already
 going. The choice saves at once. New bots, and bots from before this setting, start with every
 linked machine ticked. A machine you link later is ticked for every bot too; linking the same machine
 again keeps what you unticked. **Link an environment** links another machine with a pairing code.
+
+When the bot hands work to a project on a machine that's asleep or offline, the request waits
+instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
+is back**, and it starts by itself once that machine answers, even after a restart. Stop the row to
+cancel it, and it never starts there. Unticking the machine while a request waits fails it.
+
+#### Projects owned by a copy of a bot on another machine
+
+Before bots could own projects on other machines, giving a project there to a bot made a copy of
+that bot on that machine. The copy is an ordinary bot there and keeps owning those projects, so the
+bot on your machine doesn't reach them. To move one, open the bot on your machine, choose **Projects
+→ Add project**, and pick the project, which reads "MacBook · Atlas on MacBook". Once the copy owns
+nothing, you can delete it on that machine.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
 the bot list opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
