@@ -63,6 +63,11 @@ function crewIssueRows(
     Math.max(Math.trunc(input.limit ?? ISSUE_ROWS_DEFAULT), 1),
     ISSUE_ROWS_MAX,
   );
+  const parts = new Map<number, number[]>();
+  for (const issue of issues) {
+    if (issue.parent !== null)
+      parts.set(issue.parent, [...(parts.get(issue.parent) ?? []), issue.number]);
+  }
   return issues
     .filter(
       (issue) =>
@@ -77,7 +82,10 @@ function crewIssueRows(
       state: issue.state,
       milestone: issue.milestone?.title ?? null,
       parent: issue.parent,
-      subIssues: issue.subIssues,
+      subIssues: issue.subIssues && {
+        ...issue.subIssues,
+        numbers: (parts.get(issue.number) ?? []).toSorted((a, b) => a - b),
+      },
       labels: issue.labels.map((label) => label.name),
       assignees: issue.assignees.map((assignee) => assignee.login),
     }));
@@ -286,11 +294,19 @@ const make = Effect.gen(function* () {
         readonly closedReason?: "completed" | "not_planned" | undefined;
         readonly title?: string | undefined;
         readonly description?: string | undefined;
+        readonly milestone?: string | null | undefined;
+        readonly parent?: number | null | undefined;
       }) =>
         asCrewMember((threadId) =>
           Effect.gen(function* () {
             const projectId = yield* threadProject(threadId);
             const ref = yield* todoRef(input.ref);
+            const structure = input.milestone !== undefined || input.parent !== undefined;
+            if (ref.kind === "ticket" && structure) {
+              return yield* new CrewToolFailedError({
+                reason: "Tickets have no milestone or parent",
+              });
+            }
             if (ref.kind === "ticket") {
               const ticket = yield* tickets.getByNumber(projectId, ref.number);
               const updated = yield* tickets.update({
@@ -308,15 +324,27 @@ const make = Effect.gen(function* () {
                 reason: "A GitHub issue's title and description are edited on GitHub",
               });
             }
-            if (input.state === undefined) {
-              return yield* new CrewToolFailedError({ reason: "Pass the state to change to" });
+            let issue = structure
+              ? yield* issues.update({
+                  projectId,
+                  number: ref.number,
+                  ...(input.milestone === undefined ? {} : { milestone: input.milestone }),
+                  ...(input.parent === undefined ? {} : { parent: input.parent }),
+                })
+              : null;
+            if (input.state !== undefined) {
+              issue = yield* issues.setState({
+                projectId,
+                number: ref.number,
+                state: input.state,
+                reason: input.closedReason,
+              });
             }
-            const issue = yield* issues.setState({
-              projectId,
-              number: ref.number,
-              state: input.state,
-              reason: input.closedReason,
-            });
+            if (issue === null) {
+              return yield* new CrewToolFailedError({
+                reason: "Pass the state, milestone or parent to change",
+              });
+            }
             return { kind: "issue", issue } as const;
           }),
         ),

@@ -676,6 +676,91 @@ describe("GitHubSourceControlProvider.listIssues", () => {
   });
 });
 
+describe("GitHubSourceControlProvider.getIssue", () => {
+  const restIssue = {
+    id: 9094,
+    number: 94,
+    title: "Bots own projects",
+    html_url: "https://github.com/acme/web/issues/94",
+    state: "open",
+    created_at: "2026-11-05T00:00:00Z",
+    updated_at: "2026-11-05T00:00:00Z",
+    closed_at: null,
+    milestone: { number: 8, title: "Bots across environments" },
+    parent_issue_url: "https://api.github.com/repos/acme/web/issues/48",
+    sub_issues_summary: { total: 2, completed: 1, percent_completed: 50 },
+  };
+  const restApi = {
+    rest: (input: GitHubRest.GitHubRestInput) =>
+      Effect.succeed(restResponse(input.path.endsWith("/comments?per_page=50") ? [] : restIssue)),
+  };
+  const ref = (number: number, state = "OPEN") => ({
+    number,
+    title: `Issue ${number}`,
+    state,
+    url: `https://github.com/acme/web/issues/${number}`,
+  });
+
+  it.effect("reads the parent and sub-issues in one GraphQL read beside the REST reads", () => {
+    const { layer, graphqlCalls } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      api: restApi,
+      graphql: () => ({
+        issue: { parent: ref(48), subIssues: { nodes: [ref(95, "CLOSED"), null, ref(96)] } },
+      }),
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const issue = yield* gh.getIssue!({ cwd: "/repo", number: 94 });
+      assert.deepStrictEqual(
+        graphqlCalls.map((call) => [call.operationName, call.lookups]),
+        [["IssueStructure", [{ owner: "acme", name: "web", number: 94 }]]],
+      );
+      assert.strictEqual(issue.parent, 48);
+      assert.deepStrictEqual(issue.parentIssue, {
+        number: 48,
+        title: "Issue 48",
+        state: "open",
+        url: "https://github.com/acme/web/issues/48",
+      });
+      assert.deepStrictEqual(
+        issue.subIssueList?.map((sub) => [sub.number, sub.state]),
+        [
+          [95, "closed"],
+          [96, "open"],
+        ],
+      );
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect.each([
+    ["a schema without sub-issues", "Field 'subIssues' doesn't exist on type 'Issue'", []],
+    ["a failed structure read", "Something went wrong", null],
+  ] as const)("still shows the issue on %s", ([, message, list]) => {
+    const { layer } = harness({
+      remotes: remotesOutput(["origin", "git@ghe.example.com:acme/web.git"]),
+      api: restApi,
+      graphql: () =>
+        new Response(encodeJson({ errors: [{ message }] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const issue = yield* gh.getIssue!({
+        cwd: "/repo",
+        number: 94,
+        context: githubContext("ghe.example.com"),
+      });
+      // REST still names the parent's number.
+      assert.deepStrictEqual(
+        [issue.title, issue.parent, issue.parentIssue, issue.subIssueList],
+        ["Bots own projects", 48, null, list],
+      );
+    }).pipe(Effect.provide(layer));
+  });
+});
+
 describe("GitHubSourceControlProvider writes", () => {
   it.effect("creates a cross-repository pull request with an owner:branch head", () => {
     const requests: Array<GitHubRest.GitHubRestInput> = [];
@@ -802,6 +887,85 @@ describe("GitHubSourceControlProvider writes", () => {
           ["PATCH", "repos/acme/web/issues/12", { title: "Export as CSV" }],
         ],
       );
+    }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
+  });
+
+  it.effect.each([
+    [
+      "sets a milestone and a first parent",
+      { milestone: 8, parent: 48 },
+      null,
+      [
+        ["PATCH", "repos/acme/web/issues/12", { milestone: 8 }],
+        [
+          "POST",
+          "repos/acme/web/issues/48/sub_issues",
+          { sub_issue_id: 9001, replace_parent: true },
+        ],
+      ],
+    ],
+    [
+      "moves it to another parent",
+      { parent: 50 },
+      48,
+      [
+        ["GET", "repos/acme/web/issues/12", undefined],
+        [
+          "POST",
+          "repos/acme/web/issues/50/sub_issues",
+          { sub_issue_id: 9001, replace_parent: true },
+        ],
+      ],
+    ],
+    [
+      "clears the milestone and removes it from its parent",
+      { milestone: null, parent: null },
+      48,
+      [
+        ["PATCH", "repos/acme/web/issues/12", { milestone: null }],
+        ["DELETE", "repos/acme/web/issues/48/sub_issue", { sub_issue_id: 9001 }],
+      ],
+    ],
+    [
+      "leaves an unchanged parent alone",
+      { parent: 48 },
+      48,
+      [["GET", "repos/acme/web/issues/12", undefined]],
+    ],
+  ] as const)("%s", ([, change, currentParent, expected]) => {
+    const requests: Array<GitHubRest.GitHubRestInput> = [];
+    const { layer } = harness({
+      remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
+      api: {
+        rest: (input) =>
+          Effect.sync(() => {
+            requests.push(input);
+            return restResponse({
+              id: 9001,
+              number: 12,
+              title: "Export as CSV",
+              html_url: "https://github.com/acme/web/issues/12",
+              state: "open",
+              created_at: "2026-11-05T00:00:00Z",
+              updated_at: "2026-11-06T00:00:00Z",
+              closed_at: null,
+              milestone: null,
+              parent_issue_url:
+                currentParent === null
+                  ? null
+                  : `https://api.github.com/repos/acme/web/issues/${currentParent}`,
+            });
+          }),
+      },
+    });
+    return Effect.gen(function* () {
+      const gh = yield* GitHubSourceControlProvider.make;
+      const issue = yield* gh.updateIssue!({ cwd: "/repo", number: 12, ...change });
+      assert.deepStrictEqual(
+        requests.map((request) => [request.method ?? "GET", request.path, request.body]),
+        expected,
+      );
+      assert.strictEqual(issue.parent, change.parent);
     }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
   });
 
@@ -1288,6 +1452,7 @@ it.effect.each(["pull", "issues"])(
         state: "closed",
         milestone: "v0.4",
         subIssues: { total: 7, completed: 3 },
+        parent: null,
       });
       for (const url of [
         "https://github.com/owner/repo",

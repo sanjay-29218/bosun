@@ -74,6 +74,7 @@ const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceContr
             state: "open" as const,
             milestone: "v0.4",
             subIssues: { completed: 1, total: 3 },
+            parent: 40,
           })
         : undefined,
     resolveHandle: () =>
@@ -88,6 +89,7 @@ const SourceControlIssues = Layer.mock(SourceControlProviderRegistry.SourceContr
               state: "open",
               milestone: { number: 1, title: "v0.4" },
               subIssues: { completed: 1, total: 3 },
+              parent: 40,
             }),
         },
       } as never),
@@ -1519,6 +1521,7 @@ describe("feature lead and crew", () => {
           state: "open",
           milestone: "v0.4",
           subIssues: { completed: 1, total: 3 },
+          parent: 40,
         };
         expect(linked.issue).toEqual(issue);
         expect((yield* features.get(target.id))?.issue).toEqual(issue);

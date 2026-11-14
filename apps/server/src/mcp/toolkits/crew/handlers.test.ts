@@ -183,7 +183,8 @@ it.effect("lists the issues of the calling thread's project as compact rows", ()
         state: "open",
         milestone: "v1",
         parent: null,
-        subIssues: { completed: 1, total: 3 },
+        // Its parts among the issues read, closed #3 included.
+        subIssues: { completed: 1, total: 3, numbers: [3, 4] },
         labels: ["feature"],
         assignees: ["octo"],
       },
@@ -267,6 +268,8 @@ it.effect("files an issue in a milestone and under a parent, and opens and close
       create: (input) => record(input, { ...issueList.issues[0]!, number: 12 }),
       createMilestone: (input) => record(input, milestone),
       setMilestoneState: (input) => record(input, milestone),
+      update: (input) => record(input, issueList.issues[1]!),
+      setState: (input) => record(input, issueList.issues[1]!),
     });
     const handle = (name: string, params: object) =>
       Effect.gen(function* () {
@@ -291,11 +294,25 @@ it.effect("files an issue in a milestone and under a parent, and opens and close
       url: "https://github.com/acme/web/milestone/4",
     });
     yield* handle("crew_update_milestone", { milestone: "Exports", state: "closed" });
+    yield* handle("crew_update_todo", { ref: "#4", milestone: "Exports", parent: 1 });
+    yield* handle("crew_update_todo", {
+      ref: "#4",
+      milestone: null,
+      parent: null,
+      state: "closed",
+    });
     expect(yield* Ref.get(calls)).toEqual([
       { projectId, title: "CSV export", body: "", milestone: "Exports", parent: 3 },
       { projectId, title: "Exports" },
       { projectId, milestone: "Exports", state: "closed" },
+      { projectId, number: 4, milestone: "Exports", parent: 1 },
+      { projectId, number: 4, milestone: null, parent: null },
+      { projectId, number: 4, state: "closed", reason: undefined },
     ]);
+    const nothing = yield* Effect.flip(handle("crew_update_todo", { ref: "#4" }));
+    expect(nothing.message).toContain("Pass the state, milestone or parent");
+    const ticketParent = yield* Effect.flip(handle("crew_update_todo", { ref: "T-3", parent: 1 }));
+    expect(ticketParent.message).toContain("Tickets have no milestone or parent");
     // A ticket lives in Bosun, which has no milestones or sub-issues.
     const refused = yield* Effect.flip(
       handle("crew_create_todo", { title: "CSV", milestone: "Exports" }),

@@ -56,7 +56,7 @@ const LinkIssue = Tool.make("crew_link_issue", {
 
 const ListIssues = Tool.make("crew_list_issues", {
   description:
-    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue and sub-issue progress. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
+    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue, and sub-issues: their progress and the numbers of those listed. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
   parameters: Schema.Struct({
     state: Schema.optional(Schema.Literals(["open", "closed", "all"])),
     milestone: Schema.optional(Schema.String),
@@ -75,7 +75,14 @@ const ListIssues = Tool.make("crew_list_issues", {
         state: Schema.Literals(["open", "closed"]),
         milestone: Schema.NullOr(Schema.String),
         parent: Schema.NullOr(Schema.Int),
-        subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
+        subIssues: Schema.NullOr(
+          Schema.Struct({
+            completed: Schema.Int,
+            total: Schema.Int,
+            /** Its sub-issues among the issues read, open and recently closed. */
+            numbers: Schema.Array(Schema.Int),
+          }),
+        ),
         labels: Schema.Array(Schema.String),
         assignees: Schema.Array(Schema.String),
       }),
@@ -118,7 +125,7 @@ const CreateTodo = Tool.make("crew_create_todo", {
 
 const ReadTodo = Tool.make("crew_read_todo", {
   description:
-    "Read one todo of the project this thread works in, with its Markdown description; a GitHub issue also comes with its first comments.",
+    "Read one todo of the project this thread works in, with its Markdown description; a GitHub issue also comes with its first comments, its parent issue and its sub-issues.",
   parameters: Schema.Struct({ ref: TodoRef }),
   success: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
@@ -130,13 +137,15 @@ const ReadTodo = Tool.make("crew_read_todo", {
 
 const UpdateTodo = Tool.make("crew_update_todo", {
   description:
-    "Close or reopen a todo of the project this thread works in, or change a ticket's title or Markdown description. A GitHub issue's title and description are edited on GitHub.",
+    "Close or reopen a todo of the project this thread works in, or change a ticket's title or Markdown description. A GitHub issue's title and description are edited on GitHub. A GitHub issue's `milestone` (an open one's title or number) and `parent` issue number can be set or changed here; null removes either. Tickets have neither.",
   parameters: Schema.Struct({
     ref: TodoRef,
     state: Schema.optional(Schema.Literals(["open", "closed"])),
     closedReason: Schema.optional(Schema.Literals(["completed", "not_planned"])),
     title: Schema.optional(Schema.String),
     description: Schema.optional(Schema.String),
+    milestone: Schema.optional(Schema.NullOr(Schema.String)),
+    parent: Schema.optional(Schema.NullOr(Schema.Int)),
   }),
   success: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
