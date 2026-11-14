@@ -37,6 +37,7 @@ import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import { isLocalLoopbackHost, isTailnetHost } from "@t3tools/shared/hostClassification";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as BotStore from "../bots/BotStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
@@ -228,6 +229,7 @@ const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const isOwnLoopback = yield* LoopbackHost;
+  const bots = yield* BotStore.BotStore;
   const enabled = serverSettings.getSettings.pipe(
     Effect.map((settings) => settings.linkedEnvironmentsEnabled),
     Effect.orElseSucceed(() => false),
@@ -567,6 +569,12 @@ const make = Effect.gen(function* () {
           last_reached_at = excluded.last_reached_at,
           last_error = NULL
       `.pipe(Effect.catch(failStorage));
+      // Bots may work on a machine linked for the first time; re-linking keeps their choice.
+      if (Option.isNone(previous)) {
+        yield* bots
+          .permitEnvironmentForAll(linked.environmentId, DateTime.formatIso(now))
+          .pipe(Effect.catch(failStorage));
+      }
       return previous;
     }).pipe(Effect.onError(() => secrets.remove(secretName).pipe(Effect.ignore)));
     // Linking again replaces the old token. A racing link may leave its own
@@ -722,4 +730,5 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(PeerLinks, make);
+// The bots' store needs only the database, which every PeerLinks caller has.
+export const layer = Layer.effect(PeerLinks, make).pipe(Layer.provide(BotStore.layer));

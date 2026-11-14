@@ -38,7 +38,8 @@ The **Projects** tab also lists, under **Can work on**, the machines linked to t
 (see Linked environments in **Settings → Labs**), each with a checkbox. A ticked machine is one the
 bot may start new work on; unticking it stops new work there, while work already running keeps
 going. The choice saves at once. New bots, and bots from before this setting, start with every
-linked machine ticked. **Link an environment** links another machine with a pairing code.
+linked machine ticked. A machine you link later is ticked for every bot too; linking the same machine
+again keeps what you unticked. **Link an environment** links another machine with a pairing code.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
 the bot list opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking

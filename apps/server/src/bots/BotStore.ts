@@ -63,6 +63,14 @@ export class BotStore extends Context.Service<
     readonly idTaken: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
     /** The bot that owns an active project, or null for a missing project or one with no bot. */
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
+    /**
+     * Ticks a newly linked environment for every bot that hasn't got it, bumping each one's
+     * revision. Called once per new link; a re-link leaves a person's unticking alone.
+     */
+    readonly permitEnvironmentForAll: (
+      environmentId: EnvironmentId,
+      updatedAt: string,
+    ) => Effect.Effect<void, PersistenceSqlError>;
     /** Every environment linked now, which a new bot may work on until a person unticks it. */
     readonly linkedEnvironmentIds: Effect.Effect<ReadonlyArray<EnvironmentId>, PersistenceSqlError>;
   }
@@ -186,6 +194,18 @@ const make = Effect.gen(function* () {
         Effect.map((rows) => rows[0]?.botId ?? null),
         Effect.mapError(queryError),
       ),
+    ),
+    permitEnvironmentForAll: Effect.fn("BotStore.permitEnvironmentForAll")(
+      (environmentId, updatedAt) =>
+        sql`
+        UPDATE bots SET
+          permitted_environment_ids_json =
+            json_insert(permitted_environment_ids_json, '$[#]', ${environmentId}),
+          revision = revision + 1, updated_at = ${updatedAt}
+        WHERE deleted_at IS NULL AND NOT EXISTS (
+          SELECT 1 FROM json_each(bots.permitted_environment_ids_json) WHERE value = ${environmentId}
+        )
+      `.pipe(Effect.asVoid, Effect.mapError(queryError)),
     ),
     linkedEnvironmentIds: sql<{ readonly id: string }>`
       SELECT environment_id AS id FROM peer_environment_links ORDER BY environment_id

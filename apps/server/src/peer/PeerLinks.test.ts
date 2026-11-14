@@ -28,6 +28,7 @@ import {
 } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { insertTestBot } from "../bots/BotStore.testkit.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as McpToolAccess from "../mcp/McpToolAccess.ts";
@@ -532,8 +533,21 @@ it.effect("reads one stored link without asking the peer", () =>
     Effect.gen(function* () {
       const b = yield* serveB(box);
       const a = yield* makeA(laptop);
+      yield* insertTestBot("bot-captain", "Captain").pipe(
+        Effect.provideService(SqlClient.SqlClient, a.sql),
+      );
+      const permitted = a.sql<{ readonly ids: string; readonly revision: number }>`
+        SELECT permitted_environment_ids_json AS ids, revision FROM bots
+      `;
       const pairing = yield* b.auth.issuePairingCredential();
       yield* a.links.link({ url: b.url, pairingCode: pairing.credential, access: "auto" });
+      // A machine linked for the first time is one existing bots may work on.
+      expect(yield* permitted).toEqual([{ ids: `["${box.environmentId}"]`, revision: 2 }]);
+      // Re-linking it keeps a person's unticking.
+      yield* a.sql`UPDATE bots SET permitted_environment_ids_json = '[]'`;
+      const again = yield* b.auth.issuePairingCredential();
+      yield* a.links.link({ url: b.url, pairingCode: again.credential, access: "auto" });
+      expect(yield* permitted).toEqual([{ ids: "[]", revision: 2 }]);
       yield* Ref.set(b.probes, 0);
 
       const stored = yield* a.links.get(box.environmentId);
