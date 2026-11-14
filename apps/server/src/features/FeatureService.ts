@@ -4,6 +4,7 @@ import * as NodeCrypto from "node:crypto";
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
   CommandId,
+  headquartersBotId,
   MessageId,
   featureIssueRef,
   idleCompactionOf,
@@ -302,7 +303,6 @@ const REPORT_HEADLINES = {
   failed: "Child feature's lead failed",
   interrupted: "Child feature was interrupted",
 } as const;
-const MAX_REPORT_CHARS = 8_000;
 
 /** How a report to the thread that started a feature names it. */
 export const featureReportLabel = (
@@ -311,6 +311,19 @@ export const featureReportLabel = (
   requestId: string | null,
 ) =>
   `Feature "${title}" (lead thread ${leadThreadId}${requestId === null ? "" : `, request ${requestId}`})`;
+
+/** One line telling a requester the person is needed, and in which thread. */
+export const featureNeedsYouText = (label: string, asker: string, askingThreadId: ThreadId) =>
+  `${label} needs you: ${asker} is asking in thread ${askingThreadId}. The person answers it there.`;
+
+/** A bot's headquarters hears only how its features end; a needs-you is for its people. */
+export const hearsNeedsYou = (requesterThreadId: ThreadId) =>
+  headquartersBotId(requesterThreadId) === null;
+
+/** The key of a lead's quiet stop: one per feature until the person next writes to the lead. */
+const leadStopKeyPrefix = (featureId: string) => `feature-report:lead-stop:${featureId}:`;
+const leadStopKey = (featureId: string, personMessageId: string | null) =>
+  `${leadStopKeyPrefix(featureId)}${personMessageId ?? "none"}`;
 
 const QUIET_CHILD_HINT =
   "Its lead didn't call t3_feature_finish. If its work is done, carry on. If it asked something or needs a push, reply in its lead thread with t3_thread_send.";
@@ -1191,6 +1204,34 @@ export const FeatureServiceLive = Layer.effect(
         Effect.map((rows) => rows[0]?.threadId ?? null),
       );
 
+    /** The pull requests the feature's threads link or opened, lead's first. */
+    const featurePullRequests = Effect.fn("FeatureService.featurePullRequests")(function* (
+      featureId: string,
+      leadThreadId: ThreadId | null,
+    ) {
+      const threadIds = yield* sql<{ readonly threadId: ThreadId }>`
+        SELECT thread_id AS threadId FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL AND json_extract(payload_json, '$.feature.id') = ${featureId}
+      `.pipe(Effect.mapError(queryError));
+      const shells = (yield* Effect.forEach(threadIds, (row) =>
+        engine.getThreadShell(row.threadId).pipe(Effect.orElseSucceed(() => null)),
+      ))
+        .filter(Predicate.isNotNull)
+        .toSorted((a, b) => Number(b.id === leadThreadId) - Number(a.id === leadThreadId));
+      return {
+        shells,
+        urls: [
+          ...new Set(
+            shells.flatMap((shell) =>
+              [shell.linkedPullRequest?.url, shell.branchPullRequest?.url].filter(
+                Predicate.isNotUndefined,
+              ),
+            ),
+          ),
+        ],
+      };
+    });
+
     /**
      * Tells a child's parent lead that the child finished or closed, as a message that wakes it
      * the way a crew result does. The reason it can't is returned instead: its parent is closed
@@ -1213,23 +1254,8 @@ export const FeatureServiceLive = Layer.effect(
         .pipe(Effect.orElseSucceed(() => null));
       if (parentShell?.archivedAt != null) return "The parent feature's lead thread is archived";
       const childLead = yield* leadThreadOf(child.id);
-      const threadIds = yield* sql<{ readonly threadId: ThreadId }>`
-        SELECT thread_id AS threadId FROM orchestration_v2_projection_threads
-        WHERE deleted_at IS NULL AND json_extract(payload_json, '$.feature.id') = ${child.id}
-      `.pipe(Effect.mapError(queryError));
-      const shells = (yield* Effect.forEach(threadIds, (row) =>
-        engine.getThreadShell(row.threadId).pipe(Effect.orElseSucceed(() => null)),
-      )).filter(Predicate.isNotNull);
+      const { shells, urls: pullRequests } = yield* featurePullRequests(child.id, childLead);
       const lead = shells.find((shell) => shell.id === childLead);
-      const pullRequests = [
-        ...new Set(
-          shells.flatMap((shell) =>
-            [shell.linkedPullRequest?.url, shell.branchPullRequest?.url].filter(
-              Predicate.isNotUndefined,
-            ),
-          ),
-        ),
-      ];
       // A person closing the child leaves no summary, so the lead's last word stands in.
       const said =
         summary ??
@@ -1363,34 +1389,92 @@ export const FeatureServiceLive = Layer.effect(
         : requester;
     });
 
-    /** Tells the thread that started a top-level feature that a stage of it ended. */
+    /**
+     * Tells the thread that started a top-level feature how it ended, in one line: finished with
+     * its pull request and summary's first line, or failed or interrupted. Never the lead's words.
+     */
     const reportToRequester = Effect.fn("FeatureService.reportToRequester")(function* (
       feature: FeatureRecord,
       leadThreadId: ThreadId,
       input: {
         readonly key: string;
-        readonly outcome: "finished" | "stopped" | "failed" | "interrupted";
-        readonly said: string;
+        readonly outcome: "finished" | "failed" | "interrupted";
+        readonly summary?: string;
       },
     ) {
       const requester = yield* reachableRequester(feature.id, leadThreadId);
       if (requester === null) return;
-      const said = input.said.trim();
-      const text =
-        said.length > MAX_REPORT_CHARS
-          ? `${said.slice(0, MAX_REPORT_CHARS)}… (read the rest in the lead's thread)`
-          : said || "(no message)";
       const label = featureReportLabel(feature.title, leadThreadId, yield* requestIdOf(feature.id));
+      const firstLine = input.summary
+        ?.split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0)
+        ?.slice(0, 300);
+      const pullRequests =
+        input.outcome === "finished"
+          ? (yield* featurePullRequests(feature.id, leadThreadId)).urls
+          : [];
+      const text =
+        input.outcome === "finished"
+          ? [
+              `${label} finished${firstLine === undefined ? "." : `: ${firstLine}`}`,
+              ...(pullRequests.length > 0 ? [`Pull request: ${pullRequests.join(", ")}`] : []),
+            ].join("\n")
+          : input.outcome === "failed"
+            ? `${label} failed: its lead's turn ended with an error.`
+            : `${label} was interrupted before it finished.`;
       yield* inbox
         .post({
           threadId: requester,
           key: input.key,
           subject: feature.id,
-          text: `${label} [${input.outcome}]:\n${text}`,
+          text,
           notification: {
             childThreadId: leadThreadId,
             outcome: input.outcome === "failed" ? "failed" : "updated",
-            summary: `Feature "${feature.title}" ${input.outcome === "finished" ? "finished" : "reported back"}`,
+            summary: `Feature "${feature.title}" ${
+              input.outcome === "finished"
+                ? "finished"
+                : input.outcome === "failed"
+                  ? "failed"
+                  : "was interrupted"
+            }`,
+          },
+        })
+        .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
+    });
+
+    /** The id of the person's latest message to `leadThreadId`, or null before they wrote one. */
+    const latestPersonMessageId = (leadThreadId: ThreadId) =>
+      engine.getThreadRecords(leadThreadId, ["messages"], { messageRoles: ["user"] }).pipe(
+        Effect.map(
+          ({ messages }) =>
+            messages.findLast((message) => message.createdBy === "user")?.id ?? null,
+        ),
+        Effect.orElseSucceed(() => null),
+      );
+
+    /**
+     * A lead that stopped quietly is waiting on the person: one needs-you per feature until the
+     * person next writes to it. A bot's headquarters doesn't hear these.
+     */
+    const reportLeadStop = Effect.fn("FeatureService.reportLeadStop")(function* (
+      feature: FeatureRecord,
+      leadThreadId: ThreadId,
+    ) {
+      const requester = yield* reachableRequester(feature.id, leadThreadId);
+      if (requester === null || !hearsNeedsYou(requester)) return;
+      const label = featureReportLabel(feature.title, leadThreadId, yield* requestIdOf(feature.id));
+      yield* inbox
+        .post({
+          threadId: requester,
+          key: leadStopKey(feature.id, yield* latestPersonMessageId(leadThreadId)),
+          subject: feature.id,
+          text: featureNeedsYouText(label, "its lead", leadThreadId),
+          notification: {
+            childThreadId: leadThreadId,
+            outcome: "updated",
+            summary: `Feature "${feature.title}" needs you`,
           },
         })
         .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
@@ -1491,14 +1575,8 @@ export const FeatureServiceLive = Layer.effect(
           }
         }
         if (!sinceInbox) return;
-        const { messages } = yield* engine
-          .getThreadRecords(lead, ["messages"], { messageRoles: ["assistant"] })
-          .pipe(Effect.orElseSucceed(() => ({ messages: [] })));
-        yield* reportToRequester(feature, lead, {
-          key,
-          outcome,
-          said: messages.findLast((message) => !message.streaming)?.text ?? "",
-        });
+        if (outcome === "stopped") yield* reportLeadStop(feature, lead);
+        else yield* reportToRequester(feature, lead, { key, outcome });
         return;
       }
       const undelivered = yield* reportToParent(
@@ -1517,6 +1595,26 @@ export const FeatureServiceLive = Layer.effect(
         );
       }
     });
+
+    /** The person wrote to a lead, so its quiet stop no longer needs telling. */
+    const withdrawLeadStop = (threadId: ThreadId) =>
+      sql<{ readonly featureId: string }>`
+        SELECT json_extract(payload_json, '$.feature.id') AS featureId
+        FROM orchestration_v2_projection_threads
+        WHERE thread_id = ${threadId}
+          AND json_extract(payload_json, '$.feature.id') IS NOT NULL
+          AND json_extract(payload_json, '$.feature.member') IS NULL
+          AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
+      `.pipe(
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows, (row) => inbox.withdraw(leadStopKeyPrefix(row.featureId)), {
+            discard: true,
+          }),
+        ),
+        Effect.catch((error) =>
+          Effect.logWarning("Withdrawing a lead's needs-you failed", { threadId, error }),
+        ),
+      );
 
     const withdrawFinished: FeatureServiceShape["withdrawFinished"] = (threadId, sentAt) =>
       sql`
@@ -1710,7 +1808,16 @@ export const FeatureServiceLive = Layer.effect(
               return check(event.threadId);
             case "message.updated":
               return event.payload.role === "user" && idleCompactionOf(event.payload) === undefined
-                ? withdrawFinished(event.threadId, DateTime.formatIso(event.payload.createdAt))
+                ? withdrawFinished(
+                    event.threadId,
+                    DateTime.formatIso(event.payload.createdAt),
+                  ).pipe(
+                    Effect.andThen(
+                      event.payload.createdBy === "user"
+                        ? withdrawLeadStop(event.threadId)
+                        : Effect.void,
+                    ),
+                  )
                 : Effect.void;
             default:
               return Effect.void;
@@ -1770,7 +1877,7 @@ export const FeatureServiceLive = Layer.effect(
           yield* reportToRequester(feature, threadId, {
             key: `feature-report:finished:${run?.runId ?? NodeCrypto.randomUUID()}`,
             outcome: "finished",
-            said: summary,
+            summary,
           });
         }
         yield* markReported(

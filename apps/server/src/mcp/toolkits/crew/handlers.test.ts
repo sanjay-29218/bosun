@@ -4,6 +4,7 @@ import {
   IssueOperationError,
   ProjectId,
   ProviderInstanceId,
+  RuntimeRequestId,
   ThreadId,
   type IssueList,
   type Ticket,
@@ -16,7 +17,8 @@ import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
+import { CREW_MEMBER_GRANT, crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
+import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
@@ -108,6 +110,7 @@ const layerAs = (
   features: Partial<FeatureService["Service"]> = {},
   capabilities: ReadonlySet<McpInvocationContext.McpCapability> = new Set(["crew"]),
   issues: Partial<IssueService.IssueService["Service"]> = {},
+  crewGrants?: ReadonlyArray<string>,
 ) =>
   McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
     Layer.provideMerge(
@@ -123,6 +126,7 @@ const layerAs = (
           client: undefined,
           capabilities,
           issuedAt: 0,
+          ...(crewGrants === undefined ? {} : { crewGrants }),
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (id) =>
@@ -135,6 +139,13 @@ const layerAs = (
             }),
         }),
         Layer.mock(FeatureService)(features),
+        Layer.mock(CrewApprovals)({
+          ask: (asking, input) =>
+            Effect.succeed({
+              requestId: RuntimeRequestId.make(`crew-ask:${asking}:${input.question}`),
+              next: "Asked.",
+            }),
+        }),
         Layer.mock(CrewService)({}),
         Layer.mock(IssueService.IssueService)({
           list: (project) =>
@@ -397,5 +408,26 @@ it.effect("links an issue to the caller's feature, its own task, or a task it de
       `task ${taskThread}`,
       `feature of ${leadThread}`,
     ]);
+  }),
+);
+
+it.effect("lets only a feature's crew member ask the person, as itself", () =>
+  Effect.gen(function* () {
+    const ask = (grants: ReadonlyArray<string> | undefined) =>
+      Effect.gen(function* () {
+        const toolkit = yield* CrewToolkit;
+        return yield* toolkit.handle("crew_ask_person", { question: "Approve the design?" }).pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.map((chunks) => chunks.at(-1)?.result),
+        );
+      }).pipe(Effect.provide(layerAs(taskThread, {}, new Set(), {}, grants)));
+    expect(yield* ask([CREW_MEMBER_GRANT])).toMatchObject({
+      requestId: `crew-ask:${taskThread}:Approve the design?`,
+    });
+    // A crew thread's other subagents, and the lead itself, hold no crew.member grant.
+    expect(yield* ask(["orchestration"]).pipe(Effect.flip)).toMatchObject({
+      _tag: "CrewToolFailedError",
+    });
   }),
 );

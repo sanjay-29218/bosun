@@ -184,6 +184,8 @@ const make = Effect.gen(function* () {
         yield* cancelQueuedWakes(parentThreadId, [event.payload.id]);
         return;
       }
+      // A crew member asked the person; the parent waits on the answer, it doesn't give it.
+      if (request.owner !== undefined) return;
       const parent = yield* projections.getThreadRecords(parentThreadId, ["subagents", "runs"]);
       const { runs } = yield* projections.getThreadRecords(child.id, ["runs"]);
       const run =

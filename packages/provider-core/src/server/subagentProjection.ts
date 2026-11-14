@@ -286,6 +286,10 @@ export function delegatedTaskProgress(projection: {
   readonly providerThreads: ReadonlyArray<
     Pick<OrchestrationV2ThreadProjection["providerThreads"][number], "pendingBackgroundTasks">
   >;
+  /** Read when the caller must see a crew member waiting on the person. */
+  readonly runtimeRequests?: ReadonlyArray<
+    Pick<OrchestrationV2ThreadProjection["runtimeRequests"][number], "status" | "owner">
+  >;
 }) {
   const terminal = (status: string) =>
     ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(status);
@@ -314,9 +318,23 @@ export function delegatedTaskProgress(projection: {
         ? ("working" as const)
         : children
           ? ("waiting_for_children" as const)
-          : ("result_available" as const),
+          : awaitsPerson(projection.runtimeRequests ?? [])
+            ? ("waiting_for_person" as const)
+            : ("result_available" as const),
     resultRun,
   };
+}
+
+/**
+ * A crew member asked the person in its own thread and ended its turn; its task has no result
+ * until the answer arrives and it replies.
+ */
+export function awaitsPerson(
+  requests: ReadonlyArray<
+    Pick<OrchestrationV2ThreadProjection["runtimeRequests"][number], "status" | "owner">
+  >,
+): boolean {
+  return requests.some((request) => request.status === "pending" && request.owner === "crew");
 }
 
 function writtenIds(

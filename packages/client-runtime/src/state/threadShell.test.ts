@@ -187,6 +187,30 @@ describe("v2 thread shell lists", () => {
       registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
         ?.pendingSubagentRequest,
     ).toBe("user_input");
+    // A crew member asked the person and ended its turn: still Needs you, though no run is live.
+    const asked = {
+      ...child,
+      status: "completed" as const,
+      activityRunStatus: null,
+      pendingRuntimeRequest: { ...child.pendingRuntimeRequest, blocking: false },
+    };
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [root, asked] });
+    expect(
+      registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
+        ?.pendingSubagentRequest,
+    ).toBe("user_input");
+    // A question its lead answers stops counting once the child's turn ends.
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [
+        root,
+        { ...asked, pendingRuntimeRequest: { ...asked.pendingRuntimeRequest, userOnly: false } },
+      ],
+    });
+    expect(
+      registry.get(threads.threadShellAtom({ environmentId, threadId: root.id }))
+        ?.pendingSubagentRequest,
+    ).toBeNull();
     registry.dispose();
   });
 

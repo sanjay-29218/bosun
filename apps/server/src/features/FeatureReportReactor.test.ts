@@ -11,6 +11,8 @@ import { FeatureService } from "./FeatureService.ts";
 import { type Notice, NoticeInbox } from "./NoticeInbox.ts";
 
 const leadThreadId = ThreadId.make("thread:lead");
+const designerThreadId = ThreadId.make("thread:designer");
+const managerId = ThreadId.make("bot-run:project-hq:project:dark");
 const headquartersId = ThreadId.make("bot-run:bot-hq:bot-ops");
 const parentLeadId = ThreadId.make("thread:epic-lead");
 const brokenLeadId = ThreadId.make("thread:broken-lead");
@@ -22,11 +24,16 @@ const runUpdated = (status: string) =>
     payload: { id: RunId.make("run:lead:1"), threadId: leadThreadId, status },
   }) as unknown as OrchestrationV2DomainEvent;
 
-const requestUpdated = (status: string, kind = "user_input") =>
+const requestUpdated = (
+  status: string,
+  kind = "user_input",
+  threadId = leadThreadId,
+  owner?: "crew",
+) =>
   ({
     type: "runtime-request.updated",
-    threadId: leadThreadId,
-    payload: { id: "request:plan", status, kind },
+    threadId,
+    payload: { id: "request:plan", status, kind, ...(owner ? { owner } : {}) },
   }) as unknown as OrchestrationV2DomainEvent;
 
 const setup = (input: {
@@ -56,7 +63,7 @@ const setup = (input: {
           Layer.mock(ProjectionStore.ProjectionStoreV2)({
             getThreadRecords: (threadId, _fields, filter) =>
               Effect.succeed(
-                (threadId === headquartersId
+                (threadId === (input.requester ?? managerId)
                   ? {
                       messages: (filter?.messageIds ?? []).flatMap((id) =>
                         input.reported?.includes(id) ? [{ id }] : [],
@@ -66,6 +73,7 @@ const setup = (input: {
                       runtimeRequests: [
                         { id: "request:plan", status: "pending", kind: "user_input" },
                       ],
+                      subagents: [],
                     }) as never,
               ),
             getThread: (threadId) =>
@@ -90,12 +98,21 @@ const setup = (input: {
                             ...(input.member ? { member: input.member } : {}),
                           },
                         }
-                      : { id: threadId, archivedAt: null, deletedAt: null }) as never,
+                      : threadId === designerThreadId
+                        ? {
+                            id: designerThreadId,
+                            lineage: {
+                              parentThreadId: leadThreadId,
+                              relationshipToParent: "subagent",
+                            },
+                            feature: { id: "feature:dark", title: "Dark mode", member: "Designer" },
+                          }
+                        : { id: threadId, archivedAt: null, deletedAt: null }) as never,
                   ),
           }),
           Layer.mock(FeatureService)({
             requesterThreadId: () =>
-              Effect.succeed(input.requester === undefined ? headquartersId : input.requester),
+              Effect.succeed(input.requester === undefined ? managerId : input.requester),
             parentLeadThreadId: () => Effect.succeed(input.parentLead ?? null),
             requestIdOf: () => Effect.succeed(input.requestId ?? null),
             reportingLeads: Effect.succeed(
@@ -120,15 +137,42 @@ it.effect("tells the thread that started a feature when its lead waits on the pe
     const notices = yield* Ref.get(posted);
     assert.lengthOf(notices, 1);
     const [notice] = notices;
-    assert.equal(notice?.threadId, headquartersId);
+    assert.equal(notice?.threadId, managerId);
     assert.equal(notice?.key, "feature-report:request:request:plan");
     assert.equal(notice?.requestId, "request:plan");
     assert.equal(notice?.subject, "feature:dark");
+    assert.equal(notice?.notification?.childThreadId, leadThreadId);
     assert.include(
       notice?.text,
-      `Feature "Dark mode" (lead thread ${leadThreadId}, request R-7) is waiting on the person: a question`,
+      `Feature "Dark mode" (lead thread ${leadThreadId}, request R-7) needs you: its lead is asking in thread ${leadThreadId}.`,
     );
   }),
+);
+
+it.effect("links a crew member's ask of the person to its own thread", () =>
+  Effect.gen(function* () {
+    const { reactor, posted } = yield* setup({});
+    // The lead answers its crew member's own questions, so the person isn't told of those.
+    yield* reactor.handle(requestUpdated("pending", "user_input", designerThreadId));
+    assert.deepEqual(yield* Ref.get(posted), []);
+    yield* reactor.handle(requestUpdated("pending", "user_input", designerThreadId, "crew"));
+    const [notice, ...rest] = yield* Ref.get(posted);
+    assert.deepEqual(rest, []);
+    assert.equal(notice?.threadId, managerId);
+    assert.equal(notice?.notification?.childThreadId, designerThreadId);
+    assert.include(notice?.text, `needs you: Designer is asking in thread ${designerThreadId}.`);
+  }),
+);
+
+it.effect(
+  "tells a bot's headquarters only how its features end, not that they need the person",
+  () =>
+    Effect.gen(function* () {
+      const { reactor, posted } = yield* setup({ requester: headquartersId });
+      yield* reactor.handle(requestUpdated("pending"));
+      yield* reactor.handle(requestUpdated("pending", "user_input", designerThreadId, "crew"));
+      assert.deepEqual(yield* Ref.get(posted), []);
+    }),
 );
 
 it.effect("stays quiet for crew threads and with no one to tell", () =>
@@ -155,7 +199,7 @@ it.effect("tells an Epic child's parent lead when the child's lead waits", () =>
     const [notice, ...rest] = yield* Ref.get(posted);
     assert.deepEqual(rest, []);
     assert.equal(notice?.threadId, parentLeadId);
-    assert.include(notice?.text, "waiting on the person: a question");
+    assert.include(notice?.text, "needs you: its lead is asking");
   }),
 );
 

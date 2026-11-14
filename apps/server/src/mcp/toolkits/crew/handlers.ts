@@ -10,6 +10,8 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
+import { CREW_MEMBER_GRANT } from "../../../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
@@ -36,6 +38,16 @@ const requireCrewCaller = McpInvocationContext.requireMcpCapability("crew").pipe
   })),
 );
 const requireCrewThread = requireCrewCaller.pipe(Effect.map((caller) => caller.callerThreadId));
+/** A feature crew member, a delegated child without the `crew` capability, asks as itself. */
+const requireCrewMember = Effect.gen(function* () {
+  const scope = yield* McpInvocationContext.McpInvocationContext;
+  if (scope.crewGrants?.includes(CREW_MEMBER_GRANT) !== true) {
+    return yield* new CrewToolFailedError({
+      reason: "Only a feature's crew member asks the person this way.",
+    });
+  }
+  return (yield* McpInvocationContext.requireThreadScope(scope, "crew_ask_person")).thread.threadId;
+});
 
 /** `T-14` is a ticket, `#482` or `482` an issue. */
 function parseTodoRef(ref: string) {
@@ -92,6 +104,7 @@ function crewIssueRows(
 }
 
 const make = Effect.gen(function* () {
+  const approvals = yield* CrewApprovals;
   const crew = yield* CrewService;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
@@ -129,6 +142,16 @@ const make = Effect.gen(function* () {
     effect: (caller: Effect.Success<typeof requireCrewCaller>) => Effect.Effect<A, E, R>,
   ) => requireCrewCaller.pipe(Effect.flatMap(effect), Effect.mapError(toolFailure));
   return {
+    crew_ask_person: McpToolAccess.actsAsCaller(
+      (input: {
+        readonly question: string;
+        readonly options?: ReadonlyArray<string> | undefined;
+      }) =>
+        requireCrewMember.pipe(
+          Effect.flatMap((threadId) => approvals.ask(threadId, input)),
+          Effect.mapError(toolFailure),
+        ),
+    ),
     crew_read_manager_instructions: McpToolAccess.readsAsCaller(
       (input: { readonly projectId?: ProjectId | undefined }) =>
         asCrewCaller((caller) =>

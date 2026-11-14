@@ -10,6 +10,7 @@ import {
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
@@ -37,6 +38,20 @@ const failure = Schema.Union([
   OrchestratorMcpFailure,
   CrewToolFailedError,
 ]);
+const AskPerson = Tool.make("crew_ask_person", {
+  description:
+    "Ask the person for approval in your own thread, where they see your work. First show the work here (the design, plan or file), then call this; it returns at once. End your turn right after: the person's answer arrives as your next message. Options default to Approve and Request changes, and the person can also type an answer. Don't put the question in your final message instead.",
+  parameters: Schema.Struct({
+    question: Schema.String.annotate({
+      description: 'One line, such as "Approve the design in design.html?"',
+    }),
+    options: Schema.optional(Schema.Array(Schema.String)),
+  }),
+  success: Schema.Struct({ requestId: Schema.String, next: Schema.String }),
+  failure,
+  dependencies: [...dependencies, CrewApprovals],
+}).annotate(Tool.Destructive, false);
+
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
     "Link the issue your work tracks: an issue URL, such as one you just created, `#56`, a Bosun ticket as `T-14`, or a tracker key or link such as `LIN-123`. On a feature it links the feature's issue, which every thread of the feature shows; otherwise it links this task's own. `threadId`: a task you delegated, to link its issue instead. One issue each: linking another replaces it, and null unlinks it.",
@@ -217,6 +232,7 @@ const UpdateManagerInstructions = Tool.make(UPDATE_MANAGER_INSTRUCTIONS, {
 }).annotate(Tool.Destructive, false);
 
 export const CrewToolkit = Toolkit.make(
+  AskPerson,
   LinkIssue,
   ListIssues,
   CreateTodo,
