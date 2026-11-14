@@ -312,6 +312,40 @@ export const featureReportLabel = (
 ) =>
   `Feature "${title}" (lead thread ${leadThreadId}${requestId === null ? "" : `, request ${requestId}`})`;
 
+/**
+ * The pull requests a feature's threads link (`link_pull_request`'s list, open and ready ones
+ * first) or opened from their branch, in thread order with the lead first.
+ */
+export const featurePullRequestUrls = (
+  shells: ReadonlyArray<{
+    readonly linkedPullRequest?: { readonly url: string } | null | undefined;
+    readonly branchPullRequest?: { readonly url: string } | null | undefined;
+    readonly pullRequests?:
+      | ReadonlyArray<{
+          readonly url: string;
+          readonly source: string;
+          readonly snapshot: { readonly state: string; readonly isDraft: boolean } | null;
+        }>
+      | undefined;
+  }>,
+) => {
+  const rank = (link: { readonly snapshot: { state: string; isDraft: boolean } | null }) =>
+    link.snapshot === null ? 2 : link.snapshot.state !== "open" ? 3 : link.snapshot.isDraft ? 1 : 0;
+  return [
+    ...new Set(
+      shells.flatMap((shell) => [
+        ...(shell.pullRequests ?? [])
+          .filter((link) => link.source !== "stack-dismissed")
+          .toSorted((a, b) => rank(a) - rank(b))
+          .map((link) => link.url),
+        ...[shell.linkedPullRequest?.url, shell.branchPullRequest?.url].filter(
+          Predicate.isNotUndefined,
+        ),
+      ]),
+    ),
+  ];
+};
+
 /** One line telling a requester the person is needed, and in which thread. */
 export const featureNeedsYouText = (label: string, asker: string, askingThreadId: ThreadId) =>
   `${label} needs you: ${asker} is asking in thread ${askingThreadId}. The person answers it there.`;
@@ -1218,18 +1252,7 @@ export const FeatureServiceLive = Layer.effect(
       ))
         .filter(Predicate.isNotNull)
         .toSorted((a, b) => Number(b.id === leadThreadId) - Number(a.id === leadThreadId));
-      return {
-        shells,
-        urls: [
-          ...new Set(
-            shells.flatMap((shell) =>
-              [shell.linkedPullRequest?.url, shell.branchPullRequest?.url].filter(
-                Predicate.isNotUndefined,
-              ),
-            ),
-          ),
-        ],
-      };
+      return { shells, urls: featurePullRequestUrls(shells) };
     });
 
     /**
@@ -1418,7 +1441,7 @@ export const FeatureServiceLive = Layer.effect(
         input.outcome === "finished"
           ? [
               `${label} finished${firstLine === undefined ? "." : `: ${firstLine}`}`,
-              ...(pullRequests.length > 0 ? [`Pull request: ${pullRequests.join(", ")}`] : []),
+              ...(pullRequests[0] === undefined ? [] : [`Pull request: ${pullRequests[0]}`]),
             ].join("\n")
           : input.outcome === "failed"
             ? `${label} failed: its lead's turn ended with an error.`
@@ -1495,7 +1518,8 @@ export const FeatureServiceLive = Layer.effect(
         return;
       }
       // Quiet: none of its threads runs, waits on the person, has work queued for it (such as
-      // resuming a turn a restart cut short), or owes its lead a crew result not yet delivered.
+      // resuming a turn a restart cut short), has a delegated task not yet settled (its child's
+      // turn can end before its result is), or owes its lead a crew result not yet delivered.
       const busy = yield* sql`
         SELECT 1 FROM orchestration_v2_projection_threads AS t
         WHERE t.deleted_at IS NULL AND t.archived_at IS NULL
@@ -1510,7 +1534,8 @@ export const FeatureServiceLive = Layer.effect(
                 AND e.effect_type IN ${sql.in(WORK_EFFECT_TYPES)})
             OR EXISTS (SELECT 1 FROM orchestration_v2_projection_subagents AS a
               WHERE a.thread_id = t.thread_id
-                AND a.completion_delivery_state IN ('pending', 'claimed'))
+                AND (a.status IN ('pending', 'running', 'waiting')
+                  OR a.completion_delivery_state IN ('pending', 'claimed')))
           )
         LIMIT 1
       `.pipe(Effect.mapError(queryError));
