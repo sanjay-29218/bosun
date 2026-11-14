@@ -89,7 +89,7 @@ function ProjectManagerMember({
   const formKey = JSON.stringify([
     formGeneration,
     settings.instructions,
-    settings.allowedTools,
+    settings.withheldTools,
     settings.modelSelection,
     settings.runtimeMode,
     settings.longConversation,
@@ -241,14 +241,14 @@ function ProjectManagerForm({
     rolesEnvironment.updateProjectManager.permissionAtom(member.environmentId),
   );
   const [instructions, setInstructions] = useState(settings.instructions);
-  const [tools, setTools] = useState(settings.allowedTools);
+  const [tools, setTools] = useState(settings.withheldTools);
   const [modelSelection, setModelSelection] = useState(settings.modelSelection);
   const [runtimeMode, setRuntimeMode] = useState(settings.runtimeMode);
   const [longConversation, setLongConversation] = useState(settings.longConversation);
   const [saving, setSaving] = useState(false);
   const edited =
     instructions.trim() !== settings.instructions ||
-    tools.join("\n") !== settings.allowedTools.join("\n") ||
+    tools.join("\n") !== settings.withheldTools.join("\n") ||
     JSON.stringify(modelSelection) !== JSON.stringify(settings.modelSelection) ||
     runtimeMode !== settings.runtimeMode ||
     longConversation !== settings.longConversation;
@@ -282,7 +282,7 @@ function ProjectManagerForm({
           input: {
             projectId: member.id,
             instructions: instructions.trim(),
-            allowedTools: tools,
+            withheldTools: tools,
             modelSelection,
             runtimeMode,
             longConversation,

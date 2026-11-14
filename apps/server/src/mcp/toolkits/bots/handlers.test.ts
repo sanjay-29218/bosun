@@ -67,13 +67,14 @@ it.effect("bots change bots with Manage workflows; other threads need full acces
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`
-      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
     `;
-    yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
-    yield* sql`CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)`;
+    yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
+    yield* sql`CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)`;
+    yield* sql`INSERT INTO bots VALUES ('bot', '[]')`;
     yield* sql`INSERT INTO crew_runs VALUES
-      ('builder', 'role', 'bot-run:builder', '["orchestration"]'),
-      ('manager', 'bot', 'bot-run:manager', '["crew.workflows"]')`;
+      ('builder', 'role', 'bot-run:builder', '[]'),
+      ('manager', 'bot', 'bot-run:manager', '["preview"]')`;
     const control = new Set(["orchestration" as const]);
 
     // Threads and subagents alone no longer reaches the bot tools, even with full access.

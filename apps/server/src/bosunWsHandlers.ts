@@ -137,11 +137,11 @@ export const layerBosunWsRpc = ({
         [WS_METHODS.rolesCreate]: (input) =>
           crew
             .createRole(input)
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.rolesUpdate]: (input) =>
           crew
             .updateRole(input)
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.workflowsList]: () =>
           crew
             .listWorkflows()

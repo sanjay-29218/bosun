@@ -59,7 +59,7 @@ it.effect("makes the Captain crew member the Captain bot that owns every project
     // the grants thread tools replaced, and 089 turns answering into deciding).
     assert.deepStrictEqual(
       yield* sql`
-        SELECT id, name, instructions, allowed_tools_json AS tools,
+        SELECT id, name, instructions, withheld_tools_json AS tools,
           model_selection_json AS model, runtime_mode AS runtimeMode, position
         FROM bots
       `,
@@ -68,8 +68,8 @@ it.effect("makes the Captain crew member the Captain bot that owns every project
           id: "bot-captain",
           name: "Captain",
           instructions: "bot-captain instructions",
-          // 091 retires crew.decide.
-          tools: '["crew.workflows"]',
+          // 091 retires crew.decide, and 116 stores what it withholds: nothing.
+          tools: "[]",
           model,
           runtimeMode: "auto",
           position: 0,

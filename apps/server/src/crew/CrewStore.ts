@@ -37,7 +37,7 @@ export interface CrewMember {
   readonly roleRevision: number | null;
   readonly name: string;
   readonly instructions: string;
-  readonly allowedTools: ReadonlyArray<string>;
+  readonly withheldTools: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly enabled: boolean;
@@ -56,7 +56,7 @@ export interface Role {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly allowedTools: ReadonlyArray<string>;
+  readonly withheldTools: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly enabled: boolean;
@@ -103,7 +103,7 @@ export interface CrewRun {
   readonly taskText: string;
   readonly title: string;
   readonly instructions: string;
-  readonly allowedTools: ReadonlyArray<string>;
+  readonly withheldTools: ReadonlyArray<string>;
   readonly memberRevision: number;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
@@ -125,7 +125,7 @@ interface CrewMemberRow {
   readonly roleRevision: number | null;
   readonly name: string;
   readonly instructions: string;
-  readonly allowedToolsJson: string;
+  readonly withheldToolsJson: string;
   readonly modelSelectionJson: string;
   readonly runtimeMode: string;
   readonly enabled: number;
@@ -141,7 +141,7 @@ interface RoleRow {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly allowedToolsJson: string;
+  readonly withheldToolsJson: string;
   readonly modelSelectionJson: string;
   readonly runtimeMode: string;
   readonly enabled: number;
@@ -158,7 +158,7 @@ interface CrewRunRow {
   readonly taskText: string;
   readonly title: string;
   readonly instructions: string;
-  readonly allowedToolsJson: string;
+  readonly withheldToolsJson: string;
   readonly memberRevision: number;
   readonly modelSelectionJson: string;
   readonly runtimeMode: string;
@@ -175,9 +175,9 @@ interface CrewRunRow {
 
 const parseModelSelection = Schema.decodeUnknownSync(ModelSelection);
 const parseRuntimeMode = Schema.decodeUnknownSync(RuntimeMode);
-const parseAllowedTools = Schema.decodeUnknownSync(Schema.Array(Schema.String));
+const parseWithheldTools = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 const decodeModelSelection = (json: string) => parseModelSelection(JSON.parse(json));
-const decodeAllowedTools = (json: string) => parseAllowedTools(JSON.parse(json));
+const decodeWithheldTools = (json: string) => parseWithheldTools(JSON.parse(json));
 const parseIcon = Schema.decodeUnknownSync(ProjectManagerIcon);
 const decodeIcon = (json: string | null) => (json === null ? null : parseIcon(JSON.parse(json)));
 const encodeIcon = (icon: ProjectManagerIcon | null) =>
@@ -191,7 +191,7 @@ const decodeMember = (row: CrewMemberRow): CrewMember => ({
   roleRevision: row.roleRevision,
   name: row.name,
   instructions: row.instructions,
-  allowedTools: decodeAllowedTools(row.allowedToolsJson),
+  withheldTools: decodeWithheldTools(row.withheldToolsJson),
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
@@ -207,7 +207,7 @@ const decodeRole = (row: RoleRow): Role => ({
   id: row.id,
   name: row.name,
   instructions: row.instructions,
-  allowedTools: decodeAllowedTools(row.allowedToolsJson),
+  withheldTools: decodeWithheldTools(row.withheldToolsJson),
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
@@ -238,7 +238,7 @@ const decodeRun = (row: CrewRunRow): CrewRun => ({
   taskText: row.taskText,
   title: row.title,
   instructions: row.instructions,
-  allowedTools: decodeAllowedTools(row.allowedToolsJson),
+  withheldTools: decodeWithheldTools(row.withheldToolsJson),
   memberRevision: row.memberRevision,
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   runtimeMode: parseRuntimeMode(row.runtimeMode),
@@ -388,7 +388,7 @@ export const CrewStoreLive = Layer.effect(
       sql<CrewMemberRow>`
         SELECT id, project_id AS projectId, feature_id AS featureId,
           role_id AS roleId, role_revision AS roleRevision, name, instructions,
-          allowed_tools_json AS allowedToolsJson,
+          withheld_tools_json AS withheldToolsJson,
           model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
           enabled, long_conversation AS longConversation, icon_json AS iconJson,
           customized_at AS customizedAt,
@@ -407,7 +407,7 @@ export const CrewStoreLive = Layer.effect(
     const getRole = (id: string) =>
       sql<RoleRow>`
         SELECT id, name, instructions,
-          allowed_tools_json AS allowedToolsJson,
+          withheld_tools_json AS withheldToolsJson,
           model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
           enabled,
           revision, created_at AS createdAt, updated_at AS updatedAt
@@ -425,8 +425,8 @@ export const CrewStoreLive = Layer.effect(
       sql<CrewRunRow>`
         SELECT r.id, r.member_id AS memberId, r.project_id AS projectId, r.thread_id AS threadId,
           r.task_text AS taskText, r.title, r.instructions,
-          COALESCE(b.allowed_tools_json, m.allowed_tools_json, r.allowed_tools_json)
-            AS allowedToolsJson,
+          COALESCE(b.withheld_tools_json, m.withheld_tools_json, r.withheld_tools_json)
+            AS withheldToolsJson,
           r.member_revision AS memberRevision,
           COALESCE(b.model_selection_json, m.model_selection_json, r.model_selection_json)
             AS modelSelectionJson,
@@ -453,12 +453,12 @@ export const CrewStoreLive = Layer.effect(
       insertRole: (role) =>
         sql`
           INSERT INTO roles (
-            id, name, instructions, allowed_tools_json,
+            id, name, instructions, withheld_tools_json,
             model_selection_json, runtime_mode, enabled, auto_create_for_feature,
             revision, created_at, updated_at
           ) VALUES (
             ${role.id}, ${role.name}, ${role.instructions},
-            ${JSON.stringify(role.allowedTools)}, ${JSON.stringify(role.modelSelection)},
+            ${JSON.stringify(role.withheldTools)}, ${JSON.stringify(role.modelSelection)},
             ${role.runtimeMode}, ${role.enabled ? 1 : 0}, 0, ${role.revision},
             ${role.createdAt}, ${role.updatedAt}
           )
@@ -467,7 +467,7 @@ export const CrewStoreLive = Layer.effect(
         sql<{ readonly id: string }>`
           UPDATE roles SET
             name = ${role.name}, instructions = ${role.instructions},
-            allowed_tools_json = ${JSON.stringify(role.allowedTools)},
+            withheld_tools_json = ${JSON.stringify(role.withheldTools)},
             model_selection_json = ${JSON.stringify(role.modelSelection)},
             runtime_mode = ${role.runtimeMode}, enabled = ${role.enabled ? 1 : 0},
             revision = ${role.revision}, updated_at = ${role.updatedAt}
@@ -481,7 +481,7 @@ export const CrewStoreLive = Layer.effect(
       listRoles: () =>
         sql<RoleRow>`
           SELECT id, name, instructions,
-            allowed_tools_json AS allowedToolsJson,
+            withheld_tools_json AS withheldToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
             enabled,
             revision, created_at AS createdAt, updated_at AS updatedAt
@@ -552,12 +552,12 @@ export const CrewStoreLive = Layer.effect(
         sql`
           INSERT INTO crew_members (
             id, project_id, feature_id, role_id, role_revision, name, instructions,
-            allowed_tools_json, model_selection_json, runtime_mode, enabled,
+            withheld_tools_json, model_selection_json, runtime_mode, enabled,
             long_conversation, icon_json, customized_at, revision, created_at, updated_at
           ) VALUES (
             ${member.id}, ${member.projectId}, ${member.featureId},
             ${member.roleId}, ${member.roleRevision}, ${member.name},
-            ${member.instructions}, ${JSON.stringify(member.allowedTools)},
+            ${member.instructions}, ${JSON.stringify(member.withheldTools)},
             ${JSON.stringify(member.modelSelection)},
             ${member.runtimeMode}, ${member.enabled ? 1 : 0},
             ${member.longConversation}, ${encodeIcon(member.icon)}, ${member.customizedAt},
@@ -570,7 +570,7 @@ export const CrewStoreLive = Layer.effect(
           UPDATE crew_members SET
             role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
-            allowed_tools_json = ${JSON.stringify(member.allowedTools)},
+            withheld_tools_json = ${JSON.stringify(member.withheldTools)},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
             runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
             long_conversation = ${member.longConversation},
@@ -586,7 +586,7 @@ export const CrewStoreLive = Layer.effect(
           UPDATE crew_members SET
             role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
-            allowed_tools_json = ${JSON.stringify(member.allowedTools)},
+            withheld_tools_json = ${JSON.stringify(member.withheldTools)},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
             runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
             long_conversation = ${member.longConversation},
@@ -603,7 +603,7 @@ export const CrewStoreLive = Layer.effect(
         sql<CrewMemberRow>`
           SELECT id, project_id AS projectId, feature_id AS featureId,
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
-            allowed_tools_json AS allowedToolsJson,
+            withheld_tools_json AS withheldToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
             enabled, long_conversation AS longConversation, icon_json AS iconJson,
           customized_at AS customizedAt,
@@ -629,7 +629,7 @@ export const CrewStoreLive = Layer.effect(
         sql<CrewMemberRow>`
           SELECT id, project_id AS projectId, feature_id AS featureId,
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
-            allowed_tools_json AS allowedToolsJson,
+            withheld_tools_json AS withheldToolsJson,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
             enabled, long_conversation AS longConversation, icon_json AS iconJson,
           customized_at AS customizedAt,
@@ -712,12 +712,12 @@ export const CrewStoreLive = Layer.effect(
         sql`
           INSERT OR IGNORE INTO crew_runs (
             id, member_id, project_id, thread_id, task_text, title, instructions,
-            allowed_tools_json, member_revision,
+            withheld_tools_json, member_revision,
             model_selection_json, runtime_mode, dispatch_state, recovery_attempt, last_error,
             created_at, dispatched_at, branch, worktree_path, base_ref, opening_message_json
           ) VALUES (
             ${run.id}, ${run.memberId}, ${run.projectId}, ${run.threadId}, ${run.taskText},
-            ${run.title}, ${run.instructions}, ${JSON.stringify(run.allowedTools)},
+            ${run.title}, ${run.instructions}, ${JSON.stringify(run.withheldTools)},
             ${run.memberRevision}, ${JSON.stringify(run.modelSelection)},
             ${run.runtimeMode}, ${run.dispatchState}, ${run.recoveryAttempt}, ${run.lastError}, ${run.createdAt},
             ${run.dispatchedAt}, ${run.workspace?.branch ?? null},
@@ -750,7 +750,7 @@ export const CrewStoreLive = Layer.effect(
         sql<CrewRunRow>`
           SELECT id, member_id AS memberId, project_id AS projectId, thread_id AS threadId,
             task_text AS taskText, title, instructions,
-            allowed_tools_json AS allowedToolsJson, member_revision AS memberRevision,
+            withheld_tools_json AS withheldToolsJson, member_revision AS memberRevision,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
             dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
             last_error AS lastError,

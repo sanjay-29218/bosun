@@ -6,6 +6,7 @@ import {
   BotReorderInput,
   BotSetPinInput,
   BotUpdateInput,
+  CREW_TOOL_GRANTS,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
   Project,
@@ -28,6 +29,15 @@ const shared = {
   ],
 };
 
+const withheldTools = Schema.optionalKey(
+  Schema.Array(Schema.String).annotate({
+    description: `Tools the bot can't use, by id: ${CREW_TOOL_GRANTS.map((grant) => `"${grant.id}" (${grant.label})`).join(", ")}. Omit or [] for every tool.`,
+  }),
+);
+// Agents read today's schema, so they never send the key older clients did.
+const { allowedTools: _createLegacy, ...createFields } = BotCreateInput.fields;
+const { allowedTools: _updateLegacy, ...updateFields } = BotUpdateInput.fields;
+
 const List = Tool.make("t3_bot_list", {
   ...shared,
   description:
@@ -41,16 +51,16 @@ const List = Tool.make("t3_bot_list", {
 const Create = Tool.make("t3_bot_create", {
   ...shared,
   description:
-    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Without modelSelection it runs on this thread's model. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
-  parameters: BotCreateInput,
+    "Create a bot at the end of the rail. Choose a stable id; retrying with the same id and fields returns the same bot. Without modelSelection it runs on this thread's model. It gets every tool and full access unless you pass withheldTools or runtimeMode. Give it projects with t3_bot_move_project, or pass botId to t3_project_create.",
+  parameters: Schema.Struct({ ...createFields, withheldTools }),
   success: Bot,
 }).annotate(Tool.Idempotent, true);
 
 const Update = Tool.make("t3_bot_update", {
   ...shared,
   description:
-    "Change a bot's name, avatar, color, instructions, allowed tools, runtime mode, default model, default workflow or what its headquarters does when its conversation grows long. Omitted fields are kept. Pass the bot's current revision as expectedRevision.",
-  parameters: BotUpdateInput,
+    "Change a bot's name, avatar, color, instructions, withheld tools, runtime mode, default model, default workflow or what its headquarters does when its conversation grows long. Omitted fields are kept; withheldTools replaces the whole list. Pass the bot's current revision as expectedRevision.",
+  parameters: Schema.Struct({ ...updateFields, withheldTools }),
   success: Bot,
 });
 

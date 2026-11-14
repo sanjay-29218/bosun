@@ -107,13 +107,21 @@ export const isBotFreshStartContext = (
   context: { readonly records: ReadonlyArray<unknown> } | undefined,
 ): boolean => context?.records.some(isFreshStartRecord) ?? false;
 
+/**
+ * Builds before #96 sent `allowedTools`, a list with the opposite meaning. Inputs accept the key
+ * only so the server can refuse it with a plain message instead of flipping access.
+ */
+export const LEGACY_ALLOWED_TOOLS = Schema.optionalKey(Schema.Unknown);
+export const LEGACY_TOOLS_MESSAGE = "This Bosun is newer; update the app to edit tools.";
+
 export const Bot = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.String,
-  allowedTools: Schema.Array(Schema.String),
+  /** The tools a person withheld; every other tool is on. */
+  withheldTools: Schema.Array(Schema.String),
   runtimeMode: RuntimeMode,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
@@ -140,7 +148,8 @@ export const BotCreateInput = Schema.Struct({
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.optionalKey(Schema.String),
-  allowedTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  allowedTools: LEGACY_ALLOWED_TOOLS,
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),
@@ -155,7 +164,8 @@ export const BotUpdateInput = Schema.Struct({
   avatar: Schema.optionalKey(BotAvatar),
   color: Schema.optionalKey(ProjectIconColor),
   instructions: Schema.optionalKey(Schema.String),
-  allowedTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  allowedTools: LEGACY_ALLOWED_TOOLS,
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),

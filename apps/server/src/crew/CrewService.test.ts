@@ -15,6 +15,7 @@ import {
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
   ProjectId,
+  LEGACY_TOOLS_MESSAGE,
   ProviderInstanceId,
   ThreadId,
   type RunId,
@@ -108,7 +109,7 @@ const createBot = (bots: CrewService["Service"]) =>
     projectId,
     name: "Builder",
     instructions: "Implement the assigned change.",
-    allowedTools: ["crew.delegate"],
+    withheldTools: ["crew.delegate"],
     modelSelection,
     runtimeMode: "approval-required",
   });
@@ -141,6 +142,22 @@ describe("Bot foundation", () => {
             modelSelection,
             runtimeMode: "approval-required",
           });
+          // Unless told otherwise, a role gets every tool and full access.
+          expect(
+            yield* bots.createRole({
+              id: "role:open",
+              name: "Open",
+              instructions: "Help.",
+              modelSelection,
+            }),
+          ).toMatchObject({ withheldTools: [], runtimeMode: "full-access" });
+          // An older client's tool list meant the opposite, so it is refused in plain words.
+          for (const save of [
+            bots.createRole({ ...role, id: "role:old-client", allowedTools: [] }),
+            bots.updateRole({ ...role, expectedRevision: 1, enabled: true, allowedTools: [] }),
+          ]) {
+            expect((yield* Effect.flip(save)).message).toBe(LEGACY_TOOLS_MESSAGE);
+          }
           const member = yield* bots.instantiate("bot:researcher", projectId, role.id);
           expect(member.roleId).toBe(role.id);
           expect(member.roleRevision).toBe(1);
@@ -469,7 +486,7 @@ describe("Bot foundation", () => {
           });
           yield* sql`
               INSERT INTO bots (
-                id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+                id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
                 model_selection_json, position, revision, created_at,
                 updated_at
               ) VALUES (
@@ -655,7 +672,7 @@ describe("Bot foundation", () => {
               },
               color: "blue",
               instructions: "Run my projects.",
-              allowedTools: [],
+              withheldTools: [],
               runtimeMode: "full-access",
               modelSelection,
               longConversation,
@@ -672,7 +689,7 @@ describe("Bot foundation", () => {
               taskText: "Lead the bot's work.",
               title: id,
               instructions: "Run my projects.",
-              allowedTools: [],
+              withheldTools: [],
               memberRevision: 1,
               modelSelection,
               runtimeMode: "full-access",
@@ -707,7 +724,7 @@ describe("Bot foundation", () => {
             roleRevision: null,
             name: "Project manager",
             instructions: "Manage the project.",
-            allowedTools: [],
+            withheldTools: [],
             modelSelection,
             runtimeMode: "full-access",
             enabled: true,
@@ -727,7 +744,7 @@ describe("Bot foundation", () => {
             taskText: "Manage the project.",
             title: "Project manager",
             instructions: "Manage the project.",
-            allowedTools: [],
+            withheldTools: [],
             memberRevision: 1,
             modelSelection,
             runtimeMode: "full-access",
@@ -770,7 +787,7 @@ describe("Bot foundation", () => {
           const replay = yield* bots.createRun(request);
           const detail = yield* query.getThreadDetailById(first.threadId);
           expect(first.dispatchState).toBe("started");
-          expect(first.allowedTools).toEqual(["crew.delegate"]);
+          expect(first.withheldTools).toEqual(["crew.delegate"]);
           expect(first.memberRevision).toBe(1);
           expect(replay.threadId).toBe(first.threadId);
           const conflicting = yield* bots
@@ -902,7 +919,7 @@ describe("Bot foundation", () => {
               taskText: "Recover this task",
               title: "Builder: Recover this task",
               instructions: bot.instructions,
-              allowedTools: bot.allowedTools,
+              withheldTools: bot.withheldTools,
               memberRevision: bot.revision,
               modelSelection: bot.modelSelection,
               runtimeMode: bot.runtimeMode,

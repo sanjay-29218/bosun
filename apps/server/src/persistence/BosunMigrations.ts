@@ -70,6 +70,7 @@ import ProjectManagerOwnSettings from "./Migrations/112_ProjectManagerOwnSetting
 import ProjectManagerIcon from "./Migrations/113_ProjectManagerIcon.ts";
 import OptionalProjectBot from "./Migrations/114_OptionalProjectBot.ts";
 import RailPins from "./Migrations/115_RailPins.ts";
+import WithheldTools from "./Migrations/116_WithheldTools.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -132,6 +133,7 @@ const migrationEntries = [
   [113, "ProjectManagerIcon", ProjectManagerIcon],
   [114, "OptionalProjectBot", OptionalProjectBot],
   [115, "RailPins", RailPins],
+  [116, "WithheldTools", WithheldTools],
 ] as const;
 
 const legacyNames = new Set([

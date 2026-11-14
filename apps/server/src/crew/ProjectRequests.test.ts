@@ -366,7 +366,7 @@ it.effect(
       // The turn that took R-1 ended, then the server stopped before its fallback went out.
       yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
       VALUES (${`project-hq:${projectId}`}, 'project-manager:web', ${projectId},
         ${managerThreadId}, 'Manage', 'Project manager', '', '[]', 1, '{}', 'full-access',
         '2026-11-05')
@@ -409,7 +409,7 @@ it.effect("recovers a later turn's fallback at startup when an earlier turn repl
     yield* clear;
     yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        allowed_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
       VALUES (${`project-hq:${projectId}`}, 'project-manager:web', ${projectId},
         ${managerThreadId}, 'Manage', 'Project manager', '', '[]', 1, '{}', 'full-access',
         '2026-11-05')
