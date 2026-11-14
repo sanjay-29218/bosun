@@ -14556,7 +14556,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
 
       const now = yield* DateTime.now;
-      const result = subagentResultForRun(childProjection, { ...childRun, status: outcome });
+      const runResult = subagentResultForRun(childProjection, { ...childRun, status: outcome });
+      const result = {
+        ...runResult,
+        text:
+          crewUnansweredResult({
+            thread: childControls.thread,
+            requests: childResult.runtimeRequests,
+            resultRun: childRun,
+          }) ?? runResult.text,
+      };
       const parentRun =
         task.runId === null
           ? undefined
@@ -14569,12 +14578,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...task,
         providerThreadId: childRun.providerThreadId,
         status: terminalStatus,
-        result:
-          crewUnansweredResult({
-            thread: childControls.thread,
-            requests: childResult.runtimeRequests,
-            resultRun: childRun,
-          }) ?? result.text,
+        result: result.text,
         completedAt: now,
         updatedAt: now,
         // The cancelling parent gets no wake, and the task records the run it settled from.

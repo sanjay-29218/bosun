@@ -5630,6 +5630,45 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
       const approvals = yield* CrewApprovals.CrewApprovals;
       const eventSink = yield* EventSink.EventSinkV2;
       const asking = yield* seedAsking("crew-ask-archived");
+      // The task's row in the lead's activity, which its transcript shows.
+      const task = (yield* taskOf(asking.parentThreadId, asking.taskId))!;
+      yield* eventSink.write({
+        commandId: reconcileCommandId("crew-ask-archived-activity"),
+        events: [
+          {
+            id: EventId.make("event:crew-ask-archived-activity"),
+            type: "turn-item.updated",
+            threadId: asking.parentThreadId,
+            ...(task.runId === null ? {} : { runId: task.runId }),
+            nodeId: task.id,
+            occurredAt: asking.now,
+            payload: {
+              id: TurnItemId.make("turn-item:crew-ask-archived-activity"),
+              threadId: asking.parentThreadId,
+              runId: task.runId,
+              nodeId: task.id,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 99,
+              status: "running",
+              title: null,
+              startedAt: asking.now,
+              completedAt: null,
+              updatedAt: asking.now,
+              type: "subagent",
+              subagentId: task.id,
+              origin: "app_owned",
+              driver: task.driver,
+              providerInstanceId: task.providerInstanceId,
+              childThreadId: asking.childThreadId,
+              prompt: task.prompt,
+              result: null,
+            },
+          },
+        ],
+      });
       const settled = yield* eventSink
         .stream({ threadId: asking.parentThreadId, eventType: "subagent.updated" })
         .pipe(
@@ -5658,11 +5697,14 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
       assert.isFalse(
         child.messages.some((message) => message.id.startsWith("message:crew-answer:")),
       );
-      // The lead hears the question went unanswered, not the member's last message.
-      assert.equal(
-        (yield* taskOf(asking.parentThreadId, asking.taskId))?.result,
-        "Designer's question went unanswered: its thread was archived.",
-      );
+      // The lead hears the question went unanswered, not the member's last message, in its task
+      // and in the activity its transcript shows.
+      const unanswered = "Designer's question went unanswered: its thread was archived.";
+      assert.equal((yield* taskOf(asking.parentThreadId, asking.taskId))?.result, unanswered);
+      const activity = (yield* orchestrator.getThreadProjection(
+        asking.parentThreadId,
+      )).turnItems.find((item) => item.type === "subagent" && item.subagentId === asking.taskId);
+      assert.equal(activity?.type === "subagent" ? activity.result : undefined, unanswered);
     }),
   );
 
