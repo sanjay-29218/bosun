@@ -13222,6 +13222,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         now,
       });
     }
+    // A task in a linked environment, or waiting to start there, is cancelled here; its
+    // follower then stops its thread there, or never starts it.
+    if (
+      subagent?.origin === "app_owned" &&
+      subagent.childThreadId === null &&
+      subagent.runId === command.runId &&
+      (subagent.remoteChild !== undefined || subagent.pendingRemote !== undefined)
+    ) {
+      if (subagent.result !== null) return;
+      return yield* dispatchRemoteDelegatedTaskComplete(
+        {
+          type: "delegated_task.remote.complete",
+          commandId: command.commandId,
+          parentThreadId: command.threadId,
+          taskId: subagent.id,
+          status: "cancelled",
+          result:
+            subagent.remoteChild === undefined && subagent.pendingRemote !== undefined
+              ? `Cancelled. It never started on ${subagent.pendingRemote.label}.`
+              : "Cancelled.",
+        },
+        events,
+      );
+    }
     if (
       subagent === undefined ||
       subagent.runId !== command.runId ||

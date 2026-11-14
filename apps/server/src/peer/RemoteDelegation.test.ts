@@ -1587,7 +1587,7 @@ it.effect("a request waiting when the laptop restarts still starts once the box 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect.each(["cancelled", "no longer allowed"] as const)(
+it.effect.each(["cancelled", "stopped in the app", "no longer allowed"] as const)(
   "a request %s while it waits never starts there",
   (change) =>
     Effect.scoped(
@@ -1622,6 +1622,16 @@ it.effect.each(["cancelled", "no longer allowed"] as const)(
             headquartersScope,
           );
           expect(cancel.structuredContent).toEqual({ taskId: waiting.taskId, status: "cancelled" });
+        } else if (change === "stopped in the app") {
+          // The Lineage row's Stop, as the web and mobile clients send it.
+          const [task] = (yield* a.orchestrator.getThreadProjection(headquarters)).subagents;
+          yield* a.orchestrator.dispatch({
+            type: "subagent.stop",
+            commandId: CommandId.make("command:stop-waiting-request"),
+            threadId: headquarters,
+            runId: task!.runId!,
+            subagentId: waiting.taskId,
+          });
         } else {
           // Box is unticked for Captain while the request waits.
           yield* Ref.set(botBox.permitted, false);
@@ -1630,7 +1640,7 @@ it.effect.each(["cancelled", "no longer allowed"] as const)(
         yield* Queue.offer(retries.retry, undefined);
 
         expect(yield* taskResult(a, waiting.taskId, headquarters)).toMatchObject(
-          change === "cancelled"
+          change !== "no longer allowed"
             ? { status: "cancelled", result: "Cancelled. It never started on Box." }
             : {
                 status: "failed",
