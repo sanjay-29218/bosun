@@ -65,12 +65,13 @@ export class BotStore extends Context.Service<
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
     /**
      * Ticks a newly linked environment for every bot that hasn't got it, bumping each one's
-     * revision. Called once per new link; a re-link leaves a person's unticking alone.
+     * revision; returns how many changed. Called once per new link; a re-link leaves a person's
+     * unticking alone.
      */
     readonly permitEnvironmentForAll: (
       environmentId: EnvironmentId,
       updatedAt: string,
-    ) => Effect.Effect<void, PersistenceSqlError>;
+    ) => Effect.Effect<number, PersistenceSqlError>;
     /** Every environment linked now, which a new bot may work on until a person unticks it. */
     readonly linkedEnvironmentIds: Effect.Effect<ReadonlyArray<EnvironmentId>, PersistenceSqlError>;
   }
@@ -205,7 +206,11 @@ const make = Effect.gen(function* () {
         WHERE deleted_at IS NULL AND NOT EXISTS (
           SELECT 1 FROM json_each(bots.permitted_environment_ids_json) WHERE value = ${environmentId}
         )
-      `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+        RETURNING id
+      `.pipe(
+          Effect.map((rows) => rows.length),
+          Effect.mapError(queryError),
+        ),
     ),
     linkedEnvironmentIds: sql<{ readonly id: string }>`
       SELECT environment_id AS id FROM peer_environment_links ORDER BY environment_id
