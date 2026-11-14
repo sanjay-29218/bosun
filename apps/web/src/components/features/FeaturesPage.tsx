@@ -13,7 +13,9 @@ import {
   featureForIssue,
   featuresByIssue,
   issueKey,
+  issuePlace,
   matchesIssueSearch,
+  structureIssue,
   type EnvironmentIssue,
 } from "@t3tools/client-runtime/state/issue-board";
 import {
@@ -180,6 +182,11 @@ export function FeaturesPage(props: {
   const issueFeatures = featuresByIssue(board.cards);
   const featureFor = (issue: EnvironmentIssue) => featureForIssue(issueFeatures, issue);
   const milestoneFilter = props.search.milestone ?? null;
+  const narrowedMilestone =
+    milestoneFilter === null
+      ? null
+      : (issueBoard.milestones.find((milestone) => issueKey(milestone) === milestoneFilter) ??
+        null);
   const inMilestone = (issue: EnvironmentIssue) =>
     milestoneFilter === null ||
     (issue.milestone !== null &&
@@ -418,6 +425,13 @@ export function FeaturesPage(props: {
               number: issue.number,
             },
       ),
+    issueAt: (environmentId, url, parent) =>
+      structureIssue(issueBoard.structure, environmentId, url, parent),
+    partsOf: (environmentId, url) => {
+      const place = issuePlace(environmentId, { url });
+      return (place && issueBoard.structure.partsByKey.get(place.key)) || [];
+    },
+    featureFor,
     onStartTodo: (issue) =>
       startFeatureDraft(
         { environmentId: issue.environmentId, projectId: issue.projectId },
@@ -464,6 +478,12 @@ export function FeaturesPage(props: {
               environmentId: newFeatureProject.environmentId,
               projectId: newFeatureProject.id,
             },
+            // A board narrowed to a milestone files new issues in it.
+            ...(narrowedMilestone &&
+            narrowedMilestone.environmentId === newFeatureProject.environmentId &&
+            narrowedMilestone.projectId === newFeatureProject.id
+              ? { milestone: narrowedMilestone.number }
+              : {}),
           }
         : {},
     );
@@ -713,6 +733,7 @@ export function FeaturesPage(props: {
         chats={chats}
         settledShelf={settledShelf}
         handlers={handlers}
+        milestone={narrowedMilestone}
       />
     );
   }

@@ -973,6 +973,7 @@ export const FeatureServiceLive = Layer.effect(
           state: detail.state,
           milestone: detail.milestone?.title ?? null,
           subIssues: detail.subIssues,
+          parent: detail.parent,
         } satisfies FeatureIssue;
       }
       const candidate = ref.trim();
@@ -1001,6 +1002,7 @@ export const FeatureServiceLive = Layer.effect(
         state: subject.state ?? "open",
         milestone: subject.milestone ?? null,
         subIssues: subject.subIssues ?? null,
+        parent: subject.parent ?? null,
       } satisfies FeatureIssue;
     });
 

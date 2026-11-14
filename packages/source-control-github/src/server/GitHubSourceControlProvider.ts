@@ -19,6 +19,7 @@ import {
   SourceControlProviderError,
   TrimmedNonEmptyString,
   type ChangeRequest,
+  type IssueStructureRef,
   type RepositoryIssue,
   type SourceControlProviderDiscoveryItem,
   type SourceControlRepositoryCloneUrls,
@@ -99,6 +100,7 @@ const decodeLinkSubject = Schema.decodeUnknownEffect(
       sub_issues_summary: Schema.optional(
         Schema.NullOr(Schema.Struct({ total: Schema.Number, completed: Schema.Number })),
       ),
+      parent_issue_url: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 );
@@ -522,6 +524,7 @@ function toPullRequestRecord(node: PullRequestNode): NormalizedGitHubPullRequest
 const ISSUE_LIST_OPEN_LIMIT = 100;
 const ISSUE_LIST_CLOSED_LIMIT = 30;
 const ISSUE_LIST_MILESTONE_LIMIT = 25;
+const ISSUE_STRUCTURE_SUB_ISSUE_LIMIT = 50;
 /** 130 issues with labels and assignees stay well under a megabyte. */
 const ISSUE_LIST_MAX_RESPONSE_BYTES = 4_000_000;
 
@@ -632,6 +635,44 @@ function toRepositoryIssue(node: typeof IssueNodeSchema.Type): RepositoryIssue {
   };
 }
 
+const IssueRefSchema = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  state: Schema.String,
+  url: Schema.String,
+});
+/** An issue's parent and sub-issues, read when its detail opens. */
+const IssueStructure = GraphQL.query("IssueStructure", {
+  document: `query IssueStructure($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      parent { number title state url }
+      subIssues(first: ${ISSUE_STRUCTURE_SUB_ISSUE_LIMIT}) { nodes { number title state url } }
+    }
+  }
+}`,
+  variables: { owner: Schema.String, name: Schema.String, number: Schema.Number },
+  result: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        issue: Schema.NullOr(
+          Schema.Struct({
+            parent: Schema.NullOr(IssueRefSchema),
+            subIssues: Schema.Struct({ nodes: Schema.Array(Schema.NullOr(IssueRefSchema)) }),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+
+const toIssueStructureRef = (node: typeof IssueRefSchema.Type): IssueStructureRef => ({
+  number: node.number,
+  title: node.title,
+  state: node.state === "CLOSED" ? "closed" : "open",
+  url: node.url,
+});
+
 const isGitHubApiResponseError = Schema.is(GitHubRequestPolicy.GitHubApiResponseError);
 
 /** A GraphQL schema without sub-issues names the missing field in its answer. */
@@ -639,7 +680,9 @@ function lacksSubIssueFields(error: GitHubFailure): boolean {
   const cause = error.cause;
   return (
     isGitHubApiResponseError(cause) &&
-    (cause.githubErrors ?? []).some((message) => /\b(parent|subIssuesSummary)\b/u.test(message))
+    (cause.githubErrors ?? []).some((message) =>
+      /\b(parent|subIssues|subIssuesSummary)\b/u.test(message),
+    )
   );
 }
 
@@ -729,6 +772,7 @@ export const make = Effect.gen(function* () {
       PullRequestByNumber,
       IssueList,
       IssueListWithoutSubIssues,
+      IssueStructure,
     ).middleware(GitHubGraphQlClient.GitHubGraphQlAuth),
   ).pipe(Effect.provide(GitHubGraphQlClient.layer));
 
@@ -1109,7 +1153,31 @@ export const make = Effect.gen(function* () {
   }) {
     const locator = yield* issueRepository(input);
     const path = `${issuePath(locator)}/${input.number}`;
-    const [issueResponse, commentsResponse] = yield* Effect.all(
+    // The structure is extra: a host without sub-issues, or a failed read, still shows the issue.
+    const structure = graphqlRead(
+      { host: locator.host, operation: "getIssueStructure", allowReserve: true },
+      "GitHub returned an invalid issue structure.",
+      client.IssueStructure({ owner: locator.owner, name: locator.name, number: input.number }),
+    ).pipe(
+      Effect.map((decoded): GitHubIssues.IssueStructure => {
+        const issue = decoded.repository?.issue ?? null;
+        return {
+          parentIssue: issue?.parent ? toIssueStructureRef(issue.parent) : null,
+          subIssueList: (issue?.subIssues.nodes ?? []).flatMap((node) =>
+            node === null ? [] : [toIssueStructureRef(node)],
+          ),
+        };
+      }),
+      Effect.catchIf(lacksSubIssueFields, () =>
+        Effect.succeed<GitHubIssues.IssueStructure>({ parentIssue: null, subIssueList: [] }),
+      ),
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not read the issue's sub-issues", { cause }).pipe(
+          Effect.as<GitHubIssues.IssueStructure>({ parentIssue: null, subIssueList: null }),
+        ),
+      ),
+    );
+    const [issueResponse, commentsResponse, issueStructure] = yield* Effect.all(
       [
         rest(
           { host: locator.host, operation: "getIssue", path, allowReserve: true },
@@ -1124,15 +1192,16 @@ export const make = Effect.gen(function* () {
           },
           `Issue #${input.number} was not found.`,
         ),
+        structure,
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
     const issue = yield* decodedIssue(issueResponse.body);
     const comments = GitHubIssues.decodeRestComments(commentsResponse.body);
     if (Result.isFailure(comments)) {
       return yield* failure("GitHub returned invalid issue comments.", comments.failure);
     }
-    return GitHubIssues.restIssueDetail(issue, comments.success);
+    return GitHubIssues.restIssueDetail(issue, comments.success, issueStructure);
   });
 
   const createIssue = Effect.fn("GitHubSourceControlProvider.createIssue")(function* (input: {
@@ -1335,24 +1404,65 @@ export const make = Effect.gen(function* () {
     readonly number: number;
     readonly title?: string | undefined;
     readonly body?: string | undefined;
+    readonly milestone?: number | null | undefined;
+    readonly parent?: number | null | undefined;
     readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
   }) {
     const locator = yield* issueRepository(input);
-    const response = yield* rest(
-      {
-        host: locator.host,
-        operation: "updateIssue",
-        method: "PATCH",
-        allowReserve: true,
-        path: `${issuePath(locator)}/${input.number}`,
-        body: {
-          ...(input.title === undefined ? {} : { title: input.title }),
-          ...(input.body === undefined ? {} : { body: input.body }),
+    const path = `${issuePath(locator)}/${input.number}`;
+    const notFound = `Issue #${input.number} was not found.`;
+    const patch = {
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.body === undefined ? {} : { body: input.body }),
+      ...(input.milestone === undefined ? {} : { milestone: input.milestone }),
+    };
+    // A parent-only change reads the issue for its database ID and current parent.
+    const response = yield* Object.keys(patch).length === 0 && input.parent !== undefined
+      ? rest({ host: locator.host, operation: "getIssue", path, allowReserve: true }, notFound)
+      : rest(
+          {
+            host: locator.host,
+            operation: "updateIssue",
+            method: "PATCH",
+            allowReserve: true,
+            path,
+            body: patch,
+          },
+          notFound,
+        );
+    const current = yield* decodedIssue(response.body);
+    const issue = GitHubIssues.restIssueToRepositoryIssue(current);
+    if (input.parent === undefined || input.parent === issue.parent) return issue;
+    if (current.id === undefined) {
+      return yield* failure(`GitHub didn't say which issue #${issue.number} is, to move it.`);
+    }
+    // The sub-issue API takes the child's database ID, not its number.
+    if (input.parent === null) {
+      yield* rest(
+        {
+          host: locator.host,
+          operation: "removeSubIssue",
+          method: "DELETE",
+          allowReserve: true,
+          path: `${issuePath(locator)}/${issue.parent}/sub_issue`,
+          body: { sub_issue_id: current.id },
         },
-      },
-      `Issue #${input.number} was not found.`,
-    );
-    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+        `Issue #${issue.parent} was not found.`,
+      );
+    } else {
+      yield* rest(
+        {
+          host: locator.host,
+          operation: "addSubIssue",
+          method: "POST",
+          allowReserve: true,
+          path: `${issuePath(locator)}/${input.parent}/sub_issues`,
+          body: { sub_issue_id: current.id, replace_parent: true },
+        },
+        `Issue #${input.parent} was not found.`,
+      );
+    }
+    return { ...issue, parent: input.parent };
   });
 
   const setIssueState = Effect.fn("GitHubSourceControlProvider.setIssueState")(function* (input: {
@@ -1452,6 +1562,7 @@ export const make = Effect.gen(function* () {
       state: subject.state === "closed" ? ("closed" as const) : ("open" as const),
       milestone: subject.milestone?.title ?? null,
       subIssues: subIssues && subIssues.total > 0 ? subIssues : null,
+      parent: GitHubIssues.issueNumberFromApiUrl(subject.parent_issue_url),
     };
   });
 

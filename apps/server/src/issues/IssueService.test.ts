@@ -182,22 +182,29 @@ it.effect("files an issue in an open milestone named by title or number, under i
   } as SourceControlProvider.SourceControlProvider["Service"];
   return Effect.gen(function* () {
     const issues = yield* IssueService.IssueService;
-    const file = (milestone: string) =>
+    const file = (milestone: string | number) =>
       issues.create({ projectId, title: "CSV", body: "", milestone, parent: 3 });
     yield* file("exports");
     yield* file("#9");
+    yield* file(5);
     const missing = yield* file("Imports").pipe(Effect.flip);
     assert.include(missing.reason, 'No open milestone is called "Imports"');
     assert.deepStrictEqual(created, [
       { milestone: 4, parent: 3 },
       { milestone: 9, parent: 3 },
+      { milestone: 5, parent: 3 },
     ]);
   }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
 });
 
 it.effect("edits an issue, but not over a change made on the host since it was read", () => {
-  const edits: Array<{ readonly title?: string | undefined; readonly body?: string | undefined }> =
-    [];
+  type Edit = {
+    readonly title?: string | undefined;
+    readonly body?: string | undefined;
+    readonly milestone?: number | null | undefined;
+    readonly parent?: number | null | undefined;
+  };
+  const edits: Array<Edit> = [];
   let hostUpdatedAt = issue.updatedAt;
   const github = {
     ...provider("github", () =>
@@ -214,12 +221,14 @@ it.effect("edits an issue, but not over a change made on the host since it was r
         commentCount: 0,
         comments: [],
       }),
-    updateIssue: (input: {
-      readonly title?: string | undefined;
-      readonly body?: string | undefined;
-    }) =>
+    updateIssue: (input: Edit) =>
       Effect.sync(() => {
-        edits.push({ title: input.title, body: input.body });
+        edits.push({
+          title: input.title,
+          body: input.body,
+          milestone: input.milestone,
+          parent: input.parent,
+        });
         return issue;
       }),
   } as SourceControlProvider.SourceControlProvider["Service"];
@@ -239,9 +248,13 @@ it.effect("edits an issue, but not over a change made on the host since it was r
     assert.strictEqual(refused._tag, "IssueChangedError");
     // Saving anyway sends no expected time.
     yield* issues.update({ projectId, number: 7, title: "Mine" });
+    // A structure change passes null through, which clears the milestone.
+    yield* issues.update({ projectId, number: 7, milestone: null, parent: 48 });
+    const fields = { title: undefined, body: undefined, milestone: undefined, parent: undefined };
     assert.deepStrictEqual(edits, [
-      { title: undefined, body: "Steps" },
-      { title: "Mine", body: undefined },
+      { ...fields, body: "Steps" },
+      { ...fields, title: "Mine" },
+      { ...fields, milestone: null, parent: 48 },
     ]);
   }).pipe(Effect.provide(serviceLayer({ provider: github, context: context("github", "GitHub") })));
 });

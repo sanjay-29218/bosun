@@ -1,4 +1,5 @@
 import type {
+  IssueStructureRef,
   RepositoryIssue,
   RepositoryIssueComment,
   RepositoryIssueDetail,
@@ -45,6 +46,7 @@ const RestIssue = Schema.Struct({
   sub_issues_summary: Schema.optional(
     Schema.NullOr(Schema.Struct({ total: Schema.Int, completed: Schema.Int })),
   ),
+  parent_issue_url: Schema.optional(Schema.NullOr(Schema.String)),
 });
 type RestIssue = typeof RestIssue.Type;
 
@@ -76,6 +78,12 @@ export const restMilestone = (milestone: typeof RestMilestone.Type): RepositoryM
 });
 export const decodeRestComments = decodeJsonResult(Schema.Array(RestComment));
 
+/** The issue number an API or web issue URL ends in. */
+export const issueNumberFromApiUrl = (url: string | null | undefined): number | null => {
+  const match = url ? /\/issues\/([1-9]\d*)\/?$/u.exec(url) : null;
+  return match ? Number(match[1]) : null;
+};
+
 const toUser = (user: typeof RestUser.Type | undefined) =>
   user ? { login: user.login, avatarUrl: user.avatar_url } : null;
 
@@ -89,8 +97,7 @@ export function restIssueToRepositoryIssue(issue: RestIssue): RepositoryIssue {
     updatedAt: issue.updated_at,
     closedAt: issue.closed_at,
     milestone: issue.milestone ?? null,
-    // REST does not name the parent; the board reads it from the GraphQL list.
-    parent: null,
+    parent: issueNumberFromApiUrl(issue.parent_issue_url),
     subIssues:
       subIssues && subIssues.total > 0
         ? { completed: subIssues.completed, total: subIssues.total }
@@ -116,12 +123,23 @@ const closedReason = (issue: RestIssue): RepositoryIssueDetail["closedReason"] =
     : "completed";
 };
 
+/** An issue's parent and sub-issues; a null list means they couldn't be read. */
+export interface IssueStructure {
+  readonly parentIssue: IssueStructureRef | null;
+  readonly subIssueList: ReadonlyArray<IssueStructureRef> | null;
+}
+
 export function restIssueDetail(
   issue: RestIssue,
   comments: ReadonlyArray<typeof RestComment.Type>,
+  structure: IssueStructure,
 ): RepositoryIssueDetail {
+  const row = restIssueToRepositoryIssue(issue);
   return {
-    ...restIssueToRepositoryIssue(issue),
+    ...row,
+    parent: structure.parentIssue?.number ?? row.parent,
+    parentIssue: structure.parentIssue,
+    subIssueList: structure.subIssueList,
     body: issue.body ?? "",
     closedReason: closedReason(issue),
     author: toUser(issue.user),

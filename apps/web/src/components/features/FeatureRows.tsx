@@ -41,6 +41,8 @@ import {
   type FeatureShelf,
 } from "./FeatureCard";
 import { FeatureNow } from "./FeatureNow";
+import { featureIssueStructure } from "./boardNesting.logic";
+import { PartOf, PartsChip, type PartsFold } from "./IssueStructure";
 import { CloseTodoButton, ReopenTodoButton } from "./todoState";
 
 /** A long stack shows its first page, then a button for the rest. */
@@ -126,10 +128,14 @@ export const FeatureRow = memo(function FeatureRow(props: {
   readonly card: EnvironmentFeatureCard;
   readonly handlers: FeatureBoardHandlers;
   readonly shelf: FeatureShelf;
-  /** A child feature, indented under its parent's row. */
-  readonly nested?: boolean;
+  /** A child feature or sub-issue, indented under its parent's row. */
+  readonly nested?: boolean | undefined;
+  /** Given when its issue's parts sit under it. */
+  readonly fold?: PartsFold | undefined;
 }) {
   const { card, handlers } = props;
+  const structure = featureIssueStructure(card, handlers);
+  const parent = props.nested ? null : (structure?.parent ?? null);
   // The lead's thread carries the feature's branch and pull request.
   const shell = useThreadShell(
     card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
@@ -172,6 +178,12 @@ export const FeatureRow = memo(function FeatureRow(props: {
         <span className="min-w-0 flex-1 truncate text-muted-foreground">
           {subtitle ? `· ${subtitle}` : null}
         </span>
+        {structure && parent !== null ? (
+          <PartOf parent={parent} title={structure.parentTitle} />
+        ) : null}
+        {structure?.subIssues ? (
+          <PartsChip subIssues={structure.subIssues} fold={props.fold} />
+        ) : null}
         {shell?.branch ? (
           <Chip className="hidden max-w-44 lg:flex">
             <GitBranchIcon aria-hidden className="size-3 shrink-0" />
@@ -278,11 +290,16 @@ export const ChatRow = memo(function ChatRow(props: {
 export const TodoRow = memo(function TodoRow(props: {
   readonly issue: EnvironmentIssue;
   readonly handlers: FeatureBoardHandlers;
+  /** A sub-issue, indented under its parent's row. */
+  readonly nested?: boolean | undefined;
+  /** Given when its parts sit under it. */
+  readonly fold?: PartsFold | undefined;
 }) {
   const { issue, handlers } = props;
   const closed = issue.state === "closed";
+  const parent = props.nested ? null : issue.parent;
   return (
-    <div className={rowClassName}>
+    <div className={cn(rowClassName, props.nested && "ps-8")}>
       <RowId>{issueRef(issue)}</RowId>
       {closed ? (
         <CircleSlashIcon aria-label="Closed" className="size-4 shrink-0 text-muted-foreground" />
@@ -303,6 +320,13 @@ export const TodoRow = memo(function TodoRow(props: {
           </Chip>
         ))}
       </span>
+      {parent !== null ? (
+        <PartOf
+          parent={parent}
+          title={handlers.issueAt(issue.environmentId, issue.url, parent)?.title ?? null}
+        />
+      ) : null}
+      {issue.subIssues ? <PartsChip subIssues={issue.subIssues} fold={props.fold} /> : null}
       <span className={cn("relative z-10 flex shrink-0 gap-1.5", hoverOnlyClassName)}>
         {closed ? (
           <ReopenTodoButton todo={issue} />

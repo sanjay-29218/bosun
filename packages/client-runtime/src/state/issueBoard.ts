@@ -110,3 +110,100 @@ export function matchesIssueSearch(issue: EnvironmentIssue, text: string): boole
     .toLowerCase();
   return text.split(" ").every((word) => haystack.includes(word));
 }
+
+/**
+ * Where an issue sits in its repository's structure: its own key and its parent's, both by URL so
+ * an issue of another repository never matches by number.
+ */
+export interface IssuePlace {
+  readonly key: string;
+  readonly parentKey: string | null;
+}
+
+/** The URL of issue `number` in the same repository as `url`. */
+const siblingIssueUrl = (url: string, number: number) =>
+  url.split(/[?#]/u)[0]!.replace(/\/issues\/\d+\/?$/u, `/issues/${number}`);
+
+export function issuePlace(
+  environmentId: EnvironmentId,
+  issue: { readonly url: string; readonly parent?: number | null | undefined },
+): IssuePlace | null {
+  if (!issue.url) return null;
+  return {
+    key: issueUrlKey(environmentId, issue.url),
+    parentKey:
+      issue.parent == null
+        ? null
+        : issueUrlKey(environmentId, siblingIssueUrl(issue.url, issue.parent)),
+  };
+}
+
+/** The loaded issues by URL, and each parent's loaded sub-issues in list order. */
+export interface IssueStructureIndex {
+  readonly byKey: ReadonlyMap<string, EnvironmentIssue>;
+  readonly partsByKey: ReadonlyMap<string, ReadonlyArray<EnvironmentIssue>>;
+}
+
+export function indexIssueStructure(issues: ReadonlyArray<EnvironmentIssue>): IssueStructureIndex {
+  const byKey = new Map<string, EnvironmentIssue>();
+  const partsByKey = new Map<string, EnvironmentIssue[]>();
+  for (const issue of issues) {
+    const place = issue.ticketId ? null : issuePlace(issue.environmentId, issue);
+    if (!place) continue;
+    byKey.set(place.key, issue);
+    if (place.parentKey === null) continue;
+    const parts = partsByKey.get(place.parentKey);
+    if (parts) parts.push(issue);
+    else partsByKey.set(place.parentKey, [issue]);
+  }
+  return { byKey, partsByKey };
+}
+
+/** The loaded issue at `url`, or its parent when `parent` is given. */
+export function structureIssue(
+  index: IssueStructureIndex,
+  environmentId: EnvironmentId,
+  url: string,
+  parent?: number,
+): EnvironmentIssue | null {
+  if (!url) return null;
+  return (
+    index.byKey.get(
+      issueUrlKey(environmentId, parent === undefined ? url : siblingIssueUrl(url, parent)),
+    ) ?? null
+  );
+}
+
+export interface IssuePartGroups<Item> {
+  /** The parts shown under each head, by the head's key, in input order. */
+  readonly parts: ReadonlyMap<string, ReadonlyArray<Item>>;
+  /** Keys of the parts, which show under their head instead of in their own place. */
+  readonly nested: ReadonlySet<string>;
+}
+
+/**
+ * Nests each item under its parent when the parent is among `items` too. One level only: a part
+ * whose parent is itself a part stays in its own place. Order is kept, and each item is placed
+ * once, so a board renders a head's parts right after it and skips them elsewhere.
+ */
+export function groupIssueParts<Item>(
+  items: ReadonlyArray<Item>,
+  placeOf: (item: Item) => IssuePlace | null,
+): IssuePartGroups<Item> {
+  const places = items.map(placeOf);
+  const present = new Map<string, IssuePlace>();
+  for (const place of places) if (place) present.set(place.key, place);
+  const parts = new Map<string, Item[]>();
+  const nested = new Set<string>();
+  places.forEach((place, index) => {
+    const head = place?.parentKey ? present.get(place.parentKey) : undefined;
+    if (!place || !head || head.key === place.key) return;
+    // A head that is itself nested would hide its parts two levels deep.
+    if (head.parentKey !== null && present.has(head.parentKey)) return;
+    const list = parts.get(head.key);
+    if (list) list.push(items[index]!);
+    else parts.set(head.key, [items[index]!]);
+    nested.add(place.key);
+  });
+  return { parts, nested };
+}
