@@ -107,7 +107,6 @@ export function MilestoneChip(props: {
         )}
       </MenuTrigger>
       <MenuPopup align="start" className="w-72">
-        <MenuGroupLabel>Milestone</MenuGroupLabel>
         <MenuRadioGroup
           value={milestone ? String(milestone.number) : ""}
           onValueChange={(value: string) => {
@@ -120,6 +119,7 @@ export function MilestoneChip(props: {
             });
           }}
         >
+          <MenuGroupLabel>Milestone</MenuGroupLabel>
           {[...choices, ...props.milestones].map((choice) => (
             <MenuRadioItem key={choice.number} value={String(choice.number)} closeOnClick>
               <span className="flex min-w-0 items-center gap-2">
@@ -327,9 +327,12 @@ export function SubIssuesSection(props: {
   if (list === undefined || ((list === null || list.length === 0) && issue.subIssues === null)) {
     return null;
   }
-  const closed =
-    issue.subIssues?.completed ?? list?.filter((part) => part.state === "closed").length ?? 0;
-  const total = issue.subIssues?.total ?? list?.length ?? 0;
+  // GitHub's summary lags a just-added part; the list is fresher unless it stopped at its limit.
+  const counted = list != null && list.length >= (issue.subIssues?.total ?? 0) ? list : null;
+  const closed = counted
+    ? counted.filter((part) => part.state === "closed").length
+    : (issue.subIssues?.completed ?? 0);
+  const total = counted ? counted.length : (issue.subIssues?.total ?? 0);
   const share = total === 0 ? 0 : Math.round((closed / total) * 100);
   const loadedByNumber = new Map(props.loaded.map((loaded) => [loaded.number, loaded]));
   const rowFor = (part: IssueStructureRef): EnvironmentIssue => ({
