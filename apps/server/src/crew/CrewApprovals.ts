@@ -3,9 +3,7 @@ import * as NodeCrypto from "node:crypto";
 
 import {
   CommandId,
-  MessageId,
   type OrchestrationV2DomainEvent,
-  type OrchestrationV2RuntimeRequest,
   type OrchestrationV2UserInputQuestion,
   RuntimeRequestId,
   type ThreadId,
@@ -21,6 +19,7 @@ import * as Stream from "effect/Stream";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
+import { CREW_APPROVAL } from "./crewPrompts.ts";
 
 export class CrewApprovalError extends Schema.TaggedError<CrewApprovalError>()(
   "CrewApprovalError",
@@ -31,18 +30,20 @@ export class CrewApprovalError extends Schema.TaggedError<CrewApprovalError>()(
   }
 }
 
-const APPROVE = "Approve";
-const REQUEST_CHANGES = "Request changes";
-const QUESTION_ID = "approval";
+const {
+  approve: APPROVE,
+  requestChanges: REQUEST_CHANGES,
+  questionId: QUESTION_ID,
+} = CREW_APPROVAL;
 
 /** What the asking member reads once it has asked. */
 const CREW_ASKED_NEXT =
   "Asked. End your turn now; the person's answer arrives as your next message.";
 
 /**
- * A feature crew member asks the person in its own thread, and their answer resumes it there.
- * Its delegated task stays open meanwhile (see `awaitsPerson`), so the lead gets the outcome the
- * member replies with, never the work or the question.
+ * A feature crew member asks the person in its own thread. The orchestrator commits the answer's
+ * continuation with the answer itself, and the task stays open meanwhile (see `awaitsPerson`), so
+ * the lead gets the outcome the member replies with, never the work or the question.
  */
 export class CrewApprovals extends Context.Service<
   CrewApprovals,
@@ -56,7 +57,7 @@ export class CrewApprovals extends Context.Service<
       CrewApprovalError
     >;
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
-    /** Forwards answers and settles questions that no event reached, such as across a restart. */
+    /** Closes questions nobody can act on any more that no event reached, such as across a restart. */
     readonly catchUp: () => Effect.Effect<void>;
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
@@ -66,46 +67,10 @@ export class CrewApprovals extends Context.Service<
 const crewQuestionHeader = (member: string | undefined, approval: boolean) =>
   `${member?.trim() || "A crew member"} is asking${approval ? " for your approval" : ""}`;
 
-const answerText = (request: OrchestrationV2RuntimeRequest, options: ReadonlyArray<string>) => {
-  const raw = request.answers?.[QUESTION_ID];
-  const text = (Array.isArray(raw) ? raw.join(", ") : typeof raw === "string" ? raw : "").trim();
-  if (text === APPROVE) return { summary: "The person approved", said: "The person approved." };
-  if (text === REQUEST_CHANGES)
-    return {
-      summary: "The person asked for changes",
-      said: "The person asked for changes without saying which. Ask them what to change with crew_ask_person.",
-    };
-  if (options.includes(text))
-    return { summary: "The person answered", said: `The person chose "${text}".` };
-  const defaults = options.includes(APPROVE) && options.includes(REQUEST_CHANGES);
-  return defaults
-    ? { summary: "The person asked for changes", said: `The person asked for changes: ${text}` }
-    : { summary: "The person answered", said: `The person answered: ${text}` };
-};
-
-const OUTCOME_HINT =
-  'If that approves the work, reply with a one-line outcome, such as "Design approved: design.html", and end your turn. Otherwise revise the work here and ask again with crew_ask_person.';
-
 const make = Effect.gen(function* () {
   const engine = yield* OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const sql = yield* SqlClient.SqlClient;
-
-  /** Whether the lead still waits on a task this crew thread works on. */
-  const hasOpenTask = Effect.fnUntraced(function* (childThreadId: ThreadId) {
-    const child = yield* projections.getThread(childThreadId);
-    const parentThreadId = child.lineage.parentThreadId;
-    if (parentThreadId === null || child.lineage.relationshipToParent !== "subagent") return false;
-    const { subagents } = yield* projections.getThreadRecords(parentThreadId, ["subagents"]);
-    return subagents.some(
-      (task) =>
-        task.origin === "app_owned" &&
-        task.childThreadId === childThreadId &&
-        task.result === null &&
-        task.cancelledRunId === undefined &&
-        !["completed", "failed", "cancelled", "interrupted"].includes(task.status),
-    );
-  });
 
   const pendingQuestions = Effect.fnUntraced(function* (threadId: ThreadId) {
     const { runtimeRequests } = yield* projections.getThreadRecords(threadId, ["runtimeRequests"], {
@@ -175,52 +140,13 @@ const make = Effect.gen(function* () {
     },
   );
 
-  /** Sends the person's answer to the member that asked, which continues its delegated task. */
-  const forward = Effect.fnUntraced(function* (
-    threadId: ThreadId,
-    request: OrchestrationV2RuntimeRequest,
-  ) {
-    // Dismissing resolves it with a cancel and no answers.
-    const answered =
-      request.status === "resolved" &&
-      request.answers !== undefined &&
-      request.decision !== "cancel" &&
-      request.decision !== "decline";
-    // Dismissed after its task settled, as on a cancel, there is no one left to tell.
-    if (!answered && !(yield* hasOpenTask(threadId))) return;
-    const options = answered
-      ? (yield* projections.getThreadRecords(threadId, ["turnItems"], {
-          turnItemTypes: ["user_input_request"],
-        })).turnItems.flatMap((item) =>
-          item.type === "user_input_request" && item.requestId === request.id
-            ? item.questions.flatMap((question) => question.options.map((option) => option.label))
-            : [],
-        )
-      : [];
-    const reply = answered
-      ? answerText(request, options)
-      : {
-          summary: "The person dismissed the question",
-          said: "The person dismissed your question without answering. Reply with a one-line outcome saying it wasn't approved, and end your turn.",
-        };
-    yield* engine.dispatch({
-      type: "message.dispatch",
-      commandId: CommandId.make(`server:crew-answer:${request.id}`),
-      threadId,
-      messageId: MessageId.make(`message:crew-answer:${request.id}`),
-      text: answered ? `${reply.said}\n\n${OUTCOME_HINT}` : reply.said,
-      notification: { source: { kind: "system" }, outcome: "updated", summary: reply.summary },
-      attachments: [],
-      dispatchMode: { type: "queue_after_active" },
-      createdBy: "agent",
-      creationSource: "server",
-    });
-  });
-
-  /** A task that settled while its member waited on the person leaves nothing to answer. */
+  /**
+   * Closes the member's question once nobody can act on its answer: its task settled, as on a
+   * cancel, or its thread was archived or deleted. Closing it lets the task settle.
+   */
   const dismissOrphaned = Effect.fnUntraced(function* (childThreadId: ThreadId) {
     const questions = yield* pendingQuestions(childThreadId);
-    if (questions.length === 0 || (yield* hasOpenTask(childThreadId))) return;
+    if (questions.length === 0 || (yield* engine.crewTaskAwaitsAnswer(childThreadId))) return;
     for (const request of questions) {
       yield* engine.dispatch({
         type: "thread.user-input.dismiss",
@@ -233,11 +159,8 @@ const make = Effect.gen(function* () {
 
   const handle: CrewApprovals["Service"]["handle"] = Effect.fnUntraced(
     function* (event) {
-      if (event.type === "runtime-request.updated") {
-        if (event.payload.owner !== "crew" || event.payload.status === "pending") return;
-        const request = yield* projections.getRuntimeRequest(event.threadId, event.payload.id);
-        if (request === undefined || request.status === "pending") return;
-        yield* forward(event.threadId, request);
+      if (event.type === "thread.archived" || event.type === "thread.deleted") {
+        yield* dismissOrphaned(event.threadId);
         return;
       }
       if (event.type === "subagent.updated") {
@@ -261,26 +184,15 @@ const make = Effect.gen(function* () {
 
   const catchUp: CrewApprovals["Service"]["catchUp"] = Effect.fn("CrewApprovals.catchUp")(
     function* () {
-      const rows = yield* sql<{ readonly threadId: ThreadId; readonly requestId: string }>`
-        SELECT r.thread_id AS threadId, r.runtime_request_id AS requestId
-        FROM orchestration_v2_projection_runtime_requests AS r
-        WHERE json_extract(r.payload_json, '$.owner') = 'crew'
-          AND NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_messages AS m
-            WHERE m.message_id = 'message:crew-answer:' || r.runtime_request_id)
+      const rows = yield* sql<{ readonly threadId: ThreadId }>`
+        SELECT DISTINCT thread_id AS threadId FROM orchestration_v2_projection_runtime_requests
+        WHERE status = 'pending' AND json_extract(payload_json, '$.owner') = 'crew'
       `;
       for (const row of rows) {
-        yield* Effect.gen(function* () {
-          const request = yield* projections.getRuntimeRequest(
-            row.threadId,
-            RuntimeRequestId.make(row.requestId),
-          );
-          if (request === undefined) return;
-          if (request.status === "pending") yield* dismissOrphaned(row.threadId);
-          else yield* forward(row.threadId, request);
-        }).pipe(
+        yield* dismissOrphaned(row.threadId).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("catching up a crew question failed", {
-              requestId: row.requestId,
+              threadId: row.threadId,
               cause,
             }),
           ),

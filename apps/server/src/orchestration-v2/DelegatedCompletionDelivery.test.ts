@@ -5435,8 +5435,13 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         requestId: asking.requestId,
         answers: { approval: "Approve" },
       });
-      // Start-up catch-up forwards an answer no event reached, once.
-      yield* approvals.catchUp();
+      // A restart right after the answer recovers tasks before anything else runs: the
+      // continuation committed with the answer, so the pre-approval turn is never the result.
+      yield* orchestrator.recoverDelegatedTasks;
+      assert.isNull(
+        (yield* taskOf(asking.parentThreadId, asking.taskId))?.result ?? null,
+        "recovery settled the task with the member's pre-approval turn",
+      );
       yield* approvals.catchUp();
       const child = yield* orchestrator.getThreadProjection(asking.childThreadId);
       const forwarded = child.messages.filter(
@@ -5503,7 +5508,6 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
         threadId: dismissed.childThreadId,
         requestId: dismissed.requestId,
       });
-      yield* approvals.catchUp();
       // The member hears it was dismissed, and its reply settles the task as usual.
       assert.match(
         (yield* orchestrator.getThreadProjection(dismissed.childThreadId)).messages.find(
@@ -5536,6 +5540,102 @@ it.layer(layerCrewApprovalsTest)("a crew member asking the person", (it) => {
       assert.isFalse(
         child.messages.some((message) => message.id.startsWith("message:crew-answer:")),
       );
+    }),
+  );
+
+  it.effect("never resumes a task the lead cancelled, whenever the answer lands", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const approvals = yield* CrewApprovals.CrewApprovals;
+      const cancel = (asking: Effect.Success<ReturnType<typeof seedAsking>>, key: string) =>
+        orchestrator.cancelDelegatedTask({
+          parentThreadId: asking.parentThreadId,
+          taskId: asking.taskId,
+          command: {
+            type: "thread.stop",
+            commandId: CommandId.make(`command:${key}`),
+            threadId: asking.childThreadId,
+            stopDelegatedTasks: false,
+          },
+          stopDescendants: () => Effect.void,
+        });
+      const answer = (asking: Effect.Success<ReturnType<typeof seedAsking>>, key: string) =>
+        orchestrator.dispatch({
+          type: "runtime-request.respond",
+          commandId: CommandId.make(`command:${key}`),
+          threadId: asking.childThreadId,
+          requestId: asking.requestId,
+          answers: { approval: "Approve" },
+        });
+      const resumed = (asking: Effect.Success<ReturnType<typeof seedAsking>>) =>
+        Effect.gen(function* () {
+          const parent = yield* orchestrator.getThreadProjection(asking.parentThreadId);
+          const child = yield* orchestrator.getThreadProjection(asking.childThreadId);
+          return {
+            tasks: parent.subagents.filter((task) => task.childThreadId === asking.childThreadId),
+            liveRuns: child.runs.filter(
+              (run) => !["completed", "failed", "cancelled", "interrupted"].includes(run.status),
+            ),
+          };
+        });
+
+      // The lead cancels before the person answers: the answer continues nothing.
+      const late = yield* seedAsking("crew-ask-late-answer");
+      yield* cancel(late, "crew-ask-late-answer-cancel");
+      yield* answer(late, "crew-ask-late-answer-respond");
+      yield* approvals.catchUp();
+      const afterLate = yield* resumed(late);
+      assert.lengthOf(afterLate.tasks, 1, "a late answer started a follow-up task");
+      assert.isNotNull(afterLate.tasks[0]!.result);
+      assert.deepEqual(afterLate.liveRuns, []);
+
+      // The person answers, then the lead cancels: the cancel stops the continuation.
+      const raced = yield* seedAsking("crew-ask-answer-then-cancel");
+      yield* answer(raced, "crew-ask-answer-then-cancel-respond");
+      yield* cancel(raced, "crew-ask-answer-then-cancel-cancel");
+      yield* approvals.catchUp();
+      const afterRace = yield* resumed(raced);
+      assert.lengthOf(afterRace.tasks, 1, "the answer restarted cancelled work as a new task");
+      assert.isNotNull(afterRace.tasks[0]!.result);
+      assert.deepEqual(afterRace.liveRuns, []);
+    }),
+  );
+
+  it.effect("lets the task settle when the waiting member's thread is archived", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const approvals = yield* CrewApprovals.CrewApprovals;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const asking = yield* seedAsking("crew-ask-archived");
+      const settled = yield* eventSink
+        .stream({ threadId: asking.parentThreadId, eventType: "subagent.updated" })
+        .pipe(
+          Stream.filter(
+            (stored) =>
+              stored.event.type === "subagent.updated" &&
+              stored.event.payload.id === asking.taskId &&
+              stored.event.payload.result !== null,
+          ),
+          Stream.runHead,
+          Effect.forkChild,
+        );
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:crew-ask-archived"),
+        threadId: asking.childThreadId,
+      });
+      // The archive closes the question, and closing it settles the task; nothing resumes.
+      yield* approvals.catchUp();
+      yield* Fiber.join(settled);
+      const child = yield* orchestrator.getThreadProjection(asking.childThreadId);
+      assert.equal(
+        child.runtimeRequests.find((request) => request.id === asking.requestId)?.status,
+        "resolved",
+      );
+      assert.isFalse(
+        child.messages.some((message) => message.id.startsWith("message:crew-answer:")),
+      );
+      assert.isNotNull((yield* taskOf(asking.parentThreadId, asking.taskId))?.result ?? null);
     }),
   );
 });

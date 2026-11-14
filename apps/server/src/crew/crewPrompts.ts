@@ -54,6 +54,44 @@ export const crewMemberInstructions = (name: string) =>
 const CREW_MEMBER_APPROVALS =
   'When your task asks for the person\'s approval, get it in this thread, where they see your work: show the work here (the plan, design or file, and what it covers), call crew_ask_person with a one-line question, and end your turn. Their answer arrives as your next message. If they ask for changes, revise and ask again. Once they approve, end with a one-line outcome for the lead, such as "Design approved: design.html". Never put a question for the person in your final message.';
 
+/** A crew member's approval question: its options and the id its answer is filed under. */
+export const CREW_APPROVAL = {
+  questionId: "approval",
+  approve: "Approve",
+  requestChanges: "Request changes",
+} as const;
+
+const CREW_OUTCOME_HINT =
+  'If that approves the work, reply with a one-line outcome, such as "Design approved: design.html", and end your turn. Otherwise revise the work here and ask again with crew_ask_person.';
+
+/**
+ * What the asking member hears once the person answers (`answer`, among the question's
+ * `options`) or dismisses its question (`answer` null).
+ */
+export const crewQuestionReply = (answer: string | null, options: ReadonlyArray<string>) => {
+  const { approve, requestChanges } = CREW_APPROVAL;
+  const reply = (summary: string, said: string) => ({
+    summary,
+    text: `${said}\n\n${CREW_OUTCOME_HINT}`,
+  });
+  if (answer === null)
+    return {
+      summary: "The person dismissed the question",
+      text: "The person dismissed your question without answering. Reply with a one-line outcome saying it wasn't approved, and end your turn.",
+    };
+  if (answer === approve) return reply("The person approved", "The person approved.");
+  if (answer === requestChanges)
+    return reply(
+      "The person asked for changes",
+      "The person asked for changes without saying which. Ask them what to change with crew_ask_person.",
+    );
+  if (options.includes(answer))
+    return reply("The person answered", `The person chose "${answer}".`);
+  return options.includes(approve) && options.includes(requestChanges)
+    ? reply("The person asked for changes", `The person asked for changes: ${answer}`)
+    : reply("The person answered", `The person answered: ${answer}`);
+};
+
 /** What a feature's lead delegates to a crew member: its role's instructions, then the task. */
 export const crewMemberTask = (instructions: string, task: string) =>
   `${instructions.trim()}\n\n${CREW_MEMBER_APPROVALS}\n\n${task}`;
