@@ -1,10 +1,14 @@
-import type { CREW_TOOL_GRANTS } from "@t3tools/contracts";
+import { type CREW_TOOL_GRANTS, isStandingThread } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Fiber from "effect/Fiber";
 import { McpSchema, type Tool, Toolkit } from "effect/ai";
 
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
+import {
+  READ_MANAGER_INSTRUCTIONS,
+  UPDATE_MANAGER_INSTRUCTIONS,
+} from "./toolkits/crew/managerInstructionsTools.ts";
 import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
 import { ProjectRequestsToolkit } from "./toolkits/projectRequests/tools.ts";
@@ -13,9 +17,10 @@ type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
 
 /**
  * What a crew thread needs from its run's grants: a grant, or `null` for none. Callers that
- * aren't crew threads see none of these tools. `linkOnly` tools are for linked environments alone.
+ * aren't crew threads see none of these tools. `linkOnly` tools are for linked environments alone,
+ * and `standing` ones for a bot's headquarters and projects' managers.
  */
-type Needs = Grant | null | "linkOnly";
+type Needs = Grant | null | "linkOnly" | "standing";
 
 /**
  * `McpSchema.EnabledWhen` reads only the MCP client profile, so read the caller from the request
@@ -32,6 +37,10 @@ const callerHolds = (needs: Needs, forLinks: boolean): boolean => {
   const grants = scope?.crewGrants;
   if (grants === undefined) return false;
   if (needs === null) return true;
+  if (needs === "standing") {
+    const thread = scope?.thread;
+    return thread !== undefined && thread.subagent !== true && isStandingThread(thread.threadId);
+  }
   return grants.includes(needs);
 };
 
@@ -80,6 +89,8 @@ export const CrewGatedToolkits = {
     crew_update_todo: null,
     crew_create_milestone: null,
     crew_update_milestone: null,
+    [READ_MANAGER_INSTRUCTIONS]: "standing",
+    [UPDATE_MANAGER_INSTRUCTIONS]: "standing",
   }),
   features: gated(FeaturesToolkit, {
     t3_role_list: "crew.workflows",

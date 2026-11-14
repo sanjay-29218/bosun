@@ -756,6 +756,49 @@ describe("ClaudeAdapterV2 device instructions", () => {
     assert.deepEqual(await subagentContext({ mcp: true, deviceToolsAvailable: false }), []);
     assert.deepEqual(await subagentContext({ mcp: false, deviceToolsAvailable: true }), []);
   });
+
+  it("denies a native subagent the manager-instructions tools, and lets its parent call them", async () => {
+    const matchers = options({ mcp: true, deviceToolsAvailable: false }).hooks?.PreToolUse ?? [];
+    const decide = (toolName: string, agentId?: string) =>
+      Promise.all(
+        matchers
+          .filter((matcher) => new RegExp(`^(?:${matcher.matcher})$`).test(toolName))
+          .flatMap((matcher) =>
+            matcher.hooks.map((hook) =>
+              hook(
+                {
+                  hook_event_name: "PreToolUse",
+                  tool_name: toolName,
+                  tool_input: {},
+                  tool_use_id: "tool-1",
+                  ...(agentId === undefined ? {} : { agent_id: agentId }),
+                  session_id: "native-thread-claude",
+                  transcript_path: "/transcript.jsonl",
+                  cwd: "/workspace",
+                },
+                "tool-1",
+                { signal: new AbortController().signal },
+              ),
+            ),
+          ),
+      ).then((outputs) =>
+        outputs.map(
+          (output) =>
+            (output as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput
+              ?.permissionDecision ?? "allow",
+        ),
+      );
+    for (const tool of [
+      "mcp__t3-code__crew_read_manager_instructions",
+      "mcp__t3-code__crew_update_manager_instructions",
+    ]) {
+      assert.deepEqual(await decide(tool), ["allow"]);
+      assert.deepEqual(await decide(tool, "agent-1"), ["deny"]);
+    }
+    // Other T3 tools never reach the hook.
+    assert.deepEqual(await decide("mcp__t3-code__crew_list_issues", "agent-1"), []);
+    assert.deepEqual(options({ mcp: false, deviceToolsAvailable: false }).hooks, undefined);
+  });
 });
 
 describe("ClaudeAdapterV2 context usage", () => {

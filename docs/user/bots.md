@@ -94,7 +94,10 @@ project until you **Change** it; **Use automatic** goes back. The icon saves on 
 doesn't count as customizing the manager. It needs no roles: until you save changes there
 it uses built-in instructions on the model of the bot that owns the project, and **Reset to
 defaults** goes back to them. New instructions reach the thread when it next starts a new session;
-model, **Access** and tools apply right away. The switch at the top turns a project's manager off: its
+model, **Access** and tools apply right away. When you or its bot give the manager a standing rule
+for the project, such as "every piece of work starts from an issue", it adds the rule to its own
+instructions and says so in its thread; the manager then shows as customized here, and the rule
+applies from its next session. Its bot's headquarters can do the same for the bot's projects. The switch at the top turns a project's manager off: its
 bot then does the project's work itself, requests still open go back to the bot, and the manager's
 thread is archived until you turn it on again.
 

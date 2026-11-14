@@ -158,6 +158,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
+import { MANAGER_INSTRUCTIONS_TOOLS } from "../../mcp/toolkits/crew/managerInstructionsTools.ts";
 import { resolveClaudeSdkExecutablePath } from "../../provider/Drivers/ClaudeExecutable.ts";
 import {
   planClaudeSkillDispatch,
@@ -1750,6 +1751,29 @@ const subagentDeviceInstructions: HookCallback = () =>
     },
   });
 
+const STANDING_ONLY_MCP_TOOLS = MANAGER_INSTRUCTIONS_TOOLS.map((name) => `mcp__t3-code__${name}`);
+const standingOnlyMcpTools: ReadonlySet<string> = new Set(STANDING_ONLY_MCP_TOOLS);
+
+/**
+ * A native subagent shares its parent's T3 MCP session, so T3 can't tell its calls apart; Claude
+ * marks them with `agent_id`. It never acts as its parent's standing thread.
+ */
+const denyStandingToolsToSubagents: HookCallback = (input) =>
+  Promise.resolve(
+    input.hook_event_name === "PreToolUse" &&
+      input.agent_id !== undefined &&
+      standingOnlyMcpTools.has(input.tool_name)
+      ? {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason:
+              "Only the project manager's own thread can read or change its instructions; report back to it instead.",
+          },
+        }
+      : {},
+  );
+
 export function makeClaudeQueryOptions(input: {
   readonly modelSelection: ModelSelection;
   readonly modelCatalog?: ClaudeModelCatalog;
@@ -1898,9 +1922,21 @@ export function makeClaudeQueryOptions(input: {
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
-    ...(deviceInstructions
-      ? { hooks: { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] } }
-      : {}),
+    ...(input.mcpServers === undefined
+      ? {}
+      : {
+          hooks: {
+            ...(deviceInstructions
+              ? { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] }
+              : {}),
+            PreToolUse: [
+              {
+                matcher: STANDING_ONLY_MCP_TOOLS.join("|"),
+                hooks: [denyStandingToolsToSubagents],
+              },
+            ],
+          },
+        }),
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
