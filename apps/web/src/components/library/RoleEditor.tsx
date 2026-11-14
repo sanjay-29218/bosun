@@ -6,6 +6,7 @@ import {
   type ModelSelection,
   type ProviderInstanceId,
   type RuntimeMode,
+  grantedTools,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useState } from "react";
@@ -283,7 +284,7 @@ export function RoleEditorForm({
             />
           ) : null}
         </SettingsSection>
-        <SettingsSection title={`Tools · ${tools.length}`}>
+        <SettingsSection title={`Tools · ${grantedTools(tools, { bot: false }).length}`}>
           <div className="px-3 py-4 sm:px-4">
             <CrewToolPicker value={tools} onChange={setTools} />
           </div>

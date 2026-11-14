@@ -8,6 +8,7 @@ import {
   type ModelSelection,
   type ProjectIconColor,
   type RuntimeMode,
+  grantedTools,
 } from "@t3tools/contracts";
 import { FolderIcon, PaletteIcon, SlidersHorizontalIcon, WrenchIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -221,7 +222,11 @@ export function BotEditor({
                   },
                 ]
               : []),
-            { value: "tools", label: `Tools · ${tools.length}`, icon: <WrenchIcon /> },
+            {
+              value: "tools",
+              label: `Tools · ${grantedTools(tools, { bot: true }).length}`,
+              icon: <WrenchIcon />,
+            },
             { value: "look", label: "Look", icon: <PaletteIcon /> },
           ]}
         />
