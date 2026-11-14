@@ -24,7 +24,7 @@ import * as ProjectRequests from "./ProjectRequests.ts";
 
 const projectId = ProjectId.make("project:web");
 const managerThreadId = projectHeadquartersThreadId(projectId);
-const hq = ThreadId.make("bot-run:bot-hq:bot-captain");
+const hq = ThreadId.make("bot-run:bot-hq:bot-ops");
 const other = ThreadId.make("thread:person");
 const botHome = ProjectId.make("project:bot-home");
 

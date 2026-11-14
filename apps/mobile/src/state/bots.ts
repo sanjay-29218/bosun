@@ -2,6 +2,7 @@ import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
   buildLogicalBots,
   countNeedsYouByLogicalBot,
+  pinnedProjectManagers,
   logicalBotProjectKeys,
   resolveActiveLogicalBot,
   selectLogicalBot,
@@ -9,7 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/bot-rail";
 import { createBotsAtoms } from "@t3tools/client-runtime/state/bots";
 import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, headquartersProjectId, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useCallback, useContext, useEffect, useMemo } from "react";
@@ -65,6 +66,39 @@ const needsYouByBotKeyAtom = Atom.make((get) => {
     .join(",");
 }).pipe(Atom.withLabel("mobile-bots:needs-you"));
 
+export interface PinnedManager {
+  readonly key: string;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly title: string;
+}
+
+/**
+ * Pinned project managers, by title, whether or not their thread exists yet (opening one makes
+ * it), as a JSON string so streamed thread updates that change none of them re-render nothing.
+ */
+const pinnedManagersKeyAtom = Atom.make((get) => {
+  const archivedManagers = new Set(
+    get(environmentThreadShells.threadShellsAtom).flatMap((shell) => {
+      const projectId = headquartersProjectId(shell.id);
+      return projectId === null || shell.archivedAt === null
+        ? []
+        : [`${shell.environmentId}:${projectId}`];
+    }),
+  );
+  const managerEnvironmentIds = new Set(
+    [...get(environmentServerConfigsAtom)]
+      .filter(([, config]) => config.environment.capabilities.workflows === true)
+      .map(([environmentId]) => environmentId),
+  );
+  const managers = pinnedProjectManagers({
+    projects: get(environmentProjects.projectsAtom),
+    managerEnvironmentIds,
+    archivedManagers,
+  }).map((project) => [project.environmentId, project.id, project.title]);
+  return JSON.stringify(managers);
+}).pipe(Atom.withLabel("mobile-bots:pinned-managers"));
+
 /**
  * Environments where a project names a bot their loaded list doesn't have, as a stable key:
  * a bot made on another device. A project moving to it arrives as a project update.
@@ -78,7 +112,7 @@ const unknownBotEnvironmentsKeyAtom = Atom.make((get) => {
   const stale = new Set<string>();
   for (const project of get(environmentProjects.projectsAtom)) {
     const botIds = known.get(project.environmentId);
-    if (botIds && project.botId !== undefined && !botIds.has(project.botId)) {
+    if (botIds && project.botId != null && !botIds.has(project.botId)) {
       stale.add(project.environmentId);
     }
   }
@@ -117,10 +151,14 @@ export function useRefreshBotsWhileOpen() {
 const EMPTY_ACTIVE_BOTS: Readonly<Record<string, string>> = {};
 
 export interface ActiveBot {
-  /** Every logical bot; the switcher shows only when there are two or more. */
+  /** Every logical bot, pinned or not; the switcher lists the pinned ones. */
   readonly bots: ReadonlyArray<LogicalBot>;
-  /** Null only before any bot loads. */
+  /**
+   * The remembered bot, pinned or not, else the first pinned one; null with no bot to show.
+   */
   readonly active: LogicalBot | null;
+  /** Pinned project managers, by title; opening one makes its thread. */
+  readonly managers: ReadonlyArray<PinnedManager>;
   readonly needsYou: ReadonlyMap<string, number>;
   /**
    * `environmentId:projectId` keys of the active bot's projects, or null to show every
@@ -132,7 +170,7 @@ export interface ActiveBot {
   readonly select: (bot: LogicalBot) => void;
 }
 
-/** The active bot's id on `environmentId`, which new projects there go to; none means Captain. */
+/** The active bot's id on `environmentId`, which new projects there go to; none means no bot. */
 export function activeBotIdOn(
   activeBot: Pick<ActiveBot, "active">,
   environmentId: EnvironmentId,
@@ -145,6 +183,7 @@ export function useActiveBot(): ActiveBot {
   const bots = useAtomValue(logicalBotsAtom);
   const environmentKey = useAtomValue(botEnvironmentIdsKeyAtom);
   const needsYouKey = useAtomValue(needsYouByBotKeyAtom);
+  const managersKey = useAtomValue(pinnedManagersKeyAtom);
   const projects = useAtomValue(environmentProjects.projectsAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
@@ -152,9 +191,31 @@ export function useActiveBot(): ActiveBot {
     ? (preferences.value.activeBotIdByEnvironmentId ?? EMPTY_ACTIVE_BOTS)
     : EMPTY_ACTIVE_BOTS;
 
-  const active = useMemo(
-    () => resolveActiveLogicalBot(bots, remembered, botEnvironmentIds(environmentKey)),
-    [bots, environmentKey, remembered],
+  // Pinned first, so nothing remembered falls back to the first pinned bot, while a remembered
+  // unpinned bot (picked from the Bots screen) stays active.
+  const active = useMemo(() => {
+    const byPin = [...bots.filter((bot) => bot.pinned), ...bots.filter((bot) => !bot.pinned)];
+    const resolved = resolveActiveLogicalBot(byPin, remembered, botEnvironmentIds(environmentKey));
+    const chosen =
+      resolved !== null &&
+      Object.entries(remembered).some(([environmentId, botId]) =>
+        resolved.members.some(
+          (member) => member.environmentId === environmentId && member.botId === botId,
+        ),
+      );
+    return resolved !== null && (resolved.pinned || chosen) ? resolved : null;
+  }, [bots, environmentKey, remembered]);
+  const managers = useMemo(
+    () =>
+      (JSON.parse(managersKey) as Array<[string, string, string]>).map(
+        ([environmentId, projectId, title]) => ({
+          key: `${environmentId}:${projectId}`,
+          environmentId: EnvironmentId.make(environmentId),
+          projectId: ProjectId.make(projectId),
+          title,
+        }),
+      ),
+    [managersKey],
   );
   const needsYou = useMemo(
     () =>
@@ -183,11 +244,12 @@ export function useActiveBot(): ActiveBot {
     () => ({
       bots,
       active,
+      managers,
       needsYou,
       projectKeys,
       viewKey: switching ? active.key : "all",
       select,
     }),
-    [active, bots, needsYou, projectKeys, select, switching],
+    [active, bots, managers, needsYou, projectKeys, select, switching],
   );
 }

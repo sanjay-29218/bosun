@@ -179,6 +179,10 @@
       "types": "./src/projectSettings.ts",
       "import": "./src/projectSettings.ts"
     },
+    "./providerDefaultModel": {
+      "types": "./src/providerDefaultModel.ts",
+      "import": "./src/providerDefaultModel.ts"
+    },
     "./t3ProjectFile": {
       "types": "./src/t3ProjectFile.ts",
       "import": "./src/t3ProjectFile.ts"

@@ -11,7 +11,7 @@ import { FeatureService } from "./FeatureService.ts";
 import { type Notice, NoticeInbox } from "./NoticeInbox.ts";
 
 const leadThreadId = ThreadId.make("thread:lead");
-const headquartersId = ThreadId.make("bot-run:bot-hq:bot-captain");
+const headquartersId = ThreadId.make("bot-run:bot-hq:bot-ops");
 const parentLeadId = ThreadId.make("thread:epic-lead");
 const brokenLeadId = ThreadId.make("thread:broken-lead");
 

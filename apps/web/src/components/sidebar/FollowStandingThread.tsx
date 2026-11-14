@@ -47,14 +47,14 @@ export function FollowStandingThread() {
     followedRef.current = key;
     if (selection.kind === "none") return;
     const bot = bots.find((candidate) => candidate.key === selection.botKey);
-    if (!bot) return;
+    if (!bot && selection.botKey !== null) return;
     const store = useUiStateStore.getState();
     const change = followStandingThread(
       { activeBotKey: readActiveLogicalBotKey(), scopeKeys: store.sidebarProjectScopeKeys },
       selection,
     );
     // Picking another bot clears the scope, so the project's scope is set after it.
-    if (change.selectBot) store.setActiveBotIdByEnvironmentId(selectLogicalBot(bot));
+    if (change.selectBot && bot) store.setActiveBotIdByEnvironmentId(selectLogicalBot(bot));
     if (change.scopeKeys !== null) {
       useUiStateStore.getState().setSidebarProjectScopeKeys(change.scopeKeys);
     }

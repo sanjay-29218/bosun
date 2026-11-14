@@ -15,7 +15,7 @@ export function ProjectBotSection({
     readonly environmentId: EnvironmentId;
     readonly id: ProjectId;
     readonly title: string;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
     readonly environmentLabel: string | null;
   }>;
 }) {
@@ -47,7 +47,8 @@ function ProjectBotRow({
     <SettingsRow
       title={showEnvironment ? (member.environmentLabel ?? "Environment") : "Owner"}
       description={
-        bots.error ?? "The bot that runs this project's work. Its threads show under that bot."
+        bots.error ??
+        "The bot that runs this project's work. With no bot, its project manager still runs it."
       }
       control={
         <BotOwnerSelect
@@ -56,6 +57,7 @@ function ProjectBotRow({
           projectTitle={member.title}
           botId={projectBotId(member)}
           bots={bots.data ?? []}
+          loading={!bots.data && !bots.error}
         />
       }
     />

@@ -1,6 +1,5 @@
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   EnvironmentId,
   ProjectId,
   RunId,
@@ -15,7 +14,12 @@ import {
   botRailShowsThread,
   botRailSignal,
   buildLogicalBots,
+  countHiddenNeedsYou,
+  pinnedProjectManagers,
+  railProjectKeys,
+  writePins,
   countNeedsYouByLogicalBot,
+  logicalBotsSignature,
   logicalBotHeadquartersKeys,
   logicalBotMemberOn,
   logicalBotProjectKeys,
@@ -26,6 +30,8 @@ import {
   selectLogicalBot,
 } from "./botRail.ts";
 import { botNeedsYouKey } from "./crewBoard.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -49,12 +55,12 @@ const bot = (id: string, name: string, position: number, eyes: BotAvatar["eyes"]
 const environments = [
   {
     environmentId: local,
-    bots: [bot("bot-social", "Social", 1, "happy"), bot(CAPTAIN_BOT_ID, "Captain", 0, "star")],
+    bots: [bot("bot-social", "Social", 1, "happy"), bot(CAPTAIN_ID, "Captain", 0, "star")],
   },
   {
     environmentId: remote,
     bots: [
-      bot(CAPTAIN_BOT_ID, "Skipper", 0, "visor"),
+      bot(CAPTAIN_ID, " captain", 0, "visor"),
       bot("bot-finance", "Finance", 1),
       bot("bot-social-2", " social ", 2),
     ],
@@ -62,14 +68,15 @@ const environments = [
 ];
 
 describe("projectBotId", () => {
-  it("treats a project without an owner as Captain's", () => {
-    expect(projectBotId({})).toBe(CAPTAIN_BOT_ID);
+  it("reads a project without an owner as having no bot", () => {
+    expect(projectBotId({})).toBeNull();
+    expect(projectBotId({ botId: null })).toBeNull();
     expect(projectBotId({ botId: "bot-social" })).toBe("bot-social");
   });
 });
 
 describe("buildLogicalBots", () => {
-  it("merges Captain by id and other bots by name, in priority then rail order", () => {
+  it("merges bots by name, in priority then rail order", () => {
     const bots = buildLogicalBots(environments);
     expect(bots.map((entry) => [entry.name, entry.avatar.eyes, entry.members.length])).toEqual([
       ["Captain", "star", 2],
@@ -77,9 +84,207 @@ describe("buildLogicalBots", () => {
       ["Finance", "round", 1],
     ]);
     expect(bots[1]!.members).toEqual([
-      { environmentId: local, botId: "bot-social" },
-      { environmentId: remote, botId: "bot-social-2" },
+      { environmentId: local, botId: "bot-social", pinned: true },
+      { environmentId: remote, botId: "bot-social-2", pinned: true },
     ]);
+  });
+});
+
+describe("pins", () => {
+  it("reads a bot as pinned when any environment pins it, and older servers as pinned", () => {
+    const bots = buildLogicalBots([
+      { environmentId: local, bots: [{ ...bot("bot-a", "Social", 0), pinned: false }] },
+      { environmentId: remote, bots: [bot("bot-b", "Social", 0), bot("bot-c", "Finance", 1)] },
+      {
+        environmentId: EnvironmentId.make("other"),
+        bots: [{ ...bot("bot-d", "Ops", 0), pinned: false }],
+      },
+    ]);
+    expect(bots.map((entry) => [entry.name, entry.pinned])).toEqual([
+      ["Social", true],
+      ["Finance", true],
+      ["Ops", false],
+    ]);
+  });
+
+  it("tells lists apart when only one environment's pin changed", () => {
+    // Another client unpinned the bot on remote; local still pins it, so the entry stays pinned.
+    const before = buildLogicalBots([
+      { environmentId: local, bots: [bot("bot-a", "Social", 0)] },
+      { environmentId: remote, bots: [bot("bot-b", "Social", 0)] },
+    ]);
+    const after = buildLogicalBots([
+      { environmentId: local, bots: [bot("bot-a", "Social", 0)] },
+      { environmentId: remote, bots: [{ ...bot("bot-b", "Social", 0), pinned: false }] },
+    ]);
+    expect(after[0]!.pinned).toBe(true);
+    expect(logicalBotsSignature(after)).not.toBe(logicalBotsSignature(before));
+    // So a failed unpin rolls remote back to what it is now, not what it was.
+    expect(after[0]!.members.map((member) => member.pinned)).toEqual([true, false]);
+  });
+
+  it("counts threads waiting on you that only an unpinned bot or manager shows", () => {
+    const bots = buildLogicalBots([
+      {
+        environmentId: local,
+        bots: [bot("bot-shown", "Shown", 0), { ...bot("bot-hidden", "Hidden", 1), pinned: false }],
+      },
+    ]);
+    const project = (id: string, botId: string | null, managerPinned?: boolean) => ({
+      environmentId: local,
+      id: ProjectId.make(id),
+      botId,
+      ...(managerPinned === undefined ? {} : { managerPinned }),
+    });
+    const shell = (id: string, projectId: string) => ({
+      environmentId: local,
+      id,
+      projectId: ProjectId.make(projectId),
+    });
+    const projects = [
+      project("shown", "bot-shown", true),
+      project("hidden", "bot-hidden", true),
+      project("quiet", "bot-shown", false),
+      project("loose", null),
+    ];
+    expect(
+      countHiddenNeedsYou({
+        bots,
+        projects,
+        shells: [
+          shell("a", "shown"),
+          // Under an unpinned bot.
+          shell("b", "hidden"),
+          shell(botHeadquartersThreadId("bot-hidden"), "scratch"),
+          // An unpinned manager's own thread, though its bot is pinned.
+          shell("bot-run:project-hq:quiet", "quiet"),
+          // A pinned manager, and a project with no bot, show in the rail.
+          shell("bot-run:project-hq:shown", "shown"),
+          // A pinned manager shows even when its bot isn't pinned.
+          shell("bot-run:project-hq:hidden", "hidden"),
+          shell("c", "loose"),
+        ],
+      }),
+    ).toBe(3);
+  });
+});
+
+describe("railProjectKeys", () => {
+  const all = buildLogicalBots([
+    {
+      environmentId: local,
+      bots: [
+        bot("bot-a", "A", 0),
+        bot("bot-b", "B", 1),
+        { ...bot("bot-idle", "Idle", 2), pinned: false },
+      ],
+    },
+  ]);
+  const pinned = all.filter((entry) => entry.pinned);
+  const projects = [
+    { environmentId: local, id: "a", botId: "bot-a" },
+    { environmentId: local, id: "idle", botId: "bot-idle" },
+    { environmentId: local, id: "loose", botId: null },
+  ];
+
+  it("keeps an unpinned bot's projects its own, and shows no-bot projects everywhere", () => {
+    expect([
+      ...railProjectKeys({
+        active: pinned[0]!,
+        pinnedBots: pinned,
+        allBots: all,
+        projects,
+        environmentFilter: null,
+      })!,
+    ]).toEqual(["local:a", "local:loose"]);
+  });
+
+  it("shows a project the list is scoped to even when its bot isn't pinned", () => {
+    // Picking the pinned manager of Idle's project keeps the rail on A and scopes to it.
+    const keys = railProjectKeys({
+      active: pinned[0]!,
+      pinnedBots: pinned,
+      allBots: all,
+      projects,
+      environmentFilter: null,
+      scopedProjects: [{ environmentId: local, id: "idle" }],
+    });
+    expect([...keys!]).toEqual(["local:a", "local:loose", "local:idle"]);
+  });
+
+  it("doesn't scope with fewer than two pinned bots", () => {
+    expect(
+      railProjectKeys({
+        active: pinned[0]!,
+        pinnedBots: pinned.slice(0, 1),
+        allBots: all,
+        projects,
+        environmentFilter: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("pinnedProjectManagers", () => {
+  it("lists pinned managers by title, threads or not, leaving out what has no manager", () => {
+    const project = (id: string, title: string, extra: object = {}) => ({
+      environmentId: local,
+      id: ProjectId.make(id),
+      title,
+      managerPinned: true,
+      ...extra,
+    });
+    const managers = pinnedProjectManagers({
+      projects: [
+        project("web", "web"),
+        project("api", "api"),
+        project("quiet", "quiet", { managerPinned: false }),
+        project("off", "off"),
+        project("scratch", "Scratch", { isScratch: true }),
+        project("home", "Ops", { isBotHome: true }),
+        { ...project("plain", "plain"), environmentId: remote },
+      ],
+      managerEnvironmentIds: new Set([local]),
+      archivedManagers: new Set([`${local}:off`]),
+    });
+    expect(managers.map((manager) => manager.id)).toEqual(["api", "web"]);
+  });
+});
+
+describe("writePins", () => {
+  it("puts back the targets that were written when another fails", async () => {
+    const writes: Array<[string, boolean]> = [];
+    const failure = await writePins(
+      [
+        { id: "a", previous: false },
+        { id: "b", previous: true },
+        { id: "c", previous: false },
+      ],
+      true,
+      async (target, pinned) => {
+        writes.push([target.id, pinned]);
+        return target.id === "c" && pinned ? "offline" : null;
+      },
+    );
+    expect(failure).toBe("offline");
+    // b was already pinned, so only a goes back.
+    expect(writes).toEqual([
+      ["a", true],
+      ["b", true],
+      ["c", true],
+      ["a", false],
+    ]);
+  });
+
+  it("writes nothing back when every target succeeds", async () => {
+    const writes: string[] = [];
+    expect(
+      await writePins([{ id: "a", previous: true }], false, async (target) => {
+        writes.push(target.id);
+        return null;
+      }),
+    ).toBeNull();
+    expect(writes).toEqual(["a"]);
   });
 });
 
@@ -135,12 +340,17 @@ describe("logicalBotProjectKeys", () => {
     { environmentId: local, id: "a", botId: "bot-social" },
     { environmentId: remote, id: "b", botId: "bot-social-2" },
     { environmentId: remote, id: "c" },
-    // An owner the rail hasn't loaded yet stays visible under Captain.
+    // An owner the rail hasn't loaded yet reads as no bot, like c.
     { environmentId: local, id: "d", botId: "bot-unknown" },
   ];
 
-  it("selects the projects each entry owns across environments", () => {
-    expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual(["local:a", "remote:b"]);
+  it("selects the projects each entry owns, and those with no bot under every entry", () => {
+    expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual([
+      "local:a",
+      "remote:b",
+      "remote:c",
+      "local:d",
+    ]);
     expect([...logicalBotProjectKeys(bots[0]!, bots, projects)]).toEqual(["remote:c", "local:d"]);
   });
 
@@ -167,7 +377,8 @@ describe("countNeedsYouByLogicalBot", () => {
       new Map([
         [botNeedsYouKey(local, "bot-social"), 2],
         [botNeedsYouKey(remote, "bot-social-2"), 1],
-        [botNeedsYouKey(remote, CAPTAIN_BOT_ID), 4],
+        [botNeedsYouKey(remote, CAPTAIN_ID), 4],
+        [botNeedsYouKey(local, "bot-unknown"), 5],
       ]),
     );
     expect(counts.get(bots[1]!.key)).toBe(3);
@@ -194,7 +405,7 @@ describe("botRailShowsThread", () => {
     const [captain, social] = buildLogicalBots([
       {
         environmentId: local,
-        bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot-social", "Social", 1)],
+        bots: [bot(CAPTAIN_ID, "Captain", 0), bot("bot-social", "Social", 1)],
       },
     ]);
     const thread = (id: string, projectId: string) => ({ environmentId: local, id, projectId });
@@ -205,16 +416,16 @@ describe("botRailShowsThread", () => {
 
     // Headquarters sit in Scratch, a project neither bot's filter lists.
     expect(show(thread(botHeadquartersThreadId("bot-social"), "scratch"))).toBe(true);
-    expect(show(thread(botHeadquartersThreadId(CAPTAIN_BOT_ID), "scratch"))).toBe(false);
+    expect(show(thread(botHeadquartersThreadId(CAPTAIN_ID), "scratch"))).toBe(false);
     expect(show(thread("plain", "p-social"))).toBe(true);
     expect(show(thread("plain", "p-captain"))).toBe(false);
     // A hidden environment's headquarters stays hidden.
     const [shared] = buildLogicalBots([
-      { environmentId: local, bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)] },
-      { environmentId: remote, bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)] },
+      { environmentId: local, bots: [bot(CAPTAIN_ID, "Captain", 0)] },
+      { environmentId: remote, bots: [bot(CAPTAIN_ID, "Captain", 0)] },
     ]);
     expect([...logicalBotHeadquartersKeys(shared!, new Set([local]))]).toEqual([
-      `${local}:${botHeadquartersThreadId(CAPTAIN_BOT_ID)}`,
+      `${local}:${botHeadquartersThreadId(CAPTAIN_ID)}`,
     ]);
     // Without a picked bot, project keys alone decide.
     expect(
@@ -231,11 +442,12 @@ describe("bot activity", () => {
   const [captain, social] = buildLogicalBots([
     {
       environmentId: local,
-      bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot-social", "Social", 1)],
+      bots: [bot(CAPTAIN_ID, "Captain", 0), bot("bot-social", "Social", 1)],
     },
   ]);
   const projects = [
-    { environmentId: local, id: ProjectId.make("p-captain") },
+    { environmentId: local, id: ProjectId.make("p-captain"), botId: CAPTAIN_ID },
+    { environmentId: local, id: ProjectId.make("p-loose") },
     { environmentId: local, id: ProjectId.make("p-social"), botId: "bot-social" },
   ];
   const runId = RunId.make("run-1");
@@ -287,6 +499,8 @@ describe("bot activity", () => {
         shell("failed", "p-social", { status: "failed", completedAt: after }, before),
         shell("working", "p-captain", { status: "running", completedAt: null }, before),
         shell("done", "p-captain", { status: "completed", completedAt: after }, before),
+        // A project with no bot is no bot's activity.
+        shell("loose", "p-loose", { status: "running", completedAt: null }, before),
         // Opened since it finished: nothing to flag.
         shell("seen", "p-social", { status: "completed", completedAt: before }, after),
       ],
@@ -298,7 +512,7 @@ describe("bot activity", () => {
       working: false,
       unread: true,
     });
-    expect(activity.get(botNeedsYouKey(local, CAPTAIN_BOT_ID))).toEqual({
+    expect(activity.get(botNeedsYouKey(local, CAPTAIN_ID))).toEqual({
       failed: false,
       working: true,
       unread: true,
@@ -329,8 +543,8 @@ describe("bot activity", () => {
         [botNeedsYouKey(local, "bot-unknown"), { failed: false, working: false, unread: true }],
       ]),
     );
-    // A bot the rail doesn't know falls under Captain, like its projects.
-    expect(perEntry.get(captain!.key)).toEqual({ failed: false, working: false, unread: true });
+    // A bot the rail doesn't know counts for no entry.
+    expect(perEntry.get(captain!.key)).toBeUndefined();
     expect(perEntry.get(social!.key)).toEqual({ failed: false, working: true, unread: false });
   });
 

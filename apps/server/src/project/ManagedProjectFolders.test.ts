@@ -1,13 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  CAPTAIN_BOT_ID,
-  CommandId,
-  ProjectId,
-  ThreadId,
-  VcsProcessSpawnError,
-} from "@t3tools/contracts";
+import { CommandId, ProjectId, ThreadId, VcsProcessSpawnError } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -37,6 +31,8 @@ import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import * as ManagedProjectFolders from "./ManagedProjectFolders.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const layerGitWorkflow = (vcsProcess?: Layer.Layer<VcsProcess.VcsProcess>) =>
   GitWorkflow.layer.pipe(
@@ -252,8 +248,9 @@ it.effect("gives each bot one home, even for concurrent first requests, apart fr
       assert.equal(project.botId, "bot:nepse");
       assert.deepEqual(project.projectIcon, { kind: "lucide", name: "bot", color: "gray" });
 
-      const captain = yield* folders.ensureBotHome({ id: CAPTAIN_BOT_ID, name: "Captain" });
-      assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_BOT_ID));
+      yield* insertBot(CAPTAIN_ID, "Captain");
+      const captain = yield* folders.ensureBotHome({ id: CAPTAIN_ID, name: "Captain" });
+      assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_ID));
       // An ID that is already a plain folder name never shares a home with an encoded one.
       yield* insertBot("bot-nepse-06258b94", "Lookalike");
       const lookalike = yield* folders.ensureBotHome({

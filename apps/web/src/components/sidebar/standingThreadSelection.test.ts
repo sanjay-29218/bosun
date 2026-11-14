@@ -17,9 +17,10 @@ const bot = (key: string, botId: string): LogicalBot => ({
   name: key,
   avatar: { head: "round", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
   color: "blue",
+  pinned: true,
   members: [{ environmentId: local, botId }],
 });
-const captain = bot("id:bot-captain", "bot-captain");
+const captain = bot("name:captain", "bot-ops");
 const navigator = bot("name:navigator", "bot-navigator");
 const scout = bot("name:scout", "bot-scout");
 const bots = [captain, navigator, scout];
@@ -40,7 +41,7 @@ const decide = (threadId: ThreadId, environmentId = local, input = { bots, proje
 
 describe("standingThreadSelection", () => {
   it("picks the bot whose headquarters is open, without a project scope", () => {
-    expect(decide(botHeadquartersThreadId("bot-captain"))).toEqual({
+    expect(decide(botHeadquartersThreadId("bot-ops"))).toEqual({
       kind: "select",
       botKey: captain.key,
       projectKey: null,
@@ -53,17 +54,17 @@ describe("standingThreadSelection", () => {
       botKey: scout.key,
       projectKey: "github.com/acme/beta",
     });
-    // A project without a bot is Captain's.
+    // A project with no bot shows under every bot, so the picked bot stays.
     expect(decide(projectHeadquartersThreadId(alpha))).toEqual({
       kind: "select",
-      botKey: captain.key,
+      botKey: null,
       projectKey: "github.com/acme/alpha",
     });
   });
 
   it("waits while the thread's bot or project hasn't loaded", () => {
-    expect(decide(botHeadquartersThreadId("bot-captain"), remote)).toEqual({ kind: "pending" });
-    expect(decide(projectHeadquartersThreadId(alpha), local, { bots: [], projects })).toEqual({
+    expect(decide(botHeadquartersThreadId("bot-ops"), remote)).toEqual({ kind: "pending" });
+    expect(decide(projectHeadquartersThreadId(beta), local, { bots: [], projects })).toEqual({
       kind: "pending",
     });
     expect(decide(projectHeadquartersThreadId(beta), local, { bots, projects: [] })).toEqual({
@@ -97,6 +98,15 @@ describe("followStandingThread", () => {
     ).toEqual({ selectBot: true, scopeKeys: [alphaKey] });
   });
 
+  it("keeps the picked bot for a manager of a project with no bot", () => {
+    expect(
+      followStandingThread(
+        { activeBotKey: navigator.key, scopeKeys: [] },
+        { botKey: null, projectKey: alphaKey },
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: [alphaKey] });
+  });
+
   it("restores a matching scope that picking another bot would clear", () => {
     expect(
       followStandingThread(
@@ -119,5 +129,38 @@ describe("followStandingThread", () => {
         { botKey: captain.key, projectKey: null },
       ),
     ).toEqual({ selectBot: false, scopeKeys: null });
+  });
+});
+
+describe("an unpinned bot", () => {
+  // A and B are pinned, C isn't, and B is the bot in use.
+  const idle: LogicalBot = { ...bot("name:idle", "bot-idle"), pinned: false };
+  const gamma = ProjectId.make("project-gamma");
+  const withIdle = {
+    bots: [captain, navigator, idle],
+    projects: [...projects, { environmentId: local, id: gamma, botId: "bot-idle" }],
+  };
+  const keyOf = (_environmentId: EnvironmentId, projectId: ProjectId) =>
+    projectId === gamma ? "github.com/acme/gamma" : projectKeyOf(_environmentId, projectId);
+  const open = (threadId: ThreadId) =>
+    standingThreadSelection({ environmentId: local, threadId, projectKeyOf: keyOf, ...withIdle });
+
+  it("keeps the bot in use and scopes to the project when its pinned manager opens", () => {
+    const selection = open(projectHeadquartersThreadId(gamma));
+    expect(selection).toEqual({
+      kind: "select",
+      botKey: null,
+      projectKey: "github.com/acme/gamma",
+    });
+    expect(
+      followStandingThread(
+        { activeBotKey: navigator.key, scopeKeys: [] },
+        selection as Extract<typeof selection, { kind: "select" }>,
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: ["github.com/acme/gamma"] });
+  });
+
+  it("leaves the rail where it is when its headquarters opens", () => {
+    expect(open(botHeadquartersThreadId("bot-idle"))).toEqual({ kind: "none" });
   });
 });

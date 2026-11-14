@@ -334,8 +334,8 @@ function ProjectManagerForm({
             {!settings.enabled
               ? "Off. The project's bot does its work itself, and the manager's thread is archived."
               : settings.customized
-                ? "Takes this project's requests from its bot. Customized for this project."
-                : "Takes this project's requests from its bot. Built-in instructions, on the model of the bot that owns this project, until you save changes here."}
+                ? "Takes this project's requests. Customized for this project."
+                : "Takes this project's requests. Built-in instructions, on its bot's model or the default model, until you save changes here."}
           </p>
         </div>
         <Switch

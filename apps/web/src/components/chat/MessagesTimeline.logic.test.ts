@@ -1067,7 +1067,7 @@ describe("deriveMessagesTimelineRows", () => {
     });
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
-        userMessage("opening", "bot-captain", "2026-01-01T00:00:00Z"),
+        userMessage("opening", "bot-ops", "2026-01-01T00:00:00Z"),
         userMessage("briefing", BOT_FRESH_START_LABEL, "2026-01-01T01:00:00Z"),
       ],
       expandedRunIds: new Set(),

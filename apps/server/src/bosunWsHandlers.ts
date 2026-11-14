@@ -117,6 +117,10 @@ export const layerBosunWsRpc = ({
           bots
             .moveProject(input)
             .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsSetPin]: (input) =>
+          bots
+            .setPin(input)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.botsOpenHeadquarters]: (input) =>
           crew.ensureHeadquarters(input.botId).pipe(
             Effect.map((run) => ({ threadId: run.threadId })),

@@ -32,7 +32,7 @@ vi.mock(import("../../state/bots"), async (original) => {
 
 const environmentId = EnvironmentId.make("laptop");
 const captain: Bot = {
-  id: "bot-captain",
+  id: "bot-ops",
   name: "Captain",
   avatar: { head: "round", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
   color: "blue",

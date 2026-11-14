@@ -42,6 +42,7 @@ import {
   resolveHomeProjectFilterScope,
   sortHomeProjectScopes,
 } from "./homeThreadList";
+import { useOpenProjectManager } from "./useOpenProjectManager";
 import { buildBotSwitcherMenu } from "./thread-list-chrome";
 import { useThreadListView } from "./use-thread-list-view";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
@@ -115,6 +116,7 @@ export function HomeRouteScreen() {
   const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
     selectThreadRoute({ environmentId: String(thread.environmentId), threadId: String(thread.id) });
   const openHeadquarters = useOpenBotHeadquarters(handleSelectThread);
+  const openProjectManager = useOpenProjectManager(handleSelectThread);
   const botProjectCount = useMemo(
     () =>
       activeBot.active === null
@@ -139,10 +141,12 @@ export function HomeRouteScreen() {
       buildBotSwitcherMenu({
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
+        openManager: (manager) => void openProjectManager(manager),
+        openBotsList: () => openSettings(navigation, "SettingsBots"),
         openAutomations: () => openSettings(navigation, "SettingsScheduledTasks"),
         openLibrary: () => openSettings(navigation, "SettingsRoles"),
       }),
-    [activeBot, navigation, openHeadquarters],
+    [activeBot, navigation, openHeadquarters, openProjectManager],
   );
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);

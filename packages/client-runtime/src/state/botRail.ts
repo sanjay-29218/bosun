@@ -1,36 +1,43 @@
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   headquartersBotId,
+  headquartersProjectId,
   logicalBotKey,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
   type ProjectIconColor,
+  type ProjectId,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
 import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
 import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
 
-/** A project's owner. Projects from older servers have no `botId` and belong to Captain. */
-export function projectBotId(project: { readonly botId?: string | undefined }): string {
-  return project.botId ?? CAPTAIN_BOT_ID;
+/** A project's owner, or null when it has none. */
+export function projectBotId(project: {
+  readonly botId?: string | null | undefined;
+}): string | null {
+  return project.botId ?? null;
 }
 
 export interface EnvironmentBots {
   readonly environmentId: EnvironmentId;
-  readonly bots: ReadonlyArray<Pick<Bot, "id" | "name" | "avatar" | "color" | "position">>;
+  readonly bots: ReadonlyArray<
+    Pick<Bot, "id" | "name" | "avatar" | "color" | "position" | "pinned">
+  >;
 }
 
 export interface LogicalBotMember {
   readonly environmentId: EnvironmentId;
   readonly botId: string;
+  /** This environment's own pin; absent reads as pinned. */
+  readonly pinned?: boolean;
 }
 
 /**
  * One rail entry: the same bot on every connected environment. Bots are environment-local, so
- * the rail merges them like logical projects: Captain by id, the rest by name.
+ * the rail merges them like logical projects, by name.
  */
 export interface LogicalBot {
   readonly key: string;
@@ -38,9 +45,9 @@ export interface LogicalBot {
   readonly avatar: BotAvatar;
   readonly color: ProjectIconColor;
   readonly members: ReadonlyArray<LogicalBotMember>;
+  /** Shown in the main rail: pinned on any of its environments. */
+  readonly pinned: boolean;
 }
-
-const CAPTAIN_KEY = `id:${CAPTAIN_BOT_ID}`;
 
 /**
  * Rail entries across environments, given in priority order (primary first). The first
@@ -48,14 +55,18 @@ const CAPTAIN_KEY = `id:${CAPTAIN_BOT_ID}`;
  * the same name on one environment stay separate entries; only the first one merges.
  */
 export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): LogicalBot[] {
-  const byKey = new Map<string, Omit<LogicalBot, "key"> & { members: LogicalBotMember[] }>();
+  const byKey = new Map<
+    string,
+    Omit<LogicalBot, "key"> & { members: LogicalBotMember[]; pinned: boolean }
+  >();
   for (const { environmentId, bots } of environments) {
     for (const bot of [...bots].sort((left, right) => left.position - right.position)) {
       let key = logicalBotKey(bot);
       const existing = byKey.get(key);
       if (existing) {
         if (!existing.members.some((member) => member.environmentId === environmentId)) {
-          existing.members.push({ environmentId, botId: bot.id });
+          existing.members.push({ environmentId, botId: bot.id, pinned: bot.pinned ?? true });
+          existing.pinned ||= bot.pinned ?? true;
           continue;
         }
         key = `id:${environmentId}:${bot.id}`;
@@ -64,12 +75,27 @@ export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): 
         name: bot.name,
         avatar: bot.avatar,
         color: bot.color,
-        members: [{ environmentId, botId: bot.id }],
+        members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
+        pinned: bot.pinned ?? true,
       });
     }
   }
   return [...byKey].map(([key, bot]) => ({ key, ...bot }));
 }
+
+/**
+ * Changes whenever anything a client shows or writes from the rail entries does, each
+ * environment's own pin included: a rollback after a failed pin restores those.
+ */
+export const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
+  bots
+    .map(
+      (bot) =>
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.members
+          .map((member) => `${member.environmentId}/${member.botId}/${member.pinned ?? true}`)
+          .join(",")}`,
+    )
+    .join("\n");
 
 /**
  * The selected rail entry, null only while no bot is listed. Each environment remembers its own
@@ -104,9 +130,8 @@ export function selectLogicalBot(bot: LogicalBot): Record<string, string> {
 }
 
 /**
- * Maps an environment's bot to its rail entry. A bot the rail doesn't know yet (its
- * environment's list is still loading, or the server predates bots) falls under Captain, so a
- * project is never hidden from every entry.
+ * Maps an environment's bot to its rail entry, or null for no bot. A bot the rail doesn't know
+ * yet (its environment's list is still loading) maps to null too, like a project with no bot.
  */
 export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
   const byMember = new Map<string, string>();
@@ -115,24 +140,66 @@ export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
       byMember.set(botNeedsYouKey(member.environmentId, member.botId), bot.key);
     }
   }
-  return (environmentId: EnvironmentId, botId: string): string =>
-    byMember.get(botNeedsYouKey(environmentId, botId)) ?? CAPTAIN_KEY;
+  return (environmentId: EnvironmentId, botId: string | null): string | null =>
+    botId === null ? null : (byMember.get(botNeedsYouKey(environmentId, botId)) ?? null);
 }
 
-/** `${environmentId}:${projectId}` keys of the projects `bot` owns. */
+/**
+ * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and the
+ * ones with no bot, which every bot shows so they are never hidden.
+ */
 export function logicalBotProjectKeys(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly id: string;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
   }>,
 ): Set<string> {
   const resolve = createLogicalBotResolver(bots);
   const keys = new Set<string>();
   for (const project of projects) {
-    if (resolve(project.environmentId, projectBotId(project)) === bot.key) {
+    const owner = resolve(project.environmentId, projectBotId(project));
+    if (owner === null || owner === bot.key) keys.add(`${project.environmentId}:${project.id}`);
+  }
+  return keys;
+}
+
+/**
+ * Keys the thread list shows for the rail's pick, or null when nothing narrows it. Owners are
+ * read from every bot, pinned or not; projects the list is scoped to always show, such as a
+ * picked manager's whose bot isn't pinned.
+ */
+export function railProjectKeys(input: {
+  readonly active: LogicalBot | null;
+  readonly pinnedBots: ReadonlyArray<LogicalBot>;
+  readonly allBots: ReadonlyArray<LogicalBot>;
+  readonly projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+    readonly botId?: string | null | undefined;
+  }>;
+  readonly environmentFilter: ReadonlySet<EnvironmentId> | null;
+  /** The projects the thread list is scoped to, if any. */
+  readonly scopedProjects?: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+  }>;
+}): Set<string> | null {
+  const { active, environmentFilter } = input;
+  const filterByBot = active !== null && input.pinnedBots.length > 1;
+  if (!filterByBot && environmentFilter === null) return null;
+  const inEnvironment =
+    environmentFilter === null
+      ? input.projects
+      : input.projects.filter((project) => environmentFilter.has(project.environmentId));
+  if (!filterByBot) {
+    return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
+  }
+  const keys = logicalBotProjectKeys(active, input.allBots, inEnvironment);
+  for (const project of input.scopedProjects ?? []) {
+    if (environmentFilter === null || environmentFilter.has(project.environmentId)) {
       keys.add(`${project.environmentId}:${project.id}`);
     }
   }
@@ -149,7 +216,7 @@ export function logicalBotProjectLists<
   Project extends {
     readonly environmentId: EnvironmentId;
     readonly id: string;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
   },
 >(
   bot: LogicalBot,
@@ -208,7 +275,7 @@ export function botRailShowsThread(
   return projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`);
 }
 
-/** Rail entry keys by `botNeedsYouKey`; a key no entry lists falls under Captain. */
+/** Rail entry keys by `botNeedsYouKey`; undefined for a key no entry lists. */
 function logicalBotKeysByMember(bots: ReadonlyArray<LogicalBot>) {
   const owners = new Map<string, string>();
   for (const bot of bots) {
@@ -216,7 +283,7 @@ function logicalBotKeysByMember(bots: ReadonlyArray<LogicalBot>) {
       owners.set(botNeedsYouKey(member.environmentId, member.botId), bot.key);
     }
   }
-  return (memberKey: string) => owners.get(memberKey) ?? CAPTAIN_KEY;
+  return (memberKey: string) => owners.get(memberKey);
 }
 
 /** Sums `countNeedsYouByBot` counts (keyed by `botNeedsYouKey`) per rail entry. */
@@ -228,6 +295,7 @@ export function countNeedsYouByLogicalBot(
   const counts = new Map<string, number>();
   for (const [memberKey, count] of countsByBot) {
     const key = owner(memberKey);
+    if (key === undefined) continue;
     counts.set(key, (counts.get(key) ?? 0) + count);
   }
   return counts;
@@ -291,6 +359,7 @@ export function botActivityByLogicalBot(
   const merged = new Map<string, BotActivity>();
   for (const [memberKey, activity] of activityByBot) {
     const key = owner(memberKey);
+    if (key === undefined) continue;
     merged.set(key, mergeActivity(merged.get(key), activity));
   }
   return merged;
@@ -330,4 +399,107 @@ export function resolveEnvironmentFilter(
   const wanted = new Set(selected);
   const visible = available.filter((environmentId) => wanted.has(environmentId));
   return visible.length === 0 || visible.length === available.length ? null : new Set(visible);
+}
+
+/** Whether a project's manager shows in the main rail. Older servers send no flag: pinned. */
+export function isManagerPinned(project: {
+  readonly managerPinned?: boolean | undefined;
+}): boolean {
+  return project.managerPinned ?? true;
+}
+
+/**
+ * Threads waiting on you that the main rail hides: a project manager's thread when that manager
+ * isn't pinned, and any other thread whose bot isn't pinned. The Bots place shows this count, so
+ * nothing unpinned goes silent.
+ */
+export function countHiddenNeedsYou(input: {
+  readonly bots: ReadonlyArray<LogicalBot>;
+  readonly shells: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: string;
+    readonly projectId: ProjectId;
+  }>;
+  readonly projects: ReadonlyArray<
+    BotOwnedProject & { readonly managerPinned?: boolean | undefined }
+  >;
+}): number {
+  const unpinnedManagers = new Set(
+    input.projects
+      .filter((project) => !isManagerPinned(project))
+      .map((project) => `${project.environmentId}:${project.id}`),
+  );
+  const unpinnedBots = new Set<string>();
+  for (const bot of input.bots) {
+    if (bot.pinned) continue;
+    for (const member of bot.members) {
+      unpinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
+    }
+  }
+  const ownerKey = createThreadBotKeyResolver(input.projects);
+  let count = 0;
+  for (const shell of input.shells) {
+    // A manager's thread shows with the manager, whatever its bot's pin.
+    const managerOf = headquartersProjectId(shell.id);
+    if (managerOf !== null) {
+      if (unpinnedManagers.has(`${shell.environmentId}:${managerOf}`)) count += 1;
+      continue;
+    }
+    const owner = ownerKey(shell);
+    if (owner !== undefined && unpinnedBots.has(owner)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Pinned project managers the rail lists, by title: one per project whose manager is pinned,
+ * whether or not its thread exists yet (opening it makes one). Scratch, bots' homes, servers
+ * without features and managers turned off (their thread archived) are left out.
+ */
+export function pinnedProjectManagers<
+  Project extends {
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+    readonly title: string;
+    readonly managerPinned?: boolean | undefined;
+    readonly isScratch?: true;
+    readonly isBotHome?: true;
+  },
+>(input: {
+  readonly projects: ReadonlyArray<Project>;
+  readonly managerEnvironmentIds: ReadonlySet<EnvironmentId>;
+  /** `${environmentId}:${projectId}` of managers whose thread is archived. */
+  readonly archivedManagers: ReadonlySet<string>;
+}): Project[] {
+  return input.projects
+    .filter(
+      (project) =>
+        !project.isScratch &&
+        !project.isBotHome &&
+        isManagerPinned(project) &&
+        input.managerEnvironmentIds.has(project.environmentId) &&
+        !input.archivedManagers.has(`${project.environmentId}:${project.id}`),
+    )
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
+
+/**
+ * Writes one pin to every target. If any write fails, the targets already written go back to
+ * their previous value, so a bot isn't left pinned on some environments only. Returns the first
+ * failure, or null.
+ */
+export async function writePins<Target extends { readonly previous: boolean }, Failure>(
+  targets: ReadonlyArray<Target>,
+  pinned: boolean,
+  write: (target: Target, pinned: boolean) => Promise<Failure | null>,
+): Promise<Failure | null> {
+  const results = await Promise.all(targets.map((target) => write(target, pinned)));
+  const failure = results.find((result) => result !== null) ?? null;
+  if (failure === null) return null;
+  await Promise.all(
+    targets.flatMap((target, index) =>
+      results[index] === null && target.previous !== pinned ? [write(target, target.previous)] : [],
+    ),
+  );
+  return failure;
 }

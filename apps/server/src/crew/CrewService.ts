@@ -803,21 +803,32 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
-    /** What a project's manager starts with: built-in instructions on its owning bot's model. */
+    /**
+     * What a project's manager starts with: built-in instructions on its owning bot's model, or
+     * with no bot, the project's default model.
+     */
     const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (
       projectId: ProjectId,
     ) {
       const botId = yield* runtime.projectBotId(projectId);
       const bot = botId === null ? null : yield* bots.get(botId);
-      if (bot?.modelSelection == null) {
+      const modelSelection =
+        botId === null
+          ? yield* runtime.projectModelSelection(projectId)
+          : (bot?.modelSelection ?? null);
+      if (modelSelection === null) {
         return yield* Effect.fail(
-          new CrewValidationError(`Choose a default model for ${bot?.name ?? "the project's bot"}`),
+          new CrewValidationError(
+            botId === null
+              ? "Choose a default model for this project or in Settings"
+              : `Choose a default model for ${bot?.name ?? "the project's bot"}`,
+          ),
         );
       }
       return {
         instructions: builtInManagerInstructions(projectId),
         allowedTools: [] as ReadonlyArray<string>,
-        modelSelection: bot.modelSelection,
+        modelSelection,
         runtimeMode: "full-access" as const,
         longConversation: "compact" as const,
       };

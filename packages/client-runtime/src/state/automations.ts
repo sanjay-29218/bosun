@@ -1,6 +1,5 @@
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   headquartersBotId,
   type EnvironmentId,
   type ScheduledTask,
@@ -27,9 +26,11 @@ export interface AutomationEntry {
   readonly task: ScheduledTask;
 }
 
+const NO_BOT_KEY = "no-bot";
+
 export interface AutomationGroup {
   readonly key: string;
-  /** Null when the rail doesn't know the owning bot, such as on a server without bots. */
+  /** Null for the "No bot" group: tasks whose project has no bot, or whose bot the rail doesn't list. */
   readonly bot: LogicalBot | null;
   readonly entries: ReadonlyArray<AutomationEntry>;
 }
@@ -58,8 +59,8 @@ export function groupAutomationsByBot(input: {
         task.botId ??
         (task.threadId === null ? undefined : headquartersBotId(task.threadId)) ??
         projectBot.get(`${environmentId}:${task.projectId}`) ??
-        CAPTAIN_BOT_ID;
-      const botKey = resolveBot(environmentId, botId);
+        null;
+      const botKey = resolveBot(environmentId, botId) ?? NO_BOT_KEY;
       const entries = entriesByBot.get(botKey) ?? [];
       entries.push({ key: automationKey(environmentId, task.id), environmentId, task });
       entriesByBot.set(botKey, entries);
@@ -76,7 +77,7 @@ export function groupAutomationsByBot(input: {
   }
   const unowned = [...entriesByBot.values()].flat();
   if (unowned.length > 0) {
-    groups.push({ key: "unowned", bot: null, entries: unowned.sort(byTitle) });
+    groups.push({ key: NO_BOT_KEY, bot: null, entries: unowned.sort(byTitle) });
   }
   return groups;
 }

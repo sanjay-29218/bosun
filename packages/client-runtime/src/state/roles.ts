@@ -133,7 +133,7 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       tag: WS_METHODS.workflowsDelete,
       onSuccess: refreshWorkflows,
     }),
-    /** Creates the missing default roles, Feature delivery, and the Captain. */
+    /** Creates the missing default roles and Feature delivery, and gives bots without a model one. */
     initialize: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:initialize",
       tag: WS_METHODS.crewInitialize,

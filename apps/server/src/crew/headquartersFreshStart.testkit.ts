@@ -15,7 +15,7 @@ import { FRESH_START_TOKENS, type FreshStartRecords } from "./headquartersFreshS
 
 export const at = (minutes: number) =>
   DateTime.makeUnsafe(Date.parse("2026-10-30T12:00:00.000Z") + minutes * 60_000);
-export const threadId = ThreadId.make("bot-run:bot-hq:bot-captain");
+export const threadId = ThreadId.make("bot-run:bot-hq:bot-ops");
 export const runId = RunId.make("run-1");
 const instanceId = ProviderInstanceId.make("claudeAgent");
 const providerThreadId = ProviderThreadId.make("provider-thread");

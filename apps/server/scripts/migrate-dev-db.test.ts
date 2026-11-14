@@ -51,6 +51,10 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ('project-kept', 'Kept', '/tmp/kept', ${scripts}, '2026-08-01', '2026-08-01', NULL),
         ('project-home', 'Captain', ${path.join(baseDir, "bots", "bot-captain")}, '[]', '2026-08-01', '2026-08-06', NULL),
         ('project-deleted', 'Deleted', '/tmp/deleted', '[]', '2026-08-01', '2026-08-02', '2026-08-02')`;
+      // Installs from before optional bots gave every project to the Captain 071 seeded.
+      if (toMigrationInclusive === undefined) {
+        yield* sql`UPDATE projection_projects SET bot_id = 'bot-captain'`;
+      }
 
       const forkPayload =
         '{"lineage":{"parentThreadId":"stopped-thread","relationshipToParent":"fork","rootThreadId":"stopped-thread"}}';
