@@ -188,7 +188,9 @@ const make = Effect.gen(function* () {
           const { subagents } = yield* projections.getThreadRecords(leadThreadId, ["subagents"]);
           const askingThreads = [
             leadThreadId,
-            ...new Set(subagents.flatMap((task) => (task.childThreadId ? [task.childThreadId] : []))),
+            ...new Set(
+              subagents.flatMap((task) => (task.childThreadId ? [task.childThreadId] : [])),
+            ),
           ];
           for (const threadId of askingThreads) {
             const asking = yield* projections.getThreadRecords(threadId, ["runtimeRequests"], {
