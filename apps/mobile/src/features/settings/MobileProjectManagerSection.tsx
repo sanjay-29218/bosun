@@ -171,7 +171,7 @@ function Form(props: {
       <Text className="text-xs text-foreground-muted">
         {settings.customized
           ? "Customized for this project."
-          : "Built-in instructions, on the model of the bot that owns this project, until you save changes here."}
+          : "Built-in instructions, on its bot's model or the default model, until you save changes here."}
       </Text>
       <AppTextInput
         accessibilityLabel="Project manager instructions"

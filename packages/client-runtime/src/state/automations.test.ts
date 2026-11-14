@@ -1,6 +1,5 @@
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -105,7 +104,7 @@ const bots = buildLogicalBots([
   {
     environmentId: local,
     bots: [
-      { id: CAPTAIN_BOT_ID, name: "Captain", avatar, color: "blue", position: 0 },
+      { id: "bot-ops", name: "Captain", avatar, color: "blue", position: 0 },
       { id: "bot-social", name: "Social", avatar, color: "blue", position: 1 },
     ],
   },
@@ -124,6 +123,7 @@ describe("groupAutomationsByBot", () => {
           tasks: [
             task("Triage", { projectId: ProjectId.make("blog") }),
             task("Nightly build", { projectId: ProjectId.make("app") }),
+            task("Cleanup", { projectId: ProjectId.make("loose") }),
           ],
         },
         {
@@ -132,7 +132,8 @@ describe("groupAutomationsByBot", () => {
         },
       ],
       projects: [
-        { environmentId: local, id: ProjectId.make("app") },
+        { environmentId: local, id: ProjectId.make("app"), botId: "bot-ops" },
+        { environmentId: local, id: ProjectId.make("loose"), botId: null },
         { environmentId: local, id: ProjectId.make("blog"), botId: "bot-social" },
         { environmentId: remote, id: ProjectId.make("site"), botId: "bot-social-2" },
       ],
@@ -143,6 +144,8 @@ describe("groupAutomationsByBot", () => {
     ).toEqual([
       ["Captain", ["local:Nightly build"]],
       ["Social", ["remote:Analytics", "local:Triage"]],
+      // A project with no bot files its tasks under No bot, last.
+      [undefined, ["local:Cleanup"]],
     ]);
   });
 

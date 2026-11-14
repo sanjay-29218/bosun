@@ -490,37 +490,40 @@ it.effect(
     }),
 );
 
-it.effect("requires operate access to change, reset, open or restart a project's manager", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const registry = yield* setup;
-      for (const method of [
-        WS_METHODS.crewUpdateProjectManager,
-        WS_METHODS.crewResetProjectManager,
-        WS_METHODS.crewSetProjectManagerEnabled,
-        WS_METHODS.crewSetProjectManagerIcon,
-        WS_METHODS.crewOpenProjectManager,
-        WS_METHODS.crewStartNewSession,
-      ]) {
-        const command = createCommandPermissions(runtime, method);
-        registry.set(
-          sessions(env),
-          AsyncResult.success({
-            ...grant(false),
-            scopes: [AuthOrchestrationReadScope],
-            permissions: [AuthOrchestrationReadScope],
-          }),
-        );
-        expect(registry.get(command.permissionAtom(env))).toBe(false);
-        expect((yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission).toBe(
-          AuthOrchestrationOperateScope,
-        );
-        registry.set(sessions(env), AsyncResult.success(grant(true)));
-        expect(registry.get(command.permissionAtom(env))).toBe(true);
-        yield* command.authorize(registry, env);
-      }
-    }),
-  ),
+it.effect(
+  "requires operate access to change, reset, open, restart or pin a project's manager, or pin a bot",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        for (const method of [
+          WS_METHODS.crewUpdateProjectManager,
+          WS_METHODS.crewResetProjectManager,
+          WS_METHODS.crewSetProjectManagerEnabled,
+          WS_METHODS.crewSetProjectManagerIcon,
+          WS_METHODS.crewOpenProjectManager,
+          WS_METHODS.crewStartNewSession,
+          WS_METHODS.botsSetPin,
+        ]) {
+          const command = createCommandPermissions(runtime, method);
+          registry.set(
+            sessions(env),
+            AsyncResult.success({
+              ...grant(false),
+              scopes: [AuthOrchestrationReadScope],
+              permissions: [AuthOrchestrationReadScope],
+            }),
+          );
+          expect(registry.get(command.permissionAtom(env))).toBe(false);
+          expect(
+            (yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission,
+          ).toBe(AuthOrchestrationOperateScope);
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(command.permissionAtom(env))).toBe(true);
+          yield* command.authorize(registry, env);
+        }
+      }),
+    ),
 );
 
 it.effect("requires access management to answer a link request", () =>

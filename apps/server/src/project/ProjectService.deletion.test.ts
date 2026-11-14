@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   CommandId,
   EventId,
   type OrchestrationV2AppThread,
@@ -37,6 +36,9 @@ import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
+import { insertTestBot } from "../bots/BotStore.testkit.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const layerEventPersistence = EventSink.layer.pipe(
   Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
@@ -437,10 +439,11 @@ it.effect("refuses to delete a project holding a bot's headquarters, wherever it
   Effect.gen(function* () {
     const homeId = ProjectId.make("project:captain-home");
     const repoId = ProjectId.make("project:bots-named-repo");
-    const hqId = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+    const hqId = botHeadquartersThreadId(CAPTAIN_ID);
     const repoThreadId = ThreadId.make("thread:bots-named-repo");
-    yield* seedProject(homeId, `/data/bots/${CAPTAIN_BOT_ID}`);
-    yield* seedProject(repoId, `/github/bots/${CAPTAIN_BOT_ID}`);
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
+    yield* seedProject(homeId, `/data/bots/${CAPTAIN_ID}`);
+    yield* seedProject(repoId, `/github/bots/${CAPTAIN_ID}`);
 
     yield* Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;

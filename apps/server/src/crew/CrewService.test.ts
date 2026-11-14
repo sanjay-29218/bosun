@@ -9,7 +9,6 @@ import { it as effectIt } from "@effect/vitest";
 import {
   botHeadquartersRunId,
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   CommandId,
   FEATURE_MANAGER_ROLE_ID,
   MessageId,
@@ -34,6 +33,8 @@ import {
   CrewTestOrchestration,
   makeCrewTestOrchestration,
   seedCrewProject,
+  seedCrewTestBot,
+  CREW_TEST_BOT_ID as CAPTAIN_ID,
 } from "./CrewRuntime.testkit.ts";
 import { OrchestratorDispatchError as OrchestrationCommandInvariantError } from "../orchestration-v2/Orchestrator.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
@@ -67,7 +68,7 @@ const withSystem = <A, E>(
         import("../orchestration-v2/Orchestrator.ts").OrchestratorV2Error
       >;
     };
-  }) => Effect.Effect<A, E, ProjectStore.ProjectStoreV2>,
+  }) => Effect.Effect<A, E, ProjectStore.ProjectStoreV2 | SqlClient.SqlClient>,
   orchestration = CrewTestOrchestration,
 ) => {
   const layer = Layer.mergeAll(
@@ -199,7 +200,7 @@ describe("Bot foundation", () => {
           Effect.gen(function* () {
             yield* createProject(engine);
             yield* bots.ensureDefaults(modelSelection);
-            expect(yield* store.getMember(CAPTAIN_BOT_ID)).toBeNull();
+            expect(yield* store.getMember(CAPTAIN_ID)).toBeNull();
             expect(yield* store.getMember(featureManagerMemberId(projectId))).toBeNull();
             const first = yield* bots.ensureFeatureManager(projectId);
             const second = yield* bots.ensureFeatureManager(projectId);
@@ -210,13 +211,13 @@ describe("Bot foundation", () => {
               (member) => member.projectId === projectId,
             );
             expect(members.map((member) => member.id)).toEqual([featureManagerMemberId(projectId)]);
-            expect(yield* store.canDelegate(CAPTAIN_BOT_ID, first.id, projectId)).toBe(true);
+            expect(yield* store.canDelegate(CAPTAIN_ID, first.id, projectId)).toBe(true);
             // Captain's permission follows from owning the project, not a stored grant.
             expect(
               (yield* store.listDelegationGrantsForProject(projectId)).map(
                 (grant) => grant.sourceMemberId,
               ),
-            ).not.toContain(CAPTAIN_BOT_ID);
+            ).not.toContain(CAPTAIN_ID);
           }),
         ).pipe(
           Effect.ensuring(
@@ -305,21 +306,21 @@ describe("Bot foundation", () => {
           // Without a requested model, the run takes the one ensureDefaults gave Captain.
           const run = yield* bots.createRun({
             id: "owner-run",
-            memberId: CAPTAIN_BOT_ID,
+            memberId: CAPTAIN_ID,
             projectId,
             taskText: "Coordinate",
           });
-          expect(run.memberId).toBe(CAPTAIN_BOT_ID);
+          expect(run.memberId).toBe(CAPTAIN_ID);
           expect(run.modelSelection).toEqual(modelSelection);
           const grants = yield* sql<{ readonly count: number }>`
               SELECT COUNT(*) AS count FROM crew_delegation_grants
-              WHERE source_member_id = ${CAPTAIN_BOT_ID}
+              WHERE source_member_id = ${CAPTAIN_ID}
             `;
           expect(grants[0]?.count).toBe(0);
           // Ownership covers the project's members only, not another project's.
           expect(
             yield* store.canDelegate(
-              CAPTAIN_BOT_ID,
+              CAPTAIN_ID,
               featureManagerMemberId(projectId),
               ProjectId.make("other-project"),
             ),
@@ -340,20 +341,21 @@ describe("Bot foundation", () => {
       );
       yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine, sql, store }) =>
         Effect.gen(function* () {
+          yield* seedCrewTestBot;
           // A bot without a model has no headquarters.
-          expect(
-            (yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID).pipe(Effect.flip)).message,
-          ).toContain("Choose a default model for Captain");
+          expect((yield* bots.ensureHeadquarters(CAPTAIN_ID).pipe(Effect.flip)).message).toContain(
+            "Choose a default model for Captain",
+          );
           yield* bots.ensureDefaults(modelSelection);
           // A bot that owns no project still gets its headquarters, in its own home.
-          const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID);
+          const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_ID);
           const home = headquarters.projectId;
-          const workspaceRoot = `${CREW_TEST_BOT_HOMES}/${CAPTAIN_BOT_ID}`;
+          const workspaceRoot = `${CREW_TEST_BOT_HOMES}/${CAPTAIN_ID}`;
           const homeRow = yield* sql<{ readonly workspaceRoot: string; readonly botId: string }>`
             SELECT workspace_root AS "workspaceRoot", bot_id AS "botId" FROM projection_projects
             WHERE project_id = ${home}
           `;
-          expect(homeRow).toEqual([{ workspaceRoot, botId: CAPTAIN_BOT_ID }]);
+          expect(homeRow).toEqual([{ workspaceRoot, botId: CAPTAIN_ID }]);
           // It opens pinned, with no turn: nothing runs until someone writes to it.
           expect(yield* engine.getThreadShell(headquarters.threadId)).toMatchObject({
             projectId: home,
@@ -364,7 +366,7 @@ describe("Bot foundation", () => {
             "runs",
           ]);
           expect([opened.messages, opened.runs]).toEqual([[], []]);
-          expect(yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID)).toEqual(headquarters);
+          expect(yield* bots.ensureHeadquarters(CAPTAIN_ID)).toEqual(headquarters);
           // Homes never get a Project manager.
           expect((yield* bots.ensureProjectManager(home).pipe(Effect.flip)).message).toBe(
             "Scratch and bot homes have no Project manager",
@@ -418,7 +420,7 @@ describe("Bot foundation", () => {
           ).toBeNull();
           const moves = yield* sql<{ readonly status: string }>`
             SELECT status FROM orchestration_command_receipts
-            WHERE command_id LIKE ${`bot-home:${CAPTAIN_BOT_ID}:${projectId}:%`}
+            WHERE command_id LIKE ${`bot-home:${CAPTAIN_ID}:${projectId}:%`}
             ORDER BY accepted_at
           `;
           expect(moves.map((move) => move.status)).toEqual(["rejected", "accepted"]);
@@ -433,7 +435,7 @@ describe("Bot foundation", () => {
           // A deleted home is made again, and the headquarters restored there.
           yield* sql`UPDATE projection_projects SET deleted_at = '2026-11-05T00:00:00.000Z'
             WHERE project_id = ${home}`;
-          const restored = yield* bots.ensureHeadquarters(CAPTAIN_BOT_ID);
+          const restored = yield* bots.ensureHeadquarters(CAPTAIN_ID);
           expect(restored.projectId).not.toBe(home);
           expect(
             yield* sql`SELECT 1 FROM projection_projects
@@ -461,7 +463,7 @@ describe("Bot foundation", () => {
           const manager = yield* bots.ensureFeatureManager(projectId);
           const before = yield* bots.createRun({
             id: "captain-before-move",
-            memberId: CAPTAIN_BOT_ID,
+            memberId: CAPTAIN_ID,
             projectId,
             taskText: "Coordinate before the move",
           });
@@ -482,7 +484,7 @@ describe("Bot foundation", () => {
           const refused = yield* bots
             .createRun({
               id: "captain-after-move",
-              memberId: CAPTAIN_BOT_ID,
+              memberId: CAPTAIN_ID,
               projectId,
               taskText: "Coordinate after the move",
             })
@@ -509,7 +511,7 @@ describe("Bot foundation", () => {
           ).toBe("bot-second");
 
           // A run started before the move still delegates on its project.
-          expect(yield* store.canDelegate(CAPTAIN_BOT_ID, manager.id, before.projectId)).toBe(true);
+          expect(yield* store.canDelegate(CAPTAIN_ID, manager.id, before.projectId)).toBe(true);
         }),
       ).pipe(
         Effect.ensuring(
@@ -525,6 +527,7 @@ describe("Bot foundation", () => {
       const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
         projectExists: () => Effect.succeed(true),
         projectBotId: () => Effect.succeed(null),
+        projectModelSelection: () => Effect.succeed(null),
         archive: () => Effect.void,
         isHiddenProject: () => Effect.succeed(false),
         botHome: () => Effect.die("unused"),
@@ -608,6 +611,7 @@ describe("Bot foundation", () => {
         const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
           projectExists: () => Effect.succeed(true),
           projectBotId: () => Effect.succeed(null),
+          projectModelSelection: () => Effect.succeed(null),
           archive: () => Effect.void,
           isHiddenProject: () => Effect.succeed(false),
           botHome: () => Effect.die("unused"),

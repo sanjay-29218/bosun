@@ -534,17 +534,22 @@ export const FeatureServiceLive = Layer.effect(
         ),
       );
 
-    /** The bot that owns the project, once it can run: the crew is set up and it has a model. */
+    /**
+     * Fails until the project can run work: its bot has a model, or with no bot, the project or
+     * this environment has a default model.
+     */
     const readyOwner = Effect.fn("FeatureService.readyOwner")(function* (
       projectId: ProjectId,
       action: string,
     ) {
       const ownerId = yield* bots.projectOwner(projectId);
-      const owner = ownerId === null ? null : yield* bots.get(ownerId);
-      if (!owner?.modelSelection) {
+      const modelSelection =
+        ownerId === null
+          ? yield* runtime.projectModelSelection(projectId)
+          : ((yield* bots.get(ownerId))?.modelSelection ?? null);
+      if (modelSelection === null) {
         return yield* Effect.fail(new FeatureValidationError(`Set up the crew before ${action}`));
       }
-      return owner;
     });
 
     /** The names of the feature's crew members, as its lead addresses them. */

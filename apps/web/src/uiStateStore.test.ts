@@ -90,14 +90,14 @@ describe("uiStateStore pure functions", () => {
 
   it("clears a project scope when another bot is picked, and keeps it for the same bot", () => {
     const scoped = makeUiState({
-      activeBotIdByEnvironmentId: { local: "bot-captain" },
+      activeBotIdByEnvironmentId: { local: "bot-ops" },
       sidebarProjectScopeKeys: ["github.com/acme/alpha"],
     });
     expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-pilot" })).toMatchObject({
       activeBotIdByEnvironmentId: { local: "bot-pilot" },
       sidebarProjectScopeKeys: [],
     });
-    expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-captain" })).toBe(scoped);
+    expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-ops" })).toBe(scoped);
   });
 
   it("moves grouped project members together", () => {

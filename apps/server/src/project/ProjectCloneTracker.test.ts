@@ -34,7 +34,7 @@ function makeHarness(options?: {
   const created: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
   const cloned: Array<ProjectId> = [];
   const discarded: Array<string> = [];
-  const ownerBotIds: Array<string | undefined> = [];
+  const ownerBotIds: Array<string | null | undefined> = [];
   const hooks: ProjectCloneTracker.ProjectCloneHooks = {
     createProject: (input) =>
       Effect.sync(() => {

@@ -319,6 +319,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
       bootstrap: unused,
       update: unused,
       assignBot: unused,
+      setManagerPinned: unused,
       delete: unused,
       getByWorkspaceRoot: unused,
       workspaceScanDirectory: unused,

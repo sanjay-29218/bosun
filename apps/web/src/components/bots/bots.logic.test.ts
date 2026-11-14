@@ -1,15 +1,14 @@
-import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder, moveBotTo } from "./bots.logic";
 
 describe("groupProjectsByBot", () => {
-  it("groups projects by owner in order, with unowned ones under Captain", () => {
+  it("groups projects by owner in order, with unowned ones under null", () => {
     const unowned = { title: "a", botId: undefined };
-    const captains = { title: "b", botId: CAPTAIN_BOT_ID };
+    const loose = { title: "b", botId: null };
     const socials = { title: "c", botId: "bot-social" };
-    const groups = groupProjectsByBot([unowned, socials, captains]);
-    expect(groups.get(CAPTAIN_BOT_ID)).toEqual([unowned, captains]);
+    const groups = groupProjectsByBot([unowned, socials, loose]);
+    expect(groups.get(null)).toEqual([unowned, loose]);
     expect(groups.get("bot-social")).toEqual([socials]);
     expect(groups.get("bot-finance")).toBeUndefined();
   });
@@ -45,13 +44,9 @@ describe("moveBotTo", () => {
 });
 
 describe("botDeleteBlocker", () => {
-  it("never allows deleting Captain", () => {
-    expect(botDeleteBlocker(CAPTAIN_BOT_ID, 0)).not.toBeNull();
-  });
-
-  it("asks for a bot's projects to move first", () => {
-    expect(botDeleteBlocker("bot-social", 1)).toBe("Move its project to another bot first.");
-    expect(botDeleteBlocker("bot-social", 3)).toBe("Move its 3 projects to another bot first.");
-    expect(botDeleteBlocker("bot-social", 0)).toBeNull();
+  it("asks for a bot's projects to be unlinked first", () => {
+    expect(botDeleteBlocker(1)).toBe("Unlink its project first.");
+    expect(botDeleteBlocker(3)).toBe("Unlink its 3 projects first.");
+    expect(botDeleteBlocker(0)).toBeNull();
   });
 });

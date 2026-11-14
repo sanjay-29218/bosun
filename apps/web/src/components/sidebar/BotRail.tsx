@@ -3,6 +3,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   botRailSignal,
   createLogicalBotResolver,
+  pinnedProjectManagers,
   projectBotId,
   type BotActivity,
   type BotRailSignal,
@@ -11,11 +12,13 @@ import {
 import {
   botHeadquartersThreadId,
   headquartersProjectId,
+  projectHeadquartersThreadId,
   type EnvironmentId,
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
 import {
+  BotIcon,
   ChartNoAxesColumnIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -38,7 +41,9 @@ import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useHasUnseenAutomationFailure } from "../../state/automations";
 import {
   useActivityByLogicalBot,
+  useAllVisibleLogicalBots,
   useEnvironmentFilter,
+  useHiddenNeedsYouCount,
   useNeedsYouByLogicalBot,
   useSelectLogicalBot,
   useVisibleActiveLogicalBot,
@@ -48,6 +53,7 @@ import { useProjects, useQuietThreadShells, useThreadShell } from "../../state/e
 import {
   useConnectedEnvironmentIds,
   useEnvironmentIdentities,
+  useEnvironments,
   usePullRequestsSupported,
 } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -72,6 +78,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { botListRowSummary } from "./botListRow.logic";
 import {
   AUTOMATIONS_PATH,
+  BOTS_LIST_PATH,
   BOTS_SETTINGS_PATH,
   isSidebarUtilityPage,
   readBotHref,
@@ -103,40 +110,58 @@ interface RailProjectManager {
   readonly title: string;
   /** The sidebar's key for the project, which scopes the thread list to it. */
   readonly projectKey: string;
-  readonly botId: string;
+  readonly botId: string | null;
 }
 
-/** Each project whose manager thread exists and isn't archived, by title. */
+/**
+ * Each pinned project manager, by title, whether or not its thread exists yet: opening one makes
+ * it. A manager turned off (its thread archived) is left out.
+ */
 function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
   const shells = useQuietThreadShells();
   const projects = useProjects();
   const groups = useSettingsProjectGroups();
+  const { environments } = useEnvironments();
   const environmentFilter = useEnvironmentFilter();
-  const entries: RailProjectManager[] = [];
-  for (const shell of shells) {
-    const projectId = headquartersProjectId(shell.id);
-    if (projectId === null || shell.archivedAt !== null) continue;
-    if (environmentFilter !== null && !environmentFilter.has(shell.environmentId)) continue;
-    const project = projects.find(
-      (candidate) => candidate.environmentId === shell.environmentId && candidate.id === projectId,
-    );
-    const group = groups.find((candidate) =>
-      candidate.memberProjects.some(
-        (member) => member.environmentId === shell.environmentId && member.id === projectId,
-      ),
-    );
-    if (!project || !group) continue;
-    entries.push({
-      key: `${shell.environmentId}:${shell.id}`,
-      environmentId: shell.environmentId,
-      projectId,
-      threadId: shell.id,
-      title: project.title,
-      projectKey: group.projectKey,
-      botId: projectBotId(project),
-    });
-  }
-  return entries.toSorted((left, right) => left.title.localeCompare(right.title));
+  const archivedManagers = new Set(
+    shells.flatMap((shell) => {
+      const projectId = headquartersProjectId(shell.id);
+      return projectId === null || shell.archivedAt === null
+        ? []
+        : [`${shell.environmentId}:${projectId}`];
+    }),
+  );
+  const managerEnvironmentIds = new Set(
+    environments
+      .filter(
+        (environment) =>
+          environment.serverConfig?.environment.capabilities.workflows === true &&
+          (environmentFilter === null || environmentFilter.has(environment.environmentId)),
+      )
+      .map((environment) => environment.environmentId),
+  );
+  return pinnedProjectManagers({ projects, managerEnvironmentIds, archivedManagers }).flatMap(
+    (project) => {
+      const group = groups.find((candidate) =>
+        candidate.memberProjects.some(
+          (member) => member.environmentId === project.environmentId && member.id === project.id,
+        ),
+      );
+      if (!group) return [];
+      const threadId = projectHeadquartersThreadId(project.id);
+      return [
+        {
+          key: `${project.environmentId}:${threadId}`,
+          environmentId: project.environmentId,
+          projectId: project.id,
+          threadId,
+          title: project.title,
+          projectKey: group.projectKey,
+          botId: projectBotId(project),
+        },
+      ];
+    },
+  );
 }
 
 /**
@@ -152,6 +177,7 @@ export const BotRail = memo(function BotRail({
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const bots = useVisibleLogicalBots();
+  const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const needsYou = useNeedsYouByLogicalBot();
   const activity = useActivityByLogicalBot();
@@ -202,10 +228,11 @@ export const BotRail = memo(function BotRail({
     supersedeStandingOpen();
     void navigate({ href });
   };
-  // The manager's bot is picked first, so the thread list knows the project it is scoped to.
+  // A pinned owner is picked first. Either way the scope shows the manager's project, so one whose
+  // bot isn't pinned (or has no bot) still shows under the bot that stays picked.
   const selectManager = (manager: RailProjectManager) => {
     if (isMobile) setOpenMobile(false);
-    const ownerKey = createLogicalBotResolver(bots)(manager.environmentId, manager.botId);
+    const ownerKey = createLogicalBotResolver(allBots)(manager.environmentId, manager.botId);
     const owner = bots.find((bot) => bot.key === ownerKey);
     if (owner && owner.key !== active?.key) {
       if (active) rememberBotHref(active.key);
@@ -735,7 +762,7 @@ const ManagerRailItem = memo(function ManagerRailItem({
   );
 });
 
-/** Automations and pull requests: the places that swap the sidebar's list. */
+/** Bots, automations and pull requests: the places that swap the sidebar's list. */
 function RailPlaces({
   destination,
   collapsed,
@@ -747,7 +774,18 @@ function RailPlaces({
   const { isMobile, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
+  const hiddenNeedsYou = useHiddenNeedsYouCount();
   const places = [
+    {
+      label: "Bots",
+      icon: BotIcon,
+      active: destination === "bots-list",
+      // Unpinned bots and managers aren't in the rail, so their waiting threads count here.
+      signal: hiddenNeedsYou > 0 ? ({ kind: "needs-you", count: hiddenNeedsYou } as const) : null,
+      onSelect: () => {
+        if (destination !== "bots-list") void navigate({ to: BOTS_LIST_PATH });
+      },
+    },
     {
       label: "Automations",
       icon: ClockIcon,
@@ -875,6 +913,11 @@ function RailRow({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {signal?.kind === "failed" ? (
         <span aria-label="a run failed" className="size-2 shrink-0 rounded-full bg-error" />
+      ) : signal?.kind === "needs-you" ? (
+        <span className="shrink-0 rounded-sm bg-warning px-1 text-2xs leading-4 font-semibold text-black tabular-nums">
+          {signal.count > 99 ? "99+" : signal.count}
+          <span className="sr-only"> need{signal.count === 1 ? "s" : ""} you</span>
+        </span>
       ) : null}
     </button>
   );

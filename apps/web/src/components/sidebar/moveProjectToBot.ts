@@ -20,12 +20,14 @@ export interface MoveProjectMember {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
   readonly title: string;
-  readonly botId?: string | undefined;
+  readonly botId?: string | null | undefined;
   /** Names the checkout when a project lives on several environments. */
   readonly environmentLabel: string | null;
 }
 
 const MOVE_PREFIX = "move-to-bot:";
+// The menu's "No bot" entry; logical bot keys are never empty.
+const NO_BOT_KEY = "";
 
 /**
  * "Move to bot" for a project's context menu: every bot, on each checkout's environment that
@@ -42,11 +44,15 @@ export function buildMoveToBotMenuItem(
   const botItems = (member: MoveProjectMember): ContextMenuItem<string>[] => {
     if (!botEnvironmentIds.has(member.environmentId)) return [];
     const owner = ownerOf(member.environmentId, projectBotId(member));
-    return bots.map((bot) => ({
-      id: `${MOVE_PREFIX}${JSON.stringify([member.environmentId, member.id, bot.key])}`,
-      label: bot.name,
-      ...(bot.key === owner ? { checked: true, disabled: true } : {}),
-    }));
+    const item = (key: string, label: string, checked: boolean) => ({
+      id: `${MOVE_PREFIX}${JSON.stringify([member.environmentId, member.id, key])}`,
+      label,
+      ...(checked ? { checked: true, disabled: true } : {}),
+    });
+    return [
+      ...bots.map((bot) => item(bot.key, bot.name, bot.key === owner)),
+      { ...item(NO_BOT_KEY, "No bot", projectBotId(member) === null), separatorBefore: true },
+    ];
   };
   const perMember = members
     .map((member) => ({ member, items: botItems(member) }))
@@ -92,8 +98,15 @@ export function useMoveProjectToLogicalBot() {
   const moveProject = useAtomCommand(botsEnvironment.moveProject, { reportFailure: false });
   return async (
     project: { readonly environmentId: EnvironmentId; readonly id: ProjectId },
-    bot: LogicalBot,
+    bot: LogicalBot | null,
   ): Promise<string | null> => {
+    if (bot === null) {
+      const cleared = await moveProject({
+        environmentId: project.environmentId,
+        input: { projectId: project.id, botId: null },
+      });
+      return cleared._tag === "Success" ? null : formatEnvironmentQueryError(cleared.cause);
+    }
     const member = logicalBotMemberOn(bot, project.environmentId);
     // Every entry has a bot somewhere; the first one is the copy's source.
     const source = bot.members[0]!;
@@ -145,13 +158,17 @@ export function useMoveProjectToBotMenu() {
     const project = members.find(
       (member) => member.environmentId === move.environmentId && member.id === move.projectId,
     );
-    const bot = bots.find((candidate) => candidate.key === move.botKey);
-    if (!bot) return true;
+    const bot =
+      move.botKey === NO_BOT_KEY ? null : bots.find((candidate) => candidate.key === move.botKey);
+    if (bot === undefined) return true;
     void moveToBot({ environmentId: move.environmentId, id: move.projectId }, bot).then((error) => {
       if (error === null) {
         toastManager.add({
           type: "success",
-          title: `Moved ${project?.title ?? "the project"} to ${bot.name}`,
+          title:
+            bot === null
+              ? `${project?.title ?? "The project"} has no bot now`
+              : `Moved ${project?.title ?? "the project"} to ${bot.name}`,
         });
       } else {
         toastManager.add({

@@ -28,9 +28,9 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
         ('limited', 'role', 'bot-run:limited', '["crew.workflows","worktree","device"]'),
         ('bare', 'role', 'bosun-run:bare', '[]'),
         ('malformed', 'role', 'bot-run:malformed', 'invalid'),
-        ('bot-hq:bot-captain', 'bot-captain', 'bot-run:bot-hq:bot-captain', '["preview"]'),
-        ('captain-request', 'bot-captain', 'bot-run:captain-request', '["worktree"]')`;
-      yield* sql`INSERT INTO bots VALUES ('bot-captain', '["crew.decide"]')`;
+        ('bot-hq:bot-ops', 'bot-ops', 'bot-run:bot-hq:bot-ops', '["preview"]'),
+        ('captain-request', 'bot-ops', 'bot-run:captain-request', '["worktree"]')`;
+      yield* sql`INSERT INTO bots VALUES ('bot-ops', '["crew.decide"]')`;
       assert.deepStrictEqual(yield* crewMcpCapabilities(ThreadId.make("ordinary")), DEFAULTS);
       assert.deepStrictEqual(
         yield* crewMcpCapabilities(ThreadId.make("bot-run:builder")),
@@ -43,7 +43,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("bot MCP grants", (it
       );
       // A bot's headquarters follows the bot's grants, not the ones saved on its run.
       assert.deepStrictEqual(
-        yield* crewMcpCapabilities(ThreadId.make("bot-run:bot-hq:bot-captain")),
+        yield* crewMcpCapabilities(ThreadId.make("bot-run:bot-hq:bot-ops")),
         new Set([...DEFAULTS, "crew"]),
       );
       // The bot's other runs keep the grants saved when they started.

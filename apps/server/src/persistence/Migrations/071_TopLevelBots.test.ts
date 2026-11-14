@@ -99,7 +99,8 @@ it.effect("makes the Captain crew member the Captain bot that owns every project
 it.effect("creates Captain without a model on a database that never set up a crew", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 54 });
+    yield* BosunMigrations.runMigrations(71);
     assert.deepStrictEqual(yield* sql`SELECT id, model_selection_json AS model FROM bots`, [
       { id: "bot-captain", model: null },
     ]);
