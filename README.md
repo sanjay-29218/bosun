@@ -32,10 +32,11 @@ and it ships under its own name, identity, and branding.
 
 - **Bots** own your projects. Each one has a **headquarters** thread where you ask for
   work, a home folder for its notes, its own model, tools and access, and an avatar you
-  build from parts. Every environment starts with **Captain**; add more, such as one per
-  area of your life or work. Scheduled tasks (**Automations**) can run as a bot too.
-- **The bot list** runs down the left edge: your bots first, then your project managers,
-  each with its latest message and whether it's working or needs you.
+  build from parts. Add as many as you like, such as one per area of your life or work; a
+  project can also have no bot. Scheduled tasks (**Automations**) can run as a bot too.
+- **The bot list** runs down the left edge: your pinned bots first, then your pinned project
+  managers, each with its latest message and whether it's working or needs you. **Bots** lists
+  them all.
 - **Project managers**: each project has one. It takes the requests its bot hands it,
   checks the backlog and files an issue or ticket when nothing tracks the request, then decides how
   the work runs: a **task** for a small, clear change, a **feature** for one reviewable

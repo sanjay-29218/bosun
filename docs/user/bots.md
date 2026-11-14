@@ -1,6 +1,6 @@
 # Bots and roles
 
-A **bot** (Captain, Social, Finance…) owns projects and runs their work. A **role** is a kind of
+A **bot** (Social, Finance…) owns projects and runs their work. A **role** is a kind of
 crew member, such as Planner or Builder, that a feature's lead can hand work to. Both belong to an
 environment and are shared by every project on it. You add and edit them in **Settings → Crew**:
 **Bots**, **Workflows** and **Roles**.
@@ -8,9 +8,10 @@ environment and are shared by every project on it. You add and edit them in **Se
 ## Bots
 
 **Settings → Bots** lists each environment's bots in rail order; drag one to reorder them, and
-pick one to edit it. Every environment starts with **Captain**, which owns projects that were
-never given to another bot. A new Captain starts with **Full access**. The pencil on a bot in the
-bot list, or beside its name at the top of the sidebar, opens its settings too.
+pick one to edit it. A new install has no bots: **Create a bot** there, or in the **Bots** list,
+makes the first one. Installs from before kept their **Captain**, which is an ordinary bot you can
+rename, edit or delete. The pencil on a bot in the bot list, or beside its name at the top of the
+sidebar, opens its settings too.
 
 **Add bot** asks for a name, a robot avatar you build from parts (or **Shuffle**) and a color;
 **Create** makes the bot on your default model and opens its headquarters. In its settings a bot
@@ -24,9 +25,11 @@ another bot, or bring one over; work that already started keeps running as the b
 it. A project on another environment goes to the bot with the same name there, which is created
 there if that environment doesn't have it yet. Projects on an environment that runs T3 Code
 without Bosun are listed but can't be given to a bot until Bosun is installed there. You can also change a
-project's bot in **Settings → Project → Bot**. A bot can only be deleted once it owns no projects
-(its home folder doesn't count, and stays behind), and Captain can't be deleted. Deleting a bot
-also deletes the automations that run as it.
+project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
+its project manager, which runs on the project's default model (else the environment's), and it
+shows under every bot in the thread list. A bot can only be deleted once it owns no projects (its
+home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
+Deleting a bot also deletes the automations that run as it.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
 the bot list opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
@@ -39,8 +42,7 @@ the work in the project directly instead: small, clear work as a **task**, a fre
 own worktree that opens a pull request, or a [feature](./features.md), which a lead runs with its
 crew. Either way the work is one of that project's threads, listed and on the board with its other
 work, and the bot links it in its reply. Each crew member runs with its role's model and **Access**. The bot can also start
-projects from a name or by cloning a Git URL. With **Manage bots and roles**, which Captain has
-from the start, it can create and edit bots and roles when you ask, such as "add a Security
+projects from a name or by cloning a Git URL. With **Manage bots and roles**, it can create and edit bots and roles when you ask, such as "add a Security
 reviewer role"; they show up like ones you made. A feature's threads, its lead's and its crew's,
 carry a tag with the feature's name.
 
@@ -103,11 +105,19 @@ thread is archived until you turn it on again.
 
 ### The bot list
 
-The bot list sits at the left edge of the window: your bots, then your project managers, each with
-its latest message and how long ago it came. **Needs you** marks one waiting on you, a blue dot one
-that's working, and a plain dot before the time a finished run you haven't opened. Below them are
-**Automations** and **Pull requests**, and at the bottom the environment filter, **Usage** and
-**Settings**.
+The bot list sits at the left edge of the window: your pinned bots, then your pinned project
+managers, each with its latest message and how long ago it came. **Needs you** marks one waiting on
+you, a blue dot one that's working, and a plain dot before the time a finished run you haven't
+opened. Below them are **Bots**, **Automations** and **Pull requests**, and at the bottom the
+environment filter, **Usage** and **Settings**.
+
+**Bots** lists every bot and every project manager, pinned or not. The pin beside one adds it to
+the bot list or takes it off; pins are saved on the server, so every device shows the same list.
+Bots you add start pinned, and a new project's manager starts unpinned. Clicking a row opens that
+bot's or manager's thread without changing which bot you're on, the gear opens its settings, and
+**Add bot** makes a new bot. A count on **Bots** shows threads waiting on you that only an unpinned
+bot or manager shows. On mobile, the bot button's menu lists the pinned bots and managers, then
+**Bots**, with the same pins.
 
 Clicking a bot narrows the thread list and the board to its projects and takes you back to where
 you left it, such as its board or a thread. The first time, and when you click the bot you're
@@ -134,7 +144,7 @@ sidebar, or **Open automations** in the command palette; on mobile, Automations 
 the last entries in the bot button's menu.
 
 Bots with the same name on different environments share one avatar, and new projects go to the
-bot you're looking at. The server icon filters the bot list and thread list to some environments;
+bot you're looking at (or have no bot when you aren't looking at one). The server icon filters the bot list and thread list to some environments;
 pick **All environments** to show every one again. To move a project, right-click it in the
 sidebar's project picker and choose **Move to bot**.
 
