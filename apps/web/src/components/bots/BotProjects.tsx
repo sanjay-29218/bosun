@@ -69,7 +69,8 @@ export function BotOwnerSelect({
   return (
     <Select
       value={value}
-      disabled={moving || !canMove || loading || bots.length === 0}
+      // An owner on another machine can still be cleared to No bot when this one has none.
+      disabled={moving || !canMove || loading || (bots.length === 0 && remoteBot === null)}
       onValueChange={(next) => {
         if (typeof next === "string") change(next);
       }}
