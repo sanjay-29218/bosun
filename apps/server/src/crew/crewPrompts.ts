@@ -92,6 +92,13 @@ export const crewQuestionReply = (answer: string | null, options: ReadonlyArray<
     : reply("The person answered", `The person answered: ${answer}`);
 };
 
+/** A lead's `delegate_task` wait, ended while its crew member waits on the person's answer. */
+export const crewAwaitingPersonNext = (thread: {
+  readonly title: string;
+  readonly feature?: { readonly member?: string | undefined } | null | undefined;
+}) =>
+  `Waiting on the person in ${thread.feature?.member ?? thread.title}'s thread, where they answer it. Don't ask them here or relay the work; end your turn. Its outcome wakes this thread.`;
+
 /** What a feature's lead delegates to a crew member: its role's instructions, then the task. */
 export const crewMemberTask = (instructions: string, task: string) =>
   `${instructions.trim()}\n\n${CREW_MEMBER_APPROVALS}\n\n${task}`;

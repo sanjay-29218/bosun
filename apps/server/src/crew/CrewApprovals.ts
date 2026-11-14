@@ -19,6 +19,7 @@ import * as Stream from "effect/Stream";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
+import { crewTaskAwaitsAnswer } from "./crewApprovalRules.ts";
 import { CREW_APPROVAL } from "./crewPrompts.ts";
 
 export class CrewApprovalError extends Schema.TaggedError<CrewApprovalError>()(
@@ -42,7 +43,7 @@ const CREW_ASKED_NEXT =
 
 /**
  * A feature crew member asks the person in its own thread. The orchestrator commits the answer's
- * continuation with the answer itself, and the task stays open meanwhile (see `awaitsPerson`), so
+ * continuation with the answer itself, and the task stays open meanwhile (see `crewQuestionHoldsTask`), so
  * the lead gets the outcome the member replies with, never the work or the question.
  */
 export class CrewApprovals extends Context.Service<
@@ -146,7 +147,14 @@ const make = Effect.gen(function* () {
    */
   const dismissOrphaned = Effect.fnUntraced(function* (childThreadId: ThreadId) {
     const questions = yield* pendingQuestions(childThreadId);
-    if (questions.length === 0 || (yield* engine.crewTaskAwaitsAnswer(childThreadId))) return;
+    if (questions.length === 0) return;
+    const child = yield* projections.getThread(childThreadId);
+    const parentTasks =
+      child.lineage.parentThreadId === null
+        ? []
+        : (yield* projections.getThreadRecords(child.lineage.parentThreadId, ["subagents"]))
+            .subagents;
+    if (crewTaskAwaitsAnswer(child, parentTasks)) return;
     for (const request of questions) {
       yield* engine.dispatch({
         type: "thread.user-input.dismiss",
