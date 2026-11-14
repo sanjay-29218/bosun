@@ -74,6 +74,10 @@ const decodeFailure = Schema.decodeUnknownOption(
 /** What a call hears when the linked environment can't be reached at all. */
 export const LINKED_ENVIRONMENT_STOPPED_ANSWERING = "The linked environment stopped answering.";
 
+/** What a call hears when the linked environment refuses this link's credential (HTTP 401). */
+export const LINKED_ENVIRONMENT_REVOKED_LINK =
+  "The linked environment no longer accepts this link. It may have been revoked there; link it again.";
+
 /** A peer link problem, as the agent that asked hears it. */
 const fromLinkError = (error: PeerLinkError) =>
   new OrchestratorMcpFailure({
@@ -151,7 +155,7 @@ const make = Effect.gen(function* () {
           code: initialized.status === 401 ? "capability_denied" : "orchestration_error",
           message:
             initialized.status === 401
-              ? "The linked environment no longer accepts this link. It may have been revoked there; link it again."
+              ? LINKED_ENVIRONMENT_REVOKED_LINK
               : `The linked environment refused to start an MCP session (HTTP ${initialized.status}).`,
         });
       }
@@ -222,8 +226,7 @@ const make = Effect.gen(function* () {
       if (response.status === 401) {
         return yield* new OrchestratorMcpFailure({
           code: "capability_denied",
-          message:
-            "The linked environment no longer accepts this link. It may have been revoked there; link it again.",
+          message: LINKED_ENVIRONMENT_REVOKED_LINK,
         });
       }
       if (response.status === 403) return yield* linkedEnvironmentsOffThere;

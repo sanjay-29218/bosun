@@ -57,6 +57,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import { forkParked } from "../serverActivation.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
+import { LINKED_ENVIRONMENT_REVOKED_LINK } from "./PeerMcpClient.ts";
 
 /** How long one follow of a remote task waits on its thread there before checking again. */
 const FOLLOW_WAIT_MS = 10 * 60 * 1_000;
@@ -928,9 +929,12 @@ const make = Effect.gen(function* () {
         ),
       );
 
-  /** The link to `environmentId` can never answer again: revoked, expired or forgotten here. */
+  /**
+   * The link to `environmentId` can never answer again: revoked there, or forgotten here. Other
+   * refusals (lower access, Linked environments off there, another version) can change.
+   */
   const linkGone = (environmentId: EnvironmentId, error: OrchestratorMcpFailure) =>
-    error.code === "capability_denied"
+    error.code === "capability_denied" && error.message === LINKED_ENVIRONMENT_REVOKED_LINK
       ? Effect.succeed(true)
       : links.get(environmentId).pipe(
           Effect.map(Option.isNone),

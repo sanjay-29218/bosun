@@ -20,7 +20,9 @@ import {
   ThreadId,
   type RunId,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
 import { TestClock } from "effect/testing";
@@ -538,11 +540,15 @@ describe("Bot foundation", () => {
     }),
   );
 
-  effectIt.effect.each(["retried", "cancelled from its link"] as const)(
+  effectIt.effect.each(["retried", "cancelled from its link", "cancelled as it starts"] as const)(
     "retains a failed dispatch and, unless %s ends it first, retries it without a new run",
     (outcome) =>
       Effect.gen(function* () {
         let attempts = 0;
+        // The retry's thread is being made; released once the run is cancelled meanwhile.
+        const starting = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const interrupted: Array<ThreadId> = [];
         const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
           projectExists: () => Effect.succeed(true),
           projectBotId: () => Effect.succeed(null),
@@ -569,14 +575,18 @@ describe("Bot foundation", () => {
                         cause: new Error("test failure"),
                       }),
                     )
-                  : Effect.void,
+                  : outcome === "cancelled as it starts"
+                    ? Deferred.succeed(starting, undefined).pipe(
+                        Effect.andThen(Deferred.await(release)),
+                      )
+                    : Effect.void,
               ),
             ),
           // Its thread exists once a dispatch got through.
           getTurnState: () =>
             Effect.succeed(attempts >= 2 ? ("pending" as const) : ("missing" as const)),
           replayPending: () => Effect.void,
-          interrupt: () => Effect.void,
+          interrupt: (threadId) => Effect.sync(() => interrupted.push(threadId)),
           listPendingStartedRunIds: () => Effect.succeed([]),
         });
         const layer = CrewServiceLive.pipe(
@@ -607,6 +617,18 @@ describe("Bot foundation", () => {
           const queued = yield* bots.getRun("retry-run");
           expect(queued?.run.dispatchState).toBe("queued");
           expect(queued?.run.lastError).toContain("retry pending");
+          if (outcome === "cancelled as it starts") {
+            // Cancelled from its link after the retry's last check, while its thread is made:
+            // the thread it made is stopped, since nothing would ever follow it.
+            const reconciling = yield* bots.reconcileRuns().pipe(Effect.forkChild);
+            yield* Deferred.await(starting);
+            yield* bots.cancelQueuedRun("retry-run");
+            yield* Deferred.succeed(release, undefined);
+            yield* Fiber.join(reconciling);
+            expect(interrupted).toEqual([ThreadId.make("bot-run:retry-run")]);
+            expect(yield* bots.getRun("retry-run")).toBeNull();
+            return;
+          }
           if (outcome === "cancelled from its link") {
             // A linked environment ended the request: the queued run never starts.
             expect(yield* bots.cancelQueuedRun("retry-run")).toMatchObject({ started: false });

@@ -459,9 +459,16 @@ export const CrewServiceLive = Layer.effect(
       effect: Effect.Effect<void, OrchestrationDispatchError | PersistenceSqlError>,
     ) =>
       effect.pipe(
-        Effect.flatMap(() =>
-          DateTime.now.pipe(
-            Effect.flatMap((now) => store.markStarted(run.id, DateTime.formatIso(now))),
+        Effect.flatMap(() => DateTime.now),
+        Effect.flatMap((now) =>
+          store.markStarted(run.id, DateTime.formatIso(now)).pipe(
+            // Its record was deleted meanwhile, as a cancelled queued run's is: the thread this
+            // dispatch just made must not keep running.
+            Effect.flatMap((marked) =>
+              marked
+                ? Effect.void
+                : runtime.interrupt(run.threadId, `cancelled:${run.id}`, DateTime.formatIso(now)),
+            ),
           ),
         ),
         Effect.tapError(() =>
@@ -1116,6 +1123,15 @@ export const CrewServiceLive = Layer.effect(
         : Effect.fail(new CrewValidationError(`Choose a default model for ${actor.name}`));
     };
 
+    /** Run `id` as stored now; a run cancelled before it started fails instead. */
+    const currentRun = (id: string) =>
+      store.getRun(id).pipe(
+        Effect.filterOrFail(
+          (run): run is CrewRun => run !== null,
+          () => new CrewValidationError("Run was cancelled before it started"),
+        ),
+      );
+
     const createRun: CrewServiceShape["createRun"] = Effect.fn("CrewService.createRun")(
       function* (input) {
         const id = yield* Effect.try({
@@ -1133,7 +1149,7 @@ export const CrewServiceLive = Layer.effect(
             return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
           }
           if (existing.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(existing);
-          return (yield* store.getRun(id))!;
+          return yield* currentRun(id);
         }
         if (!(yield* runtime.projectExists(input.projectId))) {
           return yield* Effect.fail(new CrewValidationError("Project does not exist"));
@@ -1170,7 +1186,7 @@ export const CrewServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
         }
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
-        return (yield* store.getRun(id))!;
+        return yield* currentRun(id);
       },
     );
 

@@ -1359,8 +1359,8 @@ const makeBotBox = (thread: BoxThread) =>
     const asked = yield* Ref.make<ReadonlyArray<BotReach.ProjectManagerLaunch>>([]);
     /** Runs as each launch there arrives, before anything starts. */
     const onLaunch = yield* Ref.make<Effect.Effect<void>>(Effect.void);
-    /** The next cleanups fail here before reaching the box, as a deleted bot once made them. */
-    const failCleanup = yield* Ref.make(0);
+    /** How the next cleanups fail, one each, before reaching the box. */
+    const failCleanup = yield* Ref.make<ReadonlyArray<OrchestratorMcpFailure>>([]);
     const notReachable = new OrchestratorMcpFailure({
       code: "orchestration_error",
       message: "Project project:box is on Box, which isn't reachable.",
@@ -1379,12 +1379,8 @@ const makeBotBox = (thread: BoxThread) =>
           const threadId = ThreadId.make("thread:box-task");
           // Finding what an earlier attempt started is always allowed, and starts nothing.
           if (input.cancelIfStarted === true) {
-            if ((yield* Ref.getAndUpdate(failCleanup, (left) => Math.max(0, left - 1))) > 0) {
-              return yield* new OrchestratorMcpFailure({
-                code: "invalid_request",
-                message: "This headquarters' bot is gone.",
-              });
-            }
+            const [failing] = yield* Ref.getAndUpdate(failCleanup, (left) => left.slice(1));
+            if (failing !== undefined) return yield* failing;
             if (yield* Ref.get(asleep)) return yield* notReachable;
             if (!(yield* Ref.get(started)).includes(key)) {
               return yield* new OrchestratorMcpFailure({
@@ -1871,11 +1867,28 @@ it.effect(
             const task = requested(yield* requestOnBox(before));
             yield* Queue.take(retries.failed);
             yield* before.call("task_cancel", { taskId: task.taskId }, headquartersScope);
-            // Cleanup fails here once, as when the bot was deleted: that says nothing about the
-            // box, so the request isn't settled.
-            yield* Ref.set(botBox.failCleanup, 1);
-            yield* Queue.offer(retries.retry, undefined);
-            yield* Queue.take(retries.failed);
+            // Cleanup fails here, as when the bot was deleted, then is refused for reasons that
+            // can change: none says nothing runs there, so the request stays open and asks again.
+            yield* Ref.set(botBox.failCleanup, [
+              new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: "This headquarters' bot is gone.",
+              }),
+              new OrchestratorMcpFailure({
+                code: "capability_denied",
+                message:
+                  "Box is linked with auto access, and a bot's project work there needs full access.",
+              }),
+              new OrchestratorMcpFailure({
+                code: "capability_denied",
+                message:
+                  "The linked environment has Linked environments turned off. Turn it on in its Settings → Labs.",
+              }),
+            ]);
+            for (const _refusal of [1, 2, 3]) {
+              yield* Queue.offer(retries.retry, undefined);
+              yield* Queue.take(retries.failed);
+            }
             const [open] = yield* before.projections.getOpenRemoteDelegatedTasks;
             expect(open?.taskId).toBe(task.taskId);
             return task;

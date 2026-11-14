@@ -17,6 +17,7 @@ import {
   type ThreadId,
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -168,6 +169,8 @@ const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  // One request's launch and cancel take turns here.
+  const runLocks = yield* KeyedLock.make<string>();
 
   const here = environment.getDescriptor.pipe(
     Effect.map((descriptor) => ({
@@ -489,6 +492,29 @@ const make = Effect.gen(function* () {
           "Only a linked environment's bot hands work here this way.",
         );
       }
+      // Keyed by the bot's home, not the link session, so a re-link or a retry after this
+      // environment came back mid-launch finds the run the first attempt started.
+      const key = hash(`${input.home.environmentId}\n${input.clientRequestId}`).slice(0, 24);
+      const runId = `link-task:${key}`;
+      // The caller ended the request: a run still queued here never starts; one that started
+      // is named for the caller to stop. Honoured over any link access, as stopping work is.
+      // A launch and a cancel of one request take turns, so a cancel sees what a launch made.
+      if (input.cancelIfStarted === true) {
+        return yield* runLocks.withLock(
+          runId,
+          Effect.gen(function* () {
+            const existing = yield* crew.cancelQueuedRun(runId).pipe(Effect.mapError(unavailable));
+            if (existing === null || !existing.started) {
+              return yield* failure("run_not_found", "Nothing runs here for this request.");
+            }
+            return {
+              threadId: existing.run.threadId,
+              runId: null,
+              modelSelection: existing.run.modelSelection,
+            };
+          }),
+        );
+      }
       // Below full access, project work from a link is fenced and setup scripts are skipped.
       if (client.access !== "full-access") {
         return yield* failure(
@@ -496,127 +522,115 @@ const make = Effect.gen(function* () {
           `${self.label} is linked with ${client.access} access, and a bot's project work there needs full access. Link ${self.label} again with full access in Settings → Environments → Linked environments.`,
         );
       }
-      // Keyed by the bot's home, not the link session, so a re-link or a retry after this
-      // environment came back mid-launch finds the run the first attempt started.
-      const key = hash(`${input.home.environmentId}\n${input.clientRequestId}`).slice(0, 24);
-      const runId = `link-task:${key}`;
-      // The caller ended the request: a run still queued here never starts; one that started
-      // is named for the caller to stop.
-      if (input.cancelIfStarted === true) {
-        const existing = yield* crew.cancelQueuedRun(runId).pipe(Effect.mapError(unavailable));
-        if (existing === null || !existing.started) {
-          return yield* failure("run_not_found", "Nothing runs here for this request.");
-        }
-        return {
-          threadId: existing.run.threadId,
-          runId: null,
-          modelSelection: existing.run.modelSelection,
-        };
-      }
-      const project = Option.getOrUndefined(
-        yield* projects.getById(input.projectId).pipe(Effect.mapError(unavailable)),
-      );
-      if (
-        project === undefined ||
-        project.deletedAt !== null ||
-        (yield* folders.isHiddenProject(project.id))
-      ) {
-        return yield* failure(
-          "invalid_request",
-          `No project ${input.projectId} on ${self.label}. t3_bot_projects lists the bot's projects there.`,
-        );
-      }
-      const { home } = input;
-      const owner = project.remoteBot;
-      if (owner?.environmentId !== home.environmentId || owner.botId !== home.botId) {
-        const local =
-          project.botId == null
-            ? null
-            : yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
-        const holder =
-          owner != null
-            ? `${owner.name} on ${owner.homeLabel}`
-            : project.botId == null
-              ? null
-              : `${local?.name ?? "another bot"} on ${self.label}`;
-        const giveIt = `Give it to ${home.botName} there first (Bots → ${home.botName} → Projects).`;
-        return yield* failure(
-          "capability_denied",
-          holder === null
-            ? `${project.title} on ${self.label} has no bot. ${giveIt}`
-            : `${project.title} on ${self.label} belongs to ${holder}, not ${home.botName} from ${home.label}. ${giveIt}`,
-        );
-      }
-      // The owner shows here under the name its home last sent.
-      if (owner.name !== home.botName || owner.homeLabel !== home.label) {
-        yield* projects
-          .assignBot({
-            commandId: CommandId.make(`remote-bot-name:${NodeCrypto.randomUUID()}`),
-            projectId: project.id,
-            botId: null,
-            remoteBot: { ...owner, name: home.botName, homeLabel: home.label },
-          })
-          .pipe(Effect.ignoreCause({ log: true }));
-      }
-      if (!(yield* modelAvailable(input.modelSelection))) {
-        return yield* failure(
-          "invalid_request",
-          `${home.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${home.botName}'s model.`,
-        );
-      }
-      // Builds before withheld tools sent roles' tools with the opposite meaning.
-      if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
-        return yield* failure(
-          "invalid_request",
-          "This Bosun is newer than the environment that sent this; update it to share roles.",
-        );
-      }
-      // Its features run on these roles, so each must be able to run here too.
-      for (const role of input.workflow?.roles ?? []) {
-        if (!(yield* modelAvailable(role.modelSelection))) {
-          return yield* failure(
-            "invalid_request",
-            `${input.workflow!.workflow.name}'s ${role.name} runs on ${role.modelSelection.model} (${role.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change the role's model.`,
+      return yield* runLocks.withLock(
+        runId,
+        Effect.gen(function* () {
+          const project = Option.getOrUndefined(
+            yield* projects.getById(input.projectId).pipe(Effect.mapError(unavailable)),
           );
-        }
-      }
-      const manager = yield* crew
-        .ensureFeatureManager(project.id)
-        .pipe(Effect.mapError(unavailable));
-      // As a request here does: its own worktree, branched from the project's current branch.
-      const base = yield* git
-        .currentBranch(project.workspaceRoot)
-        .pipe(Effect.orElseSucceed(() => null));
-      const run = yield* crew
-        .createRun({
-          id: runId,
-          memberId: manager.id,
-          projectId: project.id,
-          taskText: input.task,
-          title: input.title,
-          carried: { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection },
-          ...(input.workflow === undefined
-            ? {}
-            : { workflow: { snapshot: input.workflow, here: self.label, from: client.label } }),
-          ...(base === null
-            ? {}
-            : {
-                workspace: {
-                  branch: `bosun/${branchSlug(input.title)}-${key.slice(0, 6)}`,
-                  baseRef: base,
-                },
-              }),
-        })
-        .pipe(
-          // A request this environment refuses as it is stays refused; anything else may pass.
-          Effect.mapError((error) =>
-            failure(
-              error._tag === "CrewValidationError" ? "invalid_request" : "orchestration_error",
-              error.message,
-            ),
-          ),
-        );
-      return { threadId: run.threadId, runId: null, modelSelection: run.modelSelection };
+          if (
+            project === undefined ||
+            project.deletedAt !== null ||
+            (yield* folders.isHiddenProject(project.id))
+          ) {
+            return yield* failure(
+              "invalid_request",
+              `No project ${input.projectId} on ${self.label}. t3_bot_projects lists the bot's projects there.`,
+            );
+          }
+          const { home } = input;
+          const owner = project.remoteBot;
+          if (owner?.environmentId !== home.environmentId || owner.botId !== home.botId) {
+            const local =
+              project.botId == null
+                ? null
+                : yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
+            const holder =
+              owner != null
+                ? `${owner.name} on ${owner.homeLabel}`
+                : project.botId == null
+                  ? null
+                  : `${local?.name ?? "another bot"} on ${self.label}`;
+            const giveIt = `Give it to ${home.botName} there first (Bots → ${home.botName} → Projects).`;
+            return yield* failure(
+              "capability_denied",
+              holder === null
+                ? `${project.title} on ${self.label} has no bot. ${giveIt}`
+                : `${project.title} on ${self.label} belongs to ${holder}, not ${home.botName} from ${home.label}. ${giveIt}`,
+            );
+          }
+          // The owner shows here under the name its home last sent.
+          if (owner.name !== home.botName || owner.homeLabel !== home.label) {
+            yield* projects
+              .assignBot({
+                commandId: CommandId.make(`remote-bot-name:${NodeCrypto.randomUUID()}`),
+                projectId: project.id,
+                botId: null,
+                remoteBot: { ...owner, name: home.botName, homeLabel: home.label },
+              })
+              .pipe(Effect.ignoreCause({ log: true }));
+          }
+          if (!(yield* modelAvailable(input.modelSelection))) {
+            return yield* failure(
+              "invalid_request",
+              `${home.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${home.botName}'s model.`,
+            );
+          }
+          // Builds before withheld tools sent roles' tools with the opposite meaning.
+          if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
+            return yield* failure(
+              "invalid_request",
+              "This Bosun is newer than the environment that sent this; update it to share roles.",
+            );
+          }
+          // Its features run on these roles, so each must be able to run here too.
+          for (const role of input.workflow?.roles ?? []) {
+            if (!(yield* modelAvailable(role.modelSelection))) {
+              return yield* failure(
+                "invalid_request",
+                `${input.workflow!.workflow.name}'s ${role.name} runs on ${role.modelSelection.model} (${role.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change the role's model.`,
+              );
+            }
+          }
+          const manager = yield* crew
+            .ensureFeatureManager(project.id)
+            .pipe(Effect.mapError(unavailable));
+          // As a request here does: its own worktree, branched from the project's current branch.
+          const base = yield* git
+            .currentBranch(project.workspaceRoot)
+            .pipe(Effect.orElseSucceed(() => null));
+          const run = yield* crew
+            .createRun({
+              id: runId,
+              memberId: manager.id,
+              projectId: project.id,
+              taskText: input.task,
+              title: input.title,
+              carried: { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection },
+              ...(input.workflow === undefined
+                ? {}
+                : { workflow: { snapshot: input.workflow, here: self.label, from: client.label } }),
+              ...(base === null
+                ? {}
+                : {
+                    workspace: {
+                      branch: `bosun/${branchSlug(input.title)}-${key.slice(0, 6)}`,
+                      baseRef: base,
+                    },
+                  }),
+            })
+            .pipe(
+              // A request this environment refuses as it is stays refused; anything else may pass.
+              Effect.mapError((error) =>
+                failure(
+                  error._tag === "CrewValidationError" ? "invalid_request" : "orchestration_error",
+                  error.message,
+                ),
+              ),
+            );
+          return { threadId: run.threadId, runId: null, modelSelection: run.modelSelection };
+        }),
+      );
     },
   );
 

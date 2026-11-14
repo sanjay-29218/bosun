@@ -14,7 +14,9 @@ import {
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -106,6 +108,8 @@ interface Environment {
   readonly bots: ReadonlyArray<Bot>;
   readonly projects: ReadonlyArray<Project>;
   readonly workflowRevision?: number;
+  /** Runs as a run is created there, before it is recorded. */
+  readonly beforeCreate?: Effect.Effect<void>;
 }
 
 /** What one environment's services were asked to change. */
@@ -218,11 +222,14 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           ? Effect.fail(
               Object.assign(new Error("Invalid task"), { _tag: "CrewValidationError" }) as never,
             )
-          : Ref.update(seen, (current) =>
-              current.runs.some((run) => run.id === input.id)
-                ? current
-                : { ...current, runs: [...current.runs, input] },
-            ).pipe(
+          : (data.beforeCreate ?? Effect.void).pipe(
+              Effect.andThen(
+                Ref.update(seen, (current) =>
+                  current.runs.some((run) => run.id === input.id)
+                    ? current
+                    : { ...current, runs: [...current.runs, input] },
+                ),
+              ),
               Effect.as({
                 threadId: `bot-run:${input.id}`,
                 modelSelection: input.carried?.modelSelection,
@@ -283,12 +290,14 @@ const boxData: Environment = {
 };
 
 /** The box: its real /mcp with the crew toolkits and real BotReach. */
-const serveBox = (seen: Ref.Ref<Seen>) =>
+const serveBox = (seen: Ref.Ref<Seen>, beforeCreate?: Effect.Effect<void>) =>
   servePeer(
     box,
     McpHttpServer.layerCrewTools.pipe(
       Layer.provide(BotReach.layer),
-      Layer.provide(layerData(boxData, seen)),
+      Layer.provide(
+        layerData(beforeCreate === undefined ? boxData : { ...boxData, beforeCreate }, seen),
+      ),
       Layer.provide(layerToolServices),
       Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
       Layer.provide(Layer.mock(PeerLinks.PeerLinks)({ list: Effect.succeed([]) })),
@@ -466,6 +475,71 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
       ]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.live(
+  "a cancel that arrives while its request starts there waits for it, then names its run",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const boxSeen = yield* Ref.make<Seen>(nothingSeen);
+        const creating = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const linking = yield* layerLinkingEnvironment(box).pipe(Layer.build);
+        // The box's own BotReach, called as its link session would be.
+        const here = yield* BotReach.layer.pipe(
+          Layer.provide(
+            layerData(
+              {
+                ...boxData,
+                beforeCreate: Deferred.succeed(creating, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                ),
+              },
+              boxSeen,
+            ),
+          ),
+          Layer.provide(layerToolServices),
+          Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+          Layer.provide(Layer.succeedContext(linking)),
+          Layer.build,
+        );
+        const reach = Context.get(here, BotReach.BotReach);
+        const linkScope = (
+          access: "full-access" | "auto",
+        ): McpInvocationContext.McpInvocationScope => ({
+          environmentId: box.environmentId,
+          requestNamespace: "link-session",
+          thread: undefined,
+          client: { sessionId: `link-${access}`, label: "T3 Code · Laptop", access, linked: true },
+          capabilities: new Set(["orchestration", "crew"]),
+          issuedAt: 1,
+        });
+        const request = {
+          ...launch("project:omni"),
+          home: {
+            environmentId: laptop.environmentId,
+            botId: CAPTAIN_ID,
+            botName: "Captain",
+            label: "Laptop",
+          },
+        };
+
+        const launching = yield* reach
+          .startForLink(linkScope("full-access"), request)
+          .pipe(Effect.forkScoped({ startImmediately: true }));
+        yield* Deferred.await(creating);
+        // Over a link below full access, as stopping work is allowed; it waits for the launch.
+        const cancelling = yield* reach
+          .startForLink(linkScope("auto"), { ...request, cancelIfStarted: true })
+          .pipe(Effect.forkScoped({ startImmediately: true }));
+        yield* Deferred.succeed(release, undefined);
+        const launched = yield* Fiber.join(launching);
+        // Not "nothing runs", which would leave the run the launch just made running there.
+        const cancelled = yield* Fiber.join(cancelling);
+        expect(cancelled.threadId).toBe(launched.threadId);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
 it.live("starts the project manager there, or says before starting anything why not", () =>
