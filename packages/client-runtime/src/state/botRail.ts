@@ -2,7 +2,6 @@ import {
   botHeadquartersThreadId,
   headquartersBotId,
   headquartersProjectId,
-  logicalBotKey,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
@@ -36,8 +35,8 @@ export interface LogicalBotMember {
 }
 
 /**
- * One rail entry: the same bot on every connected environment. Bots are environment-local, so
- * the rail merges them like logical projects, by name.
+ * One rail entry: one bot on the environment it lives on. Its single member keeps the shape
+ * callers already read; same-named bots on other environments are separate entries.
  */
 export interface LogicalBot {
   readonly key: string;
@@ -45,42 +44,65 @@ export interface LogicalBot {
   readonly avatar: BotAvatar;
   readonly color: ProjectIconColor;
   readonly members: ReadonlyArray<LogicalBotMember>;
-  /** Shown in the main rail: pinned on any of its environments. */
+  /** Shown in the main rail. */
   readonly pinned: boolean;
 }
 
 /**
- * Rail entries across environments, given in priority order (primary first). The first
- * environment that has a bot decides its name, avatar, color and place in the rail. Two bots with
- * the same name on one environment stay separate entries; only the first one merges.
+ * Rail entries across environments, given in priority order (primary first), each environment's
+ * bots in their rail order.
  */
 export function buildLogicalBots(environments: ReadonlyArray<EnvironmentBots>): LogicalBot[] {
-  const byKey = new Map<
-    string,
-    Omit<LogicalBot, "key"> & { members: LogicalBotMember[]; pinned: boolean }
-  >();
-  for (const { environmentId, bots } of environments) {
-    for (const bot of [...bots].sort((left, right) => left.position - right.position)) {
-      let key = logicalBotKey(bot);
-      const existing = byKey.get(key);
-      if (existing) {
-        if (!existing.members.some((member) => member.environmentId === environmentId)) {
-          existing.members.push({ environmentId, botId: bot.id, pinned: bot.pinned ?? true });
-          existing.pinned ||= bot.pinned ?? true;
-          continue;
-        }
-        key = `id:${environmentId}:${bot.id}`;
-      }
-      byKey.set(key, {
-        name: bot.name,
-        avatar: bot.avatar,
-        color: bot.color,
-        members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
-        pinned: bot.pinned ?? true,
-      });
-    }
-  }
-  return [...byKey].map(([key, bot]) => ({ key, ...bot }));
+  return environments.flatMap(({ environmentId, bots }) =>
+    [...bots]
+      .sort((left, right) => left.position - right.position)
+      .map((bot) => logicalBotOf(environmentId, bot)),
+  );
+}
+
+/** The rail entry for one environment's bot. */
+export function logicalBotOf(
+  environmentId: EnvironmentId,
+  bot: EnvironmentBots["bots"][number],
+): LogicalBot {
+  return {
+    key: `id:${environmentId}:${bot.id}`,
+    name: bot.name,
+    avatar: bot.avatar,
+    color: bot.color,
+    members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
+    pinned: bot.pinned ?? true,
+  };
+}
+
+/**
+ * The environments a bot list reads, primary first: bot environments that are connected, then
+ * the rest of the known ones, whose last-known bots the device may have kept.
+ */
+export function botListEnvironmentIds(input: {
+  readonly botEnvironmentIds: ReadonlyArray<EnvironmentId>;
+  readonly knownEnvironmentIds: ReadonlyArray<EnvironmentId>;
+  readonly connectedEnvironmentIds: ReadonlyArray<EnvironmentId>;
+}): EnvironmentId[] {
+  const connected = new Set(input.connectedEnvironmentIds);
+  const online = input.botEnvironmentIds.filter((environmentId) => connected.has(environmentId));
+  const offline = [...input.botEnvironmentIds, ...input.knownEnvironmentIds].filter(
+    (environmentId) => !connected.has(environmentId),
+  );
+  return [...new Set([...online, ...offline])];
+}
+
+/**
+ * A bot row's subtitle: its machine when several are known, then its projects, or Offline when
+ * its machine can't be reached.
+ */
+export function botListSubtitle(input: {
+  readonly machine: string | null;
+  readonly online: boolean;
+  readonly projects: string;
+}): string {
+  const detail = input.online ? input.projects : "Offline";
+  return input.machine === null ? detail : `${input.machine} · ${detail}`;
 }
 
 /**

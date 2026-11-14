@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  botListEnvironmentIds,
   botActivityByBot,
   botActivityByLogicalBot,
   buildLogicalBots,
@@ -14,12 +15,14 @@ import {
   type BotActivity,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
+import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
+import { environmentCatalog } from "../connection/catalog";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useUiStateStore } from "../uiStateStore";
 import { botsEnvironment } from "./bots";
@@ -59,6 +62,44 @@ export const logicalBotsAtom = Atom.make((get): ReadonlyArray<LogicalBot> => {
     ? previous
     : next;
 }).pipe(Atom.withLabel("web-bot-rail:logical-bots"));
+
+interface BotListEnvironment {
+  readonly environmentId: EnvironmentId;
+  readonly online: boolean;
+}
+interface BotListState {
+  readonly environments: ReadonlyArray<BotListEnvironment>;
+  readonly bots: ReadonlyArray<LogicalBot>;
+}
+/**
+ * What the bot lists show, apart from the rail: every bot environment that is connected, then
+ * known environments that aren't, with the bots they had when last seen.
+ */
+const botListAtom = Atom.make((get): BotListState => {
+  const connected = get(environmentSummaries.connectedEnvironmentIdsAtom);
+  const listed = botListEnvironmentIds({
+    botEnvironmentIds: get(botEnvironmentIdsAtom),
+    knownEnvironmentIds: [...enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom))],
+    connectedEnvironmentIds: connected,
+  }).flatMap((environmentId) => {
+    const bots = Option.getOrNull(
+      AsyncResult.value(get(botsEnvironment.list({ environmentId, input: {} }))),
+    );
+    return bots ? [{ environmentId, bots, online: connected.includes(environmentId) }] : [];
+  });
+  const environments = listed.map(({ environmentId, online }) => ({ environmentId, online }));
+  const bots = buildLogicalBots(listed);
+  const previous = Option.getOrNull(get.self<BotListState>());
+  const value: BotListState = { environments, bots };
+  return previous !== null &&
+    logicalBotsSignature(previous.bots) === logicalBotsSignature(bots) &&
+    sameIds(
+      previous.environments.map((entry) => `${entry.environmentId}:${entry.online}`),
+      environments.map((entry) => `${entry.environmentId}:${entry.online}`),
+    )
+    ? previous
+    : value;
+}).pipe(Atom.withLabel("web-bot-rail:bot-list"));
 
 /** Threads waiting on you per environment's bot, keyed by `botNeedsYouKey`. */
 const needsYouByBotAtom = Atom.make((get): ReadonlyMap<string, number> => {
@@ -129,6 +170,13 @@ function useLogicalBots(): ReadonlyArray<LogicalBot> {
 
 export function useBotEnvironmentIds(): ReadonlyArray<EnvironmentId> {
   return useAtomValue(botEnvironmentIdsAtom);
+}
+
+/** Connected environments with bots, primary first, whatever the sidebar filter shows. */
+export function useConnectedBotEnvironmentIds(): ReadonlyArray<EnvironmentId> {
+  const environmentIds = useBotEnvironmentIds();
+  const connected = useConnectedEnvironmentIds();
+  return environmentIds.filter((environmentId) => connected.includes(environmentId));
 }
 
 /** Connected environments with bots that the sidebar shows, primary first. */
@@ -222,6 +270,33 @@ export function useAllVisibleLogicalBots(): ReadonlyArray<LogicalBot> {
   const bots = useLogicalBots();
   const environmentFilter = useEnvironmentFilter();
   return onShownEnvironment(bots, environmentFilter);
+}
+
+/**
+ * Every bot for the Bots lists, across connected and offline environments the filter leaves
+ * visible, with each environment's machine name when several are known.
+ */
+export function useBotList(): BotListState & {
+  readonly machineOf: (environmentId: EnvironmentId) => string | null;
+  readonly isOnline: (environmentId: EnvironmentId) => boolean;
+} {
+  const list = useAtomValue(botListAtom);
+  const environmentFilter = useEnvironmentFilter();
+  const identities = useAtomValue(environmentSummaries.identitiesAtom);
+  const shown = (environmentId: EnvironmentId) =>
+    environmentFilter === null || environmentFilter.has(environmentId);
+  const environments = list.environments.filter((entry) => shown(entry.environmentId));
+  const several = environments.length > 1;
+  return {
+    bots: list.bots.filter((bot) => bot.members.some((member) => shown(member.environmentId))),
+    environments,
+    machineOf: (environmentId) =>
+      several
+        ? (identities.find((identity) => identity.environmentId === environmentId)?.label ?? null)
+        : null,
+    isOnline: (environmentId) =>
+      list.environments.some((entry) => entry.environmentId === environmentId && entry.online),
+  };
 }
 
 /**

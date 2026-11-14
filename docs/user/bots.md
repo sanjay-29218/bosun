@@ -14,7 +14,9 @@ rename, edit or delete. The pencil on a bot in the bot list, or beside its name 
 sidebar, opens its settings too.
 
 **Add bot** asks for a name, a robot avatar you build from parts (or **Shuffle**) and a color;
-**Create** makes the bot on your default model and opens its headquarters. In its settings a bot
+**Create** makes the bot on your default model and opens its headquarters. When you're connected to
+several machines that run bots, it also asks which one the bot **Lives on**: its settings, chat,
+memory, automations and home folder stay on that machine, and its settings say so under its name. In its settings a bot
 also has instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
 **Save**. Under **Tools**, a ticked tool is one the bot can use. A new bot starts with every
 tool ticked, including **Manage bots, roles and workflows**, and on **Full access**; untick a tool
@@ -31,6 +33,12 @@ its project manager, which runs on the project's default model (else the environ
 shows under every bot in the thread list. A bot can only be deleted once it owns no projects (its
 home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
 Deleting a bot also deletes the automations that run as it.
+
+The **Projects** tab also lists, under **Can work on**, the machines linked to the bot's machine
+(see Linked environments in **Settings → Labs**), each with a checkbox. A ticked machine is one the
+bot may start new work on; unticking it stops new work there, while work already running keeps
+going. The choice saves at once. New bots, and bots from before this setting, start with every
+linked machine ticked. **Link an environment** links another machine with a pairing code.
 
 Each bot has one **headquarters** thread where it oversees every project it owns. Clicking a bot in
 the bot list opens it the first time, clicking the bot you're on opens it again, and ⌘-clicking
@@ -144,8 +152,10 @@ bot to go back to its threads. On a server without bots, open Automations from t
 sidebar, or **Open automations** in the command palette; on mobile, Automations and Library are
 the last entries in the bot button's menu.
 
-Bots with the same name on different environments share one avatar, and new projects go to the
-bot you're looking at (or have no bot when you aren't looking at one). The server icon filters the bot list and thread list to some environments;
+Each bot is its own entry, even when a bot on another machine has the same name. With several
+machines, the **Bots** list and **Settings → Bots** name each bot's machine, and show the bots of a
+machine that can't be reached as **Offline**, as they were when last seen, until it's back. New
+projects go to the bot you're looking at (or have no bot when you aren't looking at one). The server icon filters the bot list and thread list to some environments;
 pick **All environments** to show every one again. To move a project, right-click it in the
 sidebar's project picker and choose **Move to bot**.
 

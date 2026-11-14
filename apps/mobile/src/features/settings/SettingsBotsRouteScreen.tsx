@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  botListSubtitle,
   createLogicalBotResolver,
   isManagerPinned,
   projectBotId,
@@ -16,10 +17,12 @@ import { Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BotAvatar } from "../../components/BotAvatar";
+import { cn } from "../../lib/cn";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
-import { botsEnvironment, useActiveBot } from "../../state/bots";
+import { botsEnvironment, useActiveBot, useBotList } from "../../state/bots";
+import { environmentCatalog } from "../../connection/catalog";
 import { environmentProjects } from "../../state/projects";
 import { rolesEnvironment } from "../../state/roles";
 import { environmentServerConfigsAtom } from "../../state/server";
@@ -35,6 +38,12 @@ export function SettingsBotsRouteScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const activeBot = useActiveBot();
+  const botList = useBotList();
+  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
+  const machineOf = (environmentId: EnvironmentId) =>
+    botList.environmentCount > 1
+      ? (catalog.entries.get(environmentId)?.target.label ?? null)
+      : null;
   const projects = useAtomValue(environmentProjects.projectsAtom);
   const configs = useAtomValue(environmentServerConfigsAtom);
   const setPin = useAtomCommand(botsEnvironment.setPin, { reportFailure: false });
@@ -112,14 +121,16 @@ export function SettingsBotsRouteScreen() {
         contentContainerClassName="gap-6 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        {activeBot.bots.length === 0 ? (
+        {botList.bots.length === 0 ? (
           <Text className="text-foreground-muted">
             No bots yet. Add one in Bosun on your computer.
           </Text>
         ) : (
           <SettingsSection title="Bots">
-            {activeBot.bots.map((bot) => {
+            {botList.bots.map((bot) => {
               const pinned = pending.get(bot.key) ?? bot.pinned;
+              const home = bot.members[0]!.environmentId;
+              const online = botList.online.has(home);
               const count = projects.filter(
                 (project) =>
                   !project.isScratch &&
@@ -131,9 +142,13 @@ export function SettingsBotsRouteScreen() {
                   key={bot.key}
                   environmentIds={bot.members.map((member) => member.environmentId)}
                   name={bot.name}
-                  subtitle={
-                    count === 0 ? "No projects" : `${count} project${count === 1 ? "" : "s"}`
-                  }
+                  subtitle={botListSubtitle({
+                    machine: machineOf(home),
+                    online,
+                    projects:
+                      count === 0 ? "No projects" : `${count} project${count === 1 ? "" : "s"}`,
+                  })}
+                  offline={!online}
                   avatar={<BotAvatar avatar={bot.avatar} color={bot.color} size={32} />}
                   pinned={pinned}
                   onOpen={() => void openBot(bot)}
@@ -235,15 +250,21 @@ function BotsRow(props: {
   readonly subtitle: string;
   readonly avatar: React.ReactNode;
   readonly pinned: boolean;
+  /** Its machine can't be reached: dimmed, and it can't open or change its pin. */
+  readonly offline?: boolean;
   readonly onOpen: () => void;
   readonly onTogglePin: () => void;
 }) {
-  const canPin = useCanPin(props.environmentIds);
+  const canPin = useCanPin(props.environmentIds) && props.offline !== true;
   return (
-    <View className="flex-row items-center gap-3 py-2 pr-1 pl-4">
+    <View
+      className={cn("flex-row items-center gap-3 py-2 pr-1 pl-4", props.offline && "opacity-60")}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Open ${props.name}`}
+        accessibilityState={{ disabled: props.offline === true }}
+        disabled={props.offline === true}
         className="min-w-0 flex-1 flex-row items-center gap-3"
         onPress={props.onOpen}
       >

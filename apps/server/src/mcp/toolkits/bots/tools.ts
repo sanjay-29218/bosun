@@ -17,7 +17,7 @@ import { Tool, Toolkit } from "effect/ai";
 import * as BotService from "../../../bots/BotService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
-import { BotProjectsResult, LinkBotProjects, LinkBotTask } from "./linkTools.ts";
+import { BotProjectsResult, LinkBotProjects, LinkBotTask, ListedBot } from "./linkTools.ts";
 
 const shared = {
   failure: OrchestratorMcpFailure,
@@ -41,9 +41,9 @@ const { allowedTools: _updateLegacy, ...updateFields } = BotUpdateInput.fields;
 const List = Tool.make("t3_bot_list", {
   ...shared,
   description:
-    "List an environment's bots in rail order; there may be none. Each bot owns projects (a project's botId); a project with a null botId has no bot.",
+    "List an environment's bots in rail order; there may be none. Each bot owns projects (a project's botId); a project with a null botId has no bot. Each bot names its home environment and the linked environments it may start work on (permittedEnvironments).",
   parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
-  success: Schema.Struct({ bots: Schema.Array(Bot) }),
+  success: Schema.Struct({ bots: Schema.Array(ListedBot) }),
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
@@ -59,7 +59,7 @@ const Create = Tool.make("t3_bot_create", {
 const Update = Tool.make("t3_bot_update", {
   ...shared,
   description:
-    "Change a bot's name, avatar, color, instructions, withheld tools, runtime mode, default model, default workflow or what its headquarters does when its conversation grows long. Omitted fields are kept; withheldTools replaces the whole list. Pass the bot's current revision as expectedRevision.",
+    "Change a bot's name, avatar, color, instructions, withheld tools, runtime mode, default model, default workflow, the linked environments it may start work on, or what its headquarters does when its conversation grows long. Omitted fields are kept; withheldTools and permittedEnvironmentIds replace the whole list. Pass the bot's current revision as expectedRevision.",
   parameters: Schema.Struct({ ...updateFields, withheldTools }),
   success: Bot,
 });

@@ -52,9 +52,9 @@ describe("botsListManagers", () => {
       projectKeyOf: (_environmentId, projectId) => `key:${projectId}`,
     });
     expect(managers.map((manager) => [manager.title, manager.ownerKey, manager.pinned])).toEqual([
-      ["api", "name:ops", true],
+      ["api", "id:local:bot-ops", true],
       ["Notes", null, false],
-      ["web", "name:ops", true],
+      ["web", "id:local:bot-ops", true],
     ]);
   });
 });

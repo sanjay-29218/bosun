@@ -1,4 +1,5 @@
 import {
+  Bot,
   EnvironmentId,
   ModelSelection,
   OrchestratorMcpFailure,
@@ -41,6 +42,23 @@ export const BotProjectsResult = Schema.Struct({
   projects: Schema.Array(BotProject),
 });
 export type BotProjectsResult = typeof BotProjectsResult.Type;
+
+const EnvironmentName = { environmentId: EnvironmentId, label: Schema.String };
+
+/** A bot with where it lives and the linked environments it may start work on. */
+export const ListedBot = Schema.Struct({
+  ...Bot.fields,
+  home: Schema.Struct(EnvironmentName).annotate({
+    description: "The environment the bot lives on: its settings, chat, memory and home folder.",
+  }),
+  permittedEnvironments: Schema.Array(
+    Schema.Struct({ ...EnvironmentName, reachable: Schema.Boolean }),
+  ).annotate({
+    description:
+      "Linked environments the bot may start work on; reachable says whether the link answered last time.",
+  }),
+});
+export type ListedBot = typeof ListedBot.Type;
 
 const shared = {
   failure: OrchestratorMcpFailure,

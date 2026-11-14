@@ -143,7 +143,9 @@ describe("groupAutomationsByBot", () => {
       groups.map((group) => [group.bot?.name, group.entries.map((entry) => entry.key)]),
     ).toEqual([
       ["Captain", ["local:Nightly build"]],
-      ["Social", ["remote:Analytics", "local:Triage"]],
+      ["Social", ["local:Triage"]],
+      // The same-named bot on remote is its own bot.
+      ["Social", ["remote:Analytics"]],
       // A project with no bot files its tasks under No bot, last.
       [undefined, ["local:Cleanup"]],
     ]);

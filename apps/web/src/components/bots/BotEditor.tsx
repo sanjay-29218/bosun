@@ -10,12 +10,19 @@ import {
   type RuntimeMode,
   grantedTools,
 } from "@t3tools/contracts";
-import { FolderIcon, PaletteIcon, SlidersHorizontalIcon, WrenchIcon } from "lucide-react";
+import {
+  FolderIcon,
+  MonitorIcon,
+  PaletteIcon,
+  SlidersHorizontalIcon,
+  WrenchIcon,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import { randomUUID } from "../../lib/utils";
 import { botsEnvironment } from "../../state/bots";
+import { useEnvironmentIdentities } from "../../state/environments";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
@@ -29,6 +36,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { toastManager } from "../ui/toast";
 import { WizardTabs } from "../ui/wizard";
 import { BotHomeField } from "./BotHomeField";
+import { BotPermittedEnvironments } from "./BotPermittedEnvironments";
 import { BotAvatarPicker, BotColorPicker } from "./BotLook";
 
 type BotChange = Partial<
@@ -42,6 +50,7 @@ type BotChange = Partial<
     | "modelSelection"
     | "runtimeMode"
     | "longConversation"
+    | "permittedEnvironmentIds"
   >
 >;
 
@@ -121,6 +130,9 @@ export function BotEditor({
   const [longConversation, setLongConversation] = useState<BotLongConversation>(
     bot?.longConversation ?? "compact",
   );
+  const homeLabel =
+    useEnvironmentIdentities().find((identity) => identity.environmentId === environmentId)
+      ?.label ?? "this machine";
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<Tab>("behavior");
   const fields = {
@@ -205,6 +217,12 @@ export function BotEditor({
               placeholder="Social"
               onChange={(event) => setName(event.target.value)}
             />
+            {bot ? (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <MonitorIcon aria-hidden className="size-3.5" />
+                Lives on {homeLabel}
+              </p>
+            ) : null}
           </div>
         </div>
         <WizardTabs
@@ -293,6 +311,13 @@ export function BotEditor({
         ) : tab === "projects" && bot ? (
           <>
             <BotHomeField environmentId={environmentId} homePath={bot.homePath ?? null} />
+            <BotPermittedEnvironments
+              environmentId={environmentId}
+              homeLabel={homeLabel}
+              bot={bot}
+              canEdit={canEdit}
+              onSave={(permittedEnvironmentIds) => save(bot, { permittedEnvironmentIds })}
+            />
             {projects}
           </>
         ) : tab === "tools" ? (

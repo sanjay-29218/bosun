@@ -169,6 +169,7 @@ const make = Effect.gen(function* () {
       runtimeMode: input.runtimeMode ?? "full-access",
       modelSelection: input.modelSelection ?? null,
       longConversation: input.longConversation ?? "compact",
+      permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
       pinned: true,
       revision: 1,
@@ -239,6 +240,9 @@ const make = Effect.gen(function* () {
         ...(input.longConversation === undefined
           ? {}
           : { longConversation: input.longConversation }),
+        ...(input.permittedEnvironmentIds === undefined
+          ? {}
+          : { permittedEnvironmentIds: [...new Set(input.permittedEnvironmentIds)] }),
         revision: previous.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };

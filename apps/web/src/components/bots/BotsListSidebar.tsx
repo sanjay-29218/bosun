@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  botListSubtitle,
   writePins,
   type BotActivity,
   type LogicalBot,
@@ -15,7 +16,7 @@ import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import {
   useActivityByLogicalBot,
-  useAllVisibleLogicalBots,
+  useBotList,
   useEnvironmentFilter,
   useNeedsYouByLogicalBot,
   useShownBotEnvironmentIds,
@@ -54,7 +55,7 @@ import {
  * a pin that keeps it in the main rail. A row opens its thread and leaves the rail as it is.
  */
 export function BotsListSidebar() {
-  const bots = useAllVisibleLogicalBots();
+  const { bots, machineOf, isOnline } = useBotList();
   const needsYou = useNeedsYouByLogicalBot();
   const activity = useActivityByLogicalBot();
   const projects = useProjects();
@@ -163,7 +164,11 @@ export function BotsListSidebar() {
                   <BotsListBotRow
                     key={bot.key}
                     bot={bot}
-                    subtitle={botProjectsLabel(bot, bots, projects)}
+                    subtitle={botListSubtitle({
+                      machine: machineOf(bot.members[0]!.environmentId),
+                      online: isOnline(bot.members[0]!.environmentId),
+                      projects: botProjectsLabel(bot, bots, projects),
+                    })}
                     needsYou={needsYou.get(bot.key) ?? 0}
                     activity={activity.get(bot.key)}
                     pinned={pin.shown(bot.key, bot.pinned)}
@@ -403,13 +408,13 @@ const BotsListBotRow = memo(function BotsListBotRow({
   const connected = useConnectedEnvironmentIds();
   const environmentFilter = useEnvironmentFilter();
   const member = headquartersMember(bot, connected, environmentFilter);
-  const editMember = member ?? bot.members[0];
+  // An offline bot's editor can't load, and its pin can't be written.
   const canPin = useCanPin(bot.members.map((candidate) => candidate.environmentId));
   return (
     <ListRow
-      canPin={canPin}
+      canPin={canPin && member !== undefined}
       name={bot.name}
-      subtitle={member === undefined ? "Offline" : subtitle}
+      subtitle={subtitle}
       dimmed={member === undefined}
       avatar={
         <BotAvatar
@@ -427,12 +432,12 @@ const BotsListBotRow = memo(function BotsListBotRow({
         openHeadquarters(bot);
       }}
       onSettings={
-        editMember
+        member
           ? () => {
               onNavigate();
               void navigate({
                 to: BOTS_SETTINGS_PATH,
-                search: { environmentId: editMember.environmentId, botId: editMember.botId },
+                search: { environmentId: member.environmentId, botId: member.botId },
               });
             }
           : null

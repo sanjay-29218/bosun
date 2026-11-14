@@ -166,7 +166,14 @@ function LinkedEnvironmentRow({
   );
 }
 
-function LinkEnvironmentAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
+/** Links another machine to `environmentId`, through a pairing code. */
+export function LinkEnvironmentAction({
+  environmentId,
+  label = "Link",
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly label?: string;
+}) {
   const [open, setOpen] = useState(false);
   const machines = useLinkableMachines(environmentId, open);
   // Null until the user picks; with no other machines known, only an address is left.
@@ -265,7 +272,7 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
         render={
           <Button size="xs" variant="default">
             <PlusIcon className="size-3" />
-            Link
+            {label}
           </Button>
         }
       />

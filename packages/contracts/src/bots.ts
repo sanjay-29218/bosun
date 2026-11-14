@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
@@ -34,9 +34,8 @@ export const headquartersProjectId = (threadId: string): ProjectId | null =>
 export const isStandingThread = (threadId: string) =>
   headquartersBotId(threadId) !== null || headquartersProjectId(threadId) !== null;
 /**
- * Which bots across environments are the same bot: the ones with the same name. Bots stay
- * environment-local; this key is how clients merge them in the rail and how one environment
- * finds its bot's counterpart on a linked one.
+ * How one environment finds its bot's counterpart on a linked one: the bot there with the same
+ * name. Clients list each bot once, under its home.
  */
 export const logicalBotKey = (bot: { readonly name: string }): string =>
   `name:${bot.name.trim().toLocaleLowerCase()}`;
@@ -126,6 +125,11 @@ export const Bot = Schema.Struct({
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
   longConversation: BotLongConversation,
+  /**
+   * Linked environments the bot may start new work on. Its home is the environment that stores
+   * it; ids no longer linked stay saved and are ignored.
+   */
+  permittedEnvironmentIds: Schema.Array(EnvironmentId),
   /** Rail order, counted from 0. */
   position: Schema.Int,
   /** Shown in the main rail; every bot is listed under Bots either way. Absent: pinned. */
@@ -169,6 +173,7 @@ export const BotUpdateInput = Schema.Struct({
   runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),
+  permittedEnvironmentIds: Schema.optionalKey(Schema.Array(EnvironmentId)),
 });
 export type BotUpdateInput = typeof BotUpdateInput.Type;
 
