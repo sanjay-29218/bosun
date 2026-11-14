@@ -121,7 +121,7 @@ export function MilestoneChip(props: {
           }}
         >
           {[...choices, ...props.milestones].map((choice) => (
-            <MenuRadioItem key={choice.number} value={String(choice.number)}>
+            <MenuRadioItem key={choice.number} value={String(choice.number)} closeOnClick>
               <span className="flex min-w-0 items-center gap-2">
                 <span className="min-w-0 flex-1 truncate">{choice.title}</span>
                 {"known" in choice ? null : (
@@ -132,7 +132,7 @@ export function MilestoneChip(props: {
               </span>
             </MenuRadioItem>
           ))}
-          <MenuRadioItem value="">
+          <MenuRadioItem value="" closeOnClick>
             <span className="text-muted-foreground">No milestone</span>
           </MenuRadioItem>
         </MenuRadioGroup>
@@ -200,7 +200,7 @@ export function IssuePicker(props: {
         }}
       >
         {matches.map((choice) => (
-          <MenuRadioItem key={choice.number} value={String(choice.number)}>
+          <MenuRadioItem key={choice.number} value={String(choice.number)} closeOnClick>
             <span className="flex min-w-0 items-center gap-2">
               <span className="shrink-0 text-muted-foreground tabular-nums">#{choice.number}</span>
               <span className="min-w-0 flex-1 truncate">{choice.title}</span>
