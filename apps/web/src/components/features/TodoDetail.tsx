@@ -72,7 +72,6 @@ import {
   type TodoTarget,
 } from "./todoDialogs";
 import { createSerialSaves } from "./descriptionSaves.logic";
-import { createStructureWrites } from "./structureWrites.logic";
 import { CloseTodoButton, failureText, ReopenTodoButton } from "./todoState";
 
 /**
@@ -916,17 +915,8 @@ function GitHubIssueDetail(props: {
     null,
   );
   const [structureError, setStructureError] = useState<string | null>(null);
-  // One write at a time for this issue, so a quick second pick can't be overtaken by the first.
-  const [writeStructure] = useState(() =>
-    createStructureWrites(async (change: StructureChange) => {
-      const result = await updateIssueStructure(owner, props.number, change);
-      if (result._tag === "Success") return true;
-      if (!isAtomCommandInterrupted(result)) {
-        setStructureError(failureText(result, "GitHub did not change the issue."));
-      }
-      return false;
-    }),
-  );
+  // One structure save at a time, so a quick second pick can't be overtaken by the first.
+  const [savingStructure, setSavingStructure] = useState(false);
   if (!issue) {
     return detail.error ? <Gone text={detail.error} failed url={props.url} /> : <DetailSkeleton />;
   }
@@ -964,16 +954,23 @@ function GitHubIssueDetail(props: {
   const updateStructure = (number: number, change: StructureChange) =>
     updateIssueStructure(owner, number, change);
   const editStructure = async (change: StructureChange) => {
+    if (savingStructure) return;
     const over = issue.readAt;
     setPending((current) => ({ ...(current?.over === over ? current : {}), ...change, over }));
     setStructureError(null);
+    setSavingStructure(true);
     const previousParent = parent;
-    if (await writeStructure(change)) {
+    const result = await updateIssueStructure(owner, props.number, change);
+    setSavingStructure(false);
+    if (result._tag === "Success") {
       // Both parents' sub-issue lists changed.
       for (const number of [previousParent, change.parent]) {
         if (number != null) refreshDetail(number);
       }
       return;
+    }
+    if (!isAtomCommandInterrupted(result)) {
+      setStructureError(failureText(result, "GitHub did not change the issue."));
     }
     setPending(null);
   };
@@ -1066,6 +1063,7 @@ function GitHubIssueDetail(props: {
           milestone={milestone}
           milestones={props.issueList?.milestones ?? []}
           editable={canEdit}
+          busy={savingStructure}
           onChange={(change) => void editStructure(change)}
           onShowOnBoard={() => {
             if (!milestone) return;
@@ -1078,6 +1076,7 @@ function GitHubIssueDetail(props: {
           parentTitle={parentTitle}
           choices={choices}
           editable={canEdit}
+          busy={savingStructure}
           onOpen={openIssue}
           onChange={chooseParent}
         />

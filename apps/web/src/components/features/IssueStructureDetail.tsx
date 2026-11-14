@@ -63,6 +63,8 @@ export function MilestoneChip(props: {
   readonly milestone: { readonly number: number; readonly title: string } | null;
   readonly milestones: ReadonlyArray<RepositoryMilestone>;
   readonly editable: boolean;
+  /** A change is saving; another waits until it lands. */
+  readonly busy: boolean;
   readonly onChange: (change: StructureChange) => void;
   readonly onShowOnBoard: () => void;
 }) {
@@ -82,6 +84,7 @@ export function MilestoneChip(props: {
   return (
     <Menu>
       <MenuTrigger
+        disabled={props.busy}
         render={
           <button
             type="button"
@@ -224,6 +227,8 @@ export function ParentChip(props: {
   readonly parentTitle: string | null;
   readonly choices: ReadonlyArray<IssueList["issues"][number]>;
   readonly editable: boolean;
+  /** A change is saving; another waits until it lands. */
+  readonly busy: boolean;
   readonly onOpen: (number: number) => void;
   readonly onChange: (parent: IssueList["issues"][number] | null) => void;
 }) {
@@ -247,6 +252,7 @@ export function ParentChip(props: {
     return (
       <Menu>
         <MenuTrigger
+          disabled={props.busy}
           render={<button type="button" aria-label="Parent" className={unsetChipClassName} />}
         >
           <PlusIcon aria-hidden className="size-3.5 shrink-0" />
@@ -277,6 +283,7 @@ export function ParentChip(props: {
       {props.editable ? (
         <Menu>
           <MenuTrigger
+            disabled={props.busy}
             render={
               <button
                 type="button"
