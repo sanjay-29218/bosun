@@ -15,8 +15,10 @@ import {
   FEATURE_MANAGER_ROLE_ID,
   projectHeadquartersThreadId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
+  type ServerProvider,
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -35,6 +37,7 @@ import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
   CrewTestOrchestration as OrchestrationLayerLive,
+  makeCrewTestOrchestration,
   seedCrewProject,
 } from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
@@ -60,6 +63,22 @@ const CAPTAIN_ID = "bot-ops";
 const projectId = ProjectId.make("workflow-feature-project");
 const scratchProjectId = ProjectId.make("workflow-feature-scratch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+/** A signed-in Codex, the only provider: what a fresh install's new threads run on. */
+const readyCodex: ServerProvider = {
+  instanceId: ProviderInstanceId.make("codex"),
+  driver: ProviderDriverKind.make("codex"),
+  enabled: true,
+  installed: true,
+  version: "test",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: "2026-11-01T00:00:00.000Z",
+  models: [
+    { slug: "gpt-5.4", name: "GPT-5.4", isDefault: true, isCustom: false, capabilities: null },
+  ],
+  slashCommands: [],
+  skills: [],
+};
 /** Title generation that never finishes, so a test decides when a title arrives. */
 const TextGenerationPending = Layer.mock(TextGeneration.TextGeneration)({
   generateThreadTitle: () => Effect.never,
@@ -112,12 +131,12 @@ const withSystem = <E>(
     | NoticeInbox.NoticeInbox
     | ProjectionStore.ProjectionStoreV2
   >,
+  orchestration: typeof OrchestrationLayerLive = OrchestrationLayerLive,
 ) =>
   Effect.gen(function* () {
     const directory = yield* Effect.promise(() =>
       NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "feature-integration-")),
     );
-    const orchestration = OrchestrationLayerLive;
     const layer = FeatureServiceLive.pipe(
       Layer.provideMerge(NoticeInbox.layer),
       Layer.provideMerge(FeatureWorkspacesLive),
@@ -1803,41 +1822,61 @@ describe("feature lead and crew", () => {
       ),
   );
 
-  effectIt.effect("gives a project with no bot a manager and features on its default model", () =>
+  // No bot and no saved default model, as on a fresh install: a project's manager and features
+  // run on the model new threads there get, from the first usable provider.
+  const looseProject = Effect.gen(function* () {
+    const features = yield* FeatureService;
+    const loose = ProjectId.make("workflow-feature-loose");
+    const home = (yield* (yield* ProjectStore.ProjectStoreV2).get(projectId)).pipe(
+      Option.getOrThrow,
+    ).workspaceRoot;
+    yield* seedCrewProject({
+      projectId: loose,
+      title: "Loose project",
+      workspaceRoot: home,
+      botId: null,
+    });
+    const target = { id: "loose-feature", projectId: loose };
+    yield* features.create({ ...target, title: "Loose", brief: "Tidy up", workspace: "local" });
+    return target;
+  });
+
+  effectIt.effect(
+    "gives a project with no bot a manager and features on the model new threads get",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const features = yield* FeatureService;
+          const settings = yield* ServerSettingsService;
+          expect((yield* settings.getSettings).defaultModelSelection).toBeNull();
+          const target = yield* looseProject;
+          const inherited = { instanceId: readyCodex.instanceId, model: "gpt-5.4" };
+          expect(yield* crew.projectManagerSettings(target.projectId)).toMatchObject({
+            modelSelection: inherited,
+            runtimeMode: "full-access",
+          });
+          const manager = yield* crew.ensureProjectManager(target.projectId);
+          expect(manager.threadId).toBe(projectHeadquartersThreadId(target.projectId));
+          const started = yield* features.start(target.id, target.projectId);
+          expect(started.leadThreadId).toBeDefined();
+        }),
+        makeCrewTestOrchestration({ providers: [readyCodex] }),
+      ),
+  );
+
+  effectIt.effect("refuses a project with no bot and no usable model", () =>
     withSystem(
       Effect.gen(function* () {
         const crew = yield* CrewService;
         const features = yield* FeatureService;
-        const settings = yield* ServerSettingsService;
-        const loose = ProjectId.make("workflow-feature-loose");
-        const home = (yield* (yield* ProjectStore.ProjectStoreV2).get(projectId)).pipe(
-          Option.getOrThrow,
-        ).workspaceRoot;
-        yield* seedCrewProject({
-          projectId: loose,
-          title: "Loose project",
-          workspaceRoot: home,
-          botId: null,
-        });
-        const target = { id: "loose-feature", projectId: loose };
-        yield* features.create({ ...target, title: "Loose", brief: "Tidy up", workspace: "local" });
-        // With no bot, nothing names a model until the project or this environment does.
-        expect((yield* Effect.flip(crew.projectManagerSettings(loose))).message).toContain(
-          "Choose a default model for this project",
-        );
-        expect((yield* Effect.flip(features.start(target.id, loose))).message).toContain(
+        const target = yield* looseProject;
+        expect(
+          (yield* Effect.flip(crew.projectManagerSettings(target.projectId))).message,
+        ).toContain("Choose a default model for this project");
+        expect((yield* Effect.flip(features.start(target.id, target.projectId))).message).toContain(
           "Set up the crew",
         );
-
-        yield* settings.updateSettings({ defaultModelSelection: modelSelection });
-        expect(yield* crew.projectManagerSettings(loose)).toMatchObject({
-          modelSelection,
-          runtimeMode: "full-access",
-        });
-        const manager = yield* crew.ensureProjectManager(loose);
-        expect(manager.threadId).toBe(projectHeadquartersThreadId(loose));
-        const started = yield* features.start(target.id, loose);
-        expect(started.leadThreadId).toBeDefined();
       }),
     ),
   );

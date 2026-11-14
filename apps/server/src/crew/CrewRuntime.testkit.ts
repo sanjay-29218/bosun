@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -185,10 +186,13 @@ export const makeCrewTestOrchestration = (
   options: {
     readonly runSetup?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"];
     readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
+    /** The provider snapshots the environment reports; none by default. */
+    readonly providers?: ReadonlyArray<ServerProvider>;
   } = {},
 ) =>
   Layer.mergeAll(
     RuntimeLayer.layer,
+    ProviderRegistryMock.layer(options.providers ?? []),
     ProjectStore.layer,
     ThreadLaunchService.layer.pipe(
       Layer.provide(
