@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
-  CREW_TOOL_GRANTS,
   type Bot,
   type BotLongConversation,
   type BotAvatar as BotAvatarParts,
@@ -38,7 +37,7 @@ type BotChange = Partial<
     | "avatar"
     | "color"
     | "instructions"
-    | "allowedTools"
+    | "withheldTools"
     | "modelSelection"
     | "runtimeMode"
     | "longConversation"
@@ -70,13 +69,6 @@ const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
 };
 
 type Tab = "behavior" | "projects" | "tools" | "look";
-
-/** Grants only feature crews use, which a bot never joins; a bot's tools leave them out. */
-const ROLE_ONLY_GRANTS: ReadonlySet<string> = new Set(
-  CREW_TOOL_GRANTS.filter((grant) => "roleOnly" in grant).map((grant) => grant.id),
-);
-const botTools = (tools: ReadonlyArray<string>) =>
-  tools.filter((tool) => !ROLE_ONLY_GRANTS.has(tool));
 
 /**
  * A bot's name, behavior, tools and look; `bot` null adds one. `projects` is the Projects tab,
@@ -122,13 +114,9 @@ export function BotEditor({
   );
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(() =>
-    botTools(bot?.allowedTools ?? []),
-  );
+  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.withheldTools ?? []);
   const [modelSelection, setModelSelection] = useState(bot?.modelSelection ?? defaultModel);
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
-    bot?.runtimeMode ?? "approval-required",
-  );
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(bot?.runtimeMode ?? "full-access");
   const [longConversation, setLongConversation] = useState<BotLongConversation>(
     bot?.longConversation ?? "compact",
   );
@@ -138,7 +126,7 @@ export function BotEditor({
     name: name.trim(),
     avatar,
     color,
-    allowedTools: tools,
+    withheldTools: tools,
     runtimeMode,
     modelSelection,
     longConversation,
@@ -148,7 +136,7 @@ export function BotEditor({
       JSON.stringify(avatar) !== JSON.stringify(bot.avatar) ||
       color !== bot.color ||
       instructions.trim() !== bot.instructions ||
-      tools.join("\n") !== botTools(bot.allowedTools).join("\n") ||
+      tools.join("\n") !== bot.withheldTools.join("\n") ||
       JSON.stringify(modelSelection) !== JSON.stringify(bot.modelSelection) ||
       runtimeMode !== bot.runtimeMode ||
       longConversation !== bot.longConversation

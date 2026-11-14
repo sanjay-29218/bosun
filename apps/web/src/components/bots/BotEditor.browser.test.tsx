@@ -37,7 +37,7 @@ const captain: Bot = {
   avatar: { head: "round", face: "flat", eyes: "dash", top: "none", cheeks: false, smile: false },
   color: "blue",
   instructions: "Run the projects.",
-  allowedTools: [],
+  withheldTools: [],
   runtimeMode: "full-access",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   longConversation: "compact",

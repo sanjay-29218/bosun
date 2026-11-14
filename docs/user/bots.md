@@ -16,9 +16,10 @@ sidebar, opens its settings too.
 **Add bot** asks for a name, a robot avatar you build from parts (or **Shuffle**) and a color;
 **Create** makes the bot on your default model and opens its headquarters. In its settings a bot
 also has instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
-**Save**. A bot's threads, like a role's, get every T3 Code tool a thread you start gets, such as
-the browser, worktrees and pull requests; tick some under **T3 Code** only to limit it to those.
-They are offered only the crew tools its ticked crew tools allow. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+**Save**. Under **Tools**, a ticked tool is one the bot can use. A new bot starts with every
+tool ticked, including **Manage bots, roles and workflows**, and on **Full access**; untick a tool
+to take it away and tick it to give it back. Tools added in a later version start ticked. The
+same goes for roles and project managers. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
 A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
 another bot, or bring one over; work that already started keeps running as the bot that started
@@ -158,10 +159,10 @@ uses says **Not in a workflow**.
 Roles, in **Settings → Roles**, are who leads a feature and who its lead can hand work to. **New
 role** adds one, and offers **Add the starter roles** for a Feature manager, Planner,
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
-Builder builds on its own and uses subagents only for read-only work such as research; give any
-role **Threads and subagents** to let it use them. Each role has instructions, crew tools and a
-default model, whose picker also sets reasoning, speed and **Access**, from **Supervised** to
-**Full access**; starter roles start on **Full access**, since the crew works unattended. Pick a role to
+Builder builds on its own and uses subagents only for read-only work such as research. Each role
+has instructions, tools and a default model, whose picker also sets reasoning, speed and
+**Access**, from **Supervised** to **Full access**; new roles start with every tool ticked and on
+**Full access**, since the crew works unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
 on. Each project gets its own Feature manager the first time a feature needs one; editing a role
 changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see

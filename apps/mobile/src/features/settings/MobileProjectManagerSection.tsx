@@ -74,7 +74,7 @@ function Form(props: {
   // When someone else saved first, the refresh brings their revision in place of this form.
   const { busy, error, run } = useRun(() => undefined);
   const [instructions, setInstructions] = useState(settings.instructions);
-  const [tools, setTools] = useState<ReadonlyArray<string>>(settings.allowedTools);
+  const [tools, setTools] = useState<ReadonlyArray<string>>(settings.withheldTools);
   const [instanceId, setInstanceId] = useState<string>(settings.modelSelection.instanceId);
   const [model, setModel] = useState(settings.modelSelection.model);
   const [runtimeMode, setRuntimeMode] = useState(settings.runtimeMode);
@@ -105,7 +105,7 @@ function Form(props: {
         input: {
           projectId: project.id,
           instructions: instructions.trim(),
-          allowedTools: [...tools],
+          withheldTools: [...tools],
           modelSelection,
           runtimeMode,
           longConversation,
@@ -199,7 +199,9 @@ function Form(props: {
         editable={canEdit && !busy}
       />
       <Text className="text-xs text-foreground-muted">
-        Tools. T3 Code tools are all on unless you pick some to limit it to.
+        {CREW_TOOL_GRANTS.every((grant) => grant.id.startsWith("crew.") || tools.includes(grant.id))
+          ? "Tools. No T3 Code tools: this agent can't use any."
+          : "Tools. Selected ones are on; tap one to turn it off."}
       </Text>
       <View className="flex-row flex-wrap gap-1.5">
         {[
@@ -208,7 +210,7 @@ function Form(props: {
             .filter((id) => !CREW_TOOL_GRANTS.some((grant) => grant.id === id))
             .map((id) => ({ id, label: id })),
         ].map((grant) => {
-          const selected = tools.includes(grant.id);
+          const selected = !tools.includes(grant.id);
           return (
             <Action
               key={grant.id}
@@ -216,7 +218,7 @@ function Form(props: {
               selected={selected}
               disabled={!canEdit}
               onPress={() =>
-                setTools(selected ? tools.filter((id) => id !== grant.id) : [...tools, grant.id])
+                setTools(selected ? [...tools, grant.id] : tools.filter((id) => id !== grant.id))
               }
             />
           );
