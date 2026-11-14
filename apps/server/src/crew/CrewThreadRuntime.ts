@@ -15,6 +15,7 @@ import {
   type RuntimeMode,
   type CrewTurnState,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -29,6 +30,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { crewTurnStateFromStatus } from "./crewTurnState.ts";
 import type { CrewWorkspace } from "./CrewStore.ts";
 import { headquartersIdle, type FreshStartRecords } from "./headquartersFreshStart.ts";
@@ -64,8 +66,12 @@ export interface CrewThreadStart {
 
 export interface CrewThreadRuntimeShape {
   readonly projectExists: (projectId: ProjectId) => Effect.Effect<boolean, CrewReadError>;
-  /** The bot that owns the project, null when the project is gone. */
+  /** The bot that owns the project, null when it has none or is gone. */
   readonly projectBotId: (projectId: ProjectId) => Effect.Effect<string | null, CrewReadError>;
+  /** The model the project's work defaults to: the project's own, else this environment's. */
+  readonly projectModelSelection: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ModelSelection | null, CrewReadError>;
   /** Scratch or a bot's home, which never get a Project manager. */
   readonly isHiddenProject: (projectId: ProjectId) => Effect.Effect<boolean>;
   /** The bot's home project, made on first use; its headquarters works there. */
@@ -160,6 +166,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
     const engine = yield* Orchestrator.OrchestratorV2;
     const launcher = yield* ThreadLaunchService.ThreadLaunchService;
     const projects = yield* ProjectStore.ProjectStoreV2;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
     const sql = yield* SqlClient.SqlClient;
     // Optional so crew tests run without managed folders; the server always provides them.
     const folders = yield* Effect.serviceOption(ManagedProjectFolders.ManagedProjectFolders);
@@ -320,6 +327,15 @@ export const CrewThreadRuntimeV2 = Layer.effect(
             Effect.map(Option.match({ onNone: () => null, onSome: (project) => project.botId })),
             Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectBotId")),
           ),
+      ),
+      projectModelSelection: Effect.fn("CrewThreadRuntime.projectModelSelection")(
+        function* (projectId) {
+          const readError = toPersistenceSqlError("CrewThreadRuntime.projectModelSelection");
+          const project = yield* projects.get(projectId).pipe(Effect.mapError(readError));
+          const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(readError));
+          return resolveProjectSettings(settings, projectId, Option.getOrNull(project)).settings
+            .defaultModelSelection;
+        },
       ),
       isHiddenProject: Effect.fn("CrewThreadRuntime.isHiddenProject")((projectId) =>
         Option.match(folders, {

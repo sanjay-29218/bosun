@@ -54,7 +54,7 @@ export class BotStore extends Context.Service<
     readonly withOwnership: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
     /** Whether any bot, deleted or not, has this ID. Bots and crew members share IDs' space. */
     readonly idTaken: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
-    /** The bot that owns an active project, or null for a missing project. */
+    /** The bot that owns an active project, or null for a missing project or one with no bot. */
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
   }
 >()("t3/bots/BotStore") {}
@@ -159,7 +159,7 @@ const make = Effect.gen(function* () {
       ),
     ),
     projectOwner: Effect.fn("BotStore.projectOwner")((projectId) =>
-      sql<{ readonly botId: string }>`
+      sql<{ readonly botId: string | null }>`
         SELECT bot_id AS "botId" FROM projection_projects
         WHERE project_id = ${projectId} AND deleted_at IS NULL
       `.pipe(

@@ -4,7 +4,6 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   CommandId,
   EventId,
   MessageId,
@@ -73,6 +72,8 @@ import * as PeerLinks from "./PeerLinks.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "./PeerLinks.testkit.ts";
 import * as RemoteDelegation from "./RemoteDelegation.ts";
 import * as PeerLinkRequests from "./PeerLinkRequests.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 // The laptop's agent delegates a task to the box through a link. The box is
 // its real /mcp behind real OAuth, with one thread the test finishes; the
@@ -1332,7 +1333,7 @@ it.effect("a bot's headquarters hands a project there to its project manager, in
           ),
       });
       yield* linkTo(a.links, b, "full-access");
-      const headquarters = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+      const headquarters = botHeadquartersThreadId(CAPTAIN_ID);
       yield* seedParent(a, headquarters);
 
       const result = yield* a.call(
@@ -1352,7 +1353,7 @@ it.effect("a bot's headquarters hands a project there to its project manager, in
       expect(yield* Ref.get(asked)).toMatchObject([
         {
           environmentId: box.environmentId,
-          botId: CAPTAIN_BOT_ID,
+          botId: CAPTAIN_ID,
           input: {
             projectId: boxProject,
             task: "Start a feature: dark mode.",

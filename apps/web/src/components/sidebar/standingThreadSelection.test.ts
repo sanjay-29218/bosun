@@ -19,7 +19,7 @@ const bot = (key: string, botId: string): LogicalBot => ({
   color: "blue",
   members: [{ environmentId: local, botId }],
 });
-const captain = bot("id:bot-captain", "bot-captain");
+const captain = bot("name:captain", "bot-ops");
 const navigator = bot("name:navigator", "bot-navigator");
 const scout = bot("name:scout", "bot-scout");
 const bots = [captain, navigator, scout];
@@ -40,7 +40,7 @@ const decide = (threadId: ThreadId, environmentId = local, input = { bots, proje
 
 describe("standingThreadSelection", () => {
   it("picks the bot whose headquarters is open, without a project scope", () => {
-    expect(decide(botHeadquartersThreadId("bot-captain"))).toEqual({
+    expect(decide(botHeadquartersThreadId("bot-ops"))).toEqual({
       kind: "select",
       botKey: captain.key,
       projectKey: null,
@@ -53,17 +53,17 @@ describe("standingThreadSelection", () => {
       botKey: scout.key,
       projectKey: "github.com/acme/beta",
     });
-    // A project without a bot is Captain's.
+    // A project with no bot shows under every bot, so the picked bot stays.
     expect(decide(projectHeadquartersThreadId(alpha))).toEqual({
       kind: "select",
-      botKey: captain.key,
+      botKey: null,
       projectKey: "github.com/acme/alpha",
     });
   });
 
   it("waits while the thread's bot or project hasn't loaded", () => {
-    expect(decide(botHeadquartersThreadId("bot-captain"), remote)).toEqual({ kind: "pending" });
-    expect(decide(projectHeadquartersThreadId(alpha), local, { bots: [], projects })).toEqual({
+    expect(decide(botHeadquartersThreadId("bot-ops"), remote)).toEqual({ kind: "pending" });
+    expect(decide(projectHeadquartersThreadId(beta), local, { bots: [], projects })).toEqual({
       kind: "pending",
     });
     expect(decide(projectHeadquartersThreadId(beta), local, { bots, projects: [] })).toEqual({
@@ -95,6 +95,15 @@ describe("followStandingThread", () => {
         { botKey: captain.key, projectKey: alphaKey },
       ),
     ).toEqual({ selectBot: true, scopeKeys: [alphaKey] });
+  });
+
+  it("keeps the picked bot for a manager of a project with no bot", () => {
+    expect(
+      followStandingThread(
+        { activeBotKey: navigator.key, scopeKeys: [] },
+        { botKey: null, projectKey: alphaKey },
+      ),
+    ).toEqual({ selectBot: false, scopeKeys: [alphaKey] });
   });
 
   it("restores a matching scope that picking another bot would clear", () => {

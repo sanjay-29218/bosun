@@ -1,5 +1,4 @@
 import {
-  CAPTAIN_BOT_ID,
   type CommandId,
   type EventId,
   MAX_SCRIPT_ID_LENGTH,
@@ -24,8 +23,8 @@ export interface ProjectCreateCommand {
   readonly title: string;
   readonly workspaceRoot: string;
   readonly scripts?: ReadonlyArray<ProjectScript>;
-  /** The owning bot, Captain when omitted; the caller has checked it exists. */
-  readonly botId?: string;
+  /** The owning bot, none when omitted or null; the caller has checked it exists. */
+  readonly botId?: string | null;
 }
 
 export interface ProjectMetaUpdateCommand {
@@ -40,8 +39,8 @@ export interface ProjectMetaUpdateCommand {
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
-  /** Moves the project to this bot; the caller has checked it exists. */
-  readonly botId?: string;
+  /** Moves the project to this bot, or to none when null; the caller has checked it exists. */
+  readonly botId?: string | null;
   readonly pinned?: boolean;
   readonly archived?: boolean;
 }
@@ -168,7 +167,7 @@ export function planProjectCommand(input: {
           faviconPath: null,
           projectIcon: null,
           scripts: command.scripts ?? [],
-          botId: command.botId ?? CAPTAIN_BOT_ID,
+          botId: command.botId ?? null,
           createdAt: occurredAt,
           updatedAt: occurredAt,
         },

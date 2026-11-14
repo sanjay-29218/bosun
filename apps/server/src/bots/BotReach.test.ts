@@ -4,7 +4,6 @@ import {
   type Bot,
   type BotMoveProjectInput,
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   type Project,
   ProjectId,
@@ -44,6 +43,8 @@ import { TicketService } from "../tickets/TicketService.ts";
 import * as BotReach from "./BotReach.ts";
 import * as BotService from "./BotService.ts";
 
+const CAPTAIN_ID = "bot-ops";
+
 // Captain on the laptop reaches the projects its namesake owns on a linked box: both are real
 // /mcp toolkits and real BotReach, the box behind real OAuth, with their data mocked.
 
@@ -67,7 +68,7 @@ const bot = (id: string, name: string, position: number): Bot => ({
   createdAt: "2026-11-05T00:00:00.000Z",
   updatedAt: "2026-11-05T00:00:00.000Z",
 });
-const project = (id: string, title: string, botId: string) =>
+const project = (id: string, title: string, botId: string | null) =>
   ({
     id: ProjectId.make(id),
     title,
@@ -186,10 +187,11 @@ const layerToolServices = Layer.mergeAll(
 );
 
 const boxData: Environment = {
-  bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot:social-box", "Social", 1)],
+  bots: [bot(CAPTAIN_ID, "Captain", 0), bot("bot:social-box", "Social", 1)],
   projects: [
-    project("project:omni", "omni-mono", CAPTAIN_BOT_ID),
+    project("project:omni", "omni-mono", CAPTAIN_ID),
     project("project:blog", "blog", "bot:social-box"),
+    project("project:notes", "notes", null),
   ],
 };
 
@@ -219,7 +221,7 @@ const mcpClient = McpSchema.McpServerClient.of({
   getClient: Effect.die("unused"),
 });
 
-const headquarters = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+const headquarters = botHeadquartersThreadId(CAPTAIN_ID);
 const headquartersScope: McpInvocationContext.McpThreadInvocationScope = {
   environmentId: laptop.environmentId,
   requestNamespace: "provider-session:captain",
@@ -245,11 +247,11 @@ const makeLaptop = Effect.gen(function* () {
     Layer.provide(
       layerData(
         {
-          bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)],
+          bots: [bot(CAPTAIN_ID, "Captain", 0)],
           projects: [
-            project("project:laptop", "laptop-app", CAPTAIN_BOT_ID),
-            project("project:scratch:hidden", "No project", CAPTAIN_BOT_ID),
-            project("project:captain-home:hidden", "Captain", CAPTAIN_BOT_ID),
+            project("project:laptop", "laptop-app", CAPTAIN_ID),
+            project("project:scratch:hidden", "No project", CAPTAIN_ID),
+            project("project:captain-home:hidden", "Captain", CAPTAIN_ID),
           ],
           workflowRevision: 3,
         },
@@ -307,7 +309,7 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
       const listed = yield* a.call("t3_bot_projects", {});
       expect(listed.isError, JSON.stringify(listed.content)).toBe(false);
       expect(listed.structuredContent).toMatchObject({
-        bot: { id: CAPTAIN_BOT_ID, name: "Captain" },
+        bot: { id: CAPTAIN_ID, name: "Captain" },
         projects: [
           { environmentId: laptop.environmentId, projectId: "project:laptop", openFeatures: [] },
           {
@@ -315,7 +317,7 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
             environmentLabel: "Box",
             projectId: "project:omni",
             title: "omni-mono",
-            botId: CAPTAIN_BOT_ID,
+            botId: CAPTAIN_ID,
             openFeatures: [{ featureId: "feature:dark-mode", title: "Dark mode" }],
           },
         ],
@@ -340,12 +342,12 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
       const bots = yield* a.call("t3_bot_list", { environmentId: box.environmentId });
       expect(bots.isError, JSON.stringify(bots.content)).toBe(false);
       expect(bots.structuredContent).toMatchObject({
-        bots: [{ id: CAPTAIN_BOT_ID }, { id: "bot:social-box", name: "Social" }],
+        bots: [{ id: CAPTAIN_ID }, { id: "bot:social-box", name: "Social" }],
       });
       const moved = yield* a.call("t3_bot_move_project", {
         environmentId: box.environmentId,
         projectId: "project:blog",
-        botId: CAPTAIN_BOT_ID,
+        botId: CAPTAIN_ID,
       });
       expect(moved.isError, JSON.stringify(moved.content)).toBe(false);
       // A bot the box doesn't have is made there by the same move, by its logical key.
@@ -358,7 +360,7 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
       });
       expect(ensured.isError, JSON.stringify(ensured.content)).toBe(false);
       expect((yield* Ref.get(boxSeen)).moves).toEqual([
-        { projectId: "project:blog", botId: CAPTAIN_BOT_ID },
+        { projectId: "project:blog", botId: CAPTAIN_ID },
         { projectId: "project:omni", botId: "bot:writer", ensureBot },
       ]);
     }),
@@ -373,17 +375,15 @@ it.live("starts the project manager there, or says before starting anything why 
       const a = yield* makeLaptop;
       yield* linkTo(a.links, b, "full-access");
       const start = (input: ReturnType<typeof launch>) =>
-        a.reach
-          .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_BOT_ID, input)
-          .pipe(
-            Effect.flip,
-            Effect.map((error) => error.message),
-          );
+        a.reach.launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, input).pipe(
+          Effect.flip,
+          Effect.map((error) => error.message),
+        );
 
       const launched = yield* a.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
-        CAPTAIN_BOT_ID,
+        CAPTAIN_ID,
         launch("project:omni"),
       );
       expect(launched.threadId).toMatch(/^bot-run:link-task:/);
@@ -417,6 +417,7 @@ it.live("starts the project manager there, or says before starting anything why 
       expect(yield* start(launch("project:blog"))).toContain(
         "blog on Box belongs to Social, not Captain",
       );
+      expect(yield* start(launch("project:notes"))).toContain("notes on Box has no bot");
       expect(yield* start(launch("project:omni", "gpt-elsewhere"))).toContain(
         "runs on gpt-elsewhere (codex), which isn't available on Box",
       );
@@ -427,7 +428,7 @@ it.live("starts the project manager there, or says before starting anything why 
         .launchProjectManager(
           headquartersScope,
           couch.environmentId,
-          CAPTAIN_BOT_ID,
+          CAPTAIN_ID,
           launch("project:couch"),
         )
         .pipe(Effect.flip);
@@ -450,7 +451,7 @@ it.effect("refuses a bot's project work over a link below full access", () =>
         .launchProjectManager(
           headquartersScope,
           box.environmentId,
-          CAPTAIN_BOT_ID,
+          CAPTAIN_ID,
           launch("project:omni"),
         )
         .pipe(Effect.flip);

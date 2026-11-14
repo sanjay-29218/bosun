@@ -1,4 +1,4 @@
-import { CAPTAIN_BOT_ID, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildMoveToBotMenuItem, parseMoveToBotMenuId } from "./moveProjectToBot";
@@ -8,7 +8,7 @@ const remote = EnvironmentId.make("remote");
 
 const bots = [
   {
-    key: "id:bot-captain",
+    key: "name:captain",
     name: "Captain",
     avatar: {
       head: "squircle",
@@ -20,8 +20,8 @@ const bots = [
     } as const,
     color: "blue" as const,
     members: [
-      { environmentId: local, botId: CAPTAIN_BOT_ID },
-      { environmentId: remote, botId: CAPTAIN_BOT_ID },
+      { environmentId: local, botId: "bot-ops" },
+      { environmentId: remote, botId: "bot-ops" },
     ],
   },
   {
@@ -52,7 +52,7 @@ const botEnvironments = new Set([local, remote]);
 
 describe("buildMoveToBotMenuItem", () => {
   it("lists every bot with the owner checked", () => {
-    const item = buildMoveToBotMenuItem([member(local)], bots, botEnvironments);
+    const item = buildMoveToBotMenuItem([member(local, "bot-ops")], bots, botEnvironments);
     expect(item?.label).toBe("Move to bot");
     expect(item?.children?.map((child) => [child.label, child.checked ?? false])).toEqual([
       ["Captain", true],

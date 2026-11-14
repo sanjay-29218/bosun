@@ -20,7 +20,7 @@ export interface MoveProjectMember {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
   readonly title: string;
-  readonly botId?: string | undefined;
+  readonly botId?: string | null | undefined;
   /** Names the checkout when a project lives on several environments. */
   readonly environmentLabel: string | null;
 }

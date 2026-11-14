@@ -31,7 +31,7 @@ export function BotOwnerSelect({
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly projectTitle: string;
-  readonly botId: string;
+  readonly botId: string | null;
   readonly bots: readonly Bot[];
 }) {
   const { canMove, moving, move } = useMoveProject(environmentId);
@@ -224,7 +224,7 @@ export function BotProjectList({
                         project={project}
                         detail={[
                           elsewhere(project),
-                          botNames.get(ownerOf(project.environmentId, projectBotId(project))),
+                          botNames.get(ownerOf(project.environmentId, projectBotId(project)) ?? ""),
                         ]
                           .filter(Boolean)
                           .join(" · ")}

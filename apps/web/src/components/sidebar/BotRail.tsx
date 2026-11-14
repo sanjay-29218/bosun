@@ -103,7 +103,7 @@ interface RailProjectManager {
   readonly title: string;
   /** The sidebar's key for the project, which scopes the thread list to it. */
   readonly projectKey: string;
-  readonly botId: string;
+  readonly botId: string | null;
 }
 
 /** Each project whose manager thread exists and isn't archived, by title. */

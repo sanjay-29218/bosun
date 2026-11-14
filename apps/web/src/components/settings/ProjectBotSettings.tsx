@@ -15,7 +15,7 @@ export function ProjectBotSection({
     readonly environmentId: EnvironmentId;
     readonly id: ProjectId;
     readonly title: string;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
     readonly environmentLabel: string | null;
   }>;
 }) {

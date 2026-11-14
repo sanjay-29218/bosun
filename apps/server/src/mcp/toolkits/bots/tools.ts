@@ -1,6 +1,7 @@
 import {
   Bot,
   BotCreateInput,
+  BotDeleteInput,
   BotMoveProjectInput,
   BotReorderInput,
   BotUpdateInput,
@@ -29,7 +30,7 @@ const shared = {
 const List = Tool.make("t3_bot_list", {
   ...shared,
   description:
-    "List an environment's bots in rail order. Each bot owns projects (a project's botId); Captain owns projects created without a bot.",
+    "List an environment's bots in rail order; there may be none. Each bot owns projects (a project's botId); a project with a null botId has no bot.",
   parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
   success: Schema.Struct({ bots: Schema.Array(Bot) }),
 })
@@ -55,8 +56,8 @@ const Update = Tool.make("t3_bot_update", {
 const Delete = Tool.make("t3_bot_delete", {
   ...shared,
   description:
-    "Delete a bot and the automations that run as it. Refused while it owns any project (move them with t3_bot_move_project first) and always for Captain.",
-  parameters: Schema.Struct({ id: Schema.String }),
+    "Delete a bot and the automations that run as it. Refused while it owns any project: unlink each first with t3_bot_move_project (botId null, or another bot).",
+  parameters: BotDeleteInput,
   success: Schema.Struct({ deleted: Schema.Boolean }),
 }).annotate(Tool.Destructive, true);
 
@@ -70,7 +71,7 @@ const Reorder = Tool.make("t3_bot_reorder", {
 const MoveProject = Tool.make("t3_bot_move_project", {
   ...shared,
   description:
-    "Give a project to another bot. Requests and features already running keep the bot that started them. With environmentId, projectId and botId are that environment's (t3_bot_list there).",
+    "Give a project to another bot, or botId null for no bot. Requests and features already running keep the bot that started them. With environmentId, projectId and botId are that environment's (t3_bot_list there).",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     ...BotMoveProjectInput.fields,
@@ -81,7 +82,7 @@ const MoveProject = Tool.make("t3_bot_move_project", {
 const Projects = Tool.make("t3_bot_projects", {
   ...shared,
   description:
-    "List a bot's projects on this environment and on every linked environment, where a bot with the same name (Captain: Captain) owns them. Default bot: the one whose headquarters calls. Each project names its environmentId and open features; each environment says whether it answered. Hand work to a project on another environment with delegate_task, target.environmentId and target.projectId.",
+    "List a bot's projects on this environment and on every linked environment, where a bot with the same name owns them. Default bot: the one whose headquarters calls. Each project names its environmentId and open features; each environment says whether it answered. Hand work to a project on another environment with delegate_task, target.environmentId and target.projectId.",
   parameters: Schema.Struct({
     botId: Schema.optional(
       Schema.String.annotate({ description: "This environment's bot (t3_bot_list id)." }),

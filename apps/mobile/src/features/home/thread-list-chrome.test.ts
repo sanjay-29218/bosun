@@ -12,7 +12,7 @@ const bot = (key: string, name: string, eyes: BotAvatar["eyes"]): LogicalBot => 
   color: "blue",
   members: [{ environmentId, botId: key }],
 });
-const captain = bot("id:bot-captain", "Captain", "round");
+const captain = bot("name:captain", "Captain", "round");
 const social = bot("name:social", "Social", "happy");
 const finance = bot("name:finance", "Finance", "visor");
 

@@ -1,5 +1,4 @@
 import {
-  CAPTAIN_BOT_ID,
   CommandId,
   type Bot,
   type BotAvatar,
@@ -52,7 +51,7 @@ export class BotService extends Context.Service<
     readonly create: (input: BotCreateInput) => Effect.Effect<Bot, BotServiceError>;
     readonly update: (input: BotUpdateInput) => Effect.Effect<Bot, BotServiceError>;
     /**
-     * Refused for Captain and for a bot that still owns a project; move its projects first.
+     * Refused while the bot owns a project; give its projects to another bot or to none first.
      * Its home stays, for a restore to find. Deletes the automations that run as the bot.
      * Runs the bot already started keep working, but it gets no new ones.
      */
@@ -62,9 +61,9 @@ export class BotService extends Context.Service<
       botIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
     /**
-     * Gives a project to another bot. With `ensureBot`, that's the bot with the same logical key
-     * as `botId`'s, created here once however many moves ask for it at the same time. Such a
-     * copy gets its home when it first needs one. Scratch and bots' homes never move.
+     * Gives a project to another bot, or to none when `botId` is null. With `ensureBot`, that's
+     * the bot here with the same name, created once however many moves ask for it at the same
+     * time. Such a copy gets its home when it first needs one. Scratch and bots' homes never move.
      */
     readonly moveProject: (
       input: BotMoveProjectInput,
@@ -173,12 +172,11 @@ const make = Effect.gen(function* () {
   // that a racing move or create already made.
   const creating = yield* Semaphore.make(1);
 
-  /** The bot here with `botId`'s logical key, made from `template` when there's none. */
-  const ensureBot = (botId: string, template: NonNullable<BotMoveProjectInput["ensureBot"]>) =>
+  /** The bot here with the template's name, made from `template` when there's none. */
+  const ensureBot = (template: NonNullable<BotMoveProjectInput["ensureBot"]>) =>
     creating.withPermits(1)(
       Effect.gen(function* () {
-        const key = logicalBotKey({ id: botId, name: template.name });
-        if (key === logicalBotKey({ id: CAPTAIN_BOT_ID, name: "" })) return CAPTAIN_BOT_ID;
+        const key = logicalBotKey(template);
         const here = (yield* store.list).find((bot) => logicalBotKey(bot) === key);
         if (here) return here.id;
         const made = yield* createUnlocked({
@@ -259,9 +257,6 @@ const make = Effect.gen(function* () {
       return { ...next, homePath: Option.isSome(home) ? home.value.workspaceRoot : null };
     }),
     delete: Effect.fn("BotService.delete")(function* (id) {
-      if (id === CAPTAIN_BOT_ID) {
-        return yield* new BotValidationError({ reason: "Captain can't be deleted" });
-      }
       const deletedAt = DateTime.formatIso(yield* DateTime.now);
       const home = yield* folders.botHomePath(id);
       const result = yield* store.withOwnership(
@@ -269,7 +264,7 @@ const make = Effect.gen(function* () {
       );
       if (result === "owns-projects") {
         return yield* new BotValidationError({
-          reason: "Move this bot's projects to another bot before deleting it",
+          reason: "Unlink this bot's projects before deleting it",
         });
       }
       if (result === "missing") {
@@ -306,9 +301,11 @@ const make = Effect.gen(function* () {
         return yield* new BotValidationError({ reason: "Scratch and bots' homes can't move" });
       }
       const botId =
-        input.ensureBot === undefined
-          ? (yield* requireBot(input.botId)).id
-          : yield* ensureBot(input.botId, input.ensureBot);
+        input.botId === null
+          ? null
+          : input.ensureBot === undefined
+            ? (yield* requireBot(input.botId)).id
+            : yield* ensureBot(input.ensureBot);
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
       return yield* projects.assignBot({ commandId, projectId, botId });
     }),

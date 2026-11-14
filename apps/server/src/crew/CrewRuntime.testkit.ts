@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
@@ -224,15 +225,35 @@ export const makeCrewTestOrchestration = (
 
 export const CrewTestOrchestration = makeCrewTestOrchestration();
 
+/** The bot tests' projects belong to unless they name another, made like 071's Captain. */
+export const CREW_TEST_BOT_ID = "bot-ops";
+
+export const seedCrewTestBot = Effect.flatMap(
+  SqlClient.SqlClient,
+  (sql) => sql`
+    INSERT OR IGNORE INTO bots (
+      id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+      model_selection_json, position, revision, created_at, updated_at
+    ) VALUES (
+      ${CREW_TEST_BOT_ID}, 'Captain',
+      '{"head":"squircle","face":"visor","eyes":"round","top":"ball","cheeks":false,"smile":true}',
+      'blue', 'Coordinate the person''s requests.', '["crew.workflows"]', 'full-access', NULL,
+      0, 1, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z'
+    )
+  `,
+).pipe(Effect.orDie);
+
 export const seedCrewProject = (input: {
   readonly projectId: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;
-  /** The owning bot; Captain when omitted. */
-  readonly botId?: string;
+  /** The owning bot, null for none; the test bot, made here, when omitted. */
+  readonly botId?: string | null;
 }) =>
-  Effect.flatMap(ProjectStore.ProjectStoreV2, (projects) =>
-    projects.apply({
+  Effect.gen(function* () {
+    if (input.botId === undefined) yield* seedCrewTestBot;
+    const projects = yield* ProjectStore.ProjectStoreV2;
+    yield* projects.apply({
       sequence: 0,
       eventId: EventId.make(`seed:${input.projectId}`),
       aggregateKind: "project",
@@ -245,10 +266,11 @@ export const seedCrewProject = (input: {
       type: "project.created",
       payload: {
         ...input,
+        botId: input.botId === undefined ? CREW_TEST_BOT_ID : input.botId,
         defaultModelSelection: null,
         scripts: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
-    }),
-  );
+    });
+  });

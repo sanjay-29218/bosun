@@ -253,7 +253,7 @@ function BotActions({
   const openHeadquarters = useOpenBotHeadquarters();
   const [busy, setBusy] = useState(false);
   const botIds = bots.map((candidate) => candidate.id);
-  const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects);
+  const deleteBlocker = botDeleteBlocker(ownedProjects);
 
   const move = async (offset: -1 | 1) => {
     const next = moveBotInOrder(botIds, bot.id, offset);

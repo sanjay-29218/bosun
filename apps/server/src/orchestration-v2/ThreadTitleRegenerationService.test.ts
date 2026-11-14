@@ -83,7 +83,7 @@ function makeHarness(
               defaultThreadEnvMode: null,
               hasCustomTitle: false,
               autoPull: false,
-              botId: "bot-captain",
+              botId: "bot-ops",
               faviconPath: null,
               projectIcon: null,
               scripts: [],

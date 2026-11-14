@@ -1,6 +1,5 @@
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   EnvironmentId,
   ProjectId,
   RunId,
@@ -27,6 +26,8 @@ import {
 } from "./botRail.ts";
 import { botNeedsYouKey } from "./crewBoard.ts";
 
+const CAPTAIN_ID = "bot-ops";
+
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
 
@@ -49,12 +50,12 @@ const bot = (id: string, name: string, position: number, eyes: BotAvatar["eyes"]
 const environments = [
   {
     environmentId: local,
-    bots: [bot("bot-social", "Social", 1, "happy"), bot(CAPTAIN_BOT_ID, "Captain", 0, "star")],
+    bots: [bot("bot-social", "Social", 1, "happy"), bot(CAPTAIN_ID, "Captain", 0, "star")],
   },
   {
     environmentId: remote,
     bots: [
-      bot(CAPTAIN_BOT_ID, "Skipper", 0, "visor"),
+      bot(CAPTAIN_ID, " captain", 0, "visor"),
       bot("bot-finance", "Finance", 1),
       bot("bot-social-2", " social ", 2),
     ],
@@ -62,14 +63,15 @@ const environments = [
 ];
 
 describe("projectBotId", () => {
-  it("treats a project without an owner as Captain's", () => {
-    expect(projectBotId({})).toBe(CAPTAIN_BOT_ID);
+  it("reads a project without an owner as having no bot", () => {
+    expect(projectBotId({})).toBeNull();
+    expect(projectBotId({ botId: null })).toBeNull();
     expect(projectBotId({ botId: "bot-social" })).toBe("bot-social");
   });
 });
 
 describe("buildLogicalBots", () => {
-  it("merges Captain by id and other bots by name, in priority then rail order", () => {
+  it("merges bots by name, in priority then rail order", () => {
     const bots = buildLogicalBots(environments);
     expect(bots.map((entry) => [entry.name, entry.avatar.eyes, entry.members.length])).toEqual([
       ["Captain", "star", 2],
@@ -135,12 +137,17 @@ describe("logicalBotProjectKeys", () => {
     { environmentId: local, id: "a", botId: "bot-social" },
     { environmentId: remote, id: "b", botId: "bot-social-2" },
     { environmentId: remote, id: "c" },
-    // An owner the rail hasn't loaded yet stays visible under Captain.
+    // An owner the rail hasn't loaded yet reads as no bot, like c.
     { environmentId: local, id: "d", botId: "bot-unknown" },
   ];
 
-  it("selects the projects each entry owns across environments", () => {
-    expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual(["local:a", "remote:b"]);
+  it("selects the projects each entry owns, and those with no bot under every entry", () => {
+    expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual([
+      "local:a",
+      "remote:b",
+      "remote:c",
+      "local:d",
+    ]);
     expect([...logicalBotProjectKeys(bots[0]!, bots, projects)]).toEqual(["remote:c", "local:d"]);
   });
 
@@ -167,7 +174,8 @@ describe("countNeedsYouByLogicalBot", () => {
       new Map([
         [botNeedsYouKey(local, "bot-social"), 2],
         [botNeedsYouKey(remote, "bot-social-2"), 1],
-        [botNeedsYouKey(remote, CAPTAIN_BOT_ID), 4],
+        [botNeedsYouKey(remote, CAPTAIN_ID), 4],
+        [botNeedsYouKey(local, "bot-unknown"), 5],
       ]),
     );
     expect(counts.get(bots[1]!.key)).toBe(3);
@@ -194,7 +202,7 @@ describe("botRailShowsThread", () => {
     const [captain, social] = buildLogicalBots([
       {
         environmentId: local,
-        bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot-social", "Social", 1)],
+        bots: [bot(CAPTAIN_ID, "Captain", 0), bot("bot-social", "Social", 1)],
       },
     ]);
     const thread = (id: string, projectId: string) => ({ environmentId: local, id, projectId });
@@ -205,16 +213,16 @@ describe("botRailShowsThread", () => {
 
     // Headquarters sit in Scratch, a project neither bot's filter lists.
     expect(show(thread(botHeadquartersThreadId("bot-social"), "scratch"))).toBe(true);
-    expect(show(thread(botHeadquartersThreadId(CAPTAIN_BOT_ID), "scratch"))).toBe(false);
+    expect(show(thread(botHeadquartersThreadId(CAPTAIN_ID), "scratch"))).toBe(false);
     expect(show(thread("plain", "p-social"))).toBe(true);
     expect(show(thread("plain", "p-captain"))).toBe(false);
     // A hidden environment's headquarters stays hidden.
     const [shared] = buildLogicalBots([
-      { environmentId: local, bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)] },
-      { environmentId: remote, bots: [bot(CAPTAIN_BOT_ID, "Captain", 0)] },
+      { environmentId: local, bots: [bot(CAPTAIN_ID, "Captain", 0)] },
+      { environmentId: remote, bots: [bot(CAPTAIN_ID, "Captain", 0)] },
     ]);
     expect([...logicalBotHeadquartersKeys(shared!, new Set([local]))]).toEqual([
-      `${local}:${botHeadquartersThreadId(CAPTAIN_BOT_ID)}`,
+      `${local}:${botHeadquartersThreadId(CAPTAIN_ID)}`,
     ]);
     // Without a picked bot, project keys alone decide.
     expect(
@@ -231,11 +239,12 @@ describe("bot activity", () => {
   const [captain, social] = buildLogicalBots([
     {
       environmentId: local,
-      bots: [bot(CAPTAIN_BOT_ID, "Captain", 0), bot("bot-social", "Social", 1)],
+      bots: [bot(CAPTAIN_ID, "Captain", 0), bot("bot-social", "Social", 1)],
     },
   ]);
   const projects = [
-    { environmentId: local, id: ProjectId.make("p-captain") },
+    { environmentId: local, id: ProjectId.make("p-captain"), botId: CAPTAIN_ID },
+    { environmentId: local, id: ProjectId.make("p-loose") },
     { environmentId: local, id: ProjectId.make("p-social"), botId: "bot-social" },
   ];
   const runId = RunId.make("run-1");
@@ -287,6 +296,8 @@ describe("bot activity", () => {
         shell("failed", "p-social", { status: "failed", completedAt: after }, before),
         shell("working", "p-captain", { status: "running", completedAt: null }, before),
         shell("done", "p-captain", { status: "completed", completedAt: after }, before),
+        // A project with no bot is no bot's activity.
+        shell("loose", "p-loose", { status: "running", completedAt: null }, before),
         // Opened since it finished: nothing to flag.
         shell("seen", "p-social", { status: "completed", completedAt: before }, after),
       ],
@@ -298,7 +309,7 @@ describe("bot activity", () => {
       working: false,
       unread: true,
     });
-    expect(activity.get(botNeedsYouKey(local, CAPTAIN_BOT_ID))).toEqual({
+    expect(activity.get(botNeedsYouKey(local, CAPTAIN_ID))).toEqual({
       failed: false,
       working: true,
       unread: true,
@@ -329,8 +340,8 @@ describe("bot activity", () => {
         [botNeedsYouKey(local, "bot-unknown"), { failed: false, working: false, unread: true }],
       ]),
     );
-    // A bot the rail doesn't know falls under Captain, like its projects.
-    expect(perEntry.get(captain!.key)).toEqual({ failed: false, working: false, unread: true });
+    // A bot the rail doesn't know counts for no entry.
+    expect(perEntry.get(captain!.key)).toBeUndefined();
     expect(perEntry.get(social!.key)).toEqual({ failed: false, working: true, unread: false });
   });
 

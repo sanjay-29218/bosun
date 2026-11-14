@@ -1,6 +1,5 @@
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   headquartersBotId,
   logicalBotKey,
   type Bot,
@@ -13,9 +12,11 @@ import type { EnvironmentThreadShell } from "./models.ts";
 import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
 import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
 
-/** A project's owner. Projects from older servers have no `botId` and belong to Captain. */
-export function projectBotId(project: { readonly botId?: string | undefined }): string {
-  return project.botId ?? CAPTAIN_BOT_ID;
+/** A project's owner, or null when it has none. */
+export function projectBotId(project: {
+  readonly botId?: string | null | undefined;
+}): string | null {
+  return project.botId ?? null;
 }
 
 export interface EnvironmentBots {
@@ -30,7 +31,7 @@ export interface LogicalBotMember {
 
 /**
  * One rail entry: the same bot on every connected environment. Bots are environment-local, so
- * the rail merges them like logical projects: Captain by id, the rest by name.
+ * the rail merges them like logical projects, by name.
  */
 export interface LogicalBot {
   readonly key: string;
@@ -39,8 +40,6 @@ export interface LogicalBot {
   readonly color: ProjectIconColor;
   readonly members: ReadonlyArray<LogicalBotMember>;
 }
-
-const CAPTAIN_KEY = `id:${CAPTAIN_BOT_ID}`;
 
 /**
  * Rail entries across environments, given in priority order (primary first). The first
@@ -104,9 +103,8 @@ export function selectLogicalBot(bot: LogicalBot): Record<string, string> {
 }
 
 /**
- * Maps an environment's bot to its rail entry. A bot the rail doesn't know yet (its
- * environment's list is still loading, or the server predates bots) falls under Captain, so a
- * project is never hidden from every entry.
+ * Maps an environment's bot to its rail entry, or null for no bot. A bot the rail doesn't know
+ * yet (its environment's list is still loading) maps to null too, like a project with no bot.
  */
 export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
   const byMember = new Map<string, string>();
@@ -115,26 +113,28 @@ export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
       byMember.set(botNeedsYouKey(member.environmentId, member.botId), bot.key);
     }
   }
-  return (environmentId: EnvironmentId, botId: string): string =>
-    byMember.get(botNeedsYouKey(environmentId, botId)) ?? CAPTAIN_KEY;
+  return (environmentId: EnvironmentId, botId: string | null): string | null =>
+    botId === null ? null : (byMember.get(botNeedsYouKey(environmentId, botId)) ?? null);
 }
 
-/** `${environmentId}:${projectId}` keys of the projects `bot` owns. */
+/**
+ * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and the
+ * ones with no bot, which every bot shows so they are never hidden.
+ */
 export function logicalBotProjectKeys(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly id: string;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
   }>,
 ): Set<string> {
   const resolve = createLogicalBotResolver(bots);
   const keys = new Set<string>();
   for (const project of projects) {
-    if (resolve(project.environmentId, projectBotId(project)) === bot.key) {
-      keys.add(`${project.environmentId}:${project.id}`);
-    }
+    const owner = resolve(project.environmentId, projectBotId(project));
+    if (owner === null || owner === bot.key) keys.add(`${project.environmentId}:${project.id}`);
   }
   return keys;
 }
@@ -149,7 +149,7 @@ export function logicalBotProjectLists<
   Project extends {
     readonly environmentId: EnvironmentId;
     readonly id: string;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
   },
 >(
   bot: LogicalBot,
@@ -208,7 +208,7 @@ export function botRailShowsThread(
   return projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`);
 }
 
-/** Rail entry keys by `botNeedsYouKey`; a key no entry lists falls under Captain. */
+/** Rail entry keys by `botNeedsYouKey`; undefined for a key no entry lists. */
 function logicalBotKeysByMember(bots: ReadonlyArray<LogicalBot>) {
   const owners = new Map<string, string>();
   for (const bot of bots) {
@@ -216,7 +216,7 @@ function logicalBotKeysByMember(bots: ReadonlyArray<LogicalBot>) {
       owners.set(botNeedsYouKey(member.environmentId, member.botId), bot.key);
     }
   }
-  return (memberKey: string) => owners.get(memberKey) ?? CAPTAIN_KEY;
+  return (memberKey: string) => owners.get(memberKey);
 }
 
 /** Sums `countNeedsYouByBot` counts (keyed by `botNeedsYouKey`) per rail entry. */
@@ -228,6 +228,7 @@ export function countNeedsYouByLogicalBot(
   const counts = new Map<string, number>();
   for (const [memberKey, count] of countsByBot) {
     const key = owner(memberKey);
+    if (key === undefined) continue;
     counts.set(key, (counts.get(key) ?? 0) + count);
   }
   return counts;
@@ -291,6 +292,7 @@ export function botActivityByLogicalBot(
   const merged = new Map<string, BotActivity>();
   for (const [memberKey, activity] of activityByBot) {
     const key = owner(memberKey);
+    if (key === undefined) continue;
     merged.set(key, mergeActivity(merged.get(key), activity));
   }
   return merged;

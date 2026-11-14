@@ -78,7 +78,7 @@ const unknownBotEnvironmentsKeyAtom = Atom.make((get) => {
   const stale = new Set<string>();
   for (const project of get(environmentProjects.projectsAtom)) {
     const botIds = known.get(project.environmentId);
-    if (botIds && project.botId !== undefined && !botIds.has(project.botId)) {
+    if (botIds && project.botId != null && !botIds.has(project.botId)) {
       stale.add(project.environmentId);
     }
   }

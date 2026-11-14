@@ -1,5 +1,4 @@
 import {
-  CAPTAIN_BOT_ID,
   CommandId,
   GitCommandError,
   type GitManagerServiceError,
@@ -151,8 +150,8 @@ export class ManagedProjectFolders extends Context.Service<
     /** Removes failed/cancelled creations' folders only while no project owns them. */
     readonly createNamedProject: (input: {
       readonly name: string;
-      /** The owning bot; Captain when omitted. */
-      readonly botId?: string;
+      /** The owning bot; none when omitted or null. */
+      readonly botId?: string | null;
     }) => Effect.Effect<
       {
         readonly projectId: ProjectId;
@@ -441,9 +440,8 @@ const make = Effect.gen(function* () {
       );
     if (!bootstrapped.created) {
       const existing = yield* projects.getById(bootstrapped.project.id).pipe(Effect.mapError(fail));
-      const owner = Option.getOrUndefined(existing)?.botId ?? CAPTAIN_BOT_ID;
-      if (owner !== bot.id) {
-        return yield* fail(`${workspaceRoot} already belongs to another bot's project.`);
+      if (Option.getOrUndefined(existing)?.botId !== bot.id) {
+        return yield* fail(`${workspaceRoot} already belongs to another project.`);
       }
     }
     if (bootstrapped.created) {

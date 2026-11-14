@@ -43,8 +43,8 @@ export const ApplicationProjectCreatedPayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(StoredProjectIcon)),
   scripts: Schema.Array(ProjectScript),
-  /** The bot that owns the project. Absent on events from before bots, meaning Captain. */
-  botId: Schema.optional(Schema.String),
+  /** The bot that owns the project; null for none. Absent on events from before bots. */
+  botId: Schema.optional(Schema.NullOr(Schema.String)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -62,8 +62,8 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(StoredProjectIcon)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  /** Moves the project to another bot. */
-  botId: Schema.optional(Schema.String),
+  /** Moves the project to another bot; null leaves it with no bot. */
+  botId: Schema.optional(Schema.NullOr(Schema.String)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,
