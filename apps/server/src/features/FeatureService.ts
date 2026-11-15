@@ -50,6 +50,7 @@ import {
   type OpeningMessage,
 } from "../crew/CrewThreadRuntime.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import { childFeatureWorking } from "../orchestration-v2/ProjectionStore.ts";
 import * as AttachmentClaims from "../orchestration-v2/AttachmentClaims.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
@@ -1583,6 +1584,11 @@ export const FeatureServiceLive = Layer.effect(
         LIMIT 1
       `.pipe(Effect.mapError(queryError));
       if (busy.length > 0) return;
+      // Nor while a child feature it started works, which keeps its lead quiet too.
+      const [children] = yield* sql<{ readonly working: number }>`
+        SELECT ${childFeatureWorking(sql, sql`${feature.id}`)} AS working
+      `.pipe(Effect.mapError(queryError));
+      if (children?.working === 1) return;
       const run = yield* leadTurnOf(lead);
       if (!run?.ended) return;
       // A silent /compact is upkeep, not something the lead said.

@@ -765,6 +765,23 @@ describe("feature lead and crew", () => {
         expect(yield* notes()).toContainEqual(
           expect.stringMatching(/^Child feature was interrupted: "web page"/),
         );
+
+        // A child waiting on a grandchild it started isn't stopped.
+        const sync = yield* child("sync");
+        yield* sql`
+          INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
+          VALUES ('feature:sync-conflicts', ${projectId}, 'Conflicts', 'Resolve conflicts',
+            '2026-11-05T00:00:00.000Z', ${sync.feature.id})
+        `;
+        yield* setLeadRun(sync.leadThreadId, "completed");
+        const waiting = (yield* notes()).length;
+        yield* features.reportIfQuiet(sync.leadThreadId);
+        expect(yield* notes()).toHaveLength(waiting);
+        yield* sql`UPDATE features SET report_outcome = 'finished' WHERE id = 'feature:sync-conflicts'`;
+        yield* features.reportIfQuiet(sync.leadThreadId);
+        expect(yield* notes()).toContainEqual(
+          expect.stringMatching(/^Child feature stopped without reporting: "sync"/),
+        );
       }),
     ),
   );
@@ -900,6 +917,16 @@ describe("feature lead and crew", () => {
         yield* features.reportIfQuiet(pdf.leadThreadId);
         expect(yield* held).toHaveLength(reported);
         yield* sql`DELETE FROM orchestration_v2_projection_subagents WHERE subagent_id = 'task:pdf-designer'`;
+        // Nor while a child feature it started hasn't reported to it.
+        yield* sql`
+          INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
+          VALUES ('feature:pdf-fonts', ${projectId}, 'PDF fonts', 'Embed fonts',
+            '2026-11-05T00:00:00.000Z', ${pdf.feature.id})
+        `;
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        expect(yield* held).toHaveLength(reported);
+        yield* sql`DELETE FROM features WHERE id = 'feature:pdf-fonts'`;
 
         // Leads that stop with nothing left running report how their turn ended.
         yield* setRun(pdf.leadThreadId, "completed");

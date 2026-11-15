@@ -2070,6 +2070,23 @@ function isQuietWakeRunForShell(
   );
 }
 
+/**
+ * A feature works while a child feature it started is open and hasn't reported, and only while
+ * it is open itself: a closed parent's children never report to it. Shell reads and
+ * FeatureService.reportIfQuiet share this, so a lead's quiet and its feature's quiet agree.
+ */
+export const childFeatureWorking = (
+  sql: SqlClient.SqlClient,
+  featureId: Statement.Fragment,
+) => sql`(
+  EXISTS (SELECT 1 FROM features parent WHERE parent.id = ${featureId} AND parent.status = 'open')
+  AND EXISTS (
+    SELECT 1 FROM features child
+    WHERE child.parent_feature_id = ${featureId}
+      AND child.status = 'open' AND child.report_outcome IS NULL
+  )
+)`;
+
 function isInterruptibleRunForShell(run: OrchestrationV2ThreadProjection["runs"][number]): boolean {
   return run.status === "preparing" || run.status === "starting" || run.status === "running";
 }
@@ -7923,19 +7940,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND (task.status IN ('pending', 'running', 'waiting')
                 OR task.completion_delivery_state IN ('pending', 'claimed'))
           )
-          -- A closed parent's children never report to it.
-          OR (
-            EXISTS (
-              SELECT 1 FROM features parent
-              WHERE parent.id = json_extract(${thread}.payload_json, '$.feature.id')
-                AND parent.status = 'open'
-            )
-            AND EXISTS (
-              SELECT 1 FROM features child
-              WHERE child.parent_feature_id = json_extract(${thread}.payload_json, '$.feature.id')
-                AND child.status = 'open' AND child.report_outcome IS NULL
-            )
-          )
+          OR ${childFeatureWorking(sql, sql`json_extract(${thread}.payload_json, '$.feature.id')`)}
         )
       )`;
     };
