@@ -220,13 +220,29 @@ describe("scheduledTaskRunTarget", () => {
       workspace: "existing_worktree",
       checkoutPath: "",
     });
-    expect(target).toEqual({ botId: "bot-social", workspaceStrategy: { type: "root" } });
+    expect(target).toEqual({
+      botId: "bot-social",
+      projectManager: false,
+      workspaceStrategy: { type: "root" },
+    });
     expect(target).not.toHaveProperty("projectId");
   });
 
-  it("sends a thread task to its project and clears any bot", () => {
+  it("sends a manager task to its project's manager without a checkout", () => {
+    expect(
+      scheduledTaskRunTarget({ ...draft, projectManager: true, workspace: "existing_worktree" }),
+    ).toEqual({
+      botId: null,
+      projectManager: true,
+      projectId: "app",
+      workspaceStrategy: { type: "root" },
+    });
+  });
+
+  it("sends a thread task to its project and clears any bot or manager", () => {
     expect(scheduledTaskRunTarget(draft)).toEqual({
       botId: null,
+      projectManager: false,
       projectId: "app",
       workspaceStrategy: { type: "worktree", baseRef: "main", startFromOrigin: true },
     });
