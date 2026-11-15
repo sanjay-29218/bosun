@@ -2278,7 +2278,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestRunQuietWake: Schema.optional(Schema.Boolean),
   /**
    * On a feature's lead: a task it delegated still runs or owes it a result, or a child feature
-   * it started hasn't reported. Absent from older servers and on other threads.
+   * it started hasn't reported. Sent only when true; absent means false.
    */
   crewWorking: Schema.optional(Schema.Boolean),
   activeRunId: Schema.NullOr(RunId),

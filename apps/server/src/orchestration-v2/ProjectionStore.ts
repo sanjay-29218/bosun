@@ -1925,15 +1925,16 @@ export function threadShellFromProjection(
       latestRun != null && isBackgroundWakeRunForShell(latestRun, projection),
     latestRunQuietWake: latestRun != null && isQuietWakeRunForShell(latestRun, projection),
     // Child features live outside the projection; the shell read (crewWorkingShellThread) has them.
-    crewWorking:
-      isFeatureLeadForShell(projection.thread) &&
-      projection.subagents.some(
-        (task) =>
-          task.origin === "app_owned" &&
-          (CREW_WORKING_TASK_STATUSES.has(task.status) ||
-            task.completionDelivery?.state === "pending" ||
-            task.completionDelivery?.state === "claimed"),
-      ),
+    ...(isFeatureLeadForShell(projection.thread) &&
+    projection.subagents.some(
+      (task) =>
+        task.origin === "app_owned" &&
+        (CREW_WORKING_TASK_STATUSES.has(task.status) ||
+          task.completionDelivery?.state === "pending" ||
+          task.completionDelivery?.state === "claimed"),
+    )
+      ? { crewWorking: true }
+      : {}),
     activeRunId: activeRun?.id ?? null,
     blockedOnThreadWait: deriveBlockedOnThreadWait({ activeRun, turnItems: projection.turnItems }),
     activityRunStatus: activityRun?.status ?? null,
@@ -2274,7 +2275,7 @@ function shellFromState(input: {
     latestRunStopRequested: input.state.latestRunStopRequested,
     latestRunBackgroundWake: input.state.latestRunBackgroundWake,
     latestRunQuietWake: input.state.latestRunQuietWake,
-    crewWorking: input.state.crewWorking,
+    ...(input.state.crewWorking ? { crewWorking: true } : {}),
     activeRunId: input.state.activeRunId,
     blockedOnThreadWait: input.state.blockedOnThreadWait,
     activityRunStatus: input.state.activityRunStatus,
@@ -7908,7 +7909,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     // Mirrors threadShellFromProjection, plus child features. A finished task stays working
     // until its result reaches the lead (as in FeatureService.reportIfQuiet), so the lead's
-    // wake is queued before it reads idle; a child feature works until its lead reports.
+    // wake is queued before it reads idle; a child feature works until it reports, which
+    // reportIfQuiet also records when the child's lead thread is deleted.
     const crewWorkingShellThread = (alias: string) => {
       const thread = sql.literal(alias);
       return sql`(
@@ -7922,10 +7924,18 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND (task.status IN ('pending', 'running', 'waiting')
                 OR task.completion_delivery_state IN ('pending', 'claimed'))
           )
-          OR EXISTS (
-            SELECT 1 FROM features child
-            WHERE child.parent_feature_id = json_extract(${thread}.payload_json, '$.feature.id')
-              AND child.status = 'open' AND child.report_outcome IS NULL
+          -- A closed parent's children never report to it.
+          OR (
+            EXISTS (
+              SELECT 1 FROM features parent
+              WHERE parent.id = json_extract(${thread}.payload_json, '$.feature.id')
+                AND parent.status = 'open'
+            )
+            AND EXISTS (
+              SELECT 1 FROM features child
+              WHERE child.parent_feature_id = json_extract(${thread}.payload_json, '$.feature.id')
+                AND child.status = 'open' AND child.report_outcome IS NULL
+            )
           )
         )
       )`;

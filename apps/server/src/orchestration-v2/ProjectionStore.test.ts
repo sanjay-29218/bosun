@@ -296,10 +296,10 @@ it.effect("keeps a lead's crew working until its crew's result reaches the lead"
     // What clients read, what the relay reads, and the projection's own shell, alike.
     const readings = Effect.gen(function* () {
       return [
-        (yield* store.getThreadShell(threadId))?.crewWorking,
-        (yield* store.getAgentAwarenessSnapshot(threadId)).threads[0]?.crewWorking,
+        (yield* store.getThreadShell(threadId))?.crewWorking === true,
+        (yield* store.getAgentAwarenessSnapshot(threadId)).threads[0]?.crewWorking === true,
         ProjectionStore.threadShellFromProjection(yield* store.getThreadProjection(threadId))
-          .crewWorking,
+          .crewWorking === true,
       ];
     });
     const crewWorking = readings.pipe(
@@ -357,15 +357,23 @@ it.effect("keeps a lead's crew working until its crew's result reaches the lead"
       assert.equal(yield* crewWorking, working, `${origin} ${status} ${delivery}`);
     }
     // A child feature its lead started works until it reports, whatever its outcome.
-    const shell = store.getThreadShell(threadId).pipe(Effect.map((thread) => thread?.crewWorking));
+    const shell = store
+      .getThreadShell(threadId)
+      .pipe(Effect.map((thread) => thread?.crewWorking === true));
     yield* sql`
       INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
-      VALUES ('feature-2', 'project:crew-working', 'Export', 'Export', '2026-11-15', 'feature-1')
+      VALUES ('feature-1', 'project:crew-working', 'Checkout', 'Checkout', '2026-11-15', NULL),
+        ('feature-2', 'project:crew-working', 'Export', 'Export', '2026-11-15', 'feature-1')
     `;
     assert.isTrue(yield* shell);
     yield* sql`UPDATE features SET report_outcome = 'stopped' WHERE id = 'feature-2'`;
     assert.isFalse(yield* shell);
     yield* sql`UPDATE features SET report_outcome = NULL, status = 'closed' WHERE id = 'feature-2'`;
+    assert.isFalse(yield* shell);
+    // A closed parent never hears from its open children, so they don't hold its lead quiet.
+    yield* sql`UPDATE features SET status = 'open' WHERE id = 'feature-2'`;
+    assert.isTrue(yield* shell);
+    yield* sql`UPDATE features SET status = 'closed' WHERE id = 'feature-1'`;
     assert.isFalse(yield* shell);
   }).pipe(Effect.provide(layerTest)),
 );

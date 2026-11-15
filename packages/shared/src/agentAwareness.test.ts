@@ -365,14 +365,6 @@ describe("feature completion notifications", () => {
       null,
     ],
     ["the lead handing work to its crew", thread({ feature }), true, null, null],
-    // The server reads a child feature that hasn't reported as working (crewWorkingShellThread).
-    [
-      "the parent lead while a child feature it started works",
-      thread({ feature }),
-      true,
-      null,
-      null,
-    ],
     ["the lead stopping with its crew idle", thread({ feature }), false, null, "completed"],
     [
       "the lead stopping before its shell names a run",
