@@ -707,6 +707,16 @@ describe("feature lead and crew", () => {
         yield* features.finishForThread(api.leadThreadId, "API is in");
         yield* features.reportIfQuiet(api.leadThreadId);
         expect(yield* notes()).toHaveLength(2);
+        // The finishing run is stamped on its lead, so that run's end notifies nobody.
+        const finishedRunId = sql<{ readonly runId: string | null }>`
+          SELECT json_extract(payload_json, '$.feature.finishedRunId') AS runId
+          FROM orchestration_v2_projection_threads WHERE thread_id = ${api.leadThreadId}
+        `.pipe(Effect.map((rows) => rows[0]?.runId ?? null));
+        const [apiRun] = yield* sql<{ readonly runId: string }>`
+          SELECT run_id AS runId FROM orchestration_v2_projection_runs
+          WHERE thread_id = ${api.leadThreadId}
+        `;
+        expect(yield* finishedRunId).toBe(apiRun?.runId);
         // A report from an earlier run doesn't cover a later one that stopped without one.
         yield* sql`UPDATE features SET reported_run_id = 'an-earlier-run' WHERE id = ${api.feature.id}`;
         yield* setLeadRun(api.leadThreadId, "completed");
@@ -724,6 +734,7 @@ describe("feature lead and crew", () => {
         expect((yield* apiCard())?.report?.outcome).toBe("finished");
         yield* features.withdrawFinished(api.leadThreadId, "2999-01-01T00:00:00.000Z");
         expect((yield* apiCard())?.report).toBeUndefined();
+        expect(yield* finishedRunId).toBeNull();
 
         // A child that went quiet while nobody watched is caught up on.
         const cli = yield* child("CLI");
@@ -868,6 +879,12 @@ describe("feature lead and crew", () => {
         expect(yield* held).toEqual([]);
         // It finishes once, and stopping after that reports nothing more.
         yield* features.finishForThread(csv.leadThreadId, "CSV export is merged");
+        // The lead's own finish told the person, so HQ's turn reading it stays quiet.
+        expect(
+          yield* sql<{ readonly quiet: number }>`
+            SELECT quiet FROM notice_inbox WHERE thread_id = ${hq} AND source_thread_id = ${csv.leadThreadId}
+          `,
+        ).toEqual([{ quiet: 1 }]);
         yield* fakeRun("run:builder", builder, "completed");
         yield* features.reportIfQuiet(csv.leadThreadId);
 

@@ -351,6 +351,7 @@ function resolveAgentAwarenessRelayPublishSnapshot(input: {
     environmentId: input.environmentId,
     project: input.project.value,
     thread: input.thread.value,
+    crewWorking: input.thread.value.crewWorking === true,
   };
   const state = projectThreadAwarenessV2({
     ...awarenessInput,
@@ -408,6 +409,7 @@ export function resolveAgentAwarenessRelayActiveThreadIds(input: {
         environmentId: input.environmentId,
         project,
         thread,
+        crewWorking: thread.crewWorking === true,
       });
       return (
         state !== null &&

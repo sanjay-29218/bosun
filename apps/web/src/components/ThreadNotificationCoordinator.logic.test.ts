@@ -125,10 +125,11 @@ describe("createThreadNotificationGate", () => {
     ]);
   });
 
-  it("never notifies existing, archived or stopped completions, including when unarchived", () => {
+  it("never notifies existing, archived or quiet completions, including once no longer so", () => {
     const { notify, observe } = harness();
     observe(completed(1));
     observe(working);
+    // A lead's hand-off, quiet while its crew works, stays handled once the crew goes idle.
     observe(completed(2), { ...visible, quiet: true });
     observe(completed(2));
     observe(working);

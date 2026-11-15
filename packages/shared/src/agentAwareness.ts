@@ -64,6 +64,53 @@ export function subagentAwaitsUser(
   );
 }
 
+type CompletionNotifyThread = Pick<
+  OrchestrationV2ThreadShell,
+  "feature" | "lineage" | "latestRunQuietWake"
+> & { readonly latestRunId?: OrchestrationV2ThreadShell["latestRunId"] };
+
+/**
+ * Whether a thread's turn ending tells the person. A feature tells them from its lead, when it
+ * stops with no delegated work running: crew turns, the lead's hand-offs, a child feature's
+ * finishing run (its parent's lead hears) and a turn answering a quiet notice stay silent.
+ * Approvals and questions aren't completions and notify regardless.
+ */
+export function threadCompletionNotifies(input: {
+  readonly thread: CompletionNotifyThread;
+  /** A task the thread delegated still runs, or its result hasn't reached the thread yet. */
+  readonly crewWorking: boolean;
+}): boolean {
+  const { thread } = input;
+  if (thread.latestRunQuietWake === true) return false;
+  const feature = thread.feature;
+  if (feature == null) return true;
+  if (feature.member !== undefined || thread.lineage.parentThreadId !== null) return false;
+  return (
+    !input.crewWorking &&
+    (feature.finishedRunId === undefined || feature.finishedRunId !== thread.latestRunId)
+  );
+}
+
+const LIVE_SHELL_STATUSES = new Set(["queued", "preparing", "starting", "running", "waiting"]);
+
+/** Whether `child` is app-delegated work of `parentId` that hasn't finished. */
+export function delegatedWorkRunning(
+  child: Pick<
+    OrchestrationV2ThreadShell,
+    "activityRunStatus" | "creationSource" | "lineage" | "pendingBackgroundTasks" | "status"
+  >,
+  parentId: ThreadId,
+): boolean {
+  return (
+    child.lineage.parentThreadId === parentId &&
+    child.lineage.relationshipToParent === "subagent" &&
+    !isProviderNativeSubagentThread(child) &&
+    (child.activityRunStatus != null ||
+      LIVE_SHELL_STATUSES.has(child.status) ||
+      backgroundWorkHoldsCompletion(child.pendingBackgroundTasks ?? []))
+  );
+}
+
 export interface AgentAwarenessState {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -90,9 +137,11 @@ export interface ProjectThreadAwarenessV2Input {
   readonly thread: Pick<
     OrchestrationV2ThreadShell,
     | "activityRunStatus"
+    | "feature"
     | "id"
     | "lineage"
     | "latestRunBackgroundWake"
+    | "latestRunQuietWake"
     | "latestRunStopRequested"
     | "modelSelection"
     | "pendingBackgroundTasks"
@@ -101,9 +150,13 @@ export interface ProjectThreadAwarenessV2Input {
     | "status"
     | "title"
     | "updatedAt"
-  >;
+  > & {
+    readonly latestRunId?: OrchestrationV2ThreadShell["latestRunId"];
+  };
   /** What a live subagent below this thread is waiting on the user for. */
   readonly pendingSubagentRequest?: SubagentRequestAwareness | null;
+  /** Delegated work of this thread still runs or owes it a result; see `threadCompletionNotifies`. */
+  readonly crewWorking?: boolean;
 }
 
 /** Whether a child's request, not the thread's own, is what the thread waits on. */
@@ -120,7 +173,13 @@ export function projectThreadAwarenessV2(
   if (phase === null) {
     return null;
   }
-  if (phase === "completed" && thread.latestRunStopRequested === true) return null;
+  if (
+    phase === "completed" &&
+    (thread.latestRunStopRequested === true ||
+      !threadCompletionNotifies({ thread, crewWorking: input.crewWorking ?? false }))
+  ) {
+    return null;
+  }
   // Resolve the phase first so live or waiting work stays visible after settlement.
   const runStatus = thread.activityRunStatus ?? thread.status;
   if (

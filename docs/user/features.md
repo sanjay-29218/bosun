@@ -64,6 +64,10 @@ in its thread and waits for your answer; to ask the lead for changes, reply ther
 is done, the lead reports it, and its card reads **Ready for review**; close the feature from the
 board once you're happy with it.
 
+A feature notifies you when its lead stops for you, such as when it finishes, and whenever a
+thread asks you something. Crew members finishing their turns and the lead handing work on stay
+quiet; they still show as finished or unread in the app.
+
 A needs-you line links to the thread that asks, and a finish line carries the pull request. A
 bot's headquarters hears only when a feature finishes or fails.
 

@@ -204,7 +204,9 @@ const makeTestRelay = Effect.fnUntraced(function* (
     remove: (name) => Effect.sync(() => void values.delete(name)),
     getOrCreateRandom: unused,
   });
-  const currentShell = yield* Ref.make<OrchestrationV2ThreadShell | null>(shell());
+  const currentShell = yield* Ref.make<
+    (OrchestrationV2ThreadShell & { readonly crewWorking?: boolean }) | null
+  >(shell());
   const shellReads: ThreadId[] = [];
   const catchUp = { activitySnapshotReads: 0 };
   const threads = ThreadManagementService.ThreadManagementService.of({
@@ -726,6 +728,34 @@ describe("AgentAwarenessRelay", () => {
         assert.equal(publications.length, 3);
         assert.equal(publications[2]?.state, null);
       }),
+  );
+
+  it.effect("keeps a feature lead's hand-offs silent and publishes its finish", () =>
+    Effect.gen(function* () {
+      const { relay, currentShell, publications } = yield* makeTestRelay();
+      const lead = (overrides: Partial<OrchestrationV2ThreadShell>, crewWorking: boolean) => ({
+        ...shell({ feature: { id: "feature-1", title: "Checkout" }, ...overrides }),
+        crewWorking,
+      });
+      yield* Ref.set(currentShell, lead({}, false));
+      yield* relay.publishThread(THREAD_ID);
+      // The hand-off turn ends while its crew works.
+      yield* Ref.set(currentShell, lead({ status: "completed" }, true));
+      yield* relay.publishThread(THREAD_ID);
+      yield* TestClock.adjust("5 seconds");
+      yield* relay.drain;
+      // The crew's result wakes the lead, which finishes with its crew idle.
+      yield* Ref.set(currentShell, lead({}, false));
+      yield* relay.publishThread(THREAD_ID);
+      yield* Ref.set(currentShell, lead({ status: "completed" }, false));
+      yield* relay.publishThread(THREAD_ID);
+      yield* TestClock.adjust("5 seconds");
+      yield* relay.drain;
+      assert.deepEqual(
+        publications.map((publication) => publication.state?.phase ?? null),
+        ["running", null, "running", "completed"],
+      );
+    }),
   );
 
   it.effect("holds a completion through a continuation gap, then publishes it once", () =>

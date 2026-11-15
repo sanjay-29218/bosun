@@ -409,6 +409,40 @@ interface FeatureRow extends Omit<
   readonly issueJson: string | null;
 }
 
+/** The tag a feature's threads carry, read from its stored record. */
+const storedFeatureTag = Effect.fn("FeatureService.storedFeatureTag")(function* (
+  featureId: string,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const [feature] = yield* sql<{
+    readonly projectId: string;
+    readonly title: string;
+    readonly issueJson: string | null;
+    readonly requesterThreadId: ThreadId | null;
+    readonly parentFeatureId: string | null;
+    readonly finishedRunId: string | null;
+  }>`
+      SELECT project_id AS projectId, title, issue_json AS issueJson,
+        requester_thread_id AS requesterThreadId, parent_feature_id AS parentFeatureId,
+        CASE WHEN parent_feature_id IS NOT NULL AND report_outcome = 'finished'
+          THEN reported_run_id END AS finishedRunId
+      FROM features WHERE id = ${featureId}
+    `;
+  if (!feature) return null;
+  return {
+    projectId: feature.projectId,
+    title: feature.title,
+    tag: featureTag({
+      id: featureId,
+      title: feature.title,
+      issue: decodeFeatureIssue(feature.issueJson),
+      requesterThreadId: feature.requesterThreadId,
+      parentFeatureId: feature.parentFeatureId,
+      finishedRunId: feature.finishedRunId,
+    }),
+  };
+});
+
 /**
  * Re-tags the threads working on a feature from its stored title and issue. With `renamedFrom`,
  * threads still named after that earlier title take the new one.
@@ -419,25 +453,9 @@ const syncFeatureThreads = Effect.fn("FeatureService.syncFeatureThreads")(functi
 ) {
   const sql = yield* SqlClient.SqlClient;
   const engine = yield* OrchestratorV2;
-  const [feature] = yield* sql<{
-    readonly projectId: string;
-    readonly title: string;
-    readonly issueJson: string | null;
-    readonly requesterThreadId: ThreadId | null;
-    readonly parentFeatureId: string | null;
-  }>`
-      SELECT project_id AS projectId, title, issue_json AS issueJson,
-        requester_thread_id AS requesterThreadId, parent_feature_id AS parentFeatureId
-      FROM features WHERE id = ${featureId}
-    `;
+  const feature = yield* storedFeatureTag(featureId);
   if (!feature) return;
-  const tag = featureTag({
-    id: featureId,
-    title: feature.title,
-    issue: decodeFeatureIssue(feature.issueJson),
-    requesterThreadId: feature.requesterThreadId,
-    parentFeatureId: feature.parentFeatureId,
-  });
+  const { tag } = feature;
   const threads = yield* sql<{ readonly threadId: ThreadId; readonly title: string }>`
       SELECT thread_id AS threadId, title FROM orchestration_v2_projection_threads
       WHERE project_id = ${feature.projectId} AND deleted_at IS NULL
@@ -1238,6 +1256,29 @@ export const FeatureServiceLive = Layer.effect(
         Effect.map((rows) => rows[0]?.threadId ?? null),
       );
 
+    /** Re-tags a child feature's lead with its finished run, which keeps that run silent. */
+    const retagLead = Effect.fn("FeatureService.retagLead")(
+      function* (featureId: string) {
+        const stored = yield* storedFeatureTag(featureId).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        );
+        const lead = yield* leadThreadOf(featureId);
+        if (!stored?.tag.parentFeatureId || lead === null) return;
+        yield* engine.dispatch({
+          type: "thread.crew-stage.set",
+          commandId: CommandId.make(`feature-tag:${NodeCrypto.randomUUID()}`),
+          threadId: lead,
+          feature: stored.tag,
+        });
+      },
+      (effect, featureId) =>
+        effect.pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Re-tagging a feature's lead failed", { featureId, cause }),
+          ),
+        ),
+    );
+
     /** The pull requests the feature's threads link or opened, lead's first. */
     const featurePullRequests = Effect.fn("FeatureService.featurePullRequests")(function* (
       featureId: string,
@@ -1455,6 +1496,8 @@ export const FeatureServiceLive = Layer.effect(
           notification: {
             childThreadId: leadThreadId,
             outcome: input.outcome === "failed" ? "failed" : "updated",
+            // The lead's own finish already told the person.
+            quiet: input.outcome === "finished",
             summary: `Feature "${feature.title}" ${
               input.outcome === "finished"
                 ? "finished"
@@ -1642,7 +1685,7 @@ export const FeatureServiceLive = Layer.effect(
       );
 
     const withdrawFinished: FeatureServiceShape["withdrawFinished"] = (threadId, sentAt) =>
-      sql`
+      sql<{ readonly id: string }>`
         UPDATE features SET reported_at = NULL, report_outcome = NULL, reported_run_id = NULL
         WHERE report_outcome = 'finished' AND reported_at < ${sentAt}
           AND id = (
@@ -1654,7 +1697,13 @@ export const FeatureServiceLive = Layer.effect(
           )
         RETURNING id
       `.pipe(
-        Effect.flatMap((rows) => (rows.length > 0 ? notify("features") : Effect.void)),
+        Effect.flatMap((rows) =>
+          rows.length > 0
+            ? Effect.forEach(rows, (row) => retagLead(row.id), { discard: true }).pipe(
+                Effect.andThen(notify("features")),
+              )
+            : Effect.void,
+        ),
         Effect.catch((error) =>
           Effect.logWarning("Clearing a finished report failed", { threadId, error }),
         ),
@@ -1912,6 +1961,7 @@ export const FeatureServiceLive = Layer.effect(
           "finished",
           run?.runId ?? null,
         );
+        if (feature.parentFeatureId) yield* retagLead(feature.id);
         return feature;
       }),
       crewMember,
@@ -1972,6 +2022,7 @@ export const FeatureServiceLive = Layer.effect(
             }),
           )
           .pipe(Effect.catchTags({ SqlError: (error) => Effect.fail(queryError(error)) }));
+        if (status === "open" && feature.parentFeatureId) yield* retagLead(feature.id);
         // A child closed before its lead reported it done reports as it closes, and counts as
         // reported only once its parent's lead has the message; closing it again retries.
         if (status === "closed" && feature.parentFeatureId) {
