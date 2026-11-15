@@ -8,7 +8,6 @@ import type { AnyRouter } from "@tanstack/react-router";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import { monitorHoldsWakeCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
-import { delegatedWorkRunning, threadCompletionNotifies } from "@t3tools/shared/agentAwareness";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as Option from "effect/Option";
 import type { AtomRegistry } from "effect/reactivity";
@@ -35,6 +34,7 @@ import {
 import { resolveBackgroundThreadRequest } from "./backgroundThreadAnnouncement";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "./Sidebar.logic";
 import {
+  completionIsQuiet,
   createThreadNotificationGate,
   threadAttention,
   isSnoozedForNotification,
@@ -51,8 +51,6 @@ interface NotificationState extends ThreadNotificationObservation {
   readonly subagentRequest: PendingSubagentRequest | null;
   readonly thread: EnvironmentThreadShell;
   readonly status: SidebarThreadStatus;
-  /** Its completion stays silent, as a feature's crew turn or hand-off does. */
-  readonly quietCompletion: boolean;
 }
 
 type ToastId = ReturnType<typeof toastManager.add>;
@@ -251,11 +249,6 @@ export function startThreadNotifications(
       environmentThreadShells.pendingSubagentRequestsAtom(environmentId),
     );
     const delegatedUnderParent = registry.get(environmentThreadShells.delegatedUnderParentAtom);
-    const crewWorking = new Set<ThreadId>();
-    for (const thread of threads) {
-      const parentId = thread.lineage.parentThreadId;
-      if (parentId !== null && delegatedWorkRunning(thread, parentId)) crewWorking.add(parentId);
-    }
     const changed: Array<[NotificationState | undefined, NotificationState]> = [];
     for (const rawThread of threads) {
       if (
@@ -316,12 +309,6 @@ export function startThreadNotifications(
         settled,
         completedAt: settled ? completedAt : null,
         backgroundWake: rawThread.latestRunBackgroundWake === true,
-        // Judged as the completion lands; a later observation of the same completion stays
-        // handled, so the lead doesn't notify while its crew's result is on its way.
-        quietCompletion: !threadCompletionNotifies({
-          thread: rawThread,
-          crewWorking: crewWorking.has(rawThread.id),
-        }),
       };
       next.set(thread.id, state);
       changed.push([prior, state]);
@@ -333,7 +320,7 @@ export function startThreadNotifications(
     for (const [prior, state] of changed) {
       entry.gate.observe(state.thread.id, prior, state, {
         archived: state.thread.archivedAt !== null,
-        quiet: state.raw.latestRunStopRequested === true || state.quietCompletion,
+        quiet: completionIsQuiet(state.raw),
         snoozed: isSnoozedForNotification(state.thread, state.completedAt, now),
       });
     }

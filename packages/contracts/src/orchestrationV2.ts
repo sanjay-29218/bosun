@@ -2276,6 +2276,11 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestRunBackgroundWake: Schema.optional(Schema.Boolean),
   /** The latest run answers a quiet notice, such as a feature's finished report. Absent from older servers. */
   latestRunQuietWake: Schema.optional(Schema.Boolean),
+  /**
+   * On a feature's lead: a task it delegated still runs or owes it a result, or a child feature
+   * it started hasn't reported. Absent from older servers and on other threads.
+   */
+  crewWorking: Schema.optional(Schema.Boolean),
   activeRunId: Schema.NullOr(RunId),
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   activityRunStatus: Schema.optional(

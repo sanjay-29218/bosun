@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import type { OrchestrationV2ThreadShell, RunId, ThreadId } from "@t3tools/contracts";
+
 import {
+  completionIsQuiet,
   createThreadNotificationGate,
   isSnoozedForNotification,
   RELEASED_COMPLETION_GRACE_MS,
@@ -138,6 +141,35 @@ describe("createThreadNotificationGate", () => {
     expect(notify).not.toHaveBeenCalled();
     observe(working);
     observe(completed(4));
+    expect(notify.mock.calls).toEqual([["thread", "completion"]]);
+  });
+
+  it("keeps a feature lead's hand-off quiet, even once its crew goes idle, and notifies its finish", () => {
+    const { notify, observe } = harness();
+    const lead = (crewWorking: boolean, latestRunId: string) =>
+      ({
+        crewWorking,
+        feature: { id: "feature-1", title: "Checkout" },
+        latestRunId: latestRunId as RunId,
+        lineage: {
+          rootThreadId: "lead" as ThreadId,
+          parentThreadId: null,
+          relationshipToParent: null,
+        },
+      }) satisfies Partial<OrchestrationV2ThreadShell>;
+    const as = (thread: ReturnType<typeof lead>) => ({
+      ...visible,
+      quiet: completionIsQuiet(thread),
+    });
+    observe(working);
+    // The hand-off turn ends while the crew works.
+    observe(completed(1), as(lead(true, "run-1")));
+    // The crew finishes before the lead's wake starts: the same completion, crew idle.
+    observe(completed(1), as(lead(false, "run-1")));
+    expect(notify).not.toHaveBeenCalled();
+    // The lead's next turn finishes with its crew idle.
+    observe(working, as(lead(false, "run-2")));
+    observe(completed(2), as(lead(false, "run-2")));
     expect(notify.mock.calls).toEqual([["thread", "completion"]]);
   });
 

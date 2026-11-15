@@ -204,9 +204,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
     remove: (name) => Effect.sync(() => void values.delete(name)),
     getOrCreateRandom: unused,
   });
-  const currentShell = yield* Ref.make<
-    (OrchestrationV2ThreadShell & { readonly crewWorking?: boolean }) | null
-  >(shell());
+  const currentShell = yield* Ref.make<OrchestrationV2ThreadShell | null>(shell());
   const shellReads: ThreadId[] = [];
   const catchUp = { activitySnapshotReads: 0 };
   const threads = ThreadManagementService.ThreadManagementService.of({
@@ -733,10 +731,8 @@ describe("AgentAwarenessRelay", () => {
   it.effect("keeps a feature lead's hand-offs silent and publishes its finish", () =>
     Effect.gen(function* () {
       const { relay, currentShell, publications } = yield* makeTestRelay();
-      const lead = (overrides: Partial<OrchestrationV2ThreadShell>, crewWorking: boolean) => ({
-        ...shell({ feature: { id: "feature-1", title: "Checkout" }, ...overrides }),
-        crewWorking,
-      });
+      const lead = (overrides: Partial<OrchestrationV2ThreadShell>, crewWorking: boolean) =>
+        shell({ feature: { id: "feature-1", title: "Checkout" }, crewWorking, ...overrides });
       yield* Ref.set(currentShell, lead({}, false));
       yield* relay.publishThread(THREAD_ID);
       // The hand-off turn ends while its crew works.

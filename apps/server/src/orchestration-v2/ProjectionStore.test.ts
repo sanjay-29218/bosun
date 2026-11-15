@@ -283,12 +283,32 @@ const addRolledBackRecoveryCandidate = Effect.fn("addRolledBackRecoveryCandidate
 it.effect("keeps a lead's crew working until its crew's result reaches the lead", () =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;
+    const sql = yield* SqlClient.SqlClient;
     const threadId = yield* addRolledBackRecoveryCandidate("crew-working");
     const runId = RunId.make("run:crew-working:rolled-back");
     const now = yield* DateTime.now;
-    const crewWorking = store
-      .getAgentAwarenessSnapshot(threadId)
-      .pipe(Effect.map((snapshot) => snapshot.threads[0]?.crewWorking));
+    // The lead of feature-1, as a thread tag.
+    yield* sql`
+      UPDATE orchestration_v2_projection_threads
+      SET payload_json = json_set(payload_json, '$.feature', json('{"id":"feature-1","title":"Checkout"}'))
+      WHERE thread_id = ${threadId}
+    `;
+    // What clients read, what the relay reads, and the projection's own shell, alike.
+    const readings = Effect.gen(function* () {
+      return [
+        (yield* store.getThreadShell(threadId))?.crewWorking,
+        (yield* store.getAgentAwarenessSnapshot(threadId)).threads[0]?.crewWorking,
+        ProjectionStore.threadShellFromProjection(yield* store.getThreadProjection(threadId))
+          .crewWorking,
+      ];
+    });
+    const crewWorking = readings.pipe(
+      Effect.map(([shell, awareness, projected]) => {
+        assert.equal(awareness, shell);
+        assert.equal(projected, shell);
+        return shell;
+      }),
+    );
     assert.isFalse(yield* crewWorking);
     const steps = [
       ["app_owned", "running", "pending", true],
@@ -336,6 +356,17 @@ it.effect("keeps a lead's crew working until its crew's result reaches the lead"
       });
       assert.equal(yield* crewWorking, working, `${origin} ${status} ${delivery}`);
     }
+    // A child feature its lead started works until it reports, whatever its outcome.
+    const shell = store.getThreadShell(threadId).pipe(Effect.map((thread) => thread?.crewWorking));
+    yield* sql`
+      INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
+      VALUES ('feature-2', 'project:crew-working', 'Export', 'Export', '2026-11-15', 'feature-1')
+    `;
+    assert.isTrue(yield* shell);
+    yield* sql`UPDATE features SET report_outcome = 'stopped' WHERE id = 'feature-2'`;
+    assert.isFalse(yield* shell);
+    yield* sql`UPDATE features SET report_outcome = NULL, status = 'closed' WHERE id = 'feature-2'`;
+    assert.isFalse(yield* shell);
   }).pipe(Effect.provide(layerTest)),
 );
 

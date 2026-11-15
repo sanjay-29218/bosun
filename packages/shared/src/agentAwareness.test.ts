@@ -10,11 +10,7 @@ import type {
 import { ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import {
-  delegatedWorkRunning,
-  projectThreadAwarenessV2,
-  subagentAwaitsUser,
-} from "./agentAwareness.ts";
+import { projectThreadAwarenessV2, subagentAwaitsUser } from "./agentAwareness.ts";
 
 const NOW = "2026-05-22T12:00:00.000Z";
 
@@ -369,6 +365,14 @@ describe("feature completion notifications", () => {
       null,
     ],
     ["the lead handing work to its crew", thread({ feature }), true, null, null],
+    // The server reads a child feature that hasn't reported as working (crewWorkingShellThread).
+    [
+      "the parent lead while a child feature it started works",
+      thread({ feature }),
+      true,
+      null,
+      null,
+    ],
     ["the lead stopping with its crew idle", thread({ feature }), false, null, "completed"],
     [
       "the lead stopping before its shell names a run",
@@ -417,36 +421,9 @@ describe("feature completion notifications", () => {
       projectThreadAwarenessV2({
         environmentId: "env-1" as EnvironmentId,
         project,
-        thread: input,
-        crewWorking,
+        thread: { ...input, crewWorking },
         pendingSubagentRequest,
       })?.phase ?? null,
     ).toBe(phase);
-  });
-
-  it("counts a delegated task as working until its run ends", () => {
-    const child = (
-      overrides: Partial<
-        Pick<OrchestrationV2ThreadShell, "activityRunStatus" | "creationSource" | "status">
-      > = {},
-    ) => ({
-      lineage: {
-        rootThreadId: leadId,
-        parentThreadId: leadId,
-        relationshipToParent: "subagent" as const,
-      },
-      creationSource: "server" as const,
-      activityRunStatus: null,
-      status: "completed" as const,
-      ...overrides,
-    });
-    expect(delegatedWorkRunning(child({ status: "queued" }), leadId)).toBe(true);
-    expect(delegatedWorkRunning(child({ activityRunStatus: "waiting" }), leadId)).toBe(true);
-    expect(delegatedWorkRunning(child(), leadId)).toBe(false);
-    // A provider's own subagent ends with the turn that started it.
-    expect(
-      delegatedWorkRunning(child({ status: "running", creationSource: "provider" }), leadId),
-    ).toBe(false);
-    expect(delegatedWorkRunning(child({ status: "running" }), "other" as ThreadId)).toBe(false);
   });
 });
