@@ -1,6 +1,7 @@
 import {
   botHeadquartersThreadId,
   headquartersBotId,
+  projectHeadquartersThreadId,
   type EnvironmentId,
   type ScheduledTask,
   type ThreadId,
@@ -94,16 +95,18 @@ export type AutomationRunShell = Parameters<typeof isThreadWorking>[0] &
 const runIndexKey = (environmentId: EnvironmentId, projectId: string, title: string) =>
   `${environmentId}:${projectId}:${title}`;
 
-/** The thread a task posts every run into: the bot's headquarters or its bound thread. */
+/** The thread a task posts every run into: the bot's headquarters, the manager's, or its bound thread. */
 export function automationRunThreadId(
-  task: Pick<ScheduledTask, "botId" | "threadId">,
+  task: Pick<ScheduledTask, "botId" | "projectManager" | "projectId" | "threadId">,
 ): ThreadId | null {
-  return task.botId === undefined ? task.threadId : botHeadquartersThreadId(task.botId);
+  if (task.botId !== undefined) return botHeadquartersThreadId(task.botId);
+  if (task.projectManager === true) return projectHeadquartersThreadId(task.projectId);
+  return task.threadId;
 }
 
 /**
- * Finds the threads a task's runs went to. A task that runs as a bot posts every run into its
- * headquarters, and a task bound to a thread into that thread. Otherwise each run starts a thread in the task's project titled after the task, so runs are
+ * Finds the threads a task's runs went to. A task that runs as a bot or a project manager posts
+ * every run into its standing thread, and a task bound to a thread into that thread. Otherwise each run starts a thread in the task's project titled after the task, so runs are
  * matched by project and title; a thread renamed since, or a task renamed since, drops out.
  */
 export function createAutomationRunIndex<Shell extends AutomationRunShell>(
@@ -198,4 +201,31 @@ export function botAutomationsDeleteWarning(
   const count = tasks.filter((task) => task.botId === botId).length;
   if (count === 0) return null;
   return `Its ${count} ${count === 1 ? "automation" : "automations"} will be deleted too.`;
+}
+
+/** Why the server paused a task, such as its manager being turned off, or null. */
+export function automationPausedLabel(
+  task: Pick<ScheduledTask, "enabled" | "pausedReason">,
+): string | null {
+  return task.enabled || task.pausedReason === undefined ? null : `Paused: ${task.pausedReason}`;
+}
+
+/**
+ * The sentence a project manager's off switch ("off") or its project's delete confirmation
+ * ("delete") adds for the automations that run as that manager, or null when it has none.
+ */
+export function managerAutomationsWarning(
+  tasks: ReadonlyArray<Pick<ScheduledTask, "enabled" | "projectId" | "projectManager">>,
+  projectId: string,
+  action: "off" | "delete",
+): string | null {
+  const own = tasks.filter((task) => task.projectManager === true && task.projectId === projectId);
+  if (action === "off") {
+    const count = own.filter((task) => task.enabled).length;
+    if (count === 0) return null;
+    return `${count} ${count === 1 ? "automation runs" : "automations run"} as this manager. Turning it off pauses ${count === 1 ? "it" : "them"}.`;
+  }
+  const count = own.length;
+  if (count === 0) return null;
+  return `Its manager's ${count} ${count === 1 ? "automation" : "automations"} will be deleted too.`;
 }

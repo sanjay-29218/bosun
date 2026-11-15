@@ -83,6 +83,7 @@ export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
 const PROMPT_TOO_LONG = "The filled-in prompt is too long.";
 const MISSING_BOT = "The bot this task runs as no longer exists.";
+const MISSING_MANAGER_PROJECT = "The project no longer exists.";
 const WEBHOOK_DELIVERY_RETENTION = 50;
 const WEBHOOK_DEDUPE_DELIVERY_RETENTION = 20;
 const WEBHOOK_FILTERED_DELIVERY_RETENTION = 20;
@@ -235,12 +236,27 @@ interface ScheduledTaskRow {
   readonly webhook_token: string | null;
   readonly webhook_secret: string | null;
   readonly bot_id: string | null;
+  readonly project_manager: number;
+  readonly paused_reason: string | null;
 }
 
 /** Where a bot task's run goes: the bot's headquarters thread and the project it lives in. */
 export interface BotHeadquarters {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
+}
+
+/** How manager tasks reach the crew, which owns project managers. */
+export interface ProjectManagers {
+  /** Null once the project is gone; fails for Scratch and a bot's home, which have no manager. */
+  readonly status: (
+    projectId: ProjectId,
+  ) => Effect.Effect<
+    { readonly title: string; readonly enabled: boolean } | null,
+    ScheduledTaskError
+  >;
+  /** The manager's thread, created or restored. */
+  readonly open: (projectId: ProjectId) => Effect.Effect<BotHeadquarters, ScheduledTaskError>;
 }
 
 interface WebhookDeliveryRow {
@@ -293,6 +309,17 @@ export class ScheduledTaskService extends Context.Service<
     readonly connectBotHeadquarters: (
       open: (botId: string) => Effect.Effect<BotHeadquarters, ScheduledTaskError>,
     ) => Effect.Effect<void, never, Scope.Scope>;
+    /** Lets manager tasks reach project managers for the scope, like `connectBotHeadquarters`. */
+    readonly connectProjectManagers: (
+      managers: ProjectManagers,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+    /** Turns off every task that runs as this project's manager and records why. */
+    readonly pauseForProjectManager: (input: {
+      readonly projectId: ProjectId;
+      readonly reason: string;
+    }) => Effect.Effect<void, ScheduledTaskError>;
+    /** Deletes the tasks that run as the manager of a deleted project. */
+    readonly deleteForDeletedProjects: () => Effect.Effect<void, ScheduledTaskError>;
     /** Points tasks bound to these threads at the project the threads moved to. */
     readonly moveThreadTasks: (input: {
       readonly threadIds: ReadonlyArray<ThreadId>;
@@ -446,6 +473,8 @@ const decodeRow = Effect.fnUntraced(
       runCount: row.run_count,
       ...(webhook === undefined ? {} : { webhook }),
       ...(row.bot_id === null ? {} : { botId: row.bot_id }),
+      ...(row.project_manager === 1 ? { projectManager: true } : {}),
+      ...(row.paused_reason === null ? {} : { pausedReason: row.paused_reason }),
     });
   },
   (effect, row, _origin?) =>
@@ -547,6 +576,41 @@ export const layer = Layer.effect(
     const headquartersOpener = yield* Ref.make(
       Option.none<(botId: string) => Effect.Effect<BotHeadquarters, ScheduledTaskError>>(),
     );
+    const projectManagers = yield* Ref.make(Option.none<ProjectManagers>());
+
+    const connectedManagers = Ref.get(projectManagers).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => taskError("Project managers aren't available on this server."),
+          onSome: Effect.succeed,
+        }),
+      ),
+    );
+
+    const openProjectManager = Effect.fn("ScheduledTaskService.openProjectManager")(function* (
+      projectId: ProjectId,
+    ) {
+      const managers = yield* connectedManagers;
+      const status = yield* managers.status(projectId);
+      if (status === null) return yield* taskError(MISSING_MANAGER_PROJECT);
+      if (!status.enabled) return yield* taskError(`${status.title}'s manager is turned off.`);
+      return yield* managers.open(projectId);
+    });
+
+    /** A manager task can only be on while its manager is. */
+    const requireManagerFor = Effect.fn("ScheduledTaskService.requireManagerFor")(function* (
+      projectId: ProjectId,
+      enabled: boolean,
+      taskId: ScheduledTaskId,
+    ) {
+      const status = yield* (yield* connectedManagers).status(projectId);
+      if (status === null) return yield* taskError(MISSING_MANAGER_PROJECT, { taskId });
+      if (enabled && !status.enabled) {
+        return yield* taskError(`${status.title}'s manager is turned off. Turn it on first.`, {
+          taskId,
+        });
+      }
+    });
 
     const botExists = (botId: string) =>
       sql`SELECT 1 FROM bots WHERE id = ${botId} AND deleted_at IS NULL`.pipe(
@@ -608,7 +672,9 @@ export const layer = Layer.effect(
         run_count,
         webhook_token,
         webhook_secret,
-        bot_id
+        bot_id,
+        project_manager,
+        paused_reason
       FROM scheduled_tasks
       -- Not updated_at: toggles, runs and edits rewrite it, and clients render
       -- this order as-is, so rows would move under the pointer.
@@ -651,7 +717,9 @@ export const layer = Layer.effect(
         run_count,
         webhook_token,
         webhook_secret,
-        bot_id
+        bot_id,
+        project_manager,
+        paused_reason
       FROM scheduled_tasks
       WHERE task_id = ${id}
     `.pipe(NodeSqliteClient.readOnly);
@@ -730,7 +798,9 @@ export const layer = Layer.effect(
           run_count,
           webhook_token,
           webhook_secret,
-          bot_id
+          bot_id,
+          project_manager,
+          paused_reason
         )
         SELECT
           ${task.id},
@@ -756,7 +826,9 @@ export const layer = Layer.effect(
           ${task.runCount},
           ${webhook.token},
           ${webhook.secret},
-          ${task.botId ?? null}
+          ${task.botId ?? null},
+          ${task.projectManager === true ? 1 : 0},
+          ${task.pausedReason ?? null}
         WHERE (${requireExisting ? 0 : 1} = 1
            OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id}))
           -- In the write, so a bot deleted since the check can't be left with a task.
@@ -782,6 +854,8 @@ export const layer = Layer.effect(
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
           bot_id = excluded.bot_id,
+          project_manager = excluded.project_manager,
+          paused_reason = excluded.paused_reason,
           creation_source = excluded.creation_source,
           updated_at = excluded.updated_at,
           -- Keep a next_run_at that a finishing run moved during this save, unless
@@ -1153,36 +1227,38 @@ export const layer = Layer.effect(
         const result =
           active.botId !== undefined
             ? yield* Effect.exit(openBotHeadquarters(active.botId).pipe(Effect.flatMap(send)))
-            : active.threadId === null
-              ? yield* Effect.exit(
-                  threadLaunch
-                    .launch({
-                      commandId,
-                      projectId: active.projectId,
-                      title: active.title,
-                      modelSelection: active.modelSelection,
-                      runtimeMode: active.runtimeMode,
-                      interactionMode: active.interactionMode,
-                      workspaceStrategy: active.workspaceStrategy,
-                      initialMessage: {
-                        messageId,
-                        scheduledTaskId: active.id,
-                        text: prompt,
-                        attachments: [],
-                      },
-                      createdBy: active.createdBy,
-                      creationSource: active.creationSource,
-                    })
-                    .pipe(
-                      Effect.map((launched) => launched.threadId),
-                      Effect.tap((threadId) =>
-                        threadMode === "new_thread" ? Effect.void : bindThread(active, threadId),
+            : active.projectManager === true
+              ? yield* Effect.exit(openProjectManager(active.projectId).pipe(Effect.flatMap(send)))
+              : active.threadId === null
+                ? yield* Effect.exit(
+                    threadLaunch
+                      .launch({
+                        commandId,
+                        projectId: active.projectId,
+                        title: active.title,
+                        modelSelection: active.modelSelection,
+                        runtimeMode: active.runtimeMode,
+                        interactionMode: active.interactionMode,
+                        workspaceStrategy: active.workspaceStrategy,
+                        initialMessage: {
+                          messageId,
+                          scheduledTaskId: active.id,
+                          text: prompt,
+                          attachments: [],
+                        },
+                        createdBy: active.createdBy,
+                        creationSource: active.creationSource,
+                      })
+                      .pipe(
+                        Effect.map((launched) => launched.threadId),
+                        Effect.tap((threadId) =>
+                          threadMode === "new_thread" ? Effect.void : bindThread(active, threadId),
+                        ),
                       ),
-                    ),
-                )
-              : yield* Effect.exit(
-                  send({ projectId: active.projectId, threadId: ThreadId.make(active.threadId) }),
-                );
+                  )
+                : yield* Effect.exit(
+                    send({ projectId: active.projectId, threadId: ThreadId.make(active.threadId) }),
+                  );
 
         const runSucceeded = result._tag === "Success";
         if (webhook !== undefined && runSucceeded) yield* Ref.set(webhook.dispatched, true);
@@ -1510,16 +1586,34 @@ export const layer = Layer.effect(
       // keep their run history, and so real load failures propagate instead
       // of silently resetting an existing row.
       const existingTask = yield* findTask(id);
-      // Omitted keeps the stored bot, so a client that predates bot tasks can re-save one.
-      const botId = input.botId === undefined ? (existingTask?.botId ?? null) : input.botId;
+      // Omitted keeps the stored bot or manager, so a client that predates them can re-save one;
+      // choosing one explicitly drops the other.
+      const projectManager =
+        input.projectManager ??
+        (input.botId != null ? false : (existingTask?.projectManager ?? false));
+      const botId =
+        input.botId === undefined
+          ? input.projectManager === true
+            ? null
+            : (existingTask?.botId ?? null)
+          : input.botId;
+      if (botId !== null && projectManager) {
+        return yield* taskError("An automation runs as a bot or a project manager, not both.", {
+          taskId: id,
+        });
+      }
       if (botId !== null && !(yield* botExists(botId))) {
         return yield* taskError("That bot doesn't exist.", { taskId: id });
       }
       // A bot task runs in its headquarters, so it is filed in the bot's home.
-      const projectId = botId === null ? (input.projectId ?? null) : yield* botTaskProjectId(botId);
+      const projectId =
+        botId === null
+          ? (input.projectId ?? (projectManager ? existingTask?.projectId : undefined) ?? null)
+          : yield* botTaskProjectId(botId);
       if (projectId === null) {
         return yield* taskError("Pick a project for this task.", { taskId: id });
       }
+      if (projectManager) yield* requireManagerFor(projectId, input.enabled, id);
       const threadMode = resolveThreadMode(input, existingTask);
       const keptThreadId = input.threadId ?? existingTask?.threadId ?? null;
       // A bound thread belongs to its project, so moving the task leaves it for a new one.
@@ -1527,9 +1621,10 @@ export const layer = Layer.effect(
         existingTask !== null &&
         existingTask.projectId !== projectId &&
         keptThreadId === existingTask.threadId;
-      // A bot task has no thread of its own, so deleting one never deletes the task.
+      // A bot or manager task has no thread of its own, so deleting one never deletes the task.
+      const runsAsStanding = botId !== null || projectManager;
       const threadId =
-        botId !== null || threadMode === "new_thread" || movedOffThread ? null : keptThreadId;
+        runsAsStanding || threadMode === "new_thread" || movedOffThread ? null : keptThreadId;
       // An unchanged destination is not rechecked, so a task on an archived thread stays editable.
       if (threadId !== null && threadId !== existingTask?.threadId) {
         yield* requireDestinationThread(threadId, projectId, id);
@@ -1539,7 +1634,7 @@ export const layer = Layer.effect(
       // thread (or a bot's headquarters) runs in that thread's mode, which the orchestrator
       // checks instead. Checked before the save consumes a webhook secret.
       const modeDenial =
-        input.enabled && threadId === null && botId === null
+        input.enabled && threadId === null && !runsAsStanding
           ? managedRuntimeModeDenial(managedPolicy.summary, input.runtimeMode)
           : undefined;
       if (modeDenial !== undefined) return yield* taskError(modeDenial, { taskId: id });
@@ -1655,6 +1750,11 @@ export const layer = Layer.effect(
         lastRunError: existingTask?.lastRunError ?? null,
         runCount: existingTask?.runCount ?? 0,
         ...(botId === null ? {} : { botId }),
+        ...(projectManager ? { projectManager: true } : {}),
+        // The reason is about its manager: turning the task on, or moving it off the manager, clears it.
+        ...(input.enabled || !projectManager || existingTask?.pausedReason === undefined
+          ? {}
+          : { pausedReason: existingTask.pausedReason }),
       };
       yield* saveTask(
         task,
@@ -1685,6 +1785,9 @@ export const layer = Layer.effect(
       if (modeDenial !== undefined) {
         return yield* taskError(modeDenial, { taskId: input.id });
       }
+      if (input.enabled && existing.projectManager === true) {
+        yield* requireManagerFor(existing.projectId, true, input.id);
+      }
       const now = yield* localNow;
       yield* requireFutureOnce(
         { enabled: input.enabled, schedule: existing.schedule },
@@ -1698,7 +1801,8 @@ export const layer = Layer.effect(
           UPDATE scheduled_tasks
           SET enabled = ${input.enabled ? 1 : 0},
               next_run_at = ${next},
-              updated_at = ${iso(now)}
+              updated_at = ${iso(now)},
+              paused_reason = CASE WHEN ${input.enabled ? 1 : 0} = 1 THEN NULL ELSE paused_reason END
           WHERE task_id = ${input.id}
           RETURNING task_id
         `.pipe(
@@ -1710,8 +1814,14 @@ export const layer = Layer.effect(
         return yield* taskError("Schedule task not found.", { taskId: input.id });
       }
       yield* notifyChanged;
+      const { pausedReason: _cleared, ...rest } = existing;
       return {
-        task: { ...existing, enabled: input.enabled, nextRunAt: next, updatedAt: iso(now) },
+        task: {
+          ...(input.enabled ? rest : existing),
+          enabled: input.enabled,
+          nextRunAt: next,
+          updatedAt: iso(now),
+        },
       };
     });
 
@@ -1758,7 +1868,7 @@ export const layer = Layer.effect(
     // thread or bot deletion queued this cleanup. Untraced: its callers own the span.
     const deleteMatching = Effect.fnUntraced(function* (
       match: Statement.Fragment,
-      label: "thread's" | "bot's",
+      label: "thread's" | "bot's" | "manager's",
     ) {
       const removed = yield* sql
         .withTransaction(
@@ -1790,6 +1900,31 @@ export const layer = Layer.effect(
     const deleteForBot = Effect.fn("ScheduledTaskService.deleteForBot")((botId: string) =>
       deleteMatching(sql`bot_id = ${botId}`, "bot's"),
     );
+
+    // Deleted projects keep their row, so this also catches a deletion missed while the server was down.
+    const deleteForDeletedProjects = Effect.fn("ScheduledTaskService.deleteForDeletedProjects")(
+      () =>
+        deleteMatching(
+          sql`project_manager = 1 AND project_id IN (
+            SELECT project_id FROM projection_projects WHERE deleted_at IS NOT NULL
+          )`,
+          "manager's",
+        ),
+    );
+
+    const pauseForProjectManager: ScheduledTaskService["Service"]["pauseForProjectManager"] =
+      Effect.fn("ScheduledTaskService.pauseForProjectManager")(function* ({ projectId, reason }) {
+        const now = iso(yield* localNow);
+        const paused = yield* sql<{ task_id: string }>`
+          UPDATE scheduled_tasks
+          SET enabled = 0, next_run_at = NULL, paused_reason = ${reason}, updated_at = ${now}
+          WHERE project_manager = 1 AND project_id = ${projectId} AND enabled = 1
+          RETURNING task_id
+        `.pipe(
+          Effect.mapError((cause) => taskError("Could not pause the manager's tasks.", { cause })),
+        );
+        if (paused.length > 0) yield* notifyChanged;
+      });
 
     const botModelSelection: ScheduledTaskService["Service"]["botModelSelection"] = Effect.fn(
       "ScheduledTaskService.botModelSelection",
@@ -1836,6 +1971,12 @@ export const layer = Layer.effect(
     ) =>
       Effect.acquireRelease(Ref.set(headquartersOpener, Option.some(open)), () =>
         Ref.set(headquartersOpener, Option.none()),
+      );
+    const connectProjectManagers: ScheduledTaskService["Service"]["connectProjectManagers"] = (
+      managers,
+    ) =>
+      Effect.acquireRelease(Ref.set(projectManagers, Option.some(managers)), () =>
+        Ref.set(projectManagers, Option.none()),
       );
     const moveThreadTasks: ScheduledTaskService["Service"]["moveThreadTasks"] = Effect.fn(
       "ScheduledTaskService.moveThreadTasks",
@@ -2788,6 +2929,9 @@ export const layer = Layer.effect(
       rehomeBotTasks,
       botModelSelection,
       connectBotHeadquarters,
+      connectProjectManagers,
+      pauseForProjectManager,
+      deleteForDeletedProjects,
       moveThreadTasks,
       runNow,
       rotateWebhookToken,

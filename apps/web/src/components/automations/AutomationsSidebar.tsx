@@ -1,4 +1,5 @@
 import {
+  automationPausedLabel,
   isAutomationFailureUnseen,
   type AutomationEntry,
 } from "@t3tools/client-runtime/state/automations";
@@ -151,7 +152,7 @@ const AutomationRow = memo(function AutomationRow({
     : task.blockedByPolicy !== undefined
       ? task.blockedByPolicy
       : !task.enabled
-        ? "Paused"
+        ? (automationPausedLabel(task) ?? "Paused")
         : task.schedule.type === "webhook"
           ? null
           : task.nextRunAt

@@ -6,6 +6,7 @@ import { assert, it, vi } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
   ProjectId,
+  projectHeadquartersThreadId,
   ProviderInstanceId,
   ScheduledTaskError,
   ScheduledTaskId,
@@ -576,6 +577,189 @@ it.effect("refuses unknown bots and fails a run whose bot is gone with a clear e
       assert.strictEqual(gone.task.lastRunStatus, "failed");
       assert.strictEqual(gone.task.lastRunError, "The bot this task runs as no longer exists.");
       assert.lengthOf(yield* Ref.get(sent), 0);
+    }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+const managedProject = ProjectId.make("project:test");
+
+const managerTaskInput = (
+  overrides: Partial<ScheduledTaskUpsertInput> = {},
+): ScheduledTaskUpsertInput => ({
+  ...botTaskInput(CAPTAIN_ID),
+  id: ScheduledTaskId.make("task:as-manager"),
+  botId: undefined,
+  projectManager: true,
+  projectId: managedProject,
+  threadId: null,
+  ...overrides,
+});
+
+/** Stands in for the crew: `managers` holds each managed project's title and on/off state. */
+const connectManagers = (
+  service: ScheduledTaskService.ScheduledTaskService["Service"],
+  managers: Map<string, { title: string; enabled: boolean }>,
+) =>
+  service.connectProjectManagers({
+    status: (projectId) =>
+      projectId === "project:scratch"
+        ? Effect.fail(
+            new ScheduledTaskError({ message: "Scratch and bot homes have no Project manager" }),
+          )
+        : Effect.succeed(managers.get(projectId) ?? null),
+    open: (projectId) =>
+      Effect.succeed({ threadId: projectHeadquartersThreadId(projectId), projectId }),
+  });
+
+it.effect("a manager task runs in its manager's thread, and not while the manager is off", () =>
+  Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
+    const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
+      [],
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const managers = new Map([[managedProject, { title: "Web", enabled: true }]]);
+      yield* connectManagers(service, managers);
+
+      const { task } = yield* service.upsert(managerTaskInput());
+      assert.isTrue(task.projectManager);
+      assert.isNull(task.threadId);
+      assert.strictEqual(task.projectId, managedProject);
+
+      const run = yield* service.runNow({ id: task.id });
+      assert.strictEqual(run.threadId, projectHeadquartersThreadId(managedProject));
+      assert.strictEqual(run.task.lastRunStatus, "succeeded");
+      const [send] = yield* Ref.get(sent);
+      assert.strictEqual(send?.threadId, projectHeadquartersThreadId(managedProject));
+      assert.isUndefined(send?.modelSelection);
+
+      const both = yield* Effect.flip(service.upsert(managerTaskInput({ botId: CAPTAIN_ID })));
+      assert.strictEqual(
+        both.message,
+        "An automation runs as a bot or a project manager, not both.",
+      );
+      const scratch = yield* Effect.flip(
+        service.upsert(managerTaskInput({ projectId: ProjectId.make("project:scratch") })),
+      );
+      assert.strictEqual(scratch.message, "Scratch and bot homes have no Project manager");
+      // A client that predates manager tasks re-saves without the field and keeps the manager.
+      const { projectManager: _projectManager, ...legacySave } = managerTaskInput();
+      assert.isTrue((yield* service.upsert(legacySave)).task.projectManager);
+
+      managers.set(managedProject, { title: "Web", enabled: false });
+      const off = yield* service.runNow({ id: task.id });
+      assert.strictEqual(off.task.lastRunStatus, "failed");
+      assert.strictEqual(off.task.lastRunError, "Web's manager is turned off.");
+      const refused = yield* Effect.flip(service.upsert(managerTaskInput()));
+      assert.strictEqual(refused.message, "Web's manager is turned off. Turn it on first.");
+
+      managers.delete(managedProject);
+      const gone = yield* service.runNow({ id: task.id });
+      assert.strictEqual(gone.task.lastRunStatus, "failed");
+      assert.strictEqual(gone.task.lastRunError, "The project no longer exists.");
+      assert.lengthOf(yield* Ref.get(sent), 1);
+
+      // Back to a thread per run, then to a bot, which drops the manager.
+      const { task: plain } = yield* service.upsert(managerTaskInput({ projectManager: false }));
+      assert.isUndefined(plain.projectManager);
+      const { task: asBot } = yield* service.upsert(
+        managerTaskInput({ projectManager: undefined, botId: CAPTAIN_ID }),
+      );
+      assert.isUndefined(asBot.projectManager);
+      assert.strictEqual(asBot.botId, CAPTAIN_ID);
+    }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("pauses a manager's tasks with a reason that stays until one is turned back on", () =>
+  Effect.gen(function* () {
+    const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
+      [],
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const managers = new Map([[managedProject, { title: "Web", enabled: true }]]);
+      yield* connectManagers(service, managers);
+      const { task } = yield* service.upsert(managerTaskInput());
+      const { task: plain } = yield* service.upsert(
+        managerTaskInput({ id: ScheduledTaskId.make("task:plain"), projectManager: false }),
+      );
+
+      managers.set(managedProject, { title: "Web", enabled: false });
+      yield* service.pauseForProjectManager({
+        projectId: managedProject,
+        reason: "Web's manager was turned off",
+      });
+      const byId = new Map((yield* service.list()).tasks.map((each) => [each.id, each]));
+      assert.isFalse(byId.get(task.id)?.enabled);
+      assert.isNull(byId.get(task.id)?.nextRunAt);
+      assert.strictEqual(byId.get(task.id)?.pausedReason, "Web's manager was turned off");
+      assert.isTrue(byId.get(plain.id)?.enabled);
+      assert.isUndefined(byId.get(plain.id)?.pausedReason);
+
+      // An edit that leaves it off keeps the reason; turning it on is refused while the manager is off.
+      const edited = yield* service.upsert(managerTaskInput({ enabled: false, title: "Renamed" }));
+      assert.strictEqual(edited.task.pausedReason, "Web's manager was turned off");
+      const refused = yield* Effect.flip(service.setEnabled({ id: task.id, enabled: true }));
+      assert.strictEqual(refused.message, "Web's manager is turned off. Turn it on first.");
+
+      managers.set(managedProject, { title: "Web", enabled: true });
+      // Moving a paused copy off the manager drops the reason with it.
+      const { task: other } = yield* service.upsert(
+        managerTaskInput({ id: ScheduledTaskId.make("task:other-manager") }),
+      );
+      yield* service.pauseForProjectManager({ projectId: managedProject, reason: "Off" });
+      const movedOff = yield* service.upsert(
+        managerTaskInput({ id: other.id, enabled: false, projectManager: false }),
+      );
+      assert.isUndefined(movedOff.task.pausedReason);
+
+      const resumed = yield* service.setEnabled({ id: task.id, enabled: true });
+      assert.isUndefined(resumed.task.pausedReason);
+      const [stored] = (yield* service.list()).tasks.filter((each) => each.id === task.id);
+      assert.isTrue(stored?.enabled);
+      assert.isUndefined(stored?.pausedReason);
+    }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("deletes the manager tasks of deleted projects only", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
+      [],
+    );
+    const live = ProjectId.make("project:live");
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      yield* connectManagers(
+        service,
+        new Map([
+          [managedProject, { title: "Web", enabled: true }],
+          [live, { title: "Live", enabled: true }],
+        ]),
+      );
+      const { task: deleted } = yield* service.upsert(managerTaskInput());
+      const { task: kept } = yield* service.upsert(
+        managerTaskInput({ id: ScheduledTaskId.make("task:live-manager"), projectId: live }),
+      );
+      const { task: plain } = yield* service.upsert(
+        managerTaskInput({ id: ScheduledTaskId.make("task:plain"), projectManager: false }),
+      );
+      const now = "2026-11-15T00:00:00.000Z";
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at
+        ) VALUES
+          (${managedProject}, 'Web', '/web', '[]', ${now}, ${now}, ${now}),
+          (${live}, 'Live', '/live', '[]', ${now}, ${now}, NULL)
+      `;
+
+      yield* service.deleteForDeletedProjects();
+      const ids = (yield* service.list()).tasks.map((task) => task.id).toSorted();
+      assert.notInclude(ids, deleted.id);
+      assert.deepStrictEqual(ids, [kept.id, plain.id].toSorted());
     }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

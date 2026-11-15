@@ -19,6 +19,7 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as BosunMigrations from "../persistence/BosunMigrations.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
+import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { CrewService } from "./CrewService.ts";
 import * as ProjectRequests from "./ProjectRequests.ts";
 
@@ -48,6 +49,7 @@ const setup = Effect.gen(function* () {
   const turns = new Map<string, ReadonlyArray<object>>();
   const active: { run: OrchestrationV2Run | null } = { run: null };
   const off = new Set<string>();
+  const paused = yield* Ref.make<ReadonlyArray<{ projectId: ProjectId; reason: string }>>([]);
   const layer = ProjectRequests.layer.pipe(
     Layer.provideMerge(NoticeInbox.layer),
     Layer.provide(
@@ -65,6 +67,9 @@ const setup = Effect.gen(function* () {
         }),
         Layer.mock(ProjectStore.ProjectStoreV2)({
           get: () => Effect.succeedSome({ title: "Web" } as never),
+        }),
+        Layer.mock(ScheduledTaskService)({
+          pauseForProjectManager: (input) => Ref.update(paused, (all) => [...all, input]),
         }),
         Layer.mock(CrewService)({
           ensureProjectManager: () => Effect.succeed({ threadId: managerThreadId } as never),
@@ -110,7 +115,7 @@ const setup = Effect.gen(function* () {
     ),
   );
   const clear = Ref.set(dispatched, []);
-  return { requests, inbox, sent, clear, turns, active };
+  return { requests, inbox, sent, clear, turns, active, paused: Ref.get(paused) };
 });
 
 const sqlite = NodeSqliteClient.layer({ filename: ":memory:" });
@@ -233,9 +238,9 @@ it.effect("lets only the project's manager reply, and closes the request when it
   }).pipe(Effect.provide(sqlite)),
 );
 
-it.effect("hands open requests back when the manager is turned off, and takes no new ones", () =>
+it.effect("hands open requests back and pauses automations when the manager is turned off", () =>
   Effect.gen(function* () {
-    const { requests, sent, clear } = yield* setup;
+    const { requests, sent, clear, paused } = yield* setup;
     yield* requests.send({ projectId, requesterThreadId: hq, key: "csv", message: "Add export" });
     yield* requests.send({ projectId, requesterThreadId: hq, key: "pdf", message: "Add PDF" });
     yield* requests.reply({
@@ -248,6 +253,7 @@ it.effect("hands open requests back when the manager is turned off, and takes no
     yield* clear;
 
     yield* requests.setManagerEnabled({ projectId, enabled: false });
+    assert.deepStrictEqual(yield* paused, [{ projectId, reason: "Web's manager was turned off" }]);
     const handedBack = yield* sent;
     assert.deepStrictEqual(
       handedBack.map((message) => [message.threadId, message.id]),
@@ -262,6 +268,8 @@ it.effect("hands open requests back when the manager is turned off, and takes no
     assert.include(refused.message, "turned off");
 
     yield* requests.setManagerEnabled({ projectId, enabled: true });
+    // Turning it back on resumes nothing.
+    assert.lengthOf(yield* paused, 1);
     const sentAgain = yield* requests.send({
       projectId,
       requesterThreadId: hq,

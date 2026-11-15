@@ -724,6 +724,9 @@ const OrchestratorMcpScheduledTaskBot = Schema.optional(
   }),
 );
 
+// `schedule_task`'s description explains it; repeating that here costs every agent turn.
+const OrchestratorMcpScheduledTaskProjectManager = Schema.optional(Schema.Boolean);
+
 export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,
   projectId: OrchestratorMcpProjectTarget,
@@ -738,6 +741,7 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
     }),
   ),
   botId: OrchestratorMcpScheduledTaskBot,
+  projectManager: OrchestratorMcpScheduledTaskProjectManager,
   freshSession: Schema.optional(
     Schema.Boolean.annotate({
       description:
@@ -766,6 +770,8 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   projectId: ProjectId,
   boundThreadId: Schema.NullOr(ThreadId),
   botId: Schema.optional(Schema.String),
+  projectManager: Schema.optional(Schema.Boolean),
+  pausedReason: Schema.optional(Schema.String),
   freshSession: Schema.Boolean,
   schedule: ScheduledTaskSchedule,
   nextRunAt: Schema.NullOr(IsoDateTime),
@@ -811,6 +817,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
   botId: OrchestratorMcpScheduledTaskBot,
+  projectManager: OrchestratorMcpScheduledTaskProjectManager,
   freshSession: Schema.optional(Schema.Boolean),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =

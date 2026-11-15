@@ -1,5 +1,6 @@
 import {
   botHeadquartersThreadId,
+  projectHeadquartersThreadId,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -17,6 +18,7 @@ import {
   hasUnseenAutomationFailure,
   isAutomationFailureUnseen,
   isAutomationRunning,
+  managerAutomationsWarning,
   runningAutomationKeys,
 } from "./automations.ts";
 import { buildLogicalBots } from "./botRail.ts";
@@ -124,6 +126,8 @@ describe("groupAutomationsByBot", () => {
             task("Triage", { projectId: ProjectId.make("blog") }),
             task("Nightly build", { projectId: ProjectId.make("app") }),
             task("Cleanup", { projectId: ProjectId.make("loose") }),
+            // A manager's task goes where its project's other tasks go.
+            task("Loose triage", { projectId: ProjectId.make("loose"), projectManager: true }),
           ],
         },
         {
@@ -131,6 +135,7 @@ describe("groupAutomationsByBot", () => {
           tasks: [
             task("Analytics", { projectId: ProjectId.make("site") }),
             task("Docs build", { projectId: ProjectId.make("docs") }),
+            task("Docs triage", { projectId: ProjectId.make("docs"), projectManager: true }),
           ],
         },
       ],
@@ -158,11 +163,11 @@ describe("groupAutomationsByBot", () => {
       groups.map((group) => [group.bot?.name, group.entries.map((entry) => entry.key)]),
     ).toEqual([
       ["Captain", ["local:Nightly build"]],
-      ["Social", ["remote:Docs build", "local:Triage"]],
+      ["Social", ["remote:Docs build", "remote:Docs triage", "local:Triage"]],
       // The same-named bot on remote is its own bot.
       ["Social", ["remote:Analytics"]],
       // A project with no bot files its tasks under No bot, last.
-      [undefined, ["local:Cleanup"]],
+      [undefined, ["local:Cleanup", "local:Loose triage"]],
     ]);
   });
 
@@ -254,6 +259,36 @@ describe("bot automations", () => {
       "Its 1 automation will be deleted too.",
     );
     expect(botAutomationsDeleteWarning(tasks, "bot-quiet")).toBeNull();
+  });
+});
+
+describe("project manager automations", () => {
+  it("finds a manager task's runs in the manager's thread", () => {
+    const managerThread = projectHeadquartersThreadId("app");
+    const runs = createAutomationRunIndex([
+      shell(managerThread, { title: "Project manager", createdAt: "2026-09-01T00:00:00.000Z" }),
+      shell("same-title", { title: "Triage", createdAt: "2026-10-02T00:00:00.000Z" }),
+    ]);
+    expect(
+      runs(local, task("Triage", { projectManager: true })).map((thread) => thread.id),
+    ).toEqual([managerThread]);
+  });
+
+  it("warns how many of the manager's automations turning it off pauses or deleting deletes", () => {
+    const tasks = [
+      task("a", { projectManager: true }),
+      task("b", { projectManager: true, enabled: false }),
+      task("c", { projectManager: true, projectId: ProjectId.make("blog") }),
+      task("d"),
+    ];
+    expect(managerAutomationsWarning(tasks, "app", "off")).toBe(
+      "1 automation runs as this manager. Turning it off pauses it.",
+    );
+    expect(managerAutomationsWarning(tasks, "app", "delete")).toBe(
+      "Its manager's 2 automations will be deleted too.",
+    );
+    expect(managerAutomationsWarning([tasks[1]!], "app", "off")).toBeNull();
+    expect(managerAutomationsWarning(tasks, "web", "delete")).toBeNull();
   });
 });
 

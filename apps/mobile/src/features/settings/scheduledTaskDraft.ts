@@ -205,6 +205,8 @@ export type ScheduledTaskDraft = {
   readonly prompt: string;
   /** The bot the task runs as, in its headquarters; null starts a new thread per run. */
   readonly botId: string | null;
+  /** Runs as `projectId`'s manager, in its thread. */
+  readonly projectManager: boolean;
   readonly projectId: ProjectId | null;
   readonly threadId: ThreadId | null;
   readonly modelSelection: ModelSelection | null;
@@ -224,6 +226,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.title,
     draft.prompt,
     draft.botId,
+    draft.projectManager,
     draft.projectId,
     draft.threadId,
     draft.modelSelection?.instanceId,
@@ -299,6 +302,7 @@ export function createDraft(
     title: "",
     prompt: "",
     botId: null,
+    projectManager: false,
     projectId,
     threadId: null,
     modelSelection,
@@ -320,6 +324,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     title: task.title,
     prompt: task.prompt,
     botId: task.botId ?? null,
+    projectManager: task.projectManager === true,
     projectId: task.projectId,
     threadId: task.threadId,
     modelSelection: task.modelSelection,
@@ -344,27 +349,48 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
 /**
  * Where a save sends the task's runs, or null while a thread task lacks something it needs. A
  * bot task runs in the bot's headquarters, which picks its own project, model and checkout, so
- * the server files it and the hidden fields don't apply.
+ * the server files it and the hidden fields don't apply. A manager task keeps only its project.
  */
 export function scheduledTaskRunTarget(
   draft: Pick<
     ScheduledTaskDraft,
-    "botId" | "projectId" | "workspace" | "baseRef" | "checkoutPath" | "startFromOrigin"
+    | "botId"
+    | "projectManager"
+    | "projectId"
+    | "workspace"
+    | "baseRef"
+    | "checkoutPath"
+    | "startFromOrigin"
   >,
-): Pick<ScheduledTaskUpsertInput, "botId" | "projectId" | "workspaceStrategy"> | null {
-  if (draft.botId !== null) return { botId: draft.botId, workspaceStrategy: { type: "root" } };
+): Pick<
+  ScheduledTaskUpsertInput,
+  "botId" | "projectManager" | "projectId" | "workspaceStrategy"
+> | null {
+  if (draft.botId !== null) {
+    return { botId: draft.botId, projectManager: false, workspaceStrategy: { type: "root" } };
+  }
   if (draft.projectId === null) return null;
+  if (draft.projectManager) {
+    return {
+      botId: null,
+      projectManager: true,
+      projectId: draft.projectId,
+      workspaceStrategy: { type: "root" },
+    };
+  }
   if (draft.workspace === "existing_worktree") {
     const worktreePath = draft.checkoutPath.trim();
     if (!worktreePath) return null;
     return {
       botId: null,
+      projectManager: false,
       projectId: draft.projectId,
       workspaceStrategy: { type: "existing_worktree", worktreePath },
     };
   }
   return {
     botId: null,
+    projectManager: false,
     projectId: draft.projectId,
     workspaceStrategy:
       draft.workspace === "root"

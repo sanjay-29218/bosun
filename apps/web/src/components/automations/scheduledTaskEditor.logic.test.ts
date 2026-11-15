@@ -77,15 +77,29 @@ describe("runs as", () => {
   it("reopens a bot task on its bot and a thread task on a new thread", () => {
     expect(taskToDraft({ ...legacyTask, botId: "bot-social" }).botId).toBe("bot-social");
     expect(taskToDraft(legacyTask).botId).toBe("");
+    expect(taskToDraft({ ...legacyTask, projectManager: true }).projectManager).toBe(true);
+    expect(taskToDraft(legacyTask).projectManager).toBe(false);
   });
 
-  it("sends a bot task to the bot without a project, and a thread task back to its project", () => {
-    expect(runTargetFromDraft({ botId: "bot-social" }, thread)).toEqual({
+  it("sends a bot task to the bot, a manager task to its project's manager, and a thread task back to its project", () => {
+    expect(runTargetFromDraft({ botId: "bot-social", projectManager: false }, thread)).toEqual({
       botId: "bot-social",
+      projectManager: false,
       threadId: null,
       workspaceStrategy: { type: "root" },
     });
-    expect(runTargetFromDraft({ botId: "" }, thread)).toEqual({ ...thread, botId: null });
+    expect(runTargetFromDraft({ botId: "", projectManager: true }, thread)).toEqual({
+      botId: null,
+      projectManager: true,
+      projectId: thread.projectId,
+      threadId: null,
+      workspaceStrategy: { type: "root" },
+    });
+    expect(runTargetFromDraft({ botId: "", projectManager: false }, thread)).toEqual({
+      ...thread,
+      botId: null,
+      projectManager: false,
+    });
   });
 });
 

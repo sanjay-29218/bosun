@@ -67,6 +67,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { botsEnvironment } from "../../state/bots";
 import { useThreadSearch } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
+import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { threadFamilies } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -131,7 +132,15 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Switch } from "../ui/switch";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -160,6 +169,7 @@ const EMPTY_DRAFT: DraftState = {
   savedRunAt: "",
   weekdays: new Set([1, 2, 3, 4, 5]),
   botId: "",
+  projectManager: false,
   projectId: "",
   threadId: "",
   threadMode: "new_thread",
@@ -311,6 +321,26 @@ function RunsAsOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "co
   );
 }
 
+const MANAGER_RUN_PREFIX = "project-manager:";
+
+function ManagerRunsAsOption({
+  environmentId,
+  projectId,
+  title,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly title: string;
+}) {
+  const icon = useProjectManagerIcon(environmentId, projectId);
+  return (
+    <span className="flex items-center gap-2">
+      <ProjectManagerAvatar projectId={projectId} icon={icon} size="xs" />
+      {title} manager
+    </span>
+  );
+}
+
 function splitModelKey(value: string): ModelSelection | null {
   const index = value.indexOf(":");
   if (index <= 0 || index === value.length - 1) return null;
@@ -402,11 +432,13 @@ export function ScheduledTaskActions({
     setBusy(false);
     if (result._tag === "Failure") {
       if (isAtomCommandInterrupted(result)) return;
+      const failure = squashAtomCommandFailure(result);
       toastManager.add(
         stackedThreadToast({
           type: "error",
           title: "Could not update scheduled task",
-          description: String(squashAtomCommandFailure(result)),
+          // The server's own sentence, such as a manager that's off, rather than the error's tag.
+          description: failure instanceof Error ? failure.message : String(failure),
         }),
       );
       return;
@@ -906,11 +938,14 @@ function ScheduledTaskDestination({
 
 export function ScheduledTaskEditorForm({
   initialEnvironmentId,
+  initialManagerProjectId,
   task,
   onSaved,
   onCancel,
 }: {
   readonly initialEnvironmentId: EnvironmentId;
+  /** A new task starts out running as this project's manager. */
+  readonly initialManagerProjectId?: ProjectId;
   readonly task: ScheduledTask | null;
   readonly onSaved: (environmentId: EnvironmentId, task: ScheduledTask) => void;
   readonly onCancel: () => void;
@@ -953,10 +988,12 @@ export function ScheduledTaskEditorForm({
   const [draft, setDraft] = useState<DraftState>(() =>
     task
       ? taskToDraft(task)
-      : {
-          ...EMPTY_DRAFT,
-          projectId: defaultScheduledTaskProjectId(scopedProjects),
-        },
+      : initialManagerProjectId !== undefined
+        ? { ...EMPTY_DRAFT, projectId: initialManagerProjectId, projectManager: true }
+        : {
+            ...EMPTY_DRAFT,
+            projectId: defaultScheduledTaskProjectId(scopedProjects),
+          },
   );
   // Pinned first. The chosen project stays listed after it is archived.
   const projects = scopedProjects
@@ -978,8 +1015,16 @@ export function ScheduledTaskEditorForm({
     : task;
   const runsAsBot = draft.botId !== "";
   const runsAs = bots.find((bot) => bot.id === draft.botId) ?? null;
+  const runsAsManager = !runsAsBot && draft.projectManager;
+  // A bot or a manager runs in its own thread, with its own model and checkout.
+  const runsAsStanding = runsAsBot || runsAsManager;
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  // Scratch and bots' homes have no manager. One that's off is still listed; saving refuses it.
+  const managedProjects =
+    environment?.serverConfig?.environment.capabilities.scheduledTaskProjectManagers === true
+      ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
+      : [];
   const instanceEntries = providerInstanceEntriesFor(
     providers,
     settings,
@@ -1039,8 +1084,9 @@ export function ScheduledTaskEditorForm({
       tasksQuery.data === null
     )
       return;
-    // A bot task runs on the bot's model; the stored one only seeds a later switch to a thread.
-    const selection = activeSelection ?? (runsAsBot ? (liveTask?.modelSelection ?? null) : null);
+    // A bot or manager task runs on its own model; the stored one only seeds a later switch to a thread.
+    const selection =
+      activeSelection ?? (runsAsStanding ? (liveTask?.modelSelection ?? null) : null);
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||
@@ -1049,7 +1095,7 @@ export function ScheduledTaskEditorForm({
     ) {
       reportFailure(
         "Scheduled task is incomplete",
-        runsAsBot ? "Add a title and prompt." : "Add a title, prompt, project, and model.",
+        runsAsStanding ? "Add a title and prompt." : "Add a title, prompt, project, and model.",
       );
       return;
     }
@@ -1088,7 +1134,7 @@ export function ScheduledTaskEditorForm({
       return;
     }
     if (
-      !runsAsBot &&
+      !runsAsStanding &&
       draft.workspaceMode === "existing_worktree" &&
       !draft.existingWorktreePath.trim()
     ) {
@@ -1159,6 +1205,7 @@ export function ScheduledTaskEditorForm({
               setDraft((current) => ({
                 ...unbindDraftFromThread(current),
                 botId: "",
+                projectManager: false,
                 projectId: defaultScheduledTaskProjectId(projectsOn(next.environmentId)),
                 modelKey: "",
                 baseModelSelection: null,
@@ -1208,21 +1255,47 @@ export function ScheduledTaskEditorForm({
             </SelectPopup>
           </Select>
         </Field>
-        {bots.length > 0 || runsAsBot ? (
+        {bots.length > 0 || managedProjects.length > 0 || runsAsStanding ? (
           <Field label="Runs as" htmlFor="scheduled-task-runs-as">
             <Select
-              value={draft.botId || NEW_THREAD_RUN}
+              value={
+                runsAsBot
+                  ? draft.botId
+                  : runsAsManager
+                    ? `${MANAGER_RUN_PREFIX}${draft.projectId}`
+                    : NEW_THREAD_RUN
+              }
               onValueChange={(value) =>
-                setDraft((current) => ({
-                  ...current,
-                  botId: value === NEW_THREAD_RUN || value === null ? "" : value,
-                }))
+                setDraft((current) =>
+                  value?.startsWith(MANAGER_RUN_PREFIX)
+                    ? {
+                        ...current,
+                        botId: "",
+                        projectManager: true,
+                        projectId: value.slice(MANAGER_RUN_PREFIX.length),
+                      }
+                    : {
+                        ...current,
+                        botId: value === NEW_THREAD_RUN || value === null ? "" : value,
+                        projectManager: false,
+                      },
+                )
               }
             >
               <SelectTrigger id="scheduled-task-runs-as" size="sm">
                 <SelectValue>
                   {() =>
-                    runsAsBot && runsAs === null ? (
+                    runsAsManager ? (
+                      selectedProject ? (
+                        <ManagerRunsAsOption
+                          environmentId={environmentId}
+                          projectId={selectedProject.id}
+                          title={selectedProject.title}
+                        />
+                      ) : (
+                        "Unavailable project manager"
+                      )
+                    ) : runsAsBot && runsAs === null ? (
                       botsQuery.data ? (
                         "Unavailable bot"
                       ) : (
@@ -1243,12 +1316,35 @@ export function ScheduledTaskEditorForm({
                     <RunsAsOption bot={bot} />
                   </SelectItem>
                 ))}
+                {managedProjects.length > 0 ? (
+                  <SelectGroup>
+                    <SelectGroupLabel>Project managers</SelectGroupLabel>
+                    {managedProjects.map((project) => (
+                      <SelectItem
+                        key={project.id}
+                        value={`${MANAGER_RUN_PREFIX}${project.id}`}
+                        label={`${project.title} manager`}
+                      >
+                        <ManagerRunsAsOption
+                          environmentId={environmentId}
+                          projectId={project.id}
+                          title={project.title}
+                        />
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : null}
               </SelectPopup>
             </Select>
             {runsAsBot ? (
               <p className="text-xs text-muted-foreground">
                 Runs in {runsAs?.name ?? "the bot"}'s headquarters with its model, tools and
                 instructions.
+              </p>
+            ) : runsAsManager ? (
+              <p className="text-xs text-muted-foreground">
+                Runs in {selectedProject?.title ?? "the project"}'s manager thread with its own
+                settings.
               </p>
             ) : null}
           </Field>
@@ -1272,7 +1368,7 @@ export function ScheduledTaskEditorForm({
           />
         </Field>
 
-        {runsAsBot ? null : (
+        {runsAsStanding ? null : (
           <ScheduledTaskDestination
             environmentId={environmentId}
             projectId={selectedProjectId}
@@ -1298,7 +1394,7 @@ export function ScheduledTaskEditorForm({
           />
         )}
 
-        {runsAsBot ? null : (
+        {runsAsStanding ? null : (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Project" htmlFor="scheduled-task-project">
               <Select
@@ -1350,7 +1446,7 @@ export function ScheduledTaskEditorForm({
           </div>
         )}
 
-        {!runsAsBot && draft.workspaceMode === "worktree" ? (
+        {!runsAsStanding && draft.workspaceMode === "worktree" ? (
           <Field label="Base branch" htmlFor="scheduled-task-base-ref">
             <WorktreeBaseBranchPicker
               key={`${environmentId}:${selectedProjectId}`}
@@ -1367,7 +1463,7 @@ export function ScheduledTaskEditorForm({
             />
           </Field>
         ) : null}
-        {!runsAsBot && draft.workspaceMode === "existing_worktree" ? (
+        {!runsAsStanding && draft.workspaceMode === "existing_worktree" ? (
           <Field label="Checkout path" htmlFor="scheduled-task-checkout">
             <Input
               id="scheduled-task-checkout"
@@ -1398,7 +1494,7 @@ export function ScheduledTaskEditorForm({
           />
         </Field>
 
-        {runsAsBot ? null : (
+        {runsAsStanding ? null : (
           <Field label="Model">
             <div>
               <SettingsModelPicker

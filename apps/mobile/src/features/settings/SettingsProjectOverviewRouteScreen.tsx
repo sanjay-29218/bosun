@@ -3,8 +3,15 @@ import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import * as Dialog from "../../components/ui/Dialog";
-import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentId,
+  type ScheduledTask,
+} from "@t3tools/contracts";
+import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automations";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
+import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult, Atom } from "effect/reactivity";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -20,6 +27,7 @@ import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { projectEnvironment } from "../../state/projects";
+import { serverEnvironment } from "../../state/server";
 import { useThreadShells } from "../../state/entities";
 import { appAtomRegistry } from "../../state/atom-registry";
 import {
@@ -46,6 +54,20 @@ import { leaveSettingsPage } from "./settings-navigation";
 import { workspaceHasColumns } from "../layout/workspace/workspace-selection-store";
 import { DEFAULT_SETTINGS_PAGE } from "../layout/workspace/workspace-tab-navigation";
 import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
+
+/** The scheduled tasks on each of these environments (newline-separated ids), live. */
+const scheduledTasksOnAtom = Atom.family((environmentIds: string) =>
+  Atom.make((get): ReadonlyMap<string, ReadonlyArray<ScheduledTask>> => {
+    const byEnvironment = new Map<string, ReadonlyArray<ScheduledTask>>();
+    for (const id of environmentIds.split("\n").filter(Boolean)) {
+      const result = get(
+        serverEnvironment.scheduledTasksLive({ environmentId: EnvironmentId.make(id), input: {} }),
+      );
+      byEnvironment.set(id, AsyncResult.getOrElse(result, () => null)?.tasks ?? []);
+    }
+    return byEnvironment;
+  }),
+);
 
 export function SettingsProjectOverviewRouteScreen() {
   const environmentMenu = useSettingsEnvironmentMenu();
@@ -149,6 +171,11 @@ function ProjectOverviewContent(props: {
   const [isSaving, setIsSaving] = useState(false);
   const threads = useThreadShells();
   const allMembers = props.group.members.map((member) => member.project);
+  const scheduledTasks = useAtomValue(
+    scheduledTasksOnAtom(
+      [...new Set(allMembers.map((member) => member.environmentId))].sort().join("\n"),
+    ),
+  );
   const removableEnvironments = useEnvironmentsWithScope(allMembers, AuthOrchestrationOperateScope);
   const canRemoveGroup = props.members.every((member) =>
     removableEnvironments.has(member.environmentId),
@@ -238,9 +265,18 @@ function ProjectOverviewContent(props: {
       threads,
       unloadedThreadCount: readUnloadedThreadCount(members, threads),
     });
+    // Deleting a project deletes the automations that run as its manager.
+    const automationWarnings = members.flatMap(
+      (member) =>
+        managerAutomationsWarning(
+          scheduledTasks.get(member.environmentId) ?? [],
+          member.id,
+          "delete",
+        ) ?? [],
+    );
     Dialog.confirm({
       title: plan.targetKind === "checkout" ? "Remove checkout" : "Remove project",
-      message: plan.confirmationMessage,
+      message: [plan.confirmationMessage, ...automationWarnings].join("\n\n"),
       confirmText: plan.targetKind === "checkout" ? "Remove checkout" : "Remove project",
       destructive: true,
       onCancel: finishRemoval,

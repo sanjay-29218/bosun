@@ -9,7 +9,6 @@ import {
 import { readEnvironmentScope } from "../../state/session";
 import type {
   EnvironmentId,
-  ProjectId,
   ScheduledTask,
   ScheduledTaskThreadMode,
   ScheduledTaskUpsertInput,
@@ -17,6 +16,7 @@ import type {
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   MAX_WEBHOOK_FILTERS,
+  ProjectId,
   resolveEnvironmentMachineKind,
   scheduledTaskThreadMode,
 } from "@t3tools/contracts";
@@ -28,6 +28,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { automationPausedLabel } from "@t3tools/client-runtime/state/automations";
 import { resolvePastedPath } from "@t3tools/shared/path";
 import {
   DEFAULT_WEBHOOK_PROMPT,
@@ -108,8 +109,16 @@ type ScheduledTaskRoutes = {
   SettingsScheduledTaskThread: undefined;
 };
 
+/** The server's own sentence, such as a manager that's off, rather than the error's tag. */
+function commandFailureMessage(result: AtomCommandResult<unknown, unknown>): string {
+  const failure = result._tag === "Failure" ? squashAtomCommandFailure(result) : null;
+  return failure instanceof Error ? failure.message : String(failure);
+}
+
 /** The "Runs as" menu's id for a task that starts a new thread per run; bots use their ids. */
 const RUNS_AS_THREAD = "runs-as:thread";
+/** Prefixes a project id in the "Runs as" menu for a task that runs as that project's manager. */
+const RUNS_AS_MANAGER = "runs-as:manager:";
 
 const DAYS = [
   { index: 1, label: "Mon" },
@@ -704,6 +713,17 @@ function TaskForm({
   const config = useEnvironmentServerConfig(environmentId);
   const bots = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} })).data ?? [];
   const runsAsBot = draft.botId === null ? null : bots.find((bot) => bot.id === draft.botId);
+  const runsAsManager = draft.botId === null && draft.projectManager;
+  // A bot or a manager runs in its own thread, with its own model and checkout.
+  const runsAsStanding = draft.botId !== null || runsAsManager;
+  const managerProject = runsAsManager
+    ? projects.find((project) => project.id === draft.projectId)
+    : undefined;
+  // Scratch and bots' homes have no manager. One that's off is still listed; saving refuses it.
+  const managedProjects =
+    config?.environment.capabilities.scheduledTaskProjectManagers === true
+      ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
+      : [];
   const destinationLabel = useScheduledTaskDestinationLabel(environmentId, draft.threadId);
   const boundThread = useScheduledTaskThread(environmentId, draft.threadId);
   // Bound runs use the thread's current model, so the locked row shows that one.
@@ -733,7 +753,7 @@ function TaskForm({
 
   const failure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      Dialog.alert(title, String(squashAtomCommandFailure(result)));
+      Dialog.alert(title, commandFailureMessage(result));
     }
   };
 
@@ -800,7 +820,7 @@ function TaskForm({
     ) {
       Dialog.alert(
         "Incomplete task",
-        draft.botId === null
+        !runsAsStanding
           ? "Add a name, prompt, project, model, valid schedule, and checkout path if needed."
           : "Add a name, prompt, and valid schedule.",
       );
@@ -885,11 +905,17 @@ function TaskForm({
               if (target) onChangeEnvironment(target);
             }}
           />
-          {bots.length > 0 || draft.botId !== null ? (
+          {bots.length > 0 || managedProjects.length > 0 || runsAsStanding ? (
             <SelectRow
               label="Runs as"
               borderTop
-              value={draft.botId === null ? "A new thread" : (runsAsBot?.name ?? draft.botId)}
+              value={
+                runsAsManager
+                  ? `${managerProject?.title ?? "Project"} manager`
+                  : draft.botId === null
+                    ? "A new thread"
+                    : (runsAsBot?.name ?? draft.botId)
+              }
               valueIcon={
                 runsAsBot ? (
                   <BotAvatar avatar={runsAsBot.avatar} color={runsAsBot.color} size={22} />
@@ -902,17 +928,38 @@ function TaskForm({
                       {
                         id: RUNS_AS_THREAD,
                         title: "A new thread in a project",
-                        state: draft.botId === null ? "on" : undefined,
+                        state: runsAsStanding ? undefined : "on",
                       },
                       ...bots.map((bot) => ({
                         id: bot.id,
                         title: bot.name,
                         state: bot.id === draft.botId ? ("on" as const) : undefined,
                       })),
+                      ...managedProjects.map((project) => ({
+                        id: `${RUNS_AS_MANAGER}${project.id}`,
+                        title: `${project.title} manager`,
+                        state:
+                          runsAsManager && project.id === draft.projectId
+                            ? ("on" as const)
+                            : undefined,
+                      })),
                     ]
               }
               onSelect={(id) =>
-                setDraft((current) => ({ ...current, botId: id === RUNS_AS_THREAD ? null : id }))
+                setDraft((current) =>
+                  id.startsWith(RUNS_AS_MANAGER)
+                    ? {
+                        ...current,
+                        botId: null,
+                        projectManager: true,
+                        projectId: ProjectId.make(id.slice(RUNS_AS_MANAGER.length)),
+                      }
+                    : {
+                        ...current,
+                        botId: id === RUNS_AS_THREAD ? null : id,
+                        projectManager: false,
+                      },
+                )
               }
             />
           ) : null}
@@ -933,9 +980,13 @@ function TaskForm({
             Runs in {runsAsBot?.name ?? "the bot"}'s headquarters, with its model, tools and
             instructions.
           </Text>
+        ) : runsAsManager ? (
+          <Text textRole="footnote" className="px-1 text-foreground-muted">
+            Runs in {managerProject?.title ?? "the project"}'s manager thread with its own settings.
+          </Text>
         ) : null}
 
-        {draft.botId === null ? (
+        {!runsAsStanding ? (
           <>
             <SettingsSection title="Context">
               <SelectRow
@@ -1556,7 +1607,7 @@ function EnvironmentTasks({
   const selectDetail = useSelectWorkspaceDetail();
   const failure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      Dialog.alert(title, String(squashAtomCommandFailure(result)));
+      Dialog.alert(title, commandFailureMessage(result));
     }
   };
 
@@ -1616,7 +1667,7 @@ function EnvironmentTasks({
               <Text className="text-sm text-foreground-muted" numberOfLines={2}>
                 {describeSchedule(task, tasks.data?.timeZone)}
                 {!task.enabled
-                  ? " · Paused"
+                  ? ` · ${automationPausedLabel(task) ?? "Paused"}`
                   : task.nextRunAt
                     ? ` · ${formatNextScheduledTaskRun(task.nextRunAt, now)}`
                     : ""}

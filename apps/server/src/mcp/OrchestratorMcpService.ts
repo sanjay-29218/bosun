@@ -1,5 +1,6 @@
 import {
   botHeadquartersThreadId,
+  projectHeadquartersThreadId,
   headquartersProjectId,
   CommandId,
   type RunId,
@@ -289,6 +290,8 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     projectId: task.projectId,
     boundThreadId: task.threadId,
     ...(task.botId === undefined ? {} : { botId: task.botId }),
+    ...(task.projectManager === true ? { projectManager: true } : {}),
+    ...(task.pausedReason === undefined ? {} : { pausedReason: task.pausedReason }),
     freshSession: scheduledTaskThreadMode(task) === "fresh_session",
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
@@ -2135,29 +2138,33 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * A bot's runs take its headquarters' modes, which follow the bot. Before the headquarters
-   * exists they are unknown, so only a full-access caller may give the bot work.
+   * A bot's or a project manager's runs take its standing thread's modes, which follow its
+   * settings. Before the thread exists they are unknown, so only a full-access caller may give it work.
    */
-  const botRunModes = Effect.fn("OrchestratorMcpService.botRunModes")(function* (botId: string) {
-    const headquarters = yield* threadManagement
-      .getThreadShell(botHeadquartersThreadId(botId))
+  const standingRunModes = Effect.fn("OrchestratorMcpService.standingRunModes")(function* (
+    threadId: ThreadId,
+  ) {
+    const standing = yield* threadManagement
+      .getThreadShell(threadId)
       .pipe(Effect.mapError(threadManagementFailure));
-    return headquarters === null || headquarters.deletedAt !== null
+    return standing === null || standing.deletedAt !== null
       ? { runtimeMode: "full-access" as const, interactionMode: "default" as const }
-      : headquarters;
+      : standing;
   });
 
-  const assertCoversBotRuns = Effect.fn("OrchestratorMcpService.assertCoversBotRuns")(function* (
-    botId: string,
-    limits: {
-      readonly runtimeMode: RuntimeMode;
-      readonly interactionMode: ProviderInteractionMode;
+  const assertCoversStandingRuns = Effect.fn("OrchestratorMcpService.assertCoversStandingRuns")(
+    function* (
+      threadId: ThreadId,
+      limits: {
+        readonly runtimeMode: RuntimeMode;
+        readonly interactionMode: ProviderInteractionMode;
+      },
+    ) {
+      const modes = yield* standingRunModes(threadId);
+      yield* resolveRuntimeMode(limits.runtimeMode, modes.runtimeMode);
+      yield* resolveInteractionMode(limits.interactionMode, modes.interactionMode);
     },
-  ) {
-    const modes = yield* botRunModes(botId);
-    yield* resolveRuntimeMode(limits.runtimeMode, modes.runtimeMode);
-    yield* resolveInteractionMode(limits.interactionMode, modes.interactionMode);
-  });
+  );
 
   const refExists = (cwd: string, revision: string) =>
     gitDriver.resolveCommit({ cwd, revision }).pipe(
@@ -2207,7 +2214,12 @@ const make = Effect.gen(function* () {
 
   const scheduledTaskRunModes = Effect.fn("OrchestratorMcpService.scheduledTaskRunModes")(
     function* (task: ScheduledTask) {
-      if (task.botId !== undefined) return [yield* botRunModes(task.botId)];
+      if (task.botId !== undefined) {
+        return [yield* standingRunModes(botHeadquartersThreadId(task.botId))];
+      }
+      if (task.projectManager === true) {
+        return [yield* standingRunModes(projectHeadquartersThreadId(task.projectId))];
+      }
       const modes = [{ runtimeMode: task.runtimeMode, interactionMode: task.interactionMode }];
       if (task.threadId === null) return modes;
       const bound = yield* threadManagement
@@ -2291,12 +2303,16 @@ const make = Effect.gen(function* () {
     scheduleTask: Effect.fn("OrchestratorMcpService.scheduleTask")(function* (scope, input) {
       const { parent, limits } = yield* loadCaller(scope, ["runs"]);
       const botId = input.botId ?? null;
+      const projectManager = input.projectManager === true;
+      if (botId !== null && projectManager) {
+        return yield* failure("invalid_request", "Pass botId or projectManager, not both.");
+      }
       // A bot's task runs in its headquarters, on the bot's model, and the scheduler files it in
       // the bot's home; a project, when there is one, only scopes its secrets.
       const target =
         botId !== null
           ? yield* Effect.gen(function* () {
-              yield* assertCoversBotRuns(botId, limits);
+              yield* assertCoversStandingRuns(botHeadquartersThreadId(botId), limits);
               if (input.projectId !== undefined) {
                 yield* assertLiveCallerForOtherProject(scope, parent, input.projectId);
                 yield* requireProject(input.projectId);
@@ -2322,35 +2338,50 @@ const make = Effect.gen(function* () {
                 modelSelection,
               };
             })
-          : yield* Effect.gen(function* () {
-              const projectId = yield* resolveProjectTarget(parent, input.projectId);
-              yield* assertLiveCallerForOtherProject(scope, parent, projectId);
-              const project = yield* requireProject(projectId);
-              const bindToCurrentThread =
-                input.bindToCurrentThread ??
-                (parent !== undefined && parent.thread.projectId === projectId);
-              if (
-                bindToCurrentThread &&
-                (parent === undefined || parent.thread.projectId !== projectId)
-              ) {
-                return yield* failure(
-                  "invalid_request",
-                  parent === undefined
-                    ? "bindToCurrentThread needs an agent running inside a T3 thread."
-                    : "bindToCurrentThread binds to this thread, which belongs to a different project.",
-                );
-              }
-              return {
-                projectId,
-                bindToCurrentThread,
-                workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(
-                  bindToCurrentThread,
+          : projectManager
+            ? yield* Effect.gen(function* () {
+                // The manager's thread runs on its own model; this one only seeds the task.
+                const projectId = yield* resolveProjectTarget(parent, input.projectId);
+                yield* assertLiveCallerForOtherProject(scope, parent, projectId);
+                const project = yield* requireProject(projectId);
+                yield* assertCoversStandingRuns(projectHeadquartersThreadId(projectId), limits);
+                return {
                   projectId,
-                ),
-                modelSelection:
-                  parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project)),
-              };
-            });
+                  bindToCurrentThread: false,
+                  workspaceStrategy: { type: "root" as const },
+                  modelSelection:
+                    parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project)),
+                };
+              })
+            : yield* Effect.gen(function* () {
+                const projectId = yield* resolveProjectTarget(parent, input.projectId);
+                yield* assertLiveCallerForOtherProject(scope, parent, projectId);
+                const project = yield* requireProject(projectId);
+                const bindToCurrentThread =
+                  input.bindToCurrentThread ??
+                  (parent !== undefined && parent.thread.projectId === projectId);
+                if (
+                  bindToCurrentThread &&
+                  (parent === undefined || parent.thread.projectId !== projectId)
+                ) {
+                  return yield* failure(
+                    "invalid_request",
+                    parent === undefined
+                      ? "bindToCurrentThread needs an agent running inside a T3 thread."
+                      : "bindToCurrentThread binds to this thread, which belongs to a different project.",
+                  );
+                }
+                return {
+                  projectId,
+                  bindToCurrentThread,
+                  workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(
+                    bindToCurrentThread,
+                    projectId,
+                  ),
+                  modelSelection:
+                    parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project)),
+                };
+              });
       const { projectId, bindToCurrentThread, workspaceStrategy, modelSelection } = target;
       // Never end on a lone high surrogate, which renders as a broken character.
       const derivedTitle = (input.prompt.split("\n")[0]?.trim() ?? "")
@@ -2364,6 +2395,7 @@ const make = Effect.gen(function* () {
         schedule: input.schedule,
         ...(projectId === undefined ? {} : { projectId }),
         ...(botId === null ? {} : { botId }),
+        ...(projectManager ? { projectManager } : {}),
         threadId: bindToCurrentThread && parent !== undefined ? parent.thread.id : null,
         threadMode: input.freshSession
           ? "fresh_session"
@@ -2424,10 +2456,32 @@ const make = Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope, ["runs"]);
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
-        const botId = input.botId === undefined ? (existing.botId ?? null) : input.botId;
-        if (botId !== null && botId !== existing.botId) yield* assertCoversBotRuns(botId, limits);
+        const projectManager =
+          input.projectManager ?? (input.botId != null ? false : existing.projectManager === true);
+        const botId =
+          input.botId === undefined
+            ? input.projectManager === true
+              ? null
+              : (existing.botId ?? null)
+            : input.botId;
+        if (botId !== null && projectManager) {
+          return yield* failure("invalid_request", "Pass botId or projectManager, not both.");
+        }
+        if (botId !== null && botId !== existing.botId) {
+          yield* assertCoversStandingRuns(botHeadquartersThreadId(botId), limits);
+        }
+        if (projectManager && existing.projectManager !== true) {
+          yield* assertCoversStandingRuns(projectHeadquartersThreadId(existing.projectId), limits);
+        }
+        const runsAsStanding = botId !== null || projectManager;
+        // A bot's or manager's runs used its thread's modes, not the stored ones, so loading the
+        // task checked those; leaving it for a thread of its own runs at the stored modes.
+        if (!runsAsStanding && (existing.botId !== undefined || existing.projectManager === true)) {
+          yield* resolveRuntimeMode(limits.runtimeMode, existing.runtimeMode);
+          yield* resolveInteractionMode(limits.interactionMode, existing.interactionMode);
+        }
         if (
-          botId === null &&
+          !runsAsStanding &&
           input.bindToCurrentThread === true &&
           (parent === undefined || parent.thread.projectId !== existing.projectId)
         ) {
@@ -2468,9 +2522,10 @@ const make = Effect.gen(function* () {
           enabled: input.enabled ?? existing.enabled,
           schedule: input.schedule ?? existing.schedule,
           projectId: existing.projectId,
-          // Omitted keeps the stored bot.
+          // Omitted keeps the stored bot or manager.
           ...(input.botId === undefined ? {} : { botId: input.botId }),
-          threadId: botId === null ? threadId : null,
+          ...(input.projectManager === undefined ? {} : { projectManager: input.projectManager }),
+          threadId: runsAsStanding ? null : threadId,
           threadMode:
             input.freshSession === undefined && input.bindToCurrentThread === undefined
               ? scheduledTaskThreadMode(existing)

@@ -105,6 +105,9 @@ a new thread on each run survive deletion of their previous threads.
 project. Each run then goes to the bot's headquarters, with the bot's model, tools
 and instructions, so it can hand its projects work.
 Deleting a bot deletes the tasks that run as it; the confirmation says how many.
+It can also pick a project's manager, so each run goes to the manager's thread
+with its own settings. Turning that manager off pauses its tasks and shows why on
+each one; turning it back on doesn't resume them. Deleting the project deletes them.
 
 Open a task to edit, pause, resume, run it now, or delete it. Webhook tasks only
 run when their URL is called, so they can't be run immediately. On mobile,

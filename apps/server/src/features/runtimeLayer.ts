@@ -1,6 +1,8 @@
 import { ScheduledTaskError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 
 import * as BotService from "../bots/BotService.ts";
 import { CrewService } from "../crew/CrewService.ts";
@@ -21,6 +23,8 @@ import * as FeatureReportReactor from "./FeatureReportReactor.ts";
 import * as NoticeInbox from "./NoticeInbox.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { OrchestrationEventStore } from "../persistence/OrchestrationEventStore.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 
 /**
  * Automations that run as a bot post into its headquarters, which the crew opens or restores.
@@ -50,6 +54,78 @@ const BotAutomationsLive = Layer.effectDiscard(
         ),
       ),
     );
+  }),
+);
+
+/**
+ * Automations that run as a project's manager post into its thread, which the crew opens. They
+ * stop when the manager is off, and go with their project when it is deleted.
+ */
+const ProjectManagerAutomationsLive = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const crew = yield* CrewService;
+    const projects = yield* ProjectService.ProjectService;
+    const events = yield* OrchestrationEventStore;
+    const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
+    const managerError = (cause: { readonly _tag: string; readonly message: string }) =>
+      new ScheduledTaskError({
+        message:
+          cause._tag === "CrewValidationError"
+            ? cause.message
+            : "Could not reach the project's manager.",
+        cause,
+      });
+    yield* scheduledTasks.connectProjectManagers({
+      status: Effect.fn("ProjectManagerAutomations.status")(function* (projectId) {
+        const project = yield* projects.getShell(projectId);
+        if (Option.isNone(project)) return null;
+        yield* crew.requireManagedProject(projectId);
+        const enabled = yield* crew
+          .requireProjectManagerOn(projectId)
+          .pipe(
+            Effect.as(true),
+            Effect.catchTags({ CrewValidationError: () => Effect.succeed(false) }),
+          );
+        return { title: project.value.title, enabled };
+      }, Effect.mapError(managerError)),
+      open: (projectId) =>
+        crew.ensureProjectManager(projectId).pipe(
+          Effect.map((run) => ({ threadId: run.threadId, projectId })),
+          Effect.mapError(managerError),
+        ),
+    });
+    const sweep = scheduledTasks
+      .deleteForDeletedProjects()
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Deleted projects' manager automations stayed", { cause }),
+        ),
+      );
+    yield* forkParked(
+      Stream.runForEach(
+        Stream.unwrap(
+          events.latestApplicationSequence.pipe(
+            Effect.map((afterSequence) =>
+              events.streamProjectedApplicationEvents({
+                afterSequence,
+                project: (event) => event,
+                filter: (event) =>
+                  "aggregateKind" in event &&
+                  event.aggregateKind === "project" &&
+                  event.type === "project.deleted",
+              }),
+            ),
+          ),
+        ),
+        () => sweep,
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Project deletion stream for automations failed", { cause }),
+        ),
+      ),
+    );
+    // Catches deletions from while the server was down.
+    yield* forkParked(sweep);
   }),
 );
 
@@ -140,6 +216,7 @@ export const FeatureRuntimeLive = Layer.mergeAll(
   CrewDelegationLive.pipe(Layer.provide(Layer.merge(FeatureServiceLive, ProjectRequestsLive))),
   BotService.layer,
   BotAutomationsLive,
+  ProjectManagerAutomationsLive,
   FeatureReportsLive,
   RetiredWorkflowQuestionsLive,
   FeatureManagerTitlesLive,
