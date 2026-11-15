@@ -192,14 +192,17 @@ export async function installLocalUpdate(
   }
 }
 
+type UpdatePlacement = "sidebar" | "rail" | "rail-collapsed";
+
 /**
- * The desktop update button. The sidebar footer holds it as a menu item; the bot rail holds it
- * under Settings, where an update run shrinks to its icon and popovers open to the right.
+ * The desktop update button. The sidebar footer holds it as a menu item and checks for updates
+ * when idle. The bot rail shows it as an Update row only while there is an update to act on;
+ * collapsed, an update run shrinks to its icon. Rail popovers open to the right.
  */
 export function SidebarUpdatePill({
   placement = "sidebar",
 }: {
-  readonly placement?: "sidebar" | "rail";
+  readonly placement?: UpdatePlacement;
 }) {
   return <SidebarUpdateControl placement={placement} />;
 }
@@ -209,19 +212,22 @@ function UpdateSlot({
   className,
   children,
 }: {
-  readonly placement: "sidebar" | "rail";
+  readonly placement: UpdatePlacement;
   readonly className: string;
   readonly children: ReactNode;
 }) {
-  return placement === "rail" ? (
-    <div className="flex w-full justify-center">{children}</div>
-  ) : (
-    <SidebarMenuItem className={className}>{children}</SidebarMenuItem>
+  if (placement === "sidebar") {
+    return <SidebarMenuItem className={className}>{children}</SidebarMenuItem>;
+  }
+  return (
+    <div className={cn("flex w-full", placement === "rail" ? "px-2" : "justify-center")}>
+      {children}
+    </div>
   );
 }
 
-function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "rail" }) {
-  const popupSide = placement === "rail" ? "right" : "top";
+function SidebarUpdateControl({ placement }: { readonly placement: UpdatePlacement }) {
+  const popupSide = placement === "sidebar" ? "top" : "right";
   const state = useDesktopUpdateState();
   // The desktop updates this machine, whose policy the primary environment reports.
   const updatesDenial = managedUpdatesDenial(usePrimaryManagedPolicy());
@@ -427,6 +433,8 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
   };
 
   if (!isElectron && !runsEverything && !isRunningEverything) return null;
+  // Settings → About and the app menu check by hand, so the rail stays empty while idle.
+  if (placement !== "sidebar" && !showUpdateDetails) return null;
 
   const statusIcon = (
     <DesktopUpdateStatusIcon
@@ -460,7 +468,7 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
     return (
       <UpdateSlot placement={placement} className="ml-auto flex flex-1">
         <SidebarUpdateCapsule
-          compact={placement === "rail"}
+          compact={placement === "rail-collapsed"}
           run={run}
           local={local}
           icon={statusIcon}
@@ -492,18 +500,29 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
       aria-label={idleTooltip?.detail ? `${tooltip}: ${idleTooltip.detail}` : tooltip}
       aria-disabled={isInteractionDisabled || undefined}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",
+        "outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",
         isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer",
-        showUpdateIconState
+        placement === "rail"
           ? cn(
-              "bg-sidebar-control-surface text-sidebar-foreground",
+              "flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 text-start text-sm text-sidebar-foreground",
               !isInteractionDisabled && "hover:bg-sidebar-row-hover",
             )
-          : cn(
-              "text-(--sidebar-icon-color)",
-              !isInteractionDisabled && "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-            ),
-        disabled && !showUpdateIconState && "opacity-60",
+          : placement === "rail-collapsed"
+            ? cn(
+                "flex size-10 items-center justify-center rounded-xl text-sidebar-foreground",
+                !isInteractionDisabled && "hover:bg-sidebar-row-hover",
+              )
+            : showUpdateIconState
+              ? cn(
+                  "inline-flex size-8 items-center justify-center rounded-full bg-sidebar-control-surface text-sidebar-foreground",
+                  !isInteractionDisabled && "hover:bg-sidebar-row-hover",
+                )
+              : cn(
+                  "inline-flex size-8 items-center justify-center rounded-full text-(--sidebar-icon-color)",
+                  !isInteractionDisabled &&
+                    "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                ),
+        placement === "sidebar" && disabled && !showUpdateIconState && "opacity-60",
       )}
       onClick={handleAction}
       onBlur={() => {
@@ -529,7 +548,19 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
         );
       }}
     >
-      {statusIcon}
+      {placement === "rail" ? (
+        <>
+          {/* The download ring is wider than the row's 16px icons; centred, it overhangs evenly. */}
+          <span className="relative size-4 shrink-0">
+            <span className="absolute top-1/2 left-1/2 grid -translate-1/2 place-items-center">
+              {statusIcon}
+            </span>
+          </span>
+          <span className="min-w-0 flex-1 truncate">Update</span>
+        </>
+      ) : (
+        statusIcon
+      )}
     </button>
   );
 

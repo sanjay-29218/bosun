@@ -2,7 +2,8 @@
 
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, the update button at the bottom
-of the sidebar and **Settings → Environments** offer to update it.
+of the sidebar (**Update** in the bot list) and **Settings → Environments** offer
+to update it.
 
 ## Update everything at once
 
