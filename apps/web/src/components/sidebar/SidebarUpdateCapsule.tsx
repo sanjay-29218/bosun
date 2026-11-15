@@ -56,17 +56,19 @@ function localStatusLabel(run: UpdateEverythingRun, local: UpdateRunLocalState, 
 }
 
 /**
- * A running update. `compact` (the bot rail) shows only the icon and moves the label and action
- * into the popover.
+ * A running update. `compact` (the collapsed bot rail) shows only the icon and moves the label and
+ * action into the popover.
  */
 export function SidebarUpdateCapsule({
   compact = false,
+  side,
   run,
   local,
   icon,
   onRestart,
 }: {
   readonly compact?: boolean;
+  readonly side: "top" | "right";
   readonly run: UpdateEverythingRun;
   readonly local: UpdateRunLocalState;
   readonly icon: ReactNode;
@@ -152,7 +154,7 @@ export function SidebarUpdateCapsule({
           )}
         </div>
       )}
-      <PopoverPopup side={compact ? "right" : "top"} align="end" padding="compact" width="sm">
+      <PopoverPopup side={side} align="end" padding="compact" width="sm">
         <div className="flex flex-col gap-1 text-xs">
           {compact ? (
             <div className="mb-1 flex items-center justify-between gap-3 font-medium">

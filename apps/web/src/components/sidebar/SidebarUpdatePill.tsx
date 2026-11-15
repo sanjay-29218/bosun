@@ -472,6 +472,7 @@ function SidebarUpdateControl({ placement }: { readonly placement: UpdatePlaceme
       <UpdateSlot placement={placement} className="ml-auto flex flex-1">
         <SidebarUpdateCapsule
           compact={placement === "rail-collapsed"}
+          side={popupSide}
           run={run}
           local={local}
           icon={statusIcon}
