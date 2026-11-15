@@ -446,11 +446,13 @@ function SidebarUpdateControl({
   };
 
   if (!isElectron && !runsEverything && !isRunningEverything) return null;
-  // A check started from the row keeps it until the check settles, so focus stays on it.
+  // A check started from the row keeps it until the check settles, so focus stays on it. An open
+  // confirmation keeps it too, or the dialog would vanish and reopen with the next update.
   if (
     placement === "rail" &&
     !isRunningEverything &&
     !isActionPending &&
+    !isConfirmingEverything &&
     !shouldShowRailUpdateRow({ state, hasOtherUpdates: runsEverything })
   ) {
     return null;
@@ -489,6 +491,7 @@ function SidebarUpdateControl({
       <UpdateSlot placement={placement} collapsed={collapsed} className="ml-auto flex flex-1">
         <SidebarUpdateCapsule
           compact={placement === "rail" && collapsed}
+          side={popupSide}
           run={run}
           local={local}
           icon={statusIcon}
