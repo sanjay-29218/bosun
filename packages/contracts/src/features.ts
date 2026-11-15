@@ -40,6 +40,8 @@ export const ThreadFeatureTag = Schema.Struct({
   requesterThreadId: Schema.optionalKey(ThreadId),
   /** The feature this one is a child of, so clients can fold it under its parent. */
   parentFeatureId: Schema.optionalKey(Schema.String),
+  /** On a child feature's tag: the lead run that reported it finished, until more work reopens it. */
+  finishedRunId: Schema.optionalKey(Schema.String),
 });
 export type ThreadFeatureTag = typeof ThreadFeatureTag.Type;
 

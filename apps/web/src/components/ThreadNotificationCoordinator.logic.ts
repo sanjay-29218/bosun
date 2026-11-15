@@ -2,6 +2,8 @@ import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
+import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import { threadCompletionNotifies } from "@t3tools/shared/agentAwareness";
 
 export type ThreadNotificationKind = "input" | "completion";
 
@@ -41,6 +43,22 @@ export function threadAttention(input: {
     requestId,
   };
 }
+
+/**
+ * A completion that never notifies: a stopped run, or one the feature rule keeps quiet, such as a
+ * lead's hand-off. The gate marks it handled, so seeing it again once the crew idles stays quiet.
+ */
+export const completionIsQuiet = (
+  thread: Pick<
+    OrchestrationV2ThreadShell,
+    | "crewWorking"
+    | "feature"
+    | "latestRunId"
+    | "latestRunQuietWake"
+    | "latestRunStopRequested"
+    | "lineage"
+  >,
+): boolean => thread.latestRunStopRequested === true || !threadCompletionNotifies(thread);
 
 /** Matches the push relay's completion confirmation: a final wake can start right after a progress wake. */
 export const RELEASED_COMPLETION_GRACE_MS = 5_000;

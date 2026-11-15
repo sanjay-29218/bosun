@@ -280,6 +280,104 @@ const addRolledBackRecoveryCandidate = Effect.fn("addRolledBackRecoveryCandidate
   return threadId;
 });
 
+it.effect("keeps a lead's crew working until its crew's result reaches the lead", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const sql = yield* SqlClient.SqlClient;
+    const threadId = yield* addRolledBackRecoveryCandidate("crew-working");
+    const runId = RunId.make("run:crew-working:rolled-back");
+    const now = yield* DateTime.now;
+    // The lead of feature-1, as a thread tag.
+    yield* sql`
+      UPDATE orchestration_v2_projection_threads
+      SET payload_json = json_set(payload_json, '$.feature', json('{"id":"feature-1","title":"Checkout"}'))
+      WHERE thread_id = ${threadId}
+    `;
+    // What clients read, what the relay reads, and the projection's own shell, alike.
+    const readings = Effect.gen(function* () {
+      return [
+        (yield* store.getThreadShell(threadId))?.crewWorking === true,
+        (yield* store.getAgentAwarenessSnapshot(threadId)).threads[0]?.crewWorking === true,
+        ProjectionStore.threadShellFromProjection(yield* store.getThreadProjection(threadId))
+          .crewWorking === true,
+      ];
+    });
+    const crewWorking = readings.pipe(
+      Effect.map(([shell, awareness, projected]) => {
+        assert.equal(awareness, shell);
+        assert.equal(projected, shell);
+        return shell;
+      }),
+    );
+    assert.isFalse(yield* crewWorking);
+    const steps = [
+      ["app_owned", "running", "pending", true],
+      // The crew's turn ended but its result hasn't reached the lead, whose wake isn't queued yet.
+      ["app_owned", "completed", "pending", true],
+      ["app_owned", "completed", "claimed", true],
+      ["app_owned", "completed", "delivered", false],
+      ["provider_native", "running", null, false],
+    ] as const;
+    for (const [index, [origin, status, delivery, working]] of steps.entries()) {
+      const id = NodeId.make(`node:crew-working:${origin}`);
+      yield* store.apply({
+        id: EventId.make(`event:crew-working:${index}`),
+        type: "subagent.updated",
+        threadId,
+        runId,
+        nodeId: id,
+        driver,
+        providerInstanceId,
+        occurredAt: now,
+        payload: {
+          id,
+          threadId,
+          runId,
+          parentNodeId: NodeId.make("node:crew-working:rolled-back"),
+          origin,
+          createdBy: "agent",
+          driver,
+          providerInstanceId,
+          providerThreadId: null,
+          childThreadId: ThreadId.make("thread:crew-working:builder"),
+          nativeTaskRef: null,
+          prompt: "Build it",
+          title: "Builder",
+          model: null,
+          ...(delivery === null
+            ? {}
+            : { completionDelivery: { state: delivery, observedByRunId: null } }),
+          status,
+          result: null,
+          startedAt: now,
+          completedAt: status === "running" ? null : now,
+          updatedAt: now,
+        },
+      });
+      assert.equal(yield* crewWorking, working, `${origin} ${status} ${delivery}`);
+    }
+    // A child feature its lead started works until it reports, whatever its outcome.
+    const shell = store
+      .getThreadShell(threadId)
+      .pipe(Effect.map((thread) => thread?.crewWorking === true));
+    yield* sql`
+      INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
+      VALUES ('feature-1', 'project:crew-working', 'Checkout', 'Checkout', '2026-11-15', NULL),
+        ('feature-2', 'project:crew-working', 'Export', 'Export', '2026-11-15', 'feature-1')
+    `;
+    assert.isTrue(yield* shell);
+    yield* sql`UPDATE features SET report_outcome = 'stopped' WHERE id = 'feature-2'`;
+    assert.isFalse(yield* shell);
+    yield* sql`UPDATE features SET report_outcome = NULL, status = 'closed' WHERE id = 'feature-2'`;
+    assert.isFalse(yield* shell);
+    // A closed parent never hears from its open children, so they don't hold its lead quiet.
+    yield* sql`UPDATE features SET status = 'open' WHERE id = 'feature-2'`;
+    assert.isTrue(yield* shell);
+    yield* sql`UPDATE features SET status = 'closed' WHERE id = 'feature-1'`;
+    assert.isFalse(yield* shell);
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("routes full projection reads to readers and retains uncommitted writer state", () =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;
@@ -1352,22 +1450,24 @@ it.effect("record reads filter notification sources without dropping matching me
   }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("shells flag a latest run triggered by a provider background wake", () =>
+it.effect("shells flag a latest run triggered by a background wake or a quiet notice", () =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;
     const threadId = yield* addRolledBackRecoveryCandidate("background-wake");
     const initial = yield* store.getThreadProjection(threadId);
     const at = initial.updatedAt;
     let ordinal = 1;
-    for (const [id, source, outcome, expected] of [
-      ["background-task", { kind: "background_task" }, "updated", true],
-      ["monitor", { kind: "monitor" }, "updated", true],
-      ["command", { kind: "command" }, "updated", true],
-      ["command-finished", { kind: "command" }, "completed", false],
-      ["monitor-stopped", { kind: "monitor" }, "cancelled", false],
-      ["subagent", { kind: "subagent" }, "updated", false],
-      ["delegated", { kind: "delegated_task", taskIds: [] }, "updated", false],
-      ["steered", { kind: "background_task" }, "updated", false],
+    for (const [id, source, outcome, expected, quiet] of [
+      ["background-task", { kind: "background_task" }, "updated", true, false],
+      ["monitor", { kind: "monitor" }, "updated", true, false],
+      ["command", { kind: "command" }, "updated", true, false],
+      ["command-finished", { kind: "command" }, "completed", false, false],
+      ["monitor-stopped", { kind: "monitor" }, "cancelled", false, false],
+      ["subagent", { kind: "subagent" }, "updated", false, false],
+      ["feature-report", { kind: "subagent" }, "updated", false, true],
+      ["delegated", { kind: "delegated_task", taskIds: [] }, "updated", false, false],
+      ["steered", { kind: "background_task" }, "updated", false, false],
+      ["steered-report", { kind: "subagent" }, "updated", false, false],
     ] as const) {
       const messageId = MessageId.make(`message:background-wake:${id}`);
       yield* store.apply({
@@ -1388,7 +1488,12 @@ it.effect("shells flag a latest run triggered by a provider background wake", ()
           streaming: false,
           createdAt: at,
           updatedAt: at,
-          notification: { source, outcome, summary: "Background activity updated" },
+          notification: {
+            source,
+            outcome,
+            summary: "Background activity updated",
+            ...(id === "feature-report" || id === "steered-report" ? { quiet: true } : {}),
+          },
           ...(id === "delegated"
             ? {
                 delegatedCompletion: {
@@ -1415,16 +1520,16 @@ it.effect("shells flag a latest run triggered by a provider background wake", ()
           completedAt: at,
         },
       });
-      if (id === "steered") {
+      if (id === "steered" || id === "steered-report") {
         yield* store.apply({
-          id: EventId.make("event:background-wake:steered:follow-up"),
+          id: EventId.make(`event:background-wake:${id}:follow-up`),
           type: "message.updated",
           threadId,
           occurredAt: at,
           payload: {
-            id: MessageId.make("message:background-wake:steered:follow-up"),
+            id: MessageId.make(`message:background-wake:${id}:follow-up`),
             threadId,
-            runId: RunId.make("run:background-wake:steered"),
+            runId: RunId.make(`run:background-wake:${id}`),
             nodeId: null,
             createdBy: "user",
             creationSource: "web",
@@ -1444,6 +1549,11 @@ it.effect("shells flag a latest run triggered by a provider background wake", ()
       assert.deepEqual(
         shells.map((shell) => shell?.latestRunBackgroundWake),
         [expected, expected],
+        id,
+      );
+      assert.deepEqual(
+        shells.map((shell) => shell?.latestRunQuietWake),
+        [quiet, quiet],
         id,
       );
       yield* assertShellIndexCoversShells();

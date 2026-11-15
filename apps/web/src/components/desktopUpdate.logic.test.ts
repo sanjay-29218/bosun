@@ -7,6 +7,7 @@ import {
   getDesktopUpdateReleaseHistoryUrl,
   getDesktopUpdateReleaseUrl,
   resolveDesktopUpdateButtonAction,
+  shouldShowRailUpdateRow,
 } from "./desktopUpdate.logic";
 
 const baseState: DesktopUpdateState = {
@@ -104,5 +105,30 @@ describe("canCheckForUpdate", () => {
         downloadedVersion: "1.1.0",
       }),
     ).toBe(true);
+  });
+});
+
+describe("shouldShowRailUpdateRow", () => {
+  it.each([
+    ["idle", { status: "idle" }, false],
+    ["checking", { status: "checking" }, false],
+    ["up to date", { status: "up-to-date" }, false],
+    ["disabled", { enabled: false, status: "disabled" }, false],
+    ["available", { status: "available", availableVersion: "1.1.0" }, true],
+    ["downloading", { status: "downloading", availableVersion: "1.1.0" }, true],
+    ["ready to restart", { status: "downloaded", downloadedVersion: "1.1.0" }, true],
+    ["a failed check", { status: "error", errorContext: "check", message: "offline" }, true],
+  ] as const)("%s", (_name, patch, expected) => {
+    expect(
+      shouldShowRailUpdateRow({
+        state: { ...baseState, ...patch } as DesktopUpdateState,
+        hasOtherUpdates: false,
+      }),
+    ).toBe(expected);
+  });
+
+  it("shows other machines' updates, even on the web with no desktop updater", () => {
+    expect(shouldShowRailUpdateRow({ state: null, hasOtherUpdates: true })).toBe(true);
+    expect(shouldShowRailUpdateRow({ state: null, hasOtherUpdates: false })).toBe(false);
   });
 });

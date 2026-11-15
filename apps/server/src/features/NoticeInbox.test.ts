@@ -70,12 +70,12 @@ const setRequest = (status: "pending" | "resolved") =>
     `,
   );
 
-const report = (feature: string, outcome: "updated" | "failed" = "updated") => ({
+const report = (feature: string, outcome: "updated" | "failed" = "updated", quiet = false) => ({
   threadId: hq,
   key: `feature-report:${feature}`,
   subject: `feature:${feature}`,
   text: `Feature "${feature}" [finished]: done`,
-  notification: { childThreadId: lead, outcome, summary: `Feature "${feature}" finished` },
+  notification: { childThreadId: lead, outcome, summary: `Feature "${feature}" finished`, quiet },
 });
 
 const sqlite = NodeSqliteClient.layer({ filename: ":memory:" });
@@ -84,7 +84,7 @@ it.effect("sends a notice to an idle thread at once, and a key once", () =>
   Effect.gen(function* () {
     yield* migrated;
     const { inbox, sent } = yield* setup();
-    yield* inbox.post(report("csv"));
+    yield* inbox.post(report("csv", "updated", true));
     yield* inbox.post(report("csv"));
     const messages = yield* sent;
     assert.deepStrictEqual(
@@ -97,6 +97,7 @@ it.effect("sends a notice to an idle thread at once, and a key once", () =>
       source: { kind: "subagent", childThreadId: lead },
       outcome: "updated",
       summary: 'Feature "csv" finished',
+      quiet: true,
     });
   }).pipe(Effect.provide(sqlite)),
 );
@@ -106,7 +107,8 @@ it.effect("holds notices for a busy thread and sends them as one message when it
     yield* migrated;
     const { inbox, sent } = yield* setup();
     yield* setTurn("running");
-    yield* inbox.post(report("csv"));
+    // A digest is quiet only when every notice in it is.
+    yield* inbox.post(report("csv", "updated", true));
     yield* inbox.post(report("pdf", "failed"));
     yield* inbox.post({ threadId: hq, key: "project-merge:web:12", text: "PR #12 merged" });
     yield* inbox.flush(hq);
