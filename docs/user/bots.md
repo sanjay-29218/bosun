@@ -33,8 +33,9 @@ on a machine the bot may not work on, and on an environment that runs T3 Code wi
 listed but can't be given to it until you tick that machine or install Bosun there. You can also change a
 project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
 its project manager, which runs on the project's default model (else the environment's). In the
-thread list it shows under every bot that lives on its machine, never under a bot from another
-machine. Its project manager, pinned in the rail or listed under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
+thread list it shows under every bot that may work on its machine, and a project on a machine that
+runs T3 Code without Bosun shows under every bot. Its project manager, pinned in the rail or listed
+under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
 home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
 Deleting a bot also deletes the automations that run as it.
 
