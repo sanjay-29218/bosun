@@ -32,6 +32,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { NoticeInbox } from "../features/NoticeInbox.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
+import { narrowerRuntimeMode } from "../mcp/delegatedTaskModes.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import {
   type BotHome,
@@ -713,7 +714,17 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignoreCause({ log: true }));
           }
-          if (!(yield* modelAvailable(input.modelSelection))) {
+          // The Feature manager here runs on the lead role's model, within the access sent.
+          const workflow = input.workflow;
+          const leadRole = workflow?.roles.find((role) => role.id === workflow.workflow.leadRoleId);
+          const carried =
+            leadRole === undefined
+              ? { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection }
+              : {
+                  runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
+                  modelSelection: leadRole.modelSelection,
+                };
+          if (leadRole === undefined && !(yield* modelAvailable(input.modelSelection))) {
             return yield* failure(
               "invalid_request",
               `${homeName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${homeName}'s model.`,
@@ -749,7 +760,7 @@ const make = Effect.gen(function* () {
               projectId: project.id,
               taskText: input.task,
               title: input.title,
-              carried: { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection },
+              carried,
               ...(input.workflow === undefined
                 ? {}
                 : { workflow: { snapshot: input.workflow, here: self.label, from: client.label } }),

@@ -55,7 +55,7 @@ describe("standingThreadSelection", () => {
       botKey: scout.key,
       projectKey: "github.com/acme/beta",
     });
-    // A project with no bot shows under every bot, so the picked bot stays.
+    // A project with no bot has no bot to pick, so the picked bot stays and the scope shows it.
     expect(decide(projectHeadquartersThreadId(alpha))).toEqual({
       kind: "select",
       botKey: null,

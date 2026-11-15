@@ -34,6 +34,7 @@ import {
 import { resolveBackgroundThreadRequest } from "./backgroundThreadAnnouncement";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "./Sidebar.logic";
 import {
+  completionIsQuiet,
   createThreadNotificationGate,
   threadAttention,
   isSnoozedForNotification,
@@ -319,7 +320,7 @@ export function startThreadNotifications(
     for (const [prior, state] of changed) {
       entry.gate.observe(state.thread.id, prior, state, {
         archived: state.thread.archivedAt !== null,
-        quiet: state.raw.latestRunStopRequested === true,
+        quiet: completionIsQuiet(state.raw),
         snoozed: isSnoozedForNotification(state.thread, state.completedAt, now),
       });
     }

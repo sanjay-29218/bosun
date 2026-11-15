@@ -37,6 +37,8 @@ export interface Notice {
         readonly childThreadId: ThreadId;
         readonly outcome: "updated" | "failed";
         readonly summary: string;
+        /** The person already heard this from `childThreadId`, so the turn it wakes is silent. */
+        readonly quiet?: boolean | undefined;
       }
     | undefined;
   /** A runtime request the notice is about; it is dropped once that request is no longer pending. */
@@ -86,6 +88,7 @@ interface NoticeRow {
   readonly summary: string | null;
   readonly outcome: "updated" | "failed" | null;
   readonly sourceThreadId: string | null;
+  readonly quiet: number;
   readonly digestId: string;
   readonly position: number;
 }
@@ -102,7 +105,7 @@ const make = Effect.gen(function* () {
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
   const rowColumns = sql`key, text, summary, outcome, source_thread_id AS sourceThreadId,
-    digest_id AS digestId, rowid AS position`;
+    quiet, digest_id AS digestId, rowid AS position`;
 
   // Each delivery attempt is its own command, so one the orchestrator rejected can be retried.
   const digestMessage = (threadId: ThreadId, rows: ReadonlyArray<NoticeRow>) => {
@@ -126,6 +129,7 @@ const make = Effect.gen(function* () {
               },
               outcome: row.outcome,
               summary: row.summary,
+              ...(row.quiet === 1 ? { quiet: true } : {}),
             }
           : undefined;
       return { ...ids, text: row.text, notification };
@@ -143,6 +147,7 @@ const make = Effect.gen(function* () {
               source: { kind: "subagent" },
               outcome: notified.some((row) => row.outcome === "failed") ? "failed" : "updated",
               summary: `${rows.length} updates arrived`,
+              ...(rows.every((row) => row.quiet === 1) ? { quiet: true } : {}),
             } satisfies OrchestrationV2Notification),
     };
   };
@@ -261,10 +266,11 @@ const make = Effect.gen(function* () {
     const createdAt = yield* now;
     const inserted = yield* sql`
       INSERT OR IGNORE INTO notice_inbox (thread_id, key, subject, text, summary, outcome,
-        source_thread_id, request_id, created_at)
+        source_thread_id, quiet, request_id, created_at)
       VALUES (${notice.threadId}, ${notice.key}, ${notice.subject ?? null}, ${notice.text},
         ${notice.notification?.summary ?? null}, ${notice.notification?.outcome ?? null},
-        ${notice.notification?.childThreadId ?? null}, ${notice.requestId ?? null}, ${createdAt})
+        ${notice.notification?.childThreadId ?? null}, ${notice.notification?.quiet ? 1 : 0},
+        ${notice.requestId ?? null}, ${createdAt})
       RETURNING key
     `.pipe(Effect.mapError(queryError));
     if (inserted.length === 0) return;

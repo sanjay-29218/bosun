@@ -64,6 +64,27 @@ export function subagentAwaitsUser(
   );
 }
 
+type CompletionNotifyThread = Pick<
+  OrchestrationV2ThreadShell,
+  "crewWorking" | "feature" | "lineage" | "latestRunQuietWake"
+> & { readonly latestRunId?: OrchestrationV2ThreadShell["latestRunId"] };
+
+/**
+ * Whether a thread's turn ending tells the person: a feature notifies from its lead, once its
+ * crew and child features are idle. Crew turns, hand-offs, a child feature's finishing run and a
+ * turn answering a quiet notice stay silent. Approvals and questions always notify.
+ */
+export function threadCompletionNotifies(thread: CompletionNotifyThread): boolean {
+  if (thread.latestRunQuietWake === true) return false;
+  const feature = thread.feature;
+  if (feature == null) return true;
+  if (feature.member !== undefined || thread.lineage.parentThreadId !== null) return false;
+  return (
+    thread.crewWorking !== true &&
+    (feature.finishedRunId === undefined || feature.finishedRunId !== thread.latestRunId)
+  );
+}
+
 export interface AgentAwarenessState {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -90,9 +111,12 @@ export interface ProjectThreadAwarenessV2Input {
   readonly thread: Pick<
     OrchestrationV2ThreadShell,
     | "activityRunStatus"
+    | "crewWorking"
+    | "feature"
     | "id"
     | "lineage"
     | "latestRunBackgroundWake"
+    | "latestRunQuietWake"
     | "latestRunStopRequested"
     | "modelSelection"
     | "pendingBackgroundTasks"
@@ -101,7 +125,9 @@ export interface ProjectThreadAwarenessV2Input {
     | "status"
     | "title"
     | "updatedAt"
-  >;
+  > & {
+    readonly latestRunId?: OrchestrationV2ThreadShell["latestRunId"];
+  };
   /** What a live subagent below this thread is waiting on the user for. */
   readonly pendingSubagentRequest?: SubagentRequestAwareness | null;
 }
@@ -120,7 +146,12 @@ export function projectThreadAwarenessV2(
   if (phase === null) {
     return null;
   }
-  if (phase === "completed" && thread.latestRunStopRequested === true) return null;
+  if (
+    phase === "completed" &&
+    (thread.latestRunStopRequested === true || !threadCompletionNotifies(thread))
+  ) {
+    return null;
+  }
   // Resolve the phase first so live or waiting work stays visible after settlement.
   const runStatus = thread.activityRunStatus ?? thread.status;
   if (

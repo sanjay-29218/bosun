@@ -31,6 +31,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -49,6 +50,7 @@ import {
   type CrewWorkspace,
 } from "./CrewStore.ts";
 import * as BotStore from "../bots/BotStore.ts";
+import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import {
   FRESH_START_QUIET_MINUTES,
   freshStartBriefing,
@@ -446,6 +448,7 @@ export const CrewServiceLive = Layer.effect(
     const store = yield* CrewStore;
     const runtime = yield* CrewThreadRuntime;
     const bots = yield* BotStore.BotStore;
+    const environment = yield* Effect.serviceOption(ServerEnvironment);
 
     const threadInput = (run: CrewRun) => ({
       runId: run.id,
@@ -839,8 +842,8 @@ export const CrewServiceLive = Layer.effect(
     });
 
     /**
-     * What a project's manager starts with: built-in instructions on its owning bot's model, or
-     * with no bot, the project's default model.
+     * What a project's manager starts with: built-in instructions on its owning bot's model, else
+     * the one a new thread in the project gets.
      */
     const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (
       projectId: ProjectId,
@@ -848,16 +851,18 @@ export const CrewServiceLive = Layer.effect(
       const botId = yield* runtime.projectBotId(projectId);
       const bot = botId === null ? null : yield* bots.get(botId);
       const modelSelection =
-        botId === null
-          ? yield* runtime.projectModelSelection(projectId)
-          : (bot?.modelSelection ?? null);
+        bot?.modelSelection ?? (yield* runtime.projectModelSelection(projectId));
       if (modelSelection === null) {
+        if (bot === null) {
+          return yield* Effect.fail(
+            new CrewValidationError("Choose a default model for this project or in Settings"),
+          );
+        }
+        const machine = Option.isSome(environment)
+          ? ` on ${(yield* environment.value.getDescriptor).label}`
+          : "";
         return yield* Effect.fail(
-          new CrewValidationError(
-            botId === null
-              ? "Choose a default model for this project or in Settings"
-              : `Choose a default model for ${bot?.name ?? "the project's bot"}`,
-          ),
+          new CrewValidationError(`${bot.name}${machine} has no default model`),
         );
       }
       return {

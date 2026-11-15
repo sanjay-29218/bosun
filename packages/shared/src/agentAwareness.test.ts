@@ -4,6 +4,7 @@ import type {
   EnvironmentId,
   OrchestrationV2ThreadShell,
   Project,
+  RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import { ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
@@ -31,6 +32,9 @@ describe("projectThreadAwarenessV2", () => {
         | "pendingRuntimeRequest"
         | "lineage"
         | "settledOverride"
+        | "feature"
+        | "latestRunId"
+        | "latestRunQuietWake"
       >
     > = {},
   ) => ({
@@ -309,5 +313,109 @@ describe("projectThreadAwarenessV2", () => {
         }),
       }),
     ).toMatchObject({ phase: "running", headline: "Agent is working" });
+  });
+});
+
+describe("feature completion notifications", () => {
+  const updatedAt = DateTime.makeUnsafe(NOW);
+  const leadId = "lead" as ThreadId;
+  const runId = "run-2" as RunId;
+  const feature = { id: "feature-1", title: "Checkout" };
+  const lineage = { rootThreadId: leadId, parentThreadId: null, relationshipToParent: null };
+  const thread = (
+    overrides: Partial<
+      Pick<
+        OrchestrationV2ThreadShell,
+        "feature" | "latestRunId" | "latestRunQuietWake" | "lineage" | "pendingRuntimeRequest"
+      >
+    > = {},
+  ) => ({
+    id: leadId,
+    lineage,
+    title: "Checkout",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+    status: "completed" as const,
+    latestRunId: runId,
+    pendingRuntimeRequest: null,
+    settledOverride: null,
+    updatedAt,
+    ...overrides,
+  });
+  const question = {
+    id: RuntimeRequestId.make("question"),
+    kind: "user_input" as const,
+    createdAt: updatedAt,
+  };
+
+  it.each([
+    ["a plain thread finishing", thread(), false, null, "completed"],
+    [
+      "a crew member's turn ending",
+      thread({
+        feature: { ...feature, member: "Builder" },
+        lineage: {
+          rootThreadId: leadId,
+          parentThreadId: leadId,
+          relationshipToParent: "subagent",
+          listed: true,
+        },
+      }),
+      false,
+      null,
+      null,
+    ],
+    ["the lead handing work to its crew", thread({ feature }), true, null, null],
+    ["the lead stopping with its crew idle", thread({ feature }), false, null, "completed"],
+    [
+      "the lead stopping before its shell names a run",
+      thread({ feature, latestRunId: null }),
+      false,
+      null,
+      "completed",
+    ],
+    [
+      "a child feature's lead in the run that reported it finished",
+      thread({ feature: { ...feature, parentFeatureId: "parent", finishedRunId: runId } }),
+      false,
+      null,
+      null,
+    ],
+    [
+      "a child feature's lead stopping in a later run",
+      thread({ feature: { ...feature, parentFeatureId: "parent", finishedRunId: "run-1" } }),
+      false,
+      null,
+      "completed",
+    ],
+    [
+      "the requester's turn answering the feature's finished report",
+      thread({ latestRunQuietWake: true }),
+      false,
+      null,
+      null,
+    ],
+    [
+      "a crew member asking the person while the lead waits",
+      thread({ feature }),
+      true,
+      { requestId: question.id, updatedAt, threadId: "crew" as ThreadId },
+      "waiting_for_approval",
+    ],
+    [
+      "the lead asking the person while its crew works",
+      thread({ feature, pendingRuntimeRequest: question }),
+      true,
+      null,
+      "waiting_for_input",
+    ],
+  ] as const)("%s", (_, input, crewWorking, pendingSubagentRequest, phase) => {
+    expect(
+      projectThreadAwarenessV2({
+        environmentId: "env-1" as EnvironmentId,
+        project,
+        thread: { ...input, crewWorking },
+        pendingSubagentRequest,
+      })?.phase ?? null,
+    ).toBe(phase);
   });
 });
