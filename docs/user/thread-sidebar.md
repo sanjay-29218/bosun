@@ -3,6 +3,15 @@
 Use a new thread for a separate task. Choose **New worktree** when its code changes
 need a separate branch and working directory.
 
+## Resize or hide the thread list
+
+On web and desktop, drag the thread list's right edge to make it wider or narrower. Drag it past
+its narrowest width and it slides away; let go once it dims and the list closes. To bring it back,
+drag it back out from the edge where it was, click the sidebar button in the title bar or press its
+shortcut, or pick a bot, a project manager, **Bots** or **Automations** in the bot list.
+Double-click the edge to go back to the default width. The width and whether the list is open are
+remembered on each device.
+
 ## Start a thread
 
 On web and desktop, **New thread** opens the project picker when you have more than one
