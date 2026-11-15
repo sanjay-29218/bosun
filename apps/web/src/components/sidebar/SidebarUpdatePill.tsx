@@ -433,8 +433,6 @@ function SidebarUpdateControl({ placement }: { readonly placement: UpdatePlaceme
   };
 
   if (!isElectron && !runsEverything && !isRunningEverything) return null;
-  // Settings → About and the app menu check by hand, so the rail stays empty while idle.
-  if (placement !== "sidebar" && !showUpdateDetails) return null;
 
   const statusIcon = (
     <DesktopUpdateStatusIcon
@@ -457,6 +455,11 @@ function SidebarUpdateControl({ placement }: { readonly placement: UpdatePlaceme
       onConfirm={() => void runEverything()}
     />
   );
+  // Settings → About and the app menu check by hand, so the rail stays empty while idle. An open
+  // confirmation stays, or it would reopen by itself when the next update appears.
+  if (placement !== "sidebar" && !showUpdateDetails) {
+    return isConfirmingEverything ? confirmDialog : null;
+  }
 
   if (run !== null) {
     const local: UpdateRunLocalState =
@@ -494,10 +497,16 @@ function SidebarUpdateControl({ placement }: { readonly placement: UpdatePlaceme
     );
   }
 
+  // The expanded rail row reads "Update", so its accessible name has to contain that word.
+  const accessibleName = idleTooltip?.detail
+    ? `${tooltip}: ${idleTooltip.detail}`
+    : placement === "rail" && !/update/i.test(tooltip)
+      ? `Update: ${tooltip}`
+      : tooltip;
   const updateButton = (
     <button
       type="button"
-      aria-label={idleTooltip?.detail ? `${tooltip}: ${idleTooltip.detail}` : tooltip}
+      aria-label={accessibleName}
       aria-disabled={isInteractionDisabled || undefined}
       className={cn(
         "outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",

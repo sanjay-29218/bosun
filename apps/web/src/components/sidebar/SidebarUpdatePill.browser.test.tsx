@@ -168,3 +168,20 @@ describe("SidebarUpdatePill update everything", () => {
     await expect.element(row.getByRole("cell", { name: "Claude", exact: true })).toBeVisible();
   });
 });
+
+describe("SidebarUpdatePill in the bot rail", () => {
+  it("shows the Update row only while there is an update to act on", async () => {
+    const idle = { ...nightlyUpdate([]), status: "up-to-date", availableVersion: null } as const;
+    setup(idle);
+    await using screen = await render(<SidebarUpdatePill placement="rail" />);
+    expect(screen.container.querySelector("button")).toBeNull();
+
+    await publish({ ...idle, status: "error", errorContext: "check" });
+    expect(screen.container.querySelector("button")).toBeNull();
+
+    await publish({ ...nightlyUpdate([]), status: "error", errorContext: "download" });
+    await expect
+      .element(screen.getByRole("button", { name: /^Update: Download failed for/ }))
+      .toBeVisible();
+  });
+});
