@@ -62,14 +62,8 @@ import {
   useEnvironmentHttpBaseUrl,
   useEnvironments,
 } from "../../state/environments";
-import {
-  useProjects,
-  useQuietThreadShells,
-  useThreadShell,
-  useVisibleThreadShells,
-} from "../../state/entities";
+import { useProjects, useThreadShell, useVisibleThreadShells } from "../../state/entities";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { archivedProjectManagers } from "@t3tools/client-runtime/state/bot-rail";
 import { botsEnvironment } from "../../state/bots";
 import { useThreadSearch } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
@@ -333,18 +327,16 @@ function ManagerRunsAsOption({
   environmentId,
   projectId,
   title,
-  off,
 }: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly title: string;
-  readonly off: boolean;
 }) {
   const icon = useProjectManagerIcon(environmentId, projectId);
   return (
     <span className="flex items-center gap-2">
       <ProjectManagerAvatar projectId={projectId} icon={icon} size="xs" />
-      {title} manager{off ? " (off)" : ""}
+      {title} manager
     </span>
   );
 }
@@ -439,11 +431,13 @@ export function ScheduledTaskActions({
     setBusy(false);
     if (result._tag === "Failure") {
       if (isAtomCommandInterrupted(result)) return;
+      const failure = squashAtomCommandFailure(result);
       toastManager.add(
         stackedThreadToast({
           type: "error",
           title: "Could not update scheduled task",
-          description: String(squashAtomCommandFailure(result)),
+          // The server's own sentence, such as a manager that's off, rather than the error's tag.
+          description: failure instanceof Error ? failure.message : String(failure),
         }),
       );
       return;
@@ -1020,19 +1014,10 @@ export function ScheduledTaskEditorForm({
   const runsAsStanding = runsAsBot || runsAsManager;
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
-  // Turning a manager off archives its thread, which the client already has.
-  const offManagers = archivedProjectManagers(useQuietThreadShells());
-  const managerOff = (projectId: ProjectId) => offManagers.has(`${environmentId}:${projectId}`);
-  const managerEnabled = runsAsManager && selectedProject ? !managerOff(selectedProject.id) : null;
-  // Scratch and bots' homes have no manager; one that's off is offered only while the task runs as it.
+  // Scratch and bots' homes have no manager. One that's off is still listed; saving refuses it.
   const managedProjects =
     environment?.serverConfig?.environment.capabilities.scheduledTaskProjectManagers === true
-      ? projects.filter(
-          (project) =>
-            project.isScratch !== true &&
-            project.isBotHome !== true &&
-            (!managerOff(project.id) || (runsAsManager && project.id === draft.projectId)),
-        )
+      ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
       : [];
   const instanceEntries = providerInstanceEntriesFor(
     providers,
@@ -1290,7 +1275,6 @@ export function ScheduledTaskEditorForm({
                           environmentId={environmentId}
                           projectId={selectedProject.id}
                           title={selectedProject.title}
-                          off={managerEnabled === false}
                         />
                       ) : (
                         "Unavailable project manager"
@@ -1329,7 +1313,6 @@ export function ScheduledTaskEditorForm({
                           environmentId={environmentId}
                           projectId={project.id}
                           title={project.title}
-                          off={managerOff(project.id)}
                         />
                       </SelectItem>
                     ))}
@@ -1346,7 +1329,6 @@ export function ScheduledTaskEditorForm({
               <p className="text-xs text-muted-foreground">
                 Runs in {selectedProject?.title ?? "the project"}'s manager thread with its own
                 settings.
-                {managerEnabled === false ? " Turn the manager on before you resume it." : ""}
               </p>
             ) : null}
           </Field>

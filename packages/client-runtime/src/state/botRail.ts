@@ -513,23 +513,6 @@ export function countHiddenNeedsYou(input: {
 }
 
 /**
- * `${environmentId}:${projectId}` of each manager turned off, which archives its thread. A
- * manager turned off before its thread ever existed isn't known here.
- */
-export function archivedProjectManagers(
-  shells: ReadonlyArray<Pick<EnvironmentThreadShell, "environmentId" | "id" | "archivedAt">>,
-): ReadonlySet<string> {
-  return new Set(
-    shells.flatMap((shell) => {
-      const projectId = headquartersProjectId(shell.id);
-      return projectId === null || shell.archivedAt === null
-        ? []
-        : [`${shell.environmentId}:${projectId}`];
-    }),
-  );
-}
-
-/**
  * Pinned project managers the rail lists, by title: one per project whose manager is pinned,
  * whether or not its thread exists yet (opening it makes one). Scratch, bots' homes, servers
  * without features and managers turned off (their thread archived) are left out.

@@ -1,6 +1,5 @@
 import {
   botHeadquartersThreadId,
-  projectHeadquartersThreadId,
   EnvironmentId,
   ProjectId,
   RunId,
@@ -19,7 +18,6 @@ import {
   buildConnectedLogicalBots,
   buildLogicalBots,
   countHiddenNeedsYou,
-  archivedProjectManagers,
   pinnedProjectManagers,
   railProjectKeys,
   writePins,
@@ -276,11 +274,7 @@ describe("pinnedProjectManagers", () => {
         { ...project("plain", "plain"), environmentId: remote },
       ],
       managerEnvironmentIds: new Set([local]),
-      archivedManagers: archivedProjectManagers([
-        { environmentId: local, id: projectHeadquartersThreadId("off"), archivedAt: "2026-11-01" },
-        { environmentId: local, id: projectHeadquartersThreadId("web"), archivedAt: null },
-        { environmentId: local, id: ThreadId.make("thread:archived"), archivedAt: "2026-11-01" },
-      ]),
+      archivedManagers: new Set([`${local}:off`]),
     });
     expect(managers.map((manager) => manager.id)).toEqual(["api", "web"]);
   });

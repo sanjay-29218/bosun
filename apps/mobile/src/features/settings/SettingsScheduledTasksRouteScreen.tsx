@@ -29,7 +29,6 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { automationPausedLabel } from "@t3tools/client-runtime/state/automations";
-import { archivedProjectManagers } from "@t3tools/client-runtime/state/bot-rail";
 import { resolvePastedPath } from "@t3tools/shared/path";
 import {
   DEFAULT_WEBHOOK_PROMPT,
@@ -65,7 +64,7 @@ import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { usePreparedConnection } from "../../state/session";
 import { buildModelOptions } from "../../lib/modelOptions";
 import { withImplicitFastModeSelection } from "../../lib/providerOptions";
-import { useProjects, useEnvironmentServerConfig, useThreadShells } from "../../state/entities";
+import { useProjects, useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { botsEnvironment } from "../../state/bots";
@@ -105,6 +104,12 @@ type ScheduledTaskRoutes = {
   SettingsScheduledTaskBranch: undefined;
   SettingsScheduledTaskThread: undefined;
 };
+
+/** The server's own sentence, such as a manager that's off, rather than the error's tag. */
+function commandFailureMessage(result: AtomCommandResult<unknown, unknown>): string {
+  const failure = result._tag === "Failure" ? squashAtomCommandFailure(result) : null;
+  return failure instanceof Error ? failure.message : String(failure);
+}
 
 /** The "Runs as" menu's id for a task that starts a new thread per run; bots use their ids. */
 const RUNS_AS_THREAD = "runs-as:thread";
@@ -683,21 +688,11 @@ function TaskForm({
   const managerProject = runsAsManager
     ? projects.find((project) => project.id === draft.projectId)
     : undefined;
-  // Turning a manager off archives its thread, as on web.
-  const offManagers = archivedProjectManagers(useThreadShells());
-  const managerOff = (projectId: string) => offManagers.has(`${environmentId}:${projectId}`);
-  // Scratch and bots' homes have no manager; one that's off is offered only while the task runs as it.
+  // Scratch and bots' homes have no manager. One that's off is still listed; saving refuses it.
   const managedProjects =
     config?.environment.capabilities.scheduledTaskProjectManagers === true
-      ? projects.filter(
-          (project) =>
-            project.isScratch !== true &&
-            project.isBotHome !== true &&
-            (!managerOff(project.id) || (runsAsManager && project.id === draft.projectId)),
-        )
+      ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
       : [];
-  const managerLabel = (project: { readonly id: string; readonly title: string }) =>
-    `${project.title} manager${managerOff(project.id) ? " (off)" : ""}`;
   const destinationLabel = useScheduledTaskDestinationLabel(environmentId, draft.threadId);
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
   // Existing webhook tasks keep the option so they can still switch to a timer.
@@ -723,7 +718,7 @@ function TaskForm({
 
   const failure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      Dialog.alert(title, String(squashAtomCommandFailure(result)));
+      Dialog.alert(title, commandFailureMessage(result));
     }
   };
 
@@ -878,9 +873,7 @@ function TaskForm({
               borderTop
               value={
                 runsAsManager
-                  ? managerProject
-                    ? managerLabel(managerProject)
-                    : "Project manager"
+                  ? `${managerProject?.title ?? "Project"} manager`
                   : draft.botId === null
                     ? "A new thread"
                     : (runsAsBot?.name ?? draft.botId)
@@ -906,7 +899,7 @@ function TaskForm({
                       })),
                       ...managedProjects.map((project) => ({
                         id: `${RUNS_AS_MANAGER}${project.id}`,
-                        title: managerLabel(project),
+                        title: `${project.title} manager`,
                         state:
                           runsAsManager && project.id === draft.projectId
                             ? ("on" as const)
@@ -1545,7 +1538,7 @@ function EnvironmentTasks({
   const selectDetail = useSelectWorkspaceDetail();
   const failure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      Dialog.alert(title, String(squashAtomCommandFailure(result)));
+      Dialog.alert(title, commandFailureMessage(result));
     }
   };
 
