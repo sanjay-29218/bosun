@@ -23,6 +23,8 @@ export interface SourceControlLinkSubject {
   readonly state?: "open" | "closed";
   readonly milestone?: string | null;
   readonly subIssues?: { readonly completed: number; readonly total: number } | null;
+  /** The issue's parent issue number, when it is a sub-issue. */
+  readonly parent?: number | null;
 }
 
 /** Return undefined synchronously for unsupported URLs, without starting a lookup. */
@@ -118,7 +120,8 @@ export function sourceControlRefFromInput(input: {
 }
 
 export function repositoryPathFromRemoteUrl(url: string | null): string | null {
-  const trimmed = url?.trim() ?? "";
+  const remote = url?.trim() ?? "";
+  const trimmed = /^(?:ssh|https?|git):\/\//iu.test(remote) ? remote.split(/[?#]/u, 1)[0]! : remote;
   if (trimmed.length === 0) {
     return null;
   }
@@ -139,6 +142,8 @@ export class SourceControlProvider extends Context.Service<
     readonly headBranchProbe?: (input: {
       readonly headSelectors: ReadonlyArray<string>;
       readonly state: "open" | "all";
+      /** `owner:branch` when the head is the default branch, a name most forks share. */
+      readonly defaultBranchHeadSelector?: string | undefined;
     }) => { readonly headSelectors: ReadonlyArray<string>; readonly limit: number };
     readonly readChangeRequestTemplate?: (input: {
       readonly cwd: string;
@@ -204,12 +209,17 @@ export class SourceControlProvider extends Context.Service<
       readonly state: "open" | "closed";
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryMilestone, SourceControlProviderError>;
-    /** Changes an issue's title or Markdown body, whichever is given. Absent means unsupported. */
+    /**
+     * Changes an issue's title, Markdown body, milestone (its number) or parent (its number),
+     * whichever is given; null clears a milestone or parent. Absent means unsupported.
+     */
     readonly updateIssue?: (input: {
       readonly cwd: string;
       readonly number: number;
       readonly title?: string | undefined;
       readonly body?: string | undefined;
+      readonly milestone?: number | null | undefined;
+      readonly parent?: number | null | undefined;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<RepositoryIssue, SourceControlProviderError>;
     /**

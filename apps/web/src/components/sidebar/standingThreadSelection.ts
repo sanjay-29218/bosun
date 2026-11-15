@@ -1,6 +1,6 @@
 import {
-  createLogicalBotResolver,
-  projectBotId,
+  createProjectOwnerResolver,
+  projectOwner,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import {
@@ -8,17 +8,27 @@ import {
   headquartersProjectId,
   type EnvironmentId,
   type ProjectId,
+  type ProjectRemoteBot,
 } from "@t3tools/contracts";
 
 export type StandingThreadSelection =
   | { readonly kind: "none" }
   | { readonly kind: "pending" }
-  | { readonly kind: "select"; readonly botKey: string; readonly projectKey: string | null };
+  | {
+      readonly kind: "select";
+      /**
+       * Null keeps the picked bot: the project has no bot, or its bot isn't pinned and so can't
+       * be picked; the scope still shows the project.
+       */
+      readonly botKey: string | null;
+      readonly projectKey: string | null;
+    };
 
 /**
- * What an open standing thread implies for the rail: a bot's headquarters picks that bot; a
- * project manager picks the project's bot and scopes the thread list to the project. `pending`
- * until the bot or project it names has loaded.
+ * What an open standing thread implies for the rail: a pinned bot's headquarters picks that bot;
+ * a project manager picks the project's bot when it's pinned and scopes the thread list to the
+ * project. An unpinned bot isn't in the rail, so the rail stays where it is. `pending` until the
+ * bot or project it names has loaded.
  */
 export function standingThreadSelection(input: {
   readonly environmentId: EnvironmentId;
@@ -27,7 +37,8 @@ export function standingThreadSelection(input: {
   readonly projects: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly id: ProjectId;
-    readonly botId?: string | undefined;
+    readonly botId?: string | null | undefined;
+    readonly remoteBot?: ProjectRemoteBot | null | undefined;
   }>;
   readonly projectKeyOf: (environmentId: EnvironmentId, projectId: ProjectId) => string | null;
 }): StandingThreadSelection {
@@ -39,7 +50,8 @@ export function standingThreadSelection(input: {
         (member) => member.environmentId === environmentId && member.botId === botId,
       ),
     );
-    return bot ? { kind: "select", botKey: bot.key, projectKey: null } : { kind: "pending" };
+    if (!bot) return { kind: "pending" };
+    return bot.pinned ? { kind: "select", botKey: bot.key, projectKey: null } : { kind: "none" };
   }
   const projectId = headquartersProjectId(threadId);
   if (projectId === null) return { kind: "none" };
@@ -48,10 +60,11 @@ export function standingThreadSelection(input: {
   );
   const projectKey = project ? input.projectKeyOf(environmentId, projectId) : null;
   if (!project || projectKey === null) return { kind: "pending" };
-  const ownerKey = createLogicalBotResolver(bots)(environmentId, projectBotId(project));
-  return bots.some((bot) => bot.key === ownerKey)
-    ? { kind: "select", botKey: ownerKey, projectKey }
-    : { kind: "pending" };
+  if (projectOwner(project) === null) return { kind: "select", botKey: null, projectKey };
+  const ownerKey = createProjectOwnerResolver(bots)(project);
+  const owner = bots.find((bot) => bot.key === ownerKey);
+  if (!owner) return { kind: "pending" };
+  return { kind: "select", botKey: owner.pinned ? owner.key : null, projectKey };
 }
 
 /**
@@ -61,13 +74,13 @@ export function standingThreadSelection(input: {
  */
 export function followStandingThread(
   current: { readonly activeBotKey: string | null; readonly scopeKeys: ReadonlyArray<string> },
-  target: { readonly botKey: string; readonly projectKey: string | null },
+  target: { readonly botKey: string | null; readonly projectKey: string | null },
 ): { readonly selectBot: boolean; readonly scopeKeys: ReadonlyArray<string> | null } {
   const scopeKeys = target.projectKey === null ? [] : [target.projectKey];
   const sameScope =
     current.scopeKeys.length === scopeKeys.length &&
     current.scopeKeys.every((key, index) => key === scopeKeys[index]);
-  const selectBot = current.activeBotKey !== target.botKey;
+  const selectBot = target.botKey !== null && current.activeBotKey !== target.botKey;
   // Picking another bot clears the scope, so a matching one must be set again.
   return { selectBot, scopeKeys: sameScope && !selectBot ? null : scopeKeys };
 }

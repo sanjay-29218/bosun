@@ -3,11 +3,14 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { ProjectRemoteBot, ProjectScript, ReceivedProjectIcon } from "./project.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
+  // Set once someone renames the project. A folder-default title can equal the
+  // repository name, so grouped labels need this to tell a chosen name apart.
+  hasCustomTitle: Schema.optional(Schema.Boolean),
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
@@ -17,8 +20,12 @@ export const OrchestrationProjectShell = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
   scripts: Schema.Array(ProjectScript),
-  /** The bot that owns the project. Absent from older servers and cached snapshots: Captain. */
-  botId: Schema.optional(Schema.String),
+  /** The bot that owns the project; null or absent when it has none. */
+  botId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The owning bot when it lives on another environment. Absent from older servers. */
+  remoteBot: Schema.optional(Schema.NullOr(ProjectRemoteBot)),
+  /** The project's manager shows in the main rail. Absent from older servers: pinned. */
+  managerPinned: Schema.optional(Schema.Boolean),
   // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),

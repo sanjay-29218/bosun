@@ -3,12 +3,16 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   ticketRef,
+  type ProjectId,
   type RepositoryIssue,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
+import { CREW_MEMBER_GRANT } from "../../../crew/crewMcpCapabilities.ts";
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -22,11 +26,28 @@ const isAccessError = Schema.is(
   Schema.Union([McpCapabilityUnavailableError, OrchestratorMcpFailure]),
 );
 
-/** Crew tools act for the crew run behind the calling thread, so only thread callers have one. */
-const requireCrewThread = McpInvocationContext.requireMcpCapability("crew").pipe(
+/**
+ * Crew tools act for the crew run behind the calling thread, so only thread callers have one. A
+ * delegated child shares its parent's crew tools but never acts as a standing thread.
+ */
+const requireCrewCaller = McpInvocationContext.requireMcpCapability("crew").pipe(
   Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "This crew tool")),
-  Effect.map((scope) => scope.thread.threadId),
+  Effect.map((scope) => ({
+    callerThreadId: scope.thread.threadId,
+    callerIsSubagent: scope.thread.subagent === true,
+  })),
 );
+const requireCrewThread = requireCrewCaller.pipe(Effect.map((caller) => caller.callerThreadId));
+/** A feature crew member, a delegated child without the `crew` capability, asks as itself. */
+const requireCrewMember = Effect.gen(function* () {
+  const scope = yield* McpInvocationContext.McpInvocationContext;
+  if (scope.crewGrants?.includes(CREW_MEMBER_GRANT) !== true) {
+    return yield* new CrewToolFailedError({
+      reason: "Only a feature's crew member asks the person this way.",
+    });
+  }
+  return (yield* McpInvocationContext.requireThreadScope(scope, "crew_ask_person")).thread.threadId;
+});
 
 /** `T-14` is a ticket, `#482` or `482` an issue. */
 function parseTodoRef(ref: string) {
@@ -54,6 +75,11 @@ function crewIssueRows(
     Math.max(Math.trunc(input.limit ?? ISSUE_ROWS_DEFAULT), 1),
     ISSUE_ROWS_MAX,
   );
+  const parts = new Map<number, number[]>();
+  for (const issue of issues) {
+    if (issue.parent !== null)
+      parts.set(issue.parent, [...(parts.get(issue.parent) ?? []), issue.number]);
+  }
   return issues
     .filter(
       (issue) =>
@@ -68,13 +94,18 @@ function crewIssueRows(
       state: issue.state,
       milestone: issue.milestone?.title ?? null,
       parent: issue.parent,
-      subIssues: issue.subIssues,
+      subIssues: issue.subIssues && {
+        ...issue.subIssues,
+        numbers: (parts.get(issue.number) ?? []).toSorted((a, b) => a - b),
+      },
       labels: issue.labels.map((label) => label.name),
       assignees: issue.assignees.map((assignee) => assignee.login),
     }));
 }
 
 const make = Effect.gen(function* () {
+  const approvals = yield* CrewApprovals;
+  const crew = yield* CrewService;
   const features = yield* FeatureService;
   const issues = yield* IssueService.IssueService;
   const tickets = yield* TicketService;
@@ -98,17 +129,47 @@ const make = Effect.gen(function* () {
     return parsed;
   });
 
+  const toolFailure = <E>(error: E) =>
+    isAccessError(error)
+      ? error
+      : new CrewToolFailedError({
+          reason: error instanceof Error ? error.message : String(error),
+        });
   const asCrewMember = <A, E, R>(
     effect: (threadId: McpInvocationContext.McpThreadCaller["threadId"]) => Effect.Effect<A, E, R>,
-  ) =>
-    requireCrewThread.pipe(
-      Effect.flatMap(effect),
-      Effect.mapError((error) =>
-        isAccessError(error) ? error : new CrewToolFailedError({ reason: String(error) }),
-      ),
-    );
-
+  ) => requireCrewThread.pipe(Effect.flatMap(effect), Effect.mapError(toolFailure));
+  const asCrewCaller = <A, E, R>(
+    effect: (caller: Effect.Success<typeof requireCrewCaller>) => Effect.Effect<A, E, R>,
+  ) => requireCrewCaller.pipe(Effect.flatMap(effect), Effect.mapError(toolFailure));
   return {
+    crew_ask_person: McpToolAccess.actsAsCaller(
+      (input: {
+        readonly question: string;
+        readonly options?: ReadonlyArray<string> | undefined;
+      }) =>
+        requireCrewMember.pipe(
+          Effect.flatMap((threadId) => approvals.ask(threadId, input)),
+          Effect.mapError(toolFailure),
+        ),
+    ),
+    crew_read_manager_instructions: McpToolAccess.readsAsCaller(
+      (input: { readonly projectId?: ProjectId | undefined }) =>
+        asCrewCaller((caller) =>
+          crew.projectManagerInstructions({ ...caller, projectId: input.projectId }),
+        ),
+    ),
+    crew_update_manager_instructions: McpToolAccess.actsAsCaller(
+      (input: {
+        readonly projectId?: ProjectId | undefined;
+        readonly instructions: string;
+        readonly expectedRevision: number;
+      }) =>
+        asCrewCaller((caller) =>
+          crew
+            .updateProjectManagerInstructions({ ...caller, ...input })
+            .pipe(Effect.map((saved) => ({ ...saved, appliesFrom: "the manager's next session" }))),
+        ),
+    ),
     crew_link_issue: McpToolAccess.actsAsCaller(
       (input: { readonly url: string | null; readonly threadId?: ThreadId | undefined }) =>
         asCrewMember((callerId) =>
@@ -256,11 +317,19 @@ const make = Effect.gen(function* () {
         readonly closedReason?: "completed" | "not_planned" | undefined;
         readonly title?: string | undefined;
         readonly description?: string | undefined;
+        readonly milestone?: string | null | undefined;
+        readonly parent?: number | null | undefined;
       }) =>
         asCrewMember((threadId) =>
           Effect.gen(function* () {
             const projectId = yield* threadProject(threadId);
             const ref = yield* todoRef(input.ref);
+            const structure = input.milestone !== undefined || input.parent !== undefined;
+            if (ref.kind === "ticket" && structure) {
+              return yield* new CrewToolFailedError({
+                reason: "Tickets have no milestone or parent",
+              });
+            }
             if (ref.kind === "ticket") {
               const ticket = yield* tickets.getByNumber(projectId, ref.number);
               const updated = yield* tickets.update({
@@ -278,15 +347,27 @@ const make = Effect.gen(function* () {
                 reason: "A GitHub issue's title and description are edited on GitHub",
               });
             }
-            if (input.state === undefined) {
-              return yield* new CrewToolFailedError({ reason: "Pass the state to change to" });
+            let issue = structure
+              ? yield* issues.update({
+                  projectId,
+                  number: ref.number,
+                  ...(input.milestone === undefined ? {} : { milestone: input.milestone }),
+                  ...(input.parent === undefined ? {} : { parent: input.parent }),
+                })
+              : null;
+            if (input.state !== undefined) {
+              issue = yield* issues.setState({
+                projectId,
+                number: ref.number,
+                state: input.state,
+                reason: input.closedReason,
+              });
             }
-            const issue = yield* issues.setState({
-              projectId,
-              number: ref.number,
-              state: input.state,
-              reason: input.closedReason,
-            });
+            if (issue === null) {
+              return yield* new CrewToolFailedError({
+                reason: "Pass the state, milestone or parent to change",
+              });
+            }
             return { kind: "issue", issue } as const;
           }),
         ),

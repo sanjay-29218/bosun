@@ -51,6 +51,8 @@ export class NoticeInbox extends Context.Service<
   NoticeInbox,
   {
     readonly post: (notice: Notice) => Effect.Effect<void, PersistenceSqlError>;
+    /** Drops undelivered notices whose key starts with `keyPrefix`, such as an answered ask. */
+    readonly withdraw: (keyPrefix: string) => Effect.Effect<void, PersistenceSqlError>;
     /** Delivers what waits for `threadId`, unless it is busy or a hold is open. */
     readonly flush: (threadId: ThreadId) => Effect.Effect<void, PersistenceSqlError>;
     /** Runs `effect` with every delivery held, then delivers to each recipient once. */
@@ -262,6 +264,16 @@ const make = Effect.gen(function* () {
     yield* flush(notice.threadId);
   });
 
+  const withdraw: NoticeInbox["Service"]["withdraw"] = Effect.fn("NoticeInbox.withdraw")(
+    function* (keyPrefix) {
+      yield* sql`
+        UPDATE notice_inbox SET dropped_at = ${yield* now}
+        WHERE substr(key, 1, ${keyPrefix.length}) = ${keyPrefix} AND digest_id IS NULL
+          AND delivered_at IS NULL AND dropped_at IS NULL
+      `.pipe(Effect.mapError(queryError));
+    },
+  );
+
   const flushQuietly = (threadId: ThreadId) =>
     flushNow(threadId).pipe(
       Effect.catchCause((cause) =>
@@ -324,7 +336,7 @@ const make = Effect.gen(function* () {
     );
   });
 
-  return NoticeInbox.of({ post, flush, holding, recover, start });
+  return NoticeInbox.of({ post, withdraw, flush, holding, recover, start });
 });
 
 export const layer = Layer.effect(NoticeInbox, make);

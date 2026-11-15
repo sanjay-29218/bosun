@@ -35,13 +35,7 @@ export const layer = McpToolAccess.toLayer(
   Effect.gen(function* () {
     const reach = yield* BotReach.BotReach;
     return {
-      t3_bot_list: McpToolAccess.reads(() =>
-        BotService.BotService.pipe(
-          Effect.flatMap((bots) => bots.list),
-          Effect.map((bots) => ({ bots })),
-          Effect.mapError(failed),
-        ),
-      ),
+      t3_bot_list: McpToolAccess.reads(() => reach.list.pipe(Effect.map((bots) => ({ bots })))),
       t3_bot_create: McpToolAccess.writesWithCapability((input) =>
         Effect.gen(function* () {
           // A bot can't run without a model, and the editor always sets one; a bot an agent
@@ -69,13 +63,16 @@ export const layer = McpToolAccess.toLayer(
       t3_bot_move_project: McpToolAccess.writesWithCapability((input) =>
         changingBots((bots) => bots.moveProject(input)),
       ),
+      t3_bot_pin: McpToolAccess.writesWithCapability((input) =>
+        changingBots((bots) => bots.setPin(input)).pipe(Effect.as({ pinned: input.pinned })),
+      ),
       t3_bot_projects: McpToolAccess.reads((input) =>
         McpInvocationContext.McpInvocationContext.pipe(
           Effect.flatMap((scope) => reach.projects(scope, input.botId)),
         ),
       ),
       t3_bot_link_projects: McpToolAccess.reads((input) =>
-        reach.projectsForLink(input.botKey).pipe(Effect.map((projects) => ({ projects }))),
+        reach.projectsForLink(input.home).pipe(Effect.map((projects) => ({ projects }))),
       ),
       // The link's own access is checked by the service, which names what to change.
       t3_bot_link_task: McpToolAccess.writes(

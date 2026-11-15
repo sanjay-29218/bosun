@@ -1,9 +1,9 @@
 import {
-  CAPTAIN_BOT_ID,
   featureIssueRef,
   headquartersBotId,
   type EnvironmentId,
   type ProjectId,
+  type ProjectRemoteBot,
   type FeatureBoardCard,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -260,7 +260,7 @@ export const botNeedsYouKey = (environmentId: EnvironmentId, botId: string) =>
 
 /**
  * Threads waiting on you per bot, keyed by `botNeedsYouKey`, from the shells and project
- * shells every client already has. A project without a `botId` (an older server) is Captain's.
+ * shells every client already has. Threads in a project with no bot count for no bot.
  */
 export function countNeedsYouByBot(
   shells: ReadonlyArray<NeedsYouShell & { readonly projectId: ProjectId }>,
@@ -280,28 +280,44 @@ export function countNeedsYouByBot(
 export interface BotOwnedProject {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
-  readonly botId?: string | undefined;
+  readonly botId?: string | null | undefined;
+  /** An owner on another environment; its threads count for that bot. */
+  readonly remoteBot?: ProjectRemoteBot | null | undefined;
 }
 
 /**
- * The `botNeedsYouKey` of the bot a thread works for, or undefined when its project isn't
- * loaded. A headquarters belongs to its bot, not to the project it lives in.
+ * The `botNeedsYouKey` of the bot a thread works for, or undefined when its project has no bot
+ * or isn't loaded. A headquarters belongs to its bot, not to the project it lives in.
  */
 export function createThreadBotKeyResolver(projects: ReadonlyArray<BotOwnedProject>) {
   const owners = new Map(
-    projects.map((project) => [
-      `${project.environmentId}:${project.id}`,
-      project.botId ?? CAPTAIN_BOT_ID,
-    ]),
+    projects.flatMap((project) =>
+      project.remoteBot != null
+        ? [
+            [
+              `${project.environmentId}:${project.id}`,
+              botNeedsYouKey(project.remoteBot.environmentId, project.remoteBot.botId),
+            ],
+          ]
+        : project.botId == null
+          ? []
+          : [
+              [
+                `${project.environmentId}:${project.id}`,
+                botNeedsYouKey(project.environmentId, project.botId),
+              ],
+            ],
+    ),
   );
   return (shell: {
     readonly environmentId: EnvironmentId;
     readonly id: string;
     readonly projectId: ProjectId;
   }): string | undefined => {
-    const botId =
-      headquartersBotId(shell.id) ?? owners.get(`${shell.environmentId}:${shell.projectId}`);
-    return botId === undefined ? undefined : botNeedsYouKey(shell.environmentId, botId);
+    const headquarters = headquartersBotId(shell.id);
+    return headquarters !== null
+      ? botNeedsYouKey(shell.environmentId, headquarters)
+      : owners.get(`${shell.environmentId}:${shell.projectId}`);
   };
 }
 

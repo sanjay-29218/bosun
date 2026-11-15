@@ -1,11 +1,11 @@
 import {
-  CAPTAIN_BOT_ID,
   type CommandId,
   type EventId,
   MAX_SCRIPT_ID_LENGTH,
   type ModelSelection,
   type ProjectIconOverride,
   ProjectId,
+  type ProjectRemoteBot,
   type ProjectScript,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
@@ -24,8 +24,8 @@ export interface ProjectCreateCommand {
   readonly title: string;
   readonly workspaceRoot: string;
   readonly scripts?: ReadonlyArray<ProjectScript>;
-  /** The owning bot, Captain when omitted; the caller has checked it exists. */
-  readonly botId?: string;
+  /** The owning bot, none when omitted or null; the caller has checked it exists. */
+  readonly botId?: string | null;
 }
 
 export interface ProjectMetaUpdateCommand {
@@ -40,8 +40,12 @@ export interface ProjectMetaUpdateCommand {
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
-  /** Moves the project to this bot; the caller has checked it exists. */
-  readonly botId?: string;
+  /** Moves the project to this bot, or to none when null; the caller has checked it exists. */
+  readonly botId?: string | null;
+  /** Moves the project to a bot on another environment, which clears `botId`. */
+  readonly remoteBot?: ProjectRemoteBot;
+  /** Shows the project's manager in the main rail, or hides it there. */
+  readonly managerPinned?: boolean;
   readonly pinned?: boolean;
   readonly archived?: boolean;
 }
@@ -168,7 +172,7 @@ export function planProjectCommand(input: {
           faviconPath: null,
           projectIcon: null,
           scripts: command.scripts ?? [],
-          botId: command.botId ?? CAPTAIN_BOT_ID,
+          botId: command.botId ?? null,
           createdAt: occurredAt,
           updatedAt: occurredAt,
         },
@@ -217,6 +221,8 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           ...(command.botId === undefined ? {} : { botId: command.botId }),
+          ...(command.remoteBot === undefined ? {} : { remoteBot: command.remoteBot }),
+          ...(command.managerPinned === undefined ? {} : { managerPinned: command.managerPinned }),
           // Repeating a pin or archive keeps the original time.
           ...(command.pinned === undefined
             ? {}

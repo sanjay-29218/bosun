@@ -1,7 +1,6 @@
 import {
   botHeadquartersThreadId,
   projectHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -107,7 +106,7 @@ const bots = buildLogicalBots([
   {
     environmentId: local,
     bots: [
-      { id: CAPTAIN_BOT_ID, name: "Captain", avatar, color: "blue", position: 0 },
+      { id: "bot-ops", name: "Captain", avatar, color: "blue", position: 0 },
       { id: "bot-social", name: "Social", avatar, color: "blue", position: 1 },
     ],
   },
@@ -126,17 +125,37 @@ describe("groupAutomationsByBot", () => {
           tasks: [
             task("Triage", { projectId: ProjectId.make("blog") }),
             task("Nightly build", { projectId: ProjectId.make("app") }),
+            task("Cleanup", { projectId: ProjectId.make("loose") }),
+            // A manager's task goes where its project's other tasks go.
+            task("Loose triage", { projectId: ProjectId.make("loose"), projectManager: true }),
           ],
         },
         {
           environmentId: remote,
-          tasks: [task("Analytics", { projectId: ProjectId.make("site") })],
+          tasks: [
+            task("Analytics", { projectId: ProjectId.make("site") }),
+            task("Docs build", { projectId: ProjectId.make("docs") }),
+            task("Docs triage", { projectId: ProjectId.make("docs"), projectManager: true }),
+          ],
         },
       ],
       projects: [
-        { environmentId: local, id: ProjectId.make("app") },
+        { environmentId: local, id: ProjectId.make("app"), botId: "bot-ops" },
+        { environmentId: local, id: ProjectId.make("loose"), botId: null },
         { environmentId: local, id: ProjectId.make("blog"), botId: "bot-social" },
         { environmentId: remote, id: ProjectId.make("site"), botId: "bot-social-2" },
+        // Given from remote to the local Social, which lives on another environment.
+        {
+          environmentId: remote,
+          id: ProjectId.make("docs"),
+          botId: null,
+          remoteBot: {
+            environmentId: local,
+            botId: "bot-social",
+            name: "Social",
+            homeLabel: "Laptop",
+          },
+        },
       ],
       bots,
     });
@@ -144,7 +163,11 @@ describe("groupAutomationsByBot", () => {
       groups.map((group) => [group.bot?.name, group.entries.map((entry) => entry.key)]),
     ).toEqual([
       ["Captain", ["local:Nightly build"]],
-      ["Social", ["remote:Analytics", "local:Triage"]],
+      ["Social", ["remote:Docs build", "remote:Docs triage", "local:Triage"]],
+      // The same-named bot on remote is its own bot.
+      ["Social", ["remote:Analytics"]],
+      // A project with no bot files its tasks under No bot, last.
+      [undefined, ["local:Cleanup", "local:Loose triage"]],
     ]);
   });
 

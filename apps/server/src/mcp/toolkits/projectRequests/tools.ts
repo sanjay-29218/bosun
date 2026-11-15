@@ -1,10 +1,11 @@
-import { OrchestratorMcpFailure, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, OrchestratorMcpFailure, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const shared = {
@@ -15,6 +16,7 @@ const shared = {
     ThreadManagementService.ThreadManagementService,
     FeatureService,
     ProjectRequests,
+    RemoteDelegation.RemoteDelegation,
   ],
 };
 
@@ -23,12 +25,29 @@ const RequestStatus = Schema.Literals(["open", "done"]);
 const SendRequest = Tool.make("t3_project_send", {
   ...shared,
   description:
-    "Send a project's manager a request; it replies in this thread. The same key returns the same request. Needs the owning bot's headquarters or full access.",
-  parameters: Schema.Struct({ projectId: ProjectId, message: Schema.String, key: Schema.String }),
+    "Send a project's manager a request; it replies in this thread. The same key returns the same request. Needs the owning bot's headquarters or full access. With environmentId, a headquarters sends its bot's project on that linked environment the request as a task; if that environment is offline, the task waits and starts by itself when it's back.",
+  parameters: Schema.Struct({
+    environmentId: Schema.optional(
+      EnvironmentId.annotate({
+        description:
+          "A linked environment where your bot owns the project (t3_bot_projects). Omit for this one.",
+      }),
+    ),
+    projectId: ProjectId,
+    message: Schema.String,
+    key: Schema.String,
+  }),
   success: Schema.Struct({
-    requestId: Schema.String,
-    managerThreadId: ThreadId,
-    link: Schema.String,
+    requestId: Schema.String.annotate({
+      description: "The request, or on a linked environment the task id here.",
+    }),
+    managerThreadId: Schema.NullOr(ThreadId),
+    link: Schema.NullOr(Schema.String),
+    waiting: Schema.optional(
+      Schema.String.annotate({
+        description: "Set while its environment is offline; don't send it again.",
+      }),
+    ),
   }),
 }).annotate(Tool.Destructive, false);
 

@@ -1,11 +1,11 @@
 import {
   type ApplicationProjectEvent,
-  CAPTAIN_BOT_ID,
   IsoDateTime,
   ModelSelection,
   type OrchestrationProjectShell,
   StoredProjectIcon,
   ProjectId,
+  ProjectRemoteBot,
   ProjectScript,
   ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -33,6 +33,7 @@ export class ProjectStoreV2Error extends Schema.TaggedError<ProjectStoreV2Error>
 export const ProjectRow = Schema.Struct({
   projectId: ProjectId,
   title: Schema.String,
+  hasCustomTitle: Schema.Boolean,
   workspaceRoot: Schema.String,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
@@ -40,7 +41,9 @@ export const ProjectRow = Schema.Struct({
   faviconPath: Schema.NullOr(Schema.String),
   projectIcon: Schema.NullOr(StoredProjectIcon),
   scripts: Schema.Array(ProjectScript),
-  botId: Schema.String,
+  botId: Schema.NullOr(Schema.String),
+  remoteBot: Schema.NullOr(ProjectRemoteBot),
+  managerPinned: Schema.Boolean,
   pinnedAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,
@@ -52,15 +55,19 @@ export type ProjectRow = typeof ProjectRow.Type;
 const ProjectDbRow = Schema.Struct({
   ...ProjectRow.fields,
   defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
+  hasCustomTitle: Schema.BooleanFromBit,
   autoPull: Schema.BooleanFromBit,
+  managerPinned: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  remoteBot: Schema.NullOr(Schema.fromJsonString(ProjectRemoteBot)),
 });
 
 function toShell(row: ProjectRow): OrchestrationProjectShell {
   return {
     id: row.projectId,
     title: row.title,
+    hasCustomTitle: row.hasCustomTitle,
     workspaceRoot: row.workspaceRoot,
     repositoryIdentity: null,
     defaultModelSelection: row.defaultModelSelection,
@@ -70,6 +77,8 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    remoteBot: row.remoteBot,
+    managerPinned: row.managerPinned,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -120,6 +129,7 @@ export const make = Effect.gen(function* () {
       SELECT
         project_id AS "projectId",
         title,
+        has_custom_title AS "hasCustomTitle",
         workspace_root AS "workspaceRoot",
         default_model_selection_json AS "defaultModelSelection",
         default_thread_env_mode AS "defaultThreadEnvMode",
@@ -128,6 +138,8 @@ export const make = Effect.gen(function* () {
         project_icon_json AS "projectIcon",
         scripts_json AS "scripts",
         bot_id AS "botId",
+        remote_bot_json AS "remoteBot",
+        manager_pinned AS "managerPinned",
         pinned_at AS "pinnedAt",
         archived_at AS "archivedAt",
         created_at AS "createdAt",
@@ -153,6 +165,7 @@ export const make = Effect.gen(function* () {
           INSERT INTO projection_projects (
             project_id,
             title,
+            has_custom_title,
             workspace_root,
             default_model_selection_json,
             default_thread_env_mode,
@@ -161,6 +174,8 @@ export const make = Effect.gen(function* () {
             project_icon_json,
             scripts_json,
             bot_id,
+            remote_bot_json,
+            manager_pinned,
             pinned_at,
             archived_at,
             created_at,
@@ -170,6 +185,7 @@ export const make = Effect.gen(function* () {
           VALUES (
             ${encoded.projectId},
             ${encoded.title},
+            ${encoded.hasCustomTitle},
             ${encoded.workspaceRoot},
             ${encoded.defaultModelSelection},
             ${encoded.defaultThreadEnvMode},
@@ -178,6 +194,8 @@ export const make = Effect.gen(function* () {
             ${encoded.projectIcon},
             ${encoded.scripts},
             ${encoded.botId},
+            ${encoded.remoteBot},
+            ${encoded.managerPinned},
             ${encoded.pinnedAt},
             ${encoded.archivedAt},
             ${encoded.createdAt},
@@ -186,7 +204,12 @@ export const make = Effect.gen(function* () {
           )
           ON CONFLICT (project_id)
           DO UPDATE SET
-            title = excluded.title,
+            title = CASE
+              WHEN projection_projects.has_custom_title = 1 AND excluded.has_custom_title = 0
+                THEN projection_projects.title
+              ELSE excluded.title
+            END,
+            has_custom_title = MAX(projection_projects.has_custom_title, excluded.has_custom_title),
             workspace_root = excluded.workspace_root,
             default_model_selection_json = excluded.default_model_selection_json,
             default_thread_env_mode = excluded.default_thread_env_mode,
@@ -195,6 +218,8 @@ export const make = Effect.gen(function* () {
             project_icon_json = excluded.project_icon_json,
             scripts_json = excluded.scripts_json,
             bot_id = excluded.bot_id,
+            remote_bot_json = excluded.remote_bot_json,
+            manager_pinned = excluded.manager_pinned,
             pinned_at = excluded.pinned_at,
             archived_at = excluded.archived_at,
             created_at = excluded.created_at,
@@ -238,6 +263,7 @@ export const make = Effect.gen(function* () {
         return yield* upsertRow({
           projectId: payload.projectId,
           title: payload.title,
+          hasCustomTitle: false,
           workspaceRoot: payload.workspaceRoot,
           defaultModelSelection: payload.defaultModelSelection,
           defaultThreadEnvMode: payload.defaultThreadEnvMode ?? null,
@@ -245,7 +271,9 @@ export const make = Effect.gen(function* () {
           faviconPath: payload.faviconPath ?? null,
           projectIcon: payload.projectIcon ?? null,
           scripts: payload.scripts,
-          botId: payload.botId ?? CAPTAIN_BOT_ID,
+          botId: payload.botId ?? null,
+          remoteBot: null,
+          managerPinned: false,
           pinnedAt: null,
           archivedAt: null,
           createdAt: payload.createdAt,
@@ -266,7 +294,7 @@ export const make = Effect.gen(function* () {
       const payload = event.payload;
       yield* upsertRow({
         ...row,
-        ...(payload.title === undefined ? {} : { title: payload.title }),
+        ...(payload.title === undefined ? {} : { title: payload.title, hasCustomTitle: true }),
         ...(payload.workspaceRoot === undefined ? {} : { workspaceRoot: payload.workspaceRoot }),
         ...(payload.defaultModelSelection === undefined
           ? {}
@@ -278,7 +306,14 @@ export const make = Effect.gen(function* () {
         ...(payload.faviconPath === undefined ? {} : { faviconPath: payload.faviconPath }),
         ...(payload.projectIcon === undefined ? {} : { projectIcon: payload.projectIcon }),
         ...(payload.scripts === undefined ? {} : { scripts: payload.scripts }),
-        ...(payload.botId === undefined ? {} : { botId: payload.botId }),
+        // A project has one owner: a bot here or one on another environment.
+        ...(payload.botId === undefined ? {} : { botId: payload.botId, remoteBot: null }),
+        ...(payload.remoteBot === undefined
+          ? {}
+          : payload.remoteBot === null
+            ? { remoteBot: null }
+            : { remoteBot: payload.remoteBot, botId: null }),
+        ...(payload.managerPinned === undefined ? {} : { managerPinned: payload.managerPinned }),
         ...(payload.pinnedAt === undefined ? {} : { pinnedAt: payload.pinnedAt }),
         ...(payload.archivedAt === undefined ? {} : { archivedAt: payload.archivedAt }),
         updatedAt: payload.updatedAt,

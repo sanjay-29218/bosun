@@ -44,14 +44,14 @@ export class IssueService extends Context.Service<
       number: number,
     ) => Effect.Effect<IssueDetail, IssueOperationError>;
     /**
-     * Files an issue, in `milestone` (an open milestone's title or number) and as a sub-issue of
-     * `parent` (an issue number) when given.
+     * Files an issue, in `milestone` (an open milestone's title, or a milestone's number) and as a
+     * sub-issue of `parent` (an issue number) when given.
      */
     readonly create: (input: {
       readonly projectId: ProjectId;
       readonly title: string;
       readonly body: string;
-      readonly milestone?: string | undefined;
+      readonly milestone?: string | number | undefined;
       readonly parent?: number | undefined;
     }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
     readonly createMilestone: (input: {
@@ -72,11 +72,15 @@ export class IssueService extends Context.Service<
       readonly reason?: IssueClosedReason | undefined;
     }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
     /**
-     * Changes the title or body. Given `expectedUpdatedAt`, it first checks the host's copy and
-     * refuses when someone edited it since, so a stale editor can't overwrite their change.
+     * Changes the title, body, milestone or parent; null clears a milestone or parent. Given
+     * `expectedUpdatedAt`, it first checks the host's copy and refuses when someone edited it
+     * since, so a stale editor can't overwrite their change.
      */
     readonly update: (
-      input: IssueUpdateInput,
+      input: Omit<IssueUpdateInput, "milestone"> & {
+        /** A milestone's number, or an open one's title; null clears it. */
+        readonly milestone?: string | number | null | undefined;
+      },
     ) => Effect.Effect<RepositoryIssue, IssueOperationError | IssueChangedError>;
     /** Stores a pasted image on the project's host, for an issue's Markdown to link. */
     readonly uploadImage: (
@@ -184,8 +188,9 @@ const make = Effect.gen(function* () {
    */
   const milestoneNumber = Effect.fn("IssueService.milestoneNumber")(function* (
     projectId: ProjectId,
-    ref: string,
+    ref: string | number,
   ) {
+    if (typeof ref === "number") return ref;
     const number = /^#?([1-9]\d*)$/u.exec(ref.trim());
     if (number) return Number(number[1]);
     const wanted = ref.trim().toLowerCase();
@@ -253,12 +258,18 @@ const make = Effect.gen(function* () {
           });
         }
       }
+      const milestone =
+        input.milestone === undefined || input.milestone === null
+          ? input.milestone
+          : yield* milestoneNumber(input.projectId, input.milestone);
       const issue = yield* provider
         .updateIssue({
           cwd,
           number: input.number,
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.body === undefined ? {} : { body: input.body }),
+          ...(milestone === undefined ? {} : { milestone }),
+          ...(input.parent === undefined ? {} : { parent: input.parent }),
         })
         .pipe(Effect.catch(hostFailure("edit", input.projectId)));
       yield* refreshes.refresh(input.projectId);

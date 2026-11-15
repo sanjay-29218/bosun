@@ -5,20 +5,21 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it, vi } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
-  CAPTAIN_BOT_ID,
   ProjectId,
   projectHeadquartersThreadId,
   ProviderInstanceId,
   ScheduledTaskError,
   ScheduledTaskId,
-  ThreadId,
   type ScheduledTaskUpsertInput,
+  SecretRef,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Fiber from "effect/Fiber";
@@ -35,8 +36,16 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { insertTestBot } from "../bots/BotStore.testkit.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
+
+const threadShell = (
+  projectId: ProjectId,
+  state: { archivedAt?: string | null; deletedAt?: string | null } = {},
+) => ({ projectId, archivedAt: null, deletedAt: null, ...state }) as never;
 
 const insertRow = (
   sql: SqlClient.SqlClient,
@@ -362,6 +371,7 @@ it.effect("thread cleanup notifies subscribers and a finishing run cannot recrea
                 Effect.andThen(Deferred.await(release)),
                 Effect.andThen(Effect.die("test dispatch failure")),
               ),
+            getThreadShell: () => Effect.succeed(threadShell(ProjectId.make("project:test"))),
           }),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -462,11 +472,12 @@ const botTaskLayer = (
 
 it.effect("a bot task runs in its bot's headquarters and outlives the headquarters thread", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
     );
     const opened = yield* Ref.make<ReadonlyArray<string>>([]);
-    const headquarters = botHeadquartersThreadId(CAPTAIN_BOT_ID);
+    const headquarters = botHeadquartersThreadId(CAPTAIN_ID);
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       // Stands in for the crew, which creates or restores the headquarters on open.
@@ -475,16 +486,16 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
           Effect.as({ threadId: headquarters, projectId: ProjectId.make("project:scratch") }),
         ),
       );
-      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
-      assert.strictEqual(task.botId, CAPTAIN_BOT_ID);
+      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_ID));
+      assert.strictEqual(task.botId, CAPTAIN_ID);
       assert.isNull(task.threadId);
       // Filed in the bot's home, whatever project the client passed.
-      assert.strictEqual(task.projectId, `home:${CAPTAIN_BOT_ID}`);
+      assert.strictEqual(task.projectId, `home:${CAPTAIN_ID}`);
 
       const run = yield* service.runNow({ id: task.id });
       assert.strictEqual(run.threadId, headquarters);
       assert.strictEqual(run.task.lastRunStatus, "succeeded");
-      assert.deepStrictEqual(yield* Ref.get(opened), [CAPTAIN_BOT_ID]);
+      assert.deepStrictEqual(yield* Ref.get(opened), [CAPTAIN_ID]);
       const [send] = yield* Ref.get(sent);
       assert.strictEqual(send?.threadId, headquarters);
       assert.strictEqual(send?.projectId, "project:scratch");
@@ -496,14 +507,14 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
       // Headquarters threads get deleted and restored; the task stays.
       yield* service.deleteForThread(headquarters);
       // A client that predates bot tasks re-saves without botId and keeps the bot.
-      const { botId: _botId, ...legacySave } = botTaskInput(CAPTAIN_BOT_ID);
+      const { botId: _botId, ...legacySave } = botTaskInput(CAPTAIN_ID);
       yield* service.upsert(legacySave);
       const [kept] = (yield* service.list()).tasks;
-      assert.strictEqual(kept?.botId, CAPTAIN_BOT_ID);
+      assert.strictEqual(kept?.botId, CAPTAIN_ID);
 
       // Null turns it back into a task that starts a thread per run.
       const { task: plain } = yield* service.upsert({
-        ...botTaskInput(CAPTAIN_BOT_ID),
+        ...botTaskInput(CAPTAIN_ID),
         botId: null,
         threadId: null,
       });
@@ -514,15 +525,16 @@ it.effect("a bot task runs in its bot's headquarters and outlives the headquarte
 
 it.effect("files only bots' tasks in their homes, once", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sql = yield* SqlClient.SqlClient;
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
     );
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
-      const { task: botTask } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      const { task: botTask } = yield* service.upsert(botTaskInput(CAPTAIN_ID));
       const { task: plain } = yield* service.upsert({
-        ...botTaskInput(CAPTAIN_BOT_ID),
+        ...botTaskInput(CAPTAIN_ID),
         id: ScheduledTaskId.make("task:plain"),
         botId: null,
         threadId: null,
@@ -536,7 +548,7 @@ it.effect("files only bots' tasks in their homes, once", () =>
       const projects = new Map(
         (yield* service.list()).tasks.map((task) => [task.id, task.projectId]),
       );
-      assert.strictEqual(projects.get(botTask.id), `home:${CAPTAIN_BOT_ID}`);
+      assert.strictEqual(projects.get(botTask.id), `home:${CAPTAIN_ID}`);
       assert.strictEqual(projects.get(plain.id), "project:scratch");
     }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
@@ -544,6 +556,7 @@ it.effect("files only bots' tasks in their homes, once", () =>
 
 it.effect("refuses unknown bots and fails a run whose bot is gone with a clear error", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sql = yield* SqlClient.SqlClient;
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
@@ -553,13 +566,13 @@ it.effect("refuses unknown bots and fails a run whose bot is gone with a clear e
       const unknown = yield* Effect.flip(service.upsert(botTaskInput("bot:missing")));
       assert.strictEqual(unknown.message, "That bot doesn't exist.");
 
-      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_BOT_ID));
+      const { task } = yield* service.upsert(botTaskInput(CAPTAIN_ID));
       // Nothing connected the crew yet.
       const early = yield* service.runNow({ id: task.id });
       assert.strictEqual(early.task.lastRunStatus, "failed");
       assert.strictEqual(early.task.lastRunError, "Bots aren't available on this server.");
 
-      yield* sql`UPDATE bots SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ${CAPTAIN_BOT_ID}`;
+      yield* sql`UPDATE bots SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ${CAPTAIN_ID}`;
       const gone = yield* service.runNow({ id: task.id });
       assert.strictEqual(gone.task.lastRunStatus, "failed");
       assert.strictEqual(gone.task.lastRunError, "The bot this task runs as no longer exists.");
@@ -573,11 +586,12 @@ const managedProject = ProjectId.make("project:test");
 const managerTaskInput = (
   overrides: Partial<ScheduledTaskUpsertInput> = {},
 ): ScheduledTaskUpsertInput => ({
-  ...botTaskInput(CAPTAIN_BOT_ID),
+  ...botTaskInput(CAPTAIN_ID),
   id: ScheduledTaskId.make("task:as-manager"),
   botId: undefined,
   projectManager: true,
   projectId: managedProject,
+  threadId: null,
   ...overrides,
 });
 
@@ -599,6 +613,7 @@ const connectManagers = (
 
 it.effect("a manager task runs in its manager's thread, and not while the manager is off", () =>
   Effect.gen(function* () {
+    yield* insertTestBot(CAPTAIN_ID, "Captain");
     const sent = yield* Ref.make<ReadonlyArray<ThreadManagementService.ThreadManagementSendInput>>(
       [],
     );
@@ -619,7 +634,7 @@ it.effect("a manager task runs in its manager's thread, and not while the manage
       assert.strictEqual(send?.threadId, projectHeadquartersThreadId(managedProject));
       assert.isUndefined(send?.modelSelection);
 
-      const both = yield* Effect.flip(service.upsert(managerTaskInput({ botId: CAPTAIN_BOT_ID })));
+      const both = yield* Effect.flip(service.upsert(managerTaskInput({ botId: CAPTAIN_ID })));
       assert.strictEqual(
         both.message,
         "An automation runs as a bot or a project manager, not both.",
@@ -649,10 +664,10 @@ it.effect("a manager task runs in its manager's thread, and not while the manage
       const { task: plain } = yield* service.upsert(managerTaskInput({ projectManager: false }));
       assert.isUndefined(plain.projectManager);
       const { task: asBot } = yield* service.upsert(
-        managerTaskInput({ projectManager: undefined, botId: CAPTAIN_BOT_ID }),
+        managerTaskInput({ projectManager: undefined, botId: CAPTAIN_ID }),
       );
       assert.isUndefined(asBot.projectManager);
-      assert.strictEqual(asBot.botId, CAPTAIN_BOT_ID);
+      assert.strictEqual(asBot.botId, CAPTAIN_ID);
     }).pipe(Effect.provide(botTaskLayer(sent)), Effect.scoped);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
@@ -739,13 +754,102 @@ it.effect("deletes the manager tasks of deleted projects only", () =>
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
+it.effect.each([
+  { status: "failed", error: "Weekly usage limit reached" },
+  { status: "interrupted", error: "The run was stopped." },
+  { status: "cancelled", error: "The run was cancelled." },
+] as const)("a run that ends $status after its message was accepted records it", (outcome) =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project:test");
+    const ended = yield* Deferred.make<void>();
+    const sent = yield* Ref.make("");
+    const run = { id: "run:2", status: outcome.status, rootNodeId: "node:root" };
+    const layer = ScheduledTaskService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          ManagedPolicy.layerTest(),
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            sendToThread: (input) => Ref.set(sent, input.messageId).pipe(Effect.as({} as never)),
+            getThreadShell: () => Effect.succeed(threadShell(projectId)),
+            getProjectThreadRecords: () =>
+              Effect.map(
+                Ref.get(sent),
+                (userMessageId) =>
+                  ({
+                    runs: [
+                      { id: "run:1", status: "completed", userMessageId: "message:earlier" },
+                      { ...run, userMessageId },
+                    ],
+                    messages: [{ id: userMessageId, runId: "run:2" }],
+                    turnItems: [
+                      {
+                        type: "error",
+                        status: "failed",
+                        runId: "run:2",
+                        nodeId: "node:root",
+                        failure: { message: "Weekly usage limit reached" },
+                      },
+                    ],
+                  }) as never,
+              ),
+            waitForThread: (input) =>
+              Deferred.await(ended).pipe(
+                Effect.as({
+                  threadId: input.threadId,
+                  run: { ...run, id: input.runId, userMessageId: "" },
+                  timedOut: false,
+                } as never),
+              ),
+          }),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+            namedProjectsRoot: "/projects",
+            isScratchProject: () => Effect.succeed(false),
+          }),
+          NodeCrypto.layer,
+          Scheduler.layer,
+        ),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const { task } = yield* service.upsert({
+        id: ScheduledTaskId.make("task:quota"),
+        title: "Quota bookkeeping",
+        prompt: "Update the notes",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId,
+        threadId: ThreadId.make("thread:quota"),
+        workspaceStrategy: { type: "root" },
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      });
+      yield* service.runNow({ id: task.id });
+      const failed = yield* service.subscribeList().pipe(
+        Stream.map(({ tasks }) => tasks.find((candidate) => candidate.id === task.id)),
+        Stream.filter((current) => current?.lastRunStatus === "failed"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* Deferred.succeed(ended, undefined);
+      const recorded = Option.getOrUndefined(yield* Fiber.join(failed));
+      assert.equal(recorded?.lastRunError, outcome.error);
+      assert.equal(recorded?.runCount, 1);
+    }).pipe(Effect.provide(layer));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
 it.effect("a bound run follows its thread when promotion moves it mid-send", () =>
   Effect.gen(function* () {
     const scratch = ProjectId.make("project:scratch");
     const promoted = ProjectId.make("project:promoted");
     const sends = yield* Ref.make<Array<{ projectId: ProjectId; commandId: string }>>([]);
-    // Rebind lands first, then the promotion commits between the shell read and the retry.
-    const shellProjects = yield* Ref.make([scratch, promoted]);
+    // Saving reads it first. Then the rebind lands, and the promotion commits between the shell
+    // read and the retry.
+    const shellProjects = yield* Ref.make([promoted, scratch, promoted]);
     const layer = ScheduledTaskService.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
@@ -769,10 +873,7 @@ it.effect("a bound run follows its thread when promotion moves it mid-send", () 
                 ),
               ),
             getThreadShell: () =>
-              Ref.modify(shellProjects, ([next, ...rest]) => [
-                { projectId: next ?? promoted } as never,
-                rest,
-              ]),
+              Ref.modify(shellProjects, ([next, ...rest]) => [threadShell(next ?? promoted), rest]),
           }),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -1022,7 +1123,9 @@ it.effect("refuses saving an enabled task above the policy ceiling", () =>
             limits: { maxRuntimeMode: "auto-accept-edits" },
           }),
           Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
-          Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadShell: () => Effect.succeed(threadShell(ProjectId.make("project:test"))),
+          }),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
             namedProjectsRoot: "/projects",
@@ -1075,6 +1178,96 @@ it.effect("refuses saving an enabled task above the policy ceiling", () =>
       yield* service.upsert({ ...bound, threadId: ThreadId.make("thread:bound") });
       // Nor when an edit omits the thread it stays bound to.
       yield* service.upsert(bound);
+    }).pipe(Effect.provide(layer));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("checks a task's destination thread only when the destination changes", () =>
+  Effect.gen(function* () {
+    const project = ProjectId.make("project:test");
+    const otherProject = ProjectId.make("project:other");
+    const destination = ThreadId.make("thread:destination");
+    const archivedAt = "2026-11-05T00:00:00.000Z";
+    const shells = yield* Ref.make<ReadonlyMap<ThreadId, never>>(
+      new Map([
+        [destination, threadShell(project)],
+        [ThreadId.make("thread:archived"), threadShell(project, { archivedAt })],
+        [ThreadId.make("thread:deleted"), threadShell(project, { deletedAt: archivedAt })],
+        [ThreadId.make("thread:other-project"), threadShell(otherProject)],
+      ]),
+    );
+    const consumed = yield* Ref.make(0);
+    const layer = ScheduledTaskService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          ManagedPolicy.layerTest(),
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadShell: (threadId) =>
+              Ref.get(shells).pipe(Effect.map((all) => all.get(threadId) ?? null)),
+          }),
+          Layer.mock(SecretRequests.SecretRequests)({
+            consume: () => Ref.update(consumed, (count) => count + 1).pipe(Effect.as("secret")),
+          }),
+          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+            namedProjectsRoot: "/projects",
+            isScratchProject: () => Effect.succeed(false),
+          }),
+          NodeCrypto.layer,
+          Scheduler.layer,
+        ),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const id = ScheduledTaskId.make("task:destination");
+      const save = (
+        threadId: ThreadId,
+        schedule: ScheduledTaskUpsertInput["schedule"] = { type: "interval", everyMs: 60_000 },
+      ) =>
+        service.upsert({
+          id,
+          title: "Follow up",
+          prompt: "Check progress",
+          enabled: true,
+          schedule,
+          projectId: project,
+          threadId,
+          workspaceStrategy: { type: "root" },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        });
+
+      for (const [threadId, message] of [
+        ["thread:missing", "That thread no longer exists."],
+        ["thread:deleted", "That thread no longer exists."],
+        ["thread:archived", "That thread is archived. Unarchive it or pick another destination."],
+        ["thread:other-project", "That thread belongs to a different project."],
+      ] as const) {
+        const refused = yield* save(ThreadId.make(threadId)).pipe(Effect.flip);
+        assert.equal(refused.message, message);
+      }
+      assert.lengthOf((yield* service.list()).tasks, 0);
+
+      // A rejected save must not burn a one-shot secret.
+      yield* save(ThreadId.make("thread:missing"), {
+        type: "webhook",
+        signature: {
+          header: "x-signature",
+          encoding: "hex",
+          prefix: "",
+          secretRef: SecretRef.make("secret-ref:00000000000000000000000000000001"),
+        },
+      }).pipe(Effect.flip);
+      assert.equal(yield* Ref.get(consumed), 0);
+
+      yield* save(destination);
+      // A task whose thread was archived later stays editable.
+      yield* Ref.update(shells, (all) =>
+        new Map(all).set(destination, threadShell(project, { archivedAt })),
+      );
+      assert.equal((yield* save(destination)).task.threadId, destination);
     }).pipe(Effect.provide(layer));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

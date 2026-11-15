@@ -1,6 +1,9 @@
 import {
   FeatureWorkspace,
+  CREW_TOOL_GRANTS,
+  EnvironmentId,
   OrchestratorMcpFailure,
+  NodeId,
   RoleConfig,
   RoleCreateInput,
   RoleUpdateInput,
@@ -16,6 +19,7 @@ import { CrewService } from "../../../crew/CrewService.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const shared = {
@@ -29,6 +33,19 @@ const shared = {
     ProjectRequests,
   ],
 };
+
+const withheldTools = Schema.optionalKey(
+  Schema.Array(Schema.String).annotate({
+    description: `Tools the role's members can't use, by id: ${CREW_TOOL_GRANTS.filter(
+      (grant) => !("botOnly" in grant),
+    )
+      .map((grant) => `"${grant.id}" (${grant.label})`)
+      .join(", ")}. Omit or [] for every tool.`,
+  }),
+);
+// Agents read today's schema, so they never send the key older clients did.
+const { allowedTools: _createLegacy, ...createRoleFields } = RoleCreateInput.fields;
+const { allowedTools: _updateLegacy, ...updateRoleFields } = RoleUpdateInput.fields;
 
 const ListRoles = Tool.make("t3_role_list", {
   ...shared,
@@ -45,8 +62,8 @@ const ListRoles = Tool.make("t3_role_list", {
 const CreateRole = Tool.make("t3_role_create", {
   ...shared,
   description:
-    'Create a role. Choose an id like "role:qa-tester". Add it to a workflow\'s crewRoleIds so features on that workflow get a member of it. Copy modelSelection and runtimeMode from an existing role unless asked otherwise.',
-  parameters: RoleCreateInput,
+    'Create a role. Choose an id like "role:qa-tester". Add it to a workflow\'s crewRoleIds so features on that workflow get a member of it. Copy modelSelection from an existing role unless asked otherwise. Its members get every tool and full access unless you pass withheldTools or runtimeMode.',
+  parameters: Schema.Struct({ ...createRoleFields, withheldTools }),
   success: RoleConfig,
 });
 
@@ -54,7 +71,7 @@ const UpdateRole = Tool.make("t3_role_update", {
   ...shared,
   description:
     "Change a role: send every field back, edited, with expectedRevision set to the revision from t3_role_list. Roles are not deleted; set enabled to false to retire one, and true to bring it back. Features already started keep the crew they were given.",
-  parameters: RoleUpdateInput,
+  parameters: Schema.Struct({ ...updateRoleFields, withheldTools }),
   success: RoleConfig,
 });
 
@@ -76,9 +93,16 @@ const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
 
 const StartFeature = Tool.make("t3_feature_start", {
   ...shared,
+  dependencies: [...shared.dependencies, RemoteDelegation.RemoteDelegation],
   description:
-    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): the workflow's lead gets its instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch, made from baseBranch when set (an existing branch, such as another feature's, to stack on it) and otherwise from the project's current branch; set workspace to local only when the person asks to work in the project's checkout. Started from a feature's thread, the new feature is that feature's child by default: its lead reports back to that feature's lead when it finishes. When that feature doesn't need this work done to count as finished, set parentFeatureId to null: the new feature stands on its own. Started with no parent, or from any other thread, each time the lead stops with its crew idle, what it said comes back to this thread. Retrying with the same featureId, yours or the one an error names, never starts a second feature.",
+    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): the workflow's lead gets its instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch, made from baseBranch when set (an existing branch, such as another feature's, to stack on it) and otherwise from the project's current branch; set workspace to local only when the person asks to work in the project's checkout. Started from a feature's thread, the new feature is that feature's child by default: its lead reports back to that feature's lead when it finishes. When that feature doesn't need this work done to count as finished, set parentFeatureId to null: the new feature stands on its own. Started with no parent, or from any other thread, each time the lead stops with its crew idle, what it said comes back to this thread. Retrying with the same featureId, yours or the one an error names, never starts a second feature. A headquarters passes environmentId for its bot's project on a linked environment (with only projectId, title, brief, issue and featureId): that project's Feature manager there starts it, and if that environment is offline, it waits and starts by itself when it's back.",
   parameters: Schema.Struct({
+    environmentId: Schema.optional(
+      EnvironmentId.annotate({
+        description:
+          "A linked environment where your bot owns the project (t3_bot_projects). Omit for this one.",
+      }),
+    ),
     projectId: Schema.optional(Schema.String),
     title: Schema.String,
     brief: Schema.String,
@@ -104,12 +128,21 @@ const StartFeature = Tool.make("t3_feature_start", {
     ),
   }),
   success: Schema.Struct({
-    featureId: Schema.String,
+    featureId: Schema.NullOr(Schema.String).annotate({
+      description: "Null on a linked environment, where its Feature manager starts it.",
+    }),
     projectId: Schema.String,
     title: Schema.String,
-    leadThreadId: ThreadId,
+    leadThreadId: Schema.NullOr(ThreadId),
     branch: Schema.NullOr(Schema.String),
     parentFeatureId: Schema.NullOr(Schema.String),
+    taskId: Schema.optional(NodeId),
+    link: Schema.optional(Schema.NullOr(Schema.String)),
+    waiting: Schema.optional(
+      Schema.String.annotate({
+        description: "Set while its environment is offline; don't start it again.",
+      }),
+    ),
   }),
 }).annotate(Tool.Destructive, false);
 

@@ -11,7 +11,7 @@ import * as BosunMigrations from "../persistence/BosunMigrations.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NoticeInbox from "./NoticeInbox.ts";
 
-const hq = ThreadId.make("bot-run:bot-hq:bot-captain");
+const hq = ThreadId.make("bot-run:bot-hq:bot-ops");
 const lead = ThreadId.make("thread:lead");
 
 const migrated = Effect.gen(function* () {

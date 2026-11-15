@@ -1,12 +1,12 @@
 import {
-  CAPTAIN_BOT_ID,
   CommandId,
   type Bot,
   type BotAvatar,
   type BotCreateInput,
   type BotMoveProjectInput,
-  logicalBotKey,
+  type BotSetPinInput,
   type BotUpdateInput,
+  LEGACY_TOOLS_MESSAGE,
   type Project,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -52,7 +52,7 @@ export class BotService extends Context.Service<
     readonly create: (input: BotCreateInput) => Effect.Effect<Bot, BotServiceError>;
     readonly update: (input: BotUpdateInput) => Effect.Effect<Bot, BotServiceError>;
     /**
-     * Refused for Captain and for a bot that still owns a project; move its projects first.
+     * Refused while the bot owns a project; give its projects to another bot or to none first.
      * Its home stays, for a restore to find. Deletes the automations that run as the bot.
      * Runs the bot already started keep working, but it gets no new ones.
      */
@@ -62,13 +62,17 @@ export class BotService extends Context.Service<
       botIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<Bot>, BotServiceError>;
     /**
-     * Gives a project to another bot. With `ensureBot`, that's the bot with the same logical key
-     * as `botId`'s, created here once however many moves ask for it at the same time. Such a
-     * copy gets its home when it first needs one. Scratch and bots' homes never move.
+     * Gives a project to another bot, or to none when `botId` is null. With `remoteBot`, to that
+     * bot on another environment, which works on it over the link. Scratch and bots' homes never
+     * move.
      */
     readonly moveProject: (
       input: BotMoveProjectInput,
     ) => Effect.Effect<Project, BotServiceError | ProjectService.ProjectServiceError>;
+    /** Pins a bot or a project's manager to the main rail, or unpins it. */
+    readonly setPin: (
+      input: BotSetPinInput,
+    ) => Effect.Effect<void, BotServiceError | ProjectService.ProjectServiceError>;
   }
 >()("t3/bots/BotService") {}
 
@@ -90,6 +94,12 @@ const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.top === right.top &&
   left.cheeks === right.cheeks &&
   left.smile === right.smile;
+
+/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
+const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
+  input.allowedTools === undefined
+    ? Effect.void
+    : Effect.fail(new BotValidationError({ reason: LEGACY_TOOLS_MESSAGE }));
 
 const sameCreate = (bot: Bot, input: BotCreateInput) =>
   bot.name === input.name.trim() &&
@@ -135,6 +145,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((error) => new BotValidationError({ reason: error.message })));
 
   const createUnlocked = Effect.fn("BotService.insertBot")(function* (input: BotCreateInput) {
+    yield* refuseLegacyTools(input);
     const id = yield* text(input.id, "Bot ID", 128);
     const existing = yield* store.get(id);
     if (existing) {
@@ -153,11 +164,13 @@ const make = Effect.gen(function* () {
         "Bot instructions",
         16_000,
       ),
-      allowedTools: yield* tools(input.allowedTools ?? []),
-      runtimeMode: input.runtimeMode ?? "approval-required",
+      withheldTools: yield* tools(input.withheldTools ?? []),
+      runtimeMode: input.runtimeMode ?? "full-access",
       modelSelection: input.modelSelection ?? null,
       longConversation: input.longConversation ?? "compact",
+      permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
+      pinned: true,
       revision: 1,
       createdAt: now,
       updatedAt: now,
@@ -169,30 +182,8 @@ const make = Effect.gen(function* () {
     return yield* new BotValidationError({ reason: "Bot ID is already in use" });
   });
 
-  // Creates and find-or-creates run one at a time, so a move never adds a copy of a bot
-  // that a racing move or create already made.
+  // Creates run one at a time, so each reads the rail position the one before it wrote.
   const creating = yield* Semaphore.make(1);
-
-  /** The bot here with `botId`'s logical key, made from `template` when there's none. */
-  const ensureBot = (botId: string, template: NonNullable<BotMoveProjectInput["ensureBot"]>) =>
-    creating.withPermits(1)(
-      Effect.gen(function* () {
-        const key = logicalBotKey({ id: botId, name: template.name });
-        if (key === logicalBotKey({ id: CAPTAIN_BOT_ID, name: "" })) return CAPTAIN_BOT_ID;
-        const here = (yield* store.list).find((bot) => logicalBotKey(bot) === key);
-        if (here) return here.id;
-        const made = yield* createUnlocked({
-          id: `bot-${yield* random.uuidV4()}`,
-          name: template.name,
-          avatar: template.avatar,
-          color: template.color,
-          ...(template.modelSelection === undefined
-            ? {}
-            : { modelSelection: template.modelSelection }),
-        });
-        return made.id;
-      }),
-    );
 
   const service = BotService.of({
     list: store.list.pipe(Effect.flatMap(Effect.forEach(withHome))),
@@ -206,6 +197,7 @@ const make = Effect.gen(function* () {
       return { ...bot, homePath: home.workspaceRoot };
     }),
     update: Effect.fn("BotService.update")(function* (input) {
+      yield* refuseLegacyTools(input);
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
@@ -218,14 +210,17 @@ const make = Effect.gen(function* () {
         ...(input.instructions === undefined
           ? {}
           : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
-        ...(input.allowedTools === undefined
+        ...(input.withheldTools === undefined
           ? {}
-          : { allowedTools: yield* tools(input.allowedTools) }),
+          : { withheldTools: yield* tools(input.withheldTools) }),
         ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
         ...(input.longConversation === undefined
           ? {}
           : { longConversation: input.longConversation }),
+        ...(input.permittedEnvironmentIds === undefined
+          ? {}
+          : { permittedEnvironmentIds: [...new Set(input.permittedEnvironmentIds)] }),
         revision: previous.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };
@@ -259,9 +254,6 @@ const make = Effect.gen(function* () {
       return { ...next, homePath: Option.isSome(home) ? home.value.workspaceRoot : null };
     }),
     delete: Effect.fn("BotService.delete")(function* (id) {
-      if (id === CAPTAIN_BOT_ID) {
-        return yield* new BotValidationError({ reason: "Captain can't be deleted" });
-      }
       const deletedAt = DateTime.formatIso(yield* DateTime.now);
       const home = yield* folders.botHomePath(id);
       const result = yield* store.withOwnership(
@@ -269,7 +261,7 @@ const make = Effect.gen(function* () {
       );
       if (result === "owns-projects") {
         return yield* new BotValidationError({
-          reason: "Move this bot's projects to another bot before deleting it",
+          reason: "Unlink this bot's projects before deleting it",
         });
       }
       if (result === "missing") {
@@ -305,12 +297,35 @@ const make = Effect.gen(function* () {
       if (yield* folders.isHiddenProject(projectId)) {
         return yield* new BotValidationError({ reason: "Scratch and bots' homes can't move" });
       }
-      const botId =
-        input.ensureBot === undefined
-          ? (yield* requireBot(input.botId)).id
-          : yield* ensureBot(input.botId, input.ensureBot);
       const commandId = CommandId.make(`bot-move:${yield* random.uuidV4()}`);
+      const { remoteBot } = input;
+      if (remoteBot !== undefined) {
+        return yield* projects.assignBot({ commandId, projectId, botId: null, remoteBot });
+      }
+      const botId = input.botId === null ? null : (yield* requireBot(input.botId)).id;
       return yield* projects.assignBot({ commandId, projectId, botId });
+    }),
+    setPin: Effect.fn("BotService.setPin")(function* (input) {
+      const { botId, projectId } = input;
+      if ((botId === undefined) === (projectId === undefined)) {
+        return yield* new BotValidationError({ reason: "Name exactly one of botId and projectId" });
+      }
+      if (projectId === undefined) {
+        if (botId === undefined || !(yield* store.setPinned(botId, input.pinned))) {
+          return yield* new BotValidationError({ reason: "Bot not found" });
+        }
+        return;
+      }
+      if (yield* folders.isHiddenProject(projectId)) {
+        return yield* new BotValidationError({
+          reason: "Scratch and bots' homes have no project manager",
+        });
+      }
+      yield* projects.setManagerPinned({
+        commandId: CommandId.make(`manager-pin:${yield* random.uuidV4()}`),
+        projectId,
+        pinned: input.pinned,
+      });
     }),
   });
   // Every change tells clients to re-read the bots, whoever asked for it.
@@ -322,6 +337,7 @@ const make = Effect.gen(function* () {
     delete: bots(service.delete),
     reorder: bots(service.reorder),
     moveProject: bots(service.moveProject),
+    setPin: bots(service.setPin),
   });
 });
 

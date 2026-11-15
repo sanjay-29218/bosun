@@ -37,6 +37,9 @@ export function SettingsRow(props: {
   const onPress = () => {
     if (props.target) {
       if (inList) openSettings(navigation, props.target);
+      // Split so neither call checks `navigate` against more pages than TypeScript can.
+      else if (props.target === "SettingsRoles" || props.target === "SettingsWorkflows")
+        navigation.navigate(props.target);
       else navigation.navigate(props.target);
     } else if (props.fullScreenTarget) {
       navigation.navigate(props.fullScreenTarget);

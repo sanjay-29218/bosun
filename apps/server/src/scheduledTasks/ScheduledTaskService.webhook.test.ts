@@ -4,7 +4,6 @@ import * as NodeCrypto from "node:crypto";
 import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
-  CAPTAIN_BOT_ID,
   type ManagedPolicyDocument,
   ProjectId,
   ScheduledTaskUpsertInput,
@@ -34,6 +33,9 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 import { renderWebhookPrompt } from "./webhookTemplate.ts";
+import { insertTestBot } from "../bots/BotStore.testkit.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const decodeUpsertInput = Schema.decodeUnknownEffect(ScheduledTaskUpsertInput);
 
@@ -817,7 +819,7 @@ const githubSignature = (secret: string) =>
   `sha256=${NodeCrypto.createHmac("sha256", secret).update(pullRequestBody).digest("hex")}`;
 
 it.effect("a signature can take the user's secret by ref, which works only once", () =>
-  withService(({ service, launches, secretsByRef }) =>
+  withService(({ service, launches, secretsByRef, sql }) =>
     Effect.gen(function* () {
       secretsByRef.set("secret-ref:00000000000000000000000000000001", "github-secret");
       const githubSchedule = (secretRef: string) => ({
@@ -854,14 +856,17 @@ it.effect("a signature can take the user's secret by ref, which works only once"
       // A bot's webhook is filed in the bot's home, but the secret was asked for in the
       // caller's project.
       secretsByRef.set("secret-ref:00000000000000000000000000000003", "bot-secret");
+      yield* insertTestBot(CAPTAIN_ID, "Captain").pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      );
       const { task: botTask } = yield* service.upsert(
         yield* webhookTaskInput({
           id: "scheduled-task:bot-webhook",
-          botId: CAPTAIN_BOT_ID,
+          botId: CAPTAIN_ID,
           schedule: githubSchedule("secret-ref:00000000000000000000000000000003"),
         }),
       );
-      assert.equal(botTask.projectId, `home:${CAPTAIN_BOT_ID}`);
+      assert.equal(botTask.projectId, `home:${CAPTAIN_ID}`);
       assert.isTrue(botTask.webhook!.hasSecret);
     }),
   ),

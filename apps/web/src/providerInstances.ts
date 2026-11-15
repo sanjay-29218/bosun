@@ -1,6 +1,5 @@
 import { pipe } from "effect/Function";
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   resolveProjectProviderInstanceEnabled,
   type ModelSelection,
@@ -12,6 +11,10 @@ import {
   type ServerSettings,
   type ServerProviderState,
 } from "@t3tools/contracts";
+import {
+  defaultProviderModel,
+  resolveAutomaticModelSelection,
+} from "@t3tools/shared/providerDefaultModel";
 import {
   normalizeProviderAccentColor,
   resolveProviderInstanceDisplayName,
@@ -199,13 +202,7 @@ export function getDefaultProviderInstanceModel(
   instanceId: ProviderInstanceId,
 ): string | undefined {
   const entry = getProviderInstanceEntry(providers, instanceId);
-  if (!entry) return undefined;
-  return (
-    entry.models.find((model) => model.isDefault && !model.isCustom)?.slug ??
-    entry.models.find((model) => !model.isCustom)?.slug ??
-    entry.models[0]?.slug ??
-    DEFAULT_MODEL_BY_PROVIDER[entry.driverKind]
-  );
+  return entry ? defaultProviderModel(entry.snapshot) : undefined;
 }
 
 const isSelectableProviderInstanceEntry = (entry: ProviderInstanceEntry): boolean =>
@@ -246,18 +243,5 @@ export function resolveDefaultProviderModelSelection(
   return model ? { instanceId, model } : null;
 }
 
-export function resolveProjectDefaultProviderModelSelection(
-  providers: ReadonlyArray<ServerProvider>,
-  settings: ServerSettings,
-  projectId: ProjectId | null,
-): ModelSelection | null {
-  const entries = providerInstanceEntriesFor(providers, settings, projectId);
-  // Matches resolveComposerProviderSelection: the first driver group wins before any other.
-  const entry =
-    resolveSelectableProviderInstanceEntry(
-      entries.filter((candidate) => candidate.driverKind === entries[0]?.driverKind),
-      undefined,
-    ) ?? resolveSelectableProviderInstanceEntry(entries, undefined);
-  const model = entry ? getDefaultProviderInstanceModel(providers, entry.instanceId) : undefined;
-  return entry && model ? { instanceId: entry.instanceId, model } : null;
-}
+/** The server uses the same resolver for a project manager with no bot and no saved model. */
+export const resolveProjectDefaultProviderModelSelection = resolveAutomaticModelSelection;

@@ -2,6 +2,7 @@ import {
   formatSubagentDisplayTitle,
   resolveSubagentMetadata,
   subagentDetailPreview,
+  subagentRunsOn,
 } from "@t3tools/client-runtime/state/subagent-display";
 import {
   isActiveSubagentStatus,
@@ -93,7 +94,14 @@ function rowStatusLabel(status: OrchestrationV2Subagent["status"]): string {
 export function resolveSubagentRowPresentation(
   subagent: Pick<
     OrchestrationV2Subagent,
-    "title" | "prompt" | "status" | "progress" | "result" | "childThreadId" | "remoteChild"
+    | "title"
+    | "prompt"
+    | "status"
+    | "progress"
+    | "result"
+    | "childThreadId"
+    | "remoteChild"
+    | "pendingRemote"
   >,
   canOpenRemote = false,
 ): SubagentRowPresentation {
@@ -106,7 +114,7 @@ export function resolveSubagentRowPresentation(
     live,
     canOpenThread:
       subagent.childThreadId !== null || (subagent.remoteChild !== undefined && canOpenRemote),
-    runsOn: subagent.remoteChild?.label ?? null,
+    runsOn: subagentRunsOn(subagent),
   };
 }
 
@@ -218,6 +226,8 @@ export function resolveSubagentStopTarget(
     | "runId"
     | "nativeTaskRef"
     | "workflow"
+    | "remoteChild"
+    | "pendingRemote"
   >,
 ) {
   if (!isActiveSubagentStatus(subagent.status)) return null;
@@ -232,7 +242,13 @@ export function resolveSubagentStopTarget(
         }
       : null;
   }
-  if (subagent.origin === "app_owned" && subagent.childThreadId !== null) {
+  // A task in a linked environment, or waiting to start there, is cancelled from its parent.
+  if (
+    subagent.origin === "app_owned" &&
+    (subagent.childThreadId !== null ||
+      (subagent.runId !== null &&
+        (subagent.remoteChild !== undefined || subagent.pendingRemote !== undefined)))
+  ) {
     return {
       kind: "subagent" as const,
       input: { threadId: subagent.threadId, subagentId: subagent.id },

@@ -16,7 +16,7 @@ const role = (id: string, overrides: Partial<RoleConfig> = {}): RoleConfig => ({
   id,
   name: id.replace("role:", ""),
   instructions: "Do the work",
-  allowedTools: [],
+  withheldTools: [],
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
   runtimeMode: "approval-required",
   enabled: true,

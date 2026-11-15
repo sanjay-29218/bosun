@@ -62,9 +62,22 @@ export const RepositoryIssueComment = Schema.Struct({
 });
 export type RepositoryIssueComment = typeof RepositoryIssueComment.Type;
 
+/** Another issue an issue is structured with: its parent, or one of its sub-issues. */
+export const IssueStructureRef = Schema.Struct({
+  number: Schema.Int,
+  title: Schema.String,
+  state: Schema.Literals(["open", "closed"]),
+  url: Schema.String,
+});
+export type IssueStructureRef = typeof IssueStructureRef.Type;
+
 /** One issue with its description and comments, as its detail view reads it. */
 export const RepositoryIssueDetail = Schema.Struct({
   ...RepositoryIssue.fields,
+  /** Older servers omit it. */
+  parentIssue: Schema.optionalKey(Schema.NullOr(IssueStructureRef)),
+  /** Its sub-issues, up to 50; null when the host couldn't read them. Older servers omit it. */
+  subIssueList: Schema.optionalKey(Schema.NullOr(Schema.Array(IssueStructureRef))),
   /** Markdown, as written on the host. */
   body: Schema.String,
   /** Why a closed issue was closed. */
@@ -92,12 +105,17 @@ export const IssueCreateInput = Schema.Struct({
   title: TrimmedNonEmptyString,
   /** Markdown. */
   body: Schema.String,
+  /** An open milestone's number. */
+  milestone: Schema.optionalKey(Schema.Int),
+  /** The issue it is a sub-issue of. */
+  parent: Schema.optionalKey(Schema.Int),
 });
 export type IssueCreateInput = typeof IssueCreateInput.Type;
 
 /**
- * Changes the title or body, whichever is given. With `expectedUpdatedAt`, the change is refused
- * with `IssueChangedError` when the host's copy was updated since that time.
+ * Changes the title, body, milestone or parent, whichever is given; null clears a milestone or
+ * parent. With `expectedUpdatedAt`, the change is refused with `IssueChangedError` when the
+ * host's copy was updated since that time.
  */
 export const IssueUpdateInput = Schema.Struct({
   projectId: ProjectId,
@@ -105,6 +123,10 @@ export const IssueUpdateInput = Schema.Struct({
   title: Schema.optionalKey(TrimmedNonEmptyString),
   /** Markdown. */
   body: Schema.optionalKey(Schema.String),
+  /** A milestone's number. */
+  milestone: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  /** The issue to make it a sub-issue of. */
+  parent: Schema.optionalKey(Schema.NullOr(Schema.Int)),
   expectedUpdatedAt: Schema.optionalKey(Schema.String),
 });
 export type IssueUpdateInput = typeof IssueUpdateInput.Type;

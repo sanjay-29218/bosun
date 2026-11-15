@@ -1,4 +1,5 @@
 import {
+  type EnvironmentId,
   headquartersBotId,
   headquartersProjectId,
   type ThreadId,
@@ -17,8 +18,10 @@ import { CrewService } from "../../../crew/CrewService.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { sendToLinkedProject } from "../bots/linkedRequest.ts";
 import { asCrewManager, fullAccessCaller } from "./access.ts";
 import { FeaturesToolkit } from "./tools.ts";
 
@@ -63,6 +66,59 @@ const guarded =
 const reading = guarded(checkRead);
 const writing = guarded(checkWrite);
 
+/** A feature for a headquarters' project on a linked environment, which its Feature manager starts. */
+const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnvironment")(function* (
+  environmentId: EnvironmentId,
+  input: {
+    readonly projectId?: string | undefined;
+    readonly title: string;
+    readonly brief: string;
+    readonly featureId?: string | undefined;
+    readonly issue?: string | undefined;
+    readonly workspace?: FeatureWorkspace | undefined;
+    readonly workflowId?: string | undefined;
+    readonly baseBranch?: string | undefined;
+    readonly requestId?: string | undefined;
+    readonly parentFeatureId?: string | null | undefined;
+  },
+) {
+  if (input.projectId === undefined) {
+    return yield* invalid(
+      "Pass projectId with environmentId: t3_bot_projects lists your projects there.",
+    );
+  }
+  if (
+    input.workspace !== undefined ||
+    input.workflowId !== undefined ||
+    input.baseBranch !== undefined ||
+    input.requestId !== undefined ||
+    input.parentFeatureId !== undefined
+  ) {
+    return yield* invalid(
+      "With environmentId, pass only projectId, title, brief, issue and featureId; the Feature manager there picks the rest.",
+    );
+  }
+  const issue = input.issue?.trim() || undefined;
+  const sent = yield* sendToLinkedProject("t3_feature_start", {
+    environmentId,
+    projectId: ProjectId.make(input.projectId),
+    title: input.title,
+    request: `Start a feature with t3_feature_start for this request, titled "${input.title}"${issue === undefined ? "" : `, with its issue ${issue}`}:\n\n${input.brief}`,
+    key: `feature-start:${input.featureId ?? input.title}`,
+  });
+  return {
+    featureId: null,
+    projectId: input.projectId,
+    title: input.title,
+    leadThreadId: sent.threadId,
+    branch: null,
+    parentFeatureId: null,
+    taskId: sent.taskId,
+    link: sent.link,
+    ...(sent.waiting === null ? {} : { waiting: sent.waiting }),
+  };
+});
+
 const make = Effect.gen(function* () {
   const crew = yield* CrewService;
   const features = yield* FeatureService;
@@ -85,6 +141,7 @@ const make = Effect.gen(function* () {
     ),
     t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {
+        readonly environmentId?: EnvironmentId | undefined;
         readonly projectId?: string | undefined;
         readonly title: string;
         readonly brief: string;
@@ -101,6 +158,9 @@ const make = Effect.gen(function* () {
             yield* McpInvocationContext.McpInvocationContext,
             "t3_feature_start",
           );
+          const environmentId = PeerForwarding.remoteTarget(scope, input.environmentId);
+          if (environmentId !== undefined)
+            return yield* startOnLinkedEnvironment(environmentId, input);
           const shell = yield* threads.getThreadShell(scope.thread.threadId);
           if (shell === null) return yield* invalid("This thread has no project");
           const requestId = input.requestId?.trim() || undefined;

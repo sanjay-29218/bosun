@@ -4,6 +4,7 @@ import {
   IssueOperationError,
   ProjectId,
   ProviderInstanceId,
+  RuntimeRequestId,
   ThreadId,
   type IssueList,
   type Ticket,
@@ -16,7 +17,9 @@ import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
+import { CREW_MEMBER_GRANT, crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
+import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
@@ -107,6 +110,7 @@ const layerAs = (
   features: Partial<FeatureService["Service"]> = {},
   capabilities: ReadonlySet<McpInvocationContext.McpCapability> = new Set(["crew"]),
   issues: Partial<IssueService.IssueService["Service"]> = {},
+  crewGrants?: ReadonlyArray<string>,
 ) =>
   McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
     Layer.provideMerge(
@@ -122,6 +126,7 @@ const layerAs = (
           client: undefined,
           capabilities,
           issuedAt: 0,
+          ...(crewGrants === undefined ? {} : { crewGrants }),
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (id) =>
@@ -134,6 +139,14 @@ const layerAs = (
             }),
         }),
         Layer.mock(FeatureService)(features),
+        Layer.mock(CrewApprovals)({
+          ask: (asking, input) =>
+            Effect.succeed({
+              requestId: RuntimeRequestId.make(`crew-ask:${asking}:${input.question}`),
+              next: "Asked.",
+            }),
+        }),
+        Layer.mock(CrewService)({}),
         Layer.mock(IssueService.IssueService)({
           list: (project) =>
             project === projectId
@@ -181,7 +194,8 @@ it.effect("lists the issues of the calling thread's project as compact rows", ()
         state: "open",
         milestone: "v1",
         parent: null,
-        subIssues: { completed: 1, total: 3 },
+        // Its parts among the issues read, closed #3 included.
+        subIssues: { completed: 1, total: 3, numbers: [3, 4] },
         labels: ["feature"],
         assignees: ["octo"],
       },
@@ -204,11 +218,11 @@ it.effect("lets every crew thread list issues without a crew grant, but not its 
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`
-      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, allowed_tools_json TEXT)
+      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
     `;
-    yield* sql`CREATE TABLE bots (id TEXT, allowed_tools_json TEXT)`;
+    yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
     yield* sql`
-      CREATE TABLE crew_members (id TEXT, allowed_tools_json TEXT)
+      CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)
     `;
     yield* sql`
       CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)
@@ -265,6 +279,8 @@ it.effect("files an issue in a milestone and under a parent, and opens and close
       create: (input) => record(input, { ...issueList.issues[0]!, number: 12 }),
       createMilestone: (input) => record(input, milestone),
       setMilestoneState: (input) => record(input, milestone),
+      update: (input) => record(input, issueList.issues[1]!),
+      setState: (input) => record(input, issueList.issues[1]!),
     });
     const handle = (name: string, params: object) =>
       Effect.gen(function* () {
@@ -289,11 +305,25 @@ it.effect("files an issue in a milestone and under a parent, and opens and close
       url: "https://github.com/acme/web/milestone/4",
     });
     yield* handle("crew_update_milestone", { milestone: "Exports", state: "closed" });
+    yield* handle("crew_update_todo", { ref: "#4", milestone: "Exports", parent: 1 });
+    yield* handle("crew_update_todo", {
+      ref: "#4",
+      milestone: null,
+      parent: null,
+      state: "closed",
+    });
     expect(yield* Ref.get(calls)).toEqual([
       { projectId, title: "CSV export", body: "", milestone: "Exports", parent: 3 },
       { projectId, title: "Exports" },
       { projectId, milestone: "Exports", state: "closed" },
+      { projectId, number: 4, milestone: "Exports", parent: 1 },
+      { projectId, number: 4, milestone: null, parent: null },
+      { projectId, number: 4, state: "closed", reason: undefined },
     ]);
+    const nothing = yield* Effect.flip(handle("crew_update_todo", { ref: "#4" }));
+    expect(nothing.message).toContain("Pass the state, milestone or parent");
+    const ticketParent = yield* Effect.flip(handle("crew_update_todo", { ref: "T-3", parent: 1 }));
+    expect(ticketParent.message).toContain("Tickets have no milestone or parent");
     // A ticket lives in Bosun, which has no milestones or sub-issues.
     const refused = yield* Effect.flip(
       handle("crew_create_todo", { title: "CSV", milestone: "Exports" }),
@@ -378,5 +408,26 @@ it.effect("links an issue to the caller's feature, its own task, or a task it de
       `task ${taskThread}`,
       `feature of ${leadThread}`,
     ]);
+  }),
+);
+
+it.effect("lets only a feature's crew member ask the person, as itself", () =>
+  Effect.gen(function* () {
+    const ask = (grants: ReadonlyArray<string> | undefined) =>
+      Effect.gen(function* () {
+        const toolkit = yield* CrewToolkit;
+        return yield* toolkit.handle("crew_ask_person", { question: "Approve the design?" }).pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.map((chunks) => chunks.at(-1)?.result),
+        );
+      }).pipe(Effect.provide(layerAs(taskThread, {}, new Set(), {}, grants)));
+    expect(yield* ask([CREW_MEMBER_GRANT])).toMatchObject({
+      requestId: `crew-ask:${taskThread}:Approve the design?`,
+    });
+    // A crew thread's other subagents, and the lead itself, hold no crew.member grant.
+    expect(yield* ask(["orchestration"]).pipe(Effect.flip)).toMatchObject({
+      _tag: "CrewToolFailedError",
+    });
   }),
 );

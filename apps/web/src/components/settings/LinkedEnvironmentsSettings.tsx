@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { linkRequestFailureMessage } from "@t3tools/client-runtime/link-request";
+import { ANOTHER_ADDRESS, linkRequestFailureMessage } from "@t3tools/client-runtime/link-request";
 import {
   AuthAccessWriteScope,
   type AuthMcpClientAccess,
@@ -41,7 +41,7 @@ import { Input } from "../ui/input";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
 import { LinkAccessPicker } from "./LinkAccessPicker";
-import { ANOTHER_ADDRESS, LinkMachineSelect } from "./LinkMachineSelect";
+import { LinkAddressWarning, LinkMachineSelect } from "./LinkMachineSelect";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { searchableSetting } from "./settingsSearch";
@@ -103,7 +103,7 @@ function LinkedEnvironmentRow({
   const [busy, setBusy] = useState(false);
   const forget = async () => {
     const confirmed = await (requestConfirmDialog(
-      `Forget ${link.label}? Agents here stop working there. Revoke "T3 Code · …" in ${link.label}'s Connections to end the session there too.`,
+      `Forget ${link.label}? Agents here stop working there. Revoke "T3 Code · …" in ${link.label}'s Sharing & access to end the session there too.`,
       { variant: "destructive" },
     ) ?? Promise.resolve(false));
     if (!confirmed) return;
@@ -166,7 +166,14 @@ function LinkedEnvironmentRow({
   );
 }
 
-function LinkEnvironmentAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
+/** Links another machine to `environmentId`, through a pairing code. */
+export function LinkEnvironmentAction({
+  environmentId,
+  label = "Link",
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly label?: string;
+}) {
   const [open, setOpen] = useState(false);
   const machines = useLinkableMachines(environmentId, open);
   // Null until the user picks; with no other machines known, only an address is left.
@@ -183,14 +190,20 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
   const link = useAtomCommand(peerLinkEnvironment.link, { label: "link environment" });
   const selected = choice ?? (machines.length === 0 ? ANOTHER_ADDRESS : null);
   const machine = machines.find((candidate) => candidate.environmentId === selected) ?? null;
-  // This client can mint a code there when it is connected to that
-  // environment with a session that may create pairing links.
   const targetId = machine?.environmentId ?? null;
   const connected = usePreparedConnection(targetId);
   const mayMint = useEnvironmentScope(targetId, AuthAccessWriteScope);
+  // A picked machine that left the list has no address here either.
+  const needsAddress = selected !== null && (machine === null || machine.urls.length === 0);
+  // This client mints a code there when it is connected with a session that may
+  // create pairing links, and only for its own addresses: anything can answer
+  // as that machine at one typed in, so that one gets a code the user fetched.
   const canMint =
-    targetId !== null && Option.isSome(connected) && mayMint && !mintFailed.has(targetId);
-  const needsAddress = selected === ANOTHER_ADDRESS || machine?.urls.length === 0;
+    targetId !== null &&
+    !needsAddress &&
+    Option.isSome(connected) &&
+    mayMint &&
+    !mintFailed.has(targetId);
   const ready =
     selected !== null &&
     (!needsAddress || address.trim().length > 0) &&
@@ -229,7 +242,8 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
             input: {
               url,
               ...(alternateUrls.length > 0 ? { alternateUrls } : {}),
-              ...(machine === null
+              // A typed address links alone: only this app's own addresses name a machine.
+              ...(machine === null || needsAddress
                 ? {}
                 : { expectedEnvironmentId: machine.environmentId, expectedLabel: machine.label }),
               pairingCode: code,
@@ -258,7 +272,7 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
         render={
           <Button size="xs" variant="default">
             <PlusIcon className="size-3" />
-            Link
+            {label}
           </Button>
         }
       />
@@ -266,8 +280,8 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
         <DialogHeader>
           <DialogTitle>Link an environment</DialogTitle>
           <DialogDescription>
-            Agents here can then launch, message and wait on threads there. It appears in that
-            environment's Connections, where it can be revoked.
+            Agents here can then launch, message and wait on threads there. It appears under
+            Authorized clients in that environment's Sharing & access, where it can be revoked.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -317,6 +331,7 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
                 ) : null}
               </label>
             ) : null}
+            {needsAddress && address.trim() ? <LinkAddressWarning address={address} /> : null}
             {selected === null || canMint ? null : (
               <label className="block space-y-1.5">
                 <span className="block text-xs font-medium text-foreground">Pairing code</span>
@@ -324,9 +339,7 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
                   value={pairingCode}
                   onChange={(event) => setPairingCode(event.target.value)}
                   placeholder={
-                    machine === null
-                      ? "From that environment's Connections, or t3 pair there"
-                      : "Paste the code"
+                    machine === null ? "From Sharing & access there, or t3 pair" : "Paste the code"
                   }
                   disabled={busy}
                   autoComplete="one-time-code"
@@ -335,8 +348,8 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
                 />
                 {machine !== null ? (
                   <span className="block text-xs text-muted-foreground">
-                    Create a link on {machine.label}: Settings → Connections → Create link, then
-                    paste its code here.
+                    Create a link on {machine.label}: Settings → Sharing & access → Authorized
+                    clients → Create link, then paste its code here.
                   </span>
                 ) : null}
               </label>

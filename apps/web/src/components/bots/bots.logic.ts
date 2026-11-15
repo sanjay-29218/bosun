@@ -1,11 +1,10 @@
 import { projectBotId } from "@t3tools/client-runtime/state/bot-rail";
-import { CAPTAIN_BOT_ID } from "@t3tools/contracts";
 
-/** The given projects grouped by the bot that owns them, keeping their order. */
-export function groupProjectsByBot<Project extends { readonly botId?: string | undefined }>(
+/** The given projects grouped by the bot that owns them (null: no bot), keeping their order. */
+export function groupProjectsByBot<Project extends { readonly botId?: string | null | undefined }>(
   projects: ReadonlyArray<Project>,
-): ReadonlyMap<string, ReadonlyArray<Project>> {
-  const groups = new Map<string, Project[]>();
+): ReadonlyMap<string | null, ReadonlyArray<Project>> {
+  const groups = new Map<string | null, Project[]>();
   for (const project of projects) {
     const botId = projectBotId(project);
     const group = groups.get(botId);
@@ -41,9 +40,8 @@ export function moveBotInOrder(
 }
 
 /** Why a bot can't be deleted yet, matching the server's rule; null when it can. */
-export function botDeleteBlocker(botId: string, ownedProjects: number): string | null {
-  if (botId === CAPTAIN_BOT_ID) return "Captain can't be deleted.";
+export function botDeleteBlocker(ownedProjects: number): string | null {
   if (ownedProjects > 0)
-    return `Move its ${ownedProjects === 1 ? "project" : `${ownedProjects} projects`} to another bot first.`;
+    return `Unlink its ${ownedProjects === 1 ? "project" : `${ownedProjects} projects`} first.`;
   return null;
 }

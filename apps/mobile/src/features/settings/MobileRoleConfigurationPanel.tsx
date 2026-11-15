@@ -53,7 +53,7 @@ function Editor(props: {
     readonly id: string;
     readonly name: string;
     readonly instructions: string;
-    readonly allowedTools: Array<string>;
+    readonly withheldTools: Array<string>;
     readonly modelSelection: ModelSelection;
     readonly runtimeMode: RuntimeMode;
     readonly enabled: boolean;
@@ -63,13 +63,13 @@ function Editor(props: {
   const initialModel = props.role?.modelSelection ?? props.modelSelection;
   const [name, setName] = useState(props.role?.name ?? "");
   const [instructions, setInstructions] = useState(props.role?.instructions ?? "");
-  const [allowedTools, setAllowedTools] = useState<ReadonlyArray<string>>(
-    props.role?.allowedTools ?? [],
+  const [withheldTools, setWithheldTools] = useState<ReadonlyArray<string>>(
+    props.role?.withheldTools ?? [],
   );
   const [instanceId, setInstanceId] = useState(initialModel?.instanceId ?? "");
   const [model, setModel] = useState(initialModel?.model ?? "");
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
-    props.role?.runtimeMode ?? "approval-required",
+    props.role?.runtimeMode ?? "full-access",
   );
   const [enabled, setEnabled] = useState(props.role?.enabled ?? true);
   // The fields above match this revision. If someone else saves a newer one, this save is
@@ -112,27 +112,31 @@ function Editor(props: {
         onChangeText={setModel}
       />
       <Text className="text-xs text-foreground-muted">
-        Tools. T3 Code tools are all on unless you pick some to limit it to.
+        {CREW_TOOL_GRANTS.every(
+          (grant) => grant.id.startsWith("crew.") || withheldTools.includes(grant.id),
+        )
+          ? "Tools. No T3 Code tools: this agent can't use any."
+          : "Tools. Selected ones are on; tap one to turn it off."}
       </Text>
       <View className="flex-row flex-wrap gap-1.5">
-        {/* Grants this list doesn't know stay on the role and stay listed so they can be removed. */}
+        {/* Withheld ids this list doesn't know stay listed, off, so they can be turned back on. */}
         {[
           ...CREW_TOOL_GRANTS.filter((grant) => !("botOnly" in grant)),
-          ...allowedTools
+          ...withheldTools
             .filter((id) => !CREW_TOOL_GRANTS.some((grant) => grant.id === id))
             .map((id) => ({ id, label: id })),
         ].map((grant) => {
-          const selected = allowedTools.includes(grant.id);
+          const selected = !withheldTools.includes(grant.id);
           return (
             <Action
               key={grant.id}
               label={grant.label}
               selected={selected}
               onPress={() =>
-                setAllowedTools(
+                setWithheldTools(
                   selected
-                    ? allowedTools.filter((id) => id !== grant.id)
-                    : [...allowedTools, grant.id],
+                    ? [...withheldTools, grant.id]
+                    : withheldTools.filter((id) => id !== grant.id),
                 )
               }
             />
@@ -168,7 +172,7 @@ function Editor(props: {
               id: props.role?.id ?? `role:${uuidv4()}`,
               name: name.trim(),
               instructions: instructions.trim(),
-              allowedTools: [...allowedTools],
+              withheldTools: [...withheldTools],
               modelSelection,
               runtimeMode,
               enabled,

@@ -22,11 +22,11 @@ the work to the project's **manager**, and **crew members** take a **feature** t
 **workflow** of stages (plan, design, build, test, review). One feature is one worktree, one
 branch and one PR.
 
-Vocabulary (stored ids such as `bot-captain`, `bot-manager:`, `feature-bot:` and `bot-run:`
+Vocabulary (stored ids such as `bot-manager:`, `feature-bot:` and `bot-run:`
 predate renames and stay on purpose, because saved data references them):
 
-- **Bot:** top level, owns projects (`project.botId`). Captain is the default bot. Each bot
-  has a headquarters thread.
+- **Bot:** top level, owns projects (`project.botId`, null for a project with no bot). Each
+  bot has a headquarters thread. Older installs keep a bot called Captain; it's ordinary.
 - **Role:** a global, reusable job description (Planner, Builder, Reviewer, …).
 - **Crew member:** a role instantiated for one feature, plus one manager per project.
 - **Run / handoff:** a run is one thread doing one task; a handoff is a durable request

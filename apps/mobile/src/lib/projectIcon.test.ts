@@ -23,7 +23,7 @@ describe("resolveProjectChipIcon", () => {
       ),
     ).toBeNull();
     expect(
-      resolveProjectChipIcon(project("bot-captain"), { botHomesRoot: "/work" }, favicon),
+      resolveProjectChipIcon(project("bot-ops"), { botHomesRoot: "/work" }, favicon),
     ).toBeNull();
   });
 

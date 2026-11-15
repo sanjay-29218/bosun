@@ -14,6 +14,7 @@ import { Route as PairRouteImport } from './routes/pair'
 import { Route as GuestRouteImport } from './routes/guest'
 import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
+import { Route as ApproveAgentRouteImport } from './routes/approve-agent'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
@@ -58,6 +59,7 @@ import { Route as ChatSettingsAppearanceRouteImport } from './routes/_chat.setti
 import { Route as ChatSettingsAccessRouteImport } from './routes/_chat.settings.access'
 import { Route as ChatSettingsAboutRouteImport } from './routes/_chat.settings.about'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
+import { Route as ChatBotsAllRouteImport } from './routes/_chat.bots_.all'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
 const WelcomeRoute = WelcomeRouteImport.update({
@@ -83,6 +85,11 @@ const ConnectAgentRoute = ConnectAgentRouteImport.update({
 const ConnectRoute = ConnectRouteImport.update({
   id: '/connect',
   path: '/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApproveAgentRoute = ApproveAgentRouteImport.update({
+  id: '/approve-agent',
+  path: '/approve-agent',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -309,6 +316,11 @@ const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   path: '/draft/$draftId',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatBotsAllRoute = ChatBotsAllRouteImport.update({
+  id: '/bots_/all',
+  path: '/bots/all',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatEnvironmentIdThreadIdRoute =
   ChatEnvironmentIdThreadIdRouteImport.update({
     id: '/$environmentId/$threadId',
@@ -318,6 +330,7 @@ const ChatEnvironmentIdThreadIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
+  '/approve-agent': typeof ApproveAgentRoute
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
@@ -333,6 +346,7 @@ export interface FileRoutesByFullPath {
   '/usage': typeof ChatUsageRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/bots/all': typeof ChatBotsAllRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/settings/about': typeof ChatSettingsAboutRoute
   '/settings/access': typeof ChatSettingsAccessRoute
@@ -368,6 +382,7 @@ export interface FileRoutesByFullPath {
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
 }
 export interface FileRoutesByTo {
+  '/approve-agent': typeof ApproveAgentRoute
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
@@ -384,6 +399,7 @@ export interface FileRoutesByTo {
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/bots/all': typeof ChatBotsAllRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/settings/about': typeof ChatSettingsAboutRoute
   '/settings/access': typeof ChatSettingsAccessRoute
@@ -421,6 +437,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
+  '/approve-agent': typeof ApproveAgentRoute
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
@@ -437,6 +454,7 @@ export interface FileRoutesById {
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/_chat/bots_/all': typeof ChatBotsAllRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/settings/about': typeof ChatSettingsAboutRoute
   '/_chat/settings/access': typeof ChatSettingsAccessRoute
@@ -475,6 +493,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/approve-agent'
     | '/connect'
     | '/connect-agent'
     | '/guest'
@@ -490,6 +509,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/projects/$projectKey'
     | '/$environmentId/$threadId'
+    | '/bots/all'
     | '/draft/$draftId'
     | '/settings/about'
     | '/settings/access'
@@ -525,6 +545,7 @@ export interface FileRouteTypes {
     | '/threads/$environmentId/$threadId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/approve-agent'
     | '/connect'
     | '/connect-agent'
     | '/guest'
@@ -541,6 +562,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey'
     | '/'
     | '/$environmentId/$threadId'
+    | '/bots/all'
     | '/draft/$draftId'
     | '/settings/about'
     | '/settings/access'
@@ -577,6 +599,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_chat'
+    | '/approve-agent'
     | '/connect'
     | '/connect-agent'
     | '/guest'
@@ -593,6 +616,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
+    | '/_chat/bots_/all'
     | '/_chat/draft/$draftId'
     | '/_chat/settings/about'
     | '/_chat/settings/access'
@@ -630,6 +654,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  ApproveAgentRoute: typeof ApproveAgentRoute
   ConnectRoute: typeof ConnectRoute
   ConnectAgentRoute: typeof ConnectAgentRoute
   GuestRoute: typeof GuestRoute
@@ -674,6 +699,13 @@ declare module '@tanstack/react-router' {
       path: '/connect'
       fullPath: '/connect'
       preLoaderRoute: typeof ConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/approve-agent': {
+      id: '/approve-agent'
+      path: '/approve-agent'
+      fullPath: '/approve-agent'
+      preLoaderRoute: typeof ApproveAgentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat': {
@@ -984,6 +1016,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatDraftDraftIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/bots_/all': {
+      id: '/_chat/bots_/all'
+      path: '/bots/all'
+      fullPath: '/bots/all'
+      preLoaderRoute: typeof ChatBotsAllRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/$environmentId/$threadId': {
       id: '/_chat/$environmentId/$threadId'
       path: '/$environmentId/$threadId'
@@ -1077,6 +1116,7 @@ interface ChatRouteChildren {
   ChatUsageRoute: typeof ChatUsageRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
+  ChatBotsAllRoute: typeof ChatBotsAllRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
 }
 
@@ -1091,6 +1131,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatUsageRoute: ChatUsageRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
+  ChatBotsAllRoute: ChatBotsAllRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
 }
 
@@ -1098,6 +1139,7 @@ const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  ApproveAgentRoute: ApproveAgentRoute,
   ConnectRoute: ConnectRoute,
   ConnectAgentRoute: ConnectAgentRoute,
   GuestRoute: GuestRoute,

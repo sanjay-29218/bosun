@@ -39,6 +39,7 @@ import {
   usePanelNavigationSuppression,
 } from "../panelAnimations";
 import { AutomationsSidebar } from "./automations/AutomationsSidebar";
+import { BotsListSidebar } from "./bots/BotsListSidebar";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
@@ -63,6 +64,7 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useMobileSidebarSheetMounted,
   useSidebar,
   useSidebarVisibility,
 } from "./ui/sidebar";
@@ -318,11 +320,12 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
   };
 }
 
-function SidebarControl() {
+function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar, setOpen, isMobile, mobileSheetMounted } = useSidebar();
+  const { toggleSidebar, setOpen } = useSidebar();
+  const mobileSidebarSheetMounted = useMobileSidebarSheetMounted();
   const isSidebarVisible = useSidebarVisibility();
   const onBoard = useLocation({
     select: (location) => mainViewForPathname(location.pathname) === "board",
@@ -342,6 +345,8 @@ function SidebarControl() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener that toggles the sidebar on its shortcut
   useEffect(() => {
+    // A hidden sidebar would still save the toggle, so the shortcut does nothing without one.
+    if (!showSidebar) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (
@@ -378,7 +383,7 @@ function SidebarControl() {
       window.removeEventListener("keydown", onKeyDown, true);
       unsubscribe?.();
     };
-  }, [keybindings, toggleSidebar, usagePageOpen]);
+  }, [keybindings, showSidebar, toggleSidebar, usagePageOpen]);
 
   // The control lives as long as the shell, so it carries the shell's commands. Created
   // once so re-renders never re-register them.
@@ -392,27 +397,29 @@ function SidebarControl() {
       ref={appShellCommandsRef}
       className={cn(
         "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
-        isMobile && mobileSheetMounted && "hidden",
+        mobileSidebarSheetMounted && "hidden",
       )}
       data-sidebar-control=""
     >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <SidebarTrigger
-              variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
-              className={cn(
-                "pointer-events-auto",
-                isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
-              )}
-              aria-label="Toggle main sidebar"
-            />
-          }
-        />
-        <TooltipPopup side="bottom">
-          Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
-        </TooltipPopup>
-      </Tooltip>
+      {showSidebar ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <SidebarTrigger
+                variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
+                className={cn(
+                  "pointer-events-auto",
+                  isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
+                )}
+                aria-label="Toggle main sidebar"
+              />
+            }
+          />
+          <TooltipPopup side="bottom">
+            Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
@@ -428,7 +435,13 @@ function MobileBotRailFrame({ show, children }: { show: boolean; children: React
   );
 }
 
-export function AppSidebarLayout({ children }: { children: ReactNode }) {
+export function AppSidebarLayout({
+  children,
+  showSidebar = true,
+}: {
+  children: ReactNode;
+  showSidebar?: boolean;
+}) {
   const railDestination = useRailDestination();
   const sidebarArea = workspaceAreaProps("sidebar", 0, "Threads");
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
@@ -448,7 +461,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // the sidebar sheet instead.
   const isMobile = useMediaQuery("max-md");
   const showBotRail = useShowBotRail();
-  const pinnedBotRail = showBotRail && !isMobile;
+  const pinnedBotRail = showSidebar && showBotRail && !isMobile;
   const botRailWidth = useBotRailWidth();
   const viewportWidth = windowWidth - (pinnedBotRail ? botRailWidth : 0);
   const [brandWidth, setBrandWidth] = useState(0);
@@ -483,43 +496,49 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <SidebarProvider
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
-        defaultOpen
+        storageKey="chat_thread_sidebar_open"
         style={sidebarProviderStyle}
       >
-        <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
-        {pinnedBotRail ? <BotRail placement="window" /> : null}
-        <Sidebar
-          side="left"
-          collapsible="offcanvas"
-          data-app-sidebar=""
-          {...sidebarArea}
-          role="navigation"
-          aria-label="Threads"
-          resizable={{
-            maxWidth: sidebarMaximumWidth,
-            minWidth: sidebarMinimumWidth,
-            shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-              nextWidth <= currentWidth ||
-              wrapper.clientWidth - (pinnedBotRail ? botRailWidth : 0) - nextWidth >=
-                THREAD_MAIN_CONTENT_MIN_WIDTH,
-            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-            onResize: setSidebarWidth,
-          }}
-          style={windowControlsInsetStyle}
-        >
-          <MobileBotRailFrame show={showBotRail && isMobile}>
-            {railDestination === "automations" ? (
-              <AutomationsSidebar />
-            ) : (
-              <ThreadSidebar routeReveal={sidebarRouteReveal} />
-            )}
-          </MobileBotRailFrame>
-          <SidebarRail onDoubleClick={resetSidebarWidth} />
-        </Sidebar>
+        {showSidebar ? (
+          <>
+            <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
+            {pinnedBotRail ? <BotRail placement="window" /> : null}
+            <Sidebar
+              side="left"
+              collapsible="offcanvas"
+              data-app-sidebar=""
+              {...sidebarArea}
+              role="navigation"
+              aria-label="Threads"
+              resizable={{
+                maxWidth: sidebarMaximumWidth,
+                minWidth: sidebarMinimumWidth,
+                shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+                  nextWidth <= currentWidth ||
+                  wrapper.clientWidth - (pinnedBotRail ? botRailWidth : 0) - nextWidth >=
+                    THREAD_MAIN_CONTENT_MIN_WIDTH,
+                storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+                onResize: setSidebarWidth,
+              }}
+              style={windowControlsInsetStyle}
+            >
+              <MobileBotRailFrame show={showBotRail && isMobile}>
+                {railDestination === "automations" ? (
+                  <AutomationsSidebar />
+                ) : railDestination === "bots-list" ? (
+                  <BotsListSidebar />
+                ) : (
+                  <ThreadSidebar routeReveal={sidebarRouteReveal} />
+                )}
+              </MobileBotRailFrame>
+              <SidebarRail onDoubleClick={resetSidebarWidth} />
+            </Sidebar>
+          </>
+        ) : null}
         {children}
         {showBotRail ? <FollowStandingThread /> : null}
         <BackgroundThreadAnnouncer />
-        <SidebarControl />
+        <SidebarControl showSidebar={showSidebar} />
         {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

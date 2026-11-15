@@ -68,7 +68,12 @@ import FeatureTagParent from "./Migrations/110_FeatureTagParent.ts";
 import MergeClosedIssues from "./Migrations/111_MergeClosedIssues.ts";
 import ProjectManagerOwnSettings from "./Migrations/112_ProjectManagerOwnSettings.ts";
 import ProjectManagerIcon from "./Migrations/113_ProjectManagerIcon.ts";
-import ScheduledTaskProjectManager from "./Migrations/114_ScheduledTaskProjectManager.ts";
+import OptionalProjectBot from "./Migrations/114_OptionalProjectBot.ts";
+import RailPins from "./Migrations/115_RailPins.ts";
+import WithheldTools from "./Migrations/116_WithheldTools.ts";
+import BotPermittedEnvironments from "./Migrations/117_BotPermittedEnvironments.ts";
+import ProjectRemoteBot from "./Migrations/118_ProjectRemoteBot.ts";
+import ScheduledTaskProjectManager from "./Migrations/119_ScheduledTaskProjectManager.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -129,7 +134,12 @@ const migrationEntries = [
   [111, "MergeClosedIssues", MergeClosedIssues],
   [112, "ProjectManagerOwnSettings", ProjectManagerOwnSettings],
   [113, "ProjectManagerIcon", ProjectManagerIcon],
-  [114, "ScheduledTaskProjectManager", ScheduledTaskProjectManager],
+  [114, "OptionalProjectBot", OptionalProjectBot],
+  [115, "RailPins", RailPins],
+  [116, "WithheldTools", WithheldTools],
+  [117, "BotPermittedEnvironments", BotPermittedEnvironments],
+  [118, "ProjectRemoteBot", ProjectRemoteBot],
+  [119, "ScheduledTaskProjectManager", ScheduledTaskProjectManager],
 ] as const;
 
 const legacyNames = new Set([

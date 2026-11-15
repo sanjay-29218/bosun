@@ -11,28 +11,38 @@ import { Platform } from "react-native";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { logicalBotProjectKeys } from "@t3tools/client-runtime/state/bot-rail";
 import { headquartersBotId } from "@t3tools/contracts";
-import {
-  pickableProjectGroups,
-  resolveScratchProjectScopeKey,
-} from "@t3tools/client-runtime/state/project-grouping";
+import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { useActiveBot, useRefreshBotsWhileOpen } from "../../state/bots";
 import { useProjects } from "../../state/entities";
 import { useBoardProjects } from "../../state/features";
 import { FeatureBoard } from "../crew/FeatureBoard";
-import { environmentThreadShells } from "../../state/threads";
-import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
+import { steadyNavigationThreadShellsAtom } from "../../state/threads";
+import { useLaunchingThreads, usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
-import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import {
+  useAdaptiveWorkspaceLayout,
+  useWorkspacePaneState,
+} from "../layout/AdaptiveWorkspaceLayout";
 import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { useHomeListOptions } from "./home-list-options";
-import { useAtomValueWhileVisible, useHomeRouteVisible } from "./home-route-visibility";
+import {
+  runWhenHomeCovered,
+  useAtomValueWhileVisible,
+  useHomeRouteVisible,
+} from "./home-route-visibility";
 import { BotHeaderRow } from "./BotHeaderRow";
 import { useOpenBotHeadquarters } from "./useOpenBotHeadquarters";
-import { buildHomeProjectScopes, findHomeProjectScope } from "./homeThreadList";
+import {
+  buildHomeProjectScopes,
+  findHomeProjectScope,
+  resolveHomeProjectFilterScope,
+  sortHomeProjectScopes,
+} from "./homeThreadList";
+import { useOpenProjectManager } from "./useOpenProjectManager";
 import { buildBotSwitcherMenu } from "./thread-list-chrome";
 import { useThreadListView } from "./use-thread-list-view";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
@@ -47,15 +57,14 @@ import { buildHomeListFilterMenuItems } from "./home-list-filter-menu";
 
 export function HomeRouteScreen() {
   const nativePrimaryColumn = use(NativePrimaryColumnContext);
-  const { layout, primarySidebarSearchQuery, setPrimarySidebarSearchQuery, startNewTask } =
-    useAdaptiveWorkspaceLayout();
+  const { layout, setPrimarySidebarSearchQuery, startNewTask } = useAdaptiveWorkspaceLayout();
+  const { primarySidebarSearchQuery } = useWorkspacePaneState();
   const selectDetail = useSelectWorkspaceDetail();
   const allProjects = useProjects();
   // Stop rebuilding the streaming thread list while Thread covers Home.
   const visible = useHomeRouteVisible();
-  const allThreads = useAtomValueWhileVisible(
-    environmentThreadShells.navigationThreadShellsAtom,
-    visible,
+  const allThreads = useLaunchingThreads(
+    useAtomValueWhileVisible(steadyNavigationThreadShellsAtom, visible),
   );
   // The list shows the active bot's projects; with one bot it shows everything.
   const activeBot = useActiveBot();
@@ -96,12 +105,18 @@ export function HomeRouteScreen() {
     else if (workspace) workspace.dispatch({ type: "query", query, tab: "threads" });
     else setLocalSearchQuery(query);
   };
+  // Split layouts keep the query; only the stacked layout opens the thread over the list.
+  // Android's search field keeps its own open state, which a cleared query would leave open.
+  const clearsSearchOnOpen = Platform.OS !== "android" && !layout.usesSplitView;
+  const selectThreadRoute = (params: ReactNavigation.RootParamList["Thread"]) => {
+    if (searchQuery !== "" && clearsSearchOnOpen && workspace)
+      runWhenHomeCovered(() => workspace.cancelSearch("threads"));
+    selectDetail({ name: "Thread", params });
+  };
   const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
-    selectDetail({
-      name: "Thread",
-      params: { environmentId: String(thread.environmentId), threadId: String(thread.id) },
-    });
+    selectThreadRoute({ environmentId: String(thread.environmentId), threadId: String(thread.id) });
   const openHeadquarters = useOpenBotHeadquarters(handleSelectThread);
+  const openProjectManager = useOpenProjectManager(handleSelectThread);
   const botProjectCount = useMemo(
     () =>
       activeBot.active === null
@@ -126,15 +141,15 @@ export function HomeRouteScreen() {
       buildBotSwitcherMenu({
         ...activeBot,
         openHeadquarters: (bot) => void openHeadquarters(bot),
+        openManager: (manager) => void openProjectManager(manager),
+        openBotsList: () => openSettings(navigation, "SettingsBots"),
         openAutomations: () => openSettings(navigation, "SettingsScheduledTasks"),
         openLibrary: () => openSettings(navigation, "SettingsRoles"),
       }),
-    [activeBot, navigation, openHeadquarters],
+    [activeBot, navigation, openHeadquarters, openProjectManager],
   );
   const boardProjects = useBoardProjects(botProjectKeys);
   const viewToggle = useThreadListView(activeBot.viewKey, boardProjects.length > 0);
-  const selectThreadRoute = (params: ReactNavigation.RootParamList["Thread"]) =>
-    selectDetail({ name: "Thread", params });
   const handleNewThreadOnBranch = (thread: EnvironmentThreadShell) => {
     selectThreadRoute({
       draft: {
@@ -196,36 +211,32 @@ export function HomeRouteScreen() {
     setSelectedProjectKey,
   } = useHomeListOptions(availableEnvironmentIds);
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
-  // A legacy per-environment scratch key resolves here on every render; the stored
-  // value is only rewritten when the user picks a filter.
-  const resolvedProjectKey = resolveScratchProjectScopeKey(
-    listOptions.selectedProjectKey,
-    projects,
-    {
-      sidebarProjectGroupingMode: listOptions.projectGroupingMode,
-      sidebarProjectGroupingOverrides: {},
-    },
-  );
   const projectScopes = useMemo(
     () =>
-      pickableProjectGroups(
-        buildHomeProjectScopes({
-          projects,
-          environmentId: selectedEnvironmentId,
-          projectGroupingMode: listOptions.projectGroupingMode,
-        }),
-      ),
+      buildHomeProjectScopes({
+        projects,
+        environmentId: selectedEnvironmentId,
+        projectGroupingMode: listOptions.projectGroupingMode,
+      }),
     [listOptions.projectGroupingMode, projects, selectedEnvironmentId],
   );
   const projectFilterOptions = useMemo(
-    () => projectScopes.map((scope) => ({ key: scope.key, label: scope.title })),
-    [projectScopes],
+    () =>
+      pickableProjectGroups(
+        sortHomeProjectScopes({
+          scopes: projectScopes,
+          threads,
+          pendingTasks: [],
+          projectSortOrder: "updated_at",
+        }),
+      ).map((scope) => ({
+        key: scope.key,
+        label: scope.title,
+      })),
+    [projectScopes, threads],
   );
-  const selectedProjectKey = projectFilterOptions.some(
-    (project) => project.key === resolvedProjectKey,
-  )
-    ? resolvedProjectKey
-    : null;
+  const selectedProjectKey =
+    resolveHomeProjectFilterScope(projectScopes, projects, listOptions)?.key ?? null;
   // The board follows the same environment and project filters as the list.
   const filteredBoardProjects = useMemo(() => {
     const scope = findHomeProjectScope(projectScopes, selectedProjectKey);
@@ -336,6 +347,7 @@ export function HomeRouteScreen() {
             selectedEnvironmentId={selectedEnvironmentId}
             selectedProjectKey={selectedProjectKey}
             threads={threads}
+            visible={visible}
           />
         )}
         <ThreadUndoNotice visible={visible} />

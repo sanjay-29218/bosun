@@ -23,7 +23,7 @@ const settings = (fields: Partial<ProjectManagerSettings> = {}): ProjectManagerS
   projectId,
   enabled: true,
   instructions: "Manage the web app.",
-  allowedTools: [],
+  withheldTools: [],
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "full-access",
   longConversation: "compact",

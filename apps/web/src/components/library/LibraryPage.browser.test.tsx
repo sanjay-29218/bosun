@@ -19,7 +19,7 @@ const reviewer: RoleConfig = {
   id: "role:reviewer",
   name: "Reviewer",
   instructions: "Review the change",
-  allowedTools: [],
+  withheldTools: [],
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "approval-required",
   enabled: true,

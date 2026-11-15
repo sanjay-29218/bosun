@@ -162,9 +162,11 @@ function AgentRow(props: {
         accessible
         className="min-w-0 flex-1"
         accessibilityHint={
-          subagent.remoteChild === undefined
-            ? "Provider-managed agent. Its work appears in the transcript."
-            : `Runs on ${subagent.remoteChild.label}. Connect to it to open its thread.`
+          subagent.remoteChild !== undefined
+            ? `Runs on ${subagent.remoteChild.label}. Connect to it to open its thread.`
+            : subagent.pendingRemote !== undefined
+              ? `Runs on ${subagent.pendingRemote.label}. It starts when ${subagent.pendingRemote.label} is back.`
+              : "Provider-managed agent. Its work appears in the transcript."
         }
       >
         {row}

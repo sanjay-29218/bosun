@@ -18,9 +18,9 @@ time the board opens, **Start a feature** adds the starter roles first.
 
 Most features start from a bot's request: the bot hands it to the project's
 [Project manager](./bots.md#project-managers), which starts a feature when the work needs one,
-links the issue it tracks, and hears from the feature's lead when it finishes, needs the person,
-fails or stops with nothing left running, not with each step. Notices that arrive while a thread is
-busy reach it as one message when it is free. Ask a bot to start
+links the issue it tracks, and hears one line when the feature needs the person, finishes or
+fails, not with each step. Notices that arrive while a thread is busy reach it as one message when
+it is free. Ask a bot to start
 the feature itself, and it does the same as **New feature** without the Project manager.
 
 Attach images or files to the brief to send them to the lead with it.
@@ -55,10 +55,17 @@ the member's thread shows under the lead in the thread's **Crew** tab, named by 
 member runs with its role's instructions and model, in the feature's worktree, and its result
 comes back to the lead. The lead does small steps itself and skips what the work doesn't need.
 
-The lead asks you in its thread when it needs your decision, such as approving a plan, and waits
-for your answer. To ask for changes, reply in the lead's thread. When the work is done, the lead
-reports it, and its card reads **Ready for review**; close the feature from the board once you're
-happy with it.
+When a step needs your approval, such as a plan or a design, the crew member who did it asks you
+in its own thread, next to the work, with its name on the question ("Designer is asking for your
+approval"). Pick **Approve**, or type what to change, and the member carries on; the lead hears
+only the outcome. Dismissing the question tells the member it wasn't approved. The feature's card,
+its notification and a push all open the thread that is asking. The lead asks its own questions
+in its thread and waits for your answer; to ask the lead for changes, reply there. When the work
+is done, the lead reports it, and its card reads **Ready for review**; close the feature from the
+board once you're happy with it.
+
+A needs-you line links to the thread that asks, and a finish line carries the pull request. A
+bot's headquarters hears only when a feature finishes or fails.
 
 ## The board
 
@@ -89,6 +96,13 @@ sidebar's project filter, so picking one in either place narrows both; each
 filter in effect shows below the header, where its × removes it. **Display** switches between the
 columns and a list.
 
+A parent issue's sub-issues sit under it. In the list, a sub-issue nests under its parent when both
+land in the same section, and the parent's `0/3` chip folds them; one in another section, such as a
+running feature on a sub-issue, stays in its own section with a `↰ #48` chip naming its parent.
+Narrowed to a milestone, the list opens with the milestone's progress and due date, then each
+parent with all of its sub-issues under it, whatever their status. In columns, a parent's card lists
+its sub-issues and each sub-issue keeps its own card.
+
 ## Issues and tickets
 
 A feature can link one issue or ticket. Every thread of the feature shows its number, and the
@@ -117,7 +131,12 @@ description with headings, lists and checklists. When the project has GitHub iss
 A ticket's title, description and status edit in place, and **Move to GitHub issue** files it on
 GitHub, moves its features to the new issue and deletes the ticket. A GitHub issue shows its
 description, status and comments as GitHub has them; close or reopen it there, and click its title
-or description to edit it in place. Paste a screenshot into either description to add it. A
+or description to edit it in place. An issue shows its milestone and the issue it is part of: pick
+either chip to set, change or clear it, or use **+ Milestone** and **+ Parent** when it has none. A
+parent lists its **Sub-issues** under its description, each with the feature working on it and that
+feature's pull request; **Add** puts an existing issue under it or files a new sub-issue. New todo
+can set a GitHub issue's milestone and parent too, and a parent's milestone carries to a sub-issue
+that has none. Paste a screenshot into either description to add it. A
 ticket's images stay on its environment. GitHub takes no images through its API, so an issue's are
 committed to a `bosun-attachments` branch of its repository, which anyone who can see the repository
 can open. **Start feature** opens a new thread whose brief names the todo. Any other thread can
@@ -126,7 +145,7 @@ link the issue or ticket it works on with **Link issue…** in its details panel
 **Issue** tab in the right panel (`I` in Open a surface), and a pull request's summary lists the
 issues its description closes ("Fixes #12"); click one to open it there, or Cmd-click to open it on
 GitHub. The crew can list, read,
-create and close todos too.
+create and close todos too, and set or clear an issue's milestone and parent.
 
 A project's [Project manager](./bots.md#project-managers) keeps the backlog. It files an issue for
 a request no todo tracks, and a feature it starts is linked to that issue from its first message.

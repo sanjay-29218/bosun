@@ -31,6 +31,9 @@ export function SubagentStopButton(props: {
   const workflow = target.kind === "workflow";
   const label =
     props.subagent.workflow?.name ?? resolveSubagentRowPresentation(props.subagent).title;
+  // A request still waiting for its machine is cancelled before it starts there.
+  const waitingOn =
+    props.subagent.remoteChild === undefined ? (props.subagent.pendingRemote?.label ?? null) : null;
   const stop = async () => {
     setStopping(true);
     const result = await (
@@ -51,13 +54,23 @@ export function SubagentStopButton(props: {
         accessibilityLabel={`${stopping ? "Stopping" : "Stop"} ${workflow ? "workflow" : "agent"} ${label}`}
         disabled={stopping}
         onPress={() =>
-          Dialog.confirm({
-            title: workflow ? "Stop workflow?" : "Stop agent?",
-            message: workflow ? `Every running agent in ${label} stops.` : `Stop ${label}?`,
-            confirmText: "Stop",
-            destructive: true,
-            onConfirm: () => void stop(),
-          })
+          Dialog.confirm(
+            waitingOn !== null
+              ? {
+                  title: "Cancel request?",
+                  message: `It won't start on ${waitingOn}.`,
+                  confirmText: "Cancel request",
+                  destructive: true,
+                  onConfirm: () => void stop(),
+                }
+              : {
+                  title: workflow ? "Stop workflow?" : "Stop agent?",
+                  message: workflow ? `Every running agent in ${label} stops.` : `Stop ${label}?`,
+                  confirmText: "Stop",
+                  destructive: true,
+                  onConfirm: () => void stop(),
+                },
+          )
         }
       />
     </View>

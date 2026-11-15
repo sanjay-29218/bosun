@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { isAtomCommandInterrupted, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import {
+  indexIssueStructure,
   issueKey,
   ticketIssue,
   type EnvironmentIssue,
@@ -52,25 +53,8 @@ const issueBoardFor = (key: string, targets: ReadonlyArray<FeatureBoardTarget>) 
   ).pipe(Atom.withLabel(`web-features:issues:${key}`)),
 });
 
-/**
- * Issues, tickets and milestones for every target, merged; tickets are rows with a `ticketId`.
- * Each project loads and fails on its own.
- */
-export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enabled: boolean) {
-  const key = enabled
-    ? targets
-        .map((target) => `${target.environmentId}:${target.projectId}`)
-        .toSorted()
-        .join(",")
-    : "";
-  // `targets` is rebuilt by callers on every render; the key is what identifies the set, so
-  // the atom is rebuilt only when the key changes.
-  const [board, setBoard] = useState(() => issueBoardFor(key, enabled ? targets : []));
-  if (board.key !== key) setBoard(issueBoardFor(key, enabled ? targets : []));
-  const stableTargets = board.targets;
-  const resultsAtom = board.atom;
-  const results = useAtomValue(resultsAtom);
-
+/** The board's rows from every project's reads. */
+function deriveIssueBoard(results: Atom.Type<ReturnType<typeof issueBoardFor>["atom"]>) {
   const issues: EnvironmentIssue[] = [];
   const milestones: EnvironmentMilestone[] = [];
   const errors: string[] = [];
@@ -108,6 +92,51 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
     if (entry.tickets._tag === "Failure" && !Cause.hasInterruptsOnly(entry.tickets.cause))
       errors.push(formatEnvironmentQueryError(entry.tickets.cause));
   }
+  return {
+    issues,
+    milestones,
+    errors,
+    unavailable,
+    issueHosts,
+    tickets,
+    pending,
+    truncated,
+    readAt,
+    structure: indexIssueStructure(issues),
+  };
+}
+
+/**
+ * Issues, tickets and milestones for every target, merged; tickets are rows with a `ticketId`.
+ * Each project loads and fails on its own.
+ */
+export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enabled: boolean) {
+  const key = enabled
+    ? targets
+        .map((target) => `${target.environmentId}:${target.projectId}`)
+        .toSorted()
+        .join(",")
+    : "";
+  // `targets` is rebuilt by callers on every render; the key is what identifies the set, so
+  // the atom is rebuilt only when the key changes.
+  const [board, setBoard] = useState(() => issueBoardFor(key, enabled ? targets : []));
+  if (board.key !== key) setBoard(issueBoardFor(key, enabled ? targets : []));
+  const stableTargets = board.targets;
+  const resultsAtom = board.atom;
+  const results = useAtomValue(resultsAtom);
+
+  const {
+    issues,
+    milestones,
+    errors,
+    unavailable,
+    issueHosts,
+    tickets,
+    pending,
+    truncated,
+    readAt,
+    structure,
+  } = deriveIssueBoard(results);
   const refresh = () => {
     for (const target of stableTargets) {
       appAtomRegistry.refresh(issuesAtom(target));
@@ -153,6 +182,8 @@ export function useIssueBoard(targets: ReadonlyArray<FeatureBoardTarget>, enable
 
   return {
     issues,
+    /** The loaded issues by URL and each parent's sub-issues. */
+    structure,
     tickets,
     issueHosts,
     milestones,

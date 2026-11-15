@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
-import { BotAvatar, BotLongConversation } from "./bots.ts";
+import { BotAvatar, BotLongConversation, LEGACY_ALLOWED_TOOLS } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
@@ -32,9 +32,9 @@ export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_D
 export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
 
 /**
- * The tools a bot or role can be granted. `crew.*` grants gate the crew MCP tools one by one.
- * The rest name T3 MCP toolkits: a run gets every toolkit an ordinary thread gets, and naming
- * any limits it to those. `botOnly` grants are for bots, so role editors leave them out.
+ * The tools a bot or role can hold. Agents store the ones a person withheld, so every tool here,
+ * including one added later, is on unless withheld. `crew.*` grants gate the crew MCP tools; the
+ * rest name T3 MCP toolkits. `botOnly` grants are for bots alone.
  */
 export const CREW_TOOL_GRANTS = [
   {
@@ -70,6 +70,15 @@ export const CREW_TOOL_GRANTS = [
   },
 ] as const;
 
+/** What an agent with these withheld tools gets: every grant its kind can hold, minus those. */
+export const grantedTools = (
+  withheld: ReadonlyArray<string>,
+  options: { readonly bot: boolean },
+): ReadonlyArray<string> =>
+  CREW_TOOL_GRANTS.filter(
+    (grant) => (options.bot || !("botOnly" in grant)) && !withheld.includes(grant.id),
+  ).map((grant) => grant.id);
+
 /** A crew member: a role instantiated for a project, a feature, or the whole environment. */
 export const CrewMemberSummary = Schema.Struct({
   id: Schema.String,
@@ -88,7 +97,7 @@ export const RoleConfig = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  allowedTools: Schema.Array(Schema.String),
+  withheldTools: Schema.Array(Schema.String),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   enabled: Schema.Boolean,
@@ -99,9 +108,12 @@ export const RoleCreateInput = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  allowedTools: Schema.Array(Schema.String),
+  /** Omitted, every tool on create and unchanged on update. */
+  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  allowedTools: LEGACY_ALLOWED_TOOLS,
   modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
+  /** Omitted, full access on create and unchanged on update. */
+  runtimeMode: Schema.optionalKey(RuntimeMode),
 });
 export const RoleUpdateInput = Schema.Struct({
   ...RoleCreateInput.fields,
@@ -129,7 +141,8 @@ export const WorkflowSnapshot = Schema.Struct({
       id: Schema.String,
       name: Schema.String,
       instructions: Schema.String,
-      allowedTools: Schema.Array(Schema.String),
+      withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+      allowedTools: LEGACY_ALLOWED_TOOLS,
       modelSelection: ModelSelection,
       runtimeMode: RuntimeMode,
     }),
@@ -209,7 +222,7 @@ export const ProjectManagerSettings = Schema.Struct({
   /** Off, its bot does the project's work itself and its thread is archived. */
   enabled: Schema.Boolean,
   instructions: Schema.String,
-  allowedTools: Schema.Array(Schema.String),
+  withheldTools: Schema.Array(Schema.String),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   longConversation: BotLongConversation,
@@ -226,7 +239,8 @@ export type ProjectManagerSettings = typeof ProjectManagerSettings.Type;
 export const ProjectManagerUpdateInput = Schema.Struct({
   projectId: ProjectId,
   instructions: Schema.String,
-  allowedTools: Schema.Array(Schema.String),
+  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
+  allowedTools: LEGACY_ALLOWED_TOOLS,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   longConversation: BotLongConversation,

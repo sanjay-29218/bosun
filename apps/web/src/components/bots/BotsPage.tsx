@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { botAutomationsDeleteWarning } from "@t3tools/client-runtime/state/automations";
-import { logicalBotProjectLists } from "@t3tools/client-runtime/state/bot-rail";
-import { logicalBotKey, type Bot, type EnvironmentId } from "@t3tools/contracts";
+import { logicalBotOf, logicalBotProjectLists } from "@t3tools/client-runtime/state/bot-rail";
+import type { Bot, EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
@@ -97,15 +97,9 @@ export function BotsPage(search: BotsSearch) {
           onOpenChange={(open) => {
             if (!open) closeNew();
           }}
-          onCreated={(bot) => {
+          onCreated={(bot, homeId) => {
             closeNew();
-            const logicalBot = {
-              key: logicalBotKey(bot),
-              name: bot.name,
-              avatar: bot.avatar,
-              color: bot.color,
-              members: [{ environmentId: newEnvironmentId, botId: bot.id }],
-            };
+            const logicalBot = logicalBotOf(homeId, bot);
             selectBot(logicalBot);
             openHeadquarters(logicalBot);
             toastManager.add({
@@ -116,7 +110,7 @@ export function BotsPage(search: BotsSearch) {
                 onClick: () =>
                   void navigate({
                     to: BOTS_SETTINGS_PATH,
-                    search: { environmentId: newEnvironmentId, botId: bot.id },
+                    search: { environmentId: homeId, botId: bot.id },
                   }),
               },
             });
@@ -178,18 +172,13 @@ function EnvironmentBotPage({
   }
 
   const ownedProjects = groupProjectsByBot(projects).get(bot.id) ?? [];
-  // The same bot on other environments; one the rail hasn't merged yet stands alone.
-  const logicalBot = logicalBots.find((candidate) =>
-    candidate.members.some(
-      (member) => member.environmentId === environmentId && member.botId === bot.id,
-    ),
-  ) ?? {
-    key: logicalBotKey(bot),
-    name: bot.name,
-    avatar: bot.avatar,
-    color: bot.color,
-    members: [{ environmentId, botId: bot.id }],
-  };
+  // The rail's entry for this bot; one the rail hasn't listed yet stands alone.
+  const logicalBot =
+    logicalBots.find((candidate) =>
+      candidate.members.some(
+        (member) => member.environmentId === environmentId && member.botId === bot.id,
+      ),
+    ) ?? logicalBotOf(environmentId, bot);
   const railBots = logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot];
   const projectLists = logicalBotProjectLists(logicalBot, railBots, allProjects, botEnvironmentIds);
   return (
@@ -220,6 +209,7 @@ function EnvironmentBotPage({
             bots={railBots}
             ownedProjects={projectLists.owned}
             availableProjects={projectLists.available}
+            notAllowedProjects={projectLists.notAllowed}
             projectsWithoutBots={projectLists.withoutBots}
             environmentLabels={environmentLabels}
           />
@@ -253,7 +243,7 @@ function BotActions({
   const openHeadquarters = useOpenBotHeadquarters();
   const [busy, setBusy] = useState(false);
   const botIds = bots.map((candidate) => candidate.id);
-  const deleteBlocker = botDeleteBlocker(bot.id, ownedProjects);
+  const deleteBlocker = botDeleteBlocker(ownedProjects);
 
   const move = async (offset: -1 | 1) => {
     const next = moveBotInOrder(botIds, bot.id, offset);
@@ -296,15 +286,7 @@ function BotActions({
       <Button
         size="xs"
         variant="outline"
-        onClick={() =>
-          openHeadquarters({
-            key: logicalBotKey(bot),
-            name: bot.name,
-            avatar: bot.avatar,
-            color: bot.color,
-            members: [{ environmentId, botId: bot.id }],
-          })
-        }
+        onClick={() => openHeadquarters(logicalBotOf(environmentId, bot))}
       >
         <MessageSquareIcon />
         Open thread

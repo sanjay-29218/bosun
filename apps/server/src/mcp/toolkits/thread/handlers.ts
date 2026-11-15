@@ -132,9 +132,10 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         .searchThreads({ ...input, projectId: input.projectId ?? caller?.projectId })
         .pipe(Effect.mapError(unavailable));
       return {
+        currentThreadId: scope.thread?.threadId ?? null,
         matches: matches.map((match) => ({
           ...match,
-          link: McpInvocationContext.threadLinkFor(scope, match.threadId),
+          link: McpInvocationContext.threadLinkFor(scope, match.threadId, match.title),
         })),
       };
     }),
@@ -247,10 +248,16 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       Effect.gen(function* () {
         const requestId = yield* required(input.requestId, "requestId");
         const answers = yield* required(input.answers, "answers");
-        const { threads, projection } = yield* readQuestion({
+        const { threads, projection, request } = yield* readQuestion({
           threadId: input.threadId,
           requestId,
         });
+        if (request.owner !== undefined)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "This question is for the person, who answers it in that thread. Don't answer it; end your turn.",
+          });
         const result = yield* threads
           .dispatch({
             type: "runtime-request.respond",
@@ -268,7 +275,16 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
     (input) => input.action === "list" || input.action === "read",
     McpToolAccess.reads((input) =>
       Effect.gen(function* () {
-        const { projection } = yield* readThread(input.threadId, ["runs", "messages"]);
+        const { threads, projection: queued } = yield* readThread(input.threadId, ["runs"], {
+          runStatuses: ["queued"],
+        });
+        const messages = yield* threads
+          .getMessagesById(
+            queued.thread.id,
+            queued.runs.map((run) => run.userMessageId),
+          )
+          .pipe(Effect.mapError(unavailable));
+        const projection = { runs: queued.runs, messages: [...messages.values()] };
         if (input.action === "list") {
           const runs = queuedRunsInDeliveryOrder(projection);
           const cursor = input.cursor ?? 0;

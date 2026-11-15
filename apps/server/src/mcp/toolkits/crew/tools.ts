@@ -2,6 +2,7 @@ import {
   IssueDetail,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
+  ProjectId,
   RepositoryIssue,
   ThreadId,
   Ticket,
@@ -9,11 +10,17 @@ import {
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
+import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import {
+  READ_MANAGER_INSTRUCTIONS,
+  UPDATE_MANAGER_INSTRUCTIONS,
+} from "./managerInstructionsTools.ts";
 
 export class CrewToolFailedError extends Schema.TaggedError<CrewToolFailedError>()(
   "CrewToolFailedError",
@@ -31,6 +38,20 @@ const failure = Schema.Union([
   OrchestratorMcpFailure,
   CrewToolFailedError,
 ]);
+const AskPerson = Tool.make("crew_ask_person", {
+  description:
+    "Ask the person for approval in your own thread, where they see your work. First show the work here (the design, plan or file), then call this; it returns at once. End your turn right after: the person's answer arrives as your next message. By default the person picks Approve or writes what to change. Don't put the question in your final message instead.",
+  parameters: Schema.Struct({
+    question: Schema.String.annotate({
+      description: 'One line, such as "Approve the design in design.html?"',
+    }),
+    options: Schema.optional(Schema.Array(Schema.String)),
+  }),
+  success: Schema.Struct({ requestId: Schema.String, next: Schema.String }),
+  failure,
+  dependencies: [...dependencies, CrewApprovals],
+}).annotate(Tool.Destructive, false);
+
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
     "Link the issue your work tracks: an issue URL, such as one you just created, `#56`, a Bosun ticket as `T-14`, or a tracker key or link such as `LIN-123`. On a feature it links the feature's issue, which every thread of the feature shows; otherwise it links this task's own. `threadId`: a task you delegated, to link its issue instead. One issue each: linking another replaces it, and null unlinks it.",
@@ -50,7 +71,7 @@ const LinkIssue = Tool.make("crew_link_issue", {
 
 const ListIssues = Tool.make("crew_list_issues", {
   description:
-    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue and sub-issue progress. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
+    "List the todos of the project this thread works in: its GitHub issues and its Bosun tickets (`T-<number>`). Open ones by default, newest activity first, with each issue's milestone, parent issue, and sub-issues: their progress and the numbers of those listed. When a parent's listed numbers fall short of its total, `crew_read_todo` on the parent lists every sub-issue, closed ones too. Filter by state or milestone title; tickets have no milestone. `unavailable` says why there are no issues to read, such as a remote not on GitHub.",
   parameters: Schema.Struct({
     state: Schema.optional(Schema.Literals(["open", "closed", "all"])),
     milestone: Schema.optional(Schema.String),
@@ -69,7 +90,14 @@ const ListIssues = Tool.make("crew_list_issues", {
         state: Schema.Literals(["open", "closed"]),
         milestone: Schema.NullOr(Schema.String),
         parent: Schema.NullOr(Schema.Int),
-        subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
+        subIssues: Schema.NullOr(
+          Schema.Struct({
+            completed: Schema.Int,
+            total: Schema.Int,
+            /** Its sub-issues among the issues read, open and recently closed. */
+            numbers: Schema.Array(Schema.Int),
+          }),
+        ),
         labels: Schema.Array(Schema.String),
         assignees: Schema.Array(Schema.String),
       }),
@@ -112,7 +140,7 @@ const CreateTodo = Tool.make("crew_create_todo", {
 
 const ReadTodo = Tool.make("crew_read_todo", {
   description:
-    "Read one todo of the project this thread works in, with its Markdown description; a GitHub issue also comes with its first comments.",
+    "Read one todo of the project this thread works in, with its Markdown description; a GitHub issue also comes with its first comments, its parent issue and its sub-issues.",
   parameters: Schema.Struct({ ref: TodoRef }),
   success: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
@@ -124,13 +152,15 @@ const ReadTodo = Tool.make("crew_read_todo", {
 
 const UpdateTodo = Tool.make("crew_update_todo", {
   description:
-    "Close or reopen a todo of the project this thread works in, or change a ticket's title or Markdown description. A GitHub issue's title and description are edited on GitHub.",
+    "Close or reopen a todo of the project this thread works in, or change a ticket's title or Markdown description. A GitHub issue's title and description are edited on GitHub. A GitHub issue's `milestone` (an open one's title or number) and `parent` issue number can be set or changed here; null removes either. Tickets have neither.",
   parameters: Schema.Struct({
     ref: TodoRef,
     state: Schema.optional(Schema.Literals(["open", "closed"])),
     closedReason: Schema.optional(Schema.Literals(["completed", "not_planned"])),
     title: Schema.optional(Schema.String),
     description: Schema.optional(Schema.String),
+    milestone: Schema.optional(Schema.NullOr(Schema.String)),
+    parent: Schema.optional(Schema.NullOr(Schema.Int)),
   }),
   success: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
@@ -166,7 +196,43 @@ const UpdateMilestone = Tool.make("crew_update_milestone", {
   dependencies: [...dependencies, IssueService.IssueService],
 }).annotate(Tool.Destructive, false);
 
+const ManagerInstructions = Schema.Struct({
+  projectId: Schema.String,
+  instructions: Schema.String,
+  revision: Schema.Int,
+  /** True once someone edited them, in Settings or with crew_update_manager_instructions. */
+  customized: Schema.Boolean,
+});
+
+const ManagerProject = Schema.optional(ProjectId).annotate({
+  description:
+    "A bot's headquarters names one of its projects. A project manager leaves it out: it reads its own.",
+});
+
+const ReadManagerInstructions = Tool.make(READ_MANAGER_INSTRUCTIONS, {
+  description:
+    "Read a project manager's instructions and their revision: a project manager's own, or, from a bot's headquarters, those of a project the bot owns.",
+  parameters: Schema.Struct({ projectId: ManagerProject }),
+  success: ManagerInstructions,
+  failure,
+  dependencies: [...dependencies, CrewService],
+}).annotate(Tool.Readonly, true);
+
+const UpdateManagerInstructions = Tool.make(UPDATE_MANAGER_INSTRUCTIONS, {
+  description:
+    "Save a project manager's instructions, to record a standing rule the person or its bot gave for the project. Read them with crew_read_manager_instructions first, then pass the whole new text, not only the change, with the revision you read; to add a rule, append it to the text you read. A stale revision is refused, so a person's edit is never overwritten. The manager shows as Customized in Settings, which can reset it. The new text applies from the manager's next session.",
+  parameters: Schema.Struct({
+    projectId: ManagerProject,
+    instructions: Schema.String,
+    expectedRevision: Schema.Int,
+  }),
+  success: Schema.Struct({ ...ManagerInstructions.fields, appliesFrom: Schema.String }),
+  failure,
+  dependencies: [...dependencies, CrewService],
+}).annotate(Tool.Destructive, false);
+
 export const CrewToolkit = Toolkit.make(
+  AskPerson,
   LinkIssue,
   ListIssues,
   CreateTodo,
@@ -174,4 +240,6 @@ export const CrewToolkit = Toolkit.make(
   UpdateTodo,
   CreateMilestone,
   UpdateMilestone,
+  ReadManagerInstructions,
+  UpdateManagerInstructions,
 );

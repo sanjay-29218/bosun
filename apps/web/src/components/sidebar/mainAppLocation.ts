@@ -12,7 +12,11 @@ import {
   selectBotOfHeadquarters,
 } from "../../state/botRail";
 import { readActiveEnvironmentId } from "../../state/entities";
-import { resolveThreadRouteRef } from "../../threadRoutes";
+import {
+  resolveThreadRouteRef,
+  resolveThreadRouteTarget,
+  type ThreadRouteTarget,
+} from "../../threadRoutes";
 
 /** Settings and Usage open as modals over the last main-app view. */
 export function isAppModalPage(pathname: string) {
@@ -20,6 +24,8 @@ export function isAppModalPage(pathname: string) {
 }
 
 export const AUTOMATIONS_PATH = "/automations";
+/** Every bot and project manager, pinned to the rail or not. */
+export const BOTS_LIST_PATH = "/bots/all";
 /** Bots, workflows and roles are added and edited in Settings → Crew. */
 export const BOTS_SETTINGS_PATH = "/settings/bots";
 export const WORKFLOWS_SETTINGS_PATH = "/settings/workflows";
@@ -29,7 +35,8 @@ export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
     pathname === "/pull-requests" ||
-    pathname === AUTOMATIONS_PATH
+    pathname === AUTOMATIONS_PATH ||
+    pathname === BOTS_LIST_PATH
   );
 }
 
@@ -37,14 +44,16 @@ export function isSidebarUtilityPage(pathname: string) {
  * What the rail points at: the bots (the picked bot's threads) or one of its places. The sidebar
  * column shows the destination's list.
  */
-export type RailDestination = "bots" | "automations" | "pull-requests";
+export type RailDestination = "bots" | "bots-list" | "automations" | "pull-requests";
 
 const railDestinationForPathname = (pathname: string): RailDestination =>
   pathname === AUTOMATIONS_PATH
     ? "automations"
-    : pathname === "/pull-requests"
-      ? "pull-requests"
-      : "bots";
+    : pathname === BOTS_LIST_PATH
+      ? "bots-list"
+      : pathname === "/pull-requests"
+        ? "pull-requests"
+        : "bots";
 
 /** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
 export function useRailDestination(): RailDestination {
@@ -136,6 +145,8 @@ export const readBotHref = (botKey: string) => botHrefs.get(botKey);
 export function rememberBotHref(botKey: string) {
   if (mainAppHref !== null && !mainAppHrefIsStanding) botHrefs.set(botKey, mainAppHref);
 }
+let appModalReturnHistoryIndex: number | null = null;
+let appModalReturnThreadTarget: ThreadRouteTarget | null = null;
 
 /**
  * Remembers where Settings, Usage, and the utility pages lead back to, and the main view
@@ -147,6 +158,12 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     if (isAppModalPage(pathname) || SHELL_LESS_PATHS.has(pathname)) return;
     const href = withoutAssistantCitationHash(router.state.location.href);
     appModalReturnHref = href;
+    // Only an entry that is exactly the return location can be stepped back to.
+    appModalReturnHistoryIndex =
+      href === router.state.location.href ? router.state.location.state.__TSR_index : null;
+    appModalReturnThreadTarget = resolveThreadRouteTarget(
+      router.state.matches.at(-1)?.params ?? {},
+    );
     if (isSidebarUtilityPage(pathname)) return;
     const thread = resolveThreadRouteRef(router.state.matches.at(-1)?.params ?? {});
     const headquartersOf = thread ? headquartersBotId(thread.threadId) : null;
@@ -169,6 +186,11 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
   return router.subscribe("onResolved", record);
 }
 
+/** The thread Settings or Usage opened over, for views mounted while the modal is open. */
+export function getAppModalReturnThreadTarget() {
+  return appModalReturnThreadTarget;
+}
+
 // Leaves a utility page for the last main app URL, or the thread list when
 // the app was opened directly on a utility page.
 export function useNavigateToMainApp() {
@@ -179,7 +201,20 @@ export function useNavigateToMainApp() {
 /** Leaves Settings or Usage for the page that opened it. */
 export function useCloseAppModal() {
   const navigate = useNavigate();
-  return () => navigate({ href: appModalReturnHref ?? mainAppHref ?? "/" });
+  const router = useRouter();
+  return () => {
+    const href = appModalReturnHref ?? mainAppHref ?? "/";
+    const returnIndex = appModalReturnHistoryIndex ?? 0;
+    const steps = router.state.location.state.__TSR_index - returnIndex;
+    if (returnIndex === 0 || steps <= 0) return navigate({ href });
+    // Go back to the entry before the return page and push it again: only a push drops the
+    // modal's entries from forward history, and reusing the old entry avoids a duplicate stop.
+    const unsubscribe = router.history.subscribe(() => {
+      unsubscribe();
+      void navigate({ href });
+    });
+    router.history.go(-(steps + 1));
+  };
 }
 
 /**

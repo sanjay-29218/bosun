@@ -1,7 +1,15 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { CREW_TOOL_GRANTS, EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  CREW_TOOL_GRANTS,
+  EnvironmentId,
+  ProjectId,
+  projectHeadquartersThreadId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import { MANAGER_INSTRUCTIONS_TOOLS } from "../mcp/toolkits/crew/managerInstructionsTools.ts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -12,6 +20,7 @@ import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
 import { BotReach } from "../bots/BotReach.ts";
+import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -45,6 +54,7 @@ import { ProjectCloneTracker } from "../project/ProjectCloneTracker.ts";
 import { ProjectService } from "../project/ProjectService.ts";
 import { ProjectSetupScriptRunner } from "../project/ProjectSetupScriptRunner.ts";
 import { PullRequestReviewGuideService } from "../pullRequest/PullRequestReviewGuideService.ts";
+import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { SecretRequests } from "../secrets/SecretRequests.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -53,6 +63,7 @@ import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import { buildCodexAdditionalContext } from "./CodexDeveloperInstructions.ts";
 import { DocumentText } from "./DocumentText.ts";
+import { EnvironmentThemeService } from "../environmentTheme.ts";
 import { ProviderRegistry } from "./ProviderRegistry.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
 
@@ -61,6 +72,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(AssetSigner)({}),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),
+  Layer.mock(EnvironmentThemeService)({}),
   Layer.mock(GitVcsDriver)({}),
   Layer.mock(GitWorkflowService)({}),
   Layer.mock(ManagedProjectFolders)({ namedProjectsRoot: "" }),
@@ -79,6 +91,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ProviderAdapterRegistryV2)({}),
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(PullRequestReviewGuideService)({}),
+  Layer.mock(PullRequestService)({}),
   Layer.mock(RemoteDelegation)({}),
   Layer.mock(ScheduledTaskService)({}),
   Layer.mock(SecretRequests)({}),
@@ -93,6 +106,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(VcsStatusBroadcaster)({}),
   // Bosun's crew tools.
   Layer.mock(BotService)({}),
+  Layer.mock(CrewApprovals)({}),
   Layer.mock(CrewService)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(ProjectRequests)({}),
@@ -129,11 +143,12 @@ const codexAdditionalContext = () =>
 
 const threadScope = (
   crewGrants?: ReadonlyArray<string>,
+  threadId = ThreadId.make("context-budget"),
 ): McpInvocationContext.McpInvocationScope => ({
   environmentId: EnvironmentId.make("context-budget"),
   requestNamespace: "context-budget",
   thread: {
-    threadId: ThreadId.make("context-budget"),
+    threadId,
     providerSessionId: "context-budget",
     providerInstanceId: ProviderInstanceId.make(CLAUDE_PROVIDER),
   },
@@ -177,13 +192,16 @@ const layerAllTools = McpHttpServer.layerTools.pipe(
 );
 
 // Claude Code loads these tools up front instead of behind ToolSearch, outside this budget.
-it.effect("only request_secret asks Claude Code to load it up front", () =>
+it.effect("only request_secret and send_to_user ask Claude Code to load them up front", () =>
   Effect.gen(function* () {
     const mcp = yield* McpServer.McpServer;
     const alwaysLoad = mcp.tools
       .filter(({ tool }) => tool._meta?.["anthropic/alwaysLoad"] !== undefined)
       .map(({ tool }) => [tool.name, tool._meta]);
-    expect(alwaysLoad).toEqual([["request_secret", { "anthropic/alwaysLoad": true }]]);
+    expect(alwaysLoad).toEqual([
+      ["request_secret", { "anthropic/alwaysLoad": true }],
+      ["send_to_user", { "anthropic/alwaysLoad": true }],
+    ]);
   }).pipe(Effect.provide(layerAllTools)),
 );
 
@@ -205,13 +223,29 @@ it.effect("agent context matches the committed budget", () =>
   }).pipe(Effect.provide(layerAllTools)),
 );
 
-it.effect("a crew thread holding every grant is listed every tool but the links' own", () =>
+it.effect("a project manager holding every grant is listed every tool but the links' own", () =>
   Effect.gen(function* () {
     const mcp = yield* McpServer.McpServer;
-    const listed = yield* listedTo(threadScope(CREW_TOOL_GRANTS.map((grant) => grant.id)));
-    const linkOnly = new Set(["t3_bot_link_projects", "t3_bot_link_task"]);
-    expect(listed.map(({ tool }) => tool.name)).toEqual(
-      mcp.tools.map(({ tool }) => tool.name).filter((name) => !linkOnly.has(name)),
+    const listed = yield* listedTo(
+      threadScope(
+        CREW_TOOL_GRANTS.map((grant) => grant.id),
+        projectHeadquartersThreadId(ProjectId.make("context-budget")),
+      ),
+    );
+    // Only a feature's crew member asks the person in its own thread.
+    const notListed = new Set(["t3_bot_link_projects", "t3_bot_link_task", "crew_ask_person"]);
+    const all = mcp.tools.map(({ tool }) => tool.name).filter((name) => !notListed.has(name));
+    expect(listed.map(({ tool }) => tool.name)).toEqual(all);
+    // A feature lead or crew member holding the same grants doesn't see the manager's own tools.
+    const lead = yield* listedTo(
+      threadScope(
+        CREW_TOOL_GRANTS.map((grant) => grant.id),
+        ThreadId.make("bot-run:feature-lead:x"),
+      ),
+    );
+    const standingOnly: ReadonlySet<string> = new Set(MANAGER_INSTRUCTIONS_TOOLS);
+    expect(lead.map(({ tool }) => tool.name)).toEqual(
+      all.filter((name) => !standingOnly.has(name)),
     );
   }).pipe(Effect.provide(layerAllTools)),
 );

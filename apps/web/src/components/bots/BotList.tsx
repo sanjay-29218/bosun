@@ -17,7 +17,7 @@ import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { botsEnvironment } from "../../state/bots";
-import { useShownBotEnvironmentIds } from "../../state/botRail";
+import { useBotList, useShownBotEnvironmentIds } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
@@ -25,39 +25,102 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { SettingsSection } from "../settings/settingsLayout";
 import { BOTS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { groupProjectsByBot, moveBotTo } from "./bots.logic";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 
 /**
- * Settings → Bots' list: each shown environment's bots in rail order, dragged to reorder.
- * `onNew` adds one on an environment.
+ * Settings → Bots' list: each shown environment's bots in rail order, dragged to reorder, then
+ * the bots of offline environments as last seen. `onNew` adds one on an environment.
  */
 export function BotList({ onNew }: { readonly onNew: (environmentId: EnvironmentId) => void }) {
   const environmentIds = useShownBotEnvironmentIds();
+  const offline = useBotList()
+    .environments.filter((environment) => !environment.online)
+    .map((environment) => environment.environmentId);
   const identities = useEnvironmentIdentities();
   const connected = useConnectedEnvironmentIds();
   const labelById = new Map(identities.map((identity) => [identity.environmentId, identity.label]));
+  const showTitles = environmentIds.length + offline.length > 1;
 
-  if (environmentIds.length === 0) {
-    return (
-      <p className="px-3 text-sm text-muted-foreground sm:px-4">
-        {connected.length === 0
-          ? "No environments connected"
-          : "No connected environment runs bots"}
-      </p>
-    );
-  }
-  return environmentIds.map((environmentId) => (
-    <EnvironmentBots
-      key={environmentId}
-      environmentId={environmentId}
-      title={labelById.get(environmentId) ?? "Environment"}
-      showTitle={environmentIds.length > 1}
-      onNew={() => onNew(environmentId)}
-    />
-  ));
+  return (
+    <>
+      {environmentIds.length === 0 ? (
+        <p className="px-3 text-sm text-muted-foreground sm:px-4">
+          {connected.length === 0
+            ? "No environments connected"
+            : "No connected environment runs bots"}
+        </p>
+      ) : (
+        environmentIds.map((environmentId) => (
+          <EnvironmentBots
+            key={environmentId}
+            environmentId={environmentId}
+            title={labelById.get(environmentId) ?? "Environment"}
+            showTitle={showTitles}
+            onNew={() => onNew(environmentId)}
+          />
+        ))
+      )}
+      {offline.map((environmentId) => (
+        <OfflineEnvironmentBots
+          key={environmentId}
+          environmentId={environmentId}
+          title={labelById.get(environmentId) ?? "Environment"}
+        />
+      ))}
+    </>
+  );
 }
+
+/** An offline environment's bots as last seen: not links, since their editor can't load. */
+function OfflineEnvironmentBots({
+  environmentId,
+  title,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly title: string;
+}) {
+  const bots = useEnvironmentQuery(botsEnvironment.list({ environmentId, input: {} })).data ?? [];
+  const projectsByBot = groupProjectsByBot(
+    useProjects().filter((project) => project.environmentId === environmentId),
+  );
+  return (
+    <SettingsSection
+      title={title}
+      titleAction={
+        <Badge variant="outline" size="sm">
+          Offline
+        </Badge>
+      }
+    >
+      <p className="px-4 py-2 text-xs text-muted-foreground">
+        Can't reach {title}. These are its bots as last seen.
+      </p>
+      <ul className="divide-y divide-border/50 opacity-60">
+        {bots.map((bot) => (
+          <li key={bot.id} className="flex min-w-0 items-center gap-3 px-4 py-2.5">
+            <BotAvatar avatar={bot.avatar} color={bot.color} size={32} shaded={false} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm font-medium text-foreground">{bot.name}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {botRowDetail(bot, projectsByBot.get(bot.id)?.length ?? 0)}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </SettingsSection>
+  );
+}
+
+const botRowDetail = (bot: Bot, projectCount: number) =>
+  [
+    `${projectCount} ${projectCount === 1 ? "project" : "projects"}`,
+    bot.modelSelection?.model ?? "No model yet",
+  ].join(" · ");
 
 // Pointer only: rows are links, so Enter opens a bot. The bot's menu moves it by keyboard.
 const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 6 } };
@@ -141,9 +204,17 @@ function EnvironmentBots({
           Loading bots…
         </p>
       ) : bots.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted-foreground">
-          No bots yet. A bot runs your projects and talks to you in its own thread.
-        </p>
+        <Empty size="compact">
+          <EmptyHeader>
+            <EmptyTitle>No bots yet</EmptyTitle>
+            <EmptyDescription>
+              A bot runs your projects and talks to you in its own thread.
+            </EmptyDescription>
+          </EmptyHeader>
+          <Button size="sm" disabled={!canAdd} onClick={onNew}>
+            Create a bot
+          </Button>
+        </Empty>
       ) : (
         <DndContext
           sensors={sensors}
@@ -186,10 +257,7 @@ function BotRow({
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: bot.id,
   });
-  const detail = [
-    `${projectCount} ${projectCount === 1 ? "project" : "projects"}`,
-    bot.modelSelection?.model ?? "No model yet",
-  ].join(" · ");
+  const detail = botRowDetail(bot, projectCount);
   return (
     <li
       ref={setNodeRef}

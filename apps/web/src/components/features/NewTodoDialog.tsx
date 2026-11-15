@@ -6,7 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { CircleDotIcon, NotebookTextIcon } from "lucide-react";
+import { CircleDotIcon, CornerLeftUpIcon, MilestoneIcon, NotebookTextIcon } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 
 import { formatShortcutLabel } from "../../keybindings";
@@ -28,13 +28,22 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import {
+  Select,
+  SelectButton,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   readFeaturesPagePreferences,
   saveFeaturesPagePreferences,
 } from "./featuresPagePreferences";
+import { IssuePicker, parentChoices } from "./IssueStructureDetail";
 import { closeNewTodoDialog, newTodoDialogAtom, type NewTodoTarget } from "./todoDialogs";
 import { useFeatureEnvironmentIds } from "./useFeatureBoard";
 
@@ -79,12 +88,15 @@ function NewTodoDialog(props: {
     props.projects.find((candidate) => projectKey(candidate) === selectedKey) ??
     props.projects[0] ??
     null;
+  // Kept through Create more, so a parent's parts can be filed one after another.
+  const [milestone, setMilestone] = useState<number | null>(props.target.milestone ?? null);
+  const [parent, setParent] = useState<number | null>(props.target.parent ?? null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   // Bumped after a create with Create more on, so the editor starts empty again.
   const [editorKey, setEditorKey] = useState(0);
   const [preferredKind, setPreferredKind] = useState<TodoKind>(
-    () => readFeaturesPagePreferences().newTodoKind ?? "ticket",
+    () => props.target.kind ?? readFeaturesPagePreferences().newTodoKind ?? "ticket",
   );
   const [createMore, setCreateMore] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,6 +113,14 @@ function NewTodoDialog(props: {
   );
   const repository = issues.data?.unavailable === null ? issues.data.repository : null;
   const kind: TodoKind = repository ? preferredKind : "ticket";
+  // A sub-issue can only be an issue; until the repository is known it can't be filed.
+  const awaitingIssueHost = props.target.kind === "issue" && repository === null;
+  const milestones = issues.data?.milestones ?? [];
+  const loadedIssues = issues.data?.issues ?? [];
+  const parentIssue = loadedIssues.find((issue) => issue.number === parent) ?? null;
+  const milestoneTitle =
+    milestones.find((choice) => choice.number === milestone)?.title ??
+    (parentIssue?.milestone?.number === milestone ? parentIssue?.milestone?.title : undefined);
 
   const chooseKind = (next: TodoKind) => {
     setPreferredKind(next);
@@ -109,7 +129,7 @@ function NewTodoDialog(props: {
 
   const submit = async () => {
     const trimmed = title.trim();
-    if (!project || !trimmed || busy) return;
+    if (!project || !trimmed || busy || awaitingIssueHost) return;
     setBusy(true);
     setError(null);
     const target = { environmentId: project.environmentId };
@@ -118,7 +138,16 @@ function NewTodoDialog(props: {
         ? await runAtomCommand(
             appAtomRegistry,
             featuresEnvironment.createIssue,
-            { ...target, input: { projectId: project.id, title: trimmed, body: description } },
+            {
+              ...target,
+              input: {
+                projectId: project.id,
+                title: trimmed,
+                body: description,
+                ...(milestone === null ? {} : { milestone }),
+                ...(parent === null ? {} : { parent }),
+              },
+            },
             { reportFailure: false },
           )
         : await runAtomCommand(
@@ -129,6 +158,14 @@ function NewTodoDialog(props: {
           );
     setBusy(false);
     if (result._tag === "Success") {
+      if (kind === "issue" && parent !== null) {
+        appAtomRegistry.refresh(
+          featuresEnvironment.issueDetail({
+            ...target,
+            input: { projectId: project.id, number: parent },
+          }),
+        );
+      }
       if (!createMore) {
         closeNewTodoDialog();
         return;
@@ -184,7 +221,11 @@ function NewTodoDialog(props: {
                   <Select
                     value={project ? projectKey(project) : ""}
                     onValueChange={(value) => {
-                      if (value !== null) setSelectedKey(value);
+                      if (value === null || value === selectedKey) return;
+                      // Milestones and issues belong to the project they were picked in.
+                      setSelectedKey(value);
+                      setMilestone(null);
+                      setParent(null);
                     }}
                   >
                     <SelectTrigger aria-label="Project" size="sm" className="w-48">
@@ -220,6 +261,64 @@ function NewTodoDialog(props: {
                   </ToggleGroup>
                 ) : null}
               </div>
+              {kind === "issue" ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={milestone === null ? "" : String(milestone)}
+                    onValueChange={(value) => setMilestone(value ? Number(value) : null)}
+                  >
+                    <SelectTrigger aria-label="Milestone" size="sm" className="w-56">
+                      <SelectValue>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <MilestoneIcon aria-hidden className="size-3.5 shrink-0 opacity-70" />
+                          <span className="truncate">{milestoneTitle ?? "No milestone"}</span>
+                        </span>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="">No milestone</SelectItem>
+                      {milestones.map((choice) => (
+                        <SelectItem key={choice.number} value={String(choice.number)}>
+                          {choice.title}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                  <Menu>
+                    <MenuTrigger
+                      render={<SelectButton aria-label="Parent" size="sm" className="w-56" />}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <CornerLeftUpIcon aria-hidden className="size-3.5 shrink-0 opacity-70" />
+                        <span className="truncate">
+                          {parent === null
+                            ? "No parent"
+                            : `#${parent}${parentIssue ? ` ${parentIssue.title}` : ""}`}
+                        </span>
+                      </span>
+                    </MenuTrigger>
+                    <MenuPopup align="start" className="w-80">
+                      <IssuePicker
+                        choices={parentChoices(loadedIssues, { number: 0 })}
+                        checked={parent}
+                        onPick={(choice) => {
+                          setParent(choice.number);
+                          // A part goes in its parent's milestone unless one was picked.
+                          if (milestone === null && choice.milestone) {
+                            setMilestone(choice.milestone.number);
+                          }
+                        }}
+                      />
+                      {parent !== null ? (
+                        <>
+                          <MenuSeparator />
+                          <MenuItem onClick={() => setParent(null)}>No parent</MenuItem>
+                        </>
+                      ) : null}
+                    </MenuPopup>
+                  </Menu>
+                </div>
+              ) : null}
               <Input
                 autoFocus
                 aria-label="Title"
@@ -257,7 +356,7 @@ function NewTodoDialog(props: {
             <Button type="button" variant="ghost" onClick={closeNewTodoDialog} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !project || !title.trim()}>
+            <Button type="submit" disabled={busy || !project || !title.trim() || awaitingIssueHost}>
               {kind === "issue" ? "Create issue" : "Create ticket"}
               <Kbd>{formatShortcutLabel(SUBMIT_SHORTCUT)}</Kbd>
             </Button>

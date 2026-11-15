@@ -11,6 +11,7 @@ import {
   isProviderNativeSubagentThread,
   OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
@@ -31,7 +32,7 @@ const EMPTY_THREADS: ReadonlyArray<OrchestrationV2ThreadShell> = Object.freeze([
 
 const EMPTY_SCOPED_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
 const EMPTY_THREAD_INDEX: ReadonlyMap<ThreadId, OrchestrationV2ThreadShell> = new Map();
-const EMPTY_SUBAGENT_REQUESTS: ReadonlyMap<ThreadId, PendingSubagentRequest> = new Map();
+const EMPTY_SUBAGENT_REQUESTS: ReadonlyMap<ThreadId, never> = new Map<ThreadId, never>();
 const EMPTY_SIDE_CHATS_BY_PARENT: ReadonlyMap<
   ThreadId,
   ReadonlyArray<OrchestrationV2ThreadShell>
@@ -79,12 +80,24 @@ function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentReq
     kind === "auth_refresh" ||
     (thread.lineage.relationshipToParent !== "subagent" && thread.delegatedFrom === undefined) ||
     isProviderNativeSubagentThread(thread) ||
-    !isChildRunLive(thread)
+    // A crew member's ask of the person waits on them after its turn ends.
+    (!isChildRunLive(thread) && thread.pendingRuntimeRequest?.userOnly !== true)
   ) {
     return null;
   }
   return kind === "user_input" ? "user_input" : "approval";
 }
+
+/** A user-only card keeps its mark through roll-ups; clients see it as user_input. */
+type RolledUpRequest = PendingSubagentRequest | "user_only_input";
+
+const rolledUpRequest = (
+  thread: OrchestrationV2ThreadShell,
+  request: PendingSubagentRequest | null,
+): RolledUpRequest | null =>
+  request === "user_input" && thread.pendingRuntimeRequest?.userOnly === true
+    ? "user_only_input"
+    : request;
 
 /** A side chat asks its user directly, so questions roll up to the parent as well as approvals. */
 function sideChatRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
@@ -105,17 +118,13 @@ function pendingSubagentRequestsByThread(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
   delegated: ReadonlyArray<{
     readonly parentThreadId: ThreadId;
-    readonly request: PendingSubagentRequest;
+    readonly request: RolledUpRequest;
   }> = [],
-): ReadonlyMap<ThreadId, PendingSubagentRequest> {
-  const requests = new Map<ThreadId, PendingSubagentRequest>();
+): ReadonlyMap<ThreadId, RolledUpRequest> {
+  const requests = new Map<ThreadId, RolledUpRequest>();
   let byId: ReadonlyMap<ThreadId, OrchestrationV2ThreadShell> | undefined;
-  const flag = (
-    firstParentId: ThreadId | null,
-    request: PendingSubagentRequest,
-    seen: Set<ThreadId>,
-  ) => {
-    // The coordinator answers child questions; only approvals need user attention.
+  const flag = (firstParentId: ThreadId | null, request: RolledUpRequest, seen: Set<ThreadId>) => {
+    // The coordinator answers child questions; approvals and user-only cards need the user.
     if (request === "user_input") return;
     byId ??= new Map(threads.map((thread) => [thread.id, thread] as const));
     let parentId = firstParentId;
@@ -139,7 +148,7 @@ function pendingSubagentRequestsByThread(
       continue;
     }
     if (child.lineage.relationshipToParent !== "subagent") continue;
-    const request = subagentRequest(child);
+    const request = rolledUpRequest(child, subagentRequest(child));
     if (request !== null) flag(parentId, request, new Set([child.id]));
   }
   for (const task of delegated) flag(task.parentThreadId, task.request, new Set());
@@ -147,11 +156,50 @@ function pendingSubagentRequestsByThread(
 }
 
 const sameRequests = (
-  left: ReadonlyMap<ThreadId, PendingSubagentRequest>,
-  right: ReadonlyMap<ThreadId, PendingSubagentRequest>,
+  left: ReadonlyMap<ThreadId, RolledUpRequest>,
+  right: ReadonlyMap<ThreadId, RolledUpRequest>,
 ) =>
   left.size === right.size &&
   [...right].every(([threadId, request]) => left.get(threadId) === request);
+
+/**
+ * The subagent under `topLevelThreadId` whose request the user must answer, such as a crew member
+ * asking for approval, and that request, newest first; null when none. A wait it drives opens
+ * there, not on top, and each new request is news.
+ */
+export function askingSubagent(
+  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  topLevelThreadId: ThreadId,
+): { readonly threadId: ThreadId; readonly requestId: string } | null {
+  const byId = new Map(threads.map((thread) => [thread.id, thread] as const));
+  let asking: OrchestrationV2ThreadShell | null = null;
+  for (const child of threads) {
+    if (child.lineage.relationshipToParent !== "subagent") continue;
+    const request = rolledUpRequest(child, subagentRequest(child));
+    // The coordinator answers a child's own questions.
+    if (request === null || request === "user_input") continue;
+    let parentId = child.lineage.parentThreadId;
+    const seen = new Set<ThreadId>([child.id]);
+    while (parentId !== null && parentId !== topLevelThreadId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      parentId =
+        parent?.lineage.relationshipToParent === "subagent" || parent?.lineage.sideChat === true
+          ? parent.lineage.parentThreadId
+          : null;
+    }
+    if (parentId !== topLevelThreadId) continue;
+    if (
+      asking === null ||
+      DateTime.toEpochMillis(child.pendingRuntimeRequest!.createdAt) >
+        DateTime.toEpochMillis(asking.pendingRuntimeRequest!.createdAt)
+    )
+      asking = child;
+  }
+  return asking === null
+    ? null
+    : { threadId: asking.id, requestId: asking.pendingRuntimeRequest!.id };
+}
 
 export function childThreadInputsTitle(
   children: ReadonlyArray<Pick<EnvironmentThreadShell, "hasPendingApprovals" | "lineage">>,
@@ -275,7 +323,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   // environments run for it, so two environments delegating to each other
   // never read each other's totals.
   const localSubagentRequestsAtom = Atom.family((environmentId: EnvironmentId) => {
-    let previous = EMPTY_SUBAGENT_REQUESTS;
+    let previous: ReadonlyMap<ThreadId, RolledUpRequest> = EMPTY_SUBAGENT_REQUESTS;
     return Atom.make((get) => {
       const next = pendingSubagentRequestsByThread(get(environmentThreadsAtom(environmentId)));
       if (sameRequests(previous, next)) return previous;
@@ -306,7 +354,7 @@ export function createEnvironmentThreadShellAtoms(input: {
         else tasks.push(task);
       }
     }
-    let flags = new Map<EnvironmentId, ReadonlyMap<ThreadId, PendingSubagentRequest>>();
+    let flags = new Map<EnvironmentId, ReadonlyMap<ThreadId, RolledUpRequest>>();
     const requestsOf = (environmentId: EnvironmentId) =>
       flags.get(environmentId) ?? get(localSubagentRequestsAtom(environmentId));
     for (let changed = tasksByDelegator.size > 0; changed;) {
@@ -314,7 +362,7 @@ export function createEnvironmentThreadShellAtoms(input: {
       const next = new Map(flags);
       for (const [environmentId, tasks] of tasksByDelegator) {
         const delegated = tasks.flatMap(({ runsIn, thread, parentThreadId }) => {
-          const own = subagentRequest(thread);
+          const own = rolledUpRequest(thread, subagentRequest(thread));
           const nested = requestsOf(runsIn).get(thread.id);
           const request = own === "approval" ? own : (nested ?? own);
           return request === null ? [] : [{ parentThreadId, request }];
@@ -334,11 +382,15 @@ export function createEnvironmentThreadShellAtoms(input: {
   }).pipe(Atom.withLabel("environment-delegated-subagent-requests"));
 
   const pendingSubagentRequestsAtom = Atom.family((environmentId: EnvironmentId) => {
-    let previous = EMPTY_SUBAGENT_REQUESTS;
+    let previous: ReadonlyMap<ThreadId, PendingSubagentRequest> = EMPTY_SUBAGENT_REQUESTS;
     return Atom.make((get) => {
-      const next =
+      const rolledUp =
         get(delegatedSubagentRequestsAtom).get(environmentId) ??
         get(localSubagentRequestsAtom(environmentId));
+      const next = new Map<ThreadId, PendingSubagentRequest>();
+      for (const [threadId, request] of rolledUp) {
+        next.set(threadId, request === "user_only_input" ? "user_input" : request);
+      }
       if (sameRequests(previous, next)) return previous;
       previous = next;
       return next;

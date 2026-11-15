@@ -5,6 +5,8 @@ import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
+import "~/index.css";
+
 const state = vi.hoisted(() => ({
   projection: null as unknown,
   commandSucceeds: false,
@@ -208,6 +210,61 @@ it("opens an idle child from Lineage when its shell has not been loaded", async 
   );
 });
 
+it("folds finished handoffs behind Previous handoffs and still opens them", async () => {
+  setup();
+  const projection = makeThreadProjectionFixture();
+  const environmentId = EnvironmentId.make("local");
+  const handoff = (id: string, title: string, status: string) => ({
+    ...projection.thread,
+    id: ThreadId.make(id),
+    title,
+    activityRunStatus: null,
+    status,
+    lineage: {
+      rootThreadId: projection.thread.id,
+      parentThreadId: projection.thread.id,
+      relationshipToParent: "subagent",
+      listed: true,
+    },
+  });
+  state.projection = projection;
+  state.relatedShells = [
+    handoff("active-handoff", "Active handoff", "running"),
+    handoff("done-handoff", "Done handoff", "completed"),
+    handoff("stopped-handoff", "Stopped handoff", "cancelled"),
+  ];
+  const panel = () => (
+    <ThreadRelationshipsPanel
+      environmentId={environmentId}
+      threadId={projection.thread.id}
+      showLineage
+      showSideChats
+    />
+  );
+  await using screen = await render(panel());
+
+  await expect.element(screen.getByRole("button", { name: /Active handoff/ })).toBeVisible();
+  const previous = screen.getByRole("button", { name: /Previous handoffs/ });
+  await expect.element(previous).toHaveAttribute("aria-expanded", "false");
+  await expect.element(previous).toHaveTextContent("Previous handoffs2");
+  await expect.element(screen.getByText("Done handoff")).not.toBeInTheDocument();
+
+  state.relatedShells = [
+    handoff("active-handoff", "Active handoff", "completed"),
+    ...state.relatedShells.slice(1),
+  ];
+  await screen.rerender(panel());
+  await expect.element(previous).toHaveTextContent("Previous handoffs3");
+  await expect.element(screen.getByText("Handed to projects")).not.toBeInTheDocument();
+
+  await previous.click();
+  await expect.element(screen.getByRole("button", { name: /Stopped handoff/ })).toBeVisible();
+  await screen.getByRole("button", { name: /Done handoff/ }).click();
+  await vi.waitFor(() =>
+    expect(screen.router?.state.location.pathname).toBe("/local/done-handoff"),
+  );
+});
+
 it("shows a lineage thread's full title in its tooltip", async () => {
   setup();
   const longTitle = "Compare the lineage tooltip against a title that the row truncates";
@@ -295,18 +352,20 @@ it("shows a remote subagent's full title in its tooltip even when its environmen
         remoteChild: {
           environmentId: remoteEnvId,
           threadId: remoteThreadId,
-          label: "Remote VM",
+          label: "Remote VM with a long machine name in the office",
         },
       },
     ],
   };
   await using screen = await render(
-    <ThreadRelationshipsPanel
-      environmentId={environmentId}
-      threadId={threadId}
-      showLineage
-      showSideChats={false}
-    />,
+    <div style={{ width: 320 }}>
+      <ThreadRelationshipsPanel
+        environmentId={environmentId}
+        threadId={threadId}
+        showLineage
+        showSideChats={false}
+      />
+    </div>,
     { router: "/environment/fork" },
   );
 
@@ -316,12 +375,16 @@ it("shows a remote subagent's full title in its tooltip even when its environmen
     .not.toBeInTheDocument();
   await screen.getByRole("button", { name: /Previous agents/ }).click();
   const row = screen.getByRole("button", { name: new RegExp(longTitle) });
+  // A long environment label must not squeeze the title out of the row.
+  expect(
+    page.getByText(longTitle, { exact: true }).element().getBoundingClientRect().width,
+  ).toBeGreaterThan(0);
   await userEvent.hover(row);
   await vi.waitFor(() =>
     expect(document.querySelector('[data-slot="tooltip-popup"]')?.textContent).toContain(longTitle),
   );
   expect(document.querySelector('[data-slot="tooltip-popup"]')?.textContent).toContain(
-    "Runs on Remote VM. Connect to it to open the thread there.",
+    "Runs on Remote VM with a long machine name in the office. Connect to it to open the thread there.",
   );
 
   await row.click({ force: true });

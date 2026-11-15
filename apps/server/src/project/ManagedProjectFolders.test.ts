@@ -1,13 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  CAPTAIN_BOT_ID,
-  CommandId,
-  ProjectId,
-  ThreadId,
-  VcsProcessSpawnError,
-} from "@t3tools/contracts";
+import { CommandId, ProjectId, ThreadId, VcsProcessSpawnError } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -17,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import { ChildProcessSpawner } from "effect/process";
 import * as Scope from "effect/Scope";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -36,6 +31,8 @@ import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import * as ManagedProjectFolders from "./ManagedProjectFolders.ts";
+
+const CAPTAIN_ID = "bot-ops";
 
 const layerGitWorkflow = (vcsProcess?: Layer.Layer<VcsProcess.VcsProcess>) =>
   GitWorkflow.layer.pipe(
@@ -61,7 +58,7 @@ const layerRealGit = GitVcsDriver.layer.pipe(Layer.provide(VcsProcess.layer));
 
 interface HarnessOptions {
   readonly vcsProcess?: Layer.Layer<VcsProcess.VcsProcess>;
-  readonly git?: Layer.Layer<GitVcsDriver.GitVcsDriver>;
+  readonly git?: typeof layerRealGit;
   readonly projects?: (
     real: ProjectService.ProjectService["Service"],
   ) => ProjectService.ProjectService["Service"];
@@ -206,7 +203,7 @@ const insertBot = (id: string, name: string) =>
     Effect.flatMap(
       (sql) => sql`
         INSERT INTO bots (
-          id, name, avatar_json, color, instructions, allowed_tools_json, runtime_mode,
+          id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
           model_selection_json, position, revision, created_at, updated_at
         ) VALUES (
           ${id}, ${name},
@@ -251,8 +248,9 @@ it.effect("gives each bot one home, even for concurrent first requests, apart fr
       assert.equal(project.botId, "bot:nepse");
       assert.deepEqual(project.projectIcon, { kind: "lucide", name: "bot", color: "gray" });
 
-      const captain = yield* folders.ensureBotHome({ id: CAPTAIN_BOT_ID, name: "Captain" });
-      assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_BOT_ID));
+      yield* insertBot(CAPTAIN_ID, "Captain");
+      const captain = yield* folders.ensureBotHome({ id: CAPTAIN_ID, name: "Captain" });
+      assert.equal(captain.workspaceRoot, path.join(root, CAPTAIN_ID));
       // An ID that is already a plain folder name never shares a home with an encoded one.
       yield* insertBot("bot-nepse-06258b94", "Lookalike");
       const lookalike = yield* folders.ensureBotHome({
@@ -415,6 +413,31 @@ it.effect("leaves threads in other projects alone", () =>
   ),
 );
 
+it.effect("still knows No project when its folder is the target of a symlinked Scratch", () =>
+  withScratch(({ baseDir }) =>
+    Effect.gen(function* () {
+      const scratch = yield* ManagedProjectFolders.ManagedProjectFolders;
+      const projects = yield* ProjectService.ProjectService;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* requireRoot;
+      const target = path.join(baseDir, "visible-chats");
+      yield* fileSystem.makeDirectory(target);
+      yield* fileSystem.symlink(target, root);
+      const { projectId } = yield* scratch.ensureScratchProject;
+      yield* projects.update({
+        commandId: CommandId.make("command:point-at-target"),
+        projectId,
+        workspaceRoot: target,
+      });
+
+      assert.isTrue(yield* scratch.isScratchProject(projectId));
+      assert.equal((yield* scratch.ensureScratchProject).projectId, projectId);
+      assert.deepStrictEqual(yield* scratch.scratchRoot, Option.some(target));
+    }),
+  ),
+);
+
 const GIT_IDENTITY_KEYS = [
   "GIT_AUTHOR_NAME",
   "GIT_AUTHOR_EMAIL",
@@ -556,6 +579,41 @@ it.effect("keeps a named project and reports why when Git cannot commit", () =>
         assert.isTrue(yield* fileSystem.exists(path.join(result.workspaceRoot, ".git")));
       }),
     ),
+  ),
+);
+
+it.effect("says Git is not installed when a named project cannot start Git", () =>
+  withScratch(
+    () =>
+      Effect.gen(function* () {
+        const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+
+        const failure = yield* Effect.flip(folders.createNamedProject({ name: "T3Code Test" }));
+
+        assert.strictEqual(
+          failure.message,
+          "Git isn't installed on this machine. Install Git to create a project.",
+        );
+      }),
+    {
+      git: GitVcsDriver.layer.pipe(
+        Layer.provide(
+          Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() =>
+              Effect.fail(
+                PlatformError.systemError({
+                  _tag: "NotFound",
+                  module: "ChildProcess",
+                  method: "spawn",
+                  syscall: "spawn git",
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    },
   ),
 );
 

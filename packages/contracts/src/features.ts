@@ -20,6 +20,8 @@ export const FeatureIssue = Schema.Struct({
   milestone: Schema.NullOr(Schema.String),
   /** Its sub-issues, closed and in all; null when it has none. */
   subIssues: Schema.NullOr(Schema.Struct({ completed: Schema.Int, total: Schema.Int })),
+  /** The issue it is a sub-issue of; absent on features linked before it was kept. */
+  parent: Schema.optionalKey(Schema.NullOr(Schema.Int)),
 });
 export type FeatureIssue = typeof FeatureIssue.Type;
 

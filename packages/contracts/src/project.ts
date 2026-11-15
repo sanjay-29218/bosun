@@ -4,6 +4,7 @@ import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
   CommandId,
+  EnvironmentId,
   ForwardCompatibleUnion,
   isUnknownUnionMember,
   IsoDateTime,
@@ -18,6 +19,7 @@ import {
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
+export const PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH = 256;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
 
@@ -150,6 +152,18 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+/**
+ * A bot from another environment that owns a project here; the project's `botId` is null then.
+ * `name` and `homeLabel` are as that environment last sent them.
+ */
+export const ProjectRemoteBot = Schema.Struct({
+  environmentId: EnvironmentId,
+  botId: Schema.String,
+  name: Schema.String,
+  homeLabel: Schema.String,
+});
+export type ProjectRemoteBot = typeof ProjectRemoteBot.Type;
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -162,8 +176,12 @@ export const Project = Schema.Struct({
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
   scripts: Schema.Array(ProjectScript),
-  /** The bot that owns the project. Absent from older servers: Captain. */
-  botId: Schema.optional(Schema.String),
+  /** The bot that owns the project; null or absent when it has none. */
+  botId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The owning bot when it lives on another environment. Absent from older servers. */
+  remoteBot: Schema.optional(Schema.NullOr(ProjectRemoteBot)),
+  /** The project's manager shows in the main rail. Absent from older servers: pinned. */
+  managerPinned: Schema.optional(Schema.Boolean),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
@@ -184,8 +202,8 @@ export const ProjectCreatePayload = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  /** The bot that will own the project; Captain when omitted. Move it later with bots.moveProject. */
-  botId: Schema.optional(Schema.String),
+  /** The bot that will own the project; no bot when omitted. Move it later with bots.moveProject. */
+  botId: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
@@ -266,7 +284,10 @@ export type ProjectSearchEntriesResult = typeof ProjectSearchEntriesResult.Type;
 export const ProjectSearchContentsInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Preserve whitespace because it is significant in content queries.
-  query: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),
+  query: Schema.String.check(
+    Schema.isNonEmpty(),
+    Schema.isMaxLength(PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH),
+  ),
   limit: PositiveInt.check(Schema.isLessThanOrEqualTo(PROJECT_SEARCH_CONTENTS_MAX_LIMIT)),
   caseSensitive: Schema.Boolean,
   wholeWord: Schema.Boolean,
@@ -311,6 +332,8 @@ export type ProjectListEntriesResult = typeof ProjectListEntriesResult.Type;
 // are left out, so the list stays small enough to pick from.
 export const ProjectListIgnoredFilesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  /** Case-insensitive path substring, applied before the listing cap. */
+  query: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
 });
 export type ProjectListIgnoredFilesInput = typeof ProjectListIgnoredFilesInput.Type;
 
@@ -438,14 +461,14 @@ export class ProjectListEntriesError extends Schema.TaggedError<ProjectListEntri
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Workspace-relative or absolute host path; only workspace-relative paths are writable.
-  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
   // Optional files can be absent without failing the read.
   allowMissing: Schema.optional(Schema.Boolean),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 
 export const ProjectReadFileResult = Schema.Struct({
-  relativePath: TrimmedNonEmptyString,
+  relativePath: Schema.NonEmptyString,
   contents: Schema.String,
   byteLength: NonNegativeInt,
   truncated: Schema.Boolean,
@@ -490,12 +513,12 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
   "ProjectReadFileError",
   {
     cwd: Schema.optional(TrimmedNonEmptyString),
-    relativePath: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(Schema.NonEmptyString),
     failure: Schema.optional(ProjectFileFailure),
-    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedPath: Schema.optional(Schema.NonEmptyString),
     resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
     operation: Schema.optional(ProjectFileOperation),
-    operationPath: Schema.optional(TrimmedNonEmptyString),
+    operationPath: Schema.optional(Schema.NonEmptyString),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },
@@ -513,13 +536,13 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
 
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
 export const ProjectWriteFileResult = Schema.Struct({
-  relativePath: TrimmedNonEmptyString,
+  relativePath: Schema.NonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
 
@@ -530,8 +553,8 @@ export type ProjectEnsureScratchResult = typeof ProjectEnsureScratchResult.Type;
 
 export const ProjectCreateNewInput = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
-  /** The bot that will own the project; Captain when omitted. */
-  botId: Schema.optionalKey(Schema.String),
+  /** The bot that will own the project; no bot when omitted. */
+  botId: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type ProjectCreateNewInput = typeof ProjectCreateNewInput.Type;
 
@@ -557,12 +580,12 @@ export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileEr
   "ProjectWriteFileError",
   {
     cwd: Schema.optional(TrimmedNonEmptyString),
-    relativePath: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(Schema.NonEmptyString),
     failure: Schema.optional(ProjectFileFailure),
-    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedPath: Schema.optional(Schema.NonEmptyString),
     resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
     operation: Schema.optional(ProjectFileOperation),
-    operationPath: Schema.optional(TrimmedNonEmptyString),
+    operationPath: Schema.optional(Schema.NonEmptyString),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },

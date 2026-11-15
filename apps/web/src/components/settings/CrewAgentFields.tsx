@@ -6,10 +6,12 @@ import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
 
 const KNOWN_TOOLS: ReadonlySet<string> = new Set(CREW_TOOL_GRANTS.map((grant) => grant.id));
+const T3_TOOLKITS = CREW_TOOL_GRANTS.filter((grant) => !grant.id.startsWith("crew."));
 
 /**
- * The tools a bot or role may use, as a checklist. Grants it doesn't know, from an older
- * client or the MCP tools, stay listed so they can still be removed.
+ * The tools a bot or role may use, as a checklist: ticked is granted. `value` holds the ones
+ * withheld, so a tool added later starts ticked. Withheld ids this version doesn't know stay
+ * listed, unticked, so they can be granted back.
  */
 export function CrewToolPicker({
   value,
@@ -18,36 +20,41 @@ export function CrewToolPicker({
 }: {
   readonly value: ReadonlyArray<string>;
   readonly onChange: (next: ReadonlyArray<string>) => void;
-  /** Bots also get the grants for overseeing the projects they own. */
+  /** Bots also get the grants for managing bots, roles and workflows. */
   readonly forBot?: boolean;
 }) {
   const other = value
     .filter((id) => !KNOWN_TOOLS.has(id))
-    .map((id) => ({ id, label: id, description: "Granted outside this list." }));
+    .map((id) => ({ id, label: id, description: "A tool this version doesn't know." }));
+  const noToolkits = T3_TOOLKITS.every((grant) => value.includes(grant.id));
   const groups = [
     {
       title: "Crew",
+      note: null,
       grants: CREW_TOOL_GRANTS.filter(
-        (grant) =>
-          grant.id.startsWith("crew.") && (forBot ? !("roleOnly" in grant) : !("botOnly" in grant)),
+        (grant) => grant.id.startsWith("crew.") && (forBot || !("botOnly" in grant)),
       ),
     },
     {
-      title: "T3 Code: every tool a thread gets, unless you pick some to limit it to",
-      grants: [...CREW_TOOL_GRANTS.filter((grant) => !grant.id.startsWith("crew.")), ...other],
+      title: "T3 Code tools",
+      note: noToolkits ? "No T3 Code tools: this agent can't use any." : null,
+      grants: [...T3_TOOLKITS, ...other],
     },
-  ];
-  const toggle = (id: string, checked: boolean) =>
-    onChange(checked ? [...value, id] : value.filter((candidate) => candidate !== id));
+  ].filter((group) => group.grants.length > 0);
+  const toggle = (id: string, granted: boolean) =>
+    onChange(granted ? value.filter((candidate) => candidate !== id) : [...value, id]);
 
   return (
     <div className="@container/tools space-y-3">
       {groups.map((group) => (
         <div key={group.title} className="space-y-1">
           <div className="px-2.5 text-xs font-medium text-muted-foreground">{group.title}</div>
+          {group.note === null ? null : (
+            <div className="px-2.5 text-xs text-muted-foreground">{group.note}</div>
+          )}
           <div className="grid gap-0.5 @md/tools:grid-cols-2 @3xl/tools:grid-cols-3">
             {group.grants.map((grant) => {
-              const checked = value.includes(grant.id);
+              const checked = !value.includes(grant.id);
               return (
                 <label
                   key={grant.id}

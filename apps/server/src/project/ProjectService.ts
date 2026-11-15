@@ -1,11 +1,11 @@
 import {
-  CAPTAIN_BOT_ID,
   CommandId,
   headquartersBotId,
   type OrchestrationProjectShell,
   ProjectId,
   type Project,
   type ProjectCreatePayload,
+  type ProjectRemoteBot,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
   type ThreadId,
@@ -14,6 +14,7 @@ import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -35,7 +36,10 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
+import { makeIsWorktreeContainer } from "./worktreeContainer.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export interface ProjectCreateInput extends ProjectCreatePayload {
@@ -159,11 +163,21 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
-    /** Gives the project to another bot. */
+    /**
+     * Gives the project to another bot, or to none when `botId` is null. With `remoteBot`, its
+     * owner is that bot on another environment instead, and `botId` is ignored.
+     */
     readonly assignBot: (input: {
       readonly commandId: CommandId;
       readonly projectId: ProjectId;
-      readonly botId: string;
+      readonly botId: string | null;
+      readonly remoteBot?: ProjectRemoteBot | undefined;
+    }) => Effect.Effect<Project, ProjectServiceError>;
+    /** Shows the project's manager in the main rail, or hides it there. */
+    readonly setManagerPinned: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly pinned: boolean;
     }) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
@@ -174,6 +188,11 @@ export class ProjectService extends Context.Service<
       workspaceRoot: string,
       options?: { readonly includeDeleted?: boolean },
     ) => Effect.Effect<Option.Option<Project>, ProjectOperationError>;
+    /**
+     * Where to scan `cwd`'s workspace inventory. A thread's removed managed worktree scans its
+     * project, which turn start recreates the worktree from; anything else, or a failure, is `cwd`.
+     */
+    readonly workspaceScanDirectory: (cwd: string) => Effect.Effect<string>;
     readonly snapshot: Effect.Effect<ProjectSnapshot, ProjectOperationError>;
     /**
      * A page of active projects in creation order, each with its repository
@@ -206,6 +225,11 @@ export const make = Effect.gen(function* () {
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const bots = yield* BotStore.BotStore;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
+  const isWorktreeContainer = yield* makeIsWorktreeContainer.pipe(
+    Effect.provide(ProcessRunner.layer),
+  );
   const projectLocks = yield* KeyedLock.make<ProjectId>();
   const workspaceLocks = yield* KeyedLock.make<string>();
 
@@ -224,6 +248,8 @@ export const make = Effect.gen(function* () {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     botId: row.botId,
+    remoteBot: row.remoteBot,
+    managerPinned: row.managerPinned,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -268,6 +294,17 @@ export const make = Effect.gen(function* () {
             }),
         ),
       );
+
+  const rejectWorktreeContainer = Effect.fn("ProjectService.rejectWorktreeContainer")(function* (
+    projectId: ProjectId,
+    workspaceRoot: string,
+  ) {
+    if (!(yield* isWorktreeContainer(workspaceRoot))) return;
+    return yield* new ProjectInvalidError({
+      projectId,
+      detail: `${workspaceRoot} holds a repository's worktrees but is not a checkout itself. Add one of its worktrees as the project instead.`,
+    });
+  });
 
   const commit = Effect.fn("ProjectService.commit")(function* (command: ProjectCommand) {
     const { projectId } = command;
@@ -365,6 +402,22 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const workspaceScanDirectory = Effect.fn("ProjectService.workspaceScanDirectory")(
+    function* (cwd: string) {
+      if (yield* fileSystem.exists(cwd).pipe(Effect.orElseSucceed(() => true))) return cwd;
+      if (!(yield* isManagedWorktreePath(cwd))) return cwd;
+      const snapshot = yield* Effect.flatten(
+        threadProjections.readShellSnapshot({ worktreePath: cwd }),
+      );
+      const thread = [...snapshot.threads, ...snapshot.archivedThreads].find(
+        (candidate) => candidate.branch !== null,
+      );
+      if (thread === undefined) return cwd;
+      return Option.getOrUndefined(yield* readRow(thread.projectId))?.workspaceRoot ?? cwd;
+    },
+    (effect, cwd) => Effect.orElseSucceed(effect, () => cwd),
+  );
+
   const getByWorkspaceRoot: ProjectService["Service"]["getByWorkspaceRoot"] = Effect.fn(
     "ProjectService.getByWorkspaceRoot",
   )(function* (workspaceRoot, options) {
@@ -385,12 +438,12 @@ export const make = Effect.gen(function* () {
     return Option.isNone(row) ? Option.none() : Option.some(yield* hydrate(row.value));
   });
 
-  /** Fails unless `botId` names a bot. Captain always exists. */
+  /** Fails unless `botId` names a bot; null means no bot. */
   const requireBot = Effect.fn("ProjectService.requireBot")(function* (
     projectId: ProjectId,
-    botId: string,
+    botId: string | null,
   ) {
-    if (botId === CAPTAIN_BOT_ID) return;
+    if (botId === null) return;
     const bot = yield* bots
       .get(botId)
       .pipe(
@@ -403,12 +456,13 @@ export const make = Effect.gen(function* () {
 
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
-      const botId = input.botId ?? CAPTAIN_BOT_ID;
+      const botId = input.botId ?? null;
       const workspaceRoot = yield* normalizeWorkspaceRoot({
         projectId: input.projectId,
         workspaceRoot: input.workspaceRoot,
         createIfMissing: input.createWorkspaceRootIfMissing ?? false,
       });
+      yield* rejectWorktreeContainer(input.projectId, workspaceRoot);
       // The bot is checked and the project committed as one step, so the bot can't be deleted
       // in between.
       yield* bots.withOwnership(
@@ -445,6 +499,9 @@ export const make = Effect.gen(function* () {
               projectId: input.projectId,
               workspaceRoot: input.workspaceRoot,
             });
+      if (workspaceRoot !== previousRoot) {
+        yield* rejectWorktreeContainer(input.projectId, workspaceRoot);
+      }
       yield* commit({
         type: "project.meta.update",
         commandId: input.commandId,
@@ -464,7 +521,7 @@ export const make = Effect.gen(function* () {
         ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
         ...(input.archived === undefined ? {} : { archived: input.archived }),
       });
-      if (workspaceRoot !== previousRoot) {
+      if (workspaceRoot !== previousRoot || input.faviconPath !== undefined) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
       }
       return yield* readCommitted(input.projectId);
@@ -476,21 +533,44 @@ export const make = Effect.gen(function* () {
       if (Option.isNone(yield* readRow(input.projectId))) {
         return yield* new ProjectNotFoundError({ projectId: input.projectId });
       }
+      const { remoteBot } = input;
       yield* bots.withOwnership(
-        requireBot(input.projectId, input.botId).pipe(
-          Effect.andThen(
-            commit({
+        remoteBot === undefined
+          ? requireBot(input.projectId, input.botId).pipe(
+              Effect.andThen(
+                commit({
+                  type: "project.meta.update",
+                  commandId: input.commandId,
+                  projectId: input.projectId,
+                  botId: input.botId,
+                }),
+              ),
+            )
+          : commit({
               type: "project.meta.update",
               commandId: input.commandId,
               projectId: input.projectId,
-              botId: input.botId,
+              remoteBot,
             }),
-          ),
-        ),
       );
       return yield* readCommitted(input.projectId);
     },
   );
+
+  const setManagerPinned: ProjectService["Service"]["setManagerPinned"] = Effect.fn(
+    "ProjectService.setManagerPinned",
+  )(function* (input) {
+    if (Option.isNone(yield* readRow(input.projectId))) {
+      return yield* new ProjectNotFoundError({ projectId: input.projectId });
+    }
+    yield* commit({
+      type: "project.meta.update",
+      commandId: input.commandId,
+      projectId: input.projectId,
+      managerPinned: input.pinned,
+    });
+    return yield* readCommitted(input.projectId);
+  });
 
   const bootstrap: ProjectService["Service"]["bootstrap"] = Effect.fn("ProjectService.bootstrap")(
     function* (input) {
@@ -562,7 +642,10 @@ export const make = Effect.gen(function* () {
           (cause) => new ProjectOperationError({ operation: "list-threads", projectId, cause }),
         ),
       );
-    const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads];
+    // Newest first: a source deleted while its fork lives keeps the pages that fork shows.
+    const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads].sort(
+      (a, b) => DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
+    );
     const headquarters = projectThreads.find((thread) => headquartersBotId(thread.id) !== null);
     if (headquarters !== undefined) {
       const botId = headquartersBotId(headquarters.id)!;
@@ -701,9 +784,11 @@ export const make = Effect.gen(function* () {
     bootstrap,
     update,
     assignBot,
+    setManagerPinned,
     delete: deleteProject,
     getById,
     getByWorkspaceRoot,
+    workspaceScanDirectory,
     snapshot,
     listPage,
     getShell,

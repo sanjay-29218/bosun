@@ -19,6 +19,7 @@ import {
   SourceControlProviderError,
   TrimmedNonEmptyString,
   type ChangeRequest,
+  type IssueStructureRef,
   type RepositoryIssue,
   type SourceControlProviderDiscoveryItem,
   type SourceControlRepositoryCloneUrls,
@@ -99,6 +100,7 @@ const decodeLinkSubject = Schema.decodeUnknownEffect(
       sub_issues_summary: Schema.optional(
         Schema.NullOr(Schema.Struct({ total: Schema.Number, completed: Schema.Number })),
       ),
+      parent_issue_url: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 );
@@ -320,8 +322,9 @@ export const makeDiscovery = Effect.gen(function* () {
     refineUnknownRemote: ({ context }) => {
       const url = URL.parse(context.provider.baseUrl);
       if (!url?.host) return Effect.succeed(null);
+      const host = gitHubApiHostForRemote(context.remoteUrl) ?? url.host;
       // A timeout or keyring failure propagates: the registry does not keep that answer.
-      return api.credential(url.host).pipe(
+      return api.credential(host).pipe(
         Effect.as(true),
         Effect.catchTags({
           GitHubCliMissingError: () => Effect.succeed(false),
@@ -332,8 +335,8 @@ export const makeDiscovery = Effect.gen(function* () {
           known
             ? ({
                 kind: SourceControlProviderKind.make("github"),
-                name: "GitHub Self-Hosted",
-                baseUrl: context.provider.baseUrl,
+                name: host === "github.com" ? "GitHub" : "GitHub Self-Hosted",
+                baseUrl: host === url.host ? context.provider.baseUrl : `https://${host}`,
               } as const)
             : null,
         ),
@@ -418,6 +421,59 @@ const decodeSha = decodeJsonResult(Schema.Struct({ sha: Schema.String }));
 const decodeContentsWrite = decodeJsonResult(
   Schema.Struct({ commit: Schema.Struct({ sha: Schema.String }) }),
 );
+const decodeRestPullRequests = decodeJsonResult(Schema.Array(Schema.Unknown));
+const decodeRestPullRequest = Schema.decodeUnknownOption(
+  Schema.Struct({
+    number: Schema.Number,
+    title: Schema.String,
+    html_url: Schema.String,
+    state: Schema.String,
+    draft: Schema.optional(Schema.Boolean),
+    merged_at: Schema.NullOr(Schema.String),
+    closed_at: Schema.NullOr(Schema.String),
+    updated_at: Schema.String,
+    base: Schema.Struct({ ref: Schema.String, repo: Schema.Struct({ full_name: Schema.String }) }),
+    head: Schema.Struct({
+      ref: Schema.String,
+      sha: Schema.String,
+      repo: Schema.NullOr(
+        Schema.Struct({
+          name: Schema.String,
+          full_name: Schema.String,
+          owner: Schema.Struct({ login: Schema.String, type: Schema.String }),
+        }),
+      ),
+    }),
+  }),
+);
+
+/** Reshapes a REST pull request into the GraphQL node so both decode the same way. */
+function restPullRequestNode(entry: unknown) {
+  const pr = Option.getOrNull(decodeRestPullRequest(entry));
+  if (pr === null) return null;
+  return {
+    number: pr.number,
+    title: pr.title,
+    url: pr.html_url,
+    baseRefName: pr.base.ref,
+    headRefName: pr.head.ref,
+    headRefOid: pr.head.sha,
+    state: pr.merged_at === null ? pr.state.toUpperCase() : "MERGED",
+    isDraft: pr.draft === true,
+    mergedAt: pr.merged_at,
+    closedAt: pr.closed_at,
+    updatedAt: pr.updated_at,
+    isCrossRepository: pr.head.repo?.full_name !== pr.base.repo.full_name,
+    headRepository: pr.head.repo && {
+      name: pr.head.repo.name,
+      nameWithOwner: pr.head.repo.full_name,
+    },
+    headRepositoryOwner: pr.head.repo && {
+      __typename: pr.head.repo.owner.type,
+      login: pr.head.repo.owner.login,
+    },
+  };
+}
 
 type PullRequestListState = "open" | "closed" | "merged" | "all";
 
@@ -468,6 +524,7 @@ function toPullRequestRecord(node: PullRequestNode): NormalizedGitHubPullRequest
 const ISSUE_LIST_OPEN_LIMIT = 100;
 const ISSUE_LIST_CLOSED_LIMIT = 30;
 const ISSUE_LIST_MILESTONE_LIMIT = 25;
+const ISSUE_STRUCTURE_SUB_ISSUE_LIMIT = 50;
 /** 130 issues with labels and assignees stay well under a megabyte. */
 const ISSUE_LIST_MAX_RESPONSE_BYTES = 4_000_000;
 
@@ -578,6 +635,44 @@ function toRepositoryIssue(node: typeof IssueNodeSchema.Type): RepositoryIssue {
   };
 }
 
+const IssueRefSchema = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  state: Schema.String,
+  url: Schema.String,
+});
+/** An issue's parent and sub-issues, read when its detail opens. */
+const IssueStructure = GraphQL.query("IssueStructure", {
+  document: `query IssueStructure($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      parent { number title state url }
+      subIssues(first: ${ISSUE_STRUCTURE_SUB_ISSUE_LIMIT}) { nodes { number title state url } }
+    }
+  }
+}`,
+  variables: { owner: Schema.String, name: Schema.String, number: Schema.Number },
+  result: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        issue: Schema.NullOr(
+          Schema.Struct({
+            parent: Schema.NullOr(IssueRefSchema),
+            subIssues: Schema.Struct({ nodes: Schema.Array(Schema.NullOr(IssueRefSchema)) }),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+
+const toIssueStructureRef = (node: typeof IssueRefSchema.Type): IssueStructureRef => ({
+  number: node.number,
+  title: node.title,
+  state: node.state === "CLOSED" ? "closed" : "open",
+  url: node.url,
+});
+
 const isGitHubApiResponseError = Schema.is(GitHubRequestPolicy.GitHubApiResponseError);
 
 /** A GraphQL schema without sub-issues names the missing field in its answer. */
@@ -585,7 +680,9 @@ function lacksSubIssueFields(error: GitHubFailure): boolean {
   const cause = error.cause;
   return (
     isGitHubApiResponseError(cause) &&
-    (cause.githubErrors ?? []).some((message) => /\b(parent|subIssuesSummary)\b/u.test(message))
+    (cause.githubErrors ?? []).some((message) =>
+      /\b(parent|subIssues|subIssuesSummary)\b/u.test(message),
+    )
   );
 }
 
@@ -624,6 +721,18 @@ export const make = Effect.gen(function* () {
       timeoutMs: 5_000,
     });
 
+  const readRemotes = (cwd: string) =>
+    Effect.all([
+      gitRead(cwd, ["remote", "-v"]),
+      gitRead(cwd, ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"]),
+    ]).pipe(
+      Effect.orElseSucceed(() => [null, null] as const),
+      Effect.map(([remotes, resolved]) => ({
+        remotes: remotes?.exitCode === 0 ? remotes.stdout : "",
+        resolved: resolved?.exitCode === 0 ? resolved.stdout : "",
+      })),
+    );
+
   const resolveRepository = Effect.fn("GitHubSourceControlProvider.resolveRepository")(
     function* (input: {
       readonly cwd: string;
@@ -637,13 +746,8 @@ export const make = Effect.gen(function* () {
         const locator = parseGitHubRepositorySelector(envRepository, defaultHost);
         if (locator !== null) return locator;
       }
-      const [remotes, resolved] = yield* Effect.all([
-        gitRead(input.cwd, ["remote", "-v"]),
-        gitRead(input.cwd, ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"]),
-      ]).pipe(Effect.orElseSucceed(() => [null, null] as const));
       const { host, locator } = resolveGitHubRepository({
-        remotes: remotes?.exitCode === 0 ? remotes.stdout : "",
-        resolved: resolved?.exitCode === 0 ? resolved.stdout : "",
+        ...(yield* readRemotes(input.cwd)),
         hostHint,
         defaultHost,
       });
@@ -668,6 +772,7 @@ export const make = Effect.gen(function* () {
       PullRequestByNumber,
       IssueList,
       IssueListWithoutSubIssues,
+      IssueStructure,
     ).middleware(GitHubGraphQlClient.GitHubGraphQlAuth),
   ).pipe(Effect.provide(GitHubGraphQlClient.layer));
 
@@ -713,6 +818,34 @@ export const make = Effect.gen(function* () {
     const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
     const ownerMatch = /^([^:/\s]+):(.+)$/u.exec(input.headSelector.trim());
     const headRefName = ownerMatch?.[2] ?? input.headSelector.trim();
+    if (ownerMatch) {
+      // GraphQL cannot filter heads by owner, and names like a fork's `main` match thousands.
+      const query = new URLSearchParams({
+        head: `${ownerMatch[1]}:${headRefName}`,
+        state: input.state === "all" || input.state === "open" ? input.state : "closed",
+        sort: "created",
+        direction: "desc",
+        per_page: String(OWNER_HEAD_SCAN_LIMIT),
+      });
+      const response = yield* rest({
+        host: locator.host,
+        operation: "listPullRequestsByHead",
+        allowReserve: input.allowReserve,
+        path: `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}/pulls?${query}`,
+      });
+      const decoded = decodeRestPullRequests(response.body);
+      if (Result.isFailure(decoded)) {
+        return yield* failure("GitHub returned an invalid change request list.", decoded.failure);
+      }
+      return decoded.success
+        .flatMap((entry) => {
+          const node = Option.getOrNull(decodePullRequestNode(restPullRequestNode(entry)));
+          const record = node === null ? null : toPullRequestRecord(node);
+          return record === null ? [] : [record];
+        })
+        .filter((row) => input.state === "all" || row.state === input.state)
+        .slice(0, limit);
+    }
     const result = yield* graphqlRead(
       {
         host: locator.host,
@@ -728,22 +861,17 @@ export const make = Effect.gen(function* () {
           name: locator.name,
           head: headRefName,
           states: GRAPHQL_STATES[input.state],
-          first: ownerMatch ? OWNER_HEAD_SCAN_LIMIT : limit,
+          first: limit,
         },
         input.allowReserve ? interactiveHeadResolver : backgroundHeadResolver,
       ),
     );
     if (result.repository === null) return yield* notFound("The repository could not be read.");
-    const rows = (result.repository.pullRequests.nodes ?? []).flatMap((entry) => {
+    return (result.repository.pullRequests.nodes ?? []).flatMap((entry) => {
       const node = Option.getOrNull(decodePullRequestNode(entry));
       const record = node === null ? null : toPullRequestRecord(node);
       return record === null ? [] : [record];
     });
-    if (!ownerMatch) return rows;
-    const headOwner = ownerMatch[1]!.toLowerCase();
-    return rows
-      .filter((row) => row.headRepositoryOwnerLogin?.toLowerCase() === headOwner)
-      .slice(0, limit);
   });
 
   const readPullRequest = Effect.fn("GitHubSourceControlProvider.readPullRequest")(
@@ -1025,7 +1153,31 @@ export const make = Effect.gen(function* () {
   }) {
     const locator = yield* issueRepository(input);
     const path = `${issuePath(locator)}/${input.number}`;
-    const [issueResponse, commentsResponse] = yield* Effect.all(
+    // The structure is extra: a host without sub-issues, or a failed read, still shows the issue.
+    const structure = graphqlRead(
+      { host: locator.host, operation: "getIssueStructure", allowReserve: true },
+      "GitHub returned an invalid issue structure.",
+      client.IssueStructure({ owner: locator.owner, name: locator.name, number: input.number }),
+    ).pipe(
+      Effect.map((decoded): GitHubIssues.IssueStructure => {
+        const issue = decoded.repository?.issue ?? null;
+        return {
+          parentIssue: issue?.parent ? toIssueStructureRef(issue.parent) : null,
+          subIssueList: (issue?.subIssues.nodes ?? []).flatMap((node) =>
+            node === null ? [] : [toIssueStructureRef(node)],
+          ),
+        };
+      }),
+      Effect.catchIf(lacksSubIssueFields, () =>
+        Effect.succeed<GitHubIssues.IssueStructure>({ parentIssue: null, subIssueList: [] }),
+      ),
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not read the issue's sub-issues", { cause }).pipe(
+          Effect.as<GitHubIssues.IssueStructure>({ parentIssue: null, subIssueList: null }),
+        ),
+      ),
+    );
+    const [issueResponse, commentsResponse, issueStructure] = yield* Effect.all(
       [
         rest(
           { host: locator.host, operation: "getIssue", path, allowReserve: true },
@@ -1040,15 +1192,16 @@ export const make = Effect.gen(function* () {
           },
           `Issue #${input.number} was not found.`,
         ),
+        structure,
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
     const issue = yield* decodedIssue(issueResponse.body);
     const comments = GitHubIssues.decodeRestComments(commentsResponse.body);
     if (Result.isFailure(comments)) {
       return yield* failure("GitHub returned invalid issue comments.", comments.failure);
     }
-    return GitHubIssues.restIssueDetail(issue, comments.success);
+    return GitHubIssues.restIssueDetail(issue, comments.success, issueStructure);
   });
 
   const createIssue = Effect.fn("GitHubSourceControlProvider.createIssue")(function* (input: {
@@ -1251,24 +1404,65 @@ export const make = Effect.gen(function* () {
     readonly number: number;
     readonly title?: string | undefined;
     readonly body?: string | undefined;
+    readonly milestone?: number | null | undefined;
+    readonly parent?: number | null | undefined;
     readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
   }) {
     const locator = yield* issueRepository(input);
-    const response = yield* rest(
-      {
-        host: locator.host,
-        operation: "updateIssue",
-        method: "PATCH",
-        allowReserve: true,
-        path: `${issuePath(locator)}/${input.number}`,
-        body: {
-          ...(input.title === undefined ? {} : { title: input.title }),
-          ...(input.body === undefined ? {} : { body: input.body }),
+    const path = `${issuePath(locator)}/${input.number}`;
+    const notFound = `Issue #${input.number} was not found.`;
+    const patch = {
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.body === undefined ? {} : { body: input.body }),
+      ...(input.milestone === undefined ? {} : { milestone: input.milestone }),
+    };
+    // A parent-only change reads the issue for its database ID and current parent.
+    const response = yield* Object.keys(patch).length === 0 && input.parent !== undefined
+      ? rest({ host: locator.host, operation: "getIssue", path, allowReserve: true }, notFound)
+      : rest(
+          {
+            host: locator.host,
+            operation: "updateIssue",
+            method: "PATCH",
+            allowReserve: true,
+            path,
+            body: patch,
+          },
+          notFound,
+        );
+    const current = yield* decodedIssue(response.body);
+    const issue = GitHubIssues.restIssueToRepositoryIssue(current);
+    if (input.parent === undefined || input.parent === issue.parent) return issue;
+    if (current.id === undefined) {
+      return yield* failure(`GitHub didn't say which issue #${issue.number} is, to move it.`);
+    }
+    // The sub-issue API takes the child's database ID, not its number.
+    if (input.parent === null) {
+      yield* rest(
+        {
+          host: locator.host,
+          operation: "removeSubIssue",
+          method: "DELETE",
+          allowReserve: true,
+          path: `${issuePath(locator)}/${issue.parent}/sub_issue`,
+          body: { sub_issue_id: current.id },
         },
-      },
-      `Issue #${input.number} was not found.`,
-    );
-    return GitHubIssues.restIssueToRepositoryIssue(yield* decodedIssue(response.body));
+        `Issue #${issue.parent} was not found.`,
+      );
+    } else {
+      yield* rest(
+        {
+          host: locator.host,
+          operation: "addSubIssue",
+          method: "POST",
+          allowReserve: true,
+          path: `${issuePath(locator)}/${input.parent}/sub_issues`,
+          body: { sub_issue_id: current.id, replace_parent: true },
+        },
+        `Issue #${input.parent} was not found.`,
+      );
+    }
+    return { ...issue, parent: input.parent };
   });
 
   const setIssueState = Effect.fn("GitHubSourceControlProvider.setIssueState")(function* (input: {
@@ -1368,6 +1562,7 @@ export const make = Effect.gen(function* () {
       state: subject.state === "closed" ? ("closed" as const) : ("open" as const),
       milestone: subject.milestone?.title ?? null,
       subIssues: subIssues && subIssues.total > 0 ? subIssues : null,
+      parent: GitHubIssues.issueNumberFromApiUrl(subject.parent_issue_url),
     };
   });
 
@@ -1376,9 +1571,12 @@ export const make = Effect.gen(function* () {
     resolveRemoteWebHost: Effect.fn("GitHubSourceControlProvider.resolveRemoteWebHost")(
       ({ context }) => Effect.succeed(gitHubApiHostForRemote(context.remoteUrl)),
     ),
-    // GitHub matches bare heads; read a full page to disambiguate forks by owner.
-    headBranchProbe: ({ headSelectors }) => ({
-      headSelectors: headSelectors.filter((selector) => !selector.includes(":")),
+    // GitHub matches bare heads; read a full page to disambiguate forks by owner. A default branch
+    // collides with most forks, so its owner-qualified lookup has GitHub filter by owner instead.
+    headBranchProbe: ({ headSelectors, defaultBranchHeadSelector }) => ({
+      headSelectors: defaultBranchHeadSelector
+        ? [defaultBranchHeadSelector]
+        : headSelectors.filter((selector) => !selector.includes(":")),
       limit: 100,
     }),
     readChangeRequestTemplate: Effect.fn("GitHubSourceControlProvider.readChangeRequestTemplate")(
@@ -1387,8 +1585,9 @@ export const make = Effect.gen(function* () {
       },
     ),
     // `createChangeRequest` targets what `resolveRepository` picks: GH_REPO when it parses, else
-    // the remote `gh repo set-default` marked (`gh-resolved`). An HTTPS remote keeps a
-    // non-default port in the context's host, and the mark is then ignored.
+    // gh's pick among the checkout's remotes, led by the one `gh repo set-default` marked
+    // (`gh-resolved`). An HTTPS remote keeps a non-default port in the context's host, and the
+    // mark is then ignored.
     createsChangeRequestsIn: Effect.fn("GitHubSourceControlProvider.createsChangeRequestsIn")(
       function* ({ cwd, context, repository }) {
         const host = URL.canParse(context.provider.baseUrl)
@@ -1408,12 +1607,8 @@ export const make = Effect.gen(function* () {
             `${owner}/${name}`.toLowerCase() === target
           );
         }
-        const mark = yield* git
-          .readConfigValue(cwd, `remote.${context.remoteName}.gh-resolved`)
-          .pipe(Effect.orElseSucceed(() => null));
         const { locator } = resolveGitHubRepository({
-          remotes: `${context.remoteName}\t${context.remoteUrl} (fetch)`,
-          resolved: mark === null ? "" : `remote.${context.remoteName}.gh-resolved ${mark}`,
+          ...(yield* readRemotes(cwd)),
           hostHint: host ?? undefined,
           defaultHost: host ?? "github.com",
         });

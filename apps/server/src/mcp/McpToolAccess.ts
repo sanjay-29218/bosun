@@ -20,6 +20,7 @@ import {
   DispatchModeLimit,
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
+import * as BotEnvironmentGuard from "../bots/BotEnvironmentGuard.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { assertNotLinked, assertSameLink, callerLinkOrigin } from "./linkOrigin.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -46,6 +47,7 @@ const refuseOutsideConstruction = (token: symbol) => {
 let declare: <P, A, E, R>(
   handle: (params: P) => Effect.Effect<A, E, R>,
   remote: RemoteCheck<P> | undefined,
+  forwarded?: Forwarded<P, A, E, R>,
 ) => Declaration<(params: P) => Effect.Effect<A, E, R>>;
 
 /**
@@ -57,6 +59,16 @@ type RemoteCheck<P> = (
   params: P,
 ) => Effect.Effect<unknown, OrchestratorMcpFailure, Effect.Services<typeof writingCaller>>;
 let remoteCheckOf: <Handler>(declaration: Declaration<Handler>) => RemoteCheck<never> | undefined;
+
+/** What a call answered in a linked environment does here before it returns. */
+type Forwarded<P, A, E, R> = (
+  params: P,
+  environmentId: EnvironmentId,
+  result: A,
+) => Effect.Effect<A, E, R>;
+let forwardedOf: <Handler>(
+  declaration: Declaration<Handler>,
+) => Forwarded<never, unknown, unknown, unknown> | undefined;
 
 type CheckedHandlerOf<D> = D extends Declaration<infer Handler> ? Handler : never;
 
@@ -74,19 +86,29 @@ let handlersLayer: <Tools extends Record<string, Tool.Any>, EX, RX>(
 export class Declaration<out Handler> {
   readonly #handle: Handler;
   readonly #remote: RemoteCheck<never> | undefined;
+  readonly #forwarded: Forwarded<never, unknown, unknown, unknown> | undefined;
   private constructor(
     token: typeof builtHere,
     handle: Handler,
     remote: RemoteCheck<never> | undefined,
+    forwarded: Forwarded<never, unknown, unknown, unknown> | undefined,
   ) {
     refuseOutsideConstruction(token);
     this.#handle = handle;
     this.#remote = remote;
+    this.#forwarded = forwarded;
   }
   static {
-    declare = (handle, remote) => new Declaration(builtHere, handle, remote);
+    declare = (handle, remote, forwarded) =>
+      new Declaration(
+        builtHere,
+        handle,
+        remote,
+        forwarded as Forwarded<never, unknown, unknown, unknown> | undefined,
+      );
     checkedHandler = Struct.lambda<CheckedHandler>((declaration) => declaration.#handle);
     remoteCheckOf = (declaration) => declaration.#remote;
+    forwardedOf = (declaration) => declaration.#forwarded;
   }
 }
 
@@ -281,6 +303,20 @@ export const either = <P, A, E, R, A2, E2, R2>(
   );
 };
 
+/**
+ * `declaration`, whose result from a linked environment then goes through
+ * `forwarded` here, for what this environment records about the call.
+ */
+export const afterForwarding = <P, A, E, R, E2, R2>(
+  declaration: Declaration<(params: P) => Effect.Effect<A, E, R>>,
+  forwarded: Forwarded<P, A, E2, R2>,
+) =>
+  declare(
+    checkedHandler(declaration) as (params: P) => Effect.Effect<A, E | E2, R | R2>,
+    remoteCheckOf(declaration) as RemoteCheck<P> | undefined,
+    forwarded,
+  );
+
 const fullAccessRequired =
   "Changing projects or environment settings needs a live full-access/default calling thread or a full-access client.";
 
@@ -382,11 +418,15 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
 ) {
   // Optional so toolkits that never leave this environment build without it.
   const forwarding = yield* Effect.serviceOption(PeerForwarding.PeerForwarding);
+  const guard = yield* Effect.serviceOption(BotEnvironmentGuard.BotEnvironmentGuard);
   const handlers: Record<string, unknown> = { ...checked };
   for (const [name, declaration] of Object.entries<Declaration<unknown>>(declarations)) {
     const tool = toolkit.tools[name];
     if (tool === undefined || !takesLinkedEnvironment(tool)) continue;
     const remote = remoteCheckOf(declaration);
+    const forwarded = forwardedOf(declaration) as
+      | Forwarded<object, unknown, Tool.Failure<Tools[keyof Tools]>, never>
+      | undefined;
     if (remote === undefined)
       return yield* Effect.die(
         `${name} takes a linked environment, but it acts as its calling thread, which is here.`,
@@ -401,8 +441,16 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
         if (target === undefined) return yield* here(params);
         if (scope.linkedEnvironments === false) return yield* PeerForwarding.linkedEnvironmentsOff;
         yield* (remote as RemoteCheck<typeof params>)(params);
+        // A bot's work goes only to the linked environments the bot is permitted on.
+        if (scope.thread !== undefined && Option.isSome(guard)) {
+          yield* guard.value.check(scope.thread.threadId, target);
+        }
         if (Option.isNone(forwarding)) return yield* linksUnavailable;
-        return yield* forwarding.value.call(scope, tool, target, { ...params, environmentId });
+        const result = yield* forwarding.value.call(scope, tool, target, {
+          ...params,
+          environmentId,
+        });
+        return forwarded === undefined ? result : yield* forwarded(params, target, result);
       });
   }
   return handlers as Toolkit.HandlersFrom<Tools>;
