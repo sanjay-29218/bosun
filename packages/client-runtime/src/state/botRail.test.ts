@@ -331,7 +331,12 @@ describe("buildLogicalBots with a repeated name", () => {
       ["bot-b"],
     ]);
     expect(
-      logicalBotProjectKeys(bots[1]!, bots, [{ environmentId: local, id: "p", botId: "bot-b" }]),
+      logicalBotProjectKeys(
+        bots[1]!,
+        bots,
+        [{ environmentId: local, id: "p", botId: "bot-b" }],
+        new Set([local]),
+      ),
     ).toEqual(new Set(["local:p"]));
   });
 });
