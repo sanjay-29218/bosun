@@ -53,7 +53,9 @@ const setup = Effect.gen(function* () {
   const off = new Set<string>();
   const paused = yield* Ref.make<ReadonlyArray<{ projectId: ProjectId; reason: string }>>([]);
   const placements = yield* Ref.make<ReadonlyArray<object>>([]);
+  const placed: { remoteManager: object | null } = { remoteManager: null };
   const archived: Array<ProjectId> = [];
+  const restored: Array<ProjectId> = [];
   const layer = ProjectRequests.layer.pipe(
     Layer.provideMerge(NoticeInbox.layer),
     Layer.provide(
@@ -70,19 +72,32 @@ const setup = Effect.gen(function* () {
             } as never),
         }),
         Layer.mock(ProjectStore.ProjectStoreV2)({
-          get: () => Effect.succeedSome({ title: "Web" } as never),
+          get: () =>
+            Effect.succeedSome({ title: "Web", remoteManager: placed.remoteManager } as never),
         }),
         Layer.mock(ProjectService.ProjectService)({
           setManagerPlacement: ({ commandId: _commandId, ...placement }) =>
-            Ref.update(placements, (all) => [...all, placement]).pipe(Effect.as({} as never)),
+            Effect.sync(() => {
+              if (placement.remoteManager !== undefined) {
+                placed.remoteManager = placement.remoteManager;
+              }
+            }).pipe(
+              Effect.andThen(Ref.update(placements, (all) => [...all, placement])),
+              Effect.as({} as never),
+            ),
         }),
         Layer.mock(ScheduledTaskService)({
           pauseForProjectManager: (input) => Ref.update(paused, (all) => [...all, input]),
         }),
         Layer.mock(CrewService)({
-          ensureProjectManager: () => Effect.succeed({ threadId: managerThreadId } as never),
+          ensureProjectManager: (id) =>
+            Effect.sync(() => {
+              restored.push(id);
+              return { threadId: managerThreadId } as never;
+            }),
           requireManagedProject: () => Effect.void,
-          projectManagerSettings: () => Effect.succeed({ threadId: managerThreadId } as never),
+          projectManagerSettings: (id) =>
+            Effect.succeed({ threadId: managerThreadId, enabled: !off.has(id) } as never),
           archiveProjectManager: (id) =>
             Effect.sync(() => {
               archived.push(id);
@@ -138,6 +153,7 @@ const setup = Effect.gen(function* () {
     turns,
     active,
     archived,
+    restored,
     dispatched: Ref.get(dispatched),
     paused: Ref.get(paused),
     placements: Ref.get(placements),
@@ -308,9 +324,11 @@ it.effect("hands open requests back and pauses automations when the manager is t
 
 it.effect("retires this copy's manager when it moves to another machine, deleting nothing", () =>
   Effect.gen(function* () {
-    const { requests, sent, clear, paused, placements, archived, dispatched } = yield* setup;
+    const { requests, sent, clear, paused, placements, archived, restored, dispatched } =
+      yield* setup;
     yield* requests.send({ projectId, requesterThreadId: hq, key: "csv", message: "Add export" });
     yield* clear;
+    restored.length = 0;
     const mac = {
       environmentId: EnvironmentId.make("environment-mac"),
       projectId: ProjectId.make("project:web-on-mac"),
@@ -335,7 +353,7 @@ it.effect("retires this copy's manager when it moves to another machine, deletin
     assert.isFalse((yield* dispatched).some((command) => command.type.includes("delete")));
     yield* clear;
 
-    // The kept manager, on the other machine, hears which one was retired and where.
+    // Moved back here, its archived thread opens again, and it hears which one was retired.
     yield* requests.setManagerPlacement({
       projectId,
       remoteManager: null,
@@ -349,8 +367,11 @@ it.effect("retires this copy's manager when it moves to another machine, deletin
     );
     assert.include(note[0]!.text, "second project manager on Linux box. It is retired now");
     assert.include(note[0]!.text, "bot-run:project-hq:x is archived there");
-    // Saving where it already lives retires nothing again.
+    assert.deepStrictEqual(restored, [projectId]);
+    // Saving where it already lives retires and reopens nothing again.
+    yield* requests.setManagerPlacement({ projectId, remoteManager: null });
     assert.deepStrictEqual(archived, [projectId]);
+    assert.deepStrictEqual(restored, [projectId]);
   }).pipe(Effect.provide(sqlite)),
 );
 

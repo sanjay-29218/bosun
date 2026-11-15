@@ -654,13 +654,18 @@ const make = Effect.gen(function* () {
         ? {}
         : { permittedEnvironmentIds: input.permittedEnvironmentIds }),
     });
+    if (next != null) return { retiredThreadId };
     const { retired } = input;
-    // Only a manager that already has a thread here hears it; a new one starts without it.
-    if (retired !== undefined && next == null) {
-      const { threadId: managerThreadId } = yield* crew.projectManagerSettings(projectId);
-      if (managerThreadId !== null) {
+    const settings = yield* crew.projectManagerSettings(projectId);
+    if (settings.threadId !== null) {
+      // Moved back here: its archived thread opens again, as turning it back on does.
+      if (next === null && current != null && settings.enabled) {
+        yield* crew.ensureProjectManager(projectId);
+      }
+      // Only a manager that already has a thread here hears it; a new one starts without it.
+      if (retired !== undefined) {
         yield* inbox.post({
-          threadId: managerThreadId,
+          threadId: settings.threadId,
           key: `manager-retired:${retired.threadId}`,
           text: `${name} had a second project manager on ${retired.environmentLabel}. It is retired now: its thread ${retired.threadId} is archived there, and its open requests went back to their senders. You are this project's only manager. You also work on its copy on ${retired.environmentLabel} when Project settings → Project manager → Can work on allows it.`,
         });
