@@ -1125,15 +1125,23 @@ export const CrewServiceLive = Layer.effect(
       }
       return member;
     });
-    const modelFor = (
+    /** The requested model, else the actor's, else the one a new thread in the project gets. */
+    const modelFor = Effect.fn("CrewService.modelFor")(function* (
       actor: { readonly name: string; readonly modelSelection: ModelSelection | null },
       requested: ModelSelection | undefined,
-    ) => {
-      const model = requested ?? actor.modelSelection;
-      return model
-        ? Effect.succeed(model)
-        : Effect.fail(new CrewValidationError(`Choose a default model for ${actor.name}`));
-    };
+      projectId: ProjectId,
+    ) {
+      const model =
+        requested ?? actor.modelSelection ?? (yield* runtime.projectModelSelection(projectId));
+      if (model === null) {
+        return yield* Effect.fail(
+          new CrewValidationError(
+            `No provider is available to run ${actor.name}. Set one up in Settings.`,
+          ),
+        );
+      }
+      return model;
+    });
 
     /** Run `id` as stored now; a run cancelled before it started fails instead. */
     const currentRun = (id: string) =>
@@ -1182,6 +1190,7 @@ export const CrewServiceLive = Layer.effect(
           modelSelection: yield* modelFor(
             member,
             input.modelSelection ?? input.carried?.modelSelection,
+            input.projectId,
           ),
           runtimeMode: input.carried?.runtimeMode ?? member.runtimeMode,
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
@@ -1309,10 +1318,10 @@ export const CrewServiceLive = Layer.effect(
       owner: StandingOwner,
     ) {
       const id = owner.runId;
-      // The run keeps its last model for decoding, so an owner without one is refused here.
-      const modelSelection = yield* modelFor(owner, undefined);
       const existing = yield* store.getRun(id);
       const home = yield* owner.home;
+      // Resolved on every open, so an owner without a model follows the default until one is set.
+      const modelSelection = yield* modelFor(owner, undefined, home);
       // A standing run whose project was deleted moves, and `restore` restarts it there.
       if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
         yield* store.moveRun(id, home);

@@ -374,16 +374,29 @@ describe("Bot foundation", () => {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-hq-")),
       );
-      yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine, sql, store }) =>
+      const database = NodePath.join(directory, "state.sqlite");
+      yield* withSystem(database, ({ bots, engine, sql, store, settings }) =>
         Effect.gen(function* () {
           yield* seedCrewTestBot;
-          // A bot without a model has no headquarters.
-          expect((yield* bots.ensureHeadquarters(CAPTAIN_ID).pipe(Effect.flip)).message).toContain(
-            "Choose a default model for Captain",
+          // A bot without a model opens on the default one, and fails only with no provider.
+          expect((yield* bots.ensureHeadquarters(CAPTAIN_ID).pipe(Effect.flip)).message).toBe(
+            "No provider is available to run Captain. Set one up in Settings.",
           );
+          const fallbackModel = { instanceId: ProviderInstanceId.make("claude"), model: "haiku" };
+          yield* settings.updateSettings({ defaultModelSelection: fallbackModel });
+          const onDefault = yield* bots.ensureHeadquarters(CAPTAIN_ID);
+          expect(onDefault.modelSelection).toEqual(fallbackModel);
+          // It keeps following the default until a model is chosen, then uses that one.
+          expect(
+            yield* sql`SELECT 1 FROM bots WHERE id = ${CAPTAIN_ID} AND model_selection_json IS NULL`,
+          ).toHaveLength(1);
           yield* bots.ensureDefaults(modelSelection);
           // A bot that owns no project still gets its headquarters, in its own home.
           const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_ID);
+          expect(headquarters.threadId).toBe(onDefault.threadId);
+          expect((yield* engine.getThreadShell(headquarters.threadId))?.modelSelection).toEqual(
+            modelSelection,
+          );
           const home = headquarters.projectId;
           const workspaceRoot = `${CREW_TEST_BOT_HOMES}/${CAPTAIN_ID}`;
           const homeRow = yield* sql<{ readonly workspaceRoot: string; readonly botId: string }>`
@@ -527,7 +540,7 @@ describe("Bot foundation", () => {
               })
               .pipe(Effect.flip);
             expect(refused.message).toContain("doesn't own this project");
-            // The new owner runs once it has a model.
+            // The new owner, with no model and no provider to fall back on, can't run yet.
             const unready = yield* bots
               .createRun({
                 id: "second-run",
@@ -536,7 +549,9 @@ describe("Bot foundation", () => {
                 taskText: "Coordinate",
               })
               .pipe(Effect.flip);
-            expect(unready.message).toContain("Choose a default model for Second");
+            expect(unready.message).toBe(
+              "No provider is available to run Second. Set one up in Settings.",
+            );
             // Its project's manager falls back to the default model in Settings, and with none,
             // names the bot and its machine.
             const managed = ProjectId.make("second-project");
@@ -549,7 +564,10 @@ describe("Bot foundation", () => {
             expect((yield* bots.ensureProjectManager(managed).pipe(Effect.flip)).message).toBe(
               "Second on Studio Mac has no default model",
             );
-            const fallbackModel = { instanceId: ProviderInstanceId.make("claude"), model: "haiku" };
+            const fallbackModel = {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5.4-mini",
+            };
             yield* settings.updateSettings({
               defaultModelSelection: fallbackModel,
             });
@@ -558,6 +576,15 @@ describe("Bot foundation", () => {
             expect((yield* engine.getThreadShell(managerRun.threadId))?.modelSelection).toEqual(
               fallbackModel,
             );
+            // So does the bot itself.
+            expect(
+              (yield* bots.createRun({
+                id: "second-default-run",
+                memberId: "bot-second",
+                projectId: managed,
+                taskText: "Coordinate",
+              })).modelSelection,
+            ).toEqual(fallbackModel);
             expect(
               (yield* bots.createRun({
                 id: "second-request",

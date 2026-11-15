@@ -8,6 +8,7 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@t3tools/contracts";
+import { resolveProjectSettings, type LegacyProjectSettingsFields } from "./projectSettings.ts";
 
 /** The model a provider instance starts on: its default model, else its first. */
 export function defaultProviderModel(provider: ServerProvider): string | undefined {
@@ -52,4 +53,20 @@ export function resolveAutomaticModelSelection(
     pick(ordered.filter((candidate) => candidate.driver === ordered[0]?.driver)) ?? pick(ordered);
   const model = provider ? defaultProviderModel(provider) : undefined;
   return provider && model ? { instanceId: provider.instanceId, model } : null;
+}
+
+/**
+ * The model a new thread starts on: the project's or Settings' saved default, else the automatic
+ * one. Null when no provider can run. Without a project, the server-wide default.
+ */
+export function resolveNewThreadModelSelection(
+  providers: ReadonlyArray<ServerProvider>,
+  settings: ServerSettings,
+  projectId: ProjectId | null,
+  project?: LegacyProjectSettingsFields | null,
+): ModelSelection | null {
+  const resolved = resolveProjectSettings(settings, projectId, project).settings;
+  return (
+    resolved.defaultModelSelection ?? resolveAutomaticModelSelection(providers, resolved, projectId)
+  );
 }

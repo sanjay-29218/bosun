@@ -16,8 +16,7 @@ import {
   type RuntimeMode,
   type CrewTurnState,
 } from "@t3tools/contracts";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { resolveAutomaticModelSelection } from "@t3tools/shared/providerDefaultModel";
+import { resolveNewThreadModelSelection } from "@t3tools/shared/providerDefaultModel";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -354,15 +353,11 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           const readError = toPersistenceSqlError("CrewThreadRuntime.projectModelSelection");
           const project = yield* projects.get(projectId).pipe(Effect.mapError(readError));
           const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(readError));
-          const resolved = resolveProjectSettings(settings, projectId, Option.getOrNull(project));
-          // Nobody saved a default: the model a new thread in the project gets, as clients show it.
-          return (
-            resolved.settings.defaultModelSelection ??
-            resolveAutomaticModelSelection(
-              yield* providerRegistry.getProviders,
-              resolved.settings,
-              projectId,
-            )
+          return resolveNewThreadModelSelection(
+            yield* providerRegistry.getProviders,
+            settings,
+            projectId,
+            Option.getOrNull(project),
           );
         },
       ),
