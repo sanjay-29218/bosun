@@ -133,8 +133,10 @@ thread is archived until you turn it on again.
 The bot list sits at the left edge of the window: your pinned bots, then your pinned project
 managers, each with its latest message and how long ago it came. **Needs you** marks one waiting on
 you, a blue dot one that's working, and a plain dot before the time a finished run you haven't
-opened. Below them are **Bots**, **Automations** and **Pull requests**, and at the bottom the
-environment filter, **Usage** and **Settings**.
+opened. They scroll above a group pinned to the bottom: **Bots**, **Automations**, **Pull
+requests**, an **Update** entry while a desktop update is available, downloading, ready to restart
+or failed, then the environment filter, **Usage** and **Settings**. To check for an update by hand,
+use **Settings → About** or the app menu.
 
 **Bots** lists every bot and every project manager, pinned or not. The pin beside one adds it to
 the bot list or takes it off; pins are saved on the server, so every device shows the same list.
@@ -155,10 +157,8 @@ list that opens the bot's first thread. With several bots, jumping to a thread m
 Drag the list's right edge to make it wider or narrower; drag it far enough left and it becomes a
 column of icons, each with one mark: an amber count of threads waiting on you, a red dot when a
 run failed, a blue dot while it works, or a plain dot for a finished run you haven't opened.
-The round arrow tab that shows on the list's right edge when you point at it does the same, as
-does **Toggle bot list** in the command palette, which you can give a shortcut in
-**Settings → Keybindings**. Double-click the
-edge to go back to the default width. The width and collapse are remembered on each device.
+**Toggle bot list** in the command palette does the same, and you can give it a shortcut in
+**Settings → Keybindings**. Double-click the edge to go back to the default width. The width and collapse are remembered on each device.
 
 **Automations** lists your scheduled tasks by bot, with each one's schedule and next run; pick one
 to edit it and see its recent runs. A task can also run as a bot: see
