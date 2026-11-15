@@ -424,7 +424,7 @@ function ProjectOverviewContent(props: {
           : member.remoteManager == null;
         if (environment === undefined) return null;
         if (!shown) {
-          return placement.placed || member.remoteManager == null ? null : (
+          return placement.home !== null || member.remoteManager == null ? null : (
             <SettingsSection
               key={`manager:${member.environmentId}:${member.id}`}
               title={`Project manager · ${environment.label}`}

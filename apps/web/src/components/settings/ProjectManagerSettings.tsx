@@ -74,9 +74,8 @@ export function ProjectManagerSection({
       )
     : members.filter((member) => member.remoteManager == null);
   // A copy whose manager lives on a machine this client doesn't see.
-  const elsewhere = placed
-    ? null
-    : (members.find((member) => member.remoteManager != null) ?? null);
+  const elsewhere =
+    home !== null ? null : (members.find((member) => member.remoteManager != null) ?? null);
   return (
     <SettingsSection title="Project manager" id={searchableSetting("project-manager").id}>
       {placed && home !== null ? <ProjectManagerPlacement copies={copies} home={home} /> : null}
