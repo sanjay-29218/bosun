@@ -139,7 +139,10 @@ export function planManagerPlacement(
         ],
   );
   const needsHome = home.remoteManager != null;
-  const needsPermitted = home.managerPermittedEnvironmentIds == null;
+  // Until its bot's list loads, the default isn't known; saving none would stick.
+  const needsPermitted =
+    home.managerPermittedEnvironmentIds == null &&
+    (home.botHome === null || home.botPermittedEnvironmentIds !== null);
   if (away.length === 0 && !needsHome && !needsPermitted) return none;
   return {
     away,

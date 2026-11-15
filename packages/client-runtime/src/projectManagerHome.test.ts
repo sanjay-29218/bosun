@@ -43,6 +43,12 @@ describe("planManagerPlacement", () => {
         input: { projectId: copies[1]!.projectId, permittedEnvironmentIds: [box] },
       },
     });
+    // Its bot's list hasn't loaded: the manager moves, and Can work on waits for it.
+    const unloaded = copies.map((entry) => ({ ...entry, botPermittedEnvironmentIds: null }));
+    expect(planManagerPlacement(unloaded).home).toEqual({
+      environmentId: mac,
+      input: { projectId: copies[1]!.projectId },
+    });
   });
 
   it("keeps the one manager there is, wherever its bot lives", () => {
