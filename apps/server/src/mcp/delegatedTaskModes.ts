@@ -25,6 +25,10 @@ export function runtimeModeRank(mode: RuntimeMode): number {
   }
 }
 
+export function narrowerRuntimeMode(left: RuntimeMode, right: RuntimeMode): RuntimeMode {
+  return runtimeModeRank(left) <= runtimeModeRank(right) ? left : right;
+}
+
 /** How much an interaction mode allows: plan, then default. */
 export function interactionModeRank(mode: ProviderInteractionMode): number {
   return mode === "plan" ? 0 : 1;
