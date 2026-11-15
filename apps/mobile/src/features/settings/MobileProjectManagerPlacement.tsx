@@ -4,6 +4,7 @@ import {
   type ManagerCopy,
   managerCopiesOf,
   managerHomeAmong,
+  onSeveralMachines,
   managerPermitted,
   planManagerPlacement,
 } from "@t3tools/client-runtime/project-manager-home";
@@ -48,7 +49,7 @@ export function useManagerPlacement(members: ReadonlyArray<EnvironmentProject>) 
         ),
       )?.permittedEnvironmentIds ?? null,
   });
-  const placed = members.length > 1 && copies.length === members.length;
+  const placed = copies.length === members.length && onSeveralMachines(copies);
   return { copies, placed, home: placed ? managerHomeAmong(copies) : null };
 }
 

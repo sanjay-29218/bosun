@@ -77,6 +77,12 @@ describe("planManagerPlacement", () => {
       away: [],
       home: null,
     });
+    // Two checkouts on one machine keep a manager each.
+    const second = { ...copy(mac, { hasManager: true }), projectId: ProjectId.make("project:2") };
+    expect(planManagerPlacement([copy(mac, { hasManager: true }), second])).toEqual({
+      away: [],
+      home: null,
+    });
   });
 
   it("moves the manager to the machine the person picks, and back", () => {

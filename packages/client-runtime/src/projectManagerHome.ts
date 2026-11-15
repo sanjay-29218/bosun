@@ -33,6 +33,11 @@ const managerLivesHere = (project: {
   readonly remoteManager?: ProjectRemoteManager | null | undefined;
 }) => project.remoteManager == null;
 
+/** One copy per machine, on at least two: what placement decides between. */
+export const onSeveralMachines = (
+  copies: ReadonlyArray<{ readonly environmentId: EnvironmentId }>,
+) => copies.length > 1 && new Set(copies.map((copy) => copy.environmentId)).size === copies.length;
+
 const sameCopy = (
   home: { readonly environmentId: EnvironmentId; readonly projectId: ProjectId },
   copy: ManagerCopy,
@@ -98,7 +103,8 @@ export function planManagerPlacement(
   chosen?: { readonly environmentId: EnvironmentId; readonly projectId: ProjectId },
 ): { readonly away: ManagerPlacementWrite[]; readonly home: ManagerPlacementWrite | null } {
   const none = { away: [], home: null };
-  if (copies.length < 2) return none;
+  // Two checkouts on one machine keep a manager each; placement is between machines.
+  if (!onSeveralMachines(copies)) return none;
   // A copy naming one this client doesn't see is someone else's decision to keep.
   if (
     chosen === undefined &&
@@ -259,6 +265,7 @@ export function managerCopiesOf(input: {
  */
 export function managerHomeAmong(copies: ReadonlyArray<ManagerCopy>): ManagerCopy | null {
   if (copies.length === 1) return copies[0]!.remoteManager == null ? copies[0]! : null;
+  if (!onSeveralMachines(copies)) return null;
   const settled = settledManagerHome(copies);
   if (settled !== null) return settled;
   const named = copies.find((copy) => copy.remoteManager != null)?.remoteManager;

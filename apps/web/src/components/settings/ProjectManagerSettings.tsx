@@ -3,6 +3,7 @@ import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automat
 import {
   type ManagerCopy,
   managerHomeAmong,
+  onSeveralMachines,
   managerPermitted,
   type PlacedProject,
   planManagerPlacement,
@@ -62,7 +63,7 @@ export function ProjectManagerSection({
   const copiesOf = useManagerCopies();
   if (members.length === 0) return null;
   const copies = copiesOf(members);
-  const placed = members.length > 1 && copies.length === members.length;
+  const placed = copies.length === members.length && onSeveralMachines(copies);
   const home = placed ? managerHomeAmong(copies) : null;
   const shown = placed
     ? members.filter(
