@@ -2,6 +2,7 @@ import {
   CommandId,
   type EnvironmentId,
   headquartersBotId,
+  headquartersProjectId,
   NodeId,
   OrchestratorMcpCapabilitiesInput,
   OrchestratorMcpCapabilitiesResult,
@@ -175,6 +176,19 @@ const isWaitable = (error: OrchestratorMcpFailure) => error.code === "orchestrat
 
 const stillWaiting = { _tag: "StillWaiting" } as const;
 
+/** Who a headquarters' or project manager's remote request starts as there; null for any other thread. */
+const launchActorOf = (threadId: ThreadId): BotReach.LaunchActor | null => {
+  const botId = headquartersBotId(threadId);
+  if (botId !== null) return { botId };
+  const managerProjectId = headquartersProjectId(threadId);
+  return managerProjectId === null ? null : { managerProjectId };
+};
+
+const actorOf = (pending: OrchestrationV2PendingRemoteLaunch): BotReach.LaunchActor =>
+  pending.managerProjectId === undefined
+    ? { botId: pending.botId }
+    : { managerProjectId: pending.managerProjectId };
+
 const make = Effect.gen(function* () {
   const followRetry = yield* FollowRetrySchedule;
   const launchRetry = followRetry.pipe(
@@ -248,7 +262,7 @@ const make = Effect.gen(function* () {
             providerInstanceId: pending.providerInstanceId,
             inheritedInstanceId: pending.modelSelection.instanceId,
           });
-    return yield* botReach.launchProjectManager(scope, pending.environmentId, pending.botId, {
+    return yield* botReach.launchProjectManager(scope, pending.environmentId, actorOf(pending), {
       projectId: pending.projectId,
       task,
       title: pending.title,
@@ -377,20 +391,21 @@ const make = Effect.gen(function* () {
       }
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
-      // A bot's headquarters hands a project its request as it does here: the child is that
-      // project's manager there, in a worktree it branches from its own checkout.
-      const headquartersOf = headquartersBotId(scope.thread.threadId);
+      // A bot's headquarters, or a project's manager, hands a project its request as it does
+      // here: the child is that project's Feature manager there, in a worktree it branches from
+      // its own checkout.
+      const actor = launchActorOf(scope.thread.threadId);
       // A worktree there would branch from a commit this checkout has and the
       // other may not, so a remote task runs in that project's checkout.
-      if (input.isolation === "worktree" && headquartersOf === null) {
+      if (input.isolation === "worktree" && actor === null) {
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
           message:
             'A task in a linked environment runs in that project\'s checkout; isolation "worktree" is not supported there. Omit isolation, or use t3_thread_launch with environmentId and a worktree workspaceStrategy.',
         });
       }
-      if (headquartersOf !== null) {
-        return yield* requestFromHeadquarters(scope, input, headquartersOf, {
+      if (actor !== null) {
+        return yield* requestFromHeadquarters(scope, input, actor, {
           thread: parent.thread,
           runId: parentRun.id,
           nodeId: parentNodeId,
@@ -559,15 +574,15 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * A bot's request for its project on a linked environment, as a task of that project's Feature
-   * manager there. It is recorded before anything is sent, so a restart or a lost answer can't
+   * A bot's request for its project on a linked environment, or a project manager's for its
+   * project's copy there, as a task of that project's Feature manager there. It is recorded before anything is sent, so a restart or a lost answer can't
    * lose it; its first attempt runs right away, and its follower retries while that environment
    * can't be reached. A replayed request finds its task and starts nothing.
    */
   const requestFromHeadquarters = Effect.fn("RemoteDelegation.requestFromHeadquarters")(function* (
     scope: ThreadScope,
     input: Parameters<RemoteDelegation["Service"]["delegate"]>[1],
-    botId: string,
+    actor: BotReach.LaunchActor,
     parent: {
       readonly thread: {
         readonly modelSelection: ModelSelection;
@@ -620,7 +635,7 @@ const make = Effect.gen(function* () {
         message: `This request is ${task.length.toLocaleString("en-US")} characters, with the instructions sent along; a request to another environment takes at most ${LINKED_TASK_MAX_LENGTH.toLocaleString("en-US")}. Shorten it.`,
       });
     }
-    yield* botReach.checkLaunch(target.environmentId, botId);
+    yield* botReach.checkLaunch(target.environmentId, actor);
     const key = input.clientRequestId ?? (yield* random.uuidV4());
     const link = yield* links.get(target.environmentId).pipe(
       Effect.map(Option.getOrUndefined),
@@ -630,7 +645,9 @@ const make = Effect.gen(function* () {
       environmentId: target.environmentId,
       label: link?.label ?? target.environmentId,
       projectId: target.projectId,
-      botId,
+      ...("botId" in actor
+        ? { botId: actor.botId }
+        : { botId: "", managerProjectId: actor.managerProjectId }),
       title: input.title ?? task.trim().split("\n")[0]!.slice(0, 80),
       modelSelection: { instanceId, model, ...(options === undefined ? {} : { options }) },
       runtimeMode,

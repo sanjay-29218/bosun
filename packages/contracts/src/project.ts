@@ -164,6 +164,17 @@ export const ProjectRemoteBot = Schema.Struct({
 });
 export type ProjectRemoteBot = typeof ProjectRemoteBot.Type;
 
+/**
+ * Where a project's manager lives when it isn't here: on another environment, as that
+ * environment's copy of the project. This copy then has no manager of its own.
+ */
+export const ProjectRemoteManager = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  homeLabel: Schema.String,
+});
+export type ProjectRemoteManager = typeof ProjectRemoteManager.Type;
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -182,6 +193,10 @@ export const Project = Schema.Struct({
   remoteBot: Schema.optional(Schema.NullOr(ProjectRemoteBot)),
   /** The project's manager shows in the main rail. Absent from older servers: pinned. */
   managerPinned: Schema.optional(Schema.Boolean),
+  /** Set when the project's manager lives on another environment; absent or null: here. */
+  remoteManager: Schema.optional(Schema.NullOr(ProjectRemoteManager)),
+  /** Linked environments the manager here may work on; null follows its bot's. */
+  managerPermittedEnvironmentIds: Schema.optional(Schema.NullOr(Schema.Array(EnvironmentId))),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,

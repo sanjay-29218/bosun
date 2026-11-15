@@ -6,6 +6,8 @@ import {
   type ProjectIconOverride,
   ProjectId,
   type ProjectRemoteBot,
+  type ProjectRemoteManager,
+  type EnvironmentId,
   type ProjectScript,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
@@ -46,6 +48,10 @@ export interface ProjectMetaUpdateCommand {
   readonly remoteBot?: ProjectRemoteBot;
   /** Shows the project's manager in the main rail, or hides it there. */
   readonly managerPinned?: boolean;
+  /** Where the project's manager lives; null brings it here. */
+  readonly remoteManager?: ProjectRemoteManager | null;
+  /** Where the manager here may work; null follows its bot's. */
+  readonly managerPermittedEnvironmentIds?: ReadonlyArray<EnvironmentId> | null;
   readonly pinned?: boolean;
   readonly archived?: boolean;
 }
@@ -223,6 +229,10 @@ export function planProjectCommand(input: {
           ...(command.botId === undefined ? {} : { botId: command.botId }),
           ...(command.remoteBot === undefined ? {} : { remoteBot: command.remoteBot }),
           ...(command.managerPinned === undefined ? {} : { managerPinned: command.managerPinned }),
+          ...(command.remoteManager === undefined ? {} : { remoteManager: command.remoteManager }),
+          ...(command.managerPermittedEnvironmentIds === undefined
+            ? {}
+            : { managerPermittedEnvironmentIds: command.managerPermittedEnvironmentIds }),
           // Repeating a pin or archive keeps the original time.
           ...(command.pinned === undefined
             ? {}

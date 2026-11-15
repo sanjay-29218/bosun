@@ -3,6 +3,7 @@ import {
   EventId,
   type ModelSelection,
   ProjectId,
+  type ProjectRemoteManager,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -276,5 +277,27 @@ export const seedCrewProject = (input: {
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
+    });
+  });
+
+/** Says where a seeded project's manager lives, as `crew.setProjectManagerPlacement` would. */
+export const seedRemoteManager = (
+  projectId: ProjectId,
+  remoteManager: ProjectRemoteManager | null,
+) =>
+  Effect.gen(function* () {
+    const projects = yield* ProjectStore.ProjectStoreV2;
+    yield* projects.apply({
+      sequence: 0,
+      eventId: EventId.make(`seed-manager:${projectId}`),
+      aggregateKind: "project",
+      aggregateId: projectId,
+      occurredAt: "2026-01-02T00:00:00.000Z",
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      type: "project.meta-updated",
+      payload: { projectId, remoteManager, updatedAt: "2026-01-02T00:00:00.000Z" },
     });
   });

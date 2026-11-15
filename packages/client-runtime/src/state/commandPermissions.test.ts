@@ -502,6 +502,7 @@ it.effect(
           WS_METHODS.crewSetProjectManagerEnabled,
           WS_METHODS.crewSetProjectManagerIcon,
           WS_METHODS.crewOpenProjectManager,
+          WS_METHODS.crewSetProjectManagerPlacement,
           WS_METHODS.crewStartNewSession,
           WS_METHODS.botsSetPin,
         ]) {

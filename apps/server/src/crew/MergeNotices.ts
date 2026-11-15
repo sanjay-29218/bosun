@@ -215,6 +215,11 @@ const make = Effect.gen(function* () {
     const manager = yield* crewStore.getRun(projectHeadquartersRunId(projectId));
     if (manager === null || manager.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
     if ((yield* crewStore.getMember(projectManagerMemberId(projectId)))?.enabled === false) return;
+    // A copy whose manager lives on another machine keeps its retired manager asleep.
+    const [placed] = yield* sql<{ readonly remote: string | null }>`
+      SELECT remote_manager_json AS remote FROM projection_projects WHERE project_id = ${projectId}
+    `.pipe(Effect.mapError(queryError));
+    if (placed?.remote != null) return;
     const key = threadPullRequestKeyOf(normalizeThreadPullRequestKey(link));
     const [noticed] = yield* sql`
       SELECT 1 FROM project_merge_notices

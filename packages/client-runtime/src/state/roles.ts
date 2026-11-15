@@ -103,6 +103,15 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       tag: WS_METHODS.crewOpenProjectManager,
       onSuccess: refreshProjectManager,
     }),
+    /**
+     * Where a project's manager lives (another environment's copy, or here) and where it may
+     * work; moving it away archives this copy's manager thread.
+     */
+    setProjectManagerPlacement: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:crew:set-project-manager-placement",
+      tag: WS_METHODS.crewSetProjectManagerPlacement,
+      onSuccess: refreshProjectManager,
+    }),
     /** Starts a bot's headquarters or a project's manager over in a new session. */
     startNewSession: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:start-new-session",

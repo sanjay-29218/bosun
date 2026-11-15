@@ -6,6 +6,8 @@ import {
   type Project,
   type ProjectCreatePayload,
   type ProjectRemoteBot,
+  type ProjectRemoteManager,
+  type EnvironmentId,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
   type ThreadId,
@@ -174,6 +176,16 @@ export class ProjectService extends Context.Service<
       readonly botId: string | null;
       readonly remoteBot?: ProjectRemoteBot | undefined;
     }) => Effect.Effect<Project, ProjectServiceError>;
+    /**
+     * Where the project's manager lives (`remoteManager`, null for here) and where it may work
+     * (`permittedEnvironmentIds`, null following its bot). Absent fields stay as they are.
+     */
+    readonly setManagerPlacement: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly remoteManager?: ProjectRemoteManager | null | undefined;
+      readonly permittedEnvironmentIds?: ReadonlyArray<EnvironmentId> | null | undefined;
+    }) => Effect.Effect<Project, ProjectServiceError>;
     /** Shows the project's manager in the main rail, or hides it there. */
     readonly setManagerPinned: (input: {
       readonly commandId: CommandId;
@@ -251,6 +263,8 @@ export const make = Effect.gen(function* () {
     botId: row.botId,
     remoteBot: row.remoteBot,
     managerPinned: row.managerPinned,
+    remoteManager: row.remoteManager,
+    managerPermittedEnvironmentIds: row.managerPermittedEnvironmentIds,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -558,6 +572,29 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const setManagerPlacement: ProjectService["Service"]["setManagerPlacement"] = Effect.fn(
+    "ProjectService.setManagerPlacement",
+  )(function* (input) {
+    if (Option.isNone(yield* readRow(input.projectId))) {
+      return yield* new ProjectNotFoundError({ projectId: input.projectId });
+    }
+    yield* commit({
+      type: "project.meta.update",
+      commandId: input.commandId,
+      projectId: input.projectId,
+      ...(input.remoteManager === undefined ? {} : { remoteManager: input.remoteManager }),
+      ...(input.permittedEnvironmentIds === undefined
+        ? {}
+        : {
+            managerPermittedEnvironmentIds:
+              input.permittedEnvironmentIds === null
+                ? null
+                : [...new Set(input.permittedEnvironmentIds)],
+          }),
+    });
+    return yield* readCommitted(input.projectId);
+  });
+
   const setManagerPinned: ProjectService["Service"]["setManagerPinned"] = Effect.fn(
     "ProjectService.setManagerPinned",
   )(function* (input) {
@@ -792,6 +829,7 @@ export const make = Effect.gen(function* () {
     bootstrap,
     update,
     assignBot,
+    setManagerPlacement,
     setManagerPinned,
     delete: deleteProject,
     getById,

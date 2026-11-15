@@ -4,6 +4,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   botHeadquartersThreadId,
+  projectHeadquartersThreadId,
   CommandId,
   EventId,
   MessageId,
@@ -1366,6 +1367,8 @@ const makeBotBox = (thread: BoxThread) =>
     const sleepAfterLostAnswer = yield* Ref.make(false);
     const started = yield* Ref.make<ReadonlyArray<string>>([]);
     const asked = yield* Ref.make<ReadonlyArray<BotReach.ProjectManagerLaunch>>([]);
+    /** Who each check and launch was for. */
+    const actors = yield* Ref.make<ReadonlyArray<BotReach.LaunchActor>>([]);
     /** Runs as each launch there arrives, before anything starts. */
     const onLaunch = yield* Ref.make<Effect.Effect<void>>(Effect.void);
     /** How the next cleanups fail, one each, before reaching the box. */
@@ -1375,15 +1378,17 @@ const makeBotBox = (thread: BoxThread) =>
       message: "Project project:box is on Box, which isn't reachable.",
     });
     const reach: Partial<BotReach.BotReach["Service"]> = {
-      checkLaunch: () =>
-        Ref.get(permitted).pipe(
+      checkLaunch: (_environmentId, actor) =>
+        Ref.update(actors, (seen) => [...seen, actor]).pipe(
+          Effect.andThen(Ref.get(permitted)),
           Effect.flatMap((allowed) =>
             allowed ? Effect.void : Effect.fail(notPermitted("Captain", "Box")),
           ),
         ),
-      launchProjectManager: (scope, _environmentId, _botId, input) =>
+      launchProjectManager: (scope, _environmentId, actor, input) =>
         Effect.gen(function* () {
           yield* Ref.update(asked, (seen) => [...seen, input]);
+          yield* Ref.update(actors, (seen) => [...seen, actor]);
           const key = `${scope.requestNamespace}\n${input.clientRequestId}`;
           const threadId = ThreadId.make("thread:box-task");
           // Finding what an earlier attempt started is always allowed, and starts nothing.
@@ -1425,6 +1430,7 @@ const makeBotBox = (thread: BoxThread) =>
       sleepAfterLostAnswer,
       started,
       asked,
+      actors,
       launches,
       onLaunch,
       failCleanup,
@@ -1518,6 +1524,82 @@ it.effect("a bot's headquarters hands a project there to its Feature manager, on
       });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect(
+  "a project's manager hands its copy there work and a follow-up, and hears both back",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const b = yield* serveBox(thread);
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const botBox = yield* makeBotBox(thread);
+        const a = yield* makeLaptop(database, offers, undefined, botBox.reach);
+        yield* a.remote.start();
+        yield* linkTo(a.links, b, "full-access");
+        const manager = projectHeadquartersThreadId("project:laptop-web");
+        const managerScope = {
+          ...parentScope,
+          thread: { ...parentScope.thread!, threadId: manager },
+        };
+        yield* seedParent(a, manager);
+
+        const sent = requested(
+          yield* a.call(
+            "delegate_task",
+            {
+              task: "Start a feature: dark mode.",
+              target: { environmentId: box.environmentId, projectId: boxProject },
+              isolation: "worktree",
+              clientRequestId: "dark-mode",
+            },
+            managerScope,
+          ),
+        );
+        expect(sent).toMatchObject({
+          status: "running",
+          remoteChild: { threadId: "thread:box-task" },
+        });
+        // It goes as the manager, not as any bot, and the request records who asked.
+        const asManager = { managerProjectId: "project:laptop-web" };
+        expect(yield* Ref.get(botBox.actors)).toEqual([asManager, asManager]);
+        const recorded = (yield* a.orchestrator.getThreadProjection(manager)).subagents;
+        expect(recorded[0]?.pendingRemote).toMatchObject({
+          botId: "",
+          managerProjectId: "project:laptop-web",
+        });
+
+        yield* finishOnBox(thread, "Started the feature Dark mode.");
+        expect(yield* taskResult(a, sent.taskId, manager)).toMatchObject({
+          status: "completed",
+          result: "Started the feature Dark mode.",
+        });
+
+        // A follow-up to that thread there is a task too, and its answer comes back here.
+        const followed = yield* a.call(
+          "t3_thread_send",
+          {
+            environmentId: box.environmentId,
+            threadId: sent.remoteChild!.threadId,
+            message: "Use the plan's second option.",
+          },
+          managerScope,
+        );
+        expect(followed.isError, JSON.stringify(followed.content)).toBe(false);
+        const followUp = followed.structuredContent as { taskId?: NodeId };
+        expect(followUp.taskId, JSON.stringify(followUp)).toBeDefined();
+        yield* Ref.set(thread.laterReply, "Switched to the second option.");
+        yield* Deferred.succeed(thread.laterFinished, undefined);
+        expect(yield* taskResult(a, followUp.taskId!, manager)).toMatchObject({
+          status: "completed",
+          result: "Switched to the second option.",
+        });
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
 it.effect("a request to a machine the bot isn't allowed on, or too long, fails at once", () =>

@@ -108,6 +108,8 @@ interface RailProjectManager {
   readonly projectKey: string;
   /** Its bot, here or on the machine it lives on. */
   readonly owner: { readonly environmentId: EnvironmentId; readonly botId: string } | null;
+  /** The machine it lives on, when the project is on several. */
+  readonly homeLabel: string | null;
 }
 
 /**
@@ -155,6 +157,12 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
           title: project.title,
           projectKey: group.projectKey,
           owner: projectOwner(project),
+          homeLabel:
+            new Set(group.memberProjects.map((member) => member.environmentId)).size > 1
+              ? (environments.find(
+                  (environment) => environment.environmentId === project.environmentId,
+                )?.label ?? null)
+              : null,
         },
       ];
     },
@@ -610,6 +618,10 @@ function useManagerStatus(manager: RailProjectManager) {
   return { shell, icon, ...status };
 }
 
+/** A manager's name in the rail: its project, and the machine it lives on when there are several. */
+const managerName = (manager: RailProjectManager) =>
+  manager.homeLabel === null ? manager.title : `${manager.title} · ${manager.homeLabel}`;
+
 const ManagerListRow = memo(function ManagerListRow({
   manager,
   active,
@@ -629,7 +641,7 @@ const ManagerListRow = memo(function ManagerListRow({
       <button
         type="button"
         aria-current={active ? "page" : undefined}
-        aria-label={`${manager.title}'s project manager${status ? `, ${status}` : ""}`}
+        aria-label={`${manager.title}'s project manager${manager.homeLabel === null ? "" : ` on ${manager.homeLabel}`}${status ? `, ${status}` : ""}`}
         className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={onSelect}
       />
@@ -642,7 +654,7 @@ const ManagerListRow = memo(function ManagerListRow({
       />
       <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
         <ListRowHead
-          name={manager.title}
+          name={managerName(manager)}
           emphasized={done}
           time={summary.time}
           unread={done}
@@ -685,7 +697,7 @@ const ManagerRailItem = memo(function ManagerRailItem({
   const { icon, waiting, working, done } = useManagerStatus(manager);
   return (
     <RailItem
-      label={manager.title}
+      label={managerName(manager)}
       hint="Project manager"
       active={active}
       signal={

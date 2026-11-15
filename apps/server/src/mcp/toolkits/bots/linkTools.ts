@@ -75,6 +75,23 @@ export const BotHome = Schema.Struct({
 });
 export type BotHome = typeof BotHome.Type;
 
+/**
+ * The calling environment's project manager, by its project there; it works on that project's
+ * copy here when the copy's `remoteManager` names it.
+ */
+export const ManagerHome = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  name: Schema.String,
+  label: Schema.String,
+});
+export type ManagerHome = typeof ManagerHome.Type;
+
+/** Who on the calling environment asks: a bot, or a project's manager. */
+export const RequestHome = Schema.Union([BotHome, ManagerHome]);
+export type RequestHome = typeof RequestHome.Type;
+export const isManagerHome = (home: RequestHome): home is ManagerHome => "projectId" in home;
+
 const shared = {
   failure: OrchestratorMcpFailure,
   failureMode: "return" as const,
@@ -91,8 +108,8 @@ const shared = {
 export const LinkBotProjects = Tool.make("t3_bot_link_projects", {
   ...shared,
   description:
-    "The projects here owned by the calling environment's bot (`home`), with their open features.",
-  parameters: Schema.Struct({ home: BotHome }),
+    "The projects here owned by the calling environment's bot, or the copy here its project's manager works on (`home`), with their open features.",
+  parameters: Schema.Struct({ home: RequestHome }),
   success: Schema.Struct({ projects: Schema.Array(BotProject) }),
 })
   .annotate(Tool.Readonly, true)
@@ -101,10 +118,10 @@ export const LinkBotProjects = Tool.make("t3_bot_link_projects", {
 export const LinkBotTask = Tool.make("t3_bot_link_task", {
   ...shared,
   description:
-    "Starts a request from the calling environment's bot headquarters as this project's manager, in a new worktree.",
+    "Starts a request from the calling environment's bot headquarters or project manager as this project's Feature manager, in a new worktree.",
   parameters: Schema.Struct({
     projectId: ProjectId,
-    home: BotHome,
+    home: RequestHome,
     task: Schema.String,
     title: Schema.String,
     modelSelection: ModelSelection,
@@ -124,3 +141,23 @@ export const LinkBotTask = Tool.make("t3_bot_link_task", {
     modelSelection: ModelSelection,
   }),
 }).annotate(Tool.Destructive, false);
+
+/** A notice the calling environment's project manager hears from its project's copy here. */
+export const LinkedNotice = Schema.Struct({
+  threadId: ThreadId,
+  key: Schema.String,
+  text: Schema.String,
+  failed: Schema.Boolean,
+  createdAt: Schema.String,
+});
+export type LinkedNotice = typeof LinkedNotice.Type;
+
+export const LinkBotNotices = Tool.make("t3_bot_link_notices", {
+  ...shared,
+  description:
+    "What the requests the calling environment's project manager (`home`) started here heard since `since`: their features' reports and questions for the person.",
+  parameters: Schema.Struct({ home: ManagerHome, since: Schema.String }),
+  success: Schema.Struct({ notices: Schema.Array(LinkedNotice) }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);

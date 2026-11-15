@@ -25,6 +25,7 @@ import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -245,6 +246,7 @@ const HTTP_ROUTER_CONFIG = {
 
 // Skip Effect's default 20 s grace; WebSocket scope finalizers already close connections gracefully.
 const HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS = 0;
+const MANAGER_NOTICE_RELAY_INTERVAL = Duration.minutes(1);
 const layerResourceAttribution = ResourceAttribution.layer;
 const layerApplicationObservability = EventLoopMonitor.layer.pipe(
   Layer.provideMerge(Observability.layer),
@@ -859,6 +861,19 @@ const layerMakeRoutes = Layer.mergeAll(
   // Follows delegated tasks running in linked environments, including after a restart.
   Layer.effectDiscard(
     RemoteDelegation.RemoteDelegation.pipe(Effect.flatMap((remote) => remote.start())),
+  ),
+  // A project manager hears what its requests on other machines heard, such as a question for
+  // the person; those machines can't call here, so this asks them each minute.
+  Layer.effectDiscard(
+    BotReach.BotReach.pipe(
+      Effect.flatMap((reach) =>
+        ServerActivation.forkParked(
+          reach.relayManagerNotices.pipe(
+            Effect.repeat(Schedule.spaced(MANAGER_NOTICE_RELAY_INTERVAL)),
+          ),
+        ),
+      ),
+    ),
   ),
 ).pipe(
   Layer.provide(

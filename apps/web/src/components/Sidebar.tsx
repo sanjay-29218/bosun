@@ -1,4 +1,5 @@
 import { attachSidebarTree } from "../lib/sidebarTree";
+import { useProjectManagerPlacementSync } from "../state/projectManagerHome";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import {
@@ -3906,6 +3907,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         </SidebarGroup>
       </SidebarContent>
       <SidebarChromeFooter />
+      <ProjectManagerPlacementSync />
     </SidebarFolderDrop>
   );
+}
+
+/** Gives each project on several machines one manager; renders nothing. */
+function ProjectManagerPlacementSync() {
+  useProjectManagerPlacementSync();
+  return null;
 }

@@ -3,6 +3,7 @@ import {
   EnvironmentId,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
+  projectHeadquartersThreadId,
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
@@ -12,6 +13,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 
@@ -20,6 +22,7 @@ import * as BotStore from "../bots/BotStore.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -29,6 +32,9 @@ import { liveThreadShell } from "./McpToolAccess.testkit.ts";
 const supervisedThreadId = ThreadId.make("thread:supervised");
 const planThreadId = ThreadId.make("thread:plan");
 const fullAccessThreadId = ThreadId.make("thread:full-access");
+// Two project managers: one with its own Can work on list (the couch), one following Captain's.
+const ownListManagerId = projectHeadquartersThreadId("project:own-list");
+const botListManagerId = projectHeadquartersThreadId("project:mcp-test");
 const endedThreadId = ThreadId.make("thread:ended");
 const backgroundThreadId = ThreadId.make("thread:background");
 const oldProviderThreadId = ThreadId.make("thread:old-provider-background");
@@ -49,6 +55,8 @@ const shells = new Map([
     liveThreadShell(planThreadId, { runtimeMode: "approval-required", interactionMode: "plan" }),
   ],
   [fullAccessThreadId, liveThreadShell(fullAccessThreadId)],
+  [ownListManagerId, liveThreadShell(ownListManagerId, { runtimeMode: "approval-required" })],
+  [botListManagerId, liveThreadShell(botListManagerId, { runtimeMode: "approval-required" })],
   [endedThreadId, liveThreadShell(endedThreadId, { activeRunId: null })],
   [backgroundThreadId, backgroundShell(backgroundThreadId, ProviderInstanceId.make("codex"))],
   [oldProviderThreadId, backgroundShell(oldProviderThreadId, ProviderInstanceId.make("claude"))],
@@ -486,6 +494,16 @@ const guardedProbeServer = McpHttpServer.toolkitRegistration(
   ),
   Layer.provide(Layer.mock(PeerLinks.PeerLinks)({ get: () => Effect.succeedNone })),
   Layer.provide(
+    Layer.mock(ProjectStore.ProjectStoreV2)({
+      get: (projectId) =>
+        Effect.succeed(
+          projectId === "project:own-list"
+            ? Option.some({ title: "Web", managerPermittedEnvironmentIds: [couch] } as never)
+            : Option.some({ title: "Docs", managerPermittedEnvironmentIds: null } as never),
+        ),
+    }),
+  ),
+  Layer.provide(
     Layer.mock(PeerForwarding.PeerForwarding)({
       call: (_scope, tool, environmentId) =>
         Effect.succeed({ ran: `${tool.name} in ${environmentId}` } as never),
@@ -494,6 +512,12 @@ const guardedProbeServer = McpHttpServer.toolkitRegistration(
 );
 
 it.effect.each([
+  // A manager with its own Can work on list keeps to it, whatever its bot may do.
+  ["reads", threadCaller(ownListManagerId), { environmentId: couch }, "reads in environment-couch"],
+  ["starts_threads", threadCaller(ownListManagerId), { environmentId: box }, "capability_denied"],
+  // One without follows its bot's.
+  ["reads", threadCaller(botListManagerId), { environmentId: box }, "reads in environment-box"],
+  ["reads", threadCaller(botListManagerId), { environmentId: couch }, "capability_denied"],
   ["starts_threads", plan, { environmentId: box }, "starts_threads in environment-box"],
   ["starts_threads", plan, { environmentId: couch }, "capability_denied"],
   ["reads", supervised, { environmentId: couch }, "capability_denied"],

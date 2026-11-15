@@ -1,9 +1,9 @@
 import * as Schema from "effect/Schema";
 
-import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { BotAvatar, BotLongConversation, LEGACY_ALLOWED_TOOLS } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectIconColor } from "./project.ts";
+import { ProjectIconColor, ProjectRemoteManager } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
@@ -262,6 +262,26 @@ export const ProjectManagerIconInput = Schema.Struct({
   icon: Schema.NullOr(ProjectManagerIcon),
 });
 export type ProjectManagerIconInput = typeof ProjectManagerIconInput.Type;
+
+/**
+ * Where a project's manager lives and works. `remoteManager` set moves it to another
+ * environment's copy and retires this copy's manager; null brings it here. `retired` notes in the
+ * manager's thread here which copy's manager was retired for it.
+ */
+export const ProjectManagerPlacementInput = Schema.Struct({
+  projectId: ProjectId,
+  remoteManager: Schema.optionalKey(Schema.NullOr(ProjectRemoteManager)),
+  permittedEnvironmentIds: Schema.optionalKey(Schema.NullOr(Schema.Array(EnvironmentId))),
+  retired: Schema.optionalKey(
+    Schema.Struct({ environmentLabel: Schema.String, threadId: ThreadId }),
+  ),
+});
+export type ProjectManagerPlacementInput = typeof ProjectManagerPlacementInput.Type;
+/** The manager thread a move archived here, if any. */
+export const ProjectManagerPlacementResult = Schema.Struct({
+  retiredThreadId: Schema.NullOr(ThreadId),
+});
+export type ProjectManagerPlacementResult = typeof ProjectManagerPlacementResult.Type;
 
 /** A project's manager thread, made and opened on first use. */
 export const ProjectManagerThread = Schema.Struct({ threadId: ThreadId });

@@ -61,10 +61,27 @@ export class NoticeInbox extends Context.Service<
     readonly holding: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
     /** Delivers what waits for every recipient, such as notices from before a restart. */
     readonly recover: () => Effect.Effect<void>;
+    /**
+     * Notices posted since `since` (inclusive, so a page can't split notices of one instant) to
+     * the threads linked environments started requests as (`link-task:` runs) in these projects,
+     * oldest first: what a manager elsewhere hears, deduplicating by key.
+     */
+    readonly postedToLinkedRequests: (input: {
+      readonly projectIds: ReadonlyArray<string>;
+      readonly since: string;
+    }) => Effect.Effect<ReadonlyArray<PostedNotice>, PersistenceSqlError>;
     /** Follows run ends; start-up catch-up runs `recover` separately. */
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("t3/features/NoticeInbox") {}
+
+export interface PostedNotice {
+  readonly threadId: ThreadId;
+  readonly key: string;
+  readonly text: string;
+  readonly failed: boolean;
+  readonly createdAt: string;
+}
 
 interface NoticeRow {
   readonly key: string;
@@ -342,7 +359,43 @@ const make = Effect.gen(function* () {
     );
   });
 
-  return NoticeInbox.of({ post, withdraw, flush, holding, recover, start });
+  const postedToLinkedRequests: NoticeInbox["Service"]["postedToLinkedRequests"] = Effect.fn(
+    "NoticeInbox.postedToLinkedRequests",
+  )(function* ({ projectIds, since }) {
+    if (projectIds.length === 0) return [];
+    const rows = yield* sql<{
+      readonly threadId: string;
+      readonly key: string;
+      readonly text: string;
+      readonly outcome: string | null;
+      readonly createdAt: string;
+    }>`
+      SELECT n.thread_id AS threadId, n.key, n.text, n.outcome, n.created_at AS createdAt
+      FROM notice_inbox AS n
+      JOIN crew_runs AS r ON r.thread_id = n.thread_id
+      WHERE r.id LIKE 'link-task:%' AND ${sql.in("r.project_id", projectIds)}
+        AND n.created_at >= ${since}
+      ORDER BY n.created_at, n.rowid
+      LIMIT 50
+    `.pipe(Effect.mapError(queryError));
+    return rows.map((row) => ({
+      threadId: ThreadId.make(row.threadId),
+      key: row.key,
+      text: row.text,
+      failed: row.outcome === "failed",
+      createdAt: row.createdAt,
+    }));
+  });
+
+  return NoticeInbox.of({
+    post,
+    withdraw,
+    flush,
+    holding,
+    recover,
+    postedToLinkedRequests,
+    start,
+  });
 });
 
 export const layer = Layer.effect(NoticeInbox, make);

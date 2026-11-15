@@ -46,7 +46,18 @@ const projects = [
 describe("botsListManagers", () => {
   it("lists every project's manager by title, leaving out Scratch, homes and plain servers", () => {
     const managers = botsListManagers({
-      projects,
+      projects: [
+        ...projects,
+        // A copy whose manager lives on another machine, which lists it.
+        {
+          ...project("web-copy", "web"),
+          remoteManager: {
+            environmentId: plain,
+            projectId: ProjectId.make("web"),
+            homeLabel: "Box",
+          },
+        },
+      ],
       bots,
       managerEnvironmentIds: new Set([local]),
       projectKeyOf: (_environmentId, projectId) => `key:${projectId}`,

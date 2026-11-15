@@ -66,8 +66,12 @@ const guarded =
 const reading = guarded(checkRead);
 const writing = guarded(checkWrite);
 
-/** A feature for a headquarters' project on a linked environment, which its Feature manager starts. */
+/**
+ * A feature for a headquarters' project, or a manager's project's copy, on a linked environment,
+ * which that project's Feature manager there starts.
+ */
 const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnvironment")(function* (
+  callerThreadId: ThreadId,
   environmentId: EnvironmentId,
   input: {
     readonly projectId?: string | undefined;
@@ -87,23 +91,30 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
       "Pass projectId with environmentId: t3_bot_projects lists your projects there.",
     );
   }
+  // A project's manager also names the base branch, which resolves there, and its own request.
+  const manager = headquartersProjectId(callerThreadId) !== null;
   if (
     input.workspace !== undefined ||
     input.workflowId !== undefined ||
-    input.baseBranch !== undefined ||
-    input.requestId !== undefined ||
+    (!manager && (input.baseBranch !== undefined || input.requestId !== undefined)) ||
     input.parentFeatureId !== undefined
   ) {
     return yield* invalid(
-      "With environmentId, pass only projectId, title, brief, issue and featureId; the Feature manager there picks the rest.",
+      manager
+        ? "With environmentId, pass only projectId, title, brief, issue, baseBranch, requestId and featureId; the Feature manager there picks the rest."
+        : "With environmentId, pass only projectId, title, brief, issue and featureId; the Feature manager there picks the rest.",
     );
   }
+  const requestId = input.requestId?.trim() || undefined;
+  if (requestId !== undefined) yield* requireOwnRequest(callerThreadId, undefined, requestId);
   const issue = input.issue?.trim() || undefined;
+  const baseBranch = input.baseBranch?.trim() || undefined;
   const sent = yield* sendToLinkedProject("t3_feature_start", {
     environmentId,
     projectId: ProjectId.make(input.projectId),
-    title: input.title,
-    request: `Start a feature with t3_feature_start for this request, titled "${input.title}"${issue === undefined ? "" : `, with its issue ${issue}`}:\n\n${input.brief}`,
+    // The request lives here, so its task here names it; what comes back is labelled with it.
+    title: requestId === undefined ? input.title : `${requestId}: ${input.title}`,
+    request: `Start a feature with t3_feature_start for this request, titled "${input.title}"${issue === undefined ? "" : `, with its issue ${issue}`}${baseBranch === undefined ? "" : `, with baseBranch "${baseBranch}" (a branch of this checkout)`}:\n\n${input.brief}`,
     key: `feature-start:${input.featureId ?? input.title}`,
   });
   return {
@@ -160,7 +171,7 @@ const make = Effect.gen(function* () {
           );
           const environmentId = PeerForwarding.remoteTarget(scope, input.environmentId);
           if (environmentId !== undefined)
-            return yield* startOnLinkedEnvironment(environmentId, input);
+            return yield* startOnLinkedEnvironment(scope.thread.threadId, environmentId, input);
           const shell = yield* threads.getThreadShell(scope.thread.threadId);
           if (shell === null) return yield* invalid("This thread has no project");
           const requestId = input.requestId?.trim() || undefined;

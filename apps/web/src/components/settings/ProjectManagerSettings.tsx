@@ -1,10 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
 import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automations";
+import {
+  type ManagerCopy,
+  managerHomeAmong,
+  onSeveralMachines,
+  managerPermitted,
+  type PlacedProject,
+  planManagerPlacement,
+} from "@t3tools/client-runtime/project-manager-home";
 import { projectManagerLook } from "@t3tools/client-runtime/project-manager-look";
 import type {
   BotLongConversation,
   EnvironmentId,
-  ProjectId,
   ProjectManagerIcon,
   ProjectManagerSettings,
 } from "@t3tools/contracts";
@@ -15,6 +22,7 @@ import { requestConfirmDialog } from "../../confirmDialog";
 import { useEnvironmentScheduledTasks } from "../../state/automations";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
+import { useApplyManagerPlacement, useManagerCopies } from "../../state/projectManagerHome";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { InstructionsEditor } from "../InstructionsEditor";
@@ -23,6 +31,7 @@ import { ProjectManagerAvatar } from "../bots/ProjectManagerIcon";
 import { RoleModelPicker } from "../library/RoleEditor";
 import { useOpenProjectManager } from "../sidebar/openProjectManager";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -36,30 +45,155 @@ const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
   "new-session": "Start a new session",
 };
 
-interface ProjectMember {
-  readonly environmentId: EnvironmentId;
-  readonly id: ProjectId;
+interface ProjectMember extends PlacedProject {
   readonly title: string;
   readonly environmentLabel: string | null;
 }
 
-/** Each checkout's Project manager: the standing thread that runs the project's requests. */
+/**
+ * The project's manager: the standing thread that runs its requests. A project on several
+ * machines has one, on the copy it lives on, and works on the copies it may; older servers keep
+ * one per copy.
+ */
 export function ProjectManagerSection({
   members,
 }: {
   readonly members: ReadonlyArray<ProjectMember>;
 }) {
+  const copiesOf = useManagerCopies();
   if (members.length === 0) return null;
+  const copies = copiesOf(members);
+  const placed = copies.length === members.length && onSeveralMachines(copies);
+  const home = placed ? managerHomeAmong(copies) : null;
+  const shown = placed
+    ? members.filter(
+        (member) =>
+          home !== null &&
+          member.environmentId === home.environmentId &&
+          member.id === home.projectId,
+      )
+    : members.filter((member) => member.remoteManager == null);
+  // A copy whose manager lives on a machine this client doesn't see.
+  const elsewhere =
+    home !== null ? null : (members.find((member) => member.remoteManager != null) ?? null);
   return (
     <SettingsSection title="Project manager" id={searchableSetting("project-manager").id}>
-      {members.map((member) => (
+      {placed && home !== null ? <ProjectManagerPlacement copies={copies} home={home} /> : null}
+      {elsewhere?.remoteManager != null && shown.length === 0 ? (
+        <SettingsRow
+          title="Lives on"
+          description={`${elsewhere.remoteManager.homeLabel}. Connect to it to change this project's manager.`}
+        />
+      ) : null}
+      {shown.map((member) => (
         <ProjectManagerMember
           key={`${member.environmentId}:${member.id}`}
           member={member}
-          showEnvironment={members.length > 1}
+          showEnvironment={shown.length > 1}
         />
       ))}
     </SettingsSection>
+  );
+}
+
+/**
+ * Where the manager lives, a choice among the project's copies, and the other copies it may work
+ * on. Each change saves at once.
+ */
+function ProjectManagerPlacement({
+  copies,
+  home,
+}: {
+  readonly copies: ReadonlyArray<ManagerCopy>;
+  readonly home: ManagerCopy;
+}) {
+  const apply = useApplyManagerPlacement();
+  const canEdit = useAtomValue(
+    rolesEnvironment.setProjectManagerPlacement.permissionAtom(home.environmentId),
+  );
+  const [saving, setSaving] = useState(false);
+  const permitted = managerPermitted(home, copies);
+  const others = copies.filter((copy) => copy !== home);
+
+  const run = async (plan: ReturnType<typeof planManagerPlacement>, failureTitle: string) => {
+    setSaving(true);
+    const failure = await apply(plan, copies);
+    setSaving(false);
+    if (failure !== null) {
+      toastManager.add({ type: "error", title: failureTitle, description: failure });
+    }
+  };
+
+  const move = async (environmentId: string) => {
+    const next = copies.find((copy) => copy.environmentId === environmentId);
+    if (next === undefined || next === home) return;
+    const confirmed = await requestConfirmDialog(
+      `Move this project's manager to ${next.label}? Its thread on ${home.label} is archived, not deleted, and its open requests go back to their senders. The manager on ${next.label} keeps its own settings and automations.`,
+    );
+    if (confirmed !== true) return;
+    await run(planManagerPlacement(copies, next), `Could not move the manager to ${next.label}`);
+  };
+
+  const toggle = (environmentId: EnvironmentId, checked: boolean) =>
+    run(
+      {
+        away: [],
+        home: {
+          environmentId: home.environmentId,
+          input: {
+            projectId: home.projectId,
+            permittedEnvironmentIds: checked
+              ? [...permitted, environmentId]
+              : permitted.filter((id) => id !== environmentId),
+          },
+        },
+      },
+      "Could not save where the manager can work",
+    );
+
+  return (
+    <>
+      <SettingsRow
+        title="Lives on"
+        description="Its chat, settings and automations live on this machine. Moving it archives the manager's thread on the machine it leaves."
+        control={
+          <Select value={home.environmentId} onValueChange={(next) => void move(String(next))}>
+            <SelectTrigger aria-label="Lives on" disabled={saving || !canEdit}>
+              <SelectValue>
+                {(value: string) =>
+                  copies.find((copy) => copy.environmentId === value)?.label ?? value
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {copies.map((copy) => (
+                <SelectItem key={copy.environmentId} value={copy.environmentId}>
+                  {copy.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+      <SettingsRow
+        title="Can work on"
+        description={`Machines with a copy where the manager checks threads and features, talks to them, and starts work. ${home.label} needs Linked environments on (Settings → Labs) and a link to each.`}
+        control={
+          <div className="flex flex-col gap-2">
+            {others.map((copy) => (
+              <label key={copy.environmentId} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={permitted.includes(copy.environmentId)}
+                  disabled={saving || !canEdit}
+                  onCheckedChange={(checked) => void toggle(copy.environmentId, checked === true)}
+                />
+                {copy.label}
+              </label>
+            ))}
+          </div>
+        }
+      />
+    </>
   );
 }
 

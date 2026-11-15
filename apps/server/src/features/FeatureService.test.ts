@@ -9,6 +9,7 @@ import { it as effectIt } from "@effect/vitest";
 import {
   botHeadquartersThreadId,
   CommandId,
+  EnvironmentId,
   EPIC_WORKFLOW_ID,
   MessageId,
   FEATURE_DELIVERY_WORKFLOW_ID,
@@ -40,6 +41,7 @@ import {
   CrewTestOrchestration as OrchestrationLayerLive,
   makeCrewTestOrchestration,
   seedCrewProject,
+  seedRemoteManager,
 } from "../crew/CrewRuntime.testkit.ts";
 import { OrchestratorV2 as OrchestrationEngineService } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -1937,6 +1939,34 @@ describe("feature lead and crew", () => {
           expect(yield* crew.ensureProjectManager(projectId)).toMatchObject({
             threadId: run.threadId,
           });
+
+          // Its manager moved to another machine's copy: this copy's thread is archived, never
+          // deleted, and no work reaches a manager here until it moves back.
+          expect(yield* crew.archiveProjectManager(projectId)).toBe(run.threadId);
+          const retired = yield* shell();
+          expect(retired?.archivedAt).not.toBeNull();
+          expect(retired?.deletedAt).toBeNull();
+          yield* seedRemoteManager(projectId, {
+            environmentId: EnvironmentId.make("environment-mac"),
+            projectId: ProjectId.make("project-on-mac"),
+            homeLabel: "Mac",
+          });
+          for (const refused of [
+            crew.ensureProjectManager(projectId),
+            crew.requireProjectManagerOn(projectId),
+          ]) {
+            expect((yield* Effect.flip(refused)).message).toContain("manager lives on Mac");
+          }
+          expect((yield* shell())?.archivedAt).not.toBeNull();
+          // Back here, its kept thread opens again with its settings.
+          yield* seedRemoteManager(projectId, null);
+          expect(yield* crew.ensureProjectManager(projectId)).toMatchObject({
+            threadId: run.threadId,
+          });
+          expect((yield* shell())?.archivedAt).toBeNull();
+          expect((yield* crew.projectManagerSettings(projectId)).instructions).toBe(
+            before.instructions,
+          );
         }),
       ),
   );

@@ -95,6 +95,14 @@ export function BotsListSidebar() {
   const botNames = new Map(bots.map((bot) => [bot.key, bot.name]));
   const labelById = new Map(identities.map((identity) => [identity.environmentId, identity.label]));
   const severalEnvironments = new Set(managers.map((manager) => manager.environmentId)).size > 1;
+  // A project on several machines names the one its manager lives on.
+  const onSeveral = new Set(
+    groups.flatMap((group) =>
+      new Set(group.memberProjects.map((member) => member.environmentId)).size > 1
+        ? [group.projectKey]
+        : [],
+    ),
+  );
 
   const close = () => {
     if (isMobile) setOpenMobile(false);
@@ -197,7 +205,9 @@ export function BotsListSidebar() {
                     manager={manager}
                     subtitle={managerSubtitle(
                       manager.ownerKey === null ? null : (botNames.get(manager.ownerKey) ?? null),
-                      severalEnvironments ? (labelById.get(manager.environmentId) ?? null) : null,
+                      severalEnvironments || onSeveral.has(manager.projectKey)
+                        ? (labelById.get(manager.environmentId) ?? null)
+                        : null,
                     )}
                     pinned={pin.shown(manager.key, manager.pinned)}
                     onTogglePin={() =>

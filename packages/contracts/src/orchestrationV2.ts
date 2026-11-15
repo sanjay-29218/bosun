@@ -943,7 +943,10 @@ export const OrchestrationV2PendingRemoteLaunch = Schema.Struct({
   environmentId: EnvironmentId,
   label: Schema.String,
   projectId: ProjectId,
+  /** The bot whose headquarters asked; empty for a project manager's request. */
   botId: Schema.String,
+  /** Set when a project's manager asked: its project here, whose copy there it works on. */
+  managerProjectId: Schema.optional(ProjectId),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

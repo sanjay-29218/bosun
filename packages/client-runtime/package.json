@@ -47,6 +47,10 @@
       "types": "./src/botAvatar.ts",
       "default": "./src/botAvatar.ts"
     },
+    "./project-manager-home": {
+      "types": "./src/projectManagerHome.ts",
+      "default": "./src/projectManagerHome.ts"
+    },
     "./project-manager-look": {
       "types": "./src/projectManagerLook.ts",
       "default": "./src/projectManagerLook.ts"

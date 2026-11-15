@@ -7,6 +7,8 @@ import {
   type EnvironmentId,
   FEATURE_DELIVERY_WORKFLOW_ID,
   headquartersBotId,
+  headquartersProjectId,
+  projectHeadquartersThreadId,
   isProviderAvailable,
   type ModelSelection,
   OrchestratorMcpFailure,
@@ -28,6 +30,7 @@ import * as Option from "effect/Option";
 import { CrewService } from "../crew/CrewService.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { FeatureService } from "../features/FeatureService.ts";
+import { NoticeInbox } from "../features/NoticeInbox.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { narrowerRuntimeMode } from "../mcp/delegatedTaskModes.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
@@ -35,9 +38,14 @@ import {
   type BotHome,
   type BotProject,
   type BotProjectsResult,
+  isManagerHome,
+  LinkBotNotices,
   LinkBotProjects,
   LinkBotTask,
+  type LinkedNotice,
   type ListedBot,
+  type ManagerHome,
+  type RequestHome,
 } from "../mcp/toolkits/bots/linkTools.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { LINKED_ENVIRONMENT_STOPPED_ANSWERING } from "../peer/PeerMcpClient.ts";
@@ -46,7 +54,7 @@ import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import { notPermitted } from "./BotEnvironmentGuard.ts";
+import { managerNotPermitted, notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
 type Scope = McpInvocationContext.McpInvocationScope;
@@ -69,9 +77,15 @@ export interface ProjectManagerLaunch {
   readonly cancelIfStarted?: boolean | undefined;
 }
 
-/** What a linked environment's headquarters asks for: a launch, with its bot and workflow. */
+/** Who starts work on a linked environment: a bot's headquarters, or a project's manager. */
+export type LaunchActor = { readonly botId: string } | { readonly managerProjectId: ProjectId };
+
+/**
+ * What a linked environment's headquarters or project manager asks for: a launch, with who asks
+ * and its workflow.
+ */
 export interface LinkedProjectManagerLaunch extends ProjectManagerLaunch {
-  readonly home: BotHome;
+  readonly home: RequestHome;
   readonly workflow?: WorkflowSnapshot | undefined;
 }
 
@@ -91,19 +105,25 @@ export class BotReach extends Context.Service<
   {
     /** This environment's bots, each with its home here and the linked environments it may use. */
     readonly list: Effect.Effect<ReadonlyArray<ListedBot>, OrchestratorMcpFailure>;
-    /** The bot's projects here and on every linked environment that answers. */
+    /**
+     * The bot's projects here and on every linked environment that answers. From a project's
+     * manager with no bot named: its project here and its copies there that it works on.
+     */
     readonly projects: (
       scope: Scope,
       botId: string | undefined,
     ) => Effect.Effect<BotProjectsResult, OrchestratorMcpFailure>;
-    /** For a linked environment: the projects here its bot (`home`) owns. */
+    /**
+     * For a linked environment: the projects here its bot (`home`) owns, or the copy here its
+     * project's manager works on.
+     */
     readonly projectsForLink: (
-      home: BotHome,
+      home: RequestHome,
     ) => Effect.Effect<ReadonlyArray<BotProject>, OrchestratorMcpFailure>;
-    /** Fails, naming why, unless the bot may start work on linked environment `environmentId`. */
+    /** Fails, naming why, unless `actor` may start work on linked environment `environmentId`. */
     readonly checkLaunch: (
       environmentId: EnvironmentId,
-      botId: string,
+      actor: LaunchActor,
     ) => Effect.Effect<void, OrchestratorMcpFailure>;
     /**
      * From a bot's headquarters here: starts a request as a task of the Feature manager of a project on
@@ -114,9 +134,22 @@ export class BotReach extends Context.Service<
     readonly launchProjectManager: (
       scope: McpInvocationContext.McpThreadInvocationScope,
       environmentId: EnvironmentId,
-      botId: string,
+      actor: LaunchActor,
       input: ProjectManagerLaunch,
     ) => Effect.Effect<LaunchedProjectManager, OrchestratorMcpFailure>;
+    /**
+     * For a linked environment's project manager: what the requests it started here heard since
+     * `since`, oldest first.
+     */
+    readonly noticesForLink: (
+      home: ManagerHome,
+      since: string,
+    ) => Effect.Effect<ReadonlyArray<LinkedNotice>, OrchestratorMcpFailure>;
+    /**
+     * Brings each project manager here what its requests on the linked environments it works on
+     * heard, such as a feature that stopped to ask the person, once per notice.
+     */
+    readonly relayManagerNotices: Effect.Effect<void>;
     /** For a linked environment's headquarters: starts the request here, or says why not. */
     readonly startForLink: (
       scope: Scope,
@@ -138,6 +171,8 @@ const branchSlug = (title: string) =>
     .replace(/^-+/, "")
     .slice(0, 40)
     .replace(/-+$/, "") || "request";
+
+const managerName = (project: { readonly title: string }) => `${project.title}'s manager`;
 
 const hash = (value: string) => NodeCrypto.createHash("sha256").update(value).digest("hex");
 
@@ -170,8 +205,13 @@ const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const inbox = yield* NoticeInbox;
   // One request's launch and cancel take turns here.
   const runLocks = yield* KeyedLock.make<string>();
+  // Per manager and environment, the newest notice relayed. A restart looks back an hour; each
+  // notice is posted once whatever it re-reads.
+  const relayedUntil = new Map<string, string>();
+  const relayStart = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { hours: 1 }));
 
   const here = environment.getDescriptor.pipe(
     Effect.map((descriptor) => ({
@@ -180,21 +220,32 @@ const make = Effect.gen(function* () {
     })),
   );
 
-  /** The projects here a bot owns: one living here (`botId`), or one elsewhere (`home`). */
+  /**
+   * The projects here a bot owns: one living here (`botId`), or one elsewhere (`home`); or the
+   * copy here of a project whose manager lives elsewhere (a manager's `home`), or that project
+   * here itself (`projectId`).
+   */
   const ownedHere = Effect.fn("BotReach.ownedHere")(function* (
-    owner: { readonly botId: string } | BotHome,
+    owner: { readonly botId: string } | { readonly projectId: ProjectId } | RequestHome,
   ) {
     const { environmentId, label } = yield* here;
     const owns = (project: Project) =>
       "environmentId" in owner
-        ? project.remoteBot?.environmentId === owner.environmentId &&
-          project.remoteBot.botId === owner.botId
-        : project.botId === owner.botId;
+        ? isManagerHome(owner)
+          ? project.remoteManager?.environmentId === owner.environmentId &&
+            project.remoteManager.projectId === owner.projectId
+          : project.remoteBot?.environmentId === owner.environmentId &&
+            project.remoteBot.botId === owner.botId
+        : "botId" in owner
+          ? project.botId === owner.botId
+          : project.id === owner.projectId;
     const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
     // Scratch and bots' homes are where headquarters work, not projects to hand work to.
     const owned = yield* Effect.filter(
       snapshot.projects.flatMap((project) =>
-        project.deletedAt === null && owns(project) ? [{ ...project, botId: owner.botId }] : [],
+        project.deletedAt === null && owns(project)
+          ? [{ ...project, botId: "botId" in owner ? owner.botId : (project.botId ?? "") }]
+          : [],
       ),
       (project) => Effect.map(folders.isHiddenProject(project.id), (hidden) => !hidden),
     );
@@ -218,10 +269,10 @@ const make = Effect.gen(function* () {
 
   const projectsForLink: BotReach["Service"]["projectsForLink"] = (home) => ownedHere(home);
 
-  /** The bot's requests on its headquarters that wait for a linked environment to answer. */
-  const waitingRequests = (botId: string) =>
+  /** Requests on a headquarters or manager thread that wait for a linked environment to answer. */
+  const waitingRequests = (threadId: ThreadId) =>
     threads
-      .getThreadRecords(botHeadquartersThreadId(botId), ["subagents"], {
+      .getThreadRecords(threadId, ["subagents"], {
         omitSettledSubagents: true,
       })
       .pipe(
@@ -234,37 +285,75 @@ const make = Effect.gen(function* () {
               : [],
           ),
         ),
-        // A bot that never opened its headquarters has nothing waiting.
+        // A bot or manager that never opened its thread has nothing waiting.
         Effect.orElseSucceed(() => []),
       );
 
-  const projectsOf: BotReach["Service"]["projects"] = Effect.fn("BotReach.projects")(
-    function* (scope, requestedBotId) {
-      const botId =
-        requestedBotId ??
-        (scope.thread === undefined ? null : headquartersBotId(scope.thread.threadId));
-      if (botId === null) {
-        return yield* failure(
-          "target_required",
-          "Pass botId: this thread isn't a bot's headquarters. t3_bot_list shows the bots.",
-        );
+  /** Who asks from here, as a linked environment knows it, with what it owns here. */
+  const askerHere = Effect.fn("BotReach.askerHere")(function* (
+    scope: Scope,
+    requestedBotId: string | undefined,
+  ) {
+    const self = yield* here;
+    const managed =
+      requestedBotId === undefined && scope.thread !== undefined
+        ? headquartersProjectId(scope.thread.threadId)
+        : null;
+    if (managed !== null) {
+      const project = Option.getOrUndefined(
+        yield* projects.getById(managed).pipe(Effect.mapError(unavailable)),
+      );
+      if (project === undefined || project.deletedAt !== null) {
+        return yield* failure("invalid_request", "This manager's project is gone.");
       }
-      const bot = yield* bots.get(botId).pipe(Effect.mapError(unavailable));
-      if (bot === null) {
-        return yield* failure(
-          "invalid_request",
-          "The bot was not found; t3_bot_list shows this environment's bots.",
-        );
-      }
-      const self = yield* here;
-      const home: BotHome = {
+      const home: ManagerHome = {
         environmentId: self.environmentId,
-        botId: bot.id,
-        botName: bot.name,
+        projectId: project.id,
+        name: managerName(project),
         label: self.label,
       };
-      const local = yield* ownedHere({ botId: bot.id });
-      const waiting = yield* waitingRequests(bot.id);
+      return {
+        self,
+        home,
+        actor: { id: project.id, name: home.name },
+        local: yield* ownedHere({ projectId: project.id }),
+        waiting: yield* waitingRequests(projectHeadquartersThreadId(project.id)),
+      };
+    }
+    const botId =
+      requestedBotId ??
+      (scope.thread === undefined ? null : headquartersBotId(scope.thread.threadId));
+    if (botId === null) {
+      return yield* failure(
+        "target_required",
+        "Pass botId: this thread isn't a bot's headquarters or a project's manager. t3_bot_list shows the bots.",
+      );
+    }
+    const bot = yield* bots.get(botId).pipe(Effect.mapError(unavailable));
+    if (bot === null) {
+      return yield* failure(
+        "invalid_request",
+        "The bot was not found; t3_bot_list shows this environment's bots.",
+      );
+    }
+    const home: BotHome = {
+      environmentId: self.environmentId,
+      botId: bot.id,
+      botName: bot.name,
+      label: self.label,
+    };
+    return {
+      self,
+      home,
+      actor: { id: bot.id, name: bot.name },
+      local: yield* ownedHere({ botId: bot.id }),
+      waiting: yield* waitingRequests(botHeadquartersThreadId(bot.id)),
+    };
+  });
+
+  const projectsOf: BotReach["Service"]["projects"] = Effect.fn("BotReach.projects")(
+    function* (scope, requestedBotId) {
+      const { self, home, actor, local, waiting } = yield* askerHere(scope, requestedBotId);
       const waitingFor = (environmentId: EnvironmentId) =>
         waiting.flatMap((entry) =>
           entry.environmentId === environmentId && entry.task.pendingRemote !== undefined
@@ -336,7 +425,7 @@ const make = Effect.gen(function* () {
         { concurrency: "unbounded" },
       );
       return {
-        bot: { id: bot.id, name: bot.name },
+        bot: actor,
         environments: [
           {
             environmentId: self.environmentId,
@@ -393,43 +482,82 @@ const make = Effect.gen(function* () {
     return snapshot;
   });
 
-  /** The bot and the link's label, failing unless the bot may start work there. */
-  const permitted = Effect.fn("BotReach.permitted")(function* (
-    environmentId: EnvironmentId,
-    botId: string,
-  ) {
-    const bot = yield* bots.get(botId).pipe(Effect.mapError(unavailable));
-    if (bot === null) return yield* failure("invalid_request", "This headquarters' bot is gone.");
-    const link = Option.getOrUndefined(
-      yield* links.get(environmentId).pipe(Effect.orElseSucceed(() => Option.none())),
+  const linkTo = (environmentId: EnvironmentId) =>
+    links.get(environmentId).pipe(
+      Effect.map(Option.getOrUndefined),
+      Effect.orElseSucceed(() => undefined),
     );
-    const label = link?.label ?? environmentId;
-    if (!bot.permittedEnvironmentIds.includes(environmentId)) {
-      return yield* notPermitted(bot.name, label);
-    }
-    return { bot, link, label };
+
+  /**
+   * Where a project's manager may work: its own Can work on list, else its bot's when the bot
+   * lives here, else nowhere.
+   */
+  const managerPermitted = Effect.fn("BotReach.managerPermitted")(function* (project: Project) {
+    if (project.managerPermittedEnvironmentIds != null)
+      return project.managerPermittedEnvironmentIds;
+    if (project.botId == null) return [];
+    const bot = yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
+    return bot?.permittedEnvironmentIds ?? [];
   });
 
-  const checkLaunch: BotReach["Service"]["checkLaunch"] = (environmentId, botId) =>
-    permitted(environmentId, botId).pipe(Effect.asVoid);
+  /** Who asks, as the linked environment knows it, and the link's label; `check` refuses work it may not start there. */
+  const asker = Effect.fn("BotReach.asker")(function* (
+    environmentId: EnvironmentId,
+    actor: LaunchActor,
+    check: boolean,
+  ) {
+    const self = yield* here;
+    const link = yield* linkTo(environmentId);
+    const label = link?.label ?? environmentId;
+    if ("botId" in actor) {
+      const bot = yield* bots
+        .get(actor.botId)
+        .pipe(check ? Effect.mapError(unavailable) : Effect.orElseSucceed(() => null));
+      if (check && bot === null) {
+        return yield* failure("invalid_request", "This headquarters' bot is gone.");
+      }
+      if (check && bot !== null && !bot.permittedEnvironmentIds.includes(environmentId)) {
+        return yield* notPermitted(bot.name, label);
+      }
+      const home: RequestHome = {
+        environmentId: self.environmentId,
+        botId: actor.botId,
+        botName: bot?.name ?? actor.botId,
+        label: self.label,
+      };
+      return { home, link, label };
+    }
+    const project = Option.getOrUndefined(
+      yield* projects
+        .getById(actor.managerProjectId)
+        .pipe(check ? Effect.mapError(unavailable) : Effect.orElseSucceed(() => Option.none())),
+    );
+    if (check && (project === undefined || project.deletedAt !== null)) {
+      return yield* failure("invalid_request", "This manager's project is gone.");
+    }
+    if (check && project !== undefined) {
+      if (!(yield* managerPermitted(project)).includes(environmentId)) {
+        return yield* managerNotPermitted(project.title, label);
+      }
+    }
+    const home: RequestHome = {
+      environmentId: self.environmentId,
+      projectId: actor.managerProjectId,
+      name: project === undefined ? "Project manager" : managerName(project),
+      label: self.label,
+    };
+    return { home, link, label };
+  });
+
+  const checkLaunch: BotReach["Service"]["checkLaunch"] = (environmentId, actor) =>
+    asker(environmentId, actor, true).pipe(Effect.asVoid);
 
   const launchProjectManager: BotReach["Service"]["launchProjectManager"] = Effect.fn(
     "BotReach.launchProjectManager",
-  )(function* (scope, environmentId, botId, input) {
+  )(function* (scope, environmentId, actor, input) {
     const cleanup = input.cancelIfStarted === true;
-    // Cleanup goes by the request's own record, whatever became of the bot or its permission.
-    const { bot, link, label } = cleanup
-      ? yield* Effect.gen(function* () {
-          const found = Option.getOrUndefined(
-            yield* links.get(environmentId).pipe(Effect.orElseSucceed(() => Option.none())),
-          );
-          return {
-            bot: yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null)),
-            link: found,
-            label: found?.label ?? environmentId,
-          };
-        })
-      : yield* permitted(environmentId, botId);
+    // Cleanup goes by the request's own record, whatever became of who asked or its permission.
+    const { home, link, label } = yield* asker(environmentId, actor, !cleanup);
     // Unreachable is the one failure a waiting request retries.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
@@ -446,12 +574,7 @@ const make = Effect.gen(function* () {
     return yield* forwarding
       .call(scope, LinkBotTask, environmentId, {
         ...input,
-        home: {
-          environmentId: self.environmentId,
-          botId,
-          botName: bot?.name ?? botId,
-          label: self.label,
-        },
+        home,
         ...(workflow === undefined ? {} : { workflow }),
       })
       .pipe(
@@ -540,8 +663,24 @@ const make = Effect.gen(function* () {
             );
           }
           const { home } = input;
+          const homeName = isManagerHome(home) ? home.name : home.botName;
+          if (isManagerHome(home)) {
+            const placed = project.remoteManager;
+            if (
+              placed?.environmentId !== home.environmentId ||
+              placed.projectId !== home.projectId
+            ) {
+              return yield* failure(
+                "capability_denied",
+                `${project.title} on ${self.label} ${placed == null ? "has its own project manager" : `has its manager on ${placed.homeLabel}`}, not ${home.name} from ${home.label}. Set it to live on ${home.label} in Project settings → Project manager first.`,
+              );
+            }
+          }
           const owner = project.remoteBot;
-          if (owner?.environmentId !== home.environmentId || owner.botId !== home.botId) {
+          if (
+            !isManagerHome(home) &&
+            (owner?.environmentId !== home.environmentId || owner.botId !== home.botId)
+          ) {
             const local =
               project.botId == null
                 ? null
@@ -561,7 +700,11 @@ const make = Effect.gen(function* () {
             );
           }
           // The owner shows here under the name its home last sent.
-          if (owner.name !== home.botName || owner.homeLabel !== home.label) {
+          if (
+            !isManagerHome(home) &&
+            owner != null &&
+            (owner.name !== home.botName || owner.homeLabel !== home.label)
+          ) {
             yield* projects
               .assignBot({
                 commandId: CommandId.make(`remote-bot-name:${NodeCrypto.randomUUID()}`),
@@ -584,7 +727,7 @@ const make = Effect.gen(function* () {
           if (leadRole === undefined && !(yield* modelAvailable(input.modelSelection))) {
             return yield* failure(
               "invalid_request",
-              `${home.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${home.botName}'s model.`,
+              `${homeName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${homeName}'s model.`,
             );
           }
           // Builds before withheld tools sent roles' tools with the opposite meaning.
@@ -645,6 +788,79 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const noticesForLink: BotReach["Service"]["noticesForLink"] = Effect.fn(
+    "BotReach.noticesForLink",
+  )(function* (home, since) {
+    const copies = yield* ownedHere(home);
+    return yield* inbox
+      .postedToLinkedRequests({ projectIds: copies.map((copy) => copy.projectId), since })
+      .pipe(Effect.mapError(unavailable));
+  });
+
+  /** How a manager's relay reads its copies there: as its own thread, under its own keys. */
+  const relayScope = (
+    threadId: ThreadId,
+    providerInstanceId: ModelSelection["instanceId"],
+    environmentId: EnvironmentId,
+  ): McpInvocationContext.McpThreadInvocationScope => ({
+    environmentId,
+    requestNamespace: `manager-notices:${threadId}`,
+    thread: { threadId, providerSessionId: `manager-notices:${threadId}`, providerInstanceId },
+    client: undefined,
+    capabilities: new Set(["orchestration"]),
+    issuedAt: 0,
+  });
+
+  const relayManagerNotices: BotReach["Service"]["relayManagerNotices"] = Effect.gen(function* () {
+    const reachable = (yield* links.list.pipe(Effect.orElseSucceed(() => []))).filter(
+      (link) => link.status === "reachable",
+    );
+    if (reachable.length === 0) return;
+    const self = yield* here;
+    const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
+    for (const project of snapshot.projects) {
+      if (project.deletedAt !== null || project.remoteManager != null) continue;
+      const permittedIds = yield* managerPermitted(project);
+      const targets = reachable.filter((link) => permittedIds.includes(link.environmentId));
+      if (targets.length === 0) continue;
+      const threadId = projectHeadquartersThreadId(project.id);
+      // A manager that never opened, or is turned off, has no one to tell.
+      const shell = yield* threads.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => null));
+      if (shell === null || shell.archivedAt !== null) continue;
+      const home: ManagerHome = {
+        environmentId: self.environmentId,
+        projectId: project.id,
+        name: managerName(project),
+        label: self.label,
+      };
+      for (const link of targets) {
+        const cursor = `${project.id}\n${link.environmentId}`;
+        const since = relayedUntil.get(cursor) ?? relayStart;
+        const scope = relayScope(threadId, shell.modelSelection.instanceId, self.environmentId);
+        const notices = yield* forwarding
+          .call(scope, LinkBotNotices, link.environmentId, { home, since })
+          .pipe(
+            Effect.timeout(LINK_LIST_TIMEOUT),
+            Effect.map((answered) => answered.notices),
+            // An older or unreachable environment is asked again next time.
+            Effect.orElseSucceed((): ReadonlyArray<LinkedNotice> => []),
+          );
+        for (const notice of notices) {
+          yield* inbox.post({
+            threadId,
+            key: `linked-notice:${link.environmentId}:${notice.threadId}:${notice.key}`,
+            text: `On ${link.label}, for the request in thread ${notice.threadId} there:\n\n${notice.text}`,
+          });
+        }
+        const newest = notices.at(-1);
+        if (newest !== undefined) relayedUntil.set(cursor, newest.createdAt);
+      }
+    }
+  }).pipe(
+    Effect.catchCause((cause) => Effect.logWarning("Relaying linked notices failed", { cause })),
+    Effect.withSpan("BotReach.relayManagerNotices"),
+  );
+
   const list: BotReach["Service"]["list"] = Effect.gen(function* () {
     const home = yield* here;
     const listed = yield* bots.list.pipe(Effect.mapError(unavailable));
@@ -669,6 +885,8 @@ const make = Effect.gen(function* () {
     checkLaunch,
     launchProjectManager,
     startForLink,
+    noticesForLink,
+    relayManagerNotices,
   });
 });
 

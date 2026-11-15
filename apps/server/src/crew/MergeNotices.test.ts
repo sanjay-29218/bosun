@@ -231,6 +231,29 @@ it.effect("tells each project's manager once about a merge its work tracks", () 
   }).pipe(Effect.provide(sqlite)),
 );
 
+it.effect(
+  "leaves the retired manager of a copy whose manager lives on another machine asleep",
+  () =>
+    Effect.gen(function* () {
+      yield* migrated;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+      INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json,
+        created_at, updated_at, remote_manager_json)
+      VALUES (${docs}, 'docs', '/home/user/docs', '[]', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z',
+        ${JSON.stringify({ environmentId: "environment-mac", projectId: "project:docs-mac", homeLabel: "Mac" })})
+    `;
+      const { notices, sent } = yield* setup();
+      for (const id of ["web-lead", "docs-lead"]) {
+        yield* notices.handleLink(ThreadId.make(id), merged());
+      }
+      assert.deepStrictEqual(
+        (yield* sent).map((message) => message.threadId),
+        [projectHeadquartersThreadId(web)],
+      );
+    }).pipe(Effect.provide(sqlite)),
+);
+
 it.effect("closes a fresh merge's own-repository issues once when the setting is on", () =>
   Effect.gen(function* () {
     yield* migrated;

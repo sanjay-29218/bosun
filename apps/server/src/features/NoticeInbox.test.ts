@@ -254,3 +254,43 @@ it.effect("tries a notice whose send failed again under fresh ids", () =>
     assert.match(digest!.text, /^2 updates arrived/);
   }).pipe(Effect.provide(sqlite)),
 );
+
+it.effect(
+  "lists linked requests' notices from the cursor's own instant, in the asked projects",
+  () =>
+    Effect.gen(function* () {
+      yield* migrated;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+      INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
+        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+      VALUES
+        ('link-task:a', 'feature-manager', 'project:web', 'thread:linked-web', 'Do', 'Do', '',
+          '[]', 1, '{}', 'full-access', '2026-11-05T00:00:00.000Z'),
+        ('link-task:b', 'feature-manager', 'project:docs', 'thread:linked-docs', 'Do', 'Do', '',
+          '[]', 1, '{}', 'full-access', '2026-11-05T00:00:00.000Z'),
+        ('run:local', 'feature-manager', 'project:web', 'thread:local', 'Do', 'Do', '',
+          '[]', 1, '{}', 'full-access', '2026-11-05T00:00:00.000Z')
+    `;
+      yield* sql`
+      INSERT INTO notice_inbox (thread_id, key, text, outcome, created_at) VALUES
+        ('thread:linked-web', 'old', 'Seen', NULL, '2026-11-05T00:00:01.000Z'),
+        ('thread:linked-web', 'tied', 'Shares the cursor instant', NULL, '2026-11-05T00:00:02.000Z'),
+        ('thread:linked-web', 'new', 'Stopped', 'failed', '2026-11-05T00:00:03.000Z'),
+        ('thread:linked-docs', 'docs', 'Other project', NULL, '2026-11-05T00:00:03.000Z'),
+        ('thread:local', 'local', 'Not a linked request', NULL, '2026-11-05T00:00:03.000Z')
+    `;
+      const { inbox } = yield* setup();
+      const listed = yield* inbox.postedToLinkedRequests({
+        projectIds: ["project:web"],
+        since: "2026-11-05T00:00:02.000Z",
+      });
+      assert.deepStrictEqual(
+        listed.map((notice) => [notice.key, notice.failed]),
+        [
+          ["tied", false],
+          ["new", true],
+        ],
+      );
+    }).pipe(Effect.provide(sqlite)),
+);

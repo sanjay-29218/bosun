@@ -281,6 +281,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.crewResetProjectManager]: "crew",
   [WS_METHODS.crewSetProjectManagerEnabled]: "crew",
   [WS_METHODS.crewSetProjectManagerIcon]: "crew",
+  [WS_METHODS.crewSetProjectManagerPlacement]: "crew",
   [WS_METHODS.crewOpenProjectManager]: "crew",
   [WS_METHODS.crewStartNewSession]: "crew",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
