@@ -62,8 +62,10 @@ export function makeSubagentChildThread(input: {
   readonly creationSource: OrchestrationV2CreationSource;
 }): OrchestrationV2AppThread {
   const parentFeature = input.parentThread.feature;
+  // The remote parent delegated the parent thread, not its subagents.
+  const { delegatedFrom: _delegatedFrom, ...inherited } = input.parentThread;
   return {
-    ...input.parentThread,
+    ...inherited,
     // A crew member's own subagent works on the feature but isn't that member; only a crew
     // delegation names one.
     ...(parentFeature?.member === undefined

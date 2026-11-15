@@ -979,6 +979,15 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
       expect(retried.taskId).toBe(delegated.taskId);
       expect((yield* a.orchestrator.getThreadProjection(parentThreadId)).subagents).toHaveLength(1);
 
+      // Its provider there has not started the turn yet.
+      yield* Ref.set(thread.status, "starting");
+      const starting = yield* a.call("task_status", { taskId: delegated.taskId });
+      expect(starting.structuredContent).toMatchObject({
+        status: "starting",
+        workState: "working",
+      });
+      yield* Ref.set(thread.status, "running");
+
       const historyReads: Array<string> = [];
       const historyTracer = Tracer.make({
         span(options) {
@@ -1772,6 +1781,15 @@ it.effect("a launch whose answer was lost when the box came back starts one run 
       const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
       const botBox = yield* makeBotBox(thread);
       yield* Ref.set(botBox.loseAnswer, true);
+      // The follower's next try waits until the first answer is read, so that read is the lost one.
+      const firstAnswerRead = yield* Deferred.make<void>();
+      const launchCount = yield* Ref.make(0);
+      yield* Ref.set(
+        botBox.onLaunch,
+        Ref.getAndUpdate(launchCount, (count) => count + 1).pipe(
+          Effect.flatMap((count) => (count === 0 ? Effect.void : Deferred.await(firstAnswerRead))),
+        ),
+      );
       const a = yield* makeLaptop(database, offers, undefined, botBox.reach);
       yield* linkTo(a.links, b, "full-access");
       yield* seedParent(a, headquarters);
@@ -1779,6 +1797,7 @@ it.effect("a launch whose answer was lost when the box came back starts one run 
       // The box started the run, but the laptop never heard, so the request waits...
       const waiting = requested(yield* requestOnBox(a));
       expect(waiting.status).toBe("waiting");
+      yield* Deferred.succeed(firstAnswerRead, undefined);
       // ...and its follower's next try finds the run the first one started.
       yield* taskWhen(a, waiting.taskId, (task) => task.remoteChild !== undefined, headquarters);
       expect(yield* Ref.get(botBox.asked)).toHaveLength(2);

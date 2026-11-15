@@ -1962,6 +1962,18 @@ it.effect(
         };
       });
 
+      // The row settles on the orchestrator's child-settled stream, which drain does not cover.
+      const rowSettled = yield* orchestrator.streamDomainEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.type === "subagent.updated" &&
+            event.payload.id === task.id &&
+            event.payload.status === "completed",
+        ),
+        Stream.take(1),
+        Stream.runDrain,
+        Effect.forkScoped,
+      );
       // The row's Stop: the parent's task, then the child thread.
       yield* orchestrator.dispatch({
         type: "subagent.stop",
@@ -1977,6 +1989,7 @@ it.effect(
       });
       const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
       yield* worker.drain();
+      yield* Fiber.join(rowSettled);
       assert.deepEqual(yield* statuses, {
         row: "completed",
         native: "interrupted",
