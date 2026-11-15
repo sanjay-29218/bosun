@@ -1149,6 +1149,8 @@ type ShellThreadRow = {
   readonly latest_run_completed_at: string | null;
   readonly latest_run_stop_requested: number;
   readonly latest_run_background_wake: number;
+  readonly latest_run_quiet_wake: number;
+  readonly crew_working: number;
   readonly active_run_id: string | null;
   readonly active_run_status: string | null;
   readonly activity_run_status: string | null;
@@ -1161,6 +1163,7 @@ type ShellThreadRow = {
   readonly blocking_run_completed_at: string | null;
   readonly blocking_run_stop_requested: number;
   readonly blocking_run_background_wake: number;
+  readonly blocking_run_quiet_wake: number;
   readonly blocking_failure_payload_json: string | null;
   readonly pending_request_payload_json: string | null;
   readonly pending_secret_request_payload_json: string | null;
@@ -1920,6 +1923,18 @@ export function threadShellFromProjection(
       ),
     latestRunBackgroundWake:
       latestRun != null && isBackgroundWakeRunForShell(latestRun, projection),
+    latestRunQuietWake: latestRun != null && isQuietWakeRunForShell(latestRun, projection),
+    // Child features live outside the projection; the shell read (crewWorkingShellThread) has them.
+    ...(isFeatureLeadForShell(projection.thread) &&
+    projection.subagents.some(
+      (task) =>
+        task.origin === "app_owned" &&
+        (CREW_WORKING_TASK_STATUSES.has(task.status) ||
+          task.completionDelivery?.state === "pending" ||
+          task.completionDelivery?.state === "claimed"),
+    )
+      ? { crewWorking: true }
+      : {}),
     activeRunId: activeRun?.id ?? null,
     blockedOnThreadWait: deriveBlockedOnThreadWait({ activeRun, turnItems: projection.turnItems }),
     activityRunStatus: activityRun?.status ?? null,
@@ -2034,6 +2049,44 @@ function isBackgroundWakeRunForShell(
   );
 }
 
+const CREW_WORKING_TASK_STATUSES = new Set(["pending", "running", "waiting"]);
+
+const isFeatureLeadForShell = (thread: OrchestrationV2ThreadProjection["thread"]) =>
+  thread.feature != null &&
+  thread.feature.member === undefined &&
+  thread.lineage.parentThreadId === null;
+
+/** Mirrored by isQuietWakeShellRun. A follow-up the user steered in makes the run theirs. */
+function isQuietWakeRunForShell(
+  run: OrchestrationV2ThreadProjection["runs"][number],
+  projection: Pick<OrchestrationV2ThreadProjection, "messages">,
+): boolean {
+  return (
+    projection.messages.find((candidate) => candidate.id === run.userMessageId)?.notification
+      ?.quiet === true &&
+    !projection.messages.some(
+      (candidate) => candidate.runId === run.id && candidate.createdBy === "user",
+    )
+  );
+}
+
+/**
+ * A feature works while a child feature it started is open and hasn't reported, and only while
+ * it is open itself: a closed parent's children never report to it. Shell reads and
+ * FeatureService.reportIfQuiet share this, so a lead's quiet and its feature's quiet agree.
+ */
+export const childFeatureWorking = (
+  sql: SqlClient.SqlClient,
+  featureId: Statement.Fragment,
+) => sql`(
+  EXISTS (SELECT 1 FROM features parent WHERE parent.id = ${featureId} AND parent.status = 'open')
+  AND EXISTS (
+    SELECT 1 FROM features child
+    WHERE child.parent_feature_id = ${featureId}
+      AND child.status = 'open' AND child.report_outcome IS NULL
+  )
+)`;
+
 function isInterruptibleRunForShell(run: OrchestrationV2ThreadProjection["runs"][number]): boolean {
   return run.status === "preparing" || run.status === "starting" || run.status === "running";
 }
@@ -2057,6 +2110,8 @@ type ShellThreadState = {
   readonly latestRunCompletedAt: DateTime.Utc | null;
   readonly latestRunStopRequested: boolean;
   readonly latestRunBackgroundWake: boolean;
+  readonly latestRunQuietWake: boolean;
+  readonly crewWorking: boolean;
   readonly activeRunId: RunId | null;
   readonly blockedOnThreadWait: boolean;
   readonly activityRunStatus: ShellActivityRunStatus | null;
@@ -2236,6 +2291,8 @@ function shellFromState(input: {
     latestRunCompletedAt: input.state.latestRunCompletedAt,
     latestRunStopRequested: input.state.latestRunStopRequested,
     latestRunBackgroundWake: input.state.latestRunBackgroundWake,
+    latestRunQuietWake: input.state.latestRunQuietWake,
+    ...(input.state.crewWorking ? { crewWorking: true } : {}),
     activeRunId: input.state.activeRunId,
     blockedOnThreadWait: input.state.blockedOnThreadWait,
     activityRunStatus: input.state.activityRunStatus,
@@ -7853,6 +7910,41 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       )`;
     };
 
+    // Mirrors isQuietWakeRunForShell.
+    const isQuietWakeShellRun = (alias: string) => {
+      const run = sql.literal(alias);
+      return sql`EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_messages wake
+        WHERE wake.message_id = json_extract(${run}.payload_json, '$.userMessageId')
+          AND json_extract(wake.payload_json, '$.notification.quiet') = 1
+      ) AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_messages steer
+        WHERE steer.run_id = ${run}.run_id
+          AND json_extract(steer.payload_json, '$.createdBy') = 'user'
+      )`;
+    };
+
+    // Mirrors threadShellFromProjection, plus child features. A finished task stays working
+    // until its result reaches the lead (as in FeatureService.reportIfQuiet), so the lead's
+    // wake is queued before it reads idle; a child feature works until it reports.
+    const crewWorkingShellThread = (alias: string) => {
+      const thread = sql.literal(alias);
+      return sql`(
+        json_extract(${thread}.payload_json, '$.feature.id') IS NOT NULL
+        AND json_extract(${thread}.payload_json, '$.feature.member') IS NULL
+        AND json_extract(${thread}.payload_json, '$.lineage.parentThreadId') IS NULL
+        AND (
+          EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_subagents task
+            WHERE task.thread_id = ${thread}.thread_id AND task.origin = 'app_owned'
+              AND (task.status IN ('pending', 'running', 'waiting')
+                OR task.completion_delivery_state IN ('pending', 'claimed'))
+          )
+          OR ${childFeatureWorking(sql, sql`json_extract(${thread}.payload_json, '$.feature.id')`)}
+        )
+      )`;
+    };
+
     const selectShellThreadRows = (
       threadId?: ThreadId,
       {
@@ -7891,6 +7983,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND stop_request.type = 'run_interrupt_request'
               ) AS latest_run_stop_requested,
               ${isBackgroundWakeShellRun("presented")} AS latest_run_background_wake,
+              ${isQuietWakeShellRun("presented")} AS latest_run_quiet_wake,
+              ${crewWorkingShellThread("t")} AS crew_working,
               active.run_id AS active_run_id,
               active.status AS active_run_status,
               (
@@ -7952,6 +8046,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND stop_request.type = 'run_interrupt_request'
               ) AS blocking_run_stop_requested,
               ${isBackgroundWakeShellRun("blocked")} AS blocking_run_background_wake,
+              ${isQuietWakeShellRun("blocked")} AS blocking_run_quiet_wake,
               (
                 SELECT item.payload_json
                 FROM orchestration_v2_projection_turn_items item
@@ -8642,6 +8737,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             : DateTime.makeUnsafe(row.latest_run_completed_at);
         let latestRunStopRequested = row.latest_run_stop_requested === 1;
         let latestRunBackgroundWake = row.latest_run_background_wake === 1;
+        let latestRunQuietWake = row.latest_run_quiet_wake === 1;
+        const crewWorking = row.crew_working === 1;
         if (row.blocking_run_id !== null && row.blocking_failure_payload_json !== null) {
           const blockingFailure = yield* decodeTurnItemPayload(
             row.blocking_failure_payload_json,
@@ -8656,6 +8753,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             latestRunId = RunId.make(row.blocking_run_id);
             latestRunStopRequested = row.blocking_run_stop_requested === 1;
             latestRunBackgroundWake = row.blocking_run_background_wake === 1;
+            latestRunQuietWake = row.blocking_run_quiet_wake === 1;
             latestRunStatus = "failed";
             latestRunRequestedAt =
               row.blocking_run_requested_at === null
@@ -8697,6 +8795,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           latestRunCompletedAt,
           latestRunStopRequested,
           latestRunBackgroundWake,
+          latestRunQuietWake,
+          crewWorking,
           activeRunId: row.active_run_id === null ? null : RunId.make(row.active_run_id),
           blockedOnThreadWait: deriveBlockedOnThreadWait({
             activeRun:
@@ -8980,6 +9080,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               latestRunCompletedAt: state.latestRunCompletedAt,
               latestRunStopRequested: state.latestRunStopRequested,
               latestRunBackgroundWake: state.latestRunBackgroundWake,
+              latestRunQuietWake: state.latestRunQuietWake,
+              feature: state.thread.feature ?? null,
+              crewWorking: state.crewWorking,
               pendingRuntimeRequest: state.pendingRuntimeRequest,
               pendingBackgroundTasks: state.pendingBackgroundTasks,
             })),

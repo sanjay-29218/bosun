@@ -1426,6 +1426,8 @@ export const OrchestrationV2Notification = Schema.Struct({
   outcome: OrchestrationV2NotificationOutcome,
   summary: TrimmedNonEmptyString,
   detail: Schema.optional(Schema.String),
+  /** The person already heard this news from the thread it is about, so the turn it wakes notifies nobody. */
+  quiet: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2Notification = typeof OrchestrationV2Notification.Type;
 
@@ -2272,6 +2274,13 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestRunStopRequested: Schema.optional(Schema.Boolean),
   /** The latest run answers a background-work progress wake, like a Monitor line, not a terminal one. Absent from older servers. */
   latestRunBackgroundWake: Schema.optional(Schema.Boolean),
+  /** The latest run answers a quiet notice, such as a feature's finished report. Absent from older servers. */
+  latestRunQuietWake: Schema.optional(Schema.Boolean),
+  /**
+   * On a feature's lead: a task it delegated still runs or owes it a result, or a child feature
+   * it started hasn't reported. Sent only when true; absent means false.
+   */
+  crewWorking: Schema.optional(Schema.Boolean),
   activeRunId: Schema.NullOr(RunId),
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   activityRunStatus: Schema.optional(

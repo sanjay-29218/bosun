@@ -644,14 +644,14 @@ describe("feature lead and crew", () => {
         });
         const engine = yield* OrchestrationEngineService;
         // Started, and its lead's first turn released past preparing, so its turn start is queued.
-        const child = (title: string) =>
+        const child = (title: string, parentFeatureId = parent.feature.id) =>
           features
             .launch({
               projectId,
               title,
               brief: `Build the ${title}`,
               workspace: "local",
-              parentFeatureId: parent.feature.id,
+              parentFeatureId,
             })
             .pipe(
               Effect.tap((started) =>
@@ -707,6 +707,16 @@ describe("feature lead and crew", () => {
         yield* features.finishForThread(api.leadThreadId, "API is in");
         yield* features.reportIfQuiet(api.leadThreadId);
         expect(yield* notes()).toHaveLength(2);
+        // The finishing run is stamped on its lead, so that run's end notifies nobody.
+        const finishedRunId = sql<{ readonly runId: string | null }>`
+          SELECT json_extract(payload_json, '$.feature.finishedRunId') AS runId
+          FROM orchestration_v2_projection_threads WHERE thread_id = ${api.leadThreadId}
+        `.pipe(Effect.map((rows) => rows[0]?.runId ?? null));
+        const [apiRun] = yield* sql<{ readonly runId: string }>`
+          SELECT run_id AS runId FROM orchestration_v2_projection_runs
+          WHERE thread_id = ${api.leadThreadId}
+        `;
+        expect(yield* finishedRunId).toBe(apiRun?.runId);
         // A report from an earlier run doesn't cover a later one that stopped without one.
         yield* sql`UPDATE features SET reported_run_id = 'an-earlier-run' WHERE id = ${api.feature.id}`;
         yield* setLeadRun(api.leadThreadId, "completed");
@@ -724,6 +734,7 @@ describe("feature lead and crew", () => {
         expect((yield* apiCard())?.report?.outcome).toBe("finished");
         yield* features.withdrawFinished(api.leadThreadId, "2999-01-01T00:00:00.000Z");
         expect((yield* apiCard())?.report).toBeUndefined();
+        expect(yield* finishedRunId).toBeNull();
 
         // A child that went quiet while nobody watched is caught up on.
         const cli = yield* child("CLI");
@@ -754,6 +765,39 @@ describe("feature lead and crew", () => {
         expect(yield* notes()).toContainEqual(
           expect.stringMatching(/^Child feature was interrupted: "web page"/),
         );
+
+        // A child waiting on a grandchild it started isn't stopped.
+        const sync = yield* child("sync");
+        yield* sql`
+          INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
+          VALUES ('feature:sync-conflicts', ${projectId}, 'Conflicts', 'Resolve conflicts',
+            '2026-11-05T00:00:00.000Z', ${sync.feature.id})
+        `;
+        yield* setLeadRun(sync.leadThreadId, "completed");
+        const waiting = (yield* notes()).length;
+        yield* features.reportIfQuiet(sync.leadThreadId);
+        expect(yield* notes()).toHaveLength(waiting);
+        yield* sql`UPDATE features SET report_outcome = 'finished' WHERE id = 'feature:sync-conflicts'`;
+        yield* features.reportIfQuiet(sync.leadThreadId);
+        expect(yield* notes()).toContainEqual(
+          expect.stringMatching(/^Child feature stopped without reporting: "sync"/),
+        );
+
+        // A grandchild reported stopped that gets more work keeps its parent waiting again.
+        const exporter = yield* child("export");
+        const merge = yield* child("merge", exporter.feature.id);
+        yield* setLeadRun(merge.leadThreadId, "completed");
+        yield* features.reportIfQuiet(merge.leadThreadId);
+        expect((yield* userTexts(exporter.leadThreadId)).slice(1)).toContainEqual(
+          expect.stringMatching(/^Child feature stopped without reporting: "merge"/),
+        );
+        // The export lead replies in merge's thread, and merge runs again.
+        yield* features.withdrawFinished(merge.leadThreadId, "2999-01-01T00:00:00.000Z");
+        yield* setLeadRun(merge.leadThreadId, "running");
+        yield* setLeadRun(exporter.leadThreadId, "completed");
+        const resumed = (yield* notes()).length;
+        yield* features.reportIfQuiet(exporter.leadThreadId);
+        expect(yield* notes()).toHaveLength(resumed);
       }),
     ),
   );
@@ -868,6 +912,12 @@ describe("feature lead and crew", () => {
         expect(yield* held).toEqual([]);
         // It finishes once, and stopping after that reports nothing more.
         yield* features.finishForThread(csv.leadThreadId, "CSV export is merged");
+        // The lead's own finish told the person, so HQ's turn reading it stays quiet.
+        expect(
+          yield* sql<{ readonly quiet: number }>`
+            SELECT quiet FROM notice_inbox WHERE thread_id = ${hq} AND source_thread_id = ${csv.leadThreadId}
+          `,
+        ).toEqual([{ quiet: 1 }]);
         yield* fakeRun("run:builder", builder, "completed");
         yield* features.reportIfQuiet(csv.leadThreadId);
 
@@ -883,6 +933,16 @@ describe("feature lead and crew", () => {
         yield* features.reportIfQuiet(pdf.leadThreadId);
         expect(yield* held).toHaveLength(reported);
         yield* sql`DELETE FROM orchestration_v2_projection_subagents WHERE subagent_id = 'task:pdf-designer'`;
+        // Nor while a child feature it started hasn't reported to it.
+        yield* sql`
+          INSERT INTO features (id, project_id, title, brief, created_at, parent_feature_id)
+          VALUES ('feature:pdf-fonts', ${projectId}, 'PDF fonts', 'Embed fonts',
+            '2026-11-05T00:00:00.000Z', ${pdf.feature.id})
+        `;
+        yield* setRun(pdf.leadThreadId, "completed");
+        yield* features.reportIfQuiet(pdf.leadThreadId);
+        expect(yield* held).toHaveLength(reported);
+        yield* sql`DELETE FROM features WHERE id = 'feature:pdf-fonts'`;
 
         // Leads that stop with nothing left running report how their turn ended.
         yield* setRun(pdf.leadThreadId, "completed");
