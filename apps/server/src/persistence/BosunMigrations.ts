@@ -68,6 +68,7 @@ import FeatureTagParent from "./Migrations/110_FeatureTagParent.ts";
 import MergeClosedIssues from "./Migrations/111_MergeClosedIssues.ts";
 import ProjectManagerOwnSettings from "./Migrations/112_ProjectManagerOwnSettings.ts";
 import ProjectManagerIcon from "./Migrations/113_ProjectManagerIcon.ts";
+import ScheduledTaskProjectManager from "./Migrations/114_ScheduledTaskProjectManager.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -128,6 +129,7 @@ const migrationEntries = [
   [111, "MergeClosedIssues", MergeClosedIssues],
   [112, "ProjectManagerOwnSettings", ProjectManagerOwnSettings],
   [113, "ProjectManagerIcon", ProjectManagerIcon],
+  [114, "ScheduledTaskProjectManager", ScheduledTaskProjectManager],
 ] as const;
 
 const legacyNames = new Set([

@@ -3034,6 +3034,66 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
 
+    it.effect("schedules a project manager's task only for a caller covering its modes", () => {
+      const saved = Ref.makeUnsafe<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+      const projectModel = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };
+      const layer = layerOrchestratorService.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            NodeServices.layer,
+            NodeCrypto.layer,
+            // No manager thread yet, so its modes are unknown.
+            Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadShell: () => Effect.succeed(null),
+            }),
+            ServerSettings.layerTest(),
+            Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+            Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+              list: () => Effect.succeed([]),
+            }),
+            Layer.mock(ProjectService.ProjectService)({
+              getById: (id) =>
+                Effect.succeedSome({ id, defaultModelSelection: projectModel } as never),
+            }),
+            Layer.mock(SecretRequests.SecretRequests)({}),
+            Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+            Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+              upsert: (input) =>
+                Ref.update(saved, (all) => [...all, input]).pipe(
+                  Effect.as({ task: task({ projectManager: true, runtimeMode: "full-access" }) }),
+                ),
+            }),
+          ),
+        ),
+      );
+      return Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const schedule = (scope: McpInvocationScope) =>
+          mcp.scheduleTask(scope, {
+            projectId,
+            projectManager: true,
+            prompt: "Triage new issues",
+            schedule: { type: "interval", everyMs: 3_600_000 },
+          });
+
+        const refused = yield* Effect.flip(schedule(supervisedClient));
+        assert.equal(refused.code, "runtime_mode_escalation_denied");
+        assert.lengthOf(yield* Ref.get(saved), 0);
+
+        const scheduled = yield* schedule({
+          ...supervisedClient,
+          client: { sessionId: "scheduled", label: "Claude Code", access: "full-access" },
+        });
+        assert.isTrue(scheduled.projectManager);
+        const [input] = yield* Ref.get(saved);
+        assert.isTrue(input?.projectManager);
+        assert.equal(input?.projectId, projectId);
+        assert.isUndefined(input?.botId);
+        assert.isNull(input?.threadId);
+        assert.deepEqual(input?.workspaceStrategy, { type: "root" });
+      }).pipe(Effect.provide(layer));
+    });
+
     it.effect("hides a webhook URL from a caller below the task's modes", () =>
       Effect.gen(function* () {
         const upserted = yield* Ref.make(0);

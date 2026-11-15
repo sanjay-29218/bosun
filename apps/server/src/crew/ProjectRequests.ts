@@ -6,6 +6,7 @@ import {
   projectHeadquartersThreadId,
   type ProjectManagerSettings,
   RunId,
+  type ScheduledTaskError,
   ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
@@ -26,6 +27,7 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { NoticeInbox } from "../features/NoticeInbox.ts";
+import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { forkParked } from "../serverActivation.ts";
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
 import { projectRequestText } from "./crewPrompts.ts";
@@ -58,7 +60,8 @@ export type ProjectRequestsError =
   | ProjectRequestError
   | PersistenceSqlError
   | OrchestratorV2Error
-  | CrewServiceError;
+  | CrewServiceError
+  | ScheduledTaskError;
 
 export interface ProjectRequestsShape {
   /**
@@ -106,7 +109,10 @@ export interface ProjectRequestsShape {
    * recorded for it, such as one that ended just before a restart, newer turns or not.
    */
   readonly catchUp: () => Effect.Effect<void>;
-  /** Turns the project's manager on or off; off hands its open requests back to their senders. */
+  /**
+   * Turns the project's manager on or off; off pauses the automations that run as it and hands its
+   * open requests back to their senders. On resumes neither.
+   */
   readonly setManagerEnabled: (input: {
     readonly projectId: ProjectId;
     readonly enabled: boolean;
@@ -157,6 +163,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const crew = yield* CrewService;
   const inbox = yield* NoticeInbox;
+  const scheduledTasks = yield* ScheduledTaskService;
   const queryError = toPersistenceSqlError("ProjectRequests.query");
 
   const columns = sql`
@@ -556,12 +563,16 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const settings = yield* crew.setProjectManagerEnabled(input);
     if (input.enabled) return settings;
+    const name = yield* projectName(input.projectId);
+    yield* scheduledTasks.pauseForProjectManager({
+      projectId: input.projectId,
+      reason: `${name}'s manager was turned off`,
+    });
     const open = yield* sql<ProjectRequestRow>`
       SELECT ${columns} FROM project_requests
       WHERE project_id = ${input.projectId} AND status = 'open'
       ORDER BY number
     `.pipe(Effect.mapError(queryError));
-    const name = yield* projectName(input.projectId);
     for (const request of open.map(decode)) {
       yield* tellRequester(
         request,

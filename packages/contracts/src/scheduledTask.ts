@@ -267,6 +267,13 @@ export const ScheduledTask = Schema.Struct({
    * `modelSelection` don't apply. `projectId` is only where the task is filed.
    */
   botId: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Set when the task runs as `projectId`'s manager: every run goes to the manager's thread with
+   * its own settings, so like `botId`, `threadId`, `workspaceStrategy` and `modelSelection` don't apply.
+   */
+  projectManager: Schema.optional(Schema.Boolean),
+  /** Why the server paused the task, such as its manager being turned off; cleared when it's turned on. */
+  pausedReason: Schema.optional(Schema.String),
   /** Why the task cannot run regardless of `enabled`, such as a managed policy refusing webhooks. */
   blockedByPolicy: Schema.optionalKey(Schema.String),
 });
@@ -296,6 +303,10 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   botId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).annotate({
     description:
       "Run as this bot, in its headquarters. Omitted: keep stored. Null: a new thread per run.",
+  }),
+  projectManager: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Run as `projectId`'s manager, in its thread. Omitted: keep stored. False: a new thread per run.",
   }),
   threadId: Schema.optional(Schema.NullOr(ThreadId)),
   /** Omitted: keep the stored mode, or derive it from `threadId` for a new or rebound task. */
