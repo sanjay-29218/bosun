@@ -297,6 +297,7 @@ import {
   useEnvironmentFilter,
   useSelectLogicalBot,
   useAllVisibleLogicalBots,
+  useShowBotRail,
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../state/botRail";
@@ -581,6 +582,7 @@ function OpenCommandPaletteDialog(props: {
   const switchBotMainView = useSwitchBotMainView();
   const multipleBots = railBots.length > 1;
   const botRailCollapsed = useUiStateStore((store) => store.botRailCollapsed);
+  const showBotRail = useShowBotRail();
   const environmentFilter = useEnvironmentFilter();
   const setSidebarEnvironmentIds = useUiStateStore((store) => store.setSidebarEnvironmentIds);
   const connectedEnvironmentIds = useConnectedEnvironmentIds();
@@ -2001,7 +2003,7 @@ function OpenCommandPaletteDialog(props: {
         };
       })
     : [];
-  if (railBots.length > 0) {
+  if (showBotRail) {
     botItems.push({
       kind: "action",
       value: "bot-list:toggle",

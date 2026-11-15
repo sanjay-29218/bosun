@@ -150,6 +150,23 @@ describe("SidebarUpdatePill update everything", () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(button.element()));
   });
 
+  it("keeps the rail's confirmation open when the updates go away", async () => {
+    const upToDate = {
+      ...nightlyUpdate([]),
+      status: "up-to-date",
+      availableVersion: null,
+    } as const;
+    setup(upToDate, { hasUpdates: true });
+    await using screen = await render(<SidebarUpdatePill placement="rail" />);
+    await userEvent.click(screen.getByRole("button", { name: "Update: Update everything" }));
+    const cancel = page.getByRole("button", { name: "Cancel" });
+    await expect.element(cancel).toBeVisible();
+
+    mocks.hasUpdates = false;
+    await publish({ ...upToDate });
+    await expect.element(cancel).toBeVisible();
+  });
+
   it("exposes the machines as a table with each value in its column", async () => {
     const label = "DESKTOP-WORKSTATION-UPSTAIRS";
     setup(null, {
