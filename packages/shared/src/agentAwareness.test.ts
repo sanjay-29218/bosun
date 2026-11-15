@@ -26,6 +26,7 @@ describe("projectThreadAwarenessV2", () => {
         | "activityRunStatus"
         | "latestRunBackgroundWake"
         | "latestRunStopRequested"
+        | "quietCompletion"
         | "status"
         | "pendingBackgroundTasks"
         | "pendingRuntimeRequest"
@@ -49,7 +50,7 @@ describe("projectThreadAwarenessV2", () => {
     ...overrides,
   });
 
-  it("does not announce completion after a manual stop", () => {
+  it("does not announce completion after a manual stop or one the server marks quiet", () => {
     const input = {
       environmentId: "env-1" as EnvironmentId,
       project,
@@ -61,6 +62,10 @@ describe("projectThreadAwarenessV2", () => {
         ...input,
         thread: { ...input.thread, latestRunStopRequested: true },
       }),
+    ).toBeNull();
+    // Such as a crew member's turn, or a feature lead whose crew result is on its way.
+    expect(
+      projectThreadAwarenessV2({ ...input, thread: { ...input.thread, quietCompletion: true } }),
     ).toBeNull();
   });
 
@@ -275,7 +280,8 @@ describe("projectThreadAwarenessV2", () => {
     const lead = {
       environmentId: "env-1" as EnvironmentId,
       project,
-      thread: v2Thread({ status: "completed" }),
+      // A quiet completion never silences a crew member's ask.
+      thread: v2Thread({ status: "completed", quietCompletion: true }),
       pendingSubagentRequest: {
         requestId: asked.id,
         updatedAt,

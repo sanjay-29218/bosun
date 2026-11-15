@@ -67,6 +67,11 @@ board once you're happy with it.
 A needs-you line links to the thread that asks, and a finish line carries the pull request. A
 bot's headquarters hears only when a feature finishes or fails.
 
+A running feature notifies you only when it needs you or when its lead stops with the crew idle,
+such as when the pull request is ready. Crew turns, the lead handing work on, and tasks or child
+features finishing stay quiet; they still show as finished in the app. The same holds on desktop,
+web and mobile.
+
 ## The board
 
 The board has four columns. **Todo** holds each project's open issues and tickets that no feature

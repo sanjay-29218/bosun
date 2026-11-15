@@ -97,6 +97,7 @@ export interface ProjectThreadAwarenessV2Input {
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
+    | "quietCompletion"
     | "settledOverride"
     | "status"
     | "title"
@@ -120,7 +121,12 @@ export function projectThreadAwarenessV2(
   if (phase === null) {
     return null;
   }
-  if (phase === "completed" && thread.latestRunStopRequested === true) return null;
+  if (
+    phase === "completed" &&
+    (thread.latestRunStopRequested === true || thread.quietCompletion === true)
+  ) {
+    return null;
+  }
   // Resolve the phase first so live or waiting work stays visible after settlement.
   const runStatus = thread.activityRunStatus ?? thread.status;
   if (

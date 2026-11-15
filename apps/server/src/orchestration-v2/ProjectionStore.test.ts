@@ -2411,6 +2411,34 @@ const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
     [...(yield* store.listAppOwnedChildThreadIds(threadId))],
     [childThreadIds.delivered, childThreadIds["no-delivery"]],
   );
+  // Ended tasks whose results are still on their way keep the thread's finish quiet, in the SQL
+  // and memory shells alike, until those results are delivered.
+  const quietCompletion = Effect.gen(function* () {
+    const shell = yield* store.getThreadShell(threadId);
+    const memory = ProjectionStore.threadShellFromProjection(
+      yield* store.getThreadProjection(threadId),
+    );
+    const awareness = (yield* store.getAgentAwarenessSnapshot(threadId)).threads[0];
+    return [shell?.quietCompletion, memory.quietCompletion, awareness?.quietCompletion];
+  });
+  assert.deepEqual(yield* quietCompletion, [true, true, true]);
+  for (const name of ["pending-delivery", "claimed"] as const) {
+    const task = (yield* store.getThreadRecords(threadId, ["subagents"])).subagents.find(
+      (subagent) => subagent.title === name,
+    )!;
+    yield* store.apply({
+      id: EventId.make(`event:settled-subagents:delivered:${name}`),
+      type: "subagent.updated",
+      threadId,
+      runId: settledRun.id,
+      nodeId: task.id,
+      driver,
+      providerInstanceId,
+      occurredAt: now,
+      payload: { ...task, completionDelivery: { state: "delivered", observedByRunId: null } },
+    });
+  }
+  assert.deepEqual(yield* quietCompletion, [undefined, undefined, false]);
 });
 
 const backgroundThreadUpdatesKeepTimestamp = Effect.gen(function* () {

@@ -103,6 +103,7 @@ import type * as Statement from "effect/sql/Statement";
 
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
 import { threadHtmlRenderAttachmentIds } from "../attachmentStore.ts";
+import { delegatedResultOwed, isQuietCompletion } from "../crew/quietCompletion.ts";
 import { readableSearchText } from "./messageSearchIndex.ts";
 import {
   isFoldableWorkItem,
@@ -1149,6 +1150,7 @@ type ShellThreadRow = {
   readonly latest_run_completed_at: string | null;
   readonly latest_run_stop_requested: number;
   readonly latest_run_background_wake: number;
+  readonly delegated_result_owed: number;
   readonly active_run_id: string | null;
   readonly active_run_status: string | null;
   readonly activity_run_status: string | null;
@@ -1920,6 +1922,12 @@ export function threadShellFromProjection(
       ),
     latestRunBackgroundWake:
       latestRun != null && isBackgroundWakeRunForShell(latestRun, projection),
+    ...(isQuietCompletion({
+      thread: projection.thread,
+      delegatedResultOwed: projection.subagents.some(delegatedResultOwed),
+    })
+      ? { quietCompletion: true }
+      : {}),
     activeRunId: activeRun?.id ?? null,
     blockedOnThreadWait: deriveBlockedOnThreadWait({ activeRun, turnItems: projection.turnItems }),
     activityRunStatus: activityRun?.status ?? null,
@@ -2057,6 +2065,7 @@ type ShellThreadState = {
   readonly latestRunCompletedAt: DateTime.Utc | null;
   readonly latestRunStopRequested: boolean;
   readonly latestRunBackgroundWake: boolean;
+  readonly quietCompletion: boolean;
   readonly activeRunId: RunId | null;
   readonly blockedOnThreadWait: boolean;
   readonly activityRunStatus: ShellActivityRunStatus | null;
@@ -2236,6 +2245,7 @@ function shellFromState(input: {
     latestRunCompletedAt: input.state.latestRunCompletedAt,
     latestRunStopRequested: input.state.latestRunStopRequested,
     latestRunBackgroundWake: input.state.latestRunBackgroundWake,
+    ...(input.state.quietCompletion ? { quietCompletion: true } : {}),
     activeRunId: input.state.activeRunId,
     blockedOnThreadWait: input.state.blockedOnThreadWait,
     activityRunStatus: input.state.activityRunStatus,
@@ -7891,6 +7901,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND stop_request.type = 'run_interrupt_request'
               ) AS latest_run_stop_requested,
               ${isBackgroundWakeShellRun("presented")} AS latest_run_background_wake,
+              EXISTS (
+                SELECT 1 FROM orchestration_v2_projection_subagents owed
+                  INDEXED BY orchestration_v2_projection_subagents_settled_idx
+                WHERE owed.thread_id = t.thread_id
+                  AND owed.status IN ('completed', 'failed', 'cancelled', 'interrupted')
+                  AND owed.completion_delivery_state IN ('pending', 'claimed')
+              ) AS delegated_result_owed,
               active.run_id AS active_run_id,
               active.status AS active_run_status,
               (
@@ -8697,6 +8714,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           latestRunCompletedAt,
           latestRunStopRequested,
           latestRunBackgroundWake,
+          quietCompletion: isQuietCompletion({
+            thread,
+            delegatedResultOwed: row.delegated_result_owed === 1,
+          }),
           activeRunId: row.active_run_id === null ? null : RunId.make(row.active_run_id),
           blockedOnThreadWait: deriveBlockedOnThreadWait({
             activeRun:
@@ -8980,6 +9001,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               latestRunCompletedAt: state.latestRunCompletedAt,
               latestRunStopRequested: state.latestRunStopRequested,
               latestRunBackgroundWake: state.latestRunBackgroundWake,
+              quietCompletion: state.quietCompletion,
               pendingRuntimeRequest: state.pendingRuntimeRequest,
               pendingBackgroundTasks: state.pendingBackgroundTasks,
             })),
