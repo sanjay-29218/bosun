@@ -47,6 +47,10 @@ import { SettingsSection } from "./components/SettingsSection";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { MobileProjectBotSection } from "./MobileProjectBotSection";
 import { MobileProjectManagerSection } from "./MobileProjectManagerSection";
+import {
+  MobileProjectManagerPlacement,
+  useManagerPlacement,
+} from "./MobileProjectManagerPlacement";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
@@ -162,6 +166,15 @@ function ProjectOverviewContent(props: {
 }) {
   const { isRemoving, setIsRemoving, startRemoval, finishRemoval } = props;
   const representative = props.members[0]!;
+  // Scratch and bots' homes have no Project manager.
+  const managed = props.members.filter(
+    (member) =>
+      member.isScratch !== true &&
+      member.isBotHome !== true &&
+      props.environments.find((entry) => entry.environmentId === member.environmentId)?.serverConfig
+        .environment.capabilities.workflows === true,
+  );
+  const placement = useManagerPlacement(managed);
   const displayName = deriveProjectGroupLabel({
     groupKey: props.group.key,
     representative,
@@ -397,20 +410,39 @@ function ProjectOverviewContent(props: {
           />
         ) : null;
       })}
-      {props.members.map((member) => {
+      {placement.placed && placement.home !== null ? (
+        <MobileProjectManagerPlacement copies={placement.copies} home={placement.home} />
+      ) : null}
+      {managed.map((member) => {
         const environment = props.environments.find(
           (entry) => entry.environmentId === member.environmentId,
         );
-        // Scratch and bots' homes have no Project manager.
-        return environment?.serverConfig.environment.capabilities.workflows === true &&
-          member.isScratch !== true &&
-          member.isBotHome !== true ? (
+        // One manager per project, on the copy it lives on; another machine's shows its home.
+        const shown = placement.placed
+          ? placement.home?.environmentId === member.environmentId &&
+            placement.home.projectId === member.id
+          : member.remoteManager == null;
+        if (environment === undefined) return null;
+        if (!shown) {
+          return placement.placed || member.remoteManager == null ? null : (
+            <SettingsSection
+              key={`manager:${member.environmentId}:${member.id}`}
+              title={`Project manager · ${environment.label}`}
+            >
+              <Text className="p-4 text-sm text-foreground-muted">
+                Lives on {member.remoteManager.homeLabel}. Connect to it to change this project's
+                manager.
+              </Text>
+            </SettingsSection>
+          );
+        }
+        return (
           <MobileProjectManagerSection
             key={`manager:${member.environmentId}:${member.id}`}
             project={member}
             environmentLabel={environment.label}
           />
-        ) : null;
+        );
       })}
 
       {canOrganize ? (

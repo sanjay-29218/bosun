@@ -11,6 +11,7 @@ import {
   ModelSelection,
   ThreadId,
   type ProjectId,
+  type ProjectRemoteManager,
   type RunId,
   type RuntimeMode,
   type CrewTurnState,
@@ -68,6 +69,10 @@ export interface CrewThreadStart {
 
 export interface CrewThreadRuntimeShape {
   readonly projectExists: (projectId: ProjectId) => Effect.Effect<boolean, CrewReadError>;
+  /** Where the project's manager lives when it isn't here; null for here. */
+  readonly projectRemoteManager: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ProjectRemoteManager | null, CrewReadError>;
   /** The bot that owns the project, null when it has none or is gone. */
   readonly projectBotId: (projectId: ProjectId) => Effect.Effect<string | null, CrewReadError>;
   /**
@@ -324,6 +329,16 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           .pipe(
             Effect.map(Option.isSome),
             Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectExists")),
+          ),
+      ),
+      projectRemoteManager: Effect.fn("CrewThreadRuntime.projectRemoteManager")((projectId) =>
+        projects
+          .get(projectId)
+          .pipe(
+            Effect.map(
+              Option.match({ onNone: () => null, onSome: (project) => project.remoteManager }),
+            ),
+            Effect.mapError(toPersistenceSqlError("CrewThreadRuntime.projectRemoteManager")),
           ),
       ),
       projectBotId: Effect.fn("CrewThreadRuntime.projectBotId")((projectId) =>

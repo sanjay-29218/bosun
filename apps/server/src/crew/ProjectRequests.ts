@@ -1,9 +1,14 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeCrypto from "node:crypto";
+
 import {
   CommandId,
   headquartersProjectId,
   MessageId,
   ProjectId,
   projectHeadquartersThreadId,
+  type ProjectManagerPlacementInput,
+  type ProjectManagerPlacementResult,
   type ProjectManagerSettings,
   RunId,
   type ScheduledTaskError,
@@ -27,6 +32,7 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { NoticeInbox } from "../features/NoticeInbox.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { forkParked } from "../serverActivation.ts";
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
@@ -61,7 +67,8 @@ export type ProjectRequestsError =
   | PersistenceSqlError
   | OrchestratorV2Error
   | CrewServiceError
-  | ScheduledTaskError;
+  | ScheduledTaskError
+  | ProjectService.ProjectServiceError;
 
 export interface ProjectRequestsShape {
   /**
@@ -117,6 +124,14 @@ export interface ProjectRequestsShape {
     readonly projectId: ProjectId;
     readonly enabled: boolean;
   }) => Effect.Effect<ProjectManagerSettings, ProjectRequestsError>;
+  /**
+   * Where the project's manager lives and works. Moving it to another environment's copy retires
+   * the manager here as turning it off does (requests back, automations paused, thread archived),
+   * keeping its settings; `retired` tells the manager here which copy's manager it replaced.
+   */
+  readonly setManagerPlacement: (
+    input: ProjectManagerPlacementInput,
+  ) => Effect.Effect<ProjectManagerPlacementResult, ProjectRequestsError>;
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
 }
 
@@ -164,6 +179,7 @@ const make = Effect.gen(function* () {
   const crew = yield* CrewService;
   const inbox = yield* NoticeInbox;
   const scheduledTasks = yield* ScheduledTaskService;
+  const projectService = yield* ProjectService.ProjectService;
   const queryError = toPersistenceSqlError("ProjectRequests.query");
 
   const columns = sql`
@@ -564,35 +580,98 @@ const make = Effect.gen(function* () {
     const settings = yield* crew.setProjectManagerEnabled(input);
     if (input.enabled) return settings;
     const name = yield* projectName(input.projectId);
+    yield* retire(input.projectId, {
+      key: "manager-off",
+      handBack: (request) =>
+        `${name}'s project manager was turned off, so ${request.id} is back with you:\n\n${request.text}\n\nDo it yourself: start a task or a feature in the project.`,
+      pauseReason: `${name}'s manager was turned off`,
+    });
+    return settings;
+  });
+
+  /** Hands the manager's open requests back, then pauses the automations that run as it. */
+  const retire = Effect.fn("ProjectRequests.retire")(function* (
+    projectId: ProjectId,
+    how: {
+      readonly key: string;
+      readonly handBack: (request: ProjectRequest) => string;
+      readonly pauseReason: string;
+    },
+  ) {
     const open = yield* sql<ProjectRequestRow>`
       SELECT ${columns} FROM project_requests
-      WHERE project_id = ${input.projectId} AND status = 'open'
+      WHERE project_id = ${projectId} AND status = 'open'
       ORDER BY number
     `.pipe(Effect.mapError(queryError));
     for (const request of open.map(decode)) {
       yield* tellRequester(
         request,
-        projectHeadquartersThreadId(input.projectId),
-        "manager-off",
-        `${name}'s project manager was turned off, so ${request.id} is back with you:\n\n${request.text}\n\nDo it yourself: start a task or a feature in the project.`,
+        projectHeadquartersThreadId(projectId),
+        how.key,
+        how.handBack(request),
         `${request.id} is back with you`,
       );
       const closedAt = DateTime.formatIso(yield* DateTime.now);
       yield* sql`
         UPDATE project_requests SET status = 'done', closed_at = COALESCE(closed_at, ${closedAt})
-        WHERE project_id = ${input.projectId} AND id = ${request.id}
+        WHERE project_id = ${projectId} AND id = ${request.id}
       `.pipe(Effect.mapError(queryError));
     }
-    // After the hand-back, so a failure here can't strand requests with a manager that's off.
-    yield* scheduledTasks.pauseForProjectManager({
-      projectId: input.projectId,
-      reason: `${name}'s manager was turned off`,
+    // After the hand-back, so a failure here can't strand requests with a manager that's gone.
+    yield* scheduledTasks.pauseForProjectManager({ projectId, reason: how.pauseReason });
+  });
+
+  const setManagerPlacement: ProjectRequestsShape["setManagerPlacement"] = Effect.fn(
+    "ProjectRequests.setManagerPlacement",
+  )(function* (input) {
+    const { projectId } = input;
+    const project = yield* projects.get(projectId).pipe(Effect.mapError(queryError));
+    if (Option.isNone(project)) {
+      return yield* Effect.fail(new ProjectRequestError(`Project ${projectId} doesn't exist`));
+    }
+    yield* crew.requireManagedProject(projectId);
+    const name = project.value.title;
+    const next = input.remoteManager;
+    const current = project.value.remoteManager;
+    const moving =
+      next != null &&
+      (current?.environmentId !== next.environmentId || current.projectId !== next.projectId);
+    let retiredThreadId: ThreadId | null = null;
+    if (moving) {
+      yield* retire(projectId, {
+        key: `manager-moved:${next.environmentId}`,
+        handBack: (request) =>
+          `${name}'s project manager now lives on ${next.homeLabel}, so ${request.id} is back with you:\n\n${request.text}\n\nSend it to the manager on ${next.homeLabel}, or do it yourself here.`,
+        pauseReason: `${name}'s manager now lives on ${next.homeLabel}`,
+      });
+      retiredThreadId = yield* crew.archiveProjectManager(projectId);
+    }
+    yield* projectService.setManagerPlacement({
+      commandId: CommandId.make(`project-manager-placement:${NodeCrypto.randomUUID()}`),
+      projectId,
+      ...(next === undefined ? {} : { remoteManager: next }),
+      ...(input.permittedEnvironmentIds === undefined
+        ? {}
+        : { permittedEnvironmentIds: input.permittedEnvironmentIds }),
     });
-    return settings;
+    const { retired } = input;
+    // Only a manager that already has a thread here hears it; a new one starts without it.
+    if (retired !== undefined && next == null) {
+      const { threadId: managerThreadId } = yield* crew.projectManagerSettings(projectId);
+      if (managerThreadId !== null) {
+        yield* inbox.post({
+          threadId: managerThreadId,
+          key: `manager-retired:${retired.threadId}`,
+          text: `${name} had a second project manager on ${retired.environmentLabel}. It is retired now: its thread ${retired.threadId} is archived there, and its open requests went back to their senders. You are this project's only manager. You also work on its copy on ${retired.environmentLabel} when Project settings → Project manager → Can work on allows it.`,
+        });
+      }
+    }
+    return { retiredThreadId };
   });
 
   return ProjectRequests.of({
     setManagerEnabled,
+    setManagerPlacement,
     send,
     reply,
     list,

@@ -2,6 +2,7 @@ import {
   CommandId,
   type EnvironmentId,
   headquartersBotId,
+  headquartersProjectId,
   OrchestratorMcpFailure,
   type ProjectId,
 } from "@t3tools/contracts";
@@ -14,8 +15,9 @@ import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 /**
- * From a bot's headquarters: a request for its project on linked environment `environmentId`,
- * as a task of that project's Feature manager there. It starts there now, or waits for that
+ * From a bot's headquarters, or a project's manager: a request for a project on linked
+ * environment `environmentId` (the bot's, or the manager's project's copy there), as a task of
+ * that project's Feature manager there. It starts there now, or waits for that
  * environment and starts once it answers; its reply comes back to this thread either way.
  */
 export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(function* (
@@ -32,11 +34,14 @@ export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(
     yield* McpInvocationContext.McpInvocationContext,
     operation,
   );
-  if (headquartersBotId(scope.thread.threadId) === null) {
+  if (
+    headquartersBotId(scope.thread.threadId) === null &&
+    headquartersProjectId(scope.thread.threadId) === null
+  ) {
     return yield* new OrchestratorMcpFailure({
       code: "capability_denied",
       message:
-        "Only a bot's headquarters sends work to its project on a linked environment. Leave out environmentId for a project here.",
+        "Only a bot's headquarters or a project's manager sends work to a project on a linked environment. Leave out environmentId for a project here.",
     });
   }
   const { taskId } = yield* (yield* RemoteDelegation.RemoteDelegation).delegate(scope, {

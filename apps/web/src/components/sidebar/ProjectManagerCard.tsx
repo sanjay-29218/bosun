@@ -62,7 +62,7 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
       >
         <button
           type="button"
-          aria-label={`Open ${manager.title}'s project manager${status ? `, ${status}` : ""}`}
+          aria-label={`Open ${manager.title}'s project manager${manager.homeLabel === null ? "" : ` on ${manager.homeLabel}`}${status ? `, ${status}` : ""}`}
           aria-current={open ? "page" : undefined}
           className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => {
@@ -80,7 +80,9 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
         <div className="pointer-events-none flex min-w-0 flex-1 flex-col">
           {/* The title has the top line to itself; the status leads the second. */}
           <span className="truncate pe-6 text-sm font-medium text-sidebar-foreground">
-            Project manager
+            {manager.homeLabel === null
+              ? "Project manager"
+              : `Project manager · ${manager.homeLabel}`}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             {waiting ? (

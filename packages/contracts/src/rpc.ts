@@ -60,6 +60,8 @@ import {
   CrewStartNewSessionInput,
   ProjectManagerEnabledInput,
   ProjectManagerIconInput,
+  ProjectManagerPlacementInput,
+  ProjectManagerPlacementResult,
   ProjectManagerResetInput,
   ProjectManagerThread,
   ProjectManagerSettings,
@@ -534,6 +536,7 @@ export const WS_METHODS = {
   crewSetProjectManagerEnabled: "crew.setProjectManagerEnabled",
   crewSetProjectManagerIcon: "crew.setProjectManagerIcon",
   crewOpenProjectManager: "crew.openProjectManager",
+  crewSetProjectManagerPlacement: "crew.setProjectManagerPlacement",
   crewStartNewSession: "crew.startNewSession",
   projectsListEntries: "projects.listEntries",
   projectsListIgnoredFiles: "projects.listIgnoredFiles",
@@ -1446,6 +1449,11 @@ const WsCrewSetProjectManagerIconRpc = Rpc.make(WS_METHODS.crewSetProjectManager
 const WsCrewOpenProjectManagerRpc = Rpc.make(WS_METHODS.crewOpenProjectManager, {
   payload: CrewProjectInput,
   success: ProjectManagerThread,
+  error: CrewRpcError,
+});
+const WsCrewSetProjectManagerPlacementRpc = Rpc.make(WS_METHODS.crewSetProjectManagerPlacement, {
+  payload: ProjectManagerPlacementInput,
+  success: ProjectManagerPlacementResult,
   error: CrewRpcError,
 });
 const WsCrewStartNewSessionRpc = Rpc.make(WS_METHODS.crewStartNewSession, {
@@ -2546,6 +2554,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsCrewSetProjectManagerEnabledRpc,
   WsCrewSetProjectManagerIconRpc,
   WsCrewOpenProjectManagerRpc,
+  WsCrewSetProjectManagerPlacementRpc,
   WsCrewStartNewSessionRpc,
 ).middleware(RpcScopeAuthorization);
 

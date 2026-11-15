@@ -325,6 +325,13 @@ export interface CrewServiceShape {
     readonly projectId: ProjectId;
     readonly enabled: boolean;
   }) => Effect.Effect<ProjectManagerSettings, CrewServiceError>;
+  /**
+   * Archives the project's manager thread, as a move to another environment's copy does, and
+   * returns it; null when the manager never had one. Its settings stay for a move back.
+   */
+  readonly archiveProjectManager: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ThreadId | null, CrewServiceError>;
   /** Chooses the manager's look without marking it customized; null goes back to the derived one. */
   readonly setProjectManagerIcon: (
     input: ProjectManagerIconInput,
@@ -1377,10 +1384,24 @@ export const CrewServiceLive = Layer.effect(
         `Project ${projectId}'s manager is turned off. Do this work yourself: start a task or a feature in the project.`,
       );
 
+    /** A copy whose manager lives on another environment has none of its own. */
+    const requireManagerHere = Effect.fn("CrewService.requireManagerHere")(function* (
+      projectId: ProjectId,
+    ) {
+      const home = yield* runtime.projectRemoteManager(projectId);
+      if (home === null) return;
+      return yield* Effect.fail(
+        new CrewValidationError(
+          `Project ${projectId}'s manager lives on ${home.homeLabel}, so this copy has none of its own. Ask that manager, or start a task or a feature here yourself.`,
+        ),
+      );
+    });
+
     const requireProjectManagerOn: CrewServiceShape["requireProjectManagerOn"] = Effect.fn(
       "CrewService.requireProjectManagerOn",
     )(function* (projectId) {
       yield* requireManagedProject(projectId);
+      yield* requireManagerHere(projectId);
       const member = yield* store.getMember(projectManagerMemberId(projectId));
       if (member?.enabled === false) return yield* Effect.fail(projectManagerOff(projectId));
     });
@@ -1416,6 +1437,15 @@ export const CrewServiceLive = Layer.effect(
       return yield* projectManagerSettings(projectId);
     });
 
+    const archiveProjectManager: CrewServiceShape["archiveProjectManager"] = Effect.fn(
+      "CrewService.archiveProjectManager",
+    )(function* (projectId) {
+      const run = yield* store.getRun(projectHeadquartersRunId(projectId));
+      if (run === null) return null;
+      yield* runtime.archive(run.threadId);
+      return run.threadId;
+    });
+
     const setProjectManagerIcon: CrewServiceShape["setProjectManagerIcon"] = Effect.fn(
       "CrewService.setProjectManagerIcon",
     )(function* ({ projectId, icon }) {
@@ -1439,6 +1469,7 @@ export const CrewServiceLive = Layer.effect(
     )(function* (projectId) {
       const member = yield* projectManagerMember(projectId);
       if (!member.enabled) return yield* Effect.fail(projectManagerOff(projectId));
+      yield* requireManagerHere(projectId);
       const owner = yield* projectOwner(projectId);
       if (owner === null) {
         return yield* Effect.fail(new CrewValidationError("Project manager is unavailable"));
@@ -1689,6 +1720,7 @@ export const CrewServiceLive = Layer.effect(
       ensureProjectManager,
       requireProjectManagerOn,
       setProjectManagerEnabled,
+      archiveProjectManager,
       setProjectManagerIcon,
       requireManagedProject,
       projectManagerSettings,

@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   type OrchestrationV2Run,
   type OrchestrationV2ServerCommand,
   ProjectId,
@@ -18,6 +19,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as BosunMigrations from "../persistence/BosunMigrations.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { CrewService } from "./CrewService.ts";
@@ -50,6 +52,8 @@ const setup = Effect.gen(function* () {
   const active: { run: OrchestrationV2Run | null } = { run: null };
   const off = new Set<string>();
   const paused = yield* Ref.make<ReadonlyArray<{ projectId: ProjectId; reason: string }>>([]);
+  const placements = yield* Ref.make<ReadonlyArray<object>>([]);
+  const archived: Array<ProjectId> = [];
   const layer = ProjectRequests.layer.pipe(
     Layer.provideMerge(NoticeInbox.layer),
     Layer.provide(
@@ -68,11 +72,22 @@ const setup = Effect.gen(function* () {
         Layer.mock(ProjectStore.ProjectStoreV2)({
           get: () => Effect.succeedSome({ title: "Web" } as never),
         }),
+        Layer.mock(ProjectService.ProjectService)({
+          setManagerPlacement: ({ commandId: _commandId, ...placement }) =>
+            Ref.update(placements, (all) => [...all, placement]).pipe(Effect.as({} as never)),
+        }),
         Layer.mock(ScheduledTaskService)({
           pauseForProjectManager: (input) => Ref.update(paused, (all) => [...all, input]),
         }),
         Layer.mock(CrewService)({
           ensureProjectManager: () => Effect.succeed({ threadId: managerThreadId } as never),
+          requireManagedProject: () => Effect.void,
+          projectManagerSettings: () => Effect.succeed({ threadId: managerThreadId } as never),
+          archiveProjectManager: (id) =>
+            Effect.sync(() => {
+              archived.push(id);
+              return projectHeadquartersThreadId(id);
+            }),
           requireProjectManagerOn: (id) =>
             id === botHome
               ? Effect.fail(new Error("No Project manager") as never)
@@ -115,7 +130,18 @@ const setup = Effect.gen(function* () {
     ),
   );
   const clear = Ref.set(dispatched, []);
-  return { requests, inbox, sent, clear, turns, active, paused: Ref.get(paused) };
+  return {
+    requests,
+    inbox,
+    sent,
+    clear,
+    turns,
+    active,
+    archived,
+    dispatched: Ref.get(dispatched),
+    paused: Ref.get(paused),
+    placements: Ref.get(placements),
+  };
 });
 
 const sqlite = NodeSqliteClient.layer({ filename: ":memory:" });
@@ -277,6 +303,54 @@ it.effect("hands open requests back and pauses automations when the manager is t
       message: "Add SVG",
     });
     assert.strictEqual(sentAgain.request.id, "R-3");
+  }).pipe(Effect.provide(sqlite)),
+);
+
+it.effect("retires this copy's manager when it moves to another machine, deleting nothing", () =>
+  Effect.gen(function* () {
+    const { requests, sent, clear, paused, placements, archived, dispatched } = yield* setup;
+    yield* requests.send({ projectId, requesterThreadId: hq, key: "csv", message: "Add export" });
+    yield* clear;
+    const mac = {
+      environmentId: EnvironmentId.make("environment-mac"),
+      projectId: ProjectId.make("project:web-on-mac"),
+      homeLabel: "Mac",
+    };
+
+    const moved = yield* requests.setManagerPlacement({ projectId, remoteManager: mac });
+    assert.deepStrictEqual(moved, { retiredThreadId: managerThreadId });
+    assert.deepStrictEqual(archived, [projectId]);
+    assert.deepStrictEqual(yield* placements, [{ projectId, remoteManager: mac }]);
+    assert.deepStrictEqual(yield* paused, [
+      { projectId, reason: "Web's manager now lives on Mac" },
+    ]);
+    const handedBack = yield* sent;
+    assert.deepStrictEqual(
+      handedBack.map((message) => message.threadId),
+      [hq],
+    );
+    assert.include(handedBack[0]!.text, "now lives on Mac, so R-1 is back with you");
+    // Nothing is deleted: the request is closed and kept, and no command deletes a thread.
+    assert.strictEqual((yield* requests.get(projectId, "R-1"))?.status, "done");
+    assert.isFalse((yield* dispatched).some((command) => command.type.includes("delete")));
+    yield* clear;
+
+    // The kept manager, on the other machine, hears which one was retired and where.
+    yield* requests.setManagerPlacement({
+      projectId,
+      remoteManager: null,
+      permittedEnvironmentIds: [EnvironmentId.make("environment-linux")],
+      retired: { environmentLabel: "Linux box", threadId: ThreadId.make("bot-run:project-hq:x") },
+    });
+    const note = yield* sent;
+    assert.deepStrictEqual(
+      note.map((message) => message.threadId),
+      [managerThreadId],
+    );
+    assert.include(note[0]!.text, "second project manager on Linux box. It is retired now");
+    assert.include(note[0]!.text, "bot-run:project-hq:x is archived there");
+    // Saving where it already lives retires nothing again.
+    assert.deepStrictEqual(archived, [projectId]);
   }).pipe(Effect.provide(sqlite)),
 );
 

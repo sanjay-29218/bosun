@@ -10,7 +10,10 @@ import {
   type Project,
   ProjectId,
   type ProjectRemoteBot,
+  type ProjectRemoteManager,
+  projectHeadquartersThreadId,
   ProviderInstanceId,
+  ThreadId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
@@ -28,6 +31,7 @@ import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { FeatureService } from "../features/FeatureService.ts";
+import { type Notice, NoticeInbox } from "../features/NoticeInbox.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as IssueService from "../issues/IssueService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
@@ -86,6 +90,10 @@ const project = (
   title: string,
   botId: string | null,
   remoteBot: ProjectRemoteBot | null = null,
+  manager: {
+    readonly remoteManager?: ProjectRemoteManager;
+    readonly managerPermittedEnvironmentIds?: ReadonlyArray<string>;
+  } = {},
 ) =>
   ({
     id: ProjectId.make(id),
@@ -94,7 +102,23 @@ const project = (
     botId,
     remoteBot,
     deletedAt: null,
+    ...manager,
   }) as unknown as Project;
+
+/** The laptop's web project's manager, which also works on the box's copy. */
+const webManagerOnLaptop: ProjectRemoteManager = {
+  environmentId: laptop.environmentId,
+  projectId: ProjectId.make("project:laptop"),
+  homeLabel: "Laptop",
+};
+/** A feature on the box that stopped to ask the person, for a request the laptop's manager sent. */
+const boxQuestion = {
+  threadId: ThreadId.make("bot-run:link-task:web"),
+  key: "feature-report:request:approval-1",
+  text: 'Feature "Dark mode" needs you: Planner is asking in thread thread:planner. The person answers it there.',
+  failed: false,
+  createdAt: "2999-01-01T00:00:00.000Z",
+};
 
 /** Captain on the laptop, as the box last heard of it. */
 const captainFromLaptop: ProjectRemoteBot = {
@@ -105,6 +129,7 @@ const captainFromLaptop: ProjectRemoteBot = {
 };
 
 interface Environment {
+  readonly posted?: Array<Notice>;
   readonly bots: ReadonlyArray<Bot>;
   readonly projects: ReadonlyArray<Project>;
   readonly workflowRevision?: number;
@@ -180,6 +205,16 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
         ),
     }),
     Layer.mock(CrewApprovals)({}),
+    Layer.mock(NoticeInbox)({
+      post: (notice) => Effect.sync(() => void data.posted?.push(notice)),
+      // The box's request threads in its web project heard one question.
+      postedToLinkedRequests: ({ projectIds, since }) =>
+        Effect.succeed(
+          projectIds.includes(ProjectId.make("project:web")) && boxQuestion.createdAt > since
+            ? [boxQuestion]
+            : [],
+        ),
+    }),
     Layer.mock(CrewService)({
       // Each environment's Feature delivery: the laptop's is at revision 3 with an extra role.
       getWorkflow: () =>
@@ -286,6 +321,7 @@ const boxData: Environment = {
     project("project:blog", "blog", "bot:social-box"),
     project("project:notes", "notes", null),
     project("project:api", "api", "bot:captain-copy"),
+    project("project:web", "web", null, null, { remoteManager: webManagerOnLaptop }),
   ],
 };
 
@@ -337,6 +373,7 @@ const headquartersScope: McpInvocationContext.McpThreadInvocationScope = {
 const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0), botsHere = [captain]) =>
   Effect.gen(function* () {
     const seen = yield* Ref.make<Seen>(nothingSeen);
+    const posted: Array<Notice> = [];
     const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
     const here = yield* McpHttpServer.layerCrewTools.pipe(
       Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
@@ -345,8 +382,12 @@ const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0), botsHere = [captain
         layerData(
           {
             bots: botsHere,
+            posted,
             projects: [
-              project("project:laptop", "laptop-app", CAPTAIN_ID),
+              // Its manager may work on the box only, whatever Captain may do.
+              project("project:laptop", "laptop-app", CAPTAIN_ID, null, {
+                managerPermittedEnvironmentIds: [box.environmentId],
+              }),
               project("project:scratch:hidden", "No project", CAPTAIN_ID),
               project("project:captain-home:hidden", "Captain", CAPTAIN_ID),
             ],
@@ -363,16 +404,21 @@ const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0), botsHere = [captain
       Layer.build,
     );
     const server = Context.get(here, McpServer.McpServer);
-    return {
-      links: Context.get(linking, PeerLinks.PeerLinks),
-      reach: Context.get(here, BotReach.BotReach),
-      call: (name: string, args: Record<string, unknown>) =>
+    const callAs =
+      (scope: McpInvocationContext.McpInvocationScope) =>
+      (name: string, args: Record<string, unknown>) =>
         server
           .callTool({ name, arguments: args })
           .pipe(
-            Effect.provideService(McpInvocationContext.McpInvocationContext, headquartersScope),
+            Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
             Effect.provideService(McpSchema.McpServerClient, mcpClient),
-          ),
+          );
+    return {
+      links: Context.get(linking, PeerLinks.PeerLinks),
+      reach: Context.get(here, BotReach.BotReach),
+      posted,
+      call: callAs(headquartersScope),
+      callAs,
     };
   });
 
@@ -542,6 +588,81 @@ it.live(
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
+const managerThread = projectHeadquartersThreadId("project:laptop");
+const managerScope: McpInvocationContext.McpThreadInvocationScope = {
+  ...headquartersScope,
+  requestNamespace: "provider-session:web-manager",
+  thread: { ...headquartersScope.thread, threadId: managerThread },
+};
+
+it.live("a project's manager works on its project's copy on a permitted machine only", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const boxSeen = yield* Ref.make<Seen>(nothingSeen);
+      const b = yield* serveBox(boxSeen);
+      const a = yield* makeLaptop();
+      yield* linkTo(a.links, b, "full-access");
+      const manager = { managerProjectId: ProjectId.make("project:laptop") };
+
+      // Its project here and the copy on the box whose manager it is.
+      const listed = JSON.stringify(yield* a.callAs(managerScope)("t3_bot_projects", {}));
+      expect(listed).toContain("laptop-app's manager");
+      expect(listed).toContain('\\"projectId\\":\\"project:web\\"');
+      expect(listed).not.toContain("project:omni");
+
+      // A request for the box's copy starts there as that project's Feature manager.
+      const launched = yield* a.reach.launchProjectManager(
+        managerScope,
+        box.environmentId,
+        manager,
+        launch("project:web"),
+      );
+      expect(launched.threadId).toMatch(/^bot-run:link-task:/);
+      expect((yield* Ref.get(boxSeen)).runs).toMatchObject([
+        { memberId: "bot-manager:project:web", projectId: "project:web" },
+      ]);
+      // Its manager isn't Captain, so the box's owner stays as it was.
+      expect((yield* Ref.get(boxSeen)).moves).toEqual([]);
+
+      // A copy with its own manager there, and a machine it may not work on, start nothing.
+      const refused = (environmentId: typeof box.environmentId, projectId: string) =>
+        a.reach.launchProjectManager(managerScope, environmentId, manager, launch(projectId)).pipe(
+          Effect.flip,
+          Effect.map((error) => error.message),
+        );
+      expect(yield* refused(box.environmentId, "project:notes")).toBe(
+        "notes on Box has its own project manager, not laptop-app's manager from Laptop. Set it to live on Laptop in Project settings → Project manager first.",
+      );
+      expect(yield* refused(couch.environmentId, "project:couch")).toContain(
+        "laptop-app's manager isn't allowed to work on environment-couch. Nothing was started there.",
+      );
+      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.live(
+  "a project's manager hears, once, when work it started on the box waits on the person",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const b = yield* serveBox(yield* Ref.make<Seen>(nothingSeen));
+        const a = yield* makeLaptop();
+        yield* linkTo(a.links, b, "full-access");
+
+        yield* a.reach.relayManagerNotices;
+        yield* a.reach.relayManagerNotices;
+        expect(a.posted).toEqual([
+          {
+            threadId: managerThread,
+            key: `linked-notice:${box.environmentId}:${boxQuestion.threadId}:${boxQuestion.key}`,
+            text: `On Box, for the request in thread ${boxQuestion.threadId} there:\n\n${boxQuestion.text}`,
+          },
+        ]);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
 it.live("starts the project manager there, or says before starting anything why not", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -550,15 +671,17 @@ it.live("starts the project manager there, or says before starting anything why 
       const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "full-access");
       const start = (input: ReturnType<typeof launch>) =>
-        a.reach.launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, input).pipe(
-          Effect.flip,
-          Effect.map((error) => error.message),
-        );
+        a.reach
+          .launchProjectManager(headquartersScope, box.environmentId, { botId: CAPTAIN_ID }, input)
+          .pipe(
+            Effect.flip,
+            Effect.map((error) => error.message),
+          );
 
       const launched = yield* a.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
-        CAPTAIN_ID,
+        { botId: CAPTAIN_ID },
         launch("project:omni"),
       );
       expect(launched.threadId).toMatch(/^bot-run:link-task:/);
@@ -604,7 +727,7 @@ it.live("starts the project manager there, or says before starting anything why 
       const retried = yield* a.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
-        CAPTAIN_ID,
+        { botId: CAPTAIN_ID },
         launch("project:omni"),
       );
       expect(retried.threadId).toBe(launched.threadId);
@@ -613,7 +736,7 @@ it.live("starts the project manager there, or says before starting anything why 
       const found = yield* a.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
-        CAPTAIN_ID,
+        { botId: CAPTAIN_ID },
         {
           ...launch("project:omni"),
           cancelIfStarted: true,
@@ -621,26 +744,41 @@ it.live("starts the project manager there, or says before starting anything why 
       );
       expect(found.threadId).toBe(launched.threadId);
       const none = yield* a.reach
-        .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
-          ...launch("project:omni"),
-          clientRequestId: "never-sent",
-          cancelIfStarted: true,
-        })
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          {
+            ...launch("project:omni"),
+            clientRequestId: "never-sent",
+            cancelIfStarted: true,
+          },
+        )
         .pipe(Effect.flip);
       expect(none.code).toBe("run_not_found");
       expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
       // A run still queued there is cancelled there, and reads as nothing running.
-      yield* a.reach.launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
-        ...launch("project:omni"),
-        task: "Queued: its dispatch failed there.",
-        clientRequestId: "queued-there",
-      });
-      const queued = yield* a.reach
-        .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
+      yield* a.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        { botId: CAPTAIN_ID },
+        {
           ...launch("project:omni"),
+          task: "Queued: its dispatch failed there.",
           clientRequestId: "queued-there",
-          cancelIfStarted: true,
-        })
+        },
+      );
+      const queued = yield* a.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          {
+            ...launch("project:omni"),
+            clientRequestId: "queued-there",
+            cancelIfStarted: true,
+          },
+        )
         .pipe(Effect.flip);
       expect(queued.code).toBe("run_not_found");
       // With Captain since deleted here, cleanup still reaches the box by the request's record.
@@ -649,7 +787,7 @@ it.live("starts the project manager there, or says before starting anything why 
       const stillFound = yield* deleted.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
-        CAPTAIN_ID,
+        { botId: CAPTAIN_ID },
         { ...launch("project:omni"), cancelIfStarted: true },
       );
       expect(stillFound.threadId).toBe(launched.threadId);
@@ -657,18 +795,23 @@ it.live("starts the project manager there, or says before starting anything why 
         .launchProjectManager(
           headquartersScope,
           box.environmentId,
-          CAPTAIN_ID,
+          { botId: CAPTAIN_ID },
           launch("project:omni"),
         )
         .pipe(Effect.flip);
       expect(noNewWork.message).toContain("bot is gone");
       // A task the box refuses as it is stays refused, so it can't wait forever.
       const invalid = yield* a.reach
-        .launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
-          ...launch("project:omni"),
-          task: "x".repeat(16_001),
-          clientRequestId: "too-long",
-        })
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          {
+            ...launch("project:omni"),
+            task: "x".repeat(16_001),
+            clientRequestId: "too-long",
+          },
+        )
         .pipe(Effect.flip);
       expect(invalid).toMatchObject({ code: "invalid_request", message: "Invalid task" });
 
@@ -691,7 +834,7 @@ it.live("starts the project manager there, or says before starting anything why 
         .launchProjectManager(
           headquartersScope,
           couch.environmentId,
-          CAPTAIN_ID,
+          { botId: CAPTAIN_ID },
           launch("project:couch"),
         )
         .pipe(Effect.flip);
@@ -714,7 +857,7 @@ it.effect("refuses a bot's project work over a link below full access", () =>
         .launchProjectManager(
           headquartersScope,
           box.environmentId,
-          CAPTAIN_ID,
+          { botId: CAPTAIN_ID },
           launch("project:omni"),
         )
         .pipe(Effect.flip);
@@ -736,7 +879,7 @@ it.effect("refuses new work on a linked environment the bot isn't allowed on", (
         .launchProjectManager(
           headquartersScope,
           box.environmentId,
-          CAPTAIN_ID,
+          { botId: CAPTAIN_ID },
           launch("project:omni"),
         )
         .pipe(Effect.flip);

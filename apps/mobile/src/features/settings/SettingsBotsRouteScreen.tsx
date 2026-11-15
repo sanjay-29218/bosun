@@ -63,6 +63,8 @@ export function SettingsBotsRouteScreen() {
       (project) =>
         !project.isScratch &&
         !project.isBotHome &&
+        // A copy whose manager lives on another machine is listed there.
+        project.remoteManager == null &&
         configs.get(project.environmentId)?.environment.capabilities.workflows === true,
     )
     .sort((left, right) => left.title.localeCompare(right.title));

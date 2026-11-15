@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   type ApplicationProjectEvent,
   IsoDateTime,
   ModelSelection,
@@ -6,6 +7,7 @@ import {
   StoredProjectIcon,
   ProjectId,
   ProjectRemoteBot,
+  ProjectRemoteManager,
   ProjectScript,
   ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -44,6 +46,8 @@ export const ProjectRow = Schema.Struct({
   botId: Schema.NullOr(Schema.String),
   remoteBot: Schema.NullOr(ProjectRemoteBot),
   managerPinned: Schema.Boolean,
+  remoteManager: Schema.NullOr(ProjectRemoteManager),
+  managerPermittedEnvironmentIds: Schema.NullOr(Schema.Array(EnvironmentId)),
   pinnedAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,
@@ -61,6 +65,8 @@ const ProjectDbRow = Schema.Struct({
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   remoteBot: Schema.NullOr(Schema.fromJsonString(ProjectRemoteBot)),
+  remoteManager: Schema.NullOr(Schema.fromJsonString(ProjectRemoteManager)),
+  managerPermittedEnvironmentIds: Schema.NullOr(Schema.fromJsonString(Schema.Array(EnvironmentId))),
 });
 
 function toShell(row: ProjectRow): OrchestrationProjectShell {
@@ -79,6 +85,8 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     botId: row.botId,
     remoteBot: row.remoteBot,
     managerPinned: row.managerPinned,
+    remoteManager: row.remoteManager,
+    managerPermittedEnvironmentIds: row.managerPermittedEnvironmentIds,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -140,6 +148,8 @@ export const make = Effect.gen(function* () {
         bot_id AS "botId",
         remote_bot_json AS "remoteBot",
         manager_pinned AS "managerPinned",
+        remote_manager_json AS "remoteManager",
+        manager_permitted_environment_ids_json AS "managerPermittedEnvironmentIds",
         pinned_at AS "pinnedAt",
         archived_at AS "archivedAt",
         created_at AS "createdAt",
@@ -176,6 +186,8 @@ export const make = Effect.gen(function* () {
             bot_id,
             remote_bot_json,
             manager_pinned,
+            remote_manager_json,
+            manager_permitted_environment_ids_json,
             pinned_at,
             archived_at,
             created_at,
@@ -196,6 +208,8 @@ export const make = Effect.gen(function* () {
             ${encoded.botId},
             ${encoded.remoteBot},
             ${encoded.managerPinned},
+            ${encoded.remoteManager},
+            ${encoded.managerPermittedEnvironmentIds},
             ${encoded.pinnedAt},
             ${encoded.archivedAt},
             ${encoded.createdAt},
@@ -220,6 +234,8 @@ export const make = Effect.gen(function* () {
             bot_id = excluded.bot_id,
             remote_bot_json = excluded.remote_bot_json,
             manager_pinned = excluded.manager_pinned,
+            remote_manager_json = excluded.remote_manager_json,
+            manager_permitted_environment_ids_json = excluded.manager_permitted_environment_ids_json,
             pinned_at = excluded.pinned_at,
             archived_at = excluded.archived_at,
             created_at = excluded.created_at,
@@ -274,6 +290,8 @@ export const make = Effect.gen(function* () {
           botId: payload.botId ?? null,
           remoteBot: null,
           managerPinned: false,
+          remoteManager: null,
+          managerPermittedEnvironmentIds: null,
           pinnedAt: null,
           archivedAt: null,
           createdAt: payload.createdAt,
@@ -314,6 +332,10 @@ export const make = Effect.gen(function* () {
             ? { remoteBot: null }
             : { remoteBot: payload.remoteBot, botId: null }),
         ...(payload.managerPinned === undefined ? {} : { managerPinned: payload.managerPinned }),
+        ...(payload.remoteManager === undefined ? {} : { remoteManager: payload.remoteManager }),
+        ...(payload.managerPermittedEnvironmentIds === undefined
+          ? {}
+          : { managerPermittedEnvironmentIds: payload.managerPermittedEnvironmentIds }),
         ...(payload.pinnedAt === undefined ? {} : { pinnedAt: payload.pinnedAt }),
         ...(payload.archivedAt === undefined ? {} : { archivedAt: payload.archivedAt }),
         updatedAt: payload.updatedAt,

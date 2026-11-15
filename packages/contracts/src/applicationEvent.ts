@@ -4,6 +4,7 @@ import {
   ApprovalRequestId,
   ClientSurface,
   CommandId,
+  EnvironmentId,
   EventId,
   IsoDateTime,
   NonNegativeInt,
@@ -14,7 +15,12 @@ import {
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import type { OrchestrationV2StoredEvent } from "./orchestrationV2.ts";
-import { ProjectRemoteBot, ProjectScript, StoredProjectIcon } from "./project.ts";
+import {
+  ProjectRemoteBot,
+  ProjectRemoteManager,
+  ProjectScript,
+  StoredProjectIcon,
+} from "./project.ts";
 
 export const OrchestrationClientOrigin = Schema.Struct({
   surface: Schema.optional(ClientSurface),
@@ -67,6 +73,10 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   /** Moves the project to a bot on another environment; null clears it. */
   remoteBot: Schema.optional(Schema.NullOr(ProjectRemoteBot)),
   managerPinned: Schema.optional(Schema.Boolean),
+  /** Where the manager lives; null brings it here. */
+  remoteManager: Schema.optional(Schema.NullOr(ProjectRemoteManager)),
+  /** Where the manager here may work; null follows its bot's. */
+  managerPermittedEnvironmentIds: Schema.optional(Schema.NullOr(Schema.Array(EnvironmentId))),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,

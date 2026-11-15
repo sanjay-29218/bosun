@@ -194,6 +194,10 @@ export const layerBosunWsRpc = ({
           projectRequests
             .setManagerEnabled(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.crewSetProjectManagerPlacement]: (input) =>
+          projectRequests
+            .setManagerPlacement(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.crewSetProjectManagerIcon]: (input) =>
           crew
             .setProjectManagerIcon(input)

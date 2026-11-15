@@ -128,6 +128,31 @@ applies from its next session. Its bot's headquarters can do the same for the bo
 bot then does the project's work itself, requests still open go back to the bot, and the manager's
 thread is archived until you turn it on again.
 
+#### A project on several machines
+
+A project cloned on several linked machines (matched by its repository) has one manager, on the
+machine it **Lives on**; its copies elsewhere have none of their own. The bot list, **Bots** and
+the project card show that one manager with its machine's name, and opening a copy's manager opens
+it. **Settings → Project → Project manager** shows **Lives on** and **Can work on**:
+
+- **Lives on** starts as the machine whose manager already has a thread, otherwise the machine of
+  the project's bot. Picking another machine moves the manager there: the old machine's manager
+  thread is archived, not deleted, its open requests go back to their senders, and its
+  automations are paused.
+- **Can work on** lists the other machines with a copy. It starts as the bot's **Can work on**
+  machines that hold one. There the manager can check the copy's threads and open features, send
+  its threads messages and hear the answers, and start features and tasks. It picks the machine for
+  each feature, and the base branch it names is that machine's. When a feature or crew member
+  there stops to ask you something, the manager hears so and can tell you it's blocked; you answer
+  in that thread. A machine you haven't ticked is refused before anything starts there, and a
+  request for a machine that's offline waits until it's back.
+
+If both machines already had a manager, the one on the machine it lives on stays, the other's
+thread is archived, and the one that stays is told which manager it replaced and where. This needs
+**Linked environments** (**Settings → Labs**) and a link from the machine it lives on to the
+others. The manager doesn't read another machine's uncommitted files; it asks that machine's
+feature lead.
+
 ### The bot list
 
 The bot list sits at the left edge of the window: your pinned bots, then your pinned project

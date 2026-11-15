@@ -203,6 +203,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   scheduledTaskThreadModes: Schema.optionalKey(Schema.Boolean),
   /** Server runs scheduled tasks as a project's manager (`projectManager`); older servers ignore it. */
   scheduledTaskProjectManagers: Schema.optionalKey(Schema.Boolean),
+  /** Server keeps one manager per project across linked machines (`crew.setProjectManagerPlacement`). */
+  projectManagerHomes: Schema.optionalKey(Schema.Boolean),
   /** Server can transcribe 16 kHz mono PCM audio on the environment machine. */
   voiceTranscription: Schema.optionalKey(Schema.Boolean),
   cloudVoiceTranscription: Schema.optionalKey(Schema.Boolean),

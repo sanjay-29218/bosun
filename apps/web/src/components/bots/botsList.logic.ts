@@ -3,7 +3,12 @@ import {
   isManagerPinned,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
-import type { EnvironmentId, ProjectId, ProjectRemoteBot } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ProjectRemoteBot,
+  ProjectRemoteManager,
+} from "@t3tools/contracts";
 
 interface ListedProject {
   readonly environmentId: EnvironmentId;
@@ -12,6 +17,7 @@ interface ListedProject {
   readonly botId?: string | null | undefined;
   readonly remoteBot?: ProjectRemoteBot | null | undefined;
   readonly managerPinned?: boolean | undefined;
+  readonly remoteManager?: ProjectRemoteManager | null | undefined;
   readonly isScratch?: true;
   readonly isBotHome?: true;
 }
@@ -30,7 +36,8 @@ export interface BotsListManager {
 
 /**
  * Every project manager the Bots list shows, by title: one per project, left out for Scratch,
- * bots' homes, and environments without features, which have no managers.
+ * bots' homes, environments without features, which have no managers, and copies whose manager
+ * lives on another machine, which lists it there.
  */
 export function botsListManagers(input: {
   readonly projects: ReadonlyArray<ListedProject>;
@@ -41,7 +48,7 @@ export function botsListManagers(input: {
   const ownerOf = createProjectOwnerResolver(input.bots);
   return input.projects
     .flatMap((project) => {
-      if (project.isScratch || project.isBotHome) return [];
+      if (project.isScratch || project.isBotHome || project.remoteManager != null) return [];
       if (!input.managerEnvironmentIds.has(project.environmentId)) return [];
       const projectKey = input.projectKeyOf(project.environmentId, project.id);
       if (projectKey === null) return [];

@@ -551,6 +551,7 @@ describe("Bot foundation", () => {
         const interrupted: Array<ThreadId> = [];
         const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
           projectExists: () => Effect.succeed(true),
+          projectRemoteManager: () => Effect.succeed(null),
           projectBotId: () => Effect.succeed(null),
           projectModelSelection: () => Effect.succeed(null),
           archive: () => Effect.void,
@@ -664,6 +665,7 @@ describe("Bot foundation", () => {
         }>();
         const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
           projectExists: () => Effect.succeed(true),
+          projectRemoteManager: () => Effect.succeed(null),
           projectBotId: () => Effect.succeed(null),
           projectModelSelection: () => Effect.succeed(null),
           archive: () => Effect.void,

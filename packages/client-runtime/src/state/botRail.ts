@@ -8,6 +8,7 @@ import {
   type ProjectIconColor,
   type ProjectId,
   type ProjectRemoteBot,
+  type ProjectRemoteManager,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -515,7 +516,8 @@ export function countHiddenNeedsYou(input: {
 /**
  * Pinned project managers the rail lists, by title: one per project whose manager is pinned,
  * whether or not its thread exists yet (opening it makes one). Scratch, bots' homes, servers
- * without features and managers turned off (their thread archived) are left out.
+ * without features, managers turned off (their thread archived) and copies whose manager lives
+ * on another machine are left out.
  */
 export function pinnedProjectManagers<
   Project extends {
@@ -523,6 +525,7 @@ export function pinnedProjectManagers<
     readonly id: ProjectId;
     readonly title: string;
     readonly managerPinned?: boolean | undefined;
+    readonly remoteManager?: ProjectRemoteManager | null | undefined;
     readonly isScratch?: true;
     readonly isBotHome?: true;
   },
@@ -538,6 +541,7 @@ export function pinnedProjectManagers<
         !project.isScratch &&
         !project.isBotHome &&
         isManagerPinned(project) &&
+        project.remoteManager == null &&
         input.managerEnvironmentIds.has(project.environmentId) &&
         !input.archivedManagers.has(`${project.environmentId}:${project.id}`),
     )

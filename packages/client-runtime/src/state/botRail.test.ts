@@ -272,6 +272,14 @@ describe("pinnedProjectManagers", () => {
         project("scratch", "Scratch", { isScratch: true }),
         project("home", "Ops", { isBotHome: true }),
         { ...project("plain", "plain"), environmentId: remote },
+        // This copy's manager lives on another machine; that machine lists it.
+        project("web-copy", "web", {
+          remoteManager: {
+            environmentId: remote,
+            projectId: ProjectId.make("web"),
+            homeLabel: "Box",
+          },
+        }),
       ],
       managerEnvironmentIds: new Set([local]),
       archivedManagers: new Set([`${local}:off`]),

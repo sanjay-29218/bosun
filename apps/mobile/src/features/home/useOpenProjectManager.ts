@@ -4,23 +4,33 @@ import * as Cause from "effect/Cause";
 import { useCallback } from "react";
 import { Alert } from "react-native";
 
+import { useProjects } from "../../state/entities";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 /**
  * Opens a project's manager thread, which the server creates on first use, through the screen's
- * own `selectThread`.
+ * own `selectThread`; a copy whose manager lives on another machine opens that one.
  */
 export function useOpenProjectManager(
   selectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void,
 ) {
   const open = useAtomCommand(rolesEnvironment.openProjectManager, { reportFailure: false });
+  const projects = useProjects();
   return useCallback(
-    async (manager: {
+    async (requested: {
       readonly environmentId: EnvironmentId;
       readonly projectId: ProjectId;
       readonly title: string;
     }) => {
+      const home = projects.find(
+        (project) =>
+          project.environmentId === requested.environmentId && project.id === requested.projectId,
+      )?.remoteManager;
+      const manager =
+        home == null
+          ? requested
+          : { ...requested, environmentId: home.environmentId, projectId: home.projectId };
       const result = await open({
         environmentId: manager.environmentId,
         input: { projectId: manager.projectId },
@@ -34,6 +44,6 @@ export function useOpenProjectManager(
         );
       }
     },
-    [open, selectThread],
+    [open, projects, selectThread],
   );
 }

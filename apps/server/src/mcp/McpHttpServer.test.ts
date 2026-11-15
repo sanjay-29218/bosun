@@ -9,6 +9,7 @@ import {
   DeviceId,
   DeviceOperationError,
   EnvironmentId,
+  NodeId,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
   PreviewTabId,
@@ -1934,6 +1935,7 @@ it.effect(
         ('lead:dark', 'lead', 'bot-run:lead:dark', '[]'),
         ('planner:dark', 'planner', 'bot-run:planner:dark', '[]')`;
         const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
+        const linkedRequests: Array<{ readonly task: string; readonly projectId?: string }> = [];
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
@@ -1992,6 +1994,7 @@ it.effect(
               Layer.succeedContext(sqlContext),
               // Without full access, only ownership lets a headquarters reach another project.
               Layer.mock(ThreadManagementService.ThreadManagementService)({
+                getThreadRecords: () => Effect.succeed({ subagents: [], runs: [] } as never),
                 getThreadShell: (threadId) => {
                   const shell = McpToolAccessTestkit.liveThreadShell(threadId, {
                     runtimeMode: "approval-required",
@@ -2028,7 +2031,18 @@ it.effect(
                   ),
               }),
               Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
-              Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+              Layer.mock(RemoteDelegation.RemoteDelegation)({
+                delegate: (_scope, input) =>
+                  Effect.sync(() => {
+                    linkedRequests.push({
+                      task: input.task,
+                      ...(input.target.projectId === undefined
+                        ? {}
+                        : { projectId: input.target.projectId }),
+                    });
+                    return { taskId: NodeId.make("task:linked") };
+                  }),
+              }),
               Layer.mock(FeatureService)({
                 get: (id) =>
                   Effect.succeed(
@@ -2214,6 +2228,34 @@ it.effect(
           projectId: "project:mcp-test",
           requestId: "R-7",
         });
+
+        // On its copy on a linked machine, a manager names the base branch, which resolves
+        // there, and its own request; a headquarters leaves the base to the Feature manager there.
+        const onTheBox = (session: typeof crew, args: object) =>
+          session
+            .call("t3_feature_start", {
+              environmentId: "environment:box",
+              projectId: "project:copy",
+              title: "Dark mode",
+              brief: "Add dark mode",
+              ...args,
+            })
+            .pipe(Effect.map((body) => JSON.stringify(body)));
+        expect(yield* onTheBox(headquarters, { baseBranch: "staging" })).toContain(
+          "pass only projectId, title, brief, issue and featureId",
+        );
+        expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-9" })).toContain(
+          "no request R-9",
+        );
+        expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-7" })).toContain(
+          "task:linked",
+        );
+        expect(linkedRequests).toEqual([
+          {
+            projectId: "project:copy",
+            task: expect.stringContaining('with baseBranch "staging" (a branch of this checkout)'),
+          },
+        ]);
 
         // Only a project's manager adds a feature under another, one of its own project's.
         const under = (session: typeof crew, parentFeatureId: string) =>
