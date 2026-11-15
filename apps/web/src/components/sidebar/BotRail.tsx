@@ -20,8 +20,6 @@ import {
 import {
   BotIcon,
   ChartNoAxesColumnIcon,
-  ChevronsLeftIcon,
-  ChevronsRightIcon,
   ClockIcon,
   PencilIcon,
   ServerIcon,
@@ -166,8 +164,8 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
 }
 
 /**
- * The bot list: the bots, then the project managers, then the app's places, Usage, Settings
- * and updates. Expanded it shows each one's latest message; collapsed it is an icon column.
+ * The bot list: the bots and project managers scroll above a pinned group of places, an Update
+ * row while there is one, the environment filter, Usage and Settings. Expanded it shows each one's latest message; collapsed it is an icon column.
  * A bot narrows the thread list to its projects; a project manager to its project. `window`
  * pins it to the window's left edge, resizable; `sheet` puts its icons in the mobile sheet.
  */
@@ -192,7 +190,6 @@ export const BotRail = memo(function BotRail({
   const collapsedPreference = useUiStateStore((store) => store.botRailCollapsed);
   // The phone sheet keeps the icon column, leaving the thread list most of its width.
   const collapsed = placement === "sheet" || collapsedPreference;
-  const toggleCollapsed = useUiStateStore((store) => store.toggleBotRailCollapsed);
   const multipleBots = bots.length > 1;
 
   const openHeadquarters = useOpenBotHeadquarters();
@@ -302,14 +299,12 @@ export const BotRail = memo(function BotRail({
         className={cn(
           "flex min-h-0 flex-1 flex-col gap-2 border-r border-sidebar-border pt-0.5 pb-2",
           collapsed && "items-center",
-          // Keeps the first icon's badge clear of the collapse tab, which straddles the titlebar.
-          collapsed && placement === "window" && "pt-3.5",
         )}
       >
         {/* The padding sits inside the scroller so it doesn't clip the badges over the top avatar. */}
         <div
           className={cn(
-            "flex min-h-0 w-full flex-col overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]",
+            "flex min-h-0 w-full flex-1 flex-col overflow-y-auto pt-1.5 pb-1 [scrollbar-width:none]",
             collapsed ? "items-center gap-1" : "gap-0.5",
           )}
         >
@@ -367,37 +362,33 @@ export const BotRail = memo(function BotRail({
               />
             ),
           )}
-          {collapsed ? <RailDivider /> : <div aria-hidden className="h-3 shrink-0" />}
-          <RailPlaces destination={destination} collapsed={collapsed} />
         </div>
         <div
           className={cn(
-            "mt-auto flex w-full flex-col",
+            "flex w-full shrink-0 flex-col",
             collapsed ? "items-center gap-2" : "gap-0.5",
           )}
         >
+          {collapsed ? (
+            <RailDivider />
+          ) : (
+            <div aria-hidden className="mx-4 mb-1.5 h-px shrink-0 bg-sidebar-border" />
+          )}
+          <RailPlaces destination={destination} collapsed={collapsed} />
+          <SidebarUpdatePill placement="rail" collapsed={collapsed} />
           <EnvironmentFilterMenu collapsed={collapsed} />
           <RailAppPages collapsed={collapsed} />
-          <SidebarUpdatePill placement="rail" />
         </div>
       </div>
-      {placement === "window" ? (
-        <>
-          <BotRailResizeHandle />
-          <BotRailCollapseTab
-            collapsed={collapsed}
-            shortcut={shortcutLabelForCommand(keybindings, "bot.inbox")}
-            onToggle={toggleCollapsed}
-          />
-        </>
-      ) : null}
+      {placement === "window" ? <BotRailResizeHandle /> : null}
     </nav>
   );
 });
 
 /**
- * The rail's right edge. Dragging sets the expanded width; under the snap width it shows the
- * icon column's outline and collapses there on release. Double-click resets the width.
+ * The rail's right edge, and the pointer's way to collapse and expand it. Dragging sets the
+ * expanded width; under the snap width it shows the icon column's outline and collapses there on
+ * release. Double-click expands to the default width.
  */
 function BotRailResizeHandle() {
   const setLayout = useUiStateStore((store) => store.setBotRailLayout);
@@ -451,7 +442,7 @@ function BotRailResizeHandle() {
         aria-hidden
         className="pointer-events-none absolute top-(--workspace-topbar-height) bottom-2 left-1 z-30 hidden w-12 rounded-xl border border-dashed border-sidebar-foreground/40 group-data-[snap]/rail:block"
       />
-      {/* Pointer only; the collapse tab and the palette's Toggle bot list are the keyboard way. */}
+      {/* Pointer only; the `bot.inbox` shortcut and the palette's Toggle bot list are the keyboard way. */}
       <div
         role="separator"
         aria-orientation="vertical"
@@ -468,47 +459,6 @@ function BotRailResizeHandle() {
         }
       />
     </>
-  );
-}
-
-/**
- * Collapses or expands the list: a round tab on the rail's right edge, below the titlebar, in the
- * same place at both widths. It shows while the rail is hovered or focused; the 20px it covers
- * isn't part of the resize edge.
- */
-function BotRailCollapseTab({
-  collapsed,
-  shortcut,
-  onToggle,
-}: {
-  readonly collapsed: boolean;
-  readonly shortcut: string | null;
-  readonly onToggle: () => void;
-}) {
-  const label = collapsed ? "Expand bot list" : "Collapse bot list";
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={label}
-            onClick={onToggle}
-            className="pointer-events-none absolute top-[calc(var(--workspace-topbar-height)-10px)] -right-2.5 z-40 grid size-5 cursor-pointer place-items-center rounded-full border border-sidebar-border bg-sidebar text-muted-foreground opacity-0 outline-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/rail:pointer-events-auto group-hover/rail:opacity-100 group-focus-within/rail:pointer-events-auto group-focus-within/rail:opacity-100"
-          />
-        }
-      >
-        {collapsed ? (
-          <ChevronsRightIcon aria-hidden className="size-3" />
-        ) : (
-          <ChevronsLeftIcon aria-hidden className="size-3" />
-        )}
-      </TooltipTrigger>
-      <TooltipPopup side="right">
-        {label}
-        {shortcut ? ` (${shortcut})` : ""}
-      </TooltipPopup>
-    </Tooltip>
   );
 }
 

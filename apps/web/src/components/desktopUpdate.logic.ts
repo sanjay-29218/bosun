@@ -63,6 +63,27 @@ export function resolveDesktopUpdateButtonAction(
   return "none";
 }
 
+/**
+ * The bot rail shows its Update row only when there is something to act on or see: a new version,
+ * a download, a restart, a failure, or other machines' updates. Idle and checking show nothing;
+ * Settings and the app menu keep the manual check.
+ */
+export function shouldShowRailUpdateRow({
+  state,
+  hasOtherUpdates,
+}: {
+  readonly state: DesktopUpdateState | null;
+  readonly hasOtherUpdates: boolean;
+}): boolean {
+  if (hasOtherUpdates) return true;
+  if (!state) return false;
+  return (
+    state.status === "error" ||
+    state.status === "downloading" ||
+    resolveDesktopUpdateButtonAction(state) !== "none"
+  );
+}
+
 export function shouldShowArm64IntelBuildWarning(state: DesktopUpdateState | null): boolean {
   return state?.hostArch === "arm64" && state.appArch === "x64";
 }

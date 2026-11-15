@@ -25,6 +25,7 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
+  shouldShowRailUpdateRow,
   shouldToastDesktopUpdateActionResult,
 } from "../desktopUpdate.logic";
 import { showDesktopUpdateDownloadedToast } from "../desktopUpdate.toast";
@@ -193,34 +194,46 @@ export async function installLocalUpdate(
 }
 
 /**
- * The desktop update button. The sidebar footer holds it as a menu item; the bot rail holds it
- * under Settings, where an update run shrinks to its icon and popovers open to the right.
+ * The desktop update button. The sidebar footer holds it as a menu item. The bot rail shows it as
+ * an Update row (an icon when `collapsed`) only while there is an update; an update run shrinks
+ * to its icon there and popovers open to the right.
  */
 export function SidebarUpdatePill({
   placement = "sidebar",
+  collapsed = false,
 }: {
   readonly placement?: "sidebar" | "rail";
+  readonly collapsed?: boolean;
 }) {
-  return <SidebarUpdateControl placement={placement} />;
+  return <SidebarUpdateControl placement={placement} collapsed={collapsed} />;
 }
 
 function UpdateSlot({
   placement,
+  collapsed,
   className,
   children,
 }: {
   readonly placement: "sidebar" | "rail";
+  readonly collapsed: boolean;
   readonly className: string;
   readonly children: ReactNode;
 }) {
-  return placement === "rail" ? (
-    <div className="flex w-full justify-center">{children}</div>
-  ) : (
-    <SidebarMenuItem className={className}>{children}</SidebarMenuItem>
+  if (placement === "sidebar") {
+    return <SidebarMenuItem className={className}>{children}</SidebarMenuItem>;
+  }
+  return (
+    <div className={cn("flex w-full", collapsed ? "justify-center" : "flex-col")}>{children}</div>
   );
 }
 
-function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "rail" }) {
+function SidebarUpdateControl({
+  placement,
+  collapsed,
+}: {
+  readonly placement: "sidebar" | "rail";
+  readonly collapsed: boolean;
+}) {
   const popupSide = placement === "rail" ? "right" : "top";
   const state = useDesktopUpdateState();
   // The desktop updates this machine, whose policy the primary environment reports.
@@ -274,11 +287,15 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
     isDownloading,
     showCheckIcon,
   });
+  // The rail shows a failed check as its own row, so its tooltip names the failure.
+  const showsRailError = placement === "rail" && state?.status === "error";
   const idleTooltip =
-    !showUpdateDetails && !showCheckIcon ? getDesktopUpdateIdleTooltip(state, updatesDenial) : null;
+    !showUpdateDetails && !showCheckIcon && !showsRailError
+      ? getDesktopUpdateIdleTooltip(state, updatesDenial)
+      : null;
   const tooltip = runsEverything
     ? everything.summary
-    : showUpdateDetails
+    : showUpdateDetails || showsRailError
       ? state
         ? getDesktopUpdateButtonTooltip(state)
         : "Update available"
@@ -427,6 +444,13 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
   };
 
   if (!isElectron && !runsEverything && !isRunningEverything) return null;
+  if (
+    placement === "rail" &&
+    !isRunningEverything &&
+    !shouldShowRailUpdateRow({ state, hasOtherUpdates: runsEverything })
+  ) {
+    return null;
+  }
 
   const statusIcon = (
     <DesktopUpdateStatusIcon
@@ -458,7 +482,7 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
           ? { status: "downloading", percent: state.downloadPercent }
           : { status: "waiting" };
     return (
-      <UpdateSlot placement={placement} className="ml-auto flex flex-1">
+      <UpdateSlot placement={placement} collapsed={collapsed} className="ml-auto flex flex-1">
         <SidebarUpdateCapsule
           compact={placement === "rail"}
           run={run}
@@ -492,17 +516,29 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
       aria-label={idleTooltip?.detail ? `${tooltip}: ${idleTooltip.detail}` : tooltip}
       aria-disabled={isInteractionDisabled || undefined}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",
         isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer",
-        showUpdateIconState
+        placement === "rail"
           ? cn(
-              "bg-sidebar-control-surface text-sidebar-foreground",
-              !isInteractionDisabled && "hover:bg-sidebar-row-hover",
-            )
-          : cn(
-              "text-(--sidebar-icon-color)",
+              // Matches the rail's place rows and, collapsed, its place icons.
+              "outline-none text-sidebar-muted-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              collapsed
+                ? "relative flex size-10 items-center justify-center rounded-xl"
+                : "mx-2 flex h-8 min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-start text-sm",
               !isInteractionDisabled && "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-            ),
+            )
+          : "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",
+        placement === "rail"
+          ? null
+          : showUpdateIconState
+            ? cn(
+                "bg-sidebar-control-surface text-sidebar-foreground",
+                !isInteractionDisabled && "hover:bg-sidebar-row-hover",
+              )
+            : cn(
+                "text-(--sidebar-icon-color)",
+                !isInteractionDisabled &&
+                  "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+              ),
         disabled && !showUpdateIconState && "opacity-60",
       )}
       onClick={handleAction}
@@ -529,12 +565,20 @@ function SidebarUpdateControl({ placement }: { readonly placement: "sidebar" | "
         );
       }}
     >
-      {statusIcon}
+      {placement === "rail" && !collapsed ? (
+        <>
+          {/* A 16px slot, like the other rows' icons; the download ring overflows it evenly. */}
+          <span className="flex size-4 shrink-0 items-center justify-center">{statusIcon}</span>
+          <span className="min-w-0 flex-1 truncate">Update</span>
+        </>
+      ) : (
+        statusIcon
+      )}
     </button>
   );
 
   return (
-    <UpdateSlot placement={placement} className="ml-auto shrink-0">
+    <UpdateSlot placement={placement} collapsed={collapsed} className="ml-auto shrink-0">
       <Popover
         handle={releaseNotesPopoverHandle}
         open={releaseNotesOpen && showReleaseNotesPopover}
