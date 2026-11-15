@@ -18,7 +18,11 @@ import {
   threadUndoClaimsShortcut,
   undoLatestThreadAction,
 } from "../hooks/showThreadUndoNotice";
-import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
   resolveShortcutCommand,
@@ -46,6 +50,7 @@ import ThreadSidebar from "./Sidebar";
 import { BotRail, useBotRailWidth } from "./sidebar/BotRail";
 import { FollowStandingThread } from "./sidebar/FollowStandingThread";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
+import { ThreadListResizeHandle } from "./sidebar/ThreadListResizeHandle";
 import { isAppModalPage, mainViewForPathname, useRailDestination } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
@@ -56,13 +61,11 @@ import {
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
   resolveThreadSidebarMinimumWidth,
-  THREAD_MAIN_CONTENT_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
 import {
   Sidebar,
   SidebarProvider,
-  SidebarRail,
   SidebarTrigger,
   useMobileSidebarSheetMounted,
   useSidebar,
@@ -479,6 +482,19 @@ export function AppSidebarLayout({
     }
     setSidebarWidth(resolveInitialThreadSidebarWidth(null, viewportWidth));
   };
+  const persistSidebarWidth = (width: number) => {
+    try {
+      setLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, width, Schema.Finite);
+    } catch (error) {
+      console.error("Could not persist thread sidebar width.", error);
+    }
+    setSidebarWidth(width);
+  };
+  const clampedSidebarWidth = clampThreadSidebarWidth(
+    sidebarWidth,
+    sidebarMinimumWidth,
+    sidebarMaximumWidth,
+  );
   const isWindowFullscreen = useSyncExternalStore(
     subscribeToWindowFullscreen,
     readWindowFullscreen,
@@ -489,7 +505,7 @@ export function AppSidebarLayout({
       : {}
   ) as CSSProperties;
   const sidebarProviderStyle = {
-    "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
+    "--sidebar-width": `${clampedSidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
     ...(pinnedBotRail ? { "--sidebar-leading-width": `${botRailWidth}px` } : {}),
@@ -514,16 +530,6 @@ export function AppSidebarLayout({
               {...sidebarArea}
               role="navigation"
               aria-label="Threads"
-              resizable={{
-                maxWidth: sidebarMaximumWidth,
-                minWidth: sidebarMinimumWidth,
-                shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-                  nextWidth <= currentWidth ||
-                  wrapper.clientWidth - (pinnedBotRail ? botRailWidth : 0) - nextWidth >=
-                    THREAD_MAIN_CONTENT_MIN_WIDTH,
-                storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-                onResize: setSidebarWidth,
-              }}
               style={windowControlsInsetStyle}
             >
               <MobileBotRailFrame show={showBotRail && isMobile}>
@@ -535,8 +541,16 @@ export function AppSidebarLayout({
                   <ThreadSidebar routeReveal={sidebarRouteReveal} />
                 )}
               </MobileBotRailFrame>
-              <SidebarRail onDoubleClick={resetSidebarWidth} />
             </Sidebar>
+            {isMobile ? null : (
+              <ThreadListResizeHandle
+                width={clampedSidebarWidth}
+                minWidth={sidebarMinimumWidth}
+                maxWidth={sidebarMaximumWidth}
+                onResize={persistSidebarWidth}
+                onReset={resetSidebarWidth}
+              />
+            )}
           </>
         ) : null}
         {children}
