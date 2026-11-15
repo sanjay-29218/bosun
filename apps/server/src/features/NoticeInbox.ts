@@ -60,8 +60,9 @@ export class NoticeInbox extends Context.Service<
     /** Delivers what waits for every recipient, such as notices from before a restart. */
     readonly recover: () => Effect.Effect<void>;
     /**
-     * Notices posted after `since` to the threads linked environments started requests as
-     * (`link-task:` runs) in these projects, oldest first: what a manager elsewhere hears.
+     * Notices posted since `since` (inclusive, so a page can't split notices of one instant) to
+     * the threads linked environments started requests as (`link-task:` runs) in these projects,
+     * oldest first: what a manager elsewhere hears, deduplicating by key.
      */
     readonly postedToLinkedRequests: (input: {
       readonly projectIds: ReadonlyArray<string>;
@@ -367,7 +368,7 @@ const make = Effect.gen(function* () {
       FROM notice_inbox AS n
       JOIN crew_runs AS r ON r.thread_id = n.thread_id
       WHERE r.id LIKE 'link-task:%' AND ${sql.in("r.project_id", projectIds)}
-        AND n.created_at > ${since}
+        AND n.created_at >= ${since}
       ORDER BY n.created_at, n.rowid
       LIMIT 50
     `.pipe(Effect.mapError(queryError));
