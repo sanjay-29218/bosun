@@ -59,6 +59,11 @@ const laptop = descriptorOf("environment-laptop", "Laptop");
 const box = descriptorOf("environment-box", "Box");
 const couch = descriptorOf("environment-couch", "Couch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+/** The model and access the Feature delivery lead role runs with, unlike the bot's. */
+const leadRole = {
+  modelSelection: { ...modelSelection, model: "gpt-5.4-mini" },
+  runtimeMode: "auto-accept-edits" as const,
+};
 
 const bot = (
   id: string,
@@ -197,8 +202,9 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           name: id,
           instructions: `You are ${id}.`,
           withheldTools: [],
-          modelSelection,
-          runtimeMode: "full-access",
+          ...(id === "role:feature-manager"
+            ? leadRole
+            : { modelSelection, runtimeMode: "full-access" }),
           enabled: true,
         } as never),
       ensureFeatureManager: (projectId) =>
@@ -243,7 +249,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           enabled: true,
           installed: true,
           auth: { status: "authenticated" },
-          models: [{ slug: modelSelection.model }],
+          models: [{ slug: modelSelection.model }, { slug: leadRole.modelSelection.model }],
         },
       ] as never),
     }),
@@ -538,6 +544,20 @@ it.live(
         // Not "nothing runs", which would leave the run the launch just made running there.
         const cancelled = yield* Fiber.join(cancelling);
         expect(cancelled.threadId).toBe(launched.threadId);
+        // Sent without a workflow, it runs as the bot, which must be able to run here.
+        expect((yield* Ref.get(boxSeen)).runs[0]?.carried).toEqual({
+          runtimeMode: "full-access",
+          modelSelection,
+        });
+        const elsewhere = yield* reach
+          .startForLink(linkScope("full-access"), {
+            ...request,
+            ...launch("project:omni", "gpt-elsewhere"),
+          })
+          .pipe(Effect.flip);
+        expect(elsewhere.message).toContain(
+          "runs on gpt-elsewhere (codex), which isn't available on Box",
+        );
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -567,7 +587,8 @@ it.live("starts the project manager there, or says before starting anything why 
           memberId: "bot-manager:project:omni",
           projectId: "project:omni",
           taskText: "Start a feature: dark mode.",
-          carried: { runtimeMode: "full-access", modelSelection },
+          // Its lead runs as the workflow's lead role, not as the bot that sent it.
+          carried: leadRole,
           workspace: { branch: expect.stringMatching(/^bosun\/dark-mode-/), baseRef: "main" },
           // The laptop's workflow goes along by value, for the features this request starts.
           workflow: {
@@ -680,11 +701,16 @@ it.live("starts the project manager there, or says before starting anything why 
       expect(yield* start(launch("project:api"))).toContain(
         "api on Box belongs to Captain on Box, not Captain from Laptop",
       );
-      expect(yield* start(launch("project:omni", "gpt-elsewhere"))).toContain(
-        "runs on gpt-elsewhere (codex), which isn't available on Box",
-      );
       // The omni run, and the one left queued above; refusals start nothing.
       expect((yield* Ref.get(boxSeen)).runs).toHaveLength(2);
+      // The bot's own model goes unused when a workflow's lead role runs the work.
+      yield* a.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        CAPTAIN_ID,
+        launch("project:omni", "gpt-elsewhere"),
+      );
+      expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual(leadRole);
 
       yield* linkSleepingCouch(a.links);
       const asleep = yield* a.reach

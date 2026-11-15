@@ -29,6 +29,7 @@ import { CrewService } from "../crew/CrewService.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
+import { narrowerRuntimeMode } from "../mcp/delegatedTaskModes.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import {
   type BotHome,
@@ -570,7 +571,18 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignoreCause({ log: true }));
           }
-          if (!(yield* modelAvailable(input.modelSelection))) {
+          // A workflow's lead role runs the work as itself, within the access it was sent with.
+          const leadRole = input.workflow?.roles.find(
+            (role) => role.id === input.workflow!.workflow.leadRoleId,
+          );
+          const carried =
+            leadRole === undefined
+              ? { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection }
+              : {
+                  runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
+                  modelSelection: leadRole.modelSelection,
+                };
+          if (leadRole === undefined && !(yield* modelAvailable(input.modelSelection))) {
             return yield* failure(
               "invalid_request",
               `${home.botName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${home.botName}'s model.`,
@@ -606,7 +618,7 @@ const make = Effect.gen(function* () {
               projectId: project.id,
               taskText: input.task,
               title: input.title,
-              carried: { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection },
+              carried,
               ...(input.workflow === undefined
                 ? {}
                 : { workflow: { snapshot: input.workflow, here: self.label, from: client.label } }),

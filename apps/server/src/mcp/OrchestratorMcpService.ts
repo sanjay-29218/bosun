@@ -131,6 +131,7 @@ import * as Metrics from "../observability/Metrics.ts";
 import {
   interactionModeRank,
   resolveInteractionMode,
+  narrowerRuntimeMode,
   resolveRuntimeMode,
   runtimeModeRank,
   taskPrompt,
@@ -2810,6 +2811,12 @@ const make = Effect.gen(function* () {
       };
     }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(function* (callerScope, input) {
+      if (input.crewMember !== undefined && input.target !== undefined) {
+        return yield* failure(
+          "invalid_request",
+          `${input.crewMember} runs on its role's model; leave out target.`,
+        );
+      }
       const environmentId =
         input.target === undefined
           ? undefined
@@ -2858,7 +2865,7 @@ const make = Effect.gen(function* () {
       }
       // A crew member keeps one thread per feature, so later tasks build on its history.
       const crewTasks =
-        crewMember === null || input.target !== undefined
+        crewMember === null
           ? []
           : yield* threadManagement.getThreadRecords(parent.thread.id, ["subagents"]).pipe(
               Effect.map(({ subagents }) => subagents),
@@ -2939,23 +2946,24 @@ const make = Effect.gen(function* () {
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
       const target = yield* resolveTargetRechecking({
         parent,
-        // A crew member brings its own model unless the lead names another.
         target:
-          input.target ??
-          (crewMember === null
-            ? undefined
+          crewMember === null
+            ? input.target
             : {
                 providerInstanceId: crewMember.modelSelection.instanceId,
                 model: crewMember.modelSelection.model,
                 ...(crewMember.modelSelection.options === undefined
                   ? {}
                   : { options: crewMember.modelSelection.options }),
-              }),
+              },
         providers,
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
       });
+      // A crew member runs with its role's access, never broader than its lead's.
       const runtimeMode = yield* resolveRuntimeMode(
-        parent.thread.runtimeMode,
+        crewMember === null
+          ? parent.thread.runtimeMode
+          : narrowerRuntimeMode(parent.thread.runtimeMode, crewMember.runtimeMode),
         input.runtimeMode,
         target,
       );

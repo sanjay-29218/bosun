@@ -28,6 +28,7 @@ import {
   type OrchestrationV2ServerCommand,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
+  type RuntimeMode,
   type ServerProvider,
   projectHeadquartersThreadId,
 } from "@t3tools/contracts";
@@ -2770,12 +2771,14 @@ describe("OrchestratorMcpService provider resolution", () => {
         completedAt: null,
       };
       const leadProjection =
-        (featureId: string | null, member?: string) => (tasks: ReadonlyArray<unknown>) => {
+        (featureId: string | null, member?: string, runtimeMode?: RuntimeMode) =>
+        (tasks: ReadonlyArray<unknown>) => {
           const projection = parentProjection(tasks);
           return {
             ...projection,
             thread: {
               ...projection.thread,
+              ...(runtimeMode === undefined ? {} : { runtimeMode }),
               ...(featureId === null
                 ? {}
                 : {
@@ -2784,8 +2787,8 @@ describe("OrchestratorMcpService provider resolution", () => {
             },
           } as OrchestrationV2ThreadProjection;
         };
-      const run = (featureId: string | null, member?: string) => {
-        const projection = leadProjection(featureId, member);
+      const run = (featureId: string | null, member?: string, runtimeMode?: RuntimeMode) => {
+        const projection = leadProjection(featureId, member, runtimeMode);
         const layerDependencies = Layer.mergeAll(
           NodeServices.layer,
           NodeCrypto.layer,
@@ -2854,14 +2857,23 @@ describe("OrchestratorMcpService provider resolution", () => {
               hasRequest: () => Effect.succeed(false),
               member: (feature, name) =>
                 Effect.succeed(
-                  feature === "feature:dark" && name === "Planner"
-                    ? {
-                        name: "Planner",
-                        instructions: "You are the Planner on a feature's crew.",
-                        modelSelection: plannerModel,
-                        runtimeMode: "full-access",
-                      }
-                    : null,
+                  feature !== "feature:dark"
+                    ? null
+                    : name === "Planner"
+                      ? {
+                          name: "Planner",
+                          instructions: "You are the Planner on a feature's crew.",
+                          modelSelection: plannerModel,
+                          runtimeMode: "approval-required" as const,
+                        }
+                      : name === "Builder"
+                        ? {
+                            name: "Builder",
+                            instructions: "You are the Builder on a feature's crew.",
+                            modelSelection: plannerModel,
+                            runtimeMode: "full-access" as const,
+                          }
+                        : null,
                 ),
               names: () => Effect.succeed(["Planner", "Builder"]),
               resolveIssue: () => Effect.die("unused"),
@@ -2877,6 +2889,18 @@ describe("OrchestratorMcpService provider resolution", () => {
 
       yield* Effect.gen(function* () {
         const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        // The role decides the model, so the lead can't name another one.
+        const overridden = yield* mcp
+          .delegateTask(scope, {
+            task: "Plan dark mode.",
+            crewMember: "Planner",
+            target: { providerInstanceId: codexInstanceId, model: "gpt-5.4" },
+            clientRequestId: "crew-planner-target",
+          })
+          .pipe(Effect.flip);
+        assert.equal(overridden.code, "invalid_request");
+        assert.include(overridden.message, "Planner runs on its role's model; leave out target.");
+        assert.lengthOf(yield* Ref.get(dispatched), 0);
         yield* mcp.delegateTask(scope, {
           task: "Plan dark mode.",
           crewMember: "Planner",
@@ -2887,11 +2911,14 @@ describe("OrchestratorMcpService provider resolution", () => {
           readonly title?: string;
           readonly crewMember?: string;
           readonly modelSelection: { readonly model: string };
+          readonly runtimeMode: RuntimeMode;
         }>;
         assert.equal(request!.crewMember, "Planner");
         // Named after the lead's task, not the instructions put in front of it.
         assert.equal(request!.title, "Planner: Plan dark mode.");
         assert.equal(request!.modelSelection.model, plannerModel.model);
+        // A read-only role stays read-only under a full-access lead.
+        assert.equal(request!.runtimeMode, "approval-required");
         // Every crew member hears how to get the person's approval, whatever its role says.
         assert.equal(
           request!.task,
@@ -2928,6 +2955,21 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.include(followUp!.text, "Revise the plan.");
         assert.notInclude(followUp!.text, "You are the Planner");
       }).pipe(Effect.provide(run("feature:dark")));
+
+      // A crew member never runs broader than its lead.
+      yield* Ref.set(dispatched, []);
+      yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        yield* mcp.delegateTask(scope, {
+          task: "Build dark mode.",
+          crewMember: "Builder",
+          clientRequestId: "crew-builder-1",
+        });
+        const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
+          readonly runtimeMode: RuntimeMode;
+        }>;
+        assert.equal(request!.runtimeMode, "auto-accept-edits");
+      }).pipe(Effect.provide(run("feature:dark", undefined, "auto-accept-edits")));
 
       // A thread outside any feature has no crew to delegate to.
       const outside = yield* Effect.gen(function* () {
