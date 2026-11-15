@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
@@ -106,6 +107,10 @@ export const isBotFreshStartContext = (
 export const LEGACY_ALLOWED_TOOLS = Schema.optionalKey(Schema.Unknown);
 export const LEGACY_TOOLS_MESSAGE = "This Bosun is newer; update the app to edit tools.";
 
+/** Older linked servers omit keys added since; a missing list decodes as empty. */
+export const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
+  Schema.Array(item).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])));
+
 export const Bot = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -113,7 +118,7 @@ export const Bot = Schema.Struct({
   color: ProjectIconColor,
   instructions: Schema.String,
   /** The tools a person withheld; every other tool is on. */
-  withheldTools: Schema.Array(Schema.String),
+  withheldTools: listDefaultingToEmpty(Schema.String),
   runtimeMode: RuntimeMode,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
@@ -122,7 +127,7 @@ export const Bot = Schema.Struct({
    * Linked environments the bot may start new work on. Its home is the environment that stores
    * it; ids no longer linked stay saved and are ignored.
    */
-  permittedEnvironmentIds: Schema.Array(EnvironmentId),
+  permittedEnvironmentIds: listDefaultingToEmpty(EnvironmentId),
   /** Rail order, counted from 0. */
   position: Schema.Int,
   /** Shown in the main rail; every bot is listed under Bots either way. Absent: pinned. */

@@ -1,7 +1,12 @@
 import * as Schema from "effect/Schema";
 
 import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
-import { BotAvatar, BotLongConversation, LEGACY_ALLOWED_TOOLS } from "./bots.ts";
+import {
+  BotAvatar,
+  BotLongConversation,
+  LEGACY_ALLOWED_TOOLS,
+  listDefaultingToEmpty,
+} from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor, ProjectRemoteManager } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
@@ -97,7 +102,7 @@ export const RoleConfig = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  withheldTools: Schema.Array(Schema.String),
+  withheldTools: listDefaultingToEmpty(Schema.String),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   enabled: Schema.Boolean,
@@ -222,7 +227,7 @@ export const ProjectManagerSettings = Schema.Struct({
   /** Off, its bot does the project's work itself and its thread is archived. */
   enabled: Schema.Boolean,
   instructions: Schema.String,
-  withheldTools: Schema.Array(Schema.String),
+  withheldTools: listDefaultingToEmpty(Schema.String),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   longConversation: BotLongConversation,
