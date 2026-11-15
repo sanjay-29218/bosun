@@ -52,6 +52,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.crewSetProjectManagerEnabled,
       WS_METHODS.crewSetProjectManagerIcon,
       WS_METHODS.crewOpenProjectManager,
+      WS_METHODS.crewSetProjectManagerPlacement,
       WS_METHODS.crewStartNewSession,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
