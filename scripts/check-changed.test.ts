@@ -259,8 +259,9 @@ const env = {
   ),
 };
 
-// History A -> B -> C, with HEAD at C. Each remote's main points at A or B.
-function fixture(remotes: Record<string, "A" | "B">) {
+// History A -> B -> C, with HEAD at C. Each remote's main points at A or B, and its staging too
+// when given.
+function fixture(remotes: Record<string, "A" | "B">, staging: Record<string, "A" | "B"> = {}) {
   const root = NodeFS.realpathSync(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-check-changed-")),
   );
@@ -283,6 +284,9 @@ function fixture(remotes: Record<string, "A" | "B">) {
     for (const [remote, commit] of Object.entries(remotes)) {
       git("remote", "add", remote, NodePath.join(root, "missing"));
       git("update-ref", `refs/remotes/${remote}/main`, commits[commit]!);
+    }
+    for (const [remote, commit] of Object.entries(staging)) {
+      git("update-ref", `refs/remotes/${remote}/staging`, commits[commit]!);
     }
   } catch (error) {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -317,6 +321,13 @@ it.each(["upstream", "team/upstream"])(
     assert.strictEqual(result.ref, remote + "/main");
   },
 );
+
+it("compares against origin/staging when the branch was cut from it", async () => {
+  using project = fixture({ origin: "A" }, { origin: "B" });
+  const result = await compare(project.root, Option.none());
+  assert.strictEqual(result.base, project.commits.B);
+  assert.strictEqual(result.ref, "origin/staging");
+});
 
 it("compares against an explicit ref instead of the closest remote main", async () => {
   using project = fixture({ origin: "A", upstream: "B" });
