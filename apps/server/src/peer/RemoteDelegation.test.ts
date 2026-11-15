@@ -1760,10 +1760,17 @@ it.effect("a request waiting when the laptop restarts still starts once the box 
           const before = yield* makeLaptop(database, offers, linking, botBox.reach);
           yield* linkTo(before.links, b, "full-access");
           yield* seedParent(before, headquarters);
-          return requested(yield* requestOnBox(before));
+          // As t3_feature_start sends it: naming a workflow here, which goes along on launch.
+          return yield* before.remote.delegate(headquartersScope, {
+            task: "Start a feature: dark mode.",
+            target: { environmentId: box.environmentId, projectId: boxProject },
+            isolation: "worktree",
+            mode: "async",
+            clientRequestId: "dark-mode",
+            workflowId: "workflow:social-media",
+          });
         }),
       );
-      expect(waiting.status).toBe("waiting");
 
       yield* Ref.set(botBox.asleep, false);
       const after = yield* makeLaptop(database, offers, linking, botBox.reach);
@@ -1775,6 +1782,10 @@ it.effect("a request waiting when the laptop restarts still starts once the box 
         headquarters,
       );
       expect(yield* Ref.get(botBox.started)).toHaveLength(1);
+      // Every attempt, the one after the restart too, takes the workflow it named.
+      expect(new Set((yield* botBox.launches).map((launch) => launch.workflowId))).toEqual(
+        new Set(["workflow:social-media"]),
+      );
       yield* finishOnBox(thread, "Done after the restart.");
       expect(yield* taskResult(after, waiting.taskId, headquarters)).toMatchObject({
         status: "completed",

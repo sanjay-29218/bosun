@@ -16,7 +16,7 @@ import * as Schema from "effect/Schema";
 
 import { CrewService } from "../../../crew/CrewService.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
-import { FeatureService } from "../../../features/FeatureService.ts";
+import { FeatureService, namesWorkflow } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -66,6 +66,18 @@ const guarded =
 const reading = guarded(checkRead);
 const writing = guarded(checkWrite);
 
+/** The id of the workflow here `named` names, as `t3_feature_start` resolves it. */
+const resolveWorkflowHere = Effect.fn("FeaturesToolkit.resolveWorkflowHere")(function* (
+  named: string,
+) {
+  const workflows = yield* (yield* CrewService).listWorkflows().pipe(Effect.mapError(asMcpFailure));
+  const match = workflows.find((workflow) => namesWorkflow(named, workflow));
+  if (match !== undefined) return match.id;
+  return yield* invalid(
+    `Workflow not found: ${named}. Use one of: ${workflows.map((workflow) => `${workflow.id} (${workflow.name})`).join(", ")}, or leave workflowId out for Feature delivery.`,
+  );
+});
+
 /**
  * A feature for a headquarters' project, or a manager's project's copy, on a linked environment,
  * which that project's Feature manager there starts.
@@ -95,16 +107,18 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
   const manager = headquartersProjectId(callerThreadId) !== null;
   if (
     input.workspace !== undefined ||
-    input.workflowId !== undefined ||
     (!manager && (input.baseBranch !== undefined || input.requestId !== undefined)) ||
     input.parentFeatureId !== undefined
   ) {
     return yield* invalid(
       manager
-        ? "With environmentId, pass only projectId, title, brief, issue, baseBranch, requestId and featureId; the Feature manager there picks the rest."
-        : "With environmentId, pass only projectId, title, brief, issue and featureId; the Feature manager there picks the rest.",
+        ? "With environmentId, pass only projectId, title, brief, issue, workflowId, baseBranch, requestId and featureId; the Feature manager there picks the rest."
+        : "With environmentId, pass only projectId, title, brief, issue, workflowId and featureId; the Feature manager there picks the rest.",
     );
   }
+  // A workflow here, sent there by value with the request, as Feature delivery is by default.
+  const workflowId =
+    input.workflowId === undefined ? undefined : yield* resolveWorkflowHere(input.workflowId);
   const requestId = input.requestId?.trim() || undefined;
   if (requestId !== undefined) yield* requireOwnRequest(callerThreadId, undefined, requestId);
   const issue = input.issue?.trim() || undefined;
@@ -115,6 +129,7 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
     title: input.title,
     request: `Start a feature with t3_feature_start for this request, titled "${input.title}"${issue === undefined ? "" : `, with its issue ${issue}`}${baseBranch === undefined ? "" : `, with baseBranch "${baseBranch}" (a branch of this checkout)`}:\n\n${input.brief}`,
     key: `feature-start:${input.featureId ?? input.title}`,
+    ...(workflowId === undefined ? {} : { workflowId }),
   });
   return {
     featureId: null,

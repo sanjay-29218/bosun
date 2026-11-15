@@ -271,6 +271,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.workflowsCreate]: "workflows",
   [WS_METHODS.workflowsUpdate]: "workflows",
   [WS_METHODS.workflowsDelete]: "workflows",
+  [WS_METHODS.workflowsShares]: "workflows",
+  [WS_METHODS.workflowsSetShare]: "workflows",
   [WS_METHODS.crewConfiguration]: "crew",
   [WS_METHODS.crewInitialize]: "crew",
   [WS_METHODS.crewInstantiate]: "crew",

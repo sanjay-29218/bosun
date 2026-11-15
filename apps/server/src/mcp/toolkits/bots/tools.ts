@@ -22,6 +22,7 @@ import {
   LinkBotNotices,
   LinkBotProjects,
   LinkBotTask,
+  LinkWorkflowSync,
   ListedBot,
 } from "./linkTools.ts";
 
@@ -134,4 +135,5 @@ export const BotsToolkit = Toolkit.make(
   LinkBotProjects,
   LinkBotTask,
   LinkBotNotices,
+  LinkWorkflowSync,
 );

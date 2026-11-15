@@ -68,6 +68,8 @@ export interface ProjectManagerLaunch {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly clientRequestId: string;
+  /** The workflow here a feature for it follows; Feature delivery when absent. */
+  readonly workflowId?: string | undefined;
   /**
    * Starts nothing: cancels the run an earlier attempt with this key left queued there, and
    * returns its thread if it started, for the caller to stop; `run_not_found` when none runs.
@@ -442,45 +444,6 @@ const make = Effect.gen(function* () {
     },
   );
 
-  /**
-   * The workflow a feature for a request runs on, sent by value: Feature delivery at its
-   * revision here, with its lead and enabled crew roles. Nothing when it's gone.
-   */
-  const workflowSnapshot = Effect.fn("BotReach.workflowSnapshot")(function* () {
-    const workflow = yield* crew
-      .getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)
-      .pipe(Effect.mapError(unavailable));
-    if (workflow === null) return undefined;
-    const roles = yield* Effect.forEach([workflow.leadRoleId, ...workflow.crewRoleIds], (id) =>
-      crew.getRole(id).pipe(Effect.mapError(unavailable)),
-    );
-    const snapshot: WorkflowSnapshot = {
-      workflow: {
-        id: workflow.id,
-        name: workflow.name,
-        instructions: workflow.instructions,
-        leadRoleId: workflow.leadRoleId,
-        crewRoleIds: workflow.crewRoleIds,
-        revision: workflow.revision,
-      },
-      roles: roles.flatMap((role) =>
-        role !== null && (role.enabled || role.id === workflow.leadRoleId)
-          ? [
-              {
-                id: role.id,
-                name: role.name,
-                instructions: role.instructions,
-                withheldTools: role.withheldTools,
-                modelSelection: role.modelSelection,
-                runtimeMode: role.runtimeMode,
-              },
-            ]
-          : [],
-      ),
-    };
-    return snapshot;
-  });
-
   const linkTo = (environmentId: EnvironmentId) =>
     links.get(environmentId).pipe(
       Effect.map(Option.getOrUndefined),
@@ -568,13 +531,24 @@ const make = Effect.gen(function* () {
     yield* links
       .resolve(environmentId)
       .pipe(Effect.catch((error) => (error.reason === "unreachable" ? unreachable : Effect.void)));
-    const workflow = cleanup ? undefined : yield* workflowSnapshot();
+    // Sent by value, so the feature there follows it at this revision.
+    const workflowId = input.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID;
+    const workflow = cleanup
+      ? null
+      : yield* crew.workflowSnapshot(workflowId).pipe(Effect.mapError(unavailable));
+    if (!cleanup && workflow === null && input.workflowId !== undefined) {
+      return yield* failure(
+        "invalid_request",
+        `Workflow ${input.workflowId} is no longer on ${(yield* here).label}.`,
+      );
+    }
     const self = yield* here;
+    const { workflowId: _workflowId, ...launch } = input;
     return yield* forwarding
       .call(scope, LinkBotTask, environmentId, {
-        ...input,
+        ...launch,
         home,
-        ...(workflow === undefined ? {} : { workflow }),
+        ...(workflow === null ? {} : { workflow }),
       })
       .pipe(
         Effect.catchIf(

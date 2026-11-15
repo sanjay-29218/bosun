@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 
 import * as BotReach from "../../../bots/BotReach.ts";
 import * as BotService from "../../../bots/BotService.ts";
+import { WorkflowSharing } from "../../../crew/WorkflowSharing.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { readCaller } from "../../threadAccess.ts";
@@ -34,6 +35,7 @@ export const layer = McpToolAccess.toLayer(
   BotsToolkit,
   Effect.gen(function* () {
     const reach = yield* BotReach.BotReach;
+    const sharing = yield* WorkflowSharing;
     return {
       t3_bot_list: McpToolAccess.reads(() => reach.list.pipe(Effect.map((bots) => ({ bots })))),
       t3_bot_create: McpToolAccess.writesWithCapability((input) =>
@@ -78,6 +80,13 @@ export const layer = McpToolAccess.toLayer(
         reach.noticesForLink(input.home, input.since).pipe(Effect.map((notices) => ({ notices }))),
       ),
       // The link's own access is checked by the service, which names what to change.
+      t3_workflow_link_sync: McpToolAccess.writes(
+        (input) =>
+          McpInvocationContext.McpInvocationContext.pipe(
+            Effect.flatMap((scope) => sharing.receive(scope, input)),
+          ),
+        { linkedCallers: "allowed" },
+      ),
       t3_bot_link_task: McpToolAccess.writes(
         (input) =>
           McpInvocationContext.McpInvocationContext.pipe(

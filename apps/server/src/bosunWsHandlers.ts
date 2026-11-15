@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 
 import type { BotService } from "./bots/BotService.ts";
 import type { CrewService } from "./crew/CrewService.ts";
+import type { WorkflowSharing } from "./crew/WorkflowSharing.ts";
 import type { ProjectRequests } from "./crew/ProjectRequests.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
@@ -20,6 +21,7 @@ import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 export interface BosunWsServices {
   readonly bots: BotService["Service"];
   readonly crew: CrewService["Service"];
+  readonly workflowSharing: WorkflowSharing["Service"];
   readonly projectRequests: ProjectRequests["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
@@ -35,6 +37,7 @@ export interface BosunWsServices {
 export const layerBosunWsRpc = ({
   bots,
   crew,
+  workflowSharing,
   projectRequests,
   features,
   issues,
@@ -154,6 +157,8 @@ export const layerBosunWsRpc = ({
           crew
             .updateWorkflow(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+        [WS_METHODS.workflowsShares]: (input) => workflowSharing.shares(input.workflowId),
+        [WS_METHODS.workflowsSetShare]: (input) => workflowSharing.setShare(input),
         [WS_METHODS.workflowsDelete]: (input) =>
           crew
             .deleteWorkflow(input.id)

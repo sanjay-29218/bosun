@@ -110,6 +110,8 @@ export class RemoteDelegation extends Context.Service<
         readonly target: NonNullable<OrchestratorMcpDelegateTaskInput["target"]> & {
           readonly environmentId: EnvironmentId;
         };
+        /** From a headquarters or manager: the workflow here a feature for it follows. */
+        readonly workflowId?: string | undefined;
       },
     ) => Effect.Effect<{ readonly taskId: NodeId }, OrchestratorMcpFailure>;
     /**
@@ -269,6 +271,7 @@ const make = Effect.gen(function* () {
       modelSelection: { ...pending.modelSelection, instanceId },
       runtimeMode: pending.runtimeMode,
       clientRequestId: pending.clientRequestId,
+      ...(pending.workflowId === undefined ? {} : { workflowId: pending.workflowId }),
       ...(cancelIfStarted ? { cancelIfStarted } : {}),
     });
   });
@@ -656,6 +659,7 @@ const make = Effect.gen(function* () {
       ...(target.driverKind === undefined || target.providerInstanceId === undefined
         ? {}
         : { providerInstanceId: target.providerInstanceId }),
+      ...(input.workflowId === undefined ? {} : { workflowId: input.workflowId }),
     };
     const recorded = yield* threads
       .dispatch({

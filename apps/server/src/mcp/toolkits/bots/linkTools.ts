@@ -1,6 +1,7 @@
 import {
   Bot,
   EnvironmentId,
+  LibraryOwner,
   ModelSelection,
   NodeId,
   OrchestratorMcpFailure,
@@ -8,6 +9,8 @@ import {
   RunId,
   RuntimeMode,
   ThreadId,
+  WorkflowShareClash,
+  WorkflowShareRoleChoice,
   WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -161,3 +164,19 @@ export const LinkBotNotices = Tool.make("t3_bot_link_notices", {
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
+
+export const LinkWorkflowSync = Tool.make("t3_workflow_link_sync", {
+  ...shared,
+  description:
+    "Puts here the workflow the calling environment (`owner`) shares, with its roles, or removes it (`snapshot` null); without `snapshot`, changes nothing. Returns the roles here it would overwrite unasked, and the open features here that follow it.",
+  parameters: Schema.Struct({
+    owner: LibraryOwner,
+    workflowId: Schema.String,
+    snapshot: Schema.optional(Schema.NullOr(WorkflowSnapshot)),
+    roleChoices: Schema.optional(Schema.Record(Schema.String, WorkflowShareRoleChoice)),
+  }),
+  success: Schema.Struct({
+    clashes: Schema.Array(WorkflowShareClash),
+    openFeatures: Schema.Array(Schema.Struct({ featureId: Schema.String, title: Schema.String })),
+  }),
+}).annotate(Tool.Destructive, false);

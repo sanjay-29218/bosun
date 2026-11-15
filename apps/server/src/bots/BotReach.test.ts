@@ -29,6 +29,7 @@ import type { CreateCrewRunInput } from "../crew/CrewService.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
+import { WorkflowSharing } from "../crew/WorkflowSharing.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { type Notice, NoticeInbox } from "../features/NoticeInbox.ts";
@@ -217,25 +218,44 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
     }),
     Layer.mock(CrewService)({
       // Each environment's Feature delivery: the laptop's is at revision 3 with an extra role.
-      getWorkflow: () =>
-        Effect.succeed({
-          id: FEATURE_DELIVERY_WORKFLOW_ID,
-          name: "Feature delivery",
-          instructions: `Revision ${data.workflowRevision ?? 1}.`,
-          leadRoleId: "role:feature-manager",
-          crewRoleIds: ["role:builder", "role:security-reviewer"],
-          revision: data.workflowRevision ?? 1,
-        } as never),
-      getRole: (id) =>
-        Effect.succeed({
-          id,
-          name: id,
-          instructions: `You are ${id}.`,
+      // Besides it there is Social media, led by its own role.
+      workflowSnapshot: (id) => {
+        const role = (roleId: string) => ({
+          id: roleId,
+          name: roleId,
+          instructions: `You are ${roleId}.`,
           withheldTools: [],
           modelSelection,
-          runtimeMode: "full-access",
-          enabled: true,
-        } as never),
+          runtimeMode: "full-access" as const,
+        });
+        const revision = data.workflowRevision ?? 1;
+        if (id === FEATURE_DELIVERY_WORKFLOW_ID) {
+          const crewRoleIds = ["role:builder", "role:security-reviewer"];
+          return Effect.succeed({
+            workflow: {
+              id,
+              name: "Feature delivery",
+              instructions: `Revision ${revision}.`,
+              leadRoleId: "role:feature-manager",
+              crewRoleIds,
+              revision,
+            },
+            roles: ["role:feature-manager", ...crewRoleIds].map(role),
+          });
+        }
+        if (id !== "workflow:social-media") return Effect.succeed(null);
+        return Effect.succeed({
+          workflow: {
+            id,
+            name: "Social media",
+            instructions: "Post it.",
+            leadRoleId: "role:social-lead",
+            crewRoleIds: ["role:writer"],
+            revision,
+          },
+          roles: ["role:social-lead", "role:writer"].map(role),
+        });
+      },
       ensureFeatureManager: (projectId) =>
         Effect.succeed({ id: `bot-manager:${projectId}` } as never),
       // A run whose task says so is still queued, as one whose dispatch failed.
@@ -292,6 +312,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
 /** The crew toolkits and what they read besides BotReach's data. */
 const layerToolServices = Layer.mergeAll(
   Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+  Layer.mock(WorkflowSharing)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(ProjectRequests)({}),
   Layer.mock(IssueService.IssueService)({}),
@@ -711,6 +732,33 @@ it.live("starts the project manager there, or says before starting anything why 
           },
         },
       ]);
+
+      // A request that names another workflow here takes that one along instead.
+      yield* a.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        { botId: CAPTAIN_ID },
+        {
+          ...launch("project:omni"),
+          clientRequestId: "social",
+          workflowId: "workflow:social-media",
+        },
+      );
+      expect((yield* Ref.get(boxSeen)).runs[1]).toMatchObject({
+        workflow: {
+          snapshot: {
+            workflow: { id: "workflow:social-media", leadRoleId: "role:social-lead" },
+            roles: [{ id: "role:social-lead" }, { id: "role:writer" }],
+          },
+        },
+      });
+      expect(
+        yield* start({ ...launch("project:omni"), clientRequestId: "gone", workflowId: "none" }),
+      ).toBe("Workflow none is no longer on Laptop.");
+      yield* Ref.update(boxSeen, (current) => ({
+        runs: current.runs.slice(0, 1),
+        moves: current.moves.slice(0, 1),
+      }));
 
       // The box shows Captain under the name and home it now has.
       expect((yield* Ref.get(boxSeen)).moves).toEqual([

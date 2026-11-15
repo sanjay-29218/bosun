@@ -38,6 +38,7 @@ import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
+import { WorkflowSharing } from "../crew/WorkflowSharing.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -1935,7 +1936,11 @@ it.effect(
         ('lead:dark', 'lead', 'bot-run:lead:dark', '[]'),
         ('planner:dark', 'planner', 'bot-run:planner:dark', '[]')`;
         const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
-        const linkedRequests: Array<{ readonly task: string; readonly projectId?: string }> = [];
+        const linkedRequests: Array<{
+          readonly task: string;
+          readonly projectId?: string;
+          readonly workflowId?: string;
+        }> = [];
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
@@ -2022,7 +2027,10 @@ it.effect(
                 },
               }),
               Layer.mock(CrewApprovals)({}),
-              Layer.mock(CrewService)({}),
+              Layer.mock(CrewService)({
+                listWorkflows: () =>
+                  Effect.succeed([{ id: "workflow:social-media", name: "Social media" }] as never),
+              }),
               Layer.mock(CrewStore)({}),
               Layer.mock(ProjectRequests)({
                 get: (projectId, requestId) =>
@@ -2031,6 +2039,7 @@ it.effect(
                   ),
               }),
               Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
+              Layer.mock(WorkflowSharing)({}),
               Layer.mock(RemoteDelegation.RemoteDelegation)({
                 delegate: (_scope, input) =>
                   Effect.sync(() => {
@@ -2039,6 +2048,7 @@ it.effect(
                       ...(input.target.projectId === undefined
                         ? {}
                         : { projectId: input.target.projectId }),
+                      ...(input.workflowId === undefined ? {} : { workflowId: input.workflowId }),
                     });
                     return { taskId: NodeId.make("task:linked") };
                   }),
@@ -2242,8 +2252,21 @@ it.effect(
             })
             .pipe(Effect.map((body) => JSON.stringify(body)));
         expect(yield* onTheBox(headquarters, { baseBranch: "staging" })).toContain(
-          "pass only projectId, title, brief, issue and featureId",
+          "pass only projectId, title, brief, issue, workflowId and featureId",
         );
+        // A workflow here, named loosely, goes along by its id; one that isn't here is refused.
+        expect(yield* onTheBox(headquarters, { workflowId: "Nope" })).toContain(
+          "Workflow not found: Nope",
+        );
+        expect(yield* onTheBox(headquarters, { workflowId: "Social media" })).toContain(
+          "task:linked",
+        );
+        expect(linkedRequests.splice(0)).toEqual([
+          expect.objectContaining({
+            projectId: "project:copy",
+            workflowId: "workflow:social-media",
+          }),
+        ]);
         expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-9" })).toContain(
           "no request R-9",
         );

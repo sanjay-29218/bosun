@@ -70,6 +70,10 @@ import {
   WorkflowConfig,
   WorkflowCreateInput,
   WorkflowDeleteInput,
+  WorkflowShare,
+  WorkflowShareSetInput,
+  WorkflowShareSetResult,
+  WorkflowSharesInput,
   WorkflowUpdateInput,
   RoleCreateInput,
   RoleUpdateInput,
@@ -525,6 +529,8 @@ export const WS_METHODS = {
   workflowsCreate: "workflows.create",
   workflowsUpdate: "workflows.update",
   workflowsDelete: "workflows.delete",
+  workflowsShares: "workflows.shares",
+  workflowsSetShare: "workflows.setShare",
   crewConfiguration: "crew.configuration",
   crewInitialize: "crew.initialize",
   crewInstantiate: "crew.instantiate",
@@ -1394,6 +1400,16 @@ const WsWorkflowsUpdateRpc = Rpc.make(WS_METHODS.workflowsUpdate, {
 const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
   payload: WorkflowDeleteInput,
   success: Schema.Void,
+  error: CrewRpcError,
+});
+const WsWorkflowsSharesRpc = Rpc.make(WS_METHODS.workflowsShares, {
+  payload: WorkflowSharesInput,
+  success: Schema.Array(WorkflowShare),
+  error: CrewRpcError,
+});
+const WsWorkflowsSetShareRpc = Rpc.make(WS_METHODS.workflowsSetShare, {
+  payload: WorkflowShareSetInput,
+  success: WorkflowShareSetResult,
   error: CrewRpcError,
 });
 const WsCrewConfigurationRpc = Rpc.make(WS_METHODS.crewConfiguration, {
@@ -2543,6 +2559,8 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsCreateRpc,
   WsWorkflowsUpdateRpc,
   WsWorkflowsDeleteRpc,
+  WsWorkflowsSharesRpc,
+  WsWorkflowsSetShareRpc,
   WsCrewConfigurationRpc,
   WsCrewInitializeRpc,
   WsCrewInstantiateRpc,

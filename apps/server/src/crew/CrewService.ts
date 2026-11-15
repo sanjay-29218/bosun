@@ -12,6 +12,7 @@ import {
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
+  type LibraryOwner,
   ProjectId,
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
@@ -24,6 +25,9 @@ import {
   type ModelSelection,
   type RunId,
   type RuntimeMode,
+  type WorkflowShareClash,
+  type WorkflowShareRoleChoice,
+  type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -69,6 +73,26 @@ import {
   crewRunPrompt,
   headquartersTask,
 } from "./crewPrompts.ts";
+
+/** Key order doesn't matter: model options arrive from JSON in any order. */
+const stableJson = (value: unknown): string =>
+  JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item).toSorted(([left], [right]) => left.localeCompare(right)),
+        )
+      : item,
+  );
+
+/** Whether a role here runs as a shared one would, ignoring revisions and timestamps. */
+const sameRole = (here: Role, shared: Role) =>
+  here.enabled &&
+  here.name === shared.name &&
+  here.instructions === shared.instructions &&
+  here.runtimeMode === shared.runtimeMode &&
+  stableJson([...here.withheldTools].toSorted()) ===
+    stableJson([...shared.withheldTools].toSorted()) &&
+  stableJson(here.modelSelection) === stableJson(shared.modelSelection);
 
 // @effect-diagnostics-next-line extendsNativeError:off - Bosun error predating the Schema.TaggedError rule; migrating its call sites is follow-up work.
 class CrewValidationError extends Error {
@@ -244,6 +268,25 @@ export interface CrewServiceShape {
   readonly deleteWorkflow: (id: string) => Effect.Effect<void, CrewServiceError>;
   readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
   readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
+  /**
+   * Workflow `id` by value, as another environment takes it: the workflow at its revision here,
+   * with its lead and enabled crew roles. Null when it's gone.
+   */
+  readonly workflowSnapshot: (
+    id: string,
+  ) => Effect.Effect<WorkflowSnapshot | null, PersistenceSqlError>;
+  /**
+   * Puts here the workflow `owner` shares (`snapshot`), with its roles, or removes it (null).
+   * While a role it brings is here with other settings and no `roleChoices` entry, changes
+   * nothing and returns those clashes. A workflow with this id that isn't the owner's copy is
+   * refused. Roles of the owner no copy of its uses any more become this environment's own.
+   */
+  readonly receiveSharedWorkflow: (input: {
+    readonly owner: LibraryOwner;
+    readonly workflowId: string;
+    readonly snapshot: WorkflowSnapshot | null;
+    readonly roleChoices: Readonly<Record<string, WorkflowShareRoleChoice>>;
+  }) => Effect.Effect<{ readonly clashes: ReadonlyArray<WorkflowShareClash> }, CrewServiceError>;
   /**
    * The project's member of a workflow's lead role: its Feature manager for that role,
    * else one made from the role on first use.
@@ -588,6 +631,17 @@ export const CrewServiceLive = Layer.effect(
       return { member, created: true };
     });
 
+    /** A shared copy changes only on the environment it came from. */
+    const managedElsewhere = (item: {
+      readonly name: string;
+      readonly managedBy: LibraryOwner | null;
+    }) =>
+      Effect.fail(
+        new CrewValidationError(
+          `${item.name} is managed from ${item.managedBy?.label ?? "another environment"}. Change it there.`,
+        ),
+      );
+
     const createRole: CrewServiceShape["createRole"] = Effect.fn("CrewService.createRole")(
       function* (input) {
         yield* refuseLegacyTools(input);
@@ -625,6 +679,7 @@ export const CrewServiceLive = Layer.effect(
           revision: 1,
           createdAt: now,
           updatedAt: now,
+          managedBy: null,
         };
         yield* store.insertRole(role);
         return role;
@@ -663,6 +718,7 @@ export const CrewServiceLive = Layer.effect(
         if (!previous) {
           return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.id}`));
         }
+        if (previous.managedBy !== null) return yield* managedElsewhere(previous);
         if (previous.revision !== input.expectedRevision) {
           return yield* Effect.fail(
             new CrewValidationError(
@@ -752,6 +808,7 @@ export const CrewServiceLive = Layer.effect(
         revision: 1,
         createdAt: now,
         updatedAt: now,
+        managedBy: null,
       };
       yield* store.insertWorkflow(workflow);
       return workflow;
@@ -764,6 +821,7 @@ export const CrewServiceLive = Layer.effect(
       if (!previous) {
         return yield* Effect.fail(new CrewValidationError(`Workflow not found: ${input.id}`));
       }
+      if (previous.managedBy !== null) return yield* managedElsewhere(previous);
       const stale = new CrewValidationError(
         `Workflow changed: it is at revision ${previous.revision}; reload and retry`,
       );
@@ -778,6 +836,167 @@ export const CrewServiceLive = Layer.effect(
         return yield* Effect.fail(stale);
       }
       return updated;
+    });
+
+    const workflowSnapshot: CrewServiceShape["workflowSnapshot"] = Effect.fn(
+      "CrewService.workflowSnapshot",
+    )(function* (id) {
+      const workflow = yield* store.getWorkflow(id);
+      if (workflow === null) return null;
+      const roles = yield* Effect.forEach(
+        [workflow.leadRoleId, ...workflow.crewRoleIds],
+        (roleId) => store.getRole(roleId),
+      );
+      return {
+        workflow: {
+          id: workflow.id,
+          name: workflow.name,
+          instructions: workflow.instructions,
+          leadRoleId: workflow.leadRoleId,
+          crewRoleIds: workflow.crewRoleIds,
+          revision: workflow.revision,
+        },
+        roles: roles.flatMap((role) =>
+          role !== null && (role.enabled || role.id === workflow.leadRoleId)
+            ? [
+                {
+                  id: role.id,
+                  name: role.name,
+                  instructions: role.instructions,
+                  withheldTools: role.withheldTools,
+                  modelSelection: role.modelSelection,
+                  runtimeMode: role.runtimeMode,
+                },
+              ]
+            : [],
+        ),
+      } satisfies WorkflowSnapshot;
+    });
+
+    /** Roles `owner` brought that none of its copies here uses any more become this one's own. */
+    const releaseRoles = Effect.fn("CrewService.releaseRoles")(function* (owner: LibraryOwner) {
+      const used = new Set(
+        (yield* store.listWorkflows()).flatMap((workflow) =>
+          workflow.managedBy?.environmentId === owner.environmentId
+            ? [workflow.leadRoleId, ...workflow.crewRoleIds]
+            : [],
+        ),
+      );
+      const now = DateTime.formatIso(yield* DateTime.now);
+      for (const role of yield* store.listRoles()) {
+        if (role.managedBy?.environmentId !== owner.environmentId || used.has(role.id)) continue;
+        yield* store.updateRole(
+          { ...role, managedBy: null, revision: role.revision + 1, updatedAt: now },
+          role.revision,
+        );
+      }
+    });
+
+    const receiveSharedWorkflow: CrewServiceShape["receiveSharedWorkflow"] = Effect.fn(
+      "CrewService.receiveSharedWorkflow",
+    )(function* ({ owner, workflowId, snapshot, roleChoices }) {
+      const fromOwner = (item: { readonly managedBy: LibraryOwner | null }) =>
+        item.managedBy?.environmentId === owner.environmentId;
+      return yield* store.transaction(
+        Effect.gen(function* () {
+          const existing = yield* store.getWorkflow(workflowId);
+          if (snapshot === null) {
+            if (existing !== null && fromOwner(existing)) {
+              yield* store.deleteWorkflow(workflowId);
+              yield* releaseRoles(owner);
+            }
+            return { clashes: [] };
+          }
+          if (existing !== null && !fromOwner(existing)) {
+            return yield* Effect.fail(
+              new CrewValidationError(
+                `A workflow with id ${workflowId} (${existing.name}) is already here, not shared from ${owner.label}.`,
+              ),
+            );
+          }
+          const now = DateTime.formatIso(yield* DateTime.now);
+          const writes: Array<{ readonly previous: Role | null; readonly role: Role }> = [];
+          const clashes: Array<WorkflowShareClash> = [];
+          for (const shared of snapshot.roles) {
+            const here = yield* store.getRole(shared.id);
+            const role: Role = {
+              id: shared.id,
+              name: shared.name,
+              instructions: shared.instructions,
+              withheldTools: shared.withheldTools ?? [],
+              modelSelection: shared.modelSelection,
+              runtimeMode: shared.runtimeMode,
+              enabled: true,
+              revision: (here?.revision ?? 0) + 1,
+              createdAt: here?.createdAt ?? now,
+              updatedAt: now,
+              managedBy: owner,
+            };
+            if (here === null) {
+              writes.push({ previous: null, role });
+            } else if (fromOwner(here)) {
+              if (!sameRole(here, role)) writes.push({ previous: here, role });
+            } else if (!sameRole(here, role)) {
+              // Never overwritten unasked: a person chooses for each.
+              const choice = roleChoices[shared.id];
+              if (choice === "replace") writes.push({ previous: here, role });
+              else if (choice !== "keep") clashes.push({ id: here.id, name: here.name });
+            }
+          }
+          if (clashes.length > 0) return { clashes };
+          for (const { previous, role } of writes) {
+            if (previous === null) {
+              yield* store.insertRole(role);
+              continue;
+            }
+            yield* store.updateRole(role, previous.revision);
+            for (const member of yield* store.listProjectMembersOfRole(role.id)) {
+              yield* followRole(member, role);
+            }
+          }
+          const roleHere = (id: string) =>
+            store.getRole(id).pipe(Effect.map((role) => role !== null));
+          const crewRoleIds = yield* Effect.filter(
+            snapshot.workflow.crewRoleIds.filter((id) => id !== snapshot.workflow.leadRoleId),
+            roleHere,
+          );
+          const fields = {
+            name: snapshot.workflow.name,
+            instructions: snapshot.workflow.instructions,
+            leadRoleId: snapshot.workflow.leadRoleId,
+            crewRoleIds,
+          };
+          if (existing === null) {
+            yield* store.insertWorkflow({
+              id: workflowId,
+              ...fields,
+              revision: 1,
+              createdAt: now,
+              updatedAt: now,
+              managedBy: owner,
+            });
+          } else if (
+            existing.name !== fields.name ||
+            existing.instructions !== fields.instructions ||
+            existing.leadRoleId !== fields.leadRoleId ||
+            existing.crewRoleIds.join("\n") !== fields.crewRoleIds.join("\n") ||
+            existing.managedBy?.label !== owner.label
+          ) {
+            yield* store.updateWorkflow(
+              {
+                ...existing,
+                ...fields,
+                revision: existing.revision + 1,
+                updatedAt: now,
+                managedBy: owner,
+              },
+              existing.revision,
+            );
+          }
+          yield* releaseRoles(owner);
+          return { clashes: [] };
+        }),
+      );
     });
 
     /** A member of `roleId` for the project, carrying the role's configuration. */
@@ -1663,10 +1882,19 @@ export const CrewServiceLive = Layer.effect(
             new CrewValidationError("Feature delivery can be edited but not deleted"),
           );
         }
-        yield* store.deleteWorkflow(id);
+        // A shared copy can be removed here, so one whose owner is gone isn't stuck.
+        const workflow = yield* store.getWorkflow(id);
+        yield* store.transaction(
+          Effect.gen(function* () {
+            yield* store.deleteWorkflow(id);
+            if (workflow?.managedBy) yield* releaseRoles(workflow.managedBy);
+          }),
+        );
       }),
       getWorkflow: store.getWorkflow,
       listWorkflows: store.listWorkflows,
+      workflowSnapshot,
+      receiveSharedWorkflow,
       instantiate: Effect.fn("CrewService.instantiate")(function* (id, projectId, roleId) {
         const role = yield* store.getRole(roleId);
         if (!role?.enabled) {
@@ -1811,6 +2039,7 @@ export const CrewServiceLive = Layer.effect(
       createWorkflow: library(service.createWorkflow),
       updateWorkflow: library(service.updateWorkflow),
       deleteWorkflow: library(service.deleteWorkflow),
+      receiveSharedWorkflow: library(service.receiveSharedWorkflow),
     } satisfies CrewServiceShape;
   }),
 );

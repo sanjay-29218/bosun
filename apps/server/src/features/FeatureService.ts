@@ -234,6 +234,13 @@ export interface FeatureServiceShape {
   readonly listByProject: (
     projectId: ProjectId,
   ) => Effect.Effect<ReadonlyArray<FeatureRecord>, PersistenceSqlError>;
+  /** Open features, in any project, that follow workflow `workflowId`, newest first. */
+  readonly listOpenByWorkflow: (
+    workflowId: string,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly featureId: string; readonly title: string }>,
+    PersistenceSqlError
+  >;
   /** Board cards for the project's features, newest first. */
   readonly board: (
     projectId: ProjectId,
@@ -379,7 +386,10 @@ const hashed = (prefix: string, featureId: string, id: string) =>
     .digest("hex")
     .slice(0, 32)}`;
 /** Agents name a workflow loosely: its ID, its ID without the prefix, or its name. */
-const namesWorkflow = (named: string, workflow: { readonly id: string; readonly name: string }) => {
+export const namesWorkflow = (
+  named: string,
+  workflow: { readonly id: string; readonly name: string },
+) => {
   const wanted = named
     .trim()
     .toLowerCase()
@@ -1359,6 +1369,13 @@ export const FeatureServiceLive = Layer.effect(
         Effect.flatMap((rows) => Effect.forEach(rows, decodeRow)),
       );
 
+    const listOpenByWorkflow: FeatureServiceShape["listOpenByWorkflow"] = (workflowId) =>
+      sql<{ readonly featureId: string; readonly title: string }>`
+        SELECT id AS featureId, title FROM features
+        WHERE workflow_id = ${workflowId} AND status = 'open'
+        ORDER BY created_at DESC, id DESC
+      `.pipe(Effect.mapError(queryError));
+
     /**
      * A lead's turn as its thread shell sees it, which clients read too: the run executing now,
      * else its latest, never a queued follow-up or a silent idle compaction.
@@ -1995,6 +2012,7 @@ export const FeatureServiceLive = Layer.effect(
         return feature;
       }),
       listByProject,
+      listOpenByWorkflow,
       board,
       list,
       create: bumped(create),

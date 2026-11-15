@@ -1,6 +1,8 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as BotEnvironmentGuard from "./bots/BotEnvironmentGuard.ts";
 import * as BotReach from "./bots/BotReach.ts";
+import { CrewChanges } from "./crew/CrewChanges.ts";
+import * as WorkflowSharing from "./crew/WorkflowSharing.ts";
 import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
 import { StandingBriefingLive } from "./crew/StandingBriefing.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
@@ -247,6 +249,7 @@ const HTTP_ROUTER_CONFIG = {
 // Skip Effect's default 20 s grace; WebSocket scope finalizers already close connections gracefully.
 const HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS = 0;
 const MANAGER_NOTICE_RELAY_INTERVAL = Duration.minutes(1);
+const WORKFLOW_SHARING_INTERVAL = Duration.minutes(1);
 const layerResourceAttribution = ResourceAttribution.layer;
 const layerApplicationObservability = EventLoopMonitor.layer.pipe(
   Layer.provideMerge(Observability.layer),
@@ -875,6 +878,26 @@ const layerMakeRoutes = Layer.mergeAll(
       ),
     ),
   ),
+  // Shared workflows go to their machines when the Library changes, and each minute, so a
+  // machine that was off catches up; those machines can't call here to ask.
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const sharing = yield* WorkflowSharing.WorkflowSharing;
+      const changes = yield* CrewChanges;
+      yield* ServerActivation.forkParked(
+        Stream.merge(
+          Stream.tick(WORKFLOW_SHARING_INTERVAL),
+          changes.changes.pipe(
+            Stream.map((revision) => revision.library),
+            Stream.changes,
+          ),
+        ).pipe(
+          Stream.debounce(Duration.seconds(1)),
+          Stream.runForEach(() => sharing.sync),
+        ),
+      );
+    }),
+  ),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
@@ -883,6 +906,8 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // A bot's projects and requests on linked environments, for /mcp and RemoteDelegation.
   Layer.provide(BotReach.layer),
+  // Pushes shared workflows to linked environments, for /mcp, WebSocket and the loop above.
+  Layer.provide(WorkflowSharing.layer),
   // Keeps a bot's routed /mcp calls to the linked environments it is permitted on.
   Layer.provide(BotEnvironmentGuard.layer),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.

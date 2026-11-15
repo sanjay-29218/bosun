@@ -955,6 +955,8 @@ export const OrchestrationV2PendingRemoteLaunch = Schema.Struct({
   driverKind: Schema.optional(ProviderDriverKind),
   /** The instance there the caller named with `driverKind`, checked when it launches. */
   providerInstanceId: Schema.optional(ProviderInstanceId),
+  /** The workflow here a feature for it follows, sent by value when it launches. */
+  workflowId: Schema.optional(Schema.String),
   /**
    * Ended here before it started there, and that environment confirmed no attempt started a
    * run, or it was stopped. Until then its follower asks, since an attempt's answer may be lost.

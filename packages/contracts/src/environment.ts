@@ -205,6 +205,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   scheduledTaskProjectManagers: Schema.optionalKey(Schema.Boolean),
   /** Server keeps one manager per project across linked machines (`crew.setProjectManagerPlacement`). */
   projectManagerHomes: Schema.optionalKey(Schema.Boolean),
+  /** Server shares workflows with linked machines (`workflows.shares`, `workflows.setShare`). */
+  workflowSharing: Schema.optionalKey(Schema.Boolean),
   /** Server can transcribe 16 kHz mono PCM audio on the environment machine. */
   voiceTranscription: Schema.optionalKey(Schema.Boolean),
   cloudVoiceTranscription: Schema.optionalKey(Schema.Boolean),

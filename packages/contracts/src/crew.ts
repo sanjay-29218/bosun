@@ -92,6 +92,13 @@ export type CrewMemberSummary = typeof CrewMemberSummary.Type;
 
 export const CrewProjectInput = Schema.Struct({ projectId: ProjectId });
 
+/**
+ * The linked environment a shared workflow, or a role that came with one, is managed from. Copies
+ * change only there; here they can't be edited.
+ */
+export const LibraryOwner = Schema.Struct({ environmentId: EnvironmentId, label: Schema.String });
+export type LibraryOwner = typeof LibraryOwner.Type;
+
 /** A global role: who a lead or crew member is. Editing it never rewrites existing members. */
 export const RoleConfig = Schema.Struct({
   id: Schema.String,
@@ -102,6 +109,8 @@ export const RoleConfig = Schema.Struct({
   runtimeMode: RuntimeMode,
   enabled: Schema.Boolean,
   revision: Schema.Int,
+  /** Set on a role a shared workflow brought from another environment. */
+  managedBy: Schema.optionalKey(Schema.NullOr(LibraryOwner)),
 });
 export type RoleConfig = typeof RoleConfig.Type;
 export const RoleCreateInput = Schema.Struct({
@@ -163,6 +172,8 @@ export const WorkflowConfig = Schema.Struct({
   leadRoleId: Schema.String,
   crewRoleIds: Schema.Array(Schema.String),
   revision: Schema.Int,
+  /** Set on a copy shared from another environment. */
+  managedBy: Schema.optionalKey(Schema.NullOr(LibraryOwner)),
 });
 export type WorkflowConfig = typeof WorkflowConfig.Type;
 export const WorkflowCreateInput = Schema.Struct({
@@ -177,6 +188,55 @@ export const WorkflowUpdateInput = Schema.Struct({
   expectedRevision: Schema.Int,
 });
 export const WorkflowDeleteInput = Schema.Struct({ id: Schema.String });
+
+/**
+ * For a role a shared workflow brings that the other environment already has, with other
+ * settings: `replace` overwrites its role with this one, `keep` leaves its own in place.
+ */
+export const WorkflowShareRoleChoice = Schema.Literals(["replace", "keep"]);
+export type WorkflowShareRoleChoice = typeof WorkflowShareRoleChoice.Type;
+
+/** A role there with the same id as one the workflow brings, and other settings. */
+export const WorkflowShareClash = Schema.Struct({ id: Schema.String, name: Schema.String });
+export type WorkflowShareClash = typeof WorkflowShareClash.Type;
+
+/**
+ * A linked environment a workflow is shared with, or is being removed from. `pending` waits to
+ * reach it, `clash` waits on a choice for each of `clashes`, `removing` waits to remove it there.
+ */
+export const WorkflowShare = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: Schema.String,
+  shared: Schema.Boolean,
+  state: Schema.Literals(["synced", "pending", "clash", "removing"]),
+  /** When it last took this workflow's current or an earlier version; null before it ever did. */
+  syncedAt: Schema.NullOr(Schema.String),
+  error: Schema.NullOr(Schema.String),
+  clashes: Schema.Array(WorkflowShareClash),
+  roleChoices: Schema.Record(Schema.String, WorkflowShareRoleChoice),
+});
+export type WorkflowShare = typeof WorkflowShare.Type;
+export const WorkflowSharesInput = Schema.Struct({ workflowId: Schema.String });
+
+/**
+ * Shares a workflow with a linked environment, or stops. Unsharing first asks there whether open
+ * features follow it, and changes nothing while they do unless `confirmed`.
+ */
+export const WorkflowShareSetInput = Schema.Struct({
+  workflowId: Schema.String,
+  environmentId: EnvironmentId,
+  label: Schema.String,
+  shared: Schema.Boolean,
+  roleChoices: Schema.optionalKey(Schema.Record(Schema.String, WorkflowShareRoleChoice)),
+  confirmed: Schema.optionalKey(Schema.Boolean),
+});
+export type WorkflowShareSetInput = typeof WorkflowShareSetInput.Type;
+export const WorkflowShareSetResult = Schema.Struct({
+  applied: Schema.Boolean,
+  /** Open features there that follow the workflow; they keep running if it's removed. */
+  openFeatures: Schema.Array(Schema.Struct({ featureId: Schema.String, title: Schema.String })),
+});
+export type WorkflowShareSetResult = typeof WorkflowShareSetResult.Type;
 
 /** Creates the default roles and workflow that are missing, using `modelSelection` for each role. */
 export const CrewInitializeInput = Schema.Struct({ modelSelection: ModelSelection });

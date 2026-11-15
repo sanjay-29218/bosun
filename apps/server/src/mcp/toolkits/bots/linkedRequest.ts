@@ -28,6 +28,7 @@ export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(
     readonly title?: string | undefined;
     readonly request: string;
     readonly key: string;
+    readonly workflowId?: string | undefined;
   },
 ) {
   const scope = yield* McpInvocationContext.requireThreadScope(
@@ -51,6 +52,7 @@ export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(
     isolation: "worktree",
     mode: "async",
     clientRequestId: input.key,
+    ...(input.workflowId === undefined ? {} : { workflowId: input.workflowId }),
   });
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const { subagents, runs } = yield* threads
