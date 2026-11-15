@@ -174,8 +174,9 @@ export interface FeatureServiceShape {
    */
   readonly reportIfQuiet: (threadId: ThreadId) => Effect.Effect<void, FeatureServiceError>;
   /**
-   * A message sent to a lead at `sentAt`, after it reported its feature finished, means more
-   * work even within the same run (steering), so the report no longer stands.
+   * A message sent to a lead at `sentAt`, after it reported its feature finished or a quiet
+   * stop was reported for it, means more work even within the same run (steering), so the
+   * report no longer stands. A closed feature's stays.
    */
   readonly withdrawFinished: (threadId: ThreadId, sentAt: string) => Effect.Effect<void>;
   /** Checks every open child feature once, for ones that went quiet while nobody watched. */
@@ -1693,7 +1694,7 @@ export const FeatureServiceLive = Layer.effect(
     const withdrawFinished: FeatureServiceShape["withdrawFinished"] = (threadId, sentAt) =>
       sql<{ readonly id: string }>`
         UPDATE features SET reported_at = NULL, report_outcome = NULL, reported_run_id = NULL
-        WHERE report_outcome = 'finished' AND reported_at < ${sentAt}
+        WHERE report_outcome IS NOT NULL AND report_outcome <> 'closed' AND reported_at < ${sentAt}
           AND id = (
             SELECT json_extract(payload_json, '$.feature.id')
             FROM orchestration_v2_projection_threads

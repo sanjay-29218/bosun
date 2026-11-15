@@ -644,14 +644,14 @@ describe("feature lead and crew", () => {
         });
         const engine = yield* OrchestrationEngineService;
         // Started, and its lead's first turn released past preparing, so its turn start is queued.
-        const child = (title: string) =>
+        const child = (title: string, parentFeatureId = parent.feature.id) =>
           features
             .launch({
               projectId,
               title,
               brief: `Build the ${title}`,
               workspace: "local",
-              parentFeatureId: parent.feature.id,
+              parentFeatureId,
             })
             .pipe(
               Effect.tap((started) =>
@@ -782,6 +782,22 @@ describe("feature lead and crew", () => {
         expect(yield* notes()).toContainEqual(
           expect.stringMatching(/^Child feature stopped without reporting: "sync"/),
         );
+
+        // A grandchild reported stopped that gets more work keeps its parent waiting again.
+        const exporter = yield* child("export");
+        const merge = yield* child("merge", exporter.feature.id);
+        yield* setLeadRun(merge.leadThreadId, "completed");
+        yield* features.reportIfQuiet(merge.leadThreadId);
+        expect((yield* userTexts(exporter.leadThreadId)).slice(1)).toContainEqual(
+          expect.stringMatching(/^Child feature stopped without reporting: "merge"/),
+        );
+        // The export lead replies in merge's thread, and merge runs again.
+        yield* features.withdrawFinished(merge.leadThreadId, "2999-01-01T00:00:00.000Z");
+        yield* setLeadRun(merge.leadThreadId, "running");
+        yield* setLeadRun(exporter.leadThreadId, "completed");
+        const resumed = (yield* notes()).length;
+        yield* features.reportIfQuiet(exporter.leadThreadId);
+        expect(yield* notes()).toHaveLength(resumed);
       }),
     ),
   );
