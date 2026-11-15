@@ -1935,7 +1935,11 @@ it.effect(
         ('lead:dark', 'lead', 'bot-run:lead:dark', '[]'),
         ('planner:dark', 'planner', 'bot-run:planner:dark', '[]')`;
         const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
-        const linkedRequests: Array<{ readonly task: string; readonly projectId?: string }> = [];
+        const linkedRequests: Array<{
+          readonly task: string;
+          readonly title?: string;
+          readonly projectId?: string;
+        }> = [];
         const launched: Array<{
           readonly projectId: string;
           readonly requesterThreadId?: string | undefined;
@@ -2036,6 +2040,7 @@ it.effect(
                   Effect.sync(() => {
                     linkedRequests.push({
                       task: input.task,
+                      ...(input.title === undefined ? {} : { title: input.title }),
                       ...(input.target.projectId === undefined
                         ? {}
                         : { projectId: input.target.projectId }),
@@ -2253,6 +2258,7 @@ it.effect(
         expect(linkedRequests).toEqual([
           {
             projectId: "project:copy",
+            title: "R-7: Dark mode",
             task: expect.stringContaining('with baseBranch "staging" (a branch of this checkout)'),
           },
         ]);

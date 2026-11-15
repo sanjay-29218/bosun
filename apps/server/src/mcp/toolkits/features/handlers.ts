@@ -112,7 +112,8 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
   const sent = yield* sendToLinkedProject("t3_feature_start", {
     environmentId,
     projectId: ProjectId.make(input.projectId),
-    title: input.title,
+    // The request lives here, so its task here names it; what comes back is labelled with it.
+    title: requestId === undefined ? input.title : `${requestId}: ${input.title}`,
     request: `Start a feature with t3_feature_start for this request, titled "${input.title}"${issue === undefined ? "" : `, with its issue ${issue}`}${baseBranch === undefined ? "" : `, with baseBranch "${baseBranch}" (a branch of this checkout)`}:\n\n${input.brief}`,
     key: `feature-start:${input.featureId ?? input.title}`,
   });
