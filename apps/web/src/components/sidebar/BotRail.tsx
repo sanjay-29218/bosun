@@ -23,7 +23,6 @@ import {
   ChevronsLeftIcon,
   ChevronsRightIcon,
   ClockIcon,
-  PencilIcon,
   ServerIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -69,7 +68,6 @@ import { BotAvatar } from "../BotAvatar";
 import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { searchableSetting } from "../settings/settingsSearch";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { Button } from "../ui/button";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
@@ -79,7 +77,6 @@ import { botListRowSummary } from "./botListRow.logic";
 import {
   AUTOMATIONS_PATH,
   BOTS_LIST_PATH,
-  BOTS_SETTINGS_PATH,
   isSidebarUtilityPage,
   readBotHref,
   rememberBotHref,
@@ -346,7 +343,7 @@ export const BotRail = memo(function BotRail({
             ),
           )}
           {managers.length === 0 ? null : collapsed ? (
-            <RailDivider />
+            <RailGroupLabel>PMs</RailGroupLabel>
           ) : (
             <h3 className="px-4 pt-4 pb-1 text-2xs text-muted-foreground">Project managers</h3>
           )}
@@ -514,26 +511,21 @@ function BotRailCollapseTab({
 
 const listRowClassName = (active: boolean) =>
   cn(
-    "group/row relative mx-2 flex min-w-0 items-center gap-3 rounded-xl px-2.5 py-2",
+    "relative mx-2 flex min-w-0 items-center gap-3 rounded-xl px-2.5 py-2",
     active ? "bg-sidebar-row-selected" : "hover:bg-sidebar-row-hover",
   );
 
-/**
- * A row's top line: its name, then a fixed slot holding its time and unread dot, with a hover
- * action laid over it. Hover only fades them, so nothing in the row moves or re-truncates.
- */
+/** A row's top line: its name, then its time and unread dot. */
 function ListRowHead({
   name,
   emphasized,
   time,
   unread,
-  action,
 }: {
   readonly name: string;
   readonly emphasized: boolean;
   readonly time: string | null;
   readonly unread: boolean;
-  readonly action: ReactNode;
 }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
@@ -545,19 +537,11 @@ function ListRowHead({
       >
         {name}
       </span>
-      <span className="relative flex h-4 min-w-8 shrink-0 items-center justify-end">
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums group-hover/row:opacity-0 group-focus-within/row:opacity-0">
-          {unread ? (
-            <span aria-hidden className="size-1.5 rounded-full bg-sidebar-foreground" />
-          ) : null}
-          <RelativeTimeLabel timestamp={time} />
-        </span>
-        {action ? (
-          // Out of flow, so the taller button overlaps the slot without growing the line.
-          <span className="pointer-events-none absolute top-1/2 right-0 -translate-y-1/2 opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100">
-            {action}
-          </span>
+      <span className="flex h-4 min-w-8 shrink-0 items-center justify-end gap-1.5 text-xs text-muted-foreground tabular-nums">
+        {unread ? (
+          <span aria-hidden className="size-1.5 rounded-full bg-sidebar-foreground" />
         ) : null}
+        <RelativeTimeLabel timestamp={time} />
       </span>
     </span>
   );
@@ -600,8 +584,6 @@ const BotListRow = memo(function BotListRow({
   readonly activity: BotActivity | undefined;
   readonly onSelect: (event: MouseEvent) => void;
 }) {
-  const navigate = useNavigate();
-  const { isMobile, setOpenMobile } = useSidebar();
   const connected = useConnectedEnvironmentIds();
   const environmentFilter = useEnvironmentFilter();
   const member = headquartersMember(bot, connected, environmentFilter);
@@ -610,7 +592,6 @@ const BotListRow = memo(function BotListRow({
     member && threadId ? scopeThreadRef(member.environmentId, threadId) : null,
   );
   const summary = botListRowSummary(needsYou, activity, shell?.source.latestVisibleMessage);
-  const editMember = member ?? bot.members[0];
   return (
     <div className={cn(listRowClassName(active), member === undefined && "opacity-60")}>
       <button
@@ -635,24 +616,6 @@ const BotListRow = memo(function BotListRow({
           emphasized={summary.unread}
           time={summary.time}
           unread={summary.unread}
-          action={
-            editMember ? (
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label={`Edit ${bot.name}`}
-                onClick={() => {
-                  if (isMobile) setOpenMobile(false);
-                  void navigate({
-                    to: BOTS_SETTINGS_PATH,
-                    search: { environmentId: editMember.environmentId, botId: editMember.botId },
-                  });
-                }}
-              >
-                <PencilIcon />
-              </Button>
-            ) : null
-          }
         />
         <ListRowPreview
           mark={summary.mark}
@@ -680,8 +643,6 @@ const ManagerListRow = memo(function ManagerListRow({
   readonly active: boolean;
   readonly onSelect: () => void;
 }) {
-  const navigate = useNavigate();
-  const { isMobile, setOpenMobile } = useSidebar();
   const { shell, icon, waiting, working, done, status } = useManagerStatus(manager);
   const latest = shell?.source.latestVisibleMessage;
   const summary = botListRowSummary(0, undefined, latest);
@@ -702,29 +663,7 @@ const ManagerListRow = memo(function ManagerListRow({
         className="pointer-events-none shrink-0"
       />
       <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
-        <ListRowHead
-          name={manager.title}
-          emphasized={done}
-          time={summary.time}
-          unread={done}
-          action={
-            <Button
-              variant="ghost-muted"
-              size="icon-xs"
-              aria-label={`${manager.title}'s project manager settings`}
-              onClick={() => {
-                if (isMobile) setOpenMobile(false);
-                void navigate({
-                  to: "/settings/projects",
-                  search: { project: manager.projectKey },
-                  hash: searchableSetting("project-manager").id,
-                });
-              }}
-            >
-              <SettingsIcon />
-            </Button>
-          }
-        />
+        <ListRowHead name={manager.title} emphasized={done} time={summary.time} unread={done} />
         <ListRowPreview
           mark={waiting ? "needs-you" : working ? "working" : null}
           preview={latest ? summary.preview : "Project manager"}
@@ -926,6 +865,16 @@ function RailRow({
     </button>
   );
 }
+
+/** A collapsed rail's section break that names the group below it. */
+const RailGroupLabel = ({ children }: { readonly children: string }) => (
+  <div aria-hidden className="mt-2.5 mb-0.5 flex shrink-0 flex-col items-center gap-1">
+    <span className="h-px w-8 rounded-full bg-sidebar-foreground/25" />
+    <span className="text-3xs font-semibold tracking-wide text-sidebar-muted-foreground uppercase">
+      {children}
+    </span>
+  </div>
+);
 
 const RailDivider = () => (
   <div aria-hidden className="my-1.5 h-px w-6 shrink-0 rounded-full bg-sidebar-border" />

@@ -28,7 +28,6 @@ import { SettingsModelPicker } from "../settings/SettingsModelPicker";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Switch } from "../ui/switch";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
 
@@ -127,7 +126,7 @@ type RoleChange = Partial<
   >
 >;
 
-function useSaveRole(environmentId: EnvironmentId) {
+export function useSaveRole(environmentId: EnvironmentId) {
   const update = useAtomCommand(rolesEnvironment.update);
   return async (role: RoleConfig, change: RoleChange) => {
     const next = { ...role, ...change };
@@ -178,8 +177,6 @@ export function RoleEditorForm({
   const [tools, setTools] = useState<ReadonlyArray<string>>(role?.withheldTools ?? []);
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(role?.runtimeMode ?? "full-access");
-  // Turning a role off retires it: new features skip it, and running ones keep it.
-  const [enabled, setEnabled] = useState(role?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const fields = {
     name: name.trim(),
@@ -193,8 +190,7 @@ export function RoleEditorForm({
       fields.instructions !== role.instructions ||
       fields.withheldTools.join("\n") !== role.withheldTools.join("\n") ||
       JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection) ||
-      fields.runtimeMode !== role.runtimeMode ||
-      enabled !== role.enabled
+      fields.runtimeMode !== role.runtimeMode
     : fields.name.length > 0 || fields.instructions.length > 0 || tools.length > 0;
   const canSave =
     edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !saving;
@@ -205,7 +201,7 @@ export function RoleEditorForm({
     if (!canSave) return;
     setSaving(true);
     const savedId = await (async () => {
-      if (role) return (await save(role, { ...fields, enabled })) ? role.id : null;
+      if (role) return (await save(role, fields)) ? role.id : null;
       const id = `role:${randomUUID()}`;
       const result = await create({ environmentId, input: { id, ...fields } });
       if (result._tag === "Success") return id;
@@ -230,7 +226,7 @@ export function RoleEditorForm({
       }}
     >
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
-        <SettingsSection title="Role">
+        <SettingsSection title="Role" hideTitle>
           <div className="space-y-5 px-3 py-4 sm:px-4">
             <EditorField label="Name" htmlFor="crew-role-name">
               <Input
@@ -270,19 +266,6 @@ export function RoleEditorForm({
               />
             }
           />
-          {role ? (
-            <SettingsRow
-              title="On"
-              description="Turn off to retire this role. New features skip it; running ones keep it."
-              control={
-                <Switch
-                  aria-label="New features use this role"
-                  checked={enabled}
-                  onCheckedChange={setEnabled}
-                />
-              }
-            />
-          ) : null}
         </SettingsSection>
         <SettingsSection title={`Tools · ${grantedTools(tools, { bot: false }).length}`}>
           <div className="px-3 py-4 sm:px-4">

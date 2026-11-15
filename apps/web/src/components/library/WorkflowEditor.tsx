@@ -166,7 +166,7 @@ export function WorkflowEditorForm({
       }}
     >
       <fieldset disabled={busy || !canEdit} className="min-w-0 space-y-6">
-        <SettingsSection title="Workflow">
+        <SettingsSection title="Workflow" hideTitle>
           <div className="space-y-5 px-3 py-4 sm:px-4">
             <EditorField label="Name" htmlFor="crew-workflow-name">
               <Input
