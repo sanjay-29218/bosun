@@ -2787,7 +2787,12 @@ describe("OrchestratorMcpService provider resolution", () => {
             },
           } as OrchestrationV2ThreadProjection;
         };
-      const run = (featureId: string | null, member?: string, runtimeMode?: RuntimeMode) => {
+      const run = (
+        featureId: string | null,
+        member?: string,
+        runtimeMode?: RuntimeMode,
+        supportedRuntimeModes?: ReadonlyArray<RuntimeMode>,
+      ) => {
         const projection = leadProjection(featureId, member, runtimeMode);
         const layerDependencies = Layer.mergeAll(
           NodeServices.layer,
@@ -2839,11 +2844,14 @@ describe("OrchestratorMcpService provider resolution", () => {
               ),
           }),
           providerRegistryLayer([
-            providerSnapshot({
-              instanceId: codexInstanceId,
-              driver: ProviderDriverKind.make("codex"),
-              model: plannerModel.model,
-            }),
+            {
+              ...providerSnapshot({
+                instanceId: codexInstanceId,
+                driver: ProviderDriverKind.make("codex"),
+                model: plannerModel.model,
+              }),
+              ...(supportedRuntimeModes === undefined ? {} : { supportedRuntimeModes }),
+            },
           ]),
           adapterRegistryLayer([codexInstanceId]),
           Layer.mock(ProjectService.ProjectService)({}),
@@ -2899,7 +2907,10 @@ describe("OrchestratorMcpService provider resolution", () => {
           })
           .pipe(Effect.flip);
         assert.equal(overridden.code, "invalid_request");
-        assert.include(overridden.message, "Planner runs on its role's model; leave out target.");
+        assert.equal(
+          overridden.message,
+          "A crew member runs in the feature's checkout on its role's model; leave out target.",
+        );
         assert.lengthOf(yield* Ref.get(dispatched), 0);
         yield* mcp.delegateTask(scope, {
           task: "Plan dark mode.",
@@ -2956,20 +2967,37 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.notInclude(followUp!.text, "You are the Planner");
       }).pipe(Effect.provide(run("feature:dark")));
 
-      // A crew member never runs broader than its lead.
-      yield* Ref.set(dispatched, []);
-      yield* Effect.gen(function* () {
-        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
-        yield* mcp.delegateTask(scope, {
-          task: "Build dark mode.",
-          crewMember: "Builder",
-          clientRequestId: "crew-builder-1",
-        });
-        const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
-          readonly runtimeMode: RuntimeMode;
-        }>;
-        assert.equal(request!.runtimeMode, "auto-accept-edits");
-      }).pipe(Effect.provide(run("feature:dark", undefined, "auto-accept-edits")));
+      const crewModes: ReadonlyArray<{
+        readonly member: string;
+        readonly lead: RuntimeMode;
+        readonly offered?: ReadonlyArray<RuntimeMode>;
+        readonly expected: RuntimeMode;
+      }> = [
+        // Never broader than its lead.
+        { member: "Builder", lead: "auto-accept-edits", expected: "auto-accept-edits" },
+        // The role's mode is inherited, so a provider without it steps down instead of refusing.
+        {
+          member: "Planner",
+          lead: "full-access",
+          offered: ["auto-accept-edits", "full-access"],
+          expected: "approval-required",
+        },
+      ];
+      for (const row of crewModes) {
+        yield* Ref.set(dispatched, []);
+        yield* Effect.gen(function* () {
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* mcp.delegateTask(scope, {
+            task: "Work on dark mode.",
+            crewMember: row.member,
+            clientRequestId: `crew-mode-${row.member}`,
+          });
+          const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
+            readonly runtimeMode: RuntimeMode;
+          }>;
+          assert.equal(request!.runtimeMode, row.expected, row.member);
+        }).pipe(Effect.provide(run("feature:dark", undefined, row.lead, row.offered)));
+      }
 
       // A thread outside any feature has no crew to delegate to.
       const outside = yield* Effect.gen(function* () {

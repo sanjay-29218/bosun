@@ -2814,7 +2814,7 @@ const make = Effect.gen(function* () {
       if (input.crewMember !== undefined && input.target !== undefined) {
         return yield* failure(
           "invalid_request",
-          `${input.crewMember} runs on its role's model; leave out target.`,
+          "A crew member runs in the feature's checkout on its role's model; leave out target.",
         );
       }
       const environmentId =

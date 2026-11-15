@@ -711,6 +711,16 @@ it.live("starts the project manager there, or says before starting anything why 
         launch("project:omni", "gpt-elsewhere"),
       );
       expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual(leadRole);
+      // Nor broader than the access it was sent with.
+      yield* a.reach.launchProjectManager(headquartersScope, box.environmentId, CAPTAIN_ID, {
+        ...launch("project:omni"),
+        runtimeMode: "approval-required",
+        clientRequestId: "sent-approval-required",
+      });
+      expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual({
+        ...leadRole,
+        runtimeMode: "approval-required",
+      });
 
       yield* linkSleepingCouch(a.links);
       const asleep = yield* a.reach

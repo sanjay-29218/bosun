@@ -571,10 +571,9 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignoreCause({ log: true }));
           }
-          // A workflow's lead role runs the work as itself, within the access it was sent with.
-          const leadRole = input.workflow?.roles.find(
-            (role) => role.id === input.workflow!.workflow.leadRoleId,
-          );
+          // The Feature manager here runs on the lead role's model, within the access sent.
+          const workflow = input.workflow;
+          const leadRole = workflow?.roles.find((role) => role.id === workflow.workflow.leadRoleId);
           const carried =
             leadRole === undefined
               ? { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection }
