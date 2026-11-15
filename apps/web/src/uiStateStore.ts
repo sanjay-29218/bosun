@@ -3,6 +3,7 @@ import { PullRequestMergeMethod } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
+import { type ColumnSnap, snapDragResult } from "./lib/columnSnap";
 import { useThreadSelectionStore } from "./threadSelectionStore";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
@@ -18,26 +19,19 @@ const clampBotRailWidth = (width: number) =>
     ? Math.round(Math.max(BOT_RAIL_MIN_WIDTH, Math.min(BOT_RAIL_MAX_WIDTH, width)))
     : BOT_RAIL_DEFAULT_WIDTH;
 
-/** Released under this width, a drag of the expanded rail collapses it to icons. */
-const BOT_RAIL_COLLAPSE_BELOW = 160;
-/** Dragged out past this width, the icon rail expands. */
-const BOT_RAIL_EXPAND_FROM = 120;
+/** A drag of the expanded rail released under 160px collapses it; dragging icons past 120px expands. */
+export const BOT_RAIL_SNAP: ColumnSnap = { collapseBelow: 160, expandFrom: 120 };
 
-/** Under this width a drag that started `collapsed` ends collapsed. */
-export const botRailSnapWidth = (collapsed: boolean) =>
-  collapsed ? BOT_RAIL_EXPAND_FROM : BOT_RAIL_COLLAPSE_BELOW;
-
-/**
- * Where a drag of the rail's edge released at `width` leaves it. Expanding from icons restores
- * the remembered width rather than the pointer's, which is only a gesture out of the column.
- */
+/** Where a drag of the rail's edge released at `width` leaves it. */
 export function botRailLayoutAfterDrag(
   state: UiBotRailState,
   width: number,
 ): Partial<UiBotRailState> {
-  if (width < botRailSnapWidth(state.botRailCollapsed)) return { botRailCollapsed: true };
-  if (state.botRailCollapsed) return { botRailCollapsed: false };
-  return { botRailCollapsed: false, botRailWidth: clampBotRailWidth(width) };
+  const result = snapDragResult(state.botRailCollapsed, width, BOT_RAIL_SNAP);
+  if (result.collapsed) return { botRailCollapsed: true };
+  return result.width === undefined
+    ? { botRailCollapsed: false }
+    : { botRailCollapsed: false, botRailWidth: clampBotRailWidth(result.width) };
 }
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
 const LEGACY_PERSISTED_STATE_KEYS = [
