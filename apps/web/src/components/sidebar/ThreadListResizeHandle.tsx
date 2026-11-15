@@ -99,7 +99,7 @@ function ResizeEdge({
       aria-orientation="vertical"
       aria-label={open ? "Resize the thread list" : "Drag to open the thread list"}
       className={cn(
-        "fixed inset-y-0 z-20 hidden w-1.5 cursor-col-resize after:absolute after:inset-y-0 after:left-[2px] after:w-[2px] hover:after:bg-primary md:block",
+        "fixed inset-y-0 z-20 hidden w-1.5 cursor-col-resize touch-none [-webkit-app-region:no-drag] after:absolute after:inset-y-0 after:left-[2px] after:w-[2px] hover:after:bg-primary md:block",
         // Closed, it sits just right of the bot rail's edge so the two drags never overlap.
         open
           ? "left-[calc(var(--sidebar-leading-width)+var(--sidebar-width)-3px)]"

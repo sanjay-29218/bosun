@@ -174,7 +174,7 @@ export const BotRail = memo(function BotRail({
 }: {
   readonly placement: "window" | "sheet";
 }) {
-  const { isMobile, setOpen, setOpenMobile } = useSidebar();
+  const { isMobile, open, setOpen, setOpenMobile } = useSidebar();
   const bots = useVisibleLogicalBots();
   const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
@@ -206,6 +206,7 @@ export const BotRail = memo(function BotRail({
       : null;
   // Switching saves and restores List / Board per bot.
   const switchTo = (bot: LogicalBot) => {
+    if (!open) setOpen(true);
     supersedeStandingOpen();
     if (bot.key !== active?.key || onUtilityPage) switchBotMainView(() => selectBot(bot));
   };
@@ -216,7 +217,7 @@ export const BotRail = memo(function BotRail({
     const same = bot.key === active?.key;
     // Picking a bot shows its threads, so a closed thread list opens again.
     if (isMobile) setOpenMobile(false);
-    else setOpen(true);
+    else if (!open) setOpen(true);
     // A bot shows its threads across all its projects.
     if (scopeKeys.length > 0) setScopeKeys([]);
     if (active && !same) rememberBotHref(active.key);
@@ -233,7 +234,7 @@ export const BotRail = memo(function BotRail({
   // bot isn't pinned (or has no bot) still shows under the bot that stays picked.
   const selectManager = (manager: RailProjectManager) => {
     if (isMobile) setOpenMobile(false);
-    else setOpen(true);
+    else if (!open) setOpen(true);
     const ownerKey =
       manager.owner === null
         ? null
@@ -765,7 +766,7 @@ function RailPlaces({
   readonly collapsed: boolean;
 }) {
   const navigate = useNavigate();
-  const { isMobile, setOpen, setOpenMobile } = useSidebar();
+  const { isMobile, open, setOpen, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
   const hiddenNeedsYou = useHiddenNeedsYouCount();
@@ -778,7 +779,7 @@ function RailPlaces({
       signal: hiddenNeedsYou > 0 ? ({ kind: "needs-you", count: hiddenNeedsYou } as const) : null,
       // Its list shows in the thread list's column, which a closed list would hide.
       onSelect: () => {
-        if (!isMobile) setOpen(true);
+        if (!isMobile && !open) setOpen(true);
         if (destination !== "bots-list") void navigate({ to: BOTS_LIST_PATH });
       },
     },
@@ -789,7 +790,7 @@ function RailPlaces({
       signal: automationFailed ? ({ kind: "failed" } as const) : null,
       // Its list is what the mobile sheet shows next, so the sheet stays open.
       onSelect: () => {
-        if (!isMobile) setOpen(true);
+        if (!isMobile && !open) setOpen(true);
         if (destination !== "automations") void navigate({ to: AUTOMATIONS_PATH });
       },
     },
