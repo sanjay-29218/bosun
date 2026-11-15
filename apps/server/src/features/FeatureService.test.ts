@@ -745,26 +745,6 @@ describe("feature lead and crew", () => {
           expect.stringMatching(/^Child feature stopped without reporting: "CLI"/),
         );
 
-        // A child whose lead thread is deleted can't report: its parent's lead hears once.
-        const docs = yield* child("docs");
-        yield* setLeadRun(docs.leadThreadId, "completed");
-        yield* engine.dispatch({
-          type: "thread.delete",
-          commandId: CommandId.make("docs-lead:delete"),
-          threadId: docs.leadThreadId,
-        });
-        yield* features.reportIfQuiet(docs.leadThreadId);
-        yield* features.reportIfQuiet(docs.leadThreadId);
-        expect(
-          (yield* notes()).filter((note) =>
-            note.startsWith('Child feature was interrupted: "docs"'),
-          ),
-        ).toHaveLength(1);
-        expect(
-          (yield* features.board(projectId)).find((card) => card.featureId === docs.feature.id)
-            ?.report?.outcome,
-        ).toBe("interrupted");
-
         // An interrupted turn says so, once nothing is queued to resume it.
         const page = yield* child("web page");
         yield* setLeadRun(page.leadThreadId, "cancelled");

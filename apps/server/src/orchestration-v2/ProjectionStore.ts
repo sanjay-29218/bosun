@@ -7909,8 +7909,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     // Mirrors threadShellFromProjection, plus child features. A finished task stays working
     // until its result reaches the lead (as in FeatureService.reportIfQuiet), so the lead's
-    // wake is queued before it reads idle; a child feature works until it reports, which
-    // reportIfQuiet also records when the child's lead thread is deleted.
+    // wake is queued before it reads idle; a child feature works until it reports.
     const crewWorkingShellThread = (alias: string) => {
       const thread = sql.literal(alias);
       return sql`(

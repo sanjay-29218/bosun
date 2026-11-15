@@ -1549,29 +1549,14 @@ export const FeatureServiceLive = Layer.effect(
     const reportIfQuiet: FeatureServiceShape["reportIfQuiet"] = Effect.fn(
       "FeatureService.reportIfQuiet",
     )(function* (threadId) {
-      const [tag] = yield* sql<{
-        readonly featureId: string | null;
-        readonly deletedLead: number;
-      }>`
-        SELECT json_extract(payload_json, '$.feature.id') AS featureId,
-          (deleted_at IS NOT NULL
-            AND json_extract(payload_json, '$.feature.member') IS NULL
-            AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL) AS deletedLead
+      const [tag] = yield* sql<{ readonly featureId: string | null }>`
+        SELECT json_extract(payload_json, '$.feature.id') AS featureId
         FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}
       `.pipe(Effect.mapError(queryError));
       const feature = tag?.featureId ? yield* get(tag.featureId) : null;
       if (!feature || feature.status !== "open") return;
       const lead = yield* leadThreadOf(feature.id);
-      if (lead === null) {
-        // A child whose lead was deleted can't report, and its parent's lead would wait on it.
-        if (tag?.deletedLead === 1 && feature.parentFeatureId) {
-          const at = DateTime.formatIso(yield* DateTime.now);
-          if (yield* markReported(feature.id, at, true, "interrupted", null)) {
-            yield* reportToParent(feature, "interrupted", null, `feature-lead-deleted:${threadId}`);
-          }
-        }
-        return;
-      }
+      if (lead === null) return;
       if (!feature.parentFeatureId && (yield* reachableRequester(feature.id, lead)) === null) {
         return;
       }
@@ -1894,7 +1879,6 @@ export const FeatureServiceLive = Layer.effect(
             case "runtime-request.updated":
               return event.payload.status === "pending" ? Effect.void : check(event.threadId);
             case "subagent.updated":
-            case "thread.deleted":
               return check(event.threadId);
             case "message.updated":
               return event.payload.role === "user" && idleCompactionOf(event.payload) === undefined
