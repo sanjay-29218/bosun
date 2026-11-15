@@ -23,6 +23,7 @@ import {
 import {
   formatSubagentDisplayTitle,
   subagentRunsOn,
+  subagentCardDetail,
 } from "@t3tools/client-runtime/state/subagent-display";
 import {
   ProviderDriverKind,
@@ -196,17 +197,6 @@ const SETTLED_SUBAGENT_STATUSES = new Set<OrchestrationV2TurnItem["status"]>([
   "cancelled",
   "interrupted",
 ]);
-
-const GENERIC_CHILD_END = /^Child task ended with status\b/i;
-
-function plainDetail(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/`/g, "")
-    .replace(/^[ \t]*[-*][ \t]+/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function isoOrNull(value: DateTime.Utc | null | undefined): string | null {
   return value ? DateTime.formatIso(value) : null;
@@ -452,8 +442,7 @@ function SubagentTimelineLink(props: {
   const progress = (agent?.progress ?? props.progress)?.trim();
   const settled = SETTLED_SUBAGENT_STATUSES.has(status ?? liveStatus);
   const rawDetail = settled ? result || progress : progress || result;
-  const detail =
-    rawDetail && !GENERIC_CHILD_END.test(rawDetail) ? plainDetail(rawDetail) || null : null;
+  const detail = subagentCardDetail(rawDetail);
   const failed = status === "failed";
   const timing = {
     status: liveStatus,

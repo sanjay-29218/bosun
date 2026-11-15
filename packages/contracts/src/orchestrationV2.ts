@@ -757,6 +757,7 @@ export const OrchestrationV2Run = Schema.Struct({
   checkpointId: Schema.NullOr(CheckpointId),
   contextHandoffId: Schema.NullOr(ContextHandoffId),
   restartContinuationOfRunId: Schema.optional(RunId),
+  manualContinuationOfRunId: Schema.optional(RunId),
   usageLimitContinuationOfRunId: Schema.optional(RunId),
   delegatedTaskId: Schema.optional(NodeId),
   workStartedAt: Schema.optional(Schema.DateTimeUtc),
@@ -1301,6 +1302,20 @@ export function latestProviderTurnForAttempt<
 
 export const OrchestrationV2RuntimeRequestOwner = Schema.Literals(["workflow", "crew"]);
 export type OrchestrationV2RuntimeRequestOwner = typeof OrchestrationV2RuntimeRequestOwner.Type;
+/** A queued provider thread reserves a seat for the next run; it does not own the thread yet. */
+export function isQueuedProviderThreadPlaceholder(
+  providerThread: Pick<
+    OrchestrationV2ProviderThread,
+    "status" | "firstRunOrdinal" | "nativeThreadRef" | "providerSessionId"
+  >,
+): boolean {
+  return (
+    providerThread.status === "not_loaded" &&
+    providerThread.firstRunOrdinal === null &&
+    providerThread.nativeThreadRef === null &&
+    providerThread.providerSessionId === null
+  );
+}
 
 export const OrchestrationV2RuntimeRequest = Schema.Struct({
   id: RuntimeRequestId,
@@ -1506,7 +1521,8 @@ export const OrchestrationV2PlanArtifact = Schema.Union([
 export type OrchestrationV2PlanArtifact = typeof OrchestrationV2PlanArtifact.Type;
 
 export const OrchestrationV2CheckpointFileSummary = Schema.Struct({
-  path: TrimmedNonEmptyString,
+  // Exact, as git reports it: file names may start or end with whitespace.
+  path: Schema.NonEmptyString,
   kind: TrimmedNonEmptyString,
   additions: NonNegativeInt,
   deletions: NonNegativeInt,
@@ -1620,6 +1636,9 @@ export const OrchestrationV2UserMessageInputIntent = Schema.Literals([
 ]);
 export type OrchestrationV2UserMessageInputIntent =
   typeof OrchestrationV2UserMessageInputIntent.Type;
+
+/** Notices without a level predate it and are warnings. */
+const OrchestrationV2SystemNoticeLevel = Schema.Literals(["info", "warning", "error"]);
 
 /** A same-harness model or effort change that took effect with this message. */
 export const OrchestrationV2ModelSwitch = Schema.Struct({
@@ -1869,6 +1888,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("system_notice"),
     message: Schema.String,
+    level: Schema.optional(OrchestrationV2SystemNoticeLevel),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2761,6 +2781,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("system_notice"),
     message: Schema.String,
+    level: Schema.optional(OrchestrationV2SystemNoticeLevel),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -3152,6 +3173,22 @@ export const OrchestrationV2Command = Schema.Union([
         metadata: Schema.optional(OrchestrationV2ProviderThreadNativeMetadata),
       }),
     ),
+    /**
+     * Only the server sets this. The thread and its first run commit together, so no client sees
+     * the thread idle before its run exists. The run waits for `workspaceStrategy` when given one.
+     */
+    initialMessage: Schema.optional(
+      Schema.Struct({
+        messageId: MessageId,
+        text: Schema.String,
+        attachments: Schema.Array(ChatAttachment),
+        context: Schema.optional(OrchestrationMessageContext),
+        titleSeed: Schema.optional(TrimmedNonEmptyString),
+        scheduledTaskId: Schema.optional(ScheduledTaskId),
+        senderThreadId: Schema.optional(ThreadId),
+        workspaceStrategy: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
+      }),
+    ),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.archive"),
@@ -3201,6 +3238,8 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     reason: Schema.Literal("user"),
+    // Undo of a settle restores the Active anchor it cleared instead of moving the thread to the top.
+    restoreUnsettledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.snooze"),
@@ -3897,6 +3936,11 @@ const OrchestrationV2InternalCommand = Schema.Union([
     linkedLabel: Schema.optional(Schema.String),
     linkedAccess: Schema.optional(AuthMcpClientAccess),
     failure: Schema.optional(Schema.String),
+    /**
+     * Cards still being answered when this one linked. Their own answers end
+     * them, so the link leaves them open; never stored on a card.
+     */
+    answeringTurnItemIds: Schema.optional(Schema.Array(TurnItemId)),
     /** Tells the agent how the card ended, in the same commit that closes it. */
     wake: Schema.optional(
       Schema.Struct({

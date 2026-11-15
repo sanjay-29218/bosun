@@ -139,6 +139,10 @@ import { resolveAssistantCitationCommentDismissal } from "./chat/assistantCitati
 import { composerCodeBlockHighlight } from "./composerCodeBlockHighlight";
 import { importPastedComposerText, readPastedPlainText } from "./composerInlineTokenPaste";
 import { didComposerSelectionChangeVisibly } from "./composerSelection";
+import {
+  captureComposerAttachmentInsertion,
+  type ComposerAttachmentInsertion,
+} from "./composerAttachmentInsertion";
 import type { ComposerDraftContextRecords } from "./composerContextPresentation";
 
 export interface ComposerPromptEditorHandle {
@@ -148,6 +152,7 @@ export interface ComposerPromptEditorHandle {
   /** Puts the caret at a viewport point, as a click there would, without scrolling. */
   focusAtPoint: (point: { readonly x: number; readonly y: number }) => void;
   readSelectionRange: () => { start: number; end: number };
+  captureAttachmentInsertion: () => ComposerAttachmentInsertion | undefined;
   requestCitationComment: (request: ComposerCitationCommentRequest) => void;
   readSnapshot: () => {
     value: string;
@@ -1831,6 +1836,8 @@ function ComposerPromptEditorTiptapInner(
         readSnapshot();
         return selectionRangeRef.current;
       },
+      captureAttachmentInsertion: () =>
+        editor ? captureComposerAttachmentInsertion(editor) : undefined,
       requestCitationComment: (request) => {
         citationRequestRef.current = request;
         if (!editor) return;

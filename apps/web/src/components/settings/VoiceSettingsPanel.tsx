@@ -28,7 +28,7 @@ import {
   type SpeechModelUnloadTimeout,
   type VoiceShortcutMode,
 } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
+import { createModelSelection, pickModelSelection } from "@t3tools/shared/model";
 import { resolveSpeechPostProcessingModelSelection } from "@t3tools/shared/serverSettings";
 import { cloudSpeechLanguages } from "@t3tools/shared/speech";
 import {
@@ -572,7 +572,7 @@ function CleanupModelRow() {
                 modelOptionsByInstance={modelOptionsByInstance}
                 getModelDisabledReason={modelDisabledReason}
                 onInstanceModelChange={(instanceId, model) =>
-                  setModel(createModelSelection(instanceId, model))
+                  setModel(pickModelSelection(selection, instanceId, model))
                 }
                 traits={{
                   options: selection.options,
