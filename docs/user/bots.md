@@ -221,6 +221,29 @@ changes the crews of features started later, not existing ones. A project's mana
 
 Editing bots, workflows and roles is available on web and desktop.
 
+### Workflows on your other machines
+
+A workflow you make lives on the machine you made it on. To use it on a linked machine too, open
+it in **Settings → Workflows** and tick that machine under **Machines**. The machine gets the
+workflow and the roles it uses, and lists it like its own: in the composer's **Workflow** picker
+there, in its Settings → Workflows, and for agents there. Each machine shows whether it's up to
+date and when it last synced. A bot or project manager that starts a feature on another machine
+can also name any workflow from its own machine; that workflow goes along with the request. Feature delivery and Epic are on every machine already, so they
+aren't shared.
+
+- **Edits follow.** Change the workflow, or one of its roles, on the machine that owns it, and the
+  copies update. On the other machines the copy and its roles show **Managed from** the owner and
+  can't be edited there.
+- **A machine that's off** gets the workflow, or a later change, once it answers again.
+- **A role that's already there.** If the other machine has a role with the same id and other
+  settings, nothing is changed there until you choose, under that machine: **Keep** its own role,
+  or **Replace** it with this one.
+- **Unticking** removes the workflow from that machine. If features there still run on it, you're
+  asked first; they keep going. Its roles stay there as that machine's own roles. **Remove from
+  this machine** on a copy also removes it, until the owner next changes it.
+
+The machines need linked environments turned on (Settings → Labs) and a full-access link.
+
 ## Feature threads
 
 A feature shows in the sidebar as one row, titled by the feature, with the crew members its lead

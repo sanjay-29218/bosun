@@ -75,13 +75,25 @@ function Editor(props: {
   // The fields above match this revision. If someone else saves a newer one, this save is
   // refused instead of overwriting it.
   const [baseRevision, setBaseRevision] = useState(props.role?.revision);
-  const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
+  // A role that came with a shared workflow changes only on the machine it's managed from.
+  const managedBy = props.role?.managedBy ?? null;
+  const canSave =
+    managedBy === null &&
+    !!name.trim() &&
+    !!instructions.trim() &&
+    !!instanceId.trim() &&
+    !!model.trim();
 
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
         {props.role?.name ?? "New role"}
       </Text>
+      {managedBy === null ? null : (
+        <Text className="text-xs text-foreground-muted">
+          Managed from {managedBy.label}, with a workflow it shares here. Change it there.
+        </Text>
+      )}
       <AppTextInput
         accessibilityLabel="Role name"
         placeholder="Name"

@@ -1,4 +1,5 @@
 import {
+  EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
   type EnvironmentId,
@@ -15,6 +16,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Action, useRun } from "./MobileRoleConfigurationPanel";
+import { MobileWorkflowMachines } from "./MobileWorkflowMachines";
 
 interface WorkflowFields {
   readonly id: string;
@@ -26,6 +28,7 @@ interface WorkflowFields {
 }
 
 function Editor(props: {
+  readonly environmentId: EnvironmentId;
   readonly workflow: WorkflowConfig | null;
   readonly roles: ReadonlyArray<RoleConfig>;
   readonly busy: boolean;
@@ -46,7 +49,9 @@ function Editor(props: {
   );
   // The fields above match this revision; a newer save elsewhere refuses this one.
   const [baseRevision, setBaseRevision] = useState(props.workflow?.revision);
-  const canSave = !!name.trim() && !!instructions.trim() && !!leadRoleId;
+  // A shared copy changes only on the machine it's managed from.
+  const managedBy = props.workflow?.managedBy ?? null;
+  const canSave = managedBy === null && !!name.trim() && !!instructions.trim() && !!leadRoleId;
   const roleName = (id: string) => props.roles.find((role) => role.id === id)?.name ?? id;
   // Roles that are off or gone stay listed while the workflow names them, so they can be removed.
   const crewChoices = [
@@ -59,6 +64,11 @@ function Editor(props: {
       <Text className="text-sm font-t3-medium text-foreground">
         {props.workflow?.name ?? "New workflow"}
       </Text>
+      {managedBy === null ? null : (
+        <Text className="text-xs text-foreground-muted">
+          Managed from {managedBy.label}. Change it there; its edits arrive here by themselves.
+        </Text>
+      )}
       <AppTextInput
         accessibilityLabel="Workflow name"
         placeholder="Name"
@@ -108,32 +118,40 @@ function Editor(props: {
         className="min-h-28"
       />
       <View className="flex-row flex-wrap gap-2">
-        <Action
-          label="Save workflow"
-          disabled={!canSave || props.busy}
-          onPress={() => {
-            void props
-              .onSave({
-                id: props.workflow?.id ?? `workflow:${uuidv4()}`,
-                name: name.trim(),
-                instructions: instructions.trim(),
-                leadRoleId,
-                crewRoleIds: crewRoleIds.filter((id) => id !== leadRoleId),
-                ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
-              })
-              .then((saved) => {
-                if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
-              });
-          }}
-        />
+        {managedBy === null ? (
+          <Action
+            label="Save workflow"
+            disabled={!canSave || props.busy}
+            onPress={() => {
+              void props
+                .onSave({
+                  id: props.workflow?.id ?? `workflow:${uuidv4()}`,
+                  name: name.trim(),
+                  instructions: instructions.trim(),
+                  leadRoleId,
+                  crewRoleIds: crewRoleIds.filter((id) => id !== leadRoleId),
+                  ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
+                })
+                .then((saved) => {
+                  if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
+                });
+            }}
+          />
+        ) : null}
         {props.workflow && props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID ? (
           <Action
-            label="Delete workflow"
+            label={managedBy === null ? "Delete workflow" : "Remove from this machine"}
             disabled={props.busy}
             onPress={() => props.onDelete(props.workflow!)}
           />
         ) : null}
       </View>
+      {props.workflow &&
+      managedBy === null &&
+      props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID &&
+      props.workflow.id !== EPIC_WORKFLOW_ID ? (
+        <MobileWorkflowMachines environmentId={props.environmentId} workflow={props.workflow} />
+      ) : null}
     </View>
   );
 }
@@ -180,6 +198,7 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
       </View>
       <Editor
         key={`${workflow?.id ?? "new"}:${rolesQuery.isSuccess}`}
+        environmentId={environmentId}
         workflow={workflow}
         roles={roles}
         busy={busy}
@@ -200,7 +219,9 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
         onDelete={(target) =>
           Dialog.confirm({
             title: "Delete workflow",
-            message: `Delete ${target.name}? New features can no longer follow it.`,
+            message: target.managedBy
+              ? `Remove ${target.name} from this machine? It comes back when ${target.managedBy.label} changes it.`
+              : `Delete ${target.name}? New features can no longer follow it.`,
             confirmText: "Delete",
             destructive: true,
             onConfirm: () =>

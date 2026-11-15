@@ -22,6 +22,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
+import { isShareableWorkflow, ManagedFromAlert, WorkflowMachines } from "./WorkflowMachines";
 
 /** A readable id that stays unique when two workflows share a name. */
 function newWorkflowId(name: string) {
@@ -56,11 +57,13 @@ export function WorkflowEditorForm({
   const create = useAtomCommand(rolesEnvironment.createWorkflow);
   const update = useAtomCommand(rolesEnvironment.updateWorkflow);
   const remove = useAtomCommand(rolesEnvironment.deleteWorkflow);
-  const canEdit = useAtomValue(
-    (workflow ? rolesEnvironment.updateWorkflow : rolesEnvironment.createWorkflow).permissionAtom(
-      environmentId,
-    ),
-  );
+  const managedBy = workflow?.managedBy ?? null;
+  const canEdit =
+    useAtomValue(
+      (workflow ? rolesEnvironment.updateWorkflow : rolesEnvironment.createWorkflow).permissionAtom(
+        environmentId,
+      ),
+    ) && managedBy === null;
   const canDelete = useAtomValue(rolesEnvironment.deleteWorkflow.permissionAtom(environmentId));
   const defaultLead =
     roles.find((role) => role.id === FEATURE_MANAGER_ROLE_ID && role.enabled) ??
@@ -139,7 +142,9 @@ export function WorkflowEditorForm({
   const deleteWorkflow = async () => {
     if (!workflow) return;
     const confirmed = await requestConfirmDialog(
-      `Delete ${workflow.name}?\nFeatures already running on it keep going.`,
+      managedBy === null
+        ? `Delete ${workflow.name}?\nFeatures already running on it keep going.`
+        : `Remove ${workflow.name} from this machine?\nIt comes back when ${managedBy.label} changes it. To stop sharing it, untick this machine in its settings on ${managedBy.label}. Features already running on it keep going.`,
       { variant: "destructive" },
     );
     if (confirmed !== true) return;
@@ -165,6 +170,7 @@ export function WorkflowEditorForm({
         void submit();
       }}
     >
+      {managedBy === null ? null : <ManagedFromAlert owner={managedBy} kind="workflow" />}
       <fieldset disabled={busy || !canEdit} className="min-w-0 space-y-6">
         <SettingsSection title="Workflow">
           <div className="space-y-5 px-3 py-4 sm:px-4">
@@ -257,6 +263,9 @@ export function WorkflowEditorForm({
           </div>
         </SettingsSection>
       </fieldset>
+      {workflow && isShareableWorkflow(workflow) ? (
+        <WorkflowMachines environmentId={environmentId} workflow={workflow} />
+      ) : null}
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <div>
           {workflow && workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID && canDelete ? (
@@ -267,24 +276,26 @@ export function WorkflowEditorForm({
               disabled={busy}
               onClick={() => void deleteWorkflow()}
             >
-              Delete workflow
+              {managedBy === null ? "Delete workflow" : "Remove from this machine"}
             </Button>
           ) : null}
         </div>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="ghost-muted"
-            size="sm"
-            disabled={busy || (workflow !== null && !edited)}
-            onClick={onCancel}
-          >
-            {workflow ? "Discard" : "Cancel"}
-          </Button>
-          <Button type="submit" size="sm" disabled={!canSave}>
-            {workflow ? "Save workflow" : "Add workflow"}
-          </Button>
-        </div>
+        {managedBy === null ? (
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="ghost-muted"
+              size="sm"
+              disabled={busy || (workflow !== null && !edited)}
+              onClick={onCancel}
+            >
+              {workflow ? "Discard" : "Cancel"}
+            </Button>
+            <Button type="submit" size="sm" disabled={!canSave}>
+              {workflow ? "Save workflow" : "Add workflow"}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </form>
   );

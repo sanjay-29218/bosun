@@ -129,7 +129,13 @@ const WorkflowRow = memo(function WorkflowRow({
             {workflow.name}
           </span>
           <span className="truncate text-xs text-muted-foreground">
-            {leadName ? `${leadName} · ${crewLabel(workflow)}` : crewLabel(workflow)}
+            {[
+              leadName,
+              crewLabel(workflow),
+              workflow.managedBy ? `From ${workflow.managedBy.label}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         </span>
         {environmentLabel ? (
@@ -170,7 +176,13 @@ const RoleRow = memo(function RoleRow({
           >
             {role.name}
           </span>
-          {note ? <span className="truncate text-xs text-muted-foreground">{note}</span> : null}
+          {note || role.managedBy ? (
+            <span className="truncate text-xs text-muted-foreground">
+              {[note, role.managedBy ? `From ${role.managedBy.label}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          ) : null}
         </span>
         {environmentLabel ? (
           <span className="shrink-0 truncate text-xs text-muted-foreground">

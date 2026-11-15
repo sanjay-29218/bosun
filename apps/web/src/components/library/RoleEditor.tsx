@@ -30,6 +30,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { InstructionsEditor } from "../InstructionsEditor";
+import { ManagedFromAlert } from "./WorkflowMachines";
 import { toastManager } from "../ui/toast";
 
 /** The composer's provider and model choices for one environment. */
@@ -170,9 +171,11 @@ export function RoleEditorForm({
 }) {
   const create = useAtomCommand(rolesEnvironment.create);
   const save = useSaveRole(environmentId);
-  const canEdit = useAtomValue(
-    (role ? rolesEnvironment.update : rolesEnvironment.create).permissionAtom(environmentId),
-  );
+  const managedBy = role?.managedBy ?? null;
+  const canEdit =
+    useAtomValue(
+      (role ? rolesEnvironment.update : rolesEnvironment.create).permissionAtom(environmentId),
+    ) && managedBy === null;
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [tools, setTools] = useState<ReadonlyArray<string>>(role?.withheldTools ?? []);
@@ -229,6 +232,7 @@ export function RoleEditorForm({
         void submit();
       }}
     >
+      {managedBy === null ? null : <ManagedFromAlert owner={managedBy} kind="role" />}
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
         <SettingsSection title="Role">
           <div className="space-y-5 px-3 py-4 sm:px-4">
@@ -291,20 +295,22 @@ export function RoleEditorForm({
         </SettingsSection>
       </fieldset>
       {/* Pinned to the pane's bottom, so Save stays in reach below a long tool list. */}
-      <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
-        <Button
-          type="button"
-          variant="ghost-muted"
-          size="sm"
-          disabled={saving || (role !== null && !edited)}
-          onClick={onCancel}
-        >
-          {role ? "Discard" : "Cancel"}
-        </Button>
-        <Button type="submit" size="sm" disabled={!canSave}>
-          {role ? "Save role" : "Add role"}
-        </Button>
-      </div>
+      {managedBy === null ? (
+        <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
+          <Button
+            type="button"
+            variant="ghost-muted"
+            size="sm"
+            disabled={saving || (role !== null && !edited)}
+            onClick={onCancel}
+          >
+            {role ? "Discard" : "Cancel"}
+          </Button>
+          <Button type="submit" size="sm" disabled={!canSave}>
+            {role ? "Save role" : "Add role"}
+          </Button>
+        </div>
+      ) : null}
     </form>
   );
 }

@@ -1,6 +1,7 @@
 import { WS_METHODS, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { Atom, AtomRegistry } from "effect/reactivity";
+import * as Option from "effect/Option";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
@@ -28,6 +29,34 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
     staleTimeMs: 5_000,
     idleTtlMs: 60_000,
   });
+  // A Library change re-reads the workflows, and with them where each is shared and how it stands.
+  const workflowsRead = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get) =>
+      Option.getOrUndefined(AsyncResult.value(get(workflows({ environmentId, input: {} })))),
+    ).pipe(Atom.withLabel(`environment-data:workflows:read:${environmentId}`)),
+  );
+  const shares = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:workflows:shares",
+    tag: WS_METHODS.workflowsShares,
+    staleTimeMs: 5_000,
+    idleTtlMs: 60_000,
+    refreshTrigger: ({ environmentId }) => workflowsRead(environmentId),
+  });
+  const refreshShares = (
+    target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly workflowId: string };
+    },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() =>
+      registry.refresh(
+        shares({
+          environmentId: target.environmentId,
+          input: { workflowId: target.input.workflowId },
+        }),
+      ),
+    );
   const refreshRoles = (
     target: { readonly environmentId: EnvironmentId },
     registry: AtomRegistry.AtomRegistry,
@@ -71,6 +100,14 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
   return {
     roles,
     workflows,
+    /** The linked machines a workflow is shared with, and how each copy stands. */
+    shares,
+    /** Shares a workflow with a linked machine, records role choices, or stops sharing it. */
+    setShare: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:set-share",
+      tag: WS_METHODS.workflowsSetShare,
+      onSuccess: refreshShares,
+    }),
     configuration,
     /** A project's manager settings, or its defaults before the project has one. */
     projectManager,
