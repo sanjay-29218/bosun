@@ -223,7 +223,9 @@ export function createProjectOwnerResolver(bots: ReadonlyArray<LogicalBot>) {
 
 /**
  * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and the
- * ones with no bot, which every bot shows so they are never hidden.
+ * ones with no bot on its home, which every bot there shows so they are never hidden. Another
+ * machine's no-bot projects, and projects whose owner the rail doesn't list (its machine's bots
+ * aren't loaded, or the owner's machine is offline), show under no bot.
  */
 export function logicalBotProjectKeys(
   bot: LogicalBot,
@@ -231,10 +233,14 @@ export function logicalBotProjectKeys(
   projects: ReadonlyArray<OwnedProject & { readonly id: string }>,
 ): Set<string> {
   const resolve = createProjectOwnerResolver(bots);
+  const home = logicalBotHome(bot);
   const keys = new Set<string>();
   for (const project of projects) {
-    const owner = resolve(project);
-    if (owner === null || owner === bot.key) keys.add(`${project.environmentId}:${project.id}`);
+    const shown =
+      projectOwner(project) === null
+        ? project.environmentId === home
+        : resolve(project) === bot.key;
+    if (shown) keys.add(`${project.environmentId}:${project.id}`);
   }
   return keys;
 }
