@@ -29,6 +29,7 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { automationPausedLabel } from "@t3tools/client-runtime/state/automations";
+import { archivedProjectManagers } from "@t3tools/client-runtime/state/bot-rail";
 import { resolvePastedPath } from "@t3tools/shared/path";
 import {
   DEFAULT_WEBHOOK_PROMPT,
@@ -64,7 +65,7 @@ import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { usePreparedConnection } from "../../state/session";
 import { buildModelOptions } from "../../lib/modelOptions";
 import { withImplicitFastModeSelection } from "../../lib/providerOptions";
-import { useProjects, useEnvironmentServerConfig } from "../../state/entities";
+import { useProjects, useEnvironmentServerConfig, useThreadShells } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { botsEnvironment } from "../../state/bots";
@@ -682,11 +683,21 @@ function TaskForm({
   const managerProject = runsAsManager
     ? projects.find((project) => project.id === draft.projectId)
     : undefined;
-  // Scratch and bots' homes have no manager.
+  // Turning a manager off archives its thread, as on web.
+  const offManagers = archivedProjectManagers(useThreadShells());
+  const managerOff = (projectId: string) => offManagers.has(`${environmentId}:${projectId}`);
+  // Scratch and bots' homes have no manager; one that's off is offered only while the task runs as it.
   const managedProjects =
     config?.environment.capabilities.scheduledTaskProjectManagers === true
-      ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
+      ? projects.filter(
+          (project) =>
+            project.isScratch !== true &&
+            project.isBotHome !== true &&
+            (!managerOff(project.id) || (runsAsManager && project.id === draft.projectId)),
+        )
       : [];
+  const managerLabel = (project: { readonly id: string; readonly title: string }) =>
+    `${project.title} manager${managerOff(project.id) ? " (off)" : ""}`;
   const destinationLabel = useScheduledTaskDestinationLabel(environmentId, draft.threadId);
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
   // Existing webhook tasks keep the option so they can still switch to a timer.
@@ -867,7 +878,9 @@ function TaskForm({
               borderTop
               value={
                 runsAsManager
-                  ? `${managerProject?.title ?? "Project"} manager`
+                  ? managerProject
+                    ? managerLabel(managerProject)
+                    : "Project manager"
                   : draft.botId === null
                     ? "A new thread"
                     : (runsAsBot?.name ?? draft.botId)
@@ -893,7 +906,7 @@ function TaskForm({
                       })),
                       ...managedProjects.map((project) => ({
                         id: `${RUNS_AS_MANAGER}${project.id}`,
-                        title: `${project.title} manager`,
+                        title: managerLabel(project),
                         state:
                           runsAsManager && project.id === draft.projectId
                             ? ("on" as const)

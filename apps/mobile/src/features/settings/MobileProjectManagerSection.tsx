@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automations";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   CREW_TOOL_GRANTS,
@@ -15,6 +16,7 @@ import * as Cause from "effect/Cause";
 import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
+import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { Action, useRun } from "./MobileRoleConfigurationPanel";
@@ -71,6 +73,9 @@ function Form(props: {
   const canEdit = useAtomValue(
     rolesEnvironment.updateProjectManager.permissionAtom(project.environmentId),
   );
+  const scheduledTasks = useEnvironmentQuery(
+    serverEnvironment.scheduledTasksLive({ environmentId: project.environmentId, input: {} }),
+  ).data?.tasks;
   // When someone else saved first, the refresh brings their revision in place of this form.
   const { busy, error, run } = useRun(() => undefined);
   const [instructions, setInstructions] = useState(settings.instructions);
@@ -88,15 +93,31 @@ function Form(props: {
   const canSave =
     canEdit && !busy && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
-  const toggle = () =>
+  const setManagerEnabled = (enabled: boolean) =>
     run(async () => {
-      const result = await setEnabled({
-        ...target,
-        input: { projectId: project.id, enabled: !settings.enabled },
-      });
+      const result = await setEnabled({ ...target, input: { projectId: project.id, enabled } });
       if (result._tag !== "Success") props.onStale();
       return result;
     });
+
+  const toggle = () => {
+    const warning = settings.enabled
+      ? managerAutomationsWarning(scheduledTasks ?? [], project.id, "off")
+      : null;
+    if (warning === null) return void setManagerEnabled(!settings.enabled);
+    Alert.alert(
+      "Turn the manager off?",
+      `${warning} Turning the manager back on won't resume them; you resume them in Scheduled tasks.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Turn off",
+          style: "destructive",
+          onPress: () => void setManagerEnabled(false),
+        },
+      ],
+    );
+  };
 
   const save = () =>
     run(async () => {
