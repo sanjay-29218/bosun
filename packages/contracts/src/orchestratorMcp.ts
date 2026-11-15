@@ -716,12 +716,8 @@ const OrchestratorMcpScheduledTaskBot = Schema.optional(
   }),
 );
 
-const OrchestratorMcpScheduledTaskProjectManager = Schema.optional(
-  Schema.Boolean.annotate({
-    description:
-      "True: run as the project's manager in its thread, with its model and access; not with botId. False: back to a thread.",
-  }),
-);
+// `schedule_task`'s description explains it; repeating that here costs every agent turn.
+const OrchestratorMcpScheduledTaskProjectManager = Schema.optional(Schema.Boolean);
 
 export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,
