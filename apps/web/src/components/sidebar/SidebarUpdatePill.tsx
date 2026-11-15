@@ -223,7 +223,9 @@ function UpdateSlot({
     return <SidebarMenuItem className={className}>{children}</SidebarMenuItem>;
   }
   return (
-    <div className={cn("flex w-full", collapsed ? "justify-center" : "flex-col")}>{children}</div>
+    <div className={cn("flex w-full", collapsed ? "justify-center" : "flex-col px-2")}>
+      {children}
+    </div>
   );
 }
 
@@ -444,9 +446,11 @@ function SidebarUpdateControl({
   };
 
   if (!isElectron && !runsEverything && !isRunningEverything) return null;
+  // A check started from the row keeps it until the check settles, so focus stays on it.
   if (
     placement === "rail" &&
     !isRunningEverything &&
+    !isActionPending &&
     !shouldShowRailUpdateRow({ state, hasOtherUpdates: runsEverything })
   ) {
     return null;
@@ -484,7 +488,7 @@ function SidebarUpdateControl({
     return (
       <UpdateSlot placement={placement} collapsed={collapsed} className="ml-auto flex flex-1">
         <SidebarUpdateCapsule
-          compact={placement === "rail"}
+          compact={placement === "rail" && collapsed}
           run={run}
           local={local}
           icon={statusIcon}
@@ -513,7 +517,13 @@ function SidebarUpdateControl({
   const updateButton = (
     <button
       type="button"
-      aria-label={idleTooltip?.detail ? `${tooltip}: ${idleTooltip.detail}` : tooltip}
+      aria-label={
+        placement === "rail"
+          ? `Update: ${tooltip}`
+          : idleTooltip?.detail
+            ? `${tooltip}: ${idleTooltip.detail}`
+            : tooltip
+      }
       aria-disabled={isInteractionDisabled || undefined}
       className={cn(
         isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer",
@@ -523,7 +533,7 @@ function SidebarUpdateControl({
               "outline-none text-sidebar-muted-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               collapsed
                 ? "relative flex size-10 items-center justify-center rounded-xl"
-                : "mx-2 flex h-8 min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-start text-sm",
+                : "flex h-8 min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-start text-sm",
               !isInteractionDisabled && "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
             )
           : "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",
@@ -568,7 +578,9 @@ function SidebarUpdateControl({
       {placement === "rail" && !collapsed ? (
         <>
           {/* A 16px slot, like the other rows' icons; the download ring overflows it evenly. */}
-          <span className="flex size-4 shrink-0 items-center justify-center">{statusIcon}</span>
+          <span className="flex size-4 shrink-0 items-center justify-center *:shrink-0">
+            {statusIcon}
+          </span>
           <span className="min-w-0 flex-1 truncate">Update</span>
         </>
       ) : (

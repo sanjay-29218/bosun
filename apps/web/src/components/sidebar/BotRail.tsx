@@ -164,10 +164,9 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
 }
 
 /**
- * The bot list: the bots and project managers scroll above a pinned group of places, an Update
- * row while there is one, the environment filter, Usage and Settings. Expanded it shows each one's latest message; collapsed it is an icon column.
- * A bot narrows the thread list to its projects; a project manager to its project. `window`
- * pins it to the window's left edge, resizable; `sheet` puts its icons in the mobile sheet.
+ * The bot list: bots and project managers scroll above a pinned group of places, an Update row
+ * while there is one, the environment filter, Usage and Settings. `window` pins it to the
+ * window's left edge, resizable; `sheet` puts its icons in the mobile sheet.
  */
 export const BotRail = memo(function BotRail({
   placement,
