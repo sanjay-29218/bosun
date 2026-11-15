@@ -199,7 +199,7 @@ export function selectLogicalBot(bot: LogicalBot): Record<string, string> {
 
 /**
  * Maps an environment's bot to its rail entry, or null for no bot. A bot the rail doesn't know
- * yet (its environment's list is still loading) maps to null too, like a project with no bot.
+ * yet (its environment's list is still loading) maps to null too.
  */
 export function createLogicalBotResolver(bots: ReadonlyArray<LogicalBot>) {
   const byMember = new Map<string, string>();
@@ -222,24 +222,26 @@ export function createProjectOwnerResolver(bots: ReadonlyArray<LogicalBot>) {
 }
 
 /**
- * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and the
- * ones with no bot on its home, which every bot there shows so they are never hidden. Another
- * machine's no-bot projects, and projects whose owner the rail doesn't list (its machine's bots
- * aren't loaded, or the owner's machine is offline), show under no bot.
+ * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and those
+ * with no bot on a machine it may work on. A machine without bots (`botEnvironmentIds` leaves
+ * it out) has no bot to show its projects, so every bot does. A project whose owner the rail
+ * doesn't list (not loaded yet, or its machine is offline) shows under no bot.
  */
 export function logicalBotProjectKeys(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<OwnedProject & { readonly id: string }>,
+  botEnvironmentIds: ReadonlySet<EnvironmentId>,
 ): Set<string> {
-  const resolve = createProjectOwnerResolver(bots);
-  const home = logicalBotHome(bot);
+  const resolve = createLogicalBotResolver(bots);
   const keys = new Set<string>();
   for (const project of projects) {
+    const owner = projectOwner(project);
     const shown =
-      projectOwner(project) === null
-        ? project.environmentId === home
-        : resolve(project) === bot.key;
+      owner === null
+        ? !botEnvironmentIds.has(project.environmentId) ||
+          logicalBotWorksOn(bot, project.environmentId)
+        : resolve(owner.environmentId, owner.botId) === bot.key;
     if (shown) keys.add(`${project.environmentId}:${project.id}`);
   }
   return keys;
@@ -255,6 +257,7 @@ export function railProjectKeys(input: {
   readonly pinnedBots: ReadonlyArray<LogicalBot>;
   readonly allBots: ReadonlyArray<LogicalBot>;
   readonly projects: ReadonlyArray<OwnedProject & { readonly id: string }>;
+  readonly botEnvironmentIds: ReadonlySet<EnvironmentId>;
   readonly environmentFilter: ReadonlySet<EnvironmentId> | null;
   /** The projects the thread list is scoped to, if any. */
   readonly scopedProjects?: ReadonlyArray<{
@@ -272,7 +275,7 @@ export function railProjectKeys(input: {
   if (!filterByBot) {
     return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
   }
-  const keys = logicalBotProjectKeys(active, input.allBots, inEnvironment);
+  const keys = logicalBotProjectKeys(active, input.allBots, inEnvironment, input.botEnvironmentIds);
   for (const project of input.scopedProjects ?? []) {
     if (environmentFilter === null || environmentFilter.has(project.environmentId)) {
       keys.add(`${project.environmentId}:${project.id}`);
