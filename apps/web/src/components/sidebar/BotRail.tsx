@@ -32,7 +32,7 @@ import { memo, useEffect, type MouseEvent, type ReactNode } from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
-import { useResizeDrag } from "../../hooks/useResizeDrag";
+import { useSnapResizeDrag } from "../../hooks/useSnapResizeDrag";
 import { botJumpCommandForIndex, botJumpIndexFromCommand } from "../../keybindings";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
 import { cn, isMacPlatform } from "../../lib/utils";
@@ -61,8 +61,8 @@ import {
   BOT_RAIL_COLLAPSED_WIDTH,
   BOT_RAIL_DEFAULT_WIDTH,
   BOT_RAIL_MAX_WIDTH,
+  BOT_RAIL_SNAP,
   botRailLayoutAfterDrag,
-  botRailSnapWidth,
   useUiStateStore,
 } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
@@ -92,8 +92,6 @@ import { RelativeTimeLabel } from "./SidebarThreadRow";
 import { supersedeStandingOpen } from "./standingOpen";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { useStandingStatus } from "./useStandingStatus";
-
-// Dragging the edge under these widths collapses to icons on release.
 
 /** The rail's width in px: the icon column, or the expanded list's chosen width. */
 export function useBotRailWidth(): number {
@@ -176,7 +174,7 @@ export const BotRail = memo(function BotRail({
 }: {
   readonly placement: "window" | "sheet";
 }) {
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const bots = useVisibleLogicalBots();
   const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
@@ -216,7 +214,9 @@ export const BotRail = memo(function BotRail({
   // whose view switch would race this navigation.
   const select = (bot: LogicalBot, event: MouseEvent) => {
     const same = bot.key === active?.key;
+    // Picking a bot shows its threads, so a closed thread list opens again.
     if (isMobile) setOpenMobile(false);
+    else setOpen(true);
     // A bot shows its threads across all its projects.
     if (scopeKeys.length > 0) setScopeKeys([]);
     if (active && !same) rememberBotHref(active.key);
@@ -233,6 +233,7 @@ export const BotRail = memo(function BotRail({
   // bot isn't pinned (or has no bot) still shows under the bot that stays picked.
   const selectManager = (manager: RailProjectManager) => {
     if (isMobile) setOpenMobile(false);
+    else setOpen(true);
     const ownerKey =
       manager.owner === null
         ? null
@@ -408,41 +409,30 @@ function BotRailResizeHandle() {
     onPointerUp,
     onPointerCancel,
     onLostPointerCapture,
-  } = useResizeDrag<HTMLDivElement>((event) => {
+  } = useSnapResizeDrag<HTMLDivElement>((event) => {
     const nav = event.currentTarget.closest<HTMLElement>("nav");
     const wrapper = nav?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     if (!nav || !wrapper) return null;
-    const { botRailCollapsed, botRailWidth } = useUiStateStore.getState();
-    const startWidth = botRailCollapsed ? BOT_RAIL_COLLAPSED_WIDTH : botRailWidth;
-    const snapBelow = botRailSnapWidth(botRailCollapsed);
-    // The layout writes this property too; it is set here only for the drag, and on release
-    // to the width the store then renders.
+    const state = useUiStateStore.getState();
+    const startWidth = state.botRailCollapsed ? BOT_RAIL_COLLAPSED_WIDTH : state.botRailWidth;
+    // The layout writes this property too; it is set here only for the drag, and a committed
+    // width reaches it when the store re-renders the layout.
     const setLiveWidth = (width: number) =>
       wrapper.style.setProperty("--sidebar-leading-width", `${width}px`);
     return {
+      collapsed: state.botRailCollapsed,
       width: startWidth,
-      edge: "right",
       bounds: { min: BOT_RAIL_COLLAPSED_WIDTH, max: BOT_RAIL_MAX_WIDTH },
-      resize(width) {
+      snap: BOT_RAIL_SNAP,
+      preview(width, snapping) {
         setLiveWidth(width);
-        nav.toggleAttribute("data-snap", width < snapBelow);
-        return width;
+        nav.toggleAttribute("data-snap", snapping);
       },
-      finish(width, moved) {
-        if (!moved) {
-          setLiveWidth(startWidth);
-          return;
-        }
-        const next = botRailLayoutAfterDrag({ botRailCollapsed, botRailWidth }, width);
-        setLiveWidth(
-          next.botRailCollapsed ? BOT_RAIL_COLLAPSED_WIDTH : (next.botRailWidth ?? botRailWidth),
-        );
-        setLayout(next);
-      },
-      cleanup(committed) {
+      restore() {
         nav.removeAttribute("data-snap");
-        if (!committed) setLiveWidth(startWidth);
+        setLiveWidth(startWidth);
       },
+      commit: (width) => setLayout(botRailLayoutAfterDrag(state, width)),
     };
   });
   return (
@@ -775,7 +765,7 @@ function RailPlaces({
   readonly collapsed: boolean;
 }) {
   const navigate = useNavigate();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
   const hiddenNeedsYou = useHiddenNeedsYouCount();
@@ -786,7 +776,9 @@ function RailPlaces({
       active: destination === "bots-list",
       // Unpinned bots and managers aren't in the rail, so their waiting threads count here.
       signal: hiddenNeedsYou > 0 ? ({ kind: "needs-you", count: hiddenNeedsYou } as const) : null,
+      // Its list shows in the thread list's column, which a closed list would hide.
       onSelect: () => {
+        if (!isMobile) setOpen(true);
         if (destination !== "bots-list") void navigate({ to: BOTS_LIST_PATH });
       },
     },
@@ -797,6 +789,7 @@ function RailPlaces({
       signal: automationFailed ? ({ kind: "failed" } as const) : null,
       // Its list is what the mobile sheet shows next, so the sheet stays open.
       onSelect: () => {
+        if (!isMobile) setOpen(true);
         if (destination !== "automations") void navigate({ to: AUTOMATIONS_PATH });
       },
     },
