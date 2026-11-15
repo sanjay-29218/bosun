@@ -10,6 +10,7 @@ import {
   type ServerProviderSlashCommand,
   isProviderAvailable,
   PROVIDER_DISPLAY_NAMES,
+  ProviderDriverKind,
   type ServerProvider,
   type ServerProviderResetCredits,
   type ServerProviderUsageLimits,
@@ -78,6 +79,98 @@ export function exhaustedUsageWindow(
   }
 }
 
+/** Why a model can't run on an environment's providers. */
+export type ModelBlockReason =
+  | "not-installed"
+  | "disabled"
+  | "unauthenticated"
+  | "unavailable"
+  | "usage";
+
+export interface ModelBlock {
+  readonly reason: ModelBlockReason;
+  /** The selection's provider, when the environment lists it. */
+  readonly provider: ServerProvider | undefined;
+  /** When an exhausted usage window resets. */
+  readonly resetsAt: string | null;
+}
+
+/** Why `selection` can't run on these providers, or null when it can. */
+function modelSelectionBlock(input: {
+  readonly selection: ModelSelection;
+  readonly providers: readonly ServerProvider[];
+  readonly now: number;
+  readonly settings?: ServerSettings | undefined;
+  readonly projectId?: ProjectId | null | undefined;
+}): ModelBlock | null {
+  const provider = input.providers.find((entry) => entry.instanceId === input.selection.instanceId);
+  const block = (reason: ModelBlockReason, resetsAt: string | null = null) => ({
+    reason,
+    provider,
+    resetsAt,
+  });
+  if (!provider?.installed) return block("not-installed");
+  if (
+    !provider.enabled ||
+    (input.settings &&
+      !resolveProjectProviderInstanceEnabled(
+        input.settings,
+        input.projectId ?? null,
+        provider.instanceId,
+      ))
+  )
+    return block("disabled");
+  if (provider.auth.status === "unauthenticated") return block("unauthenticated");
+  if (!isProviderAvailable(provider)) return block("unavailable");
+  const window = exhaustedUsageWindow(provider, input.now, input.selection.model);
+  return window ? block("usage", window.resetsAt ?? null) : null;
+}
+
+/** The provider's name, also for a provider this environment doesn't list. */
+function modelProviderName(selection: ModelSelection, block: ModelBlock): string {
+  return (
+    block.provider?.displayName ??
+    PROVIDER_DISPLAY_NAMES[
+      block.provider?.driver ?? ProviderDriverKind.make(selection.instanceId)
+    ] ??
+    selection.instanceId
+  );
+}
+
+/** A model's display name, else its slug. */
+export function modelDisplayName(
+  selection: ModelSelection,
+  providers: readonly ServerProvider[],
+): string {
+  return (
+    providers
+      .find((provider) => provider.instanceId === selection.instanceId)
+      ?.models.find((model) => model.slug === selection.model)?.name ?? selection.model
+  );
+}
+
+/** Why the model can't run, as a phrase: "Codex isn't signed in here". */
+export function modelBlockText(selection: ModelSelection, block: ModelBlock): string {
+  const name = modelProviderName(selection, block);
+  switch (block.reason) {
+    case "not-installed":
+      return `${name} isn't installed here`;
+    case "disabled":
+      return `${name} is turned off here`;
+    case "unauthenticated":
+      return `${name} isn't signed in here`;
+    case "unavailable":
+      return `${name} isn't available here`;
+    case "usage":
+      return `${name} is out of usage`;
+  }
+}
+
+/**
+ * The model a new thread or an agent's run uses: the chosen one, else the fallback while the
+ * chosen one can't run here and the fallback can. An explicit selection is never swapped.
+ * `blocked` says why the chosen model can't run when no fallback can stand in.
+ */
 export function resolveNewThreadModelSelection(input: {
   readonly defaultSelection: ModelSelection | null;
   readonly explicitSelection?: ModelSelection | null;
@@ -86,35 +179,61 @@ export function resolveNewThreadModelSelection(input: {
   readonly now: number;
   readonly settings?: ServerSettings;
   readonly projectId?: ProjectId | null;
-}) {
+}): {
+  readonly selection: ModelSelection | null;
+  readonly fallback: (ModelBlock & { readonly from: ModelSelection }) | null;
+  readonly blocked: ModelBlock | null;
+} {
   const selection = input.explicitSelection ?? input.defaultSelection;
-  const unchanged = { selection, fallback: null };
-  if (input.explicitSelection || !selection || !input.fallbackSelection) return unchanged;
-  const provider = input.providers.find((entry) => entry.instanceId === selection.instanceId);
-  const window = exhaustedUsageWindow(provider, input.now, selection.model);
-  const fallback = input.providers.find(
-    (entry) => entry.instanceId === input.fallbackSelection?.instanceId,
-  );
-  if (
-    !provider ||
-    !window ||
-    !fallback?.enabled ||
-    !fallback.installed ||
-    fallback.auth.status === "unauthenticated" ||
-    !isProviderAvailable(fallback) ||
-    exhaustedUsageWindow(fallback, input.now, input.fallbackSelection.model) ||
-    (input.settings &&
-      !resolveProjectProviderInstanceEnabled(
-        input.settings,
-        input.projectId ?? null,
-        fallback.instanceId,
-      ))
-  )
-    return unchanged;
+  if (input.explicitSelection || !selection) return { selection, fallback: null, blocked: null };
+  const check = (candidate: ModelSelection) =>
+    modelSelectionBlock({
+      selection: candidate,
+      providers: input.providers,
+      now: input.now,
+      settings: input.settings,
+      projectId: input.projectId,
+    });
+  const blocked = check(selection);
+  if (!blocked) return { selection, fallback: null, blocked: null };
+  if (!input.fallbackSelection || check(input.fallbackSelection))
+    return { selection, fallback: null, blocked };
   return {
     selection: input.fallbackSelection,
-    fallback: { provider, resetsAt: window.resetsAt ?? null },
+    fallback: { ...blocked, from: selection },
+    blocked: null,
   };
+}
+
+/** What a run on the fallback model says: "Using Claude Opus 5.5" / "Codex isn't signed in here". */
+export function modelFallbackNotice(
+  resolution: {
+    readonly selection: ModelSelection;
+    readonly fallback: ModelBlock & { readonly from: ModelSelection };
+  },
+  providers: readonly ServerProvider[],
+) {
+  return {
+    title: `Using ${modelDisplayName(resolution.selection, providers)}`,
+    message: `${modelBlockText(resolution.fallback.from, resolution.fallback)}, so this run uses the fallback model instead of ${modelDisplayName(resolution.fallback.from, providers)}.`,
+  };
+}
+
+/** Why neither `selection` nor the fallback can run, naming both. */
+export function noRunnableModelText(input: {
+  readonly selection: ModelSelection;
+  readonly blocked: ModelBlock;
+  readonly fallbackSelection: ModelSelection | null;
+  readonly providers: readonly ServerProvider[];
+  readonly now: number;
+  readonly settings?: ServerSettings;
+  readonly projectId?: ProjectId | null;
+}): string {
+  const named = (selection: ModelSelection) => `${selection.model} (${selection.instanceId})`;
+  const own = `${named(input.selection)} can't run: ${modelBlockText(input.selection, input.blocked)}.`;
+  if (!input.fallbackSelection) return `${own} No fallback model is set in Settings.`;
+  const fallbackBlock = modelSelectionBlock({ ...input, selection: input.fallbackSelection });
+  return `${own} The fallback model, ${named(input.fallbackSelection)}, can't run either${fallbackBlock ? `: ${modelBlockText(input.fallbackSelection, fallbackBlock)}` : ""}.`;
 }
 
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/#settings/Usage";

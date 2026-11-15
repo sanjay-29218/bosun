@@ -12,7 +12,10 @@ import {
   type ProjectRemoteBot,
   type ProjectRemoteManager,
   projectHeadquartersThreadId,
+  DEFAULT_SERVER_SETTINGS,
+  type ModelSelection,
   ProviderInstanceId,
+  type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -50,6 +53,7 @@ import {
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { TicketService } from "../tickets/TicketService.ts";
 import * as BotReach from "./BotReach.ts";
 import * as BotService from "./BotService.ts";
@@ -138,6 +142,9 @@ interface Environment {
   readonly bots: ReadonlyArray<Bot>;
   readonly projects: ReadonlyArray<Project>;
   readonly workflowRevision?: number;
+  /** Its providers; a signed-in Codex by default. */
+  readonly providers?: ReadonlyArray<ServerProvider>;
+  readonly fallbackModelSelection?: ModelSelection;
   /** Runs as a run is created there, before it is recorded. */
   readonly beforeCreate?: Effect.Effect<void>;
 }
@@ -164,6 +171,25 @@ const waitingForCouch = {
     clientRequestId: "delegate:couch",
   },
 } as unknown as OrchestrationV2Subagent;
+
+const signedInCodex = {
+  instanceId: modelSelection.instanceId,
+  driver: "codex",
+  enabled: true,
+  installed: true,
+  auth: { status: "authenticated" },
+  models: [{ slug: modelSelection.model }, { slug: leadRole.modelSelection.model }],
+} as unknown as ServerProvider;
+const signedOutCodex = { ...signedInCodex, auth: { status: "unauthenticated" as const } };
+const claudeModel = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-opus-5-5",
+};
+const signedInClaude = {
+  ...signedInCodex,
+  instanceId: claudeModel.instanceId,
+  driver: "claudeAgent",
+} as unknown as ServerProvider;
 
 /** One environment's bots, projects, features, crew and providers, around real BotReach. */
 const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
@@ -239,7 +265,13 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           withheldTools: [],
           ...(id === "role:feature-manager"
             ? leadRole
-            : { modelSelection, runtimeMode: "full-access" }),
+            : id === "role:security-reviewer"
+              ? // On a provider the box lacks; a feature checks it, a request doesn't.
+                {
+                  modelSelection: { instanceId: "opencode", model: "big-pickle" },
+                  runtimeMode: "full-access",
+                }
+              : { modelSelection, runtimeMode: "full-access" }),
           enabled: true,
         } as never),
       ensureFeatureManager: (projectId) =>
@@ -278,15 +310,13 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
             ),
     }),
     Layer.mock(ProviderRegistry.ProviderRegistry)({
-      getProviders: Effect.succeed([
-        {
-          instanceId: modelSelection.instanceId,
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          models: [{ slug: modelSelection.model }, { slug: leadRole.modelSelection.model }],
-        },
-      ] as never),
+      getProviders: Effect.succeed(data.providers ?? [signedInCodex]),
+    }),
+    Layer.mock(ServerSettingsService)({
+      getSettings: Effect.succeed({
+        ...DEFAULT_SERVER_SETTINGS,
+        fallbackModelSelection: data.fallbackModelSelection ?? null,
+      }),
     }),
     Layer.mock(GitWorkflowService)({ currentBranch: () => Effect.succeed("main") }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -595,14 +625,31 @@ it.live(
           runtimeMode: "full-access",
           modelSelection,
         });
-        const elsewhere = yield* reach
-          .startForLink(linkScope("full-access"), {
-            ...request,
-            ...launch("project:omni", "gpt-elsewhere"),
-          })
+        // Codex is signed out there: the task runs on the box's fallback model instead.
+        const reachWith = (data: Partial<Environment>) =>
+          BotReach.layer.pipe(
+            Layer.provide(layerData({ ...boxData, ...data }, boxSeen)),
+            Layer.provide(layerToolServices),
+            Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+            Layer.provide(Layer.succeedContext(linking)),
+            Layer.build,
+            Effect.map((context) => Context.get(context, BotReach.BotReach)),
+          );
+        const signedOut = { ...request, clientRequestId: "codex-signed-out" };
+        const fellBack = yield* (yield* reachWith({
+          providers: [signedOutCodex, signedInClaude],
+          fallbackModelSelection: claudeModel,
+        })).startForLink(linkScope("full-access"), signedOut);
+        expect(fellBack.threadId).toMatch(/^bot-run:link-task:/);
+        // With no fallback that can run there either, it's refused, naming both.
+        const refused = yield* (yield* reachWith({
+          providers: [signedOutCodex, { ...signedInClaude, auth: { status: "unauthenticated" } }],
+          fallbackModelSelection: claudeModel,
+        }))
+          .startForLink(linkScope("full-access"), { ...signedOut, clientRequestId: "stuck" })
           .pipe(Effect.flip);
-        expect(elsewhere.message).toContain(
-          "runs on gpt-elsewhere (codex), which isn't available on Box",
+        expect(refused.message).toBe(
+          "Captain's task can't start on Box. gpt-5.4 (codex) can't run: Codex isn't signed in here. The fallback model, claude-opus-5-5 (claudeAgent), can't run either: Claude isn't signed in here. Sign one in there, or change Captain's model.",
         );
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -704,6 +751,7 @@ it.live("starts the project manager there, or says before starting anything why 
         { botId: CAPTAIN_ID },
         launch("project:omni"),
       );
+      // Starts though its Security reviewer's provider isn't on the box: a feature checks that.
       expect(launched.threadId).toMatch(/^bot-run:link-task:/);
       expect((yield* Ref.get(boxSeen)).runs).toMatchObject([
         {

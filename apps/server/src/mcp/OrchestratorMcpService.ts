@@ -72,7 +72,7 @@ import {
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
-import { resolveNewThreadModelSelection } from "@t3tools/shared/providerDefaultModel";
+import { resolveDefaultModelSelection } from "@t3tools/shared/providerDefaultModel";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { threadPullRequestUpdatedAtMs } from "@t3tools/shared/threadPullRequests";
 import {
@@ -2330,7 +2330,7 @@ const make = Effect.gen(function* () {
               const modelSelection =
                 botModel ??
                 parent?.thread.modelSelection ??
-                resolveNewThreadModelSelection(
+                resolveDefaultModelSelection(
                   yield* loadProviders,
                   yield* serverSettings.getSettings.pipe(
                     Effect.mapError(() =>

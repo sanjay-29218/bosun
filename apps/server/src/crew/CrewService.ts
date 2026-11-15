@@ -435,12 +435,11 @@ const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
     ? Effect.void
     : Effect.fail(new CrewValidationError(LEGACY_TOOLS_MESSAGE));
 
+// Not the model: a run may hold the fallback model instead of the one requested.
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
   run.projectId === input.projectId &&
-  run.taskText === input.taskText &&
-  (input.modelSelection === undefined ||
-    JSON.stringify(run.modelSelection) === JSON.stringify(input.modelSelection));
+  run.taskText === input.taskText;
 
 export const CrewServiceLive = Layer.effect(
   CrewService,
@@ -1125,14 +1124,17 @@ export const CrewServiceLive = Layer.effect(
       }
       return member;
     });
-    /** The requested model, else the actor's, else the one a new thread in the project gets. */
+    /**
+     * The model one run uses: the requested model, else the actor's, else the one a new thread in
+     * the project gets, switched to the fallback while that can't run here. The actor's saved
+     * model stays as it is.
+     */
     const modelFor = Effect.fn("CrewService.modelFor")(function* (
       actor: { readonly name: string; readonly modelSelection: ModelSelection | null },
       requested: ModelSelection | undefined,
       projectId: ProjectId,
     ) {
-      const model =
-        requested ?? actor.modelSelection ?? (yield* runtime.projectModelSelection(projectId));
+      const model = yield* runtime.runModelSelection(projectId, requested ?? actor.modelSelection);
       if (model === null) {
         return yield* Effect.fail(
           new CrewValidationError(
@@ -1177,6 +1179,11 @@ export const CrewServiceLive = Layer.effect(
         const member = yield* runActor(input.memberId, input.projectId);
         if (input.workflow !== undefined) yield* store.setRunWorkflow(id, input.workflow);
         const createdAt = DateTime.formatIso(yield* DateTime.now);
+        const model = yield* modelFor(
+          member,
+          input.modelSelection ?? input.carried?.modelSelection,
+          input.projectId,
+        );
         const run: CrewRun = {
           id,
           memberId: member.id,
@@ -1187,11 +1194,7 @@ export const CrewServiceLive = Layer.effect(
           instructions: member.instructions,
           withheldTools: member.withheldTools,
           memberRevision: member.revision,
-          modelSelection: yield* modelFor(
-            member,
-            input.modelSelection ?? input.carried?.modelSelection,
-            input.projectId,
-          ),
+          modelSelection: model.selection,
           runtimeMode: input.carried?.runtimeMode ?? member.runtimeMode,
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
@@ -1207,6 +1210,8 @@ export const CrewServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
         }
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
+        if (model.notice !== null)
+          yield* runtime.noteModelFallback(persisted.threadId, model.notice);
         return yield* currentRun(id);
       },
     );
@@ -1321,7 +1326,8 @@ export const CrewServiceLive = Layer.effect(
       const existing = yield* store.getRun(id);
       const home = yield* owner.home;
       // Resolved on every open, so an owner without a model follows the default until one is set.
-      const modelSelection = yield* modelFor(owner, undefined, home);
+      const model = yield* modelFor(owner, undefined, home);
+      const modelSelection = model.selection;
       // A standing run whose project was deleted moves, and `restore` restarts it there.
       if (existing !== null && !(yield* runtime.projectExists(existing.projectId))) {
         yield* store.moveRun(id, home);
@@ -1352,19 +1358,26 @@ export const CrewServiceLive = Layer.effect(
           openingMessage: null,
         });
       }
-      const run = (yield* store.getRun(id))!;
+      // The stored run reads its owner's saved model; this open uses the one that can run.
+      const run = { ...(yield* store.getRun(id))!, modelSelection };
       if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
         yield* dispatch(run);
       } else {
         yield* runtime.restore(threadInput(run));
-        yield* runtime.syncSettings(run.threadId, owner.runtimeMode, modelSelection);
+        const switched = yield* runtime.syncSettings(
+          run.threadId,
+          owner.runtimeMode,
+          modelSelection,
+        );
+        if (switched && model.notice !== null)
+          yield* runtime.noteModelFallback(run.threadId, model.notice);
       }
       yield* (
         headquartersBotId(run.threadId) === null
           ? runtime.unpin(run.threadId, `${id}:unpin`)
           : runtime.pin(run.threadId, `${id}:pin`)
       ).pipe(Effect.catch((error) => Effect.logWarning("Standing pin failed", { id, error })));
-      return (yield* store.getRun(id))!;
+      return { ...(yield* store.getRun(id))!, modelSelection };
     }, standingLock.withPermits(1));
 
     const ensureHeadquarters: CrewServiceShape["ensureHeadquarters"] = Effect.fn(
@@ -1554,14 +1567,24 @@ export const CrewServiceLive = Layer.effect(
       yield* startFresh(owner, run, records, `manual:${now}`);
     });
 
-    /** Points an open standing thread at its owner's current runtime mode and model. */
+    /**
+     * Points an open standing thread at its owner's current runtime mode and model, or the
+     * fallback while that can't run.
+     */
     const syncStanding = Effect.fn("CrewService.syncStanding")(function* (
       owner: StandingOwner | null,
     ) {
       if (owner?.modelSelection == null) return;
       const run = yield* store.getRun(owner.runId);
       if (run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
-      yield* runtime.syncSettings(run.threadId, owner.runtimeMode, owner.modelSelection);
+      const model = yield* modelFor(owner, undefined, run.projectId);
+      const switched = yield* runtime.syncSettings(
+        run.threadId,
+        owner.runtimeMode,
+        model.selection,
+      );
+      if (switched && model.notice !== null)
+        yield* runtime.noteModelFallback(run.threadId, model.notice);
     });
 
     const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(

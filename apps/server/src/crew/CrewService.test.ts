@@ -17,7 +17,9 @@ import {
   projectHeadquartersThreadId,
   ProjectId,
   LEGACY_TOOLS_MESSAGE,
+  ProviderDriverKind,
   ProviderInstanceId,
+  type ServerProvider,
   ThreadId,
   type RunId,
 } from "@t3tools/contracts";
@@ -620,12 +622,15 @@ describe("Bot foundation", () => {
           projectRemoteManager: () => Effect.succeed(null),
           projectBotId: () => Effect.succeed(null),
           projectModelSelection: () => Effect.succeed(null),
+          runModelSelection: (_projectId, chosen) =>
+            Effect.succeed(chosen && { selection: chosen, notice: null, blocked: null }),
+          noteModelFallback: () => Effect.void,
           archive: () => Effect.void,
           isHiddenProject: () => Effect.succeed(false),
           botHome: () => Effect.die("unused"),
           moveThread: () => Effect.die("unused"),
           restore: () => Effect.void,
-          syncSettings: () => Effect.void,
+          syncSettings: () => Effect.succeed(false),
           completedRuns: Stream.empty,
           freshStartRecords: () => Effect.die("unused"),
           startFresh: () => Effect.void,
@@ -734,12 +739,15 @@ describe("Bot foundation", () => {
           projectRemoteManager: () => Effect.succeed(null),
           projectBotId: () => Effect.succeed(null),
           projectModelSelection: () => Effect.succeed(null),
+          runModelSelection: (_projectId, chosen) =>
+            Effect.succeed(chosen && { selection: chosen, notice: null, blocked: null }),
+          noteModelFallback: () => Effect.void,
           archive: () => Effect.void,
           isHiddenProject: () => Effect.succeed(false),
           botHome: () => Effect.die("unused"),
           moveThread: () => Effect.die("unused"),
           restore: () => Effect.void,
-          syncSettings: () => Effect.void,
+          syncSettings: () => Effect.succeed(false),
           completedRuns: Stream.fromQueue(completions),
           freshStartRecords: (threadId) =>
             Queue.offer(checks, threadId).pipe(Effect.as(freshStartRecords())),
@@ -870,6 +878,110 @@ describe("Bot foundation", () => {
           yield* crew.startNewSession(managerThreadId);
           expect((yield* Queue.take(fresh)).key).toMatch(/^manual:/);
         }).pipe(Effect.provide(layer), Effect.scoped);
+      }),
+  );
+
+  effectIt.effect.each([
+    [
+      "isn't signed in",
+      { auth: { status: "unauthenticated" as const } },
+      "Codex isn't signed in here",
+    ],
+    [
+      "is out of usage",
+      {
+        usageLimits: {
+          checkedAt: "1970-01-01T00:00:00.000Z",
+          windows: [{ id: "primary", kind: "session", label: "Session", usedPercent: 100 }],
+        },
+      },
+      "Codex is out of usage",
+    ],
+  ] as const)(
+    "runs a crew member and a bot on the fallback model while their provider %s",
+    ([_name, codexState, reason]) =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-fallback-")),
+        );
+        // A second Codex account, as the test environment runs only Codex.
+        const fallbackModel = {
+          instanceId: ProviderInstanceId.make("codex_alternate"),
+          model: "gpt-5.4-mini",
+        };
+        const provider = (instanceId: string, driver: string) =>
+          ({
+            instanceId: ProviderInstanceId.make(instanceId),
+            driver: ProviderDriverKind.make(driver),
+            displayName: instanceId === "codex" ? "Codex" : "Codex (work)",
+            enabled: true,
+            installed: true,
+            version: null,
+            status: "ready",
+            auth: { status: "authenticated" },
+            checkedAt: "1970-01-01T00:00:00.000Z",
+            models: [],
+            slashCommands: [],
+            skills: [],
+          }) satisfies ServerProvider;
+        const orchestration = makeCrewTestOrchestration({
+          providers: [
+            { ...provider("codex", "codex"), ...codexState },
+            provider("codex_alternate", "codex"),
+          ],
+        });
+        yield* withSystem(
+          NodePath.join(directory, "state.sqlite"),
+          ({ bots, engine, settings, store }) =>
+            Effect.gen(function* () {
+              yield* createProject(engine);
+              yield* createBot(bots);
+              yield* settings.updateSettings({
+                fallbackModelSelection: fallbackModel,
+                providerInstances: {
+                  [fallbackModel.instanceId]: {
+                    driver: ProviderDriverKind.make("codex"),
+                    enabled: true,
+                    config: {},
+                  },
+                },
+              });
+              const run = yield* bots.createRun({
+                id: "fallback-run",
+                memberId: "execution-1",
+                projectId,
+                taskText: "Add the small change",
+              });
+              expect(run.modelSelection).toEqual(fallbackModel);
+              expect((yield* engine.getThreadShell(run.threadId))?.modelSelection).toEqual(
+                fallbackModel,
+              );
+              // Per run: the member keeps its own model for when Codex can run again.
+              expect((yield* store.getMember("execution-1"))?.modelSelection).toEqual(
+                modelSelection,
+              );
+              const { turnItems } = yield* engine.getThreadRecords(run.threadId, ["turnItems"]);
+              expect(turnItems).toContainEqual(
+                expect.objectContaining({
+                  type: "system_notice",
+                  title: "Using gpt-5.4-mini",
+                  message: `${reason}, so this run uses the fallback model instead of gpt-5.4.`,
+                }),
+              );
+              // A bot's headquarters follows the same rule each time it opens.
+              yield* seedCrewTestBot;
+              yield* bots.ensureDefaults(modelSelection);
+              const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_ID);
+              expect((yield* engine.getThreadShell(headquarters.threadId))?.modelSelection).toEqual(
+                fallbackModel,
+              );
+            }),
+          orchestration,
+        ).pipe(
+          Effect.ensuring(
+            Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+          ),
+        );
       }),
   );
 

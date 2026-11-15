@@ -71,7 +71,7 @@ export function usageLimitsBannerItem(
 
 export function modelFallbackBannerItem({
   fallbackModelName,
-  defaultProviderName,
+  reason,
   defaultModelName,
   resetsAt,
   timestampFormat,
@@ -79,7 +79,8 @@ export function modelFallbackBannerItem({
   onDismiss,
 }: {
   readonly fallbackModelName: string;
-  readonly defaultProviderName: string;
+  /** Why the default can't run: "Codex isn't signed in here". */
+  readonly reason: string;
   readonly defaultModelName: string;
   readonly resetsAt: string | null;
   readonly timestampFormat: TimestampFormat;
@@ -91,7 +92,7 @@ export function modelFallbackBannerItem({
     variant: "info",
     icon: <GaugeIcon />,
     title: `Using ${fallbackModelName}`,
-    description: `${defaultProviderName} is out of usage${resetsAt ? ` · resets ${formatUpcomingTimestamp(resetsAt, timestampFormat)}` : ""}`,
+    description: `${reason}${resetsAt ? ` · resets ${formatUpcomingTimestamp(resetsAt, timestampFormat)}` : ""}`,
     actions: (
       <Button size="xs" variant="ghost" onClick={onUseDefault}>
         Use {defaultModelName}

@@ -9,7 +9,6 @@ import {
   headquartersBotId,
   headquartersProjectId,
   projectHeadquartersThreadId,
-  isProviderAvailable,
   type ModelSelection,
   OrchestratorMcpFailure,
   type Project,
@@ -20,6 +19,7 @@ import {
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import { resolveRunModelSelection } from "@t3tools/shared/providerDefaultModel";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -54,6 +54,7 @@ import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { managerNotPermitted, notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
@@ -199,6 +200,7 @@ const make = Effect.gen(function* () {
   const features = yield* FeatureService;
   const crew = yield* CrewService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const git = yield* GitWorkflowService;
   const links = yield* PeerLinks.PeerLinks;
   const forwarding = yield* PeerForwarding.PeerForwarding;
@@ -591,20 +593,21 @@ const make = Effect.gen(function* () {
       );
   });
 
-  const modelAvailable = (selection: ModelSelection) =>
-    providers.getProviders.pipe(
-      Effect.map((listed) => {
-        const provider = listed.find((candidate) => candidate.instanceId === selection.instanceId);
-        return (
-          provider !== undefined &&
-          provider.enabled &&
-          provider.installed &&
-          isProviderAvailable(provider) &&
-          provider.auth.status !== "unauthenticated" &&
-          provider.models.some((model) => model.slug === selection.model)
-        );
-      }),
-    );
+  /** Why a run on `selection` in `project` can't start here, naming the fallback; null when it can. */
+  const modelBlocked = Effect.fn("BotReach.modelBlocked")(function* (
+    project: Project,
+    selection: ModelSelection,
+  ) {
+    const model = resolveRunModelSelection({
+      chosen: selection,
+      providers: yield* providers.getProviders,
+      settings: yield* serverSettings.getSettings.pipe(Effect.mapError(unavailable)),
+      projectId: project.id,
+      project,
+      now: DateTime.toEpochMillis(yield* DateTime.now),
+    });
+    return model?.blocked ?? null;
+  });
 
   const startForLink: BotReach["Service"]["startForLink"] = Effect.fn("BotReach.startForLink")(
     function* (scope, input) {
@@ -724,10 +727,16 @@ const make = Effect.gen(function* () {
                   runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
                   modelSelection: leadRole.modelSelection,
                 };
-          if (leadRole === undefined && !(yield* modelAvailable(input.modelSelection))) {
+          // Only the lead runs now; the workflow's other roles are checked when a feature starts.
+          const blocked = yield* modelBlocked(project, carried.modelSelection);
+          if (blocked !== null) {
+            const who =
+              leadRole === undefined
+                ? `${homeName}'s task`
+                : `${workflow!.workflow.name}'s ${leadRole.name}`;
             return yield* failure(
               "invalid_request",
-              `${homeName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${homeName}'s model.`,
+              `${who} can't start on ${self.label}. ${blocked} Sign one in there, or change ${leadRole === undefined ? `${homeName}'s` : "the role's"} model.`,
             );
           }
           // Builds before withheld tools sent roles' tools with the opposite meaning.
@@ -736,15 +745,6 @@ const make = Effect.gen(function* () {
               "invalid_request",
               "This Bosun is newer than the environment that sent this; update it to share roles.",
             );
-          }
-          // Its features run on these roles, so each must be able to run here too.
-          for (const role of input.workflow?.roles ?? []) {
-            if (!(yield* modelAvailable(role.modelSelection))) {
-              return yield* failure(
-                "invalid_request",
-                `${input.workflow!.workflow.name}'s ${role.name} runs on ${role.modelSelection.model} (${role.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change the role's model.`,
-              );
-            }
           }
           const manager = yield* crew
             .ensureFeatureManager(project.id)

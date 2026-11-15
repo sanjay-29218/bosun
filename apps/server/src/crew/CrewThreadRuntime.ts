@@ -16,7 +16,10 @@ import {
   type RuntimeMode,
   type CrewTurnState,
 } from "@t3tools/contracts";
-import { resolveNewThreadModelSelection } from "@t3tools/shared/providerDefaultModel";
+import {
+  resolveDefaultModelSelection,
+  resolveRunModelSelection,
+} from "@t3tools/shared/providerDefaultModel";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -66,6 +69,8 @@ export interface CrewThreadStart {
   readonly openingMessage?: OpeningMessage | null;
 }
 
+export type RunModel = NonNullable<ReturnType<typeof resolveRunModelSelection>>;
+
 export interface CrewThreadRuntimeShape {
   readonly projectExists: (projectId: ProjectId) => Effect.Effect<boolean, CrewReadError>;
   /** Where the project's manager lives when it isn't here; null for here. */
@@ -81,6 +86,20 @@ export interface CrewThreadRuntimeShape {
   readonly projectModelSelection: (
     projectId: ProjectId,
   ) => Effect.Effect<ModelSelection | null, CrewReadError>;
+  /**
+   * The model one run in the project uses: `chosen`, else the project's default, switched to the
+   * fallback model while that one can't run here. Never saved on the agent. Null when no
+   * provider can run.
+   */
+  readonly runModelSelection: (
+    projectId: ProjectId,
+    chosen: ModelSelection | null,
+  ) => Effect.Effect<RunModel | null, CrewReadError>;
+  /** Shows `notice` in the thread's latest run, if it has one. */
+  readonly noteModelFallback: (
+    threadId: ThreadId,
+    notice: NonNullable<RunModel["notice"]>,
+  ) => Effect.Effect<void>;
   /** Scratch or a bot's home, which never get a Project manager. */
   readonly isHiddenProject: (projectId: ProjectId) => Effect.Effect<boolean>;
   /** The bot's home project, made on first use; its headquarters works there. */
@@ -116,12 +135,15 @@ export interface CrewThreadRuntimeShape {
   readonly restore: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
   /** Archives a crew thread; a no-op when it is gone or already archived. */
   readonly archive: (threadId: ThreadId) => Effect.Effect<void, OrchestrationDispatchError>;
-  /** Points the thread's next turns at `runtimeMode` and `modelSelection` when they differ. */
+  /**
+   * Points the thread's next turns at `runtimeMode` and `modelSelection` when they differ. True
+   * when the model changed.
+   */
   readonly syncSettings: (
     threadId: ThreadId,
     runtimeMode: RuntimeMode,
     modelSelection: ModelSelection,
-  ) => Effect.Effect<void, OrchestrationDispatchError>;
+  ) => Effect.Effect<boolean, OrchestrationDispatchError>;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
   /** Each run that completes, in any thread. */
   readonly completedRuns: Stream.Stream<
@@ -305,7 +327,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       modelSelection: ModelSelection,
     ) {
       const shell = yield* engine.getThreadShell(threadId);
-      if (shell === null || shell.deletedAt !== null) return;
+      if (shell === null || shell.deletedAt !== null) return false;
       if (shell.runtimeMode !== runtimeMode)
         yield* engine.dispatch({
           type: "thread.runtime-mode.set",
@@ -313,13 +335,14 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           threadId,
           runtimeMode,
         });
-      if (!sameModelSelection(shell.modelSelection, modelSelection))
-        yield* engine.dispatch({
-          type: "thread.model-selection.set",
-          commandId: CommandId.make(`${threadId}:model:${yield* freshId}`),
-          threadId,
-          modelSelection,
-        });
+      if (sameModelSelection(shell.modelSelection, modelSelection)) return false;
+      yield* engine.dispatch({
+        type: "thread.model-selection.set",
+        commandId: CommandId.make(`${threadId}:model:${yield* freshId}`),
+        threadId,
+        modelSelection,
+      });
+      return true;
     });
     return CrewThreadRuntime.of({
       projectExists: Effect.fn("CrewThreadRuntime.projectExists")((projectId) =>
@@ -353,13 +376,52 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           const readError = toPersistenceSqlError("CrewThreadRuntime.projectModelSelection");
           const project = yield* projects.get(projectId).pipe(Effect.mapError(readError));
           const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(readError));
-          return resolveNewThreadModelSelection(
+          return resolveDefaultModelSelection(
             yield* providerRegistry.getProviders,
             settings,
             projectId,
             Option.getOrNull(project),
           );
         },
+      ),
+      runModelSelection: Effect.fn("CrewThreadRuntime.runModelSelection")(
+        function* (projectId, chosen) {
+          const readError = toPersistenceSqlError("CrewThreadRuntime.runModelSelection");
+          const project = Option.getOrNull(
+            yield* projects.get(projectId).pipe(Effect.mapError(readError)),
+          );
+          const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(readError));
+          return resolveRunModelSelection({
+            chosen,
+            providers: yield* providerRegistry.getProviders,
+            settings,
+            projectId,
+            project,
+            now: DateTime.toEpochMillis(yield* DateTime.now),
+          });
+        },
+      ),
+      noteModelFallback: Effect.fn("CrewThreadRuntime.noteModelFallback")(
+        function* (threadId, notice) {
+          const { runs } = yield* engine.getThreadRecords(threadId, ["runs"]);
+          const run = runs.reduce<(typeof runs)[number] | undefined>(
+            (latest, candidate) =>
+              latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
+            undefined,
+          );
+          if (run === undefined) return;
+          yield* launcher.recordNotice({
+            threadId,
+            runId: run.id,
+            signal: "model-fallback",
+            title: notice.title,
+            message: notice.message,
+            level: "info",
+          });
+        },
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not show the fallback model notice", { cause }),
+        ),
       ),
       isHiddenProject: Effect.fn("CrewThreadRuntime.isHiddenProject")((projectId) =>
         Option.match(folders, {
