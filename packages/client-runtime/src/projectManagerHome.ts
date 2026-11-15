@@ -106,11 +106,14 @@ export function planManagerPlacement(
   // Two checkouts on one machine keep a manager each; placement is between machines.
   if (!onSeveralMachines(copies)) return none;
   // A copy naming one this client doesn't see is someone else's decision to keep.
+  // So is a copy naming one that names another: a move is half written, and its writer finishes it.
   if (
     chosen === undefined &&
-    copies.some(
-      (copy) => copy.remoteManager && !copies.some((other) => sameCopy(copy.remoteManager!, other)),
-    )
+    copies.some((copy) => {
+      const named = copy.remoteManager;
+      const home = named ? copies.find((other) => sameCopy(named, other)) : null;
+      return named != null && (home === undefined || home?.remoteManager != null);
+    })
   ) {
     return none;
   }

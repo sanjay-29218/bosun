@@ -79,6 +79,15 @@ describe("planManagerPlacement", () => {
     expect(
       planManagerPlacement([copy(mac, { hasManager: true }), copy(box, { remoteManager: unseen })]),
     ).toEqual({ away: [], home: null });
+    // Halfway through a move from mac to box, each names the other: the mover finishes it.
+    const leaving = copy(mac);
+    const arriving = copy(box);
+    expect(
+      planManagerPlacement([
+        { ...leaving, remoteManager: pointsAt(arriving) },
+        { ...arriving, remoteManager: pointsAt(leaving) },
+      ]),
+    ).toEqual({ away: [], home: null });
     expect(planManagerPlacement([copy(mac, { hasManager: true })])).toEqual({
       away: [],
       home: null,
