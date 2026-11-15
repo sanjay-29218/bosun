@@ -102,6 +102,11 @@ const stoppedAnswering = new OrchestratorMcpFailure({
   message: LINKED_ENVIRONMENT_STOPPED_ANSWERING,
 });
 
+/** The call never got an answer from the linked environment's Bosun, not even a refusal. */
+export const isUnanswered = (error: OrchestratorMcpFailure) =>
+  error.message === LINKED_ENVIRONMENT_STOPPED_ANSWERING ||
+  /^The linked environment answered HTTP 5\d\d\.$/.test(error.message);
+
 /** The body of an MCP response: JSON, or a single server-sent event carrying JSON. */
 const responseJson = (contentType: string | undefined, text: string) =>
   contentType?.includes("text/event-stream") === true

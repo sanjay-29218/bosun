@@ -19,7 +19,6 @@ import {
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
-import { resolveRunModelSelection } from "@t3tools/shared/providerDefaultModel";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -48,13 +47,11 @@ import {
   type RequestHome,
 } from "../mcp/toolkits/bots/linkTools.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
-import { LINKED_ENVIRONMENT_STOPPED_ANSWERING } from "../peer/PeerMcpClient.ts";
+import { isUnanswered } from "../peer/PeerMcpClient.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import { managerNotPermitted, notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
@@ -199,8 +196,6 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const features = yield* FeatureService;
   const crew = yield* CrewService;
-  const providers = yield* ProviderRegistry.ProviderRegistry;
-  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const git = yield* GitWorkflowService;
   const links = yield* PeerLinks.PeerLinks;
   const forwarding = yield* PeerForwarding.PeerForwarding;
@@ -580,33 +575,19 @@ const make = Effect.gen(function* () {
         ...(workflow === undefined ? {} : { workflow }),
       })
       .pipe(
-        Effect.catchIf(
-          (error) => error.message === LINKED_ENVIRONMENT_STOPPED_ANSWERING,
-          () => unreachable,
-        ),
+        Effect.catchIf(isUnanswered, () => unreachable),
         Effect.catchIf(isOlderPeer, () =>
           failure(
             "invalid_request",
             `Update Bosun on ${label} to give it work from ${self.label}.`,
           ),
         ),
+        // It answered, so it isn't waiting on anything: the request fails with what it said.
+        Effect.catchIf(
+          (error) => error.code === "orchestration_error",
+          (error) => failure("invalid_request", error.message),
+        ),
       );
-  });
-
-  /** Why a run on `selection` in `project` can't start here, naming the fallback; null when it can. */
-  const modelBlocked = Effect.fn("BotReach.modelBlocked")(function* (
-    project: Project,
-    selection: ModelSelection,
-  ) {
-    const model = resolveRunModelSelection({
-      chosen: selection,
-      providers: yield* providers.getProviders,
-      settings: yield* serverSettings.getSettings.pipe(Effect.mapError(unavailable)),
-      projectId: project.id,
-      project,
-      now: DateTime.toEpochMillis(yield* DateTime.now),
-    });
-    return model?.blocked ?? null;
   });
 
   const startForLink: BotReach["Service"]["startForLink"] = Effect.fn("BotReach.startForLink")(
@@ -666,7 +647,6 @@ const make = Effect.gen(function* () {
             );
           }
           const { home } = input;
-          const homeName = isManagerHome(home) ? home.name : home.botName;
           if (isManagerHome(home)) {
             const placed = project.remoteManager;
             if (
@@ -727,18 +707,6 @@ const make = Effect.gen(function* () {
                   runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
                   modelSelection: leadRole.modelSelection,
                 };
-          // Only the lead runs now; the workflow's other roles are checked when a feature starts.
-          const blocked = yield* modelBlocked(project, carried.modelSelection);
-          if (blocked !== null) {
-            const who =
-              leadRole === undefined
-                ? `${homeName}'s task`
-                : `${workflow!.workflow.name}'s ${leadRole.name}`;
-            return yield* failure(
-              "invalid_request",
-              `${who} can't start on ${self.label}. ${blocked} Sign one in there, or change ${leadRole === undefined ? `${homeName}'s` : "the role's"} model.`,
-            );
-          }
           // Builds before withheld tools sent roles' tools with the opposite meaning.
           if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
             return yield* failure(

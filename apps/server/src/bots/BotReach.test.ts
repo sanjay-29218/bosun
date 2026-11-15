@@ -295,19 +295,21 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           ? Effect.fail(
               Object.assign(new Error("Invalid task"), { _tag: "CrewValidationError" }) as never,
             )
-          : (data.beforeCreate ?? Effect.void).pipe(
-              Effect.andThen(
-                Ref.update(seen, (current) =>
-                  current.runs.some((run) => run.id === input.id)
-                    ? current
-                    : { ...current, runs: [...current.runs, input] },
+          : input.taskText === "Fails to start."
+            ? Effect.fail(new Error("The lead's thread could not start.") as never)
+            : (data.beforeCreate ?? Effect.void).pipe(
+                Effect.andThen(
+                  Ref.update(seen, (current) =>
+                    current.runs.some((run) => run.id === input.id)
+                      ? current
+                      : { ...current, runs: [...current.runs, input] },
+                  ),
                 ),
+                Effect.as({
+                  threadId: `bot-run:${input.id}`,
+                  modelSelection: input.carried?.modelSelection,
+                } as never),
               ),
-              Effect.as({
-                threadId: `bot-run:${input.id}`,
-                modelSelection: input.carried?.modelSelection,
-              } as never),
-            ),
     }),
     Layer.mock(ProviderRegistry.ProviderRegistry)({
       getProviders: Effect.succeed(data.providers ?? [signedInCodex]),
@@ -641,16 +643,12 @@ it.live(
           fallbackModelSelection: claudeModel,
         })).startForLink(linkScope("full-access"), signedOut);
         expect(fellBack.threadId).toMatch(/^bot-run:link-task:/);
-        // With no fallback that can run there either, it's refused, naming both.
-        const refused = yield* (yield* reachWith({
+        // With no fallback that can run there either, it still starts; its thread there says why.
+        const blocked = yield* (yield* reachWith({
           providers: [signedOutCodex, { ...signedInClaude, auth: { status: "unauthenticated" } }],
           fallbackModelSelection: claudeModel,
-        }))
-          .startForLink(linkScope("full-access"), { ...signedOut, clientRequestId: "stuck" })
-          .pipe(Effect.flip);
-        expect(refused.message).toBe(
-          "Captain's task can't start on Box. gpt-5.4 (codex) can't run: Codex isn't signed in here. The fallback model, claude-opus-5-5 (claudeAgent), can't run either: Claude isn't signed in here. Sign one in there, or change Captain's model.",
-        );
+        })).startForLink(linkScope("full-access"), { ...signedOut, clientRequestId: "stuck" });
+        expect(blocked.threadId).toMatch(/^bot-run:link-task:/);
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -751,7 +749,8 @@ it.live("starts the project manager there, or says before starting anything why 
         { botId: CAPTAIN_ID },
         launch("project:omni"),
       );
-      // Starts though its Security reviewer's provider isn't on the box: a feature checks that.
+      // Starts though its Security reviewer's provider isn't on the box: each role picks its
+      // model when its own run starts.
       expect(launched.threadId).toMatch(/^bot-run:link-task:/);
       expect((yield* Ref.get(boxSeen)).runs).toMatchObject([
         {
@@ -883,6 +882,19 @@ it.live("starts the project manager there, or says before starting anything why 
         )
         .pipe(Effect.flip);
       expect(invalid).toMatchObject({ code: "invalid_request", message: "Invalid task" });
+      // So does anything else the box answers: only a box that doesn't answer is waited for.
+      const failedThere = yield* a.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          { ...launch("project:omni"), task: "Fails to start.", clientRequestId: "fails" },
+        )
+        .pipe(Effect.flip);
+      expect(failedThere).toMatchObject({
+        code: "invalid_request",
+        message: "The lead's thread could not start.",
+      });
 
       expect(yield* start(launch("project:blog"))).toContain(
         "blog on Box belongs to Social on Box, not Captain from Laptop",

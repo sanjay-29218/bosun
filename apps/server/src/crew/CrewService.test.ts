@@ -968,6 +968,24 @@ describe("Bot foundation", () => {
                   message: `${reason}, so this run uses the fallback model instead of gpt-5.4.`,
                 }),
               );
+              // With no fallback that can run either, it still starts, and its thread says why.
+              yield* settings.updateSettings({ fallbackModelSelection: modelSelection });
+              const blocked = yield* bots.createRun({
+                id: "blocked-run",
+                memberId: "execution-1",
+                projectId,
+                taskText: "Add another small change",
+              });
+              expect(blocked.modelSelection).toEqual(modelSelection);
+              const blockedItems = yield* engine.getThreadRecords(blocked.threadId, ["turnItems"]);
+              expect(blockedItems.turnItems).toContainEqual(
+                expect.objectContaining({
+                  type: "system_notice",
+                  title: "No model can run",
+                  level: "error",
+                }),
+              );
+              yield* settings.updateSettings({ fallbackModelSelection: fallbackModel });
               // A bot's headquarters follows the same rule each time it opens.
               yield* seedCrewTestBot;
               yield* bots.ensureDefaults(modelSelection);

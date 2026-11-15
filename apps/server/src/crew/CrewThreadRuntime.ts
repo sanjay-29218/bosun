@@ -98,7 +98,7 @@ export interface CrewThreadRuntimeShape {
   /** Shows `notice` in the thread's latest run, if it has one. */
   readonly noteModelFallback: (
     threadId: ThreadId,
-    notice: NonNullable<RunModel["notice"]>,
+    notice: NonNullable<RunModel["notice"]> & { readonly level?: "info" | "error" },
   ) => Effect.Effect<void>;
   /** Scratch or a bot's home, which never get a Project manager. */
   readonly isHiddenProject: (projectId: ProjectId) => Effect.Effect<boolean>;
@@ -416,7 +416,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
             signal: "model-fallback",
             title: notice.title,
             message: notice.message,
-            level: "info",
+            level: notice.level ?? "info",
           });
         },
         Effect.catchCause((cause) =>

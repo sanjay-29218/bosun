@@ -1155,17 +1155,6 @@ export const FeatureServiceLive = Layer.effect(
             namesWorkflow(input.workflowId, linked.snapshot.workflow))
             ? linked.snapshot
             : undefined;
-        // Each role it brought runs here, on its model or the fallback; refused only when neither can.
-        for (const role of workflowSnapshot?.roles ?? []) {
-          const model = yield* runtime.runModelSelection(input.projectId, role.modelSelection);
-          if (model?.blocked) {
-            return yield* Effect.fail(
-              new FeatureValidationError(
-                `${workflowSnapshot!.workflow.name}'s ${role.name} can't start on ${linked!.here}. ${model.blocked} Sign one in there, or change the role's model.`,
-              ),
-            );
-          }
-        }
         // The stored ID, however the caller named it, so a retry is the same request.
         const workflow =
           workflowSnapshot !== undefined || !input.workflowId

@@ -1210,8 +1210,13 @@ export const CrewServiceLive = Layer.effect(
           return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
         }
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
-        if (model.notice !== null)
-          yield* runtime.noteModelFallback(persisted.threadId, model.notice);
+        // Neither its model nor the fallback can run here: it starts anyway and fails in its own thread.
+        const notice =
+          model.notice ??
+          (model.blocked === null
+            ? null
+            : { title: "No model can run", message: model.blocked, level: "error" as const });
+        if (notice !== null) yield* runtime.noteModelFallback(persisted.threadId, notice);
         return yield* currentRun(id);
       },
     );

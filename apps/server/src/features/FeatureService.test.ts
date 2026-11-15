@@ -401,14 +401,11 @@ describe("feature lead and crew", () => {
               ...(workflowId === undefined ? {} : { workflowId }),
             });
 
-          // With no fallback that can run here either, it's refused, naming both models.
-          const settings = yield* ServerSettingsService;
-          yield* settings.updateSettings({ fallbackModelSelection: reviewerModel });
-          expect((yield* Effect.flip(launch("stuck-feature"))).message).toBe(
-            "Feature delivery v3's Security reviewer can't start on Box. claude-opus-5-5 (claudeAgent) can't run: Claude isn't signed in here. The fallback model, claude-opus-5-5 (claudeAgent), can't run either: Claude isn't signed in here. Sign one in there, or change the role's model.",
-          );
-          // With one that can, the reviewer runs on it.
-          yield* settings.updateSettings({ fallbackModelSelection: modelSelection });
+          // Neither its Security reviewer's model nor the fallback can run here, and it still
+          // starts: the reviewer picks its model when its own run starts.
+          yield* (yield* ServerSettingsService).updateSettings({
+            fallbackModelSelection: reviewerModel,
+          });
           const started = yield* launch("linked-feature");
           expect(Object.keys(started.feature.crewAssignments).toSorted()).toEqual([
             "role:builder",
