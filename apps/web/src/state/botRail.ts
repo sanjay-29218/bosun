@@ -377,6 +377,7 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
   const projects = useAtomValue(environmentProjects.projectsAtom);
+  const botEnvironmentIds = useBotEnvironmentIds();
   const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const groups = useSettingsProjectGroups();
   const scopedProjects = groups
@@ -387,6 +388,7 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
     pinnedBots: bots,
     allBots,
     projects,
+    botEnvironmentIds: new Set(botEnvironmentIds),
     environmentFilter,
     scopedProjects,
   });

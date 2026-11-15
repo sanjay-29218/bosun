@@ -222,6 +222,8 @@ export interface ActiveBot {
    * project (one bot, or none yet).
    */
   readonly projectKeys: ReadonlySet<string> | null;
+  /** The environments that run bots, which `logicalBotProjectKeys` reads. */
+  readonly botEnvironmentIds: ReadonlySet<EnvironmentId>;
   /** Where List / Board is remembered: the active bot, or "all" with one bot or none. */
   readonly viewKey: string;
   readonly select: (bot: LogicalBot) => void;
@@ -287,9 +289,13 @@ export function useActiveBot(): ActiveBot {
     [needsYouKey],
   );
   const switching = bots.length > 1 && active !== null;
+  const botEnvironments = useMemo(
+    () => new Set(botEnvironmentIds(environmentKey)),
+    [environmentKey],
+  );
   const projectKeys = useMemo(
-    () => (switching ? logicalBotProjectKeys(active, bots, projects) : null),
-    [active, bots, projects, switching],
+    () => (switching ? logicalBotProjectKeys(active, bots, projects, botEnvironments) : null),
+    [active, botEnvironments, bots, projects, switching],
   );
   const select = useCallback(
     (bot: LogicalBot) =>
@@ -304,9 +310,10 @@ export function useActiveBot(): ActiveBot {
       managers,
       needsYou,
       projectKeys,
+      botEnvironmentIds: botEnvironments,
       viewKey: switching ? active.key : "all",
       select,
     }),
-    [active, bots, managers, needsYou, projectKeys, select, switching],
+    [active, botEnvironments, bots, managers, needsYou, projectKeys, select, switching],
   );
 }

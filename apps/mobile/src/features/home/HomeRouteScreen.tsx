@@ -125,8 +125,9 @@ export function HomeRouteScreen() {
             activeBot.active,
             activeBot.bots,
             allProjects.filter((project) => !project.isScratch),
+            activeBot.botEnvironmentIds,
           ).size,
-    [activeBot.active, activeBot.bots, allProjects],
+    [activeBot.active, activeBot.botEnvironmentIds, activeBot.bots, allProjects],
   );
   const botHeader = activeBot.active ? (
     <BotHeaderRow
