@@ -3339,6 +3339,62 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
 
+    it.effect.each([
+      { name: "a manager", stored: { projectManager: true }, update: { projectManager: false } },
+      { name: "a bot", stored: { botId: "bot-ops" }, update: { botId: null } },
+    ] as const)(
+      "refuses moving $name task to a thread above the caller's modes",
+      ({ stored, update }) => {
+        const upserted = Ref.makeUnsafe(0);
+        // The standing thread runs at the caller's modes; the task was stored at full access.
+        const standing = task({
+          ...stored,
+          schedule: { type: "interval", everyMs: 3_600_000 },
+          runtimeMode: "full-access",
+        });
+        const layer = layerOrchestratorService.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              NodeServices.layer,
+              NodeCrypto.layer,
+              Layer.mock(ThreadManagementService.ThreadManagementService)({
+                getThreadShell: () =>
+                  Effect.succeed({
+                    runtimeMode: "approval-required",
+                    interactionMode: "default",
+                    deletedAt: null,
+                  } as never),
+              }),
+              ServerSettings.layerTest(),
+              Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+              Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+                list: () => Effect.succeed([]),
+              }),
+              Layer.mock(ProjectService.ProjectService)({}),
+              Layer.mock(SecretRequests.SecretRequests)({}),
+              Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+              Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+                list: () => Effect.succeed({ tasks: [standing] }),
+                upsert: () =>
+                  Ref.update(upserted, (count) => count + 1).pipe(Effect.as({ task: standing })),
+              }),
+            ),
+          ),
+        );
+        return Effect.gen(function* () {
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const refused = yield* Effect.flip(
+            mcp.updateScheduledTask(supervisedClient, {
+              scheduledTaskId: standing.id,
+              ...update,
+            }),
+          );
+          assert.equal(refused.code, "runtime_mode_escalation_denied");
+          assert.equal(yield* Ref.get(upserted), 0);
+        }).pipe(Effect.provide(layer));
+      },
+    );
+
     it.effect("schedules a project manager's task only for a caller covering its modes", () => {
       const saved = Ref.makeUnsafe<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
       const projectModel = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };

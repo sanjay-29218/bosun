@@ -2454,6 +2454,12 @@ const make = Effect.gen(function* () {
           yield* assertCoversStandingRuns(projectHeadquartersThreadId(existing.projectId), limits);
         }
         const runsAsStanding = botId !== null || projectManager;
+        // A bot's or manager's runs used its thread's modes, not the stored ones, so loading the
+        // task checked those; leaving it for a thread of its own runs at the stored modes.
+        if (!runsAsStanding && (existing.botId !== undefined || existing.projectManager === true)) {
+          yield* resolveRuntimeMode(limits.runtimeMode, existing.runtimeMode);
+          yield* resolveInteractionMode(limits.interactionMode, existing.interactionMode);
+        }
         if (
           !runsAsStanding &&
           input.bindToCurrentThread === true &&

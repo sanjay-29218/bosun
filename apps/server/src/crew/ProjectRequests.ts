@@ -564,10 +564,6 @@ const make = Effect.gen(function* () {
     const settings = yield* crew.setProjectManagerEnabled(input);
     if (input.enabled) return settings;
     const name = yield* projectName(input.projectId);
-    yield* scheduledTasks.pauseForProjectManager({
-      projectId: input.projectId,
-      reason: `${name}'s manager was turned off`,
-    });
     const open = yield* sql<ProjectRequestRow>`
       SELECT ${columns} FROM project_requests
       WHERE project_id = ${input.projectId} AND status = 'open'
@@ -587,6 +583,11 @@ const make = Effect.gen(function* () {
         WHERE project_id = ${input.projectId} AND id = ${request.id}
       `.pipe(Effect.mapError(queryError));
     }
+    // After the hand-back, so a failure here can't strand requests with a manager that's off.
+    yield* scheduledTasks.pauseForProjectManager({
+      projectId: input.projectId,
+      reason: `${name}'s manager was turned off`,
+    });
     return settings;
   });
 

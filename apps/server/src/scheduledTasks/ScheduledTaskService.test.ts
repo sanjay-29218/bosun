@@ -705,6 +705,16 @@ it.effect("pauses a manager's tasks with a reason that stays until one is turned
       assert.strictEqual(refused.message, "Web's manager is turned off. Turn it on first.");
 
       managers.set(managedProject, { title: "Web", enabled: true });
+      // Moving a paused copy off the manager drops the reason with it.
+      const { task: other } = yield* service.upsert(
+        managerTaskInput({ id: ScheduledTaskId.make("task:other-manager") }),
+      );
+      yield* service.pauseForProjectManager({ projectId: managedProject, reason: "Off" });
+      const movedOff = yield* service.upsert(
+        managerTaskInput({ id: other.id, enabled: false, projectManager: false }),
+      );
+      assert.isUndefined(movedOff.task.pausedReason);
+
       const resumed = yield* service.setEnabled({ id: task.id, enabled: true });
       assert.isUndefined(resumed.task.pausedReason);
       const [stored] = (yield* service.list()).tasks.filter((each) => each.id === task.id);

@@ -1749,8 +1749,8 @@ export const layer = Layer.effect(
         runCount: existingTask?.runCount ?? 0,
         ...(botId === null ? {} : { botId }),
         ...(projectManager ? { projectManager: true } : {}),
-        // Turning a task on clears why the server paused it.
-        ...(input.enabled || existingTask?.pausedReason === undefined
+        // The reason is about its manager: turning the task on, or moving it off the manager, clears it.
+        ...(input.enabled || !projectManager || existingTask?.pausedReason === undefined
           ? {}
           : { pausedReason: existingTask.pausedReason }),
       };
