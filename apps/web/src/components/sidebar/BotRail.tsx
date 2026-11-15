@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  archivedProjectManagers,
   botRailSignal,
   createLogicalBotResolver,
   pinnedProjectManagers,
@@ -11,7 +12,6 @@ import {
 } from "@t3tools/client-runtime/state/bot-rail";
 import {
   botHeadquartersThreadId,
-  headquartersProjectId,
   projectHeadquartersThreadId,
   type EnvironmentId,
   type ProjectId,
@@ -124,14 +124,7 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
   const groups = useSettingsProjectGroups();
   const { environments } = useEnvironments();
   const environmentFilter = useEnvironmentFilter();
-  const archivedManagers = new Set(
-    shells.flatMap((shell) => {
-      const projectId = headquartersProjectId(shell.id);
-      return projectId === null || shell.archivedAt === null
-        ? []
-        : [`${shell.environmentId}:${projectId}`];
-    }),
-  );
+  const archivedManagers = archivedProjectManagers(shells);
   const managerEnvironmentIds = new Set(
     environments
       .filter(

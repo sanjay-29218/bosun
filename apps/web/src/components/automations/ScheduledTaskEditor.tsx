@@ -62,12 +62,17 @@ import {
   useEnvironmentHttpBaseUrl,
   useEnvironments,
 } from "../../state/environments";
-import { useProjects, useThreadShell, useVisibleThreadShells } from "../../state/entities";
+import {
+  useProjects,
+  useQuietThreadShells,
+  useThreadShell,
+  useVisibleThreadShells,
+} from "../../state/entities";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { archivedProjectManagers } from "@t3tools/client-runtime/state/bot-rail";
 import { botsEnvironment } from "../../state/bots";
 import { useThreadSearch } from "../../state/queries";
-import { useEnvironmentQuery, useEnvironmentQuerySelector } from "../../state/query";
-import { rolesEnvironment } from "../../state/roles";
+import { useEnvironmentQuery } from "../../state/query";
 import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { threadFamilies } from "../../state/threads";
@@ -324,19 +329,6 @@ function RunsAsOption({ bot }: { readonly bot: Pick<Bot, "name" | "avatar" | "co
 
 const MANAGER_RUN_PREFIX = "project-manager:";
 
-/** Whether a project's manager is on, or null while its settings load or can't. */
-function useProjectManagerEnabled(
-  environmentId: EnvironmentId,
-  projectId: ProjectId | null,
-): boolean | null {
-  return useEnvironmentQuerySelector(
-    projectId === null
-      ? null
-      : rolesEnvironment.projectManager({ environmentId, input: { projectId } }),
-    (result) => (result._tag === "Success" ? result.value.enabled : null),
-  );
-}
-
 function ManagerRunsAsOption({
   environmentId,
   projectId,
@@ -354,30 +346,6 @@ function ManagerRunsAsOption({
       <ProjectManagerAvatar projectId={projectId} icon={icon} size="xs" />
       {title} manager{off ? " (off)" : ""}
     </span>
-  );
-}
-
-/** A manager that's off is offered only while the task already runs as it. */
-function ManagerRunsAsItem({
-  environmentId,
-  project,
-  current,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly project: { readonly id: ProjectId; readonly title: string };
-  readonly current: boolean;
-}) {
-  const enabled = useProjectManagerEnabled(environmentId, project.id);
-  if (enabled !== true && !current) return null;
-  return (
-    <SelectItem value={`${MANAGER_RUN_PREFIX}${project.id}`} label={`${project.title} manager`}>
-      <ManagerRunsAsOption
-        environmentId={environmentId}
-        projectId={project.id}
-        title={project.title}
-        off={enabled === false}
-      />
-    </SelectItem>
   );
 }
 
@@ -1052,15 +1020,20 @@ export function ScheduledTaskEditorForm({
   const runsAsStanding = runsAsBot || runsAsManager;
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
-  // Scratch and bots' homes have no manager.
+  // Turning a manager off archives its thread, which the client already has.
+  const offManagers = archivedProjectManagers(useQuietThreadShells());
+  const managerOff = (projectId: ProjectId) => offManagers.has(`${environmentId}:${projectId}`);
+  const managerEnabled = runsAsManager && selectedProject ? !managerOff(selectedProject.id) : null;
+  // Scratch and bots' homes have no manager; one that's off is offered only while the task runs as it.
   const managedProjects =
     environment?.serverConfig?.environment.capabilities.scheduledTaskProjectManagers === true
-      ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
+      ? projects.filter(
+          (project) =>
+            project.isScratch !== true &&
+            project.isBotHome !== true &&
+            (!managerOff(project.id) || (runsAsManager && project.id === draft.projectId)),
+        )
       : [];
-  const managerEnabled = useProjectManagerEnabled(
-    environmentId,
-    runsAsManager && selectedProject ? selectedProject.id : null,
-  );
   const instanceEntries = providerInstanceEntriesFor(
     providers,
     settings,
@@ -1347,12 +1320,18 @@ export function ScheduledTaskEditorForm({
                   <SelectGroup>
                     <SelectGroupLabel>Project managers</SelectGroupLabel>
                     {managedProjects.map((project) => (
-                      <ManagerRunsAsItem
+                      <SelectItem
                         key={project.id}
-                        environmentId={environmentId}
-                        project={project}
-                        current={runsAsManager && project.id === draft.projectId}
-                      />
+                        value={`${MANAGER_RUN_PREFIX}${project.id}`}
+                        label={`${project.title} manager`}
+                      >
+                        <ManagerRunsAsOption
+                          environmentId={environmentId}
+                          projectId={project.id}
+                          title={project.title}
+                          off={managerOff(project.id)}
+                        />
+                      </SelectItem>
                     ))}
                   </SelectGroup>
                 ) : null}

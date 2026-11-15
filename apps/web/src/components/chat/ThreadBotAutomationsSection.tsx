@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { automationPausedLabel } from "@t3tools/client-runtime/state/automations";
 import {
   headquartersBotId,
@@ -9,6 +10,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { CalendarClockIcon, PlusIcon } from "lucide-react";
 
 import { useEnvironmentScheduledTasks } from "../../state/automations";
+import { useEnvironment } from "../../state/environments";
+import { serverEnvironment } from "../../state/server";
 import { scheduleLabel } from "../automations/scheduledTaskEditor.logic";
 import { AUTOMATIONS_PATH } from "../sidebar/mainAppLocation";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
@@ -26,6 +29,14 @@ export function ThreadBotAutomationsSection(props: {
   const managerProjectId = headquartersProjectId(props.threadId);
   const tasks = useEnvironmentScheduledTasks(props.environmentId);
   const navigate = useNavigate();
+  const environment = useEnvironment(props.environmentId);
+  const canSave = useAtomValue(
+    serverEnvironment.upsertScheduledTask.permissionAtom(props.environmentId),
+  );
+  const canAdd =
+    managerProjectId !== null &&
+    canSave &&
+    environment?.serverConfig?.environment.capabilities.scheduledTaskProjectManagers === true;
   const owned = (tasks ?? []).filter((task) =>
     botId !== null
       ? task.botId === botId
@@ -33,7 +44,7 @@ export function ThreadBotAutomationsSection(props: {
         ? task.projectId === managerProjectId
         : false,
   );
-  if (owned.length === 0 && managerProjectId === null) return null;
+  if (owned.length === 0 && !canAdd) return null;
   return (
     <ThreadDetailsSection headingId="thread-details-bot-automations-heading" title="Automations">
       <div className="flex flex-col">
@@ -58,7 +69,7 @@ export function ThreadBotAutomationsSection(props: {
             </span>
           </ThreadDetailsControl>
         ))}
-        {managerProjectId === null ? null : (
+        {!canAdd || managerProjectId === null ? null : (
           <ThreadDetailsControl
             part="row"
             tone="muted"

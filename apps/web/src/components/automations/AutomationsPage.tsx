@@ -17,7 +17,11 @@ import {
   useScheduledTaskCreationEnvironmentId,
   useScheduledTasksByEnvironment,
 } from "../../state/automations";
-import { useConnectedEnvironmentIds, usePrimaryEnvironmentId } from "../../state/environments";
+import {
+  useConnectedEnvironmentIds,
+  useEnvironment,
+  usePrimaryEnvironmentId,
+} from "../../state/environments";
 import { environmentThreadShells } from "../../state/threads";
 import { useUiStateStore } from "../../uiStateStore";
 import { Badge } from "../ui/badge";
@@ -49,6 +53,12 @@ export function AutomationsPage(search: AutomationsSearch) {
     connectedEnvironmentIds[0] ??
     null;
   const creationEnvironmentId = useScheduledTaskCreationEnvironmentId(defaultEnvironmentId);
+  // Only a server that runs manager tasks takes a new one preset to a manager.
+  const prefillEnvironment = useEnvironment(search.environmentId ?? null);
+  const managerPrefill =
+    prefillEnvironment?.serverConfig?.environment.capabilities.scheduledTaskProjectManagers === true
+      ? search.managerProjectId
+      : undefined;
   // An editor's environment can drop out while the user edits; keep showing the last copy
   // of its task so a disconnect doesn't throw away unsaved changes.
   const selectedKey =
@@ -121,15 +131,15 @@ export function AutomationsPage(search: AutomationsSearch) {
                 <NoEnvironments />
               ) : (
                 <ScheduledTaskEditorForm
-                  key={`new:${creationEnvironmentId ?? defaultEnvironmentId}:${search.managerProjectId ?? ""}:${formRevision}`}
+                  key={`new:${creationEnvironmentId ?? defaultEnvironmentId}:${managerPrefill ?? ""}:${formRevision}`}
                   initialEnvironmentId={
-                    search.managerProjectId === undefined
+                    managerPrefill === undefined
                       ? (creationEnvironmentId ?? defaultEnvironmentId)
                       : defaultEnvironmentId
                   }
-                  {...(search.managerProjectId === undefined
+                  {...(managerPrefill === undefined
                     ? {}
-                    : { initialManagerProjectId: search.managerProjectId })}
+                    : { initialManagerProjectId: managerPrefill })}
                   task={null}
                   onSaved={openTask}
                   onCancel={closeEditor}
