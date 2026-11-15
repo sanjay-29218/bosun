@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automations";
 import { projectManagerLook } from "@t3tools/client-runtime/project-manager-look";
 import type {
   BotLongConversation,
@@ -11,6 +12,7 @@ import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
+import { useEnvironmentScheduledTasks } from "../../state/automations";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -237,6 +239,7 @@ function ProjectManagerForm({
     reportFailure: false,
   });
   const openProjectManager = useOpenProjectManager();
+  const scheduledTasks = useEnvironmentScheduledTasks(member.environmentId);
   const canEdit = useAtomValue(
     rolesEnvironment.updateProjectManager.permissionAtom(member.environmentId),
   );
@@ -293,8 +296,18 @@ function ProjectManagerForm({
       onSaved,
     );
 
-  const toggle = (enabled: boolean) =>
-    run(
+  const toggle = async (enabled: boolean) => {
+    const warning = enabled
+      ? null
+      : managerAutomationsWarning(scheduledTasks ?? [], member.id, "off");
+    if (
+      warning !== null &&
+      (await requestConfirmDialog(
+        `${warning} Turning the manager back on won't resume them; you resume them in Automations.`,
+      )) !== true
+    )
+      return;
+    await run(
       () =>
         setEnabled({
           environmentId: member.environmentId,
@@ -302,6 +315,7 @@ function ProjectManagerForm({
         }),
       enabled ? "Could not turn the project manager on" : "Could not turn the project manager off",
     );
+  };
 
   const resetToDefaults = async () => {
     const confirmed = await requestConfirmDialog(

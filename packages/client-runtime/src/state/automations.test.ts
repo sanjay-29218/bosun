@@ -1,5 +1,6 @@
 import {
   botHeadquartersThreadId,
+  projectHeadquartersThreadId,
   CAPTAIN_BOT_ID,
   EnvironmentId,
   ProjectId,
@@ -18,6 +19,7 @@ import {
   hasUnseenAutomationFailure,
   isAutomationFailureUnseen,
   isAutomationRunning,
+  managerAutomationsWarning,
   runningAutomationKeys,
 } from "./automations.ts";
 import { buildLogicalBots } from "./botRail.ts";
@@ -234,6 +236,36 @@ describe("bot automations", () => {
       "Its 1 automation will be deleted too.",
     );
     expect(botAutomationsDeleteWarning(tasks, "bot-quiet")).toBeNull();
+  });
+});
+
+describe("project manager automations", () => {
+  it("finds a manager task's runs in the manager's thread", () => {
+    const managerThread = projectHeadquartersThreadId("app");
+    const runs = createAutomationRunIndex([
+      shell(managerThread, { title: "Project manager", createdAt: "2026-09-01T00:00:00.000Z" }),
+      shell("same-title", { title: "Triage", createdAt: "2026-10-02T00:00:00.000Z" }),
+    ]);
+    expect(
+      runs(local, task("Triage", { projectManager: true })).map((thread) => thread.id),
+    ).toEqual([managerThread]);
+  });
+
+  it("warns how many of the manager's automations turning it off pauses or deleting deletes", () => {
+    const tasks = [
+      task("a", { projectManager: true }),
+      task("b", { projectManager: true, enabled: false }),
+      task("c", { projectManager: true, projectId: ProjectId.make("blog") }),
+      task("d"),
+    ];
+    expect(managerAutomationsWarning(tasks, "app", "off")).toBe(
+      "1 automation runs as this manager. Turning it off pauses it.",
+    );
+    expect(managerAutomationsWarning(tasks, "app", "delete")).toBe(
+      "Its manager's 2 automations will be deleted too.",
+    );
+    expect(managerAutomationsWarning([tasks[1]!], "app", "off")).toBeNull();
+    expect(managerAutomationsWarning(tasks, "web", "delete")).toBeNull();
   });
 });
 

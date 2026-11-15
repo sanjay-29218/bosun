@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   automationKey,
+  automationPausedLabel,
   automationRunThreadId,
   createAutomationRunIndex,
   isAutomationFailureUnseen,
@@ -121,8 +122,15 @@ export function AutomationsPage(search: AutomationsSearch) {
                 <NoEnvironments />
               ) : (
                 <ScheduledTaskEditorForm
-                  key={`new:${creationEnvironmentId ?? defaultEnvironmentId}:${formRevision}`}
-                  initialEnvironmentId={creationEnvironmentId ?? defaultEnvironmentId}
+                  key={`new:${creationEnvironmentId ?? defaultEnvironmentId}:${search.managerProjectId ?? ""}:${formRevision}`}
+                  initialEnvironmentId={
+                    search.managerProjectId === undefined
+                      ? (creationEnvironmentId ?? defaultEnvironmentId)
+                      : defaultEnvironmentId
+                  }
+                  {...(search.managerProjectId === undefined
+                    ? {}
+                    : { initialManagerProjectId: search.managerProjectId })}
                   task={null}
                   onSaved={openTask}
                   onCancel={closeEditor}
@@ -215,7 +223,7 @@ function TaskStatus({ task }: { readonly task: ScheduledTask }) {
         <span>
           {scheduleLabel(task.schedule)} ·{" "}
           {!task.enabled ? (
-            "Paused"
+            (automationPausedLabel(task) ?? "Paused")
           ) : task.schedule.type === "webhook" ? (
             "Listening"
           ) : task.nextRunAt ? (

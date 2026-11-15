@@ -5,6 +5,8 @@ import { useEnvironmentsWithScope } from "../../state/session";
 import { mapAtomCommandResult, settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
+import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automations";
+import { useScheduledTasksByEnvironment } from "../../state/automations";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import {
   checkProjectAccess,
@@ -278,6 +280,7 @@ function ProjectDetail({
       (member) => environmentById.get(member.environmentId)?.serverConfig != null,
     ) ?? group.memberProjects[0]!;
   const threads = useThreadShells();
+  const scheduledTasks = useScheduledTasksByEnvironment();
   const deleteProject = useOrchestrationCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
@@ -359,8 +362,16 @@ function ProjectDetail({
       threads,
       unloadedThreadCount: readUnloadedThreadCount(members, threads),
     });
+    // Deleting a project deletes the automations that run as its manager.
+    const automationWarnings = members.flatMap((member) => {
+      const tasks =
+        scheduledTasks.find((state) => state.environmentId === member.environmentId)?.tasks ?? [];
+      return managerAutomationsWarning(tasks, member.id, "delete") ?? [];
+    });
     const confirmed = await settlePromise(() =>
-      api.dialogs.confirm(confirmationMessage, { variant: "destructive" }),
+      api.dialogs.confirm([confirmationMessage, ...automationWarnings].join("\n\n"), {
+        variant: "destructive",
+      }),
     );
     if (confirmed._tag === "Failure" || !confirmed.value) return;
     if (checkProjectAccess(members, "Failed to remove project")) return;

@@ -2,7 +2,7 @@ import { isWebhookDedupeTemplate } from "@t3tools/contracts";
 import {
   EnvironmentId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
-  type ProjectId,
+  ProjectId,
   ScheduledTaskId,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
@@ -33,6 +33,8 @@ export interface AutomationsSearch {
   readonly taskId?: ScheduledTaskId;
   /** The editor for a new task, on `environmentId` when given. */
   readonly new?: true;
+  /** With `new`: the new task runs as this project's manager. */
+  readonly managerProjectId?: ProjectId;
 }
 
 export function validateAutomationsSearch(raw: Record<string, unknown>): AutomationsSearch {
@@ -43,7 +45,12 @@ export function validateAutomationsSearch(raw: Record<string, unknown>): Automat
     ...(typeof raw.taskId === "string" && raw.taskId.trim()
       ? { taskId: ScheduledTaskId.make(raw.taskId) }
       : raw.new === true || raw.new === "1" || raw.new === 1
-        ? { new: true as const }
+        ? {
+            new: true as const,
+            ...(typeof raw.managerProjectId === "string" && raw.managerProjectId.trim()
+              ? { managerProjectId: ProjectId.make(raw.managerProjectId) }
+              : {}),
+          }
         : {}),
   };
 }
@@ -66,6 +73,8 @@ export interface DraftState {
   readonly weekdays: ReadonlySet<number>;
   /** The bot the task runs as, or empty for a new thread in the project per run. */
   readonly botId: string;
+  /** Runs as `projectId`'s manager, in its thread. */
+  readonly projectManager: boolean;
   readonly projectId: string;
   readonly threadId: string;
   readonly threadMode: ScheduledTaskThreadMode;
@@ -252,6 +261,7 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     savedRunAt: schedule.type === "once" ? schedule.runAt : "",
     weekdays,
     botId: task.botId ?? "",
+    projectManager: task.projectManager === true,
     projectId: task.projectId,
     threadId: task.threadId ?? "",
     threadMode: scheduledTaskThreadMode(task),
@@ -329,15 +339,34 @@ export function scheduledTaskDefaultModel(
 
 /**
  * Where a save sends the task's runs. A bot task runs in its headquarters, so it sends no
- * project, thread or checkout; the server files it where the headquarters lives.
+ * project, thread or checkout; the server files it where the headquarters lives. A manager task
+ * runs in its project's manager thread, so it keeps only the project.
  */
 export function runTargetFromDraft(
-  draft: Pick<DraftState, "botId">,
+  draft: Pick<DraftState, "botId" | "projectManager">,
   thread: Pick<ScheduledTaskUpsertInput, "projectId" | "threadId" | "workspaceStrategy">,
-): Pick<ScheduledTaskUpsertInput, "botId" | "projectId" | "threadId" | "workspaceStrategy"> {
-  return draft.botId
-    ? { botId: draft.botId, threadId: null, workspaceStrategy: { type: "root" } }
-    : { ...thread, botId: null };
+): Pick<
+  ScheduledTaskUpsertInput,
+  "botId" | "projectManager" | "projectId" | "threadId" | "workspaceStrategy"
+> {
+  if (draft.botId) {
+    return {
+      botId: draft.botId,
+      projectManager: false,
+      threadId: null,
+      workspaceStrategy: { type: "root" },
+    };
+  }
+  if (draft.projectManager) {
+    return {
+      botId: null,
+      projectManager: true,
+      ...(thread.projectId === undefined ? {} : { projectId: thread.projectId }),
+      threadId: null,
+      workspaceStrategy: { type: "root" },
+    };
+  }
+  return { ...thread, botId: null, projectManager: false };
 }
 
 /** A new task's project: a pinned open project, then any open one. */
