@@ -297,14 +297,20 @@ describe("Bot foundation", () => {
               runtimeMode: "auto-accept-edits",
             });
             expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
-            // Once the crew is set up here, it follows the local role, and that role's edits.
+            // A local role that's turned off leaves it as sent.
             yield* bots.ensureDefaults(modelSelection);
-            yield* bots.ensureFeatureManager(projectId);
             const local = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
+            yield* bots.updateRole({ ...local, enabled: false, expectedRevision: local.revision });
+            expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
+            // Turned on, it follows the local role, and that role's edits.
+            const off = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
+            yield* bots.updateRole({ ...off, enabled: true, expectedRevision: off.revision });
+            yield* bots.ensureFeatureManager(projectId);
+            const on = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
             yield* bots.updateRole({
-              ...local,
+              ...on,
               instructions: "Lead here.",
-              expectedRevision: local.revision,
+              expectedRevision: on.revision,
             });
             expect(yield* store.getMember(featureManagerMemberId(projectId))).toMatchObject({
               roleId: FEATURE_MANAGER_ROLE_ID,

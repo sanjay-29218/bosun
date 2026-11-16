@@ -797,7 +797,10 @@ export const CrewServiceLive = Layer.effect(
       const role = yield* store.getRole(roleId);
       // An existing member keeps working even if its role was turned off since.
       if (existing?.projectId === projectId) {
-        if (role === null) return { member: existing, created: false };
+        // One made from a sent role takes on a local role only once that role is on.
+        if (role === null || (existing.roleId === null && !role.enabled)) {
+          return { member: existing, created: false };
+        }
         return { member: yield* followRole(existing, role), created: false };
       }
       const source = role?.enabled ? role : sentRole;
