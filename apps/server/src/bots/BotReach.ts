@@ -9,7 +9,6 @@ import {
   headquartersBotId,
   headquartersProjectId,
   projectHeadquartersThreadId,
-  isProviderAvailable,
   type ModelSelection,
   OrchestratorMcpFailure,
   type Project,
@@ -48,12 +47,11 @@ import {
   type RequestHome,
 } from "../mcp/toolkits/bots/linkTools.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
-import { LINKED_ENVIRONMENT_STOPPED_ANSWERING } from "../peer/PeerMcpClient.ts";
+import { isUnanswered } from "../peer/PeerMcpClient.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { managerNotPermitted, notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
@@ -198,7 +196,6 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const features = yield* FeatureService;
   const crew = yield* CrewService;
-  const providers = yield* ProviderRegistry.ProviderRegistry;
   const git = yield* GitWorkflowService;
   const links = yield* PeerLinks.PeerLinks;
   const forwarding = yield* PeerForwarding.PeerForwarding;
@@ -578,10 +575,7 @@ const make = Effect.gen(function* () {
         ...(workflow === undefined ? {} : { workflow }),
       })
       .pipe(
-        Effect.catchIf(
-          (error) => error.message === LINKED_ENVIRONMENT_STOPPED_ANSWERING,
-          () => unreachable,
-        ),
+        Effect.catchIf(isUnanswered, () => unreachable),
         Effect.catchIf(isOlderPeer, () =>
           failure(
             "invalid_request",
@@ -590,21 +584,6 @@ const make = Effect.gen(function* () {
         ),
       );
   });
-
-  const modelAvailable = (selection: ModelSelection) =>
-    providers.getProviders.pipe(
-      Effect.map((listed) => {
-        const provider = listed.find((candidate) => candidate.instanceId === selection.instanceId);
-        return (
-          provider !== undefined &&
-          provider.enabled &&
-          provider.installed &&
-          isProviderAvailable(provider) &&
-          provider.auth.status !== "unauthenticated" &&
-          provider.models.some((model) => model.slug === selection.model)
-        );
-      }),
-    );
 
   const startForLink: BotReach["Service"]["startForLink"] = Effect.fn("BotReach.startForLink")(
     function* (scope, input) {
@@ -663,7 +642,6 @@ const make = Effect.gen(function* () {
             );
           }
           const { home } = input;
-          const homeName = isManagerHome(home) ? home.name : home.botName;
           if (isManagerHome(home)) {
             const placed = project.remoteManager;
             if (
@@ -724,27 +702,12 @@ const make = Effect.gen(function* () {
                   runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
                   modelSelection: leadRole.modelSelection,
                 };
-          if (leadRole === undefined && !(yield* modelAvailable(input.modelSelection))) {
-            return yield* failure(
-              "invalid_request",
-              `${homeName}'s task there runs on ${input.modelSelection.model} (${input.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change ${homeName}'s model.`,
-            );
-          }
           // Builds before withheld tools sent roles' tools with the opposite meaning.
           if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
             return yield* failure(
               "invalid_request",
               "This Bosun is newer than the environment that sent this; update it to share roles.",
             );
-          }
-          // Its features run on these roles, so each must be able to run here too.
-          for (const role of input.workflow?.roles ?? []) {
-            if (!(yield* modelAvailable(role.modelSelection))) {
-              return yield* failure(
-                "invalid_request",
-                `${input.workflow!.workflow.name}'s ${role.name} runs on ${role.modelSelection.model} (${role.modelSelection.instanceId}), which isn't available on ${self.label}. Sign it in there, or change the role's model.`,
-              );
-            }
           }
           const manager = yield* crew
             .ensureFeatureManager(project.id)

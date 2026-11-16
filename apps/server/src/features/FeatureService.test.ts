@@ -352,14 +352,19 @@ describe("feature lead and crew", () => {
           const features = yield* FeatureService;
           const library = yield* crew.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID);
           expect(library?.revision).toBe(1);
-          const role = (id: string, name: string) => ({
+          const role = (id: string, name: string, model = modelSelection) => ({
             id,
             name,
             instructions: `You are the laptop's ${name}.`,
             withheldTools: [],
-            modelSelection,
+            modelSelection: model,
             runtimeMode: "full-access" as const,
           });
+          // The laptop's reviewer runs on Claude, which isn't signed in on this box.
+          const reviewerModel = {
+            instanceId: ProviderInstanceId.make("claudeAgent"),
+            model: "claude-opus-5-5",
+          };
           // Feature delivery as the laptop has it at revision 3, with a role this box lacks.
           const snapshot: WorkflowSnapshot = {
             workflow: {
@@ -373,7 +378,7 @@ describe("feature lead and crew", () => {
             roles: [
               role("role:feature-manager", "Feature manager"),
               role("role:builder", "Builder"),
-              role("role:security-reviewer", "Security reviewer"),
+              role("role:security-reviewer", "Security reviewer", reviewerModel),
             ],
           };
           // The Feature manager a link's request started here, which keeps that workflow.
@@ -396,6 +401,11 @@ describe("feature lead and crew", () => {
               ...(workflowId === undefined ? {} : { workflowId }),
             });
 
+          // Neither its Security reviewer's model nor the fallback can run here, and it still
+          // starts: the reviewer picks its model when its own run starts.
+          yield* (yield* ServerSettingsService).updateSettings({
+            fallbackModelSelection: reviewerModel,
+          });
           const started = yield* launch("linked-feature");
           expect(Object.keys(started.feature.crewAssignments).toSorted()).toEqual([
             "role:builder",
@@ -404,9 +414,11 @@ describe("feature lead and crew", () => {
           const reviewer = yield* (yield* CrewStore).getMember(
             started.feature.crewAssignments["role:security-reviewer"]!,
           );
+          // The member keeps the role's model; only its runs use the fallback.
           expect(reviewer).toMatchObject({
             name: "Security reviewer",
             instructions: "You are the laptop's Security reviewer.",
+            modelSelection: reviewerModel,
           });
           const opening = (yield* userTexts(started.leadThreadId))[0]!;
           expect(opening).toContain("You are the laptop's Feature manager.");
@@ -433,6 +445,17 @@ describe("feature lead and crew", () => {
           expect(Object.keys(local.feature.crewAssignments)).not.toContain(
             "role:security-reviewer",
           );
+        }),
+        makeCrewTestOrchestration({
+          providers: [
+            readyCodex,
+            {
+              ...readyCodex,
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              driver: ProviderDriverKind.make("claudeAgent"),
+              auth: { status: "unauthenticated" },
+            },
+          ],
         }),
       ),
   );

@@ -24,6 +24,8 @@ import {
   paceOf,
   paceRemainingPercent,
   usesChatGptSharing,
+  modelBlockText,
+  noRunnableModelText,
   resolveNewThreadModelSelection,
 } from "./usageLimits.ts";
 
@@ -93,6 +95,28 @@ describe("new thread model fallback", () => {
       },
       selection,
     ],
+    [
+      "signed-out default",
+      { providers: [provider({ auth: { status: "unauthenticated" } }), available] },
+      fallback,
+    ],
+    ["missing default", { providers: [available] }, fallback],
+    [
+      "uninstalled default",
+      { providers: [provider({ installed: false, status: "error" }), available] },
+      fallback,
+    ],
+    [
+      "default not checked yet",
+      {
+        providers: [
+          provider({ installed: false, status: "warning", auth: { status: "unknown" } }),
+          available,
+        ],
+      },
+      selection,
+    ],
+    ["disabled default", { providers: [provider({ enabled: false }), available] }, fallback],
   ] as const)("resolves %s", (_name, overrides, expected) => {
     expect(resolveNewThreadModelSelection({ ...defaults, ...overrides }).selection).toEqual(
       expected,
@@ -111,6 +135,36 @@ describe("new thread model fallback", () => {
         providers: [limited, { ...available, ...overrides }],
       }).selection,
     ).toEqual(selection);
+  });
+  it.each([
+    [[limited, available], "usage", "Codex is out of usage"],
+    [
+      [provider({ auth: { status: "unauthenticated" } }), available],
+      "unauthenticated",
+      "Codex isn't signed in here",
+    ],
+    [[available], "not-installed", "Codex isn't installed here"],
+    // A provider turned off in Settings also reports itself as not installed.
+    [
+      [provider({ enabled: false, installed: false, status: "warning" }), available],
+      "disabled",
+      "Codex is turned off here",
+    ],
+  ] as const)("says why the default can't run: %#", (providers, reason, text) => {
+    const resolved = resolveNewThreadModelSelection({ ...defaults, providers });
+    expect(resolved.fallback).toMatchObject({ reason, from: selection });
+    expect(modelBlockText(selection, resolved.fallback!)).toBe(text);
+  });
+  it("names both models when neither can run", () => {
+    const signedOut = { auth: { status: "unauthenticated" as const } };
+    const providers = [provider(signedOut), { ...available, ...signedOut }];
+    const resolved = resolveNewThreadModelSelection({ ...defaults, providers });
+    expect(resolved).toMatchObject({ selection, fallback: null });
+    expect(
+      noRunnableModelText({ ...defaults, providers, selection, blocked: resolved.blocked! }),
+    ).toBe(
+      "gpt-6.1-sol (codex) can't run: Codex isn't signed in here. The fallback model, claude-fable-5-1 (claude), can't run either: Claude isn't signed in here.",
+    );
   });
   it.each([undefined, "invalid"])("treats an unknown reset as exhausted: %s", (resetsAt) => {
     expect(

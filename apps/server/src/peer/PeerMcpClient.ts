@@ -102,6 +102,20 @@ const stoppedAnswering = new OrchestratorMcpFailure({
   message: LINKED_ENVIRONMENT_STOPPED_ANSWERING,
 });
 
+/** Failures made here when the linked environment's Bosun never answered, not even to refuse. */
+const unansweredFailures = new WeakSet<OrchestratorMcpFailure>();
+const unanswered = (failure: OrchestratorMcpFailure) => {
+  unansweredFailures.add(failure);
+  return failure;
+};
+unanswered(stoppedAnswering);
+
+/**
+ * The call never reached the linked environment's Bosun: it was unreachable, or a gateway in front
+ * of it answered 5xx. Like every `orchestration_error`, it may pass later.
+ */
+export const isUnanswered = (error: OrchestratorMcpFailure) => unansweredFailures.has(error);
+
 /** The body of an MCP response: JSON, or a single server-sent event carrying JSON. */
 const responseJson = (contentType: string | undefined, text: string) =>
   contentType?.includes("text/event-stream") === true
@@ -151,13 +165,14 @@ const make = Effect.gen(function* () {
       const sessionId = initialized.headers["mcp-session-id"];
       if (initialized.status === 403) return yield* linkedEnvironmentsOffThere;
       if (initialized.status !== 200 || sessionId === undefined) {
-        return yield* new OrchestratorMcpFailure({
+        const failure = new OrchestratorMcpFailure({
           code: initialized.status === 401 ? "capability_denied" : "orchestration_error",
           message:
             initialized.status === 401
               ? LINKED_ENVIRONMENT_REVOKED_LINK
               : `The linked environment refused to start an MCP session (HTTP ${initialized.status}).`,
         });
+        return yield* initialized.status >= 500 ? unanswered(failure) : failure;
       }
       yield* post(
         url,
@@ -175,7 +190,13 @@ const make = Effect.gen(function* () {
     function* (input) {
       const resolved = yield* links
         .resolve(input.environmentId)
-        .pipe(Effect.mapError(fromLinkError));
+        .pipe(
+          Effect.mapError((error) =>
+            error.reason === "unreachable"
+              ? unanswered(fromLinkError(error))
+              : fromLinkError(error),
+          ),
+        );
       const limitHeader = {
         [McpInvocationContext.MODE_LIMIT_HEADER]: `${input.limits.runtimeMode}/${input.limits.interactionMode}`,
       };
@@ -231,10 +252,11 @@ const make = Effect.gen(function* () {
       }
       if (response.status === 403) return yield* linkedEnvironmentsOffThere;
       if (response.status !== 200) {
-        return yield* new OrchestratorMcpFailure({
+        const failure = new OrchestratorMcpFailure({
           code: "orchestration_error",
           message: `The linked environment answered HTTP ${response.status}.`,
         });
+        return yield* response.status >= 500 ? unanswered(failure) : failure;
       }
       const body = yield* decodeToolCallResponse(
         responseJson(response.headers["content-type"], yield* response.text),

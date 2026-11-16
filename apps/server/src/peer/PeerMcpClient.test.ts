@@ -383,3 +383,36 @@ it.effect("bounds the session handshake, not a tool call that waits longer", () 
     expect(yield* Fiber.join(waiting)).toEqual({ modes: "approval-required/plan" });
   }),
 );
+
+it.effect.each([
+  // [initialize status, tool call status, unanswered]
+  [502, 200, true],
+  [200, 503, true],
+  [403, 200, false],
+  [200, 403, false],
+  [200, 400, false],
+] as const)(
+  "tells a gateway's 5xx from the peer's own answer: %s then %s",
+  ([sessionStatus, callStatus, expected]) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let requests = 0;
+        const http = HttpClient.make((request) =>
+          Effect.sync(() => {
+            const index = requests++;
+            return HttpClientResponse.fromWeb(
+              request,
+              new Response("", {
+                status: index === 0 ? sessionStatus : index === 1 ? 202 : callStatus,
+                headers: { "mcp-session-id": "session" },
+              }),
+            );
+          }),
+        );
+        const failed = yield* (yield* probeThrough(http)).pipe(Effect.flip);
+        // Every one of these may pass later; only the unanswered ones read as unreachable.
+        expect(failed.code).toBe("orchestration_error");
+        expect(PeerMcpClient.isUnanswered(failed)).toBe(expected);
+      }),
+    ),
+);

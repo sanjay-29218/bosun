@@ -16,6 +16,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServer from "effect/http/HttpServer";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
@@ -74,6 +75,7 @@ export const servePeer = <E, R>(
     const bearers = yield* Ref.make<ReadonlyArray<string>>([]);
     const probes = yield* Ref.make(0);
     const asleep = yield* Ref.make(false);
+    const mcpStatus = yield* Ref.make<number | null>(null);
     const unanswered = yield* Queue.unbounded<void>();
     const wake = yield* Deferred.make<void>();
     const layerEnvironment = Layer.succeed(ServerEnvironment.ServerEnvironment, {
@@ -102,6 +104,10 @@ export const servePeer = <E, R>(
               yield* Deferred.await(wake);
               return yield* Effect.die("the peer was closed while asleep");
             }
+          }
+          const status = yield* Ref.get(mcpStatus);
+          if (status !== null && request.url.startsWith("/mcp")) {
+            return HttpServerResponse.empty({ status });
           }
           const authorization = request.headers.authorization;
           if (authorization !== undefined) {
@@ -169,6 +175,8 @@ export const servePeer = <E, R>(
       probes,
       /** While set, its descriptor never answers, as a machine that is asleep. */
       asleep,
+      /** While set, its /mcp answers only this status, as a gateway in front of it would. */
+      mcpStatus,
       /** One entry per descriptor request it left unanswered while asleep. */
       unanswered,
       /** The sessions linking created there, which its Connections lists. */

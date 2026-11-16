@@ -72,6 +72,7 @@ import {
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
+import { resolveDefaultModelSelection } from "@t3tools/shared/providerDefaultModel";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { threadPullRequestUpdatedAtMs } from "@t3tools/shared/threadPullRequests";
 import {
@@ -2325,11 +2326,23 @@ const make = Effect.gen(function* () {
                     failure("invalid_request", `Could not schedule task: ${error.message}`),
                   ),
                 );
-              const modelSelection = botModel ?? parent?.thread.modelSelection;
-              if (modelSelection === undefined) {
+              // A bot with no model follows the default a new thread gets.
+              const modelSelection =
+                botModel ??
+                parent?.thread.modelSelection ??
+                resolveDefaultModelSelection(
+                  yield* loadProviders,
+                  yield* serverSettings.getSettings.pipe(
+                    Effect.mapError(() =>
+                      failure("orchestration_error", "Unable to read server settings."),
+                    ),
+                  ),
+                  null,
+                );
+              if (modelSelection === null) {
                 return yield* failure(
                   "invalid_request",
-                  "Choose a default model for this bot before scheduling its work.",
+                  "No provider is available to run this bot. Set one up in Settings.",
                 );
               }
               return {

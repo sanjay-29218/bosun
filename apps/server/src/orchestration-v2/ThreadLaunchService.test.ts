@@ -2375,6 +2375,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
         isNonGitProject: launches.isNonGitProject,
         retryPreparation: launches.retryPreparation,
         prepareRun: launches.prepareRun,
+        recordNotice: launches.recordNotice,
       }),
       Effect.flip,
     );

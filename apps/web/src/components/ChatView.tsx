@@ -1,7 +1,11 @@
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
+import {
+  modelBlockText,
+  modelDisplayName,
+  resolveNewThreadModelSelection,
+} from "@t3tools/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
@@ -2750,7 +2754,7 @@ export default function ChatView(props: ChatViewProps) {
         ? draftFallback.fallback
         : null;
     const fallbackWindow = fallback
-      ? `${fallback.provider.instanceId}:${fallback.resetsAt ?? ""}`
+      ? `${fallback.from.instanceId}:${fallback.reason}:${fallback.resetsAt ?? ""}`
       : null;
     const fallbackItems: ComposerBannerStackItem[] =
       fallback &&
@@ -2759,19 +2763,13 @@ export default function ChatView(props: ChatViewProps) {
       fallbackWindow !== dismissedFallbackWindow
         ? [
             modelFallbackBannerItem({
-              fallbackModelName:
-                providerStatuses
-                  .find((provider) => provider.instanceId === fallbackSelection.instanceId)
-                  ?.models.find((model) => model.slug === fallbackSelection.model)?.name ??
-                fallbackSelection.model,
-              defaultProviderName: fallback.provider.displayName ?? fallback.provider.driver,
-              defaultModelName:
-                fallback.provider.models.find((model) => model.slug === defaultSelection.model)
-                  ?.name ?? defaultSelection.model,
+              fallbackModelName: modelDisplayName(fallbackSelection, providerStatuses),
+              reason: modelBlockText(fallback.from, fallback),
+              defaultModelName: modelDisplayName(fallback.from, providerStatuses),
               resetsAt: fallback.resetsAt,
               timestampFormat,
               onUseDefault: () =>
-                onProviderModelSelectStable(defaultSelection.instanceId, defaultSelection.model),
+                onProviderModelSelectStable(fallback.from.instanceId, fallback.from.model),
               onDismiss: () => setDismissedFallbackWindow(fallbackWindow),
             }),
           ]

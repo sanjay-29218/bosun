@@ -3826,10 +3826,14 @@ describe("OrchestratorMcpService provider resolution", () => {
         ),
       );
 
-    it.effect("schedules a bot's task from a client with no thread or project", () =>
+    const haiku = { instanceId: ProviderInstanceId.make("claude"), model: "haiku" };
+    it.effect.each([
+      { name: "the bot's model", botModel: haiku, settingsDefault: null },
+      { name: "the default model when the bot has none", botModel: null, settingsDefault: haiku },
+    ])("schedules a bot's task from a client with no thread or project, on $name", (models) =>
       Effect.gen(function* () {
         const saved = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
-        const botModel = { instanceId: ProviderInstanceId.make("claude"), model: "haiku" };
+        const { botModel } = models;
         const scheduled = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
           Effect.flatMap((mcp) =>
             mcp.scheduleTask(
@@ -3853,7 +3857,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                   Layer.mock(ThreadManagementService.ThreadManagementService)({
                     getThreadShell: () => Effect.succeed(null),
                   }),
-                  ServerSettings.layerTest(),
+                  ServerSettings.layerTest({ defaultModelSelection: models.settingsDefault }),
                   Layer.mock(ProviderRegistry.ProviderRegistry)({
                     getProviders: Effect.succeed([]),
                   }),
@@ -3885,7 +3889,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         const [input] = yield* Ref.get(saved);
         // Filed in the bot's home by the scheduler; no caller project to pass.
         assert.isUndefined(input?.projectId);
-        assert.deepEqual(input?.modelSelection, botModel);
+        assert.deepEqual(input?.modelSelection, haiku);
         assert.deepEqual(input?.workspaceStrategy, { type: "root" });
         assert.isNull(input?.threadId);
       }),

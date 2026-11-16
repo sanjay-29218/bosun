@@ -125,7 +125,9 @@ export function BotEditor({
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
   const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.withheldTools ?? []);
-  const [modelSelection, setModelSelection] = useState(bot?.modelSelection ?? defaultModel);
+  // Null until someone picks one: the bot then follows this environment's default model.
+  const [pickedModel, setModelSelection] = useState(bot?.modelSelection ?? null);
+  const modelSelection = pickedModel ?? defaultModel;
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(bot?.runtimeMode ?? "full-access");
   const [longConversation, setLongConversation] = useState<BotLongConversation>(
     bot?.longConversation ?? "compact",
@@ -141,7 +143,7 @@ export function BotEditor({
     color,
     withheldTools: tools,
     runtimeMode,
-    modelSelection,
+    modelSelection: pickedModel,
     longConversation,
   };
   const edited = bot
@@ -150,7 +152,7 @@ export function BotEditor({
       color !== bot.color ||
       instructions.trim() !== bot.instructions ||
       tools.join("\n") !== bot.withheldTools.join("\n") ||
-      JSON.stringify(modelSelection) !== JSON.stringify(bot.modelSelection) ||
+      JSON.stringify(pickedModel) !== JSON.stringify(bot.modelSelection) ||
       runtimeMode !== bot.runtimeMode ||
       longConversation !== bot.longConversation
     : fields.name.length > 0 || instructions.trim().length > 0;
@@ -269,14 +271,32 @@ export function BotEditor({
               <EditorField label="Model">
                 <div>
                   {modelSelection ? (
-                    <RoleModelPicker
-                      environmentId={environmentId}
-                      selection={modelSelection}
-                      runtimeMode={runtimeMode}
-                      disabled={saving || !canEdit}
-                      onChange={setModelSelection}
-                      onRuntimeModeChange={setRuntimeMode}
-                    />
+                    <>
+                      <RoleModelPicker
+                        environmentId={environmentId}
+                        selection={modelSelection}
+                        runtimeMode={runtimeMode}
+                        disabled={saving || !canEdit}
+                        onChange={setModelSelection}
+                        onRuntimeModeChange={setRuntimeMode}
+                      />
+                      {pickedModel === null ? (
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Follows the default model until you pick one.
+                        </p>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="xs"
+                          className="mt-1"
+                          disabled={saving || !canEdit}
+                          onClick={() => setModelSelection(null)}
+                        >
+                          Follow the default model
+                        </Button>
+                      )}
+                    </>
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       No model available. Set up a provider first.

@@ -230,6 +230,15 @@ export class ThreadLaunchService extends Context.Service<
       | ThreadManagement.ThreadManagementProviderInstanceDisabledError
     >;
     readonly prepareRun: (input: ThreadLaunchPreparationInput) => Effect.Effect<void>;
+    /** Shows a notice in the run's timeline; `signal` keys it, so repeating it rewrites it. */
+    readonly recordNotice: (input: {
+      readonly threadId: ThreadId;
+      readonly runId: RunId;
+      readonly signal: string;
+      readonly title: string;
+      readonly message: string;
+      readonly level?: "info" | "warning" | "error";
+    }) => Effect.Effect<void>;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
@@ -280,9 +289,11 @@ const make = Effect.gen(function* () {
         cause,
       });
 
-  const recordBranchRenameFailure = Effect.fn("ThreadLaunchService.recordBranchRenameFailure")(
-    function* (threadId: ThreadId, runId: RunId, branch: string, cause: Cause.Cause<unknown>) {
-      const error = Cause.squash(cause);
+  const recordNotice: ThreadLaunchService["Service"]["recordNotice"] = Effect.fn(
+    "ThreadLaunchService.recordNotice",
+  )(
+    function* (input) {
+      const { threadId, runId } = input;
       const now = yield* DateTime.now;
       yield* eventSink.write({
         events: [
@@ -293,7 +304,7 @@ const make = Effect.gen(function* () {
             runId,
             occurredAt: now,
             payload: {
-              id: ids.derive.runSignalTurnItem({ runId, signal: "branch-rename" }),
+              id: ids.derive.runSignalTurnItem({ runId, signal: input.signal }),
               threadId,
               runId,
               nodeId: null,
@@ -304,21 +315,36 @@ const make = Effect.gen(function* () {
               // EventSink allocates the real position, after the run's existing items.
               ordinal: 0,
               status: "completed",
-              title: "Branch not renamed",
+              title: input.title,
               startedAt: now,
               completedAt: now,
               updatedAt: now,
               type: "system_notice",
-              message: `Could not rename the worktree branch, so it stays ${branch}. ${error instanceof Error ? error.message : String(error)}`,
+              ...(input.level === undefined ? {} : { level: input.level }),
+              message: input.message,
             },
           },
         ],
       });
     },
-    Effect.catchCause((cause) =>
-      Effect.logWarning("Could not record the branch rename failure", { cause }),
-    ),
+    Effect.catchCause((cause) => Effect.logWarning("Could not record a run notice", { cause })),
   );
+
+  const recordBranchRenameFailure = (
+    threadId: ThreadId,
+    runId: RunId,
+    branch: string,
+    cause: Cause.Cause<unknown>,
+  ) => {
+    const error = Cause.squash(cause);
+    return recordNotice({
+      threadId,
+      runId,
+      signal: "branch-rename",
+      title: "Branch not renamed",
+      message: `Could not rename the worktree branch, so it stays ${branch}. ${error instanceof Error ? error.message : String(error)}`,
+    });
+  };
 
   const readReceipt = (input: ThreadLaunchInput, commandId: CommandId) =>
     receipts
@@ -1430,6 +1456,7 @@ const make = Effect.gen(function* () {
     isNonGitProject,
     retryPreparation,
     prepareRun,
+    recordNotice,
   });
 });
 

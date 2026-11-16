@@ -8,6 +8,12 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@t3tools/contracts";
+import { resolveProjectSettings, type LegacyProjectSettingsFields } from "./projectSettings.ts";
+import {
+  modelFallbackNotice,
+  noRunnableModelText,
+  resolveNewThreadModelSelection,
+} from "./usageLimits.ts";
 
 /** The model a provider instance starts on: its default model, else its first. */
 export function defaultProviderModel(provider: ServerProvider): string | undefined {
@@ -52,4 +58,66 @@ export function resolveAutomaticModelSelection(
     pick(ordered.filter((candidate) => candidate.driver === ordered[0]?.driver)) ?? pick(ordered);
   const model = provider ? defaultProviderModel(provider) : undefined;
   return provider && model ? { instanceId: provider.instanceId, model } : null;
+}
+
+/**
+ * The default model for new work: the project's or Settings' saved default, else the automatic
+ * one. Null when no provider can run. Without a project, the server-wide default. Whether it can
+ * run right now is `resolveNewThreadModelSelection`'s call.
+ */
+export function resolveDefaultModelSelection(
+  providers: ReadonlyArray<ServerProvider>,
+  settings: ServerSettings,
+  projectId: ProjectId | null,
+  project?: LegacyProjectSettingsFields | null,
+): ModelSelection | null {
+  const resolved = resolveProjectSettings(settings, projectId, project).settings;
+  return (
+    resolved.defaultModelSelection ?? resolveAutomaticModelSelection(providers, resolved, projectId)
+  );
+}
+
+/**
+ * The model one agent run uses: `chosen`, else the default, switched to the fallback model while
+ * that one can't run here, by `resolveNewThreadModelSelection`'s rule. `notice` says so; `blocked`
+ * says why neither can run. Null when no provider can run at all.
+ */
+export function resolveRunModelSelection(input: {
+  readonly chosen: ModelSelection | null;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly settings: ServerSettings;
+  readonly projectId: ProjectId | null;
+  readonly project?: LegacyProjectSettingsFields | null;
+  readonly now: number;
+}): {
+  readonly selection: ModelSelection;
+  readonly notice: { readonly title: string; readonly message: string } | null;
+  readonly blocked: string | null;
+} | null {
+  const { providers, settings, projectId, now } = input;
+  const selection =
+    input.chosen ?? resolveDefaultModelSelection(providers, settings, projectId, input.project);
+  if (selection === null) return null;
+  const rule = {
+    fallbackSelection: resolveProjectSettings(settings, projectId, input.project).settings
+      .fallbackModelSelection,
+    providers,
+    now,
+    settings,
+    projectId,
+  };
+  const resolved = resolveNewThreadModelSelection({ ...rule, defaultSelection: selection });
+  return {
+    selection: resolved.selection ?? selection,
+    notice:
+      resolved.fallback && resolved.selection
+        ? modelFallbackNotice(
+            { selection: resolved.selection, fallback: resolved.fallback },
+            providers,
+          )
+        : null,
+    blocked: resolved.blocked
+      ? noRunnableModelText({ ...rule, selection, blocked: resolved.blocked })
+      : null,
+  };
 }

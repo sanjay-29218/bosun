@@ -12,7 +12,10 @@ import {
   type ProjectRemoteBot,
   type ProjectRemoteManager,
   projectHeadquartersThreadId,
+  DEFAULT_SERVER_SETTINGS,
+  type ModelSelection,
   ProviderInstanceId,
+  type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -50,6 +53,7 @@ import {
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { TicketService } from "../tickets/TicketService.ts";
 import * as BotReach from "./BotReach.ts";
 import * as BotService from "./BotService.ts";
@@ -138,6 +142,9 @@ interface Environment {
   readonly bots: ReadonlyArray<Bot>;
   readonly projects: ReadonlyArray<Project>;
   readonly workflowRevision?: number;
+  /** Its providers; a signed-in Codex by default. */
+  readonly providers?: ReadonlyArray<ServerProvider>;
+  readonly fallbackModelSelection?: ModelSelection;
   /** Runs as a run is created there, before it is recorded. */
   readonly beforeCreate?: Effect.Effect<void>;
 }
@@ -164,6 +171,25 @@ const waitingForCouch = {
     clientRequestId: "delegate:couch",
   },
 } as unknown as OrchestrationV2Subagent;
+
+const signedInCodex = {
+  instanceId: modelSelection.instanceId,
+  driver: "codex",
+  enabled: true,
+  installed: true,
+  auth: { status: "authenticated" },
+  models: [{ slug: modelSelection.model }, { slug: leadRole.modelSelection.model }],
+} as unknown as ServerProvider;
+const signedOutCodex = { ...signedInCodex, auth: { status: "unauthenticated" as const } };
+const claudeModel = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-opus-5-5",
+};
+const signedInClaude = {
+  ...signedInCodex,
+  instanceId: claudeModel.instanceId,
+  driver: "claudeAgent",
+} as unknown as ServerProvider;
 
 /** One environment's bots, projects, features, crew and providers, around real BotReach. */
 const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
@@ -239,7 +265,13 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           withheldTools: [],
           ...(id === "role:feature-manager"
             ? leadRole
-            : { modelSelection, runtimeMode: "full-access" }),
+            : id === "role:security-reviewer"
+              ? // On a provider the box lacks; a feature checks it, a request doesn't.
+                {
+                  modelSelection: { instanceId: "opencode", model: "big-pickle" },
+                  runtimeMode: "full-access",
+                }
+              : { modelSelection, runtimeMode: "full-access" }),
           enabled: true,
         } as never),
       ensureFeatureManager: (projectId) =>
@@ -263,30 +295,30 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           ? Effect.fail(
               Object.assign(new Error("Invalid task"), { _tag: "CrewValidationError" }) as never,
             )
-          : (data.beforeCreate ?? Effect.void).pipe(
-              Effect.andThen(
-                Ref.update(seen, (current) =>
-                  current.runs.some((run) => run.id === input.id)
-                    ? current
-                    : { ...current, runs: [...current.runs, input] },
+          : input.taskText === "Fails to start."
+            ? Effect.fail(new Error("The lead's thread could not start.") as never)
+            : (data.beforeCreate ?? Effect.void).pipe(
+                Effect.andThen(
+                  Ref.update(seen, (current) =>
+                    current.runs.some((run) => run.id === input.id)
+                      ? current
+                      : { ...current, runs: [...current.runs, input] },
+                  ),
                 ),
+                Effect.as({
+                  threadId: `bot-run:${input.id}`,
+                  modelSelection: input.carried?.modelSelection,
+                } as never),
               ),
-              Effect.as({
-                threadId: `bot-run:${input.id}`,
-                modelSelection: input.carried?.modelSelection,
-              } as never),
-            ),
     }),
     Layer.mock(ProviderRegistry.ProviderRegistry)({
-      getProviders: Effect.succeed([
-        {
-          instanceId: modelSelection.instanceId,
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          models: [{ slug: modelSelection.model }, { slug: leadRole.modelSelection.model }],
-        },
-      ] as never),
+      getProviders: Effect.succeed(data.providers ?? [signedInCodex]),
+    }),
+    Layer.mock(ServerSettingsService)({
+      getSettings: Effect.succeed({
+        ...DEFAULT_SERVER_SETTINGS,
+        fallbackModelSelection: data.fallbackModelSelection ?? null,
+      }),
     }),
     Layer.mock(GitWorkflowService)({ currentBranch: () => Effect.succeed("main") }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -595,15 +627,28 @@ it.live(
           runtimeMode: "full-access",
           modelSelection,
         });
-        const elsewhere = yield* reach
-          .startForLink(linkScope("full-access"), {
-            ...request,
-            ...launch("project:omni", "gpt-elsewhere"),
-          })
-          .pipe(Effect.flip);
-        expect(elsewhere.message).toContain(
-          "runs on gpt-elsewhere (codex), which isn't available on Box",
-        );
+        // Codex is signed out there: the task runs on the box's fallback model instead.
+        const reachWith = (data: Partial<Environment>) =>
+          BotReach.layer.pipe(
+            Layer.provide(layerData({ ...boxData, ...data }, boxSeen)),
+            Layer.provide(layerToolServices),
+            Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+            Layer.provide(Layer.succeedContext(linking)),
+            Layer.build,
+            Effect.map((context) => Context.get(context, BotReach.BotReach)),
+          );
+        const signedOut = { ...request, clientRequestId: "codex-signed-out" };
+        const fellBack = yield* (yield* reachWith({
+          providers: [signedOutCodex, signedInClaude],
+          fallbackModelSelection: claudeModel,
+        })).startForLink(linkScope("full-access"), signedOut);
+        expect(fellBack.threadId).toMatch(/^bot-run:link-task:/);
+        // With no fallback that can run there either, it still starts; its thread there says why.
+        const blocked = yield* (yield* reachWith({
+          providers: [signedOutCodex, { ...signedInClaude, auth: { status: "unauthenticated" } }],
+          fallbackModelSelection: claudeModel,
+        })).startForLink(linkScope("full-access"), { ...signedOut, clientRequestId: "stuck" });
+        expect(blocked.threadId).toMatch(/^bot-run:link-task:/);
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -704,6 +749,8 @@ it.live("starts the project manager there, or says before starting anything why 
         { botId: CAPTAIN_ID },
         launch("project:omni"),
       );
+      // Starts though its Security reviewer's provider isn't on the box: each role picks its
+      // model when its own run starts.
       expect(launched.threadId).toMatch(/^bot-run:link-task:/);
       expect((yield* Ref.get(boxSeen)).runs).toMatchObject([
         {
@@ -835,6 +882,19 @@ it.live("starts the project manager there, or says before starting anything why 
         )
         .pipe(Effect.flip);
       expect(invalid).toMatchObject({ code: "invalid_request", message: "Invalid task" });
+      // A failure the box marks as passing (not a refusal) keeps the request waiting.
+      const failedThere = yield* a.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          { ...launch("project:omni"), task: "Fails to start.", clientRequestId: "fails" },
+        )
+        .pipe(Effect.flip);
+      expect(failedThere).toMatchObject({
+        code: "orchestration_error",
+        message: "The lead's thread could not start.",
+      });
 
       expect(yield* start(launch("project:blog"))).toContain(
         "blog on Box belongs to Social on Box, not Captain from Laptop",
@@ -869,6 +929,21 @@ it.live("starts the project manager there, or says before starting anything why 
         ...leadRole,
         runtimeMode: "approval-required",
       });
+
+      // The box answers its descriptor, then a gateway in front of its /mcp answers 503: the
+      // request waits as for a box that is away, not refused.
+      yield* Ref.set(b.mcpStatus, 503);
+      const gatewayDown = yield* a.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          { ...launch("project:omni"), clientRequestId: "gateway-down" },
+        )
+        .pipe(Effect.flip);
+      expect(gatewayDown.code).toBe("orchestration_error");
+      expect(gatewayDown.message).toMatch(/Project project:omni is on Box, which isn't reachable/);
+      yield* Ref.set(b.mcpStatus, null);
 
       yield* linkSleepingCouch(a.links);
       const asleep = yield* a.reach

@@ -119,7 +119,7 @@ function OfflineEnvironmentBots({
 const botRowDetail = (bot: Bot, projectCount: number) =>
   [
     `${projectCount} ${projectCount === 1 ? "project" : "projects"}`,
-    bot.modelSelection?.model ?? "No model yet",
+    bot.modelSelection?.model ?? "Default model",
   ].join(" · ");
 
 // Pointer only: rows are links, so Enter opens a bot. The bot's menu moves it by keyboard.
