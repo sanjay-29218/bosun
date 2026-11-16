@@ -139,6 +139,9 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "features.workflow",
   "features.needsYou",
   "features.newTodo",
+  "features.workTab",
+  "features.issuesTab",
+  "features.startTodo",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
   // No default: Mod+0 is the desktop's Actual Size.

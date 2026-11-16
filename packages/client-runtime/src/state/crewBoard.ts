@@ -8,6 +8,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 
+import { resolveThreadCurrentPullRequestLink } from "../threadPullRequests.ts";
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 
 /**
@@ -180,6 +181,112 @@ export function featureProgress<Shell extends BoardThreadShell>(
       return { column, status: lead && threadFailed(lead) ? "failed" : "waiting", thread: null };
     }
   }
+}
+
+// ── Work tab: Needs input, Working, Ready for review, Done ──────────
+
+export const WORK_GROUPS = ["needs-input", "working", "review", "done"] as const;
+export type WorkGroupId = (typeof WORK_GROUPS)[number];
+
+export const WORK_GROUP_LABELS: Record<WorkGroupId, string> = {
+  "needs-input": "Needs input",
+  working: "Working",
+  review: "Ready for review",
+  done: "Done",
+};
+
+/** A thread's pull request; `state` is null when only its number is known. */
+export interface WorkPullRequest {
+  readonly number: number;
+  readonly url: string;
+  readonly state: "open" | "closed" | "merged" | null;
+}
+
+export type PullRequestShell = Pick<
+  EnvironmentThreadShell,
+  "pullRequests" | "linkedPullRequest" | "branchPullRequest"
+>;
+
+/** The pull request a thread shows: its current link with its last known state, else its number. */
+export function threadPullRequest(shell: Partial<PullRequestShell>): WorkPullRequest | null {
+  const link = resolveThreadCurrentPullRequestLink(shell.pullRequests ?? []);
+  if (link) return { number: link.number, url: link.url, state: link.snapshot?.state ?? null };
+  const fallback = shell.linkedPullRequest ?? shell.branchPullRequest ?? null;
+  return fallback ? { number: fallback.number, url: fallback.url, state: null } : null;
+}
+
+/** A feature's pull request: its lead's, else the first of its crew's. */
+export function featurePullRequest(
+  card: Pick<FeatureBoardCard, "leadThreadId">,
+  threads: ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>,
+): WorkPullRequest | null {
+  const lead = threads.find((thread) => thread.id === card.leadThreadId);
+  const own = lead ? threadPullRequest(lead) : null;
+  if (own) return own;
+  for (const thread of threads) {
+    const pullRequest = threadPullRequest(thread);
+    if (pullRequest) return pullRequest;
+  }
+  return null;
+}
+
+/**
+ * A started feature's Work group. Anything asking the person comes first, then a running turn,
+ * even with a PR open. Done means merged, or closed by the person; an open PR, or a lead that
+ * reported the work finished, is Ready for review. A lead that stopped short stays in Working.
+ */
+export function featureWorkGroup(
+  card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
+  threads: ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>,
+): WorkGroupId {
+  const { status } = featureProgress(card, threads);
+  if (status === "needs-input") return "needs-input";
+  if (status === "working") return "working";
+  const pullRequest = featurePullRequest(card, threads);
+  if (pullRequest?.state === "merged" || card.status === "closed") return "done";
+  if ((pullRequest && pullRequest.state !== "closed") || status === "done") return "review";
+  return "working";
+}
+
+/** A chat's Work group. With no PR, a finished chat is Done: it has nothing to review. */
+export function chatWorkGroup(shell: BoardThreadShell & Partial<PullRequestShell>): WorkGroupId {
+  const column = threadBoardColumn(shell);
+  if (column === "needs-you") return "needs-input";
+  if (column === "working") return "working";
+  const pullRequest = threadPullRequest(shell);
+  return pullRequest && pullRequest.state !== "merged" && pullRequest.state !== "closed"
+    ? "review"
+    : "done";
+}
+
+export interface WorkGroupCards<Card extends EnvironmentFeatureCard = EnvironmentFeatureCard> {
+  readonly group: WorkGroupId;
+  readonly cards: ReadonlyArray<Card>;
+}
+
+/** Started features by Work group. Needs input puts the longest wait first; the others the newest. */
+export function groupFeaturesByWork<Card extends EnvironmentFeatureCard>(
+  cards: ReadonlyArray<Card>,
+  threads: ReadonlyMap<string, ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>>,
+): ReadonlyArray<WorkGroupCards<Card>> {
+  const groups = new Map<WorkGroupId, { card: Card; movedAt: string }[]>(
+    WORK_GROUPS.map((group) => [group, []]),
+  );
+  for (const card of cards) {
+    if (card.leadThreadId === null) continue;
+    const own = threads.get(featureCardKey(card)) ?? [];
+    groups.get(featureWorkGroup(card, own))!.push({ card, movedAt: featureMovedAt(card, own) });
+  }
+  return WORK_GROUPS.map((group) => ({
+    group,
+    cards: [...groups.get(group)!]
+      .sort((a, b) =>
+        group === "needs-input"
+          ? a.movedAt.localeCompare(b.movedAt)
+          : b.movedAt.localeCompare(a.movedAt),
+      )
+      .map((entry) => entry.card),
+  }));
 }
 
 /**

@@ -207,3 +207,109 @@ export function groupIssueParts<Item>(
   });
   return { parts, nested };
 }
+
+// ── Issues tab: milestones, then No milestone ────────────────────────
+
+/** An open issue with its open sub-issues under it, and how many of its sub-issues are closed. */
+export interface IssueTreeItem {
+  readonly issue: EnvironmentIssue;
+  readonly parts: ReadonlyArray<EnvironmentIssue>;
+  readonly closedParts: number;
+}
+
+export interface IssueMilestoneGroup {
+  readonly milestone: EnvironmentMilestone;
+  readonly items: ReadonlyArray<IssueTreeItem>;
+}
+
+export interface IssueClosedMilestoneGroup {
+  readonly key: string;
+  readonly title: string;
+  readonly items: ReadonlyArray<IssueTreeItem>;
+}
+
+export interface IssueGroups {
+  /** Open milestones that have open issues, in the order given. */
+  readonly milestones: ReadonlyArray<IssueMilestoneGroup>;
+  readonly none: ReadonlyArray<IssueTreeItem>;
+  /** Issues still open in a milestone that is no longer open. */
+  readonly closedMilestones: ReadonlyArray<IssueClosedMilestoneGroup>;
+}
+
+const milestoneKeyOf = (issue: EnvironmentIssue, number: number) =>
+  issueKey({ ...issue, number, ticketId: null });
+
+/**
+ * The open issues by milestone. A sub-issue nests under its top open ancestor among `issues` and
+ * goes where that ancestor goes, so it shows once, in its parent's milestone, whatever its own.
+ */
+export function groupIssuesByMilestone(
+  issues: ReadonlyArray<EnvironmentIssue>,
+  milestones: ReadonlyArray<EnvironmentMilestone>,
+): IssueGroups {
+  const open = issues.filter((issue) => issue.state === "open");
+  const byPlace = new Map<string, EnvironmentIssue>();
+  for (const issue of open) {
+    const place = issue.ticketId ? null : issuePlace(issue.environmentId, issue);
+    if (place) byPlace.set(place.key, issue);
+  }
+  const parentOf = (issue: EnvironmentIssue) => {
+    const place = issue.ticketId ? null : issuePlace(issue.environmentId, issue);
+    return place?.parentKey ? byPlace.get(place.parentKey) : undefined;
+  };
+  const rootOf = (issue: EnvironmentIssue) => {
+    const seen = new Set([issue]);
+    let root = issue;
+    for (let parent = parentOf(root); parent && !seen.has(parent); parent = parentOf(root)) {
+      seen.add(parent);
+      root = parent;
+    }
+    return root;
+  };
+  const parts = new Map<EnvironmentIssue, EnvironmentIssue[]>();
+  const roots: EnvironmentIssue[] = [];
+  for (const issue of open) {
+    const root = rootOf(issue);
+    if (root === issue) {
+      roots.push(issue);
+      continue;
+    }
+    const list = parts.get(root);
+    if (list) list.push(issue);
+    else parts.set(root, [issue]);
+  }
+  const itemOf = (issue: EnvironmentIssue): IssueTreeItem => ({
+    issue,
+    parts: parts.get(issue) ?? [],
+    closedParts: issue.subIssues?.completed ?? 0,
+  });
+  const openMilestones = new Map(
+    milestones.map((milestone) => [
+      issueKey(milestone),
+      { milestone, items: [] as IssueTreeItem[] },
+    ]),
+  );
+  const closed = new Map<string, { key: string; title: string; items: IssueTreeItem[] }>();
+  const none: IssueTreeItem[] = [];
+  for (const root of roots) {
+    const item = itemOf(root);
+    if (!root.milestone) {
+      none.push(item);
+      continue;
+    }
+    const key = milestoneKeyOf(root, root.milestone.number);
+    const group = openMilestones.get(key);
+    if (group) {
+      group.items.push(item);
+      continue;
+    }
+    const shelf = closed.get(key);
+    if (shelf) shelf.items.push(item);
+    else closed.set(key, { key, title: root.milestone.title, items: [item] });
+  }
+  return {
+    milestones: [...openMilestones.values()].filter((group) => group.items.length > 0),
+    none,
+    closedMilestones: [...closed.values()],
+  };
+}

@@ -36,6 +36,12 @@ describe("Board shortcuts", () => {
     expect(resolveFeaturesShortcut(key("c", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
       "features.newTodo",
     );
+    expect(resolveFeaturesShortcut(key("w", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
+      "features.workTab",
+    );
+    expect(resolveFeaturesShortcut(key("i", body), DEFAULT_RESOLVED_KEYBINDINGS)).toBe(
+      "features.issuesTab",
+    );
     expect(
       resolveFeaturesShortcut(key("c", new TestElement("INPUT")), DEFAULT_RESOLVED_KEYBINDINGS),
     ).toBeNull();

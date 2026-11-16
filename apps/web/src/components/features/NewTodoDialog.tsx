@@ -44,6 +44,7 @@ import {
   saveFeaturesPagePreferences,
 } from "./featuresPagePreferences";
 import { IssuePicker, parentChoices } from "./IssueStructureDetail";
+import { pickWorkflow, useEnvironmentWorkflows, useStartTodo } from "./startFromBoard";
 import { closeNewTodoDialog, newTodoDialogAtom, type NewTodoTarget } from "./todoDialogs";
 import { useFeatureEnvironmentIds } from "./useFeatureBoard";
 
@@ -102,6 +103,12 @@ function NewTodoDialog(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
+  const starts = props.target.start === true;
+  const startTodo = useStartTodo();
+  const workflows = useEnvironmentWorkflows(project?.environmentId ?? null);
+  const workflow = project
+    ? pickWorkflow(workflows, { environmentId: project.environmentId, projectId: project.id })
+    : null;
 
   const issues = useEnvironmentQuery(
     project
@@ -157,6 +164,23 @@ function NewTodoDialog(props: {
             { reportFailure: false },
           );
     setBusy(false);
+    if (result._tag === "Success" && starts && workflow) {
+      closeNewTodoDialog();
+      const todo = result.value;
+      void startTodo(
+        {
+          environmentId: project.environmentId,
+          projectId: project.id,
+          title: todo.title,
+          number: todo.number,
+          url: "url" in todo ? todo.url : "",
+          ticketId: "description" in todo ? todo.id : null,
+        },
+        workflow,
+        description,
+      );
+      return;
+    }
     if (result._tag === "Success") {
       if (kind === "issue" && parent !== null) {
         appAtomRegistry.refresh(
@@ -207,11 +231,12 @@ function NewTodoDialog(props: {
           onKeyDown={onKeyDown}
         >
           <DialogHeader>
-            <DialogTitle>New todo</DialogTitle>
+            <DialogTitle>{starts ? "New feature" : "New todo"}</DialogTitle>
             <DialogDescription>
               {kind === "issue" && repository
                 ? `Files an issue in ${repository} as the GitHub account this environment signs in with.`
                 : "A ticket stays in Bosun. A feature can work on it like an issue."}
+              {starts && workflow ? ` Start files it, then starts it on ${workflow.name}.` : null}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -349,15 +374,19 @@ function NewTodoDialog(props: {
             </div>
           </DialogPanel>
           <DialogFooter>
-            <label className="me-auto flex items-center gap-2 text-sm text-muted-foreground">
-              <Switch checked={createMore} onCheckedChange={setCreateMore} />
-              Create more
-            </label>
+            {starts ? (
+              <span className="me-auto" />
+            ) : (
+              <label className="me-auto flex items-center gap-2 text-sm text-muted-foreground">
+                <Switch checked={createMore} onCheckedChange={setCreateMore} />
+                Create more
+              </label>
+            )}
             <Button type="button" variant="ghost" onClick={closeNewTodoDialog} disabled={busy}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy || !project || !title.trim() || awaitingIssueHost}>
-              {kind === "issue" ? "Create issue" : "Create ticket"}
+              {starts ? "Start" : kind === "issue" ? "Create issue" : "Create ticket"}
               <Kbd>{formatShortcutLabel(SUBMIT_SHORTCUT)}</Kbd>
             </Button>
           </DialogFooter>

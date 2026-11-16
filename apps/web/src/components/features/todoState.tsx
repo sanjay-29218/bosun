@@ -94,6 +94,9 @@ const changeWithToast = async (
   return false;
 };
 
+/** Closes a todo as completed from a menu; its toast offers Undo. */
+export const closeTodoAsCompleted = (todo: TodoRef) => changeWithToast(todo, "closed", "completed");
+
 /**
  * Runs one change at a time. A success stays pending: the item leaves its column, or its sheet
  * swaps the button, once the refreshed list arrives, so it can't be sent twice meanwhile.

@@ -40,6 +40,8 @@ export interface NewTodoTarget {
   readonly milestone?: number;
   /** The issue a new issue starts as a sub-issue of. */
   readonly parent?: number;
+  /** New feature: files the todo, then starts a feature on it from the board. */
+  readonly start?: boolean;
 }
 
 export const todoDetailAtom = Atom.make<TodoTarget | null>(null).pipe(
