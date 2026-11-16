@@ -34,7 +34,7 @@ listed but can't be given to it until you tick that machine or install Bosun the
 project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
 its project manager, which runs on the project's default model (else the environment's). In the
 thread list it shows under every bot that may work on its machine, and a project on a machine that
-runs T3 Code without Bosun shows under every bot. Its project manager, pinned in the rail or listed
+runs T3 Code without Bosun shows under every bot. **Projects** always lists it. Its project manager, pinned in the rail or listed
 under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
 home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
 Deleting a bot also deletes the automations that run as it.
@@ -172,6 +172,13 @@ bot's or manager's thread without changing which bot you're on, the gear opens i
 **Add bot** makes a new bot. A count on **Bots** shows threads waiting on you that only an unpinned
 bot or manager shows. On mobile, the bot button's menu lists the pinned bots and managers, then
 **Bots**, with the same pins.
+
+**Projects**, at the top of the bot list, shows every project on every connected machine, with or
+without a bot, each in a folder with its threads and features. A project on several machines is one
+folder. Right-click a folder for its project manager and its settings, and use **Add project…** in
+the project picker above the list to add one. With no bots, Projects is what the list shows. New
+projects added from it have no bot. **Show all projects** in the command palette picks it too, and
+on mobile it's the first entry in the bot button's menu.
 
 Clicking a bot narrows the thread list and the board to its projects and takes you back to where
 you left it, such as its board or a thread. The first time, and when you click the bot you're

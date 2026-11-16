@@ -142,6 +142,8 @@ export interface Preferences {
   readonly pullRequestListFilters?: PullRequestListPreferences;
   /** The bot the thread list shows, per environment, like web's rail. */
   readonly activeBotIdByEnvironmentId?: Readonly<Record<string, string>>;
+  /** Projects is picked instead of a bot: the thread list shows every project. */
+  readonly threadListShowsAllProjects?: boolean;
   /** List or Board, per logical bot key. Absent means List. */
   readonly threadListViewByBot?: Readonly<Record<string, "list" | "board">>;
   readonly workspaceSelections?: WorkspaceSelections;
@@ -229,6 +231,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
     activeBotIdByEnvironmentId?: Readonly<Record<string, string>>;
+    threadListShowsAllProjects?: boolean;
     threadListViewByBot?: Readonly<Record<string, "list" | "board">>;
     workspaceSelections?: WorkspaceSelections;
   } = {};
@@ -392,6 +395,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
         ([, value]) => typeof value === "string",
       ),
     );
+  }
+  if (typeof parsed.threadListShowsAllProjects === "boolean") {
+    preferences.threadListShowsAllProjects = parsed.threadListShowsAllProjects;
   }
   if (typeof parsed.threadListViewByBot === "object" && parsed.threadListViewByBot !== null) {
     preferences.threadListViewByBot = Object.fromEntries(

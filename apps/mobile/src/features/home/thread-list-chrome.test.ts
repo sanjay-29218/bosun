@@ -17,6 +17,7 @@ const bot = (key: string, name: string, eyes: BotAvatar["eyes"], pinned = true):
 const places = {
   managers: [],
   select: vi.fn(),
+  showProjects: vi.fn(),
   openHeadquarters: vi.fn(),
   openManager: vi.fn(),
   openBotsList: vi.fn(),
@@ -28,7 +29,7 @@ const social = bot("name:social", "Social", "happy");
 const finance = bot("name:finance", "Finance", "visor");
 
 describe("buildBotSwitcherMenu", () => {
-  it("offers a single bot's headquarters without a switch", () => {
+  it("offers a single bot's headquarters, and Projects to switch to", () => {
     const openHeadquarters = vi.fn();
     const menu = buildBotSwitcherMenu({
       ...places,
@@ -41,13 +42,15 @@ describe("buildBotSwitcherMenu", () => {
       openLibrary: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
-    expect(menu?.items.map((item) => item.title)).toEqual([
-      "Bots",
-      "Open Captain's thread",
-      "Automations",
-      "Library",
+    expect(menu?.items.map((item) => [item.title, item.state ?? null])).toEqual([
+      ["Projects", "off"],
+      ["Captain", "on"],
+      ["Bots", null],
+      ["Open Captain's thread", null],
+      ["Automations", null],
+      ["Library", null],
     ]);
-    menu!.items[1]!.onPress();
+    menu!.items[3]!.onPress();
     expect(openHeadquarters).toHaveBeenCalledWith(captain);
   });
 
@@ -74,6 +77,7 @@ describe("buildBotSwitcherMenu", () => {
       elsewhereNeedsYou: 3,
       accessibilityLabel: "Bot: Captain. 3 need you in other bots",
       items: [
+        { title: "Projects", subtitle: "Every project and its threads", state: "off" },
         { title: "Captain", subtitle: "3 need you", state: "on" },
         { title: "Social", subtitle: "1 needs you", state: "off" },
         { title: "Finance", subtitle: "2 need you", state: "off" },
@@ -83,12 +87,12 @@ describe("buildBotSwitcherMenu", () => {
         { title: "Library" },
       ],
     });
-    menu!.items[1]!.onPress();
+    menu!.items[2]!.onPress();
     expect(select).toHaveBeenCalledWith(social);
     // The item after Bots opens the active bot's headquarters rather than switching.
-    menu!.items[4]!.onPress();
+    menu!.items[5]!.onPress();
     expect(openHeadquarters).toHaveBeenCalledWith(captain);
-    expect(menu!.items[4]).not.toHaveProperty("state");
+    expect(menu!.items[5]).not.toHaveProperty("state");
   });
 
   it("ends with the places: Automations, then Library", () => {
@@ -114,11 +118,33 @@ describe("buildBotSwitcherMenu", () => {
     expect(openLibrary).toHaveBeenCalledOnce();
   });
 
-  it("reads Bots with no bot to show, and still offers the places", () => {
+  it("reads Projects with no bot to show, and still offers the places", () => {
     const menu = buildBotSwitcherMenu({ ...places, bots: [], active: null, needsYou: new Map() });
     expect(menu.bot).toBeNull();
-    expect(menu.name).toBe("Bots");
+    expect(menu.name).toBe("Projects");
     expect(menu.items.map((item) => item.title)).toEqual(["Bots", "Automations", "Library"]);
+  });
+
+  it("checks Projects while it shows every bot's threads, with nothing waiting elsewhere", () => {
+    const showProjects = vi.fn();
+    const menu = buildBotSwitcherMenu({
+      ...places,
+      bots: [captain, social],
+      active: null,
+      needsYou: new Map([[social.key, 2]]),
+      showProjects,
+    });
+    expect(menu).toMatchObject({ name: "Projects", elsewhereNeedsYou: 0 });
+    expect(menu.items.map((item) => [item.title, item.state ?? null])).toEqual([
+      ["Projects", "on"],
+      ["Captain", "off"],
+      ["Social", "off"],
+      ["Bots", null],
+      ["Automations", null],
+      ["Library", null],
+    ]);
+    menu.items[0]!.onPress();
+    expect(showProjects).toHaveBeenCalledOnce();
   });
 
   it("lists only pinned bots, then pinned managers, keeping an unpinned active bot", () => {
@@ -135,6 +161,7 @@ describe("buildBotSwitcherMenu", () => {
     });
     expect(menu.name).toBe("Idle");
     expect(menu.items.map((item) => [item.title, item.state ?? null])).toEqual([
+      ["Projects", "off"],
       ["Captain", "off"],
       ["Social", "off"],
       ["web", null],
@@ -143,7 +170,7 @@ describe("buildBotSwitcherMenu", () => {
       ["Automations", null],
       ["Library", null],
     ]);
-    menu.items[2]!.onPress();
+    menu.items[3]!.onPress();
     expect(openManager).toHaveBeenCalledWith(manager);
   });
 
@@ -159,6 +186,6 @@ describe("buildBotSwitcherMenu", () => {
       openLibrary: vi.fn(),
     });
     expect(menu?.elsewhereNeedsYou).toBe(0);
-    expect(menu?.items[0]).not.toHaveProperty("subtitle");
+    expect(menu?.items[1]).not.toHaveProperty("subtitle");
   });
 });
