@@ -1,4 +1,5 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
+import * as LibraryCopies from "./crew/LibraryCopies.ts";
 import * as BotReach from "./bots/BotReach.ts";
 import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
 import { StandingBriefingLive } from "./crew/StandingBriefing.ts";
@@ -877,12 +878,20 @@ const layerMakeRoutes = Layer.mergeAll(
       ),
     ),
   ),
+  // Ticked workflows and roles reach linked machines after a save, or once they answer again.
+  Layer.effectDiscard(
+    LibraryCopies.LibraryCopies.pipe(
+      Effect.flatMap((copies) => ServerActivation.forkParked(copies.run)),
+    ),
+  ),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
   ),
   // delegate_task to a linked environment, from /mcp and the follower above.
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+  // Workflows and roles copied to linked machines, for WebSocket, /mcp and the loop above.
+  Layer.provide(LibraryCopies.layer),
   // A bot's projects and requests on linked environments, for /mcp and RemoteDelegation.
   Layer.provide(BotReach.layer),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.

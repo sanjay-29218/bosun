@@ -1,6 +1,7 @@
 import {
   BOT_HEADQUARTERS_RUN_PREFIX,
   CREW_DISPATCH_STATE,
+  LibraryOwner,
   ModelSelection,
   ProjectId,
   ProjectManagerIcon,
@@ -52,6 +53,8 @@ export interface Role {
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
   readonly enabled: boolean;
+  /** Set on a copy of another machine's role, which is edited there. */
+  readonly managedFrom: LibraryOwner | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -63,6 +66,8 @@ export interface Workflow {
   readonly instructions: string;
   readonly leadRoleId: string;
   readonly crewRoleIds: ReadonlyArray<string>;
+  /** Set on a copy of another machine's workflow, which is edited there. */
+  readonly managedFrom: LibraryOwner | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -131,6 +136,7 @@ interface RoleRow {
   readonly instructions: string;
   readonly modelSelectionJson: string;
   readonly enabled: number;
+  readonly managedFromJson: string | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -162,6 +168,9 @@ const parseModelSelection = Schema.decodeUnknownSync(ModelSelection);
 const parseRuntimeMode = Schema.decodeUnknownSync(RuntimeMode);
 const decodeModelSelection = (json: string) => parseModelSelection(JSON.parse(json));
 const parseIcon = Schema.decodeUnknownSync(ProjectManagerIcon);
+const parseOwner = Schema.decodeUnknownSync(LibraryOwner);
+const decodeOwner = (json: string | null) => (json === null ? null : parseOwner(JSON.parse(json)));
+const encodeOwner = (owner: LibraryOwner | null) => (owner === null ? null : JSON.stringify(owner));
 const decodeIcon = (json: string | null) => (json === null ? null : parseIcon(JSON.parse(json)));
 const encodeIcon = (icon: ProjectManagerIcon | null) =>
   icon === null ? null : JSON.stringify(icon);
@@ -189,19 +198,22 @@ const decodeRole = (row: RoleRow): Role => ({
   instructions: row.instructions,
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   enabled: row.enabled === 1,
+  managedFrom: decodeOwner(row.managedFromJson),
   revision: row.revision,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
-interface WorkflowRow extends Omit<Workflow, "crewRoleIds"> {
+interface WorkflowRow extends Omit<Workflow, "crewRoleIds" | "managedFrom"> {
   readonly crewRoleIdsJson: string;
+  readonly managedFromJson: string | null;
 }
 
-const decodeWorkflow = ({ crewRoleIdsJson, ...row }: WorkflowRow): Workflow => {
+const decodeWorkflow = ({ crewRoleIdsJson, managedFromJson, ...row }: WorkflowRow): Workflow => {
   const crewRoleIds: unknown = JSON.parse(crewRoleIdsJson);
   return {
     ...row,
+    managedFrom: decodeOwner(managedFromJson),
     crewRoleIds: Array.isArray(crewRoleIds)
       ? crewRoleIds.filter((id): id is string => typeof id === "string")
       : [],
@@ -245,6 +257,8 @@ export interface CrewStoreShape {
   ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly getRole: (id: string) => Effect.Effect<Role | null, PersistenceSqlError>;
   readonly listRoles: () => Effect.Effect<ReadonlyArray<Role>, PersistenceSqlError>;
+  /** Members made from it keep what they hold, no longer following it. */
+  readonly deleteRole: (id: string) => Effect.Effect<void, PersistenceSqlError>;
   readonly insertWorkflow: (workflow: Workflow) => Effect.Effect<void, PersistenceSqlError>;
   readonly updateWorkflow: (
     workflow: Workflow,
@@ -387,7 +401,7 @@ export const CrewStoreLive = Layer.effect(
       sql<RoleRow>`
         SELECT id, name, instructions,
           model_selection_json AS modelSelectionJson,
-          enabled,
+          enabled, managed_from_json AS managedFromJson,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM roles WHERE id = ${id}
       `.pipe(
@@ -427,10 +441,10 @@ export const CrewStoreLive = Layer.effect(
         sql`
           INSERT INTO roles (
             id, name, instructions, model_selection_json, enabled, auto_create_for_feature,
-            revision, created_at, updated_at
+            managed_from_json, revision, created_at, updated_at
           ) VALUES (
             ${role.id}, ${role.name}, ${role.instructions}, ${JSON.stringify(role.modelSelection)},
-            ${role.enabled ? 1 : 0}, 0, ${role.revision},
+            ${role.enabled ? 1 : 0}, 0, ${encodeOwner(role.managedFrom)}, ${role.revision},
             ${role.createdAt}, ${role.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -439,7 +453,7 @@ export const CrewStoreLive = Layer.effect(
           UPDATE roles SET
             name = ${role.name}, instructions = ${role.instructions},
             model_selection_json = ${JSON.stringify(role.modelSelection)},
-            enabled = ${role.enabled ? 1 : 0},
+            enabled = ${role.enabled ? 1 : 0}, managed_from_json = ${encodeOwner(role.managedFrom)},
             revision = ${role.revision}, updated_at = ${role.updatedAt}
           WHERE id = ${role.id} AND revision = ${expectedRevision}
           RETURNING id
@@ -452,7 +466,7 @@ export const CrewStoreLive = Layer.effect(
         sql<RoleRow>`
           SELECT id, name, instructions,
             model_selection_json AS modelSelectionJson,
-            enabled,
+            enabled, managed_from_json AS managedFromJson,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM roles
           ORDER BY name, id
@@ -465,10 +479,12 @@ export const CrewStoreLive = Layer.effect(
       insertWorkflow: (workflow) =>
         sql`
           INSERT INTO workflows (
-            id, name, instructions, lead_role_id, crew_role_ids_json, revision, created_at, updated_at
+            id, name, instructions, lead_role_id, crew_role_ids_json, managed_from_json, revision,
+            created_at, updated_at
           ) VALUES (
             ${workflow.id}, ${workflow.name}, ${workflow.instructions}, ${workflow.leadRoleId},
-            ${JSON.stringify(workflow.crewRoleIds)}, ${workflow.revision},
+            ${JSON.stringify(workflow.crewRoleIds)}, ${encodeOwner(workflow.managedFrom)},
+            ${workflow.revision},
             ${workflow.createdAt}, ${workflow.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -478,11 +494,18 @@ export const CrewStoreLive = Layer.effect(
             name = ${workflow.name}, instructions = ${workflow.instructions},
             lead_role_id = ${workflow.leadRoleId},
             crew_role_ids_json = ${JSON.stringify(workflow.crewRoleIds)},
+            managed_from_json = ${encodeOwner(workflow.managedFrom)},
             revision = ${workflow.revision}, updated_at = ${workflow.updatedAt}
           WHERE id = ${workflow.id} AND revision = ${expectedRevision}
           RETURNING id
         `.pipe(
           Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
+      deleteRole: (id) =>
+        sql`UPDATE crew_members SET role_id = NULL WHERE role_id = ${id}`.pipe(
+          Effect.andThen(sql`DELETE FROM roles WHERE id = ${id}`),
+          Effect.asVoid,
           Effect.mapError(queryError),
         ),
       deleteWorkflow: (id) =>
@@ -493,7 +516,7 @@ export const CrewStoreLive = Layer.effect(
       getWorkflow: (id) =>
         sql<WorkflowRow>`
           SELECT id, name, instructions, lead_role_id AS leadRoleId,
-            crew_role_ids_json AS crewRoleIdsJson, revision, created_at AS createdAt,
+            crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows WHERE id = ${id}
         `.pipe(
@@ -508,7 +531,7 @@ export const CrewStoreLive = Layer.effect(
       listWorkflows: () =>
         sql<WorkflowRow>`
           SELECT id, name, instructions, lead_role_id AS leadRoleId,
-            crew_role_ids_json AS crewRoleIdsJson, revision, created_at AS createdAt,
+            crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows ORDER BY name, id
         `.pipe(

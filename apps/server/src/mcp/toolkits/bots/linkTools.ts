@@ -1,12 +1,14 @@
 import {
   Bot,
   EnvironmentId,
+  LibraryOwner,
   ModelSelection,
   NodeId,
   OrchestratorMcpFailure,
   ProjectId,
   RunId,
   RuntimeMode,
+  SnapshotRole,
   ThreadId,
   WorkflowSnapshot,
 } from "@t3tools/contracts";
@@ -163,4 +165,30 @@ export const LinkBotNotices = Tool.make("t3_bot_link_notices", {
   success: Schema.Struct({ notices: Schema.Array(LinkedNotice) }),
 })
   .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
+/** Every workflow and role the calling environment made, which it copies here as one set. */
+export const LibraryCopySet = Schema.Struct({
+  owner: LibraryOwner,
+  workflows: Schema.Array(WorkflowSnapshot.fields.workflow),
+  roles: Schema.Array(Schema.Struct({ ...SnapshotRole.fields, enabled: Schema.Boolean })),
+});
+export type LibraryCopySet = typeof LibraryCopySet.Type;
+
+/** A workflow or role in the set this environment kept its own of, and why. */
+export const LibraryCopyRefusal = Schema.Struct({
+  kind: Schema.Literals(["workflow", "role"]),
+  id: Schema.String,
+  reason: Schema.String,
+});
+export type LibraryCopyRefusal = typeof LibraryCopyRefusal.Type;
+
+export const LinkLibrary = Tool.make("t3_crew_link_library", {
+  ...shared,
+  description:
+    "Makes the workflows and roles here managed from the calling environment match its set: adds and updates them, and removes those it no longer copies here.",
+  parameters: LibraryCopySet,
+  success: Schema.Struct({ refused: Schema.Array(LibraryCopyRefusal) }),
+})
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.Destructive, false);

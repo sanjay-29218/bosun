@@ -19,6 +19,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   BotProjectsResult,
   LinkBotNotices,
+  LinkLibrary,
   LinkBotProjects,
   LinkBotTask,
   ListedBot,
@@ -124,4 +125,5 @@ export const BotsToolkit = Toolkit.make(
   LinkBotProjects,
   LinkBotTask,
   LinkBotNotices,
+  LinkLibrary,
 );

@@ -22,6 +22,7 @@ import { BotReach } from "../bots/BotReach.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { LibraryCopies } from "../crew/LibraryCopies.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -108,6 +109,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(BotService)({}),
   Layer.mock(CrewApprovals)({}),
   Layer.mock(CrewService)({}),
+  Layer.mock(LibraryCopies)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(ProjectRequests)({}),
   Layer.mock(FeatureService)({}),
@@ -235,6 +237,7 @@ it.effect("every crew role and a plain thread reach every tool, with no grants",
       "t3_bot_link_projects",
       "t3_bot_link_task",
       "t3_bot_link_notices",
+      "t3_crew_link_library",
       "crew_ask_person",
     ]);
     const all = names(mcp.tools).filter((name) => !notListed.has(name));

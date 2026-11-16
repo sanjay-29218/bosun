@@ -80,6 +80,13 @@ export const layer = McpToolAccess.toLayer(
           ),
         { linkedCallers: "allowed" },
       ),
+      t3_crew_link_library: McpToolAccess.writes(
+        (input) =>
+          McpInvocationContext.McpInvocationContext.pipe(
+            Effect.flatMap((scope) => reach.libraryForLink(scope, input)),
+          ),
+        { linkedCallers: "allowed" },
+      ),
     };
   }),
 );

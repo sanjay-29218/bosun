@@ -133,7 +133,13 @@ const WorkflowRow = memo(function WorkflowRow({
             {workflow.name}
           </span>
           <span className="truncate text-xs text-muted-foreground">
-            {leadName ? `${leadName} · ${crewLabel(workflow)}` : crewLabel(workflow)}
+            {[
+              leadName,
+              crewLabel(workflow),
+              workflow.managedFrom ? `From ${workflow.managedFrom.label}` : null,
+            ]
+              .filter((part) => part !== null)
+              .join(" · ")}
           </span>
         </span>
         {environmentLabel ? (
@@ -181,7 +187,13 @@ const RoleRow = memo(function RoleRow({
         >
           {role.name}
         </span>
-        {note ? <span className="truncate text-xs text-muted-foreground">{note}</span> : null}
+        {note || role.managedFrom ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {[note, role.managedFrom ? `From ${role.managedFrom.label}` : null]
+              .filter((part) => part)
+              .join(" · ")}
+          </span>
+        ) : null}
       </span>
       {environmentLabel ? (
         <span className="pointer-events-none shrink-0 truncate text-xs text-muted-foreground">
@@ -193,7 +205,7 @@ const RoleRow = memo(function RoleRow({
         <Switch
           aria-label={`New features use ${role.name}`}
           checked={role.enabled}
-          disabled={!canEdit || saving}
+          disabled={!canEdit || saving || role.managedFrom !== null}
           onCheckedChange={(enabled) => {
             setSaving(true);
             void save(role, { enabled }).then(() => setSaving(false));

@@ -14,7 +14,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { CrewService } from "../../../crew/CrewService.ts";
+import { LibraryCopies } from "../../../crew/LibraryCopies.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -126,24 +126,24 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
 });
 
 const make = Effect.gen(function* () {
-  const crew = yield* CrewService;
+  const library = yield* LibraryCopies;
   const features = yield* FeatureService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   return {
     t3_role_list: McpToolAccess.reads(() =>
-      reading(Effect.all({ roles: crew.listRoles(), workflows: crew.listWorkflows() })),
+      reading(Effect.all({ roles: library.listRoles, workflows: library.listWorkflows })),
     ),
     t3_role_create: McpToolAccess.writesWithCapability((input: typeof RoleCreateInput.Type) =>
-      writing(crew.createRole(input)),
+      writing(library.createRole(input)),
     ),
     t3_role_update: McpToolAccess.writesWithCapability((input: typeof RoleUpdateInput.Type) =>
-      writing(crew.updateRole(input)),
+      writing(library.updateRole(input)),
     ),
     t3_feature_workflow_create: McpToolAccess.writesWithCapability(
-      (input: typeof WorkflowCreateInput.Type) => writing(crew.createWorkflow(input)),
+      (input: typeof WorkflowCreateInput.Type) => writing(library.createWorkflow(input)),
     ),
     t3_feature_workflow_update: McpToolAccess.writesWithCapability(
-      (input: typeof WorkflowUpdateInput.Type) => writing(crew.updateWorkflow(input)),
+      (input: typeof WorkflowUpdateInput.Type) => writing(library.updateWorkflow(input)),
     ),
     t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {

@@ -14,7 +14,7 @@ import { uuidv4 } from "../../lib/uuid";
 import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { Action, useRun } from "./MobileRoleConfigurationPanel";
+import { Action, ManagedFrom, useRun } from "./MobileRoleConfigurationPanel";
 
 interface WorkflowFields {
   readonly id: string;
@@ -54,11 +54,14 @@ function Editor(props: {
     ...crewRoleIds.filter((id) => !choices.some((role) => role.enabled && role.id === id)),
   ].filter((id) => id !== leadRoleId);
 
+  const managedFrom = props.workflow?.managedFrom ?? null;
+
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
         {props.workflow?.name ?? "New workflow"}
       </Text>
+      {managedFrom === null ? null : <ManagedFrom noun="workflow" label={managedFrom.label} />}
       <AppTextInput
         accessibilityLabel="Workflow name"
         placeholder="Name"
@@ -110,7 +113,7 @@ function Editor(props: {
       <View className="flex-row flex-wrap gap-2">
         <Action
           label="Save workflow"
-          disabled={!canSave || props.busy}
+          disabled={!canSave || props.busy || managedFrom !== null}
           onPress={() => {
             void props
               .onSave({
@@ -126,7 +129,9 @@ function Editor(props: {
               });
           }}
         />
-        {props.workflow && props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID ? (
+        {props.workflow &&
+        props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID &&
+        managedFrom === null ? (
           <Action
             label="Delete workflow"
             disabled={props.busy}
