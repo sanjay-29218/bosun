@@ -205,6 +205,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   scheduledTaskProjectManagers: Schema.optionalKey(Schema.Boolean),
   /** Server keeps one manager per project across linked machines (`crew.setProjectManagerPlacement`). */
   projectManagerHomes: Schema.optionalKey(Schema.Boolean),
+  /** Takes a bot copied or moved from a linked machine (`t3_bot_link_import`). */
+  botTransfer: Schema.optionalKey(Schema.Boolean),
   /** Server can transcribe 16 kHz mono PCM audio on the environment machine. */
   voiceTranscription: Schema.optionalKey(Schema.Boolean),
   cloudVoiceTranscription: Schema.optionalKey(Schema.Boolean),

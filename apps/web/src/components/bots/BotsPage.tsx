@@ -1,17 +1,20 @@
 import { useAtomValue } from "@effect/atom-react";
 import { botAutomationsDeleteWarning } from "@t3tools/client-runtime/state/automations";
 import { logicalBotOf, logicalBotProjectLists } from "@t3tools/client-runtime/state/bot-rail";
-import type { Bot, EnvironmentId } from "@t3tools/contracts";
+import type { Bot, BotTransferMode, BotTransferResult, EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CopyIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
+  MoveRightIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useEnvironmentScheduledTasks } from "../../state/automations";
@@ -23,7 +26,8 @@ import {
   useShownBotEnvironmentIds,
 } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
-import { useEnvironmentIdentities } from "../../state/environments";
+import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
+import { offersLinkedEnvironmentsAtom, peerLinkEnvironment } from "../../state/peerLinks";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentDefaultModel } from "../library/RoleEditor";
@@ -32,13 +36,14 @@ import { BOTS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
 import { useOpenBotHeadquarters } from "../sidebar/openBotHeadquarters";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import { BotEditor } from "./BotEditor";
 import { BotList } from "./BotList";
 import { BotProjectList } from "./BotProjects";
 import { botDeleteBlocker, groupProjectsByBot, moveBotInOrder } from "./bots.logic";
 import type { BotsSearch } from "./botsSearch";
+import { BotTransferDialog } from "./BotTransferDialog";
 import { NewBotDialog } from "./NewBotDialog";
 
 /**
@@ -141,10 +146,24 @@ function EnvironmentBotPage({
   const environmentLabels = new Map(
     useEnvironmentIdentities().map((environment) => [environment.environmentId, environment.label]),
   );
+  const connected = useConnectedEnvironmentIds();
+  // A bot reaches its home and the machines linked to it, and adds projects only there.
+  const offersLinks = useAtomValue(offersLinkedEnvironmentsAtom(environmentId));
+  const links = useEnvironmentQuery(
+    offersLinks ? peerLinkEnvironment.list({ environmentId, input: {} }) : null,
+  );
+  const reachableEnvironmentIds = new Set([
+    environmentId,
+    ...(links.data?.links ?? []).map((link) => link.environmentId),
+  ]);
+  const update = useAtomCommand(botsEnvironment.update, { reportFailure: false });
+  const canTransfer = useAtomValue(botsEnvironment.transfer.permissionAtom(environmentId));
+  const [transferMode, setTransferMode] = useState<BotTransferMode | null>(null);
   // Bumped to remount the form, which discards its draft.
   const [formRevision, setFormRevision] = useState(0);
   const bots = botsQuery.data ?? [];
   const bot = bots.find((candidate) => candidate.id === botId) ?? null;
+  const homeLabel = environmentLabels.get(environmentId) ?? "this machine";
   const back = {
     label: "Bots",
     onBack: () => void navigate({ to: BOTS_SETTINGS_PATH, search: {} }),
@@ -180,7 +199,51 @@ function EnvironmentBotPage({
       ),
     ) ?? logicalBotOf(environmentId, bot);
   const railBots = logicalBots.includes(logicalBot) ? logicalBots : [...logicalBots, logicalBot];
-  const projectLists = logicalBotProjectLists(logicalBot, railBots, allProjects, botEnvironmentIds);
+  const projectLists = logicalBotProjectLists(
+    logicalBot,
+    railBots,
+    allProjects,
+    botEnvironmentIds,
+    reachableEnvironmentIds,
+  );
+  const grantAccess = async (linkedId: EnvironmentId) => {
+    const result = await update({
+      environmentId,
+      input: {
+        id: bot.id,
+        expectedRevision: bot.revision,
+        permittedEnvironmentIds: [...bot.permittedEnvironmentIds, linkedId],
+      },
+    });
+    return result._tag === "Success" ? null : formatEnvironmentQueryError(result.cause);
+  };
+  const transferred = (result: BotTransferResult, mode: BotTransferMode) => {
+    const target = environmentLabels.get(result.bot.environmentId) ?? "the other machine";
+    const title =
+      mode === "move" ? `${bot.name} moved to ${target}` : `Copied ${bot.name} to ${target}`;
+    toastManager.add(
+      result.warnings.length > 0
+        ? { type: "warning", title, description: result.warnings.join(" ") }
+        : mode === "copy"
+          ? {
+              type: "success",
+              title,
+              description: "Its automations are off until you turn them on.",
+            }
+          : { type: "success", title },
+    );
+    // The editor's draft goes first: a moved bot is gone here, so there's nothing to keep.
+    flushSync(() => {
+      setTransferMode(null);
+      if (mode === "move") setFormRevision((revision) => revision + 1);
+    });
+    if (connected.includes(result.bot.environmentId)) {
+      void navigate({
+        to: BOTS_SETTINGS_PATH,
+        search: { environmentId: result.bot.environmentId, botId: result.bot.id },
+      });
+    } else if (mode === "move") back.onBack();
+  };
   return (
     <CrewSettingsFrame
       back={back}
@@ -192,6 +255,7 @@ function EnvironmentBotPage({
           bots={bots}
           ownedProjects={ownedProjects.length}
           onDeleted={back.onBack}
+          onTransfer={canTransfer ? setTransferMode : null}
         />
       }
     >
@@ -209,14 +273,26 @@ function EnvironmentBotPage({
             bots={railBots}
             ownedProjects={projectLists.owned}
             availableProjects={projectLists.available}
-            notAllowedProjects={projectLists.notAllowed}
             projectsWithoutBots={projectLists.withoutBots}
             environmentLabels={environmentLabels}
+            grantAccess={grantAccess}
           />
         }
+        onMove={canTransfer ? () => setTransferMode("move") : null}
         onConflict={botsQuery.refresh}
         onSaved={() => {}}
         onCancel={() => setFormRevision((revision) => revision + 1)}
+      />
+      <BotTransferDialog
+        environmentId={environmentId}
+        homeLabel={homeLabel}
+        bot={bot}
+        mode={transferMode ?? "move"}
+        open={transferMode !== null}
+        onOpenChange={(open) => {
+          if (!open) setTransferMode(null);
+        }}
+        onDone={transferred}
       />
     </CrewSettingsFrame>
   );
@@ -229,12 +305,15 @@ function BotActions({
   bots,
   ownedProjects,
   onDeleted,
+  onTransfer,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: Bot;
   readonly bots: ReadonlyArray<Bot>;
   readonly ownedProjects: number;
   readonly onDeleted: () => void;
+  /** Opens Copy or Move to another machine; null without permission to. */
+  readonly onTransfer: ((mode: BotTransferMode) => void) | null;
 }) {
   const canEdit = useAtomValue(botsEnvironment.update.permissionAtom(environmentId));
   const reorder = useAtomCommand(botsEnvironment.reorder);
@@ -313,6 +392,20 @@ function BotActions({
             <ArrowDownIcon />
             Move down
           </MenuItem>
+          {onTransfer === null ? null : (
+            <>
+              <MenuSeparator />
+              <MenuItem onClick={() => onTransfer("copy")}>
+                <CopyIcon />
+                Copy to another machine…
+              </MenuItem>
+              <MenuItem onClick={() => onTransfer("move")}>
+                <MoveRightIcon />
+                Move to another machine…
+              </MenuItem>
+              <MenuSeparator />
+            </>
+          )}
           <MenuItem
             variant="destructive"
             disabled={deleteBlocker !== null}

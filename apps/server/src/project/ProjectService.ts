@@ -684,15 +684,18 @@ export const make = Effect.gen(function* () {
     const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads].sort(
       (a, b) => DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
     );
+    // A deleted bot's headquarters goes with its home, as when the bot moved to another machine.
     const headquarters = projectThreads.find((thread) => headquartersBotId(thread.id) !== null);
     if (headquarters !== undefined) {
       const botId = headquartersBotId(headquarters.id)!;
-      const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null));
-      return yield* new ProjectHoldsHeadquartersError({
-        projectId,
-        projectTitle,
-        botName: bot?.name ?? botId,
-      });
+      const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => ({ name: botId })));
+      if (bot !== null) {
+        return yield* new ProjectHoldsHeadquartersError({
+          projectId,
+          projectTitle,
+          botName: bot.name,
+        });
+      }
     }
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });

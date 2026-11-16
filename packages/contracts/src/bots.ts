@@ -199,6 +199,57 @@ export const BotSetPinInput = Schema.Struct({
 });
 export type BotSetPinInput = typeof BotSetPinInput.Type;
 
+export const BotTransferMode = Schema.Literals(["copy", "move"]);
+export type BotTransferMode = typeof BotTransferMode.Type;
+
+/**
+ * Copies a bot to a linked machine, or moves it there. `newBotId` is chosen once per attempt, so
+ * a retry finishes or undoes the same transfer. `dryRun` changes nothing and returns the preview.
+ */
+export const BotTransferInput = Schema.Struct({
+  botId: Schema.String,
+  targetEnvironmentId: EnvironmentId,
+  newBotId: Schema.String,
+  mode: BotTransferMode,
+  dryRun: Schema.optionalKey(Schema.Boolean),
+});
+export type BotTransferInput = typeof BotTransferInput.Type;
+
+/**
+ * What becomes of one of the bot's projects: it comes along on a move, stays with the original on
+ * a copy, or is left with no bot when the target has no link to its machine.
+ */
+export const BotTransferProjectOutcome = Schema.Literals([
+  "comes-along",
+  "stays-with-original",
+  "left-without-bot",
+]);
+export type BotTransferProjectOutcome = typeof BotTransferProjectOutcome.Type;
+
+export const BotTransferResult = Schema.Struct({
+  /** The bot on the target machine. */
+  bot: Schema.Struct({ environmentId: EnvironmentId, id: Schema.String, name: Schema.String }),
+  projects: Schema.Array(
+    Schema.Struct({
+      environmentId: EnvironmentId,
+      environmentLabel: Schema.String,
+      projectId: ProjectId,
+      title: Schema.String,
+      outcome: BotTransferProjectOutcome,
+    }),
+  ),
+  /** Linked machines that didn't answer, so their projects may still name the bot. */
+  unchecked: Schema.Array(Schema.Struct({ environmentId: EnvironmentId, label: Schema.String })),
+  automations: Schema.Struct({
+    copied: Schema.Int,
+    /** How many were on; a move keeps them on, a copy brings every one turned off. */
+    enabled: Schema.Int,
+    needAttention: Schema.Array(Schema.Struct({ title: Schema.String, reason: Schema.String })),
+  }),
+  warnings: Schema.Array(Schema.String),
+});
+export type BotTransferResult = typeof BotTransferResult.Type;
+
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",
   { reason: Schema.String },

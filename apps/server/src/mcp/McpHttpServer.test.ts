@@ -38,6 +38,7 @@ import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
+import * as BotTransfer from "../bots/BotTransfer.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -2064,6 +2065,7 @@ it.effect(
                   ),
               }),
               Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
+              Layer.mock(BotTransfer.BotTransfer)({}),
               Layer.mock(RemoteDelegation.RemoteDelegation)({
                 delegate: (_scope, input) =>
                   Effect.sync(() => {

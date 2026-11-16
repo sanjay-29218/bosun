@@ -20,6 +20,7 @@ import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
 import { BotReach } from "../bots/BotReach.ts";
+import { BotTransfer } from "../bots/BotTransfer.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
@@ -80,6 +81,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(OrchestratorV2)({}),
   Layer.mock(PeerForwarding)({}),
   Layer.mock(BotReach)({}),
+  Layer.mock(BotTransfer)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),
@@ -237,6 +239,8 @@ it.effect("a project manager holding every grant is listed every tool but the li
       "t3_bot_link_projects",
       "t3_bot_link_task",
       "t3_bot_link_notices",
+      "t3_bot_link_import",
+      "t3_bot_link_rehome",
       "crew_ask_person",
     ]);
     const all = mcp.tools.map(({ tool }) => tool.name).filter((name) => !notListed.has(name));

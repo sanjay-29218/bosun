@@ -321,6 +321,21 @@ export class ScheduledTaskService extends Context.Service<
       readonly projectId: ProjectId;
       readonly reason: string;
     }) => Effect.Effect<void, ScheduledTaskError>;
+    /**
+     * Turns off every task that runs as this bot, records why, and returns the ones it turned
+     * off, as a bot moving to another machine does.
+     */
+    readonly pauseForBot: (input: {
+      readonly botId: string;
+      readonly reason: string;
+    }) => Effect.Effect<ReadonlyArray<ScheduledTaskId>, ScheduledTaskError>;
+    /** Turns these tasks off, on or not, and records why. */
+    readonly pauseTasks: (input: {
+      readonly taskIds: ReadonlyArray<ScheduledTaskId>;
+      readonly reason: string;
+    }) => Effect.Effect<void, ScheduledTaskError>;
+    /** Turns these tasks back on, clearing why they were paused; one that can't run stays off. */
+    readonly resumeTasks: (taskIds: ReadonlyArray<ScheduledTaskId>) => Effect.Effect<void>;
     /** Deletes the tasks that run as the manager of a deleted project. */
     readonly deleteForDeletedProjects: () => Effect.Effect<void, ScheduledTaskError>;
     /** Points tasks bound to these threads at the project the threads moved to. */
@@ -1931,6 +1946,48 @@ export const layer = Layer.effect(
         if (paused.length > 0) yield* notifyChanged;
       });
 
+    const pauseForBot: ScheduledTaskService["Service"]["pauseForBot"] = Effect.fn(
+      "ScheduledTaskService.pauseForBot",
+    )(function* ({ botId, reason }) {
+      const now = iso(yield* localNow);
+      const paused = yield* sql<{ task_id: ScheduledTaskId }>`
+        UPDATE scheduled_tasks
+        SET enabled = 0, next_run_at = NULL, paused_reason = ${reason}, updated_at = ${now}
+        WHERE bot_id = ${botId} AND enabled = 1
+        RETURNING task_id
+      `.pipe(Effect.mapError((cause) => taskError("Could not pause the bot's tasks.", { cause })));
+      if (paused.length > 0) yield* notifyChanged;
+      return paused.map((row) => row.task_id);
+    });
+
+    const pauseTasks: ScheduledTaskService["Service"]["pauseTasks"] = Effect.fn(
+      "ScheduledTaskService.pauseTasks",
+    )(function* ({ taskIds, reason }) {
+      if (taskIds.length === 0) return;
+      const now = iso(yield* localNow);
+      yield* sql`
+        UPDATE scheduled_tasks
+        SET enabled = 0, next_run_at = NULL, paused_reason = ${reason}, updated_at = ${now}
+        WHERE task_id IN ${sql.in(taskIds)}
+      `.pipe(Effect.mapError((cause) => taskError("Could not pause the tasks.", { cause })));
+      yield* notifyChanged;
+    });
+
+    const resumeTasks: ScheduledTaskService["Service"]["resumeTasks"] = Effect.fn(
+      "ScheduledTaskService.resumeTasks",
+    )(function* (taskIds) {
+      yield* Effect.forEach(
+        taskIds,
+        (id) =>
+          setEnabled({ id, enabled: true }).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("A paused task stayed off", { taskId: id, error }),
+            ),
+          ),
+        { discard: true },
+      );
+    });
+
     const botModelSelection: ScheduledTaskService["Service"]["botModelSelection"] = Effect.fn(
       "ScheduledTaskService.botModelSelection",
     )(function* (botId) {
@@ -2936,6 +2993,9 @@ export const layer = Layer.effect(
       connectBotHeadquarters,
       connectProjectManagers,
       pauseForProjectManager,
+      pauseForBot,
+      pauseTasks,
+      resumeTasks,
       deleteForDeletedProjects,
       moveThreadTasks,
       runNow,

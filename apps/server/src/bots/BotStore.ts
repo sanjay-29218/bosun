@@ -44,6 +44,8 @@ export class BotStore extends Context.Service<
       deletedAt: string,
       homeWorkspaceRoot: string | null,
     ) => Effect.Effect<DeleteBotResult, PersistenceSqlError>;
+    /** Frees a deleted bot's ID, as for a copy that was undone before anyone used it. */
+    readonly purge: (id: string) => Effect.Effect<void, PersistenceSqlError>;
     /** Pins the bot to the main rail or unpins it; false when there's no such bot. */
     readonly setPinned: (
       id: string,
@@ -158,6 +160,12 @@ const make = Effect.gen(function* () {
             }),
           )
           .pipe(Effect.mapError(queryError)),
+    ),
+    purge: Effect.fn("BotStore.purge")((id) =>
+      sql`DELETE FROM bots WHERE id = ${id} AND deleted_at IS NOT NULL`.pipe(
+        Effect.asVoid,
+        Effect.mapError(queryError),
+      ),
     ),
     setPinned: Effect.fn("BotStore.setPinned")((id, pinned) =>
       sql<{ readonly id: string }>`

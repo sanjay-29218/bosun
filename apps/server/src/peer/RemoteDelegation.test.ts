@@ -44,6 +44,7 @@ import { McpSchema, McpServer } from "effect/ai";
 
 import { notPermitted } from "../bots/BotEnvironmentGuard.ts";
 import * as BotReach from "../bots/BotReach.ts";
+import * as BotTransfer from "../bots/BotTransfer.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
@@ -704,6 +705,7 @@ const makeLaptop = (
           ),
           Layer.provideMerge(PeerForwarding.layer),
           Layer.provide(Layer.mock(BotReach.BotReach)(botReach)),
+          Layer.provide(Layer.mock(BotTransfer.BotTransfer)({})),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
               // A cold enrichment cache: the project itself reports no identity yet.

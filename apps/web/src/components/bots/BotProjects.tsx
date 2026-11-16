@@ -6,8 +6,8 @@ import {
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type { Bot, EnvironmentId, ProjectId, ProjectRemoteBot } from "@t3tools/contracts";
-import { ArrowRightLeftIcon, BotIcon, PlusIcon } from "lucide-react";
-import { useState, type ReactElement, type ReactNode } from "react";
+import { BotIcon, PlusIcon, XIcon } from "lucide-react";
+import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { botsEnvironment } from "../../state/bots";
@@ -19,15 +19,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { useMoveProjectToLogicalBot } from "../sidebar/moveProjectToBot";
 import { Button } from "../ui/button";
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -166,9 +158,9 @@ const withoutBosunReason = (environmentLabel: string) =>
   `${environmentLabel} runs T3 Code without Bosun. Install Bosun there to give its projects to a bot.`;
 
 /**
- * A bot's projects on every machine this client knows, each movable to another bot, plus a way to
- * bring one over from its home or a machine it may work on. A project on another machine stays
- * there and is this bot's by its `remoteBot`.
+ * A bot's projects on every machine this client knows, each removable, plus a way to add one
+ * from its home or a machine linked to it. A project on another machine stays there and is this
+ * bot's by its `remoteBot`; adding one there also lets the bot work on that machine.
  */
 export function BotProjectList({
   environmentId,
@@ -176,18 +168,19 @@ export function BotProjectList({
   bots,
   ownedProjects,
   availableProjects,
-  notAllowedProjects,
   projectsWithoutBots,
   environmentLabels,
+  grantAccess,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: LogicalBot;
   readonly bots: readonly LogicalBot[];
   readonly ownedProjects: readonly EnvironmentProject[];
   readonly availableProjects: readonly EnvironmentProject[];
-  readonly notAllowedProjects: readonly EnvironmentProject[];
   readonly projectsWithoutBots: readonly EnvironmentProject[];
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
+  /** Ticks a linked machine under Can work on; the error to show, or null once saved. */
+  readonly grantAccess: (environmentId: EnvironmentId) => Promise<string | null>;
 }) {
   const moveToBot = useMoveProjectToLogicalBot();
   const connected = useConnectedEnvironmentIds();
@@ -210,16 +203,24 @@ export function BotProjectList({
   const byMachine = (left: EnvironmentProject, right: EnvironmentProject) =>
     Number(left.environmentId !== environmentId) - Number(right.environmentId !== environmentId) ||
     labelOf(left.environmentId).localeCompare(labelOf(right.environmentId));
-  const homes = [...new Set(bots.map(logicalBotHome))];
-  const move = async (project: EnvironmentProject, target: LogicalBot | null) => {
+  const change = async (project: EnvironmentProject, add: boolean) => {
     setMoving(true);
-    const error = await moveToBot(project, target);
-    if (error !== null)
+    const fail = (description: string) =>
       toastManager.add({
         type: "error",
-        title: `Could not move ${project.title}`,
-        description: error,
+        title: `Could not ${add ? "add" : "remove"} ${project.title}`,
+        description,
       });
+    // Adding a project on a machine the bot may not work on yet lets it work there first.
+    const granted =
+      add && !logicalBotWorksOn(bot, project.environmentId)
+        ? await grantAccess(project.environmentId)
+        : null;
+    if (granted !== null) fail(granted);
+    else {
+      const error = await moveToBot(project, add ? bot : null);
+      if (error !== null) fail(error);
+    }
     setMoving(false);
   };
   const groupByEnvironment = (projects: readonly EnvironmentProject[]) => {
@@ -231,8 +232,7 @@ export function BotProjectList({
     }
     return [...groups];
   };
-  const canAdd =
-    availableProjects.length > 0 || notAllowedProjects.length > 0 || projectsWithoutBots.length > 0;
+  const canAdd = availableProjects.length > 0 || projectsWithoutBots.length > 0;
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/60">
@@ -240,12 +240,6 @@ export function BotProjectList({
         const machine = elsewhere(project);
         const offline = machine !== null && !connected.includes(project.environmentId);
         const allowed = logicalBotWorksOn(bot, project.environmentId);
-        const targetHomes = [
-          ...homes.filter((home) => home === project.environmentId),
-          ...homes
-            .filter((home) => home !== project.environmentId)
-            .toSorted((left, right) => labelOf(left).localeCompare(labelOf(right))),
-        ];
         return (
           <div
             key={`${project.environmentId}:${project.id}`}
@@ -279,54 +273,12 @@ export function BotProjectList({
                 {allowed ? null : (
                   <span className="shrink-0 text-xs text-muted-foreground">Not allowed</span>
                 )}
-                <Menu>
-                  <MoveTrigger
-                    environmentId={project.environmentId}
-                    moving={moving}
-                    render={(disabled) => (
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        disabled={disabled}
-                        aria-label={`Move ${project.title} to another bot`}
-                      />
-                    )}
-                  >
-                    <ArrowRightLeftIcon className="size-4" />
-                  </MoveTrigger>
-                  <MenuPopup align="end">
-                    {targetHomes.map((home) => {
-                      const targets = bots.filter(
-                        (target) => target.key !== bot.key && logicalBotHome(target) === home,
-                      );
-                      return targets.length === 0 ? null : (
-                        <MenuGroup key={home}>
-                          <MenuGroupLabel>{labelOf(home)}</MenuGroupLabel>
-                          {targets.map((target) => (
-                            <MenuItem
-                              key={target.key}
-                              disabled={!logicalBotWorksOn(target, project.environmentId)}
-                              onClick={() => void move(project, target)}
-                            >
-                              <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
-                                <BotOption bot={target} />
-                                {logicalBotWorksOn(target, project.environmentId) ? null : (
-                                  <span className="shrink-0 text-xs text-muted-foreground">
-                                    Not allowed on {labelOf(project.environmentId)}
-                                  </span>
-                                )}
-                              </span>
-                            </MenuItem>
-                          ))}
-                        </MenuGroup>
-                      );
-                    })}
-                    <MenuSeparator />
-                    <MenuItem onClick={() => void move(project, null)}>
-                      <span className="text-muted-foreground">No bot</span>
-                    </MenuItem>
-                  </MenuPopup>
-                </Menu>
+                <RemoveButton
+                  project={project}
+                  botName={bot.name}
+                  moving={moving}
+                  onClick={() => void change(project, false)}
+                />
               </>
             )}
           </div>
@@ -351,7 +303,7 @@ export function BotProjectList({
               <MenuPopup align="start">
                 {availableProjects.length > 0 ? (
                   <MenuGroup>
-                    <MenuGroupLabel>Move to {bot.name}</MenuGroupLabel>
+                    <MenuGroupLabel>Add to {bot.name}</MenuGroupLabel>
                     {availableProjects.toSorted(byMachine).map((project) => (
                       <AddProjectItem
                         key={`${project.environmentId}:${project.id}`}
@@ -359,19 +311,11 @@ export function BotProjectList({
                         detail={[elsewhere(project), ownerName(project)]
                           .filter(Boolean)
                           .join(" · ")}
-                        onClick={() => void move(project, bot)}
+                        onClick={() => void change(project, true)}
                       />
                     ))}
                   </MenuGroup>
                 ) : null}
-                {groupByEnvironment(notAllowedProjects).map(([projectEnvironmentId, projects]) => (
-                  <DisabledProjectGroup
-                    key={projectEnvironmentId}
-                    label={labelOf(projectEnvironmentId)}
-                    reason={`Not allowed on ${labelOf(projectEnvironmentId)}. Tick it under Can work on to add its projects.`}
-                    projects={projects}
-                  />
-                ))}
                 {groupByEnvironment(projectsWithoutBots).map(([projectEnvironmentId, projects]) => (
                   <DisabledProjectGroup
                     key={projectEnvironmentId}
@@ -409,20 +353,37 @@ function DisabledProjectGroup(props: {
   );
 }
 
-/** Moving needs permission on the project's own environment. */
-function MoveTrigger({
-  environmentId,
+/** Taking a project off the bot needs permission on the project's own environment. */
+function RemoveButton({
+  project,
+  botName,
   moving,
-  render,
-  children,
+  onClick,
 }: {
-  readonly environmentId: EnvironmentId;
+  readonly project: EnvironmentProject;
+  readonly botName: string;
   readonly moving: boolean;
-  readonly render: (disabled: boolean) => ReactElement;
-  readonly children: ReactNode;
+  readonly onClick: () => void;
 }) {
-  const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(environmentId));
-  return <MenuTrigger render={render(moving || !canMove)}>{children}</MenuTrigger>;
+  const canMove = useAtomValue(botsEnvironment.moveProject.permissionAtom(project.environmentId));
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost-muted"
+            disabled={moving || !canMove}
+            aria-label={`Remove ${project.title} from ${botName}`}
+            onClick={onClick}
+          />
+        }
+      >
+        <XIcon className="size-4" />
+      </TooltipTrigger>
+      <TooltipPopup>Remove from {botName}</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 function AddProjectItem({

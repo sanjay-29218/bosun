@@ -21,22 +21,26 @@ also has instructions, tools and a default model. The model picker also sets its
 **Save**. Under **Tools**, a ticked tool is one the bot can use. A new bot starts with every
 tool ticked, including **Manage bots, roles and workflows**, and on **Full access**; untick a tool
 to take it away and tick it to give it back. Tools added in a later version start ticked. The
-same goes for roles and project managers. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+same goes for roles and project managers. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down, copies or moves it to another machine (see below), or deletes it.
 
-A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
-another bot, or bring one over; work that already started keeps running as the bot that started
-it. A bot can own a project on any machine it may work on (see **Can work on** below): the project
-stays on its machine, and the bot works on it from its own machine, with no copy of the bot
-there. That project's **Settings → Project → Bot** shows the owner as "Atlas · lives on Mac
-Studio". A project on a machine that isn't answering shows **Offline**; requests to it wait. Projects
-on a machine the bot may not work on, and on an environment that runs T3 Code without Bosun, are
-listed but can't be given to it until you tick that machine or install Bosun there. You can also change a
-project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
-its project manager, which runs on the project's default model (else the environment's). In the
+A bot's **Projects** tab lists the projects it owns on every connected environment. **Add project**
+gives it another, and the **✕** on a row takes one off it, leaving that project with no bot; work
+that already started keeps running as the bot that started it. Projects and bots don't need each
+other: a project works with no bot, and a bot with no projects. **Add project** lists the projects
+on the bot's own machine and on the machines linked to it (see **Can work on** below); other
+machines' projects don't show. A project on a linked machine stays there, and the bot works on it
+from its own machine, with no copy of the bot there. Adding one also ticks that machine under **Can
+work on**, so the bot can hand it work straight away. That project's **Settings → Project → Bot**
+shows the owner as "Atlas · lives on Mac Studio". A project on a machine that isn't answering shows
+**Offline**; requests to it wait. A project on a machine you later untick shows **Not allowed**.
+Projects on a linked machine that runs T3 Code without Bosun are listed but can't be added until
+you install Bosun there. You can also change a project's bot in **Settings → Project → Bot**, or
+pick **No bot**: a project with no bot still has its project manager, which runs on the project's
+default model (else the environment's). In the
 thread list it shows under every bot that may work on its machine, and a project on a machine that
 runs T3 Code without Bosun shows under every bot. Its project manager, pinned in the rail or listed
 under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
-home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
+home folder doesn't count, and stays behind on Delete): remove each first.
 Deleting a bot also deletes the automations that run as it.
 
 The **Projects** tab also lists, under **Can work on**, the machines linked to the bot's machine
@@ -49,6 +53,33 @@ again keeps what you unticked. **Link an environment** links another machine wit
 When the bot hands work to a project on a machine that's asleep or offline, the request waits
 instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
 is back**, and it starts by itself once that machine answers, even after a restart. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unticking the machine while a request waits fails it.
+
+#### Copy or move a bot to another machine
+
+A bot lives on one machine, but you can copy it or move it to a machine linked to that one. Pick
+**Copy to another machine…** or **Move to another machine…** in the bot's **⋯** menu, or **Move…**
+next to **Lives on** under its name, then the machine. Before you confirm, the dialog shows what
+will happen to the bot's projects and automations.
+
+- **Copy** makes a separate bot there with the same name, look, instructions, model, tools,
+  **Access**, **Long conversations** setting and home folder files. Its automations come along
+  turned off, so they don't run on both machines; turn them on there when you're ready. The
+  original stays as it is and keeps its projects. The two aren't kept in sync.
+- **Move** does the same, then hands the bot's projects to the moved bot and removes it from the
+  old machine completely: its settings, home folder, automations and headquarters thread. Its
+  automations stop first and start again on the new machine, so they never run on both. The bot
+  starts a fresh headquarters thread there and keeps its memory, which lives in its home folder.
+  A project comes along when the new machine can reach the project's machine; a project on a
+  machine the new one has no link to is left with no bot, and the dialog says which. To bring
+  those along, link that machine from the new one first. If the move fails, the bot stays where
+  it was, unchanged. You can move it back the same way once the new machine links back.
+
+Both need the other machine on a link with **Full access**, running a Bosun version that can take
+bots; otherwise the dialog says to link it again or update Bosun there. A bot whose headquarters is
+working can't move until it finishes or you stop it. A home folder can carry up to 1,000 files and
+8 MB. Webhook automations get a new URL on the new machine and leave their signing secret behind,
+so they arrive turned off: update the sender, and its secret, then turn them on. Copying and moving
+aren't available in the mobile app; a moved bot shows there under its new machine.
 
 #### Projects owned by a copy of a bot on another machine
 
