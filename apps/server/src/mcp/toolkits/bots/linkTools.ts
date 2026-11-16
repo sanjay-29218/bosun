@@ -54,6 +54,9 @@ const EnvironmentName = { environmentId: EnvironmentId, label: Schema.String };
 /** A bot with where it lives and the linked environments it may start work on. */
 export const ListedBot = Schema.Struct({
   ...Bot.fields,
+  /** Older linked environments require these. Every bot runs with full access and compacts. */
+  runtimeMode: Schema.optionalKey(RuntimeMode),
+  longConversation: Schema.optionalKey(Schema.Literals(["compact", "new-session"])),
   home: Schema.Struct(EnvironmentName).annotate({
     description: "The environment the bot lives on: its settings, chat, memory and home folder.",
   }),
@@ -61,7 +64,7 @@ export const ListedBot = Schema.Struct({
     Schema.Struct({ ...EnvironmentName, reachable: Schema.Boolean }),
   ).annotate({
     description:
-      "Linked environments the bot may start work on; reachable says whether the link answered last time.",
+      "Every environment linked to the bot's home, each of which it works on; reachable says whether the link answered last time.",
   }),
 });
 export type ListedBot = typeof ListedBot.Type;

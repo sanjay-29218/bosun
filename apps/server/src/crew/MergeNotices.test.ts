@@ -313,13 +313,13 @@ it.effect("sends nothing again after a restart, and reconciles missed merges sin
     const sql = yield* SqlClient.SqlClient;
     yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        member_revision, model_selection_json, runtime_mode, created_at)
       VALUES
         (${projectHeadquartersRunId(web)}, 'project-manager:web', ${web},
-          ${projectHeadquartersThreadId(web)}, 'Manage', 'Project manager', '', '[]', 1, '{}',
+          ${projectHeadquartersThreadId(web)}, 'Manage', 'Project manager', '', 1, '{}',
           'full-access', '2026-11-01T00:00:00.000Z'),
         (${projectHeadquartersRunId(docs)}, 'project-manager:docs', ${docs},
-          ${projectHeadquartersThreadId(docs)}, 'Manage', 'Project manager', '', '[]', 1, '{}',
+          ${projectHeadquartersThreadId(docs)}, 'Manage', 'Project manager', '', 1, '{}',
           'full-access', '2026-11-01T00:00:00.000Z')
     `;
     const restarted = yield* setup();
@@ -339,9 +339,9 @@ it.effect("leaves merges from before a project's manager existed out of its reco
     const sql = yield* SqlClient.SqlClient;
     yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        member_revision, model_selection_json, runtime_mode, created_at)
       VALUES (${projectHeadquartersRunId(web)}, 'project-manager:web', ${web},
-        ${projectHeadquartersThreadId(web)}, 'Manage', 'Project manager', '', '[]', 1, '{}',
+        ${projectHeadquartersThreadId(web)}, 'Manage', 'Project manager', '', 1, '{}',
         'full-access', '2026-11-06T00:00:00.000Z')
     `;
     const { notices, sent } = yield* setup("2026-11-06T00:00:00.000Z");

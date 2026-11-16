@@ -4,7 +4,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   EnvironmentId,
-  LEGACY_TOOLS_MESSAGE,
   ProjectId,
   ProviderInstanceId,
   type ScheduledTaskUpsertInput,
@@ -147,9 +146,6 @@ it.layer(layer)("BotService", (it) => {
       assert.deepStrictEqual(yield* bots.create(social), created);
       assert.strictEqual(created.position, 0);
       assert.strictEqual(created.modelSelection, null);
-      // A new bot gets every tool and full access.
-      assert.deepStrictEqual(created.withheldTools, []);
-      assert.strictEqual(created.runtimeMode, "full-access");
       const counted = (yield* changes.revision).bots;
       const conflict = yield* Effect.exit(bots.create({ ...social, name: "Other" }));
       assert.isTrue(Exit.isFailure(conflict));
@@ -157,9 +153,9 @@ it.layer(layer)("BotService", (it) => {
       // Bots and crew members act in the same runs, so they can't share an ID.
       const sql = yield* SqlClient.SqlClient;
       yield* sql`
-        INSERT INTO crew_members (id, name, instructions, withheld_tools_json,
-          model_selection_json, runtime_mode, created_at, updated_at)
-        VALUES ('member:taken', 'Taken', 'x', '[]', '{}', 'auto', '2026-10-01', '2026-10-01')
+        INSERT INTO crew_members (id, name, instructions, model_selection_json, created_at,
+          updated_at)
+        VALUES ('member:taken', 'Taken', 'x', '{}', '2026-10-01', '2026-10-01')
       `;
       assert.isTrue(
         Exit.isFailure(yield* Effect.exit(bots.create({ ...social, id: "member:taken" }))),
@@ -208,17 +204,10 @@ it.layer(layer)("BotService", (it) => {
       assert.strictEqual(renamed.revision, 2);
       const stale = yield* Effect.exit(bots.update({ id: bot.id, expectedRevision: 1, name: "X" }));
       assert.isTrue(Exit.isFailure(stale));
-      // An older client's tool list meant the opposite, so it is refused in plain words.
-      for (const save of [
-        bots.update({ id: bot.id, expectedRevision: 2, allowedTools: ["preview"] }),
-        bots.create({ ...social, id: "bot:old-client", allowedTools: [] }),
-      ]) {
-        assert.strictEqual((yield* Effect.flip(save)).message, LEGACY_TOOLS_MESSAGE);
-      }
     }),
   );
 
-  it.effect("new bots may work on every linked environment until one is unticked", () =>
+  it.effect("every bot works on every linked environment, following the link list", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       for (const id of ["vps", "studio"]) {
@@ -231,13 +220,12 @@ it.layer(layer)("BotService", (it) => {
       const bots = yield* BotService.BotService;
       const bot = yield* bots.create({ ...social, id: "bot:reach" });
       const vps = EnvironmentId.make("vps");
-      assert.deepStrictEqual(bot.permittedEnvironmentIds, [EnvironmentId.make("studio"), vps]);
-      yield* bots.update({ id: bot.id, expectedRevision: 1, permittedEnvironmentIds: [vps, vps] });
-      assert.deepStrictEqual((yield* bots.get(bot.id))?.permittedEnvironmentIds, [vps]);
-      // Other edits keep the choice.
-      yield* bots.update({ id: bot.id, expectedRevision: 2, name: "Reach" });
-      assert.deepStrictEqual((yield* bots.get(bot.id))?.permittedEnvironmentIds, [vps]);
+      assert.deepStrictEqual(bot.linkedEnvironmentIds, [EnvironmentId.make("studio"), vps]);
+      // Unlinking a machine is how a bot stops working there; nothing is saved per bot.
+      yield* sql`DELETE FROM peer_environment_links WHERE environment_id = 'studio'`;
+      assert.deepStrictEqual((yield* bots.get(bot.id))?.linkedEnvironmentIds, [vps]);
       yield* sql`DELETE FROM peer_environment_links`;
+      assert.deepStrictEqual((yield* bots.get(bot.id))?.linkedEnvironmentIds, []);
     }),
   );
 

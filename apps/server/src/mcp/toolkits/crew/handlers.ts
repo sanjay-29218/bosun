@@ -11,7 +11,6 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
-import { CREW_MEMBER_GRANT } from "../../../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
@@ -41,7 +40,7 @@ const requireCrewThread = requireCrewCaller.pipe(Effect.map((caller) => caller.c
 /** A feature crew member, a delegated child without the `crew` capability, asks as itself. */
 const requireCrewMember = Effect.gen(function* () {
   const scope = yield* McpInvocationContext.McpInvocationContext;
-  if (scope.crewGrants?.includes(CREW_MEMBER_GRANT) !== true) {
+  if (scope.featureCrewMember !== true) {
     return yield* new CrewToolFailedError({
       reason: "Only a feature's crew member asks the person this way.",
     });

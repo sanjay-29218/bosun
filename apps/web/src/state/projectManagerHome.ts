@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import {
   applyManagerPlacement,
   type ManagerCopy,
@@ -6,7 +5,6 @@ import {
   type PlacedProject,
   planManagerPlacement,
 } from "@t3tools/client-runtime/project-manager-home";
-import { logicalBotsAtom } from "./botRail";
 import { useEffect } from "react";
 
 import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
@@ -19,7 +17,6 @@ import { useAtomCommand } from "./use-atom-command";
 /** Copies of a project on environments that keep one manager per project, for placement. */
 export function useManagerCopies(): (projects: ReadonlyArray<PlacedProject>) => ManagerCopy[] {
   const shells = useQuietThreadShells();
-  const bots = useAtomValue(logicalBotsAtom);
   const { environments } = useEnvironments();
   return (projects) =>
     managerCopiesOf({
@@ -32,13 +29,6 @@ export function useManagerCopies(): (projects: ReadonlyArray<PlacedProject>) => 
         environments.find((environment) => environment.environmentId === environmentId)?.label ??
         null,
       threads: shells,
-      botPermitted: (owner) =>
-        bots.find((bot) =>
-          bot.members.some(
-            (member) =>
-              member.environmentId === owner.environmentId && member.botId === owner.botId,
-          ),
-        )?.permittedEnvironmentIds ?? null,
     });
 }
 

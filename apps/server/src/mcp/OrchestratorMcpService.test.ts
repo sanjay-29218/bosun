@@ -3004,14 +3004,12 @@ describe("OrchestratorMcpService provider resolution", () => {
                           name: "Planner",
                           instructions: "You are the Planner on a feature's crew.",
                           modelSelection: plannerModel,
-                          runtimeMode: "approval-required" as const,
                         }
                       : name === "Builder"
                         ? {
                             name: "Builder",
                             instructions: "You are the Builder on a feature's crew.",
                             modelSelection: plannerModel,
-                            runtimeMode: "full-access" as const,
                           }
                         : null,
                 ),
@@ -3060,8 +3058,8 @@ describe("OrchestratorMcpService provider resolution", () => {
         // Named after the lead's task, not the instructions put in front of it.
         assert.equal(request!.title, "Planner: Plan dark mode.");
         assert.equal(request!.modelSelection.model, plannerModel.model);
-        // A read-only role stays read-only under a full-access lead.
-        assert.equal(request!.runtimeMode, "approval-required");
+        // Every role runs with its lead's access.
+        assert.equal(request!.runtimeMode, "full-access");
         // Every crew member hears how to get the person's approval, whatever its role says.
         assert.equal(
           request!.task,
@@ -3105,14 +3103,15 @@ describe("OrchestratorMcpService provider resolution", () => {
         readonly offered?: ReadonlyArray<RuntimeMode>;
         readonly expected: RuntimeMode;
       }> = [
-        // Never broader than its lead.
+        // The lead's mode is inherited, whatever the role.
         { member: "Builder", lead: "auto-accept-edits", expected: "auto-accept-edits" },
-        // The role's mode is inherited, so a provider without it steps down instead of refusing.
+        { member: "Planner", lead: "full-access", expected: "full-access" },
+        // A provider without the inherited mode steps down instead of refusing.
         {
           member: "Planner",
-          lead: "full-access",
-          offered: ["auto-accept-edits", "full-access"],
-          expected: "approval-required",
+          lead: "auto",
+          offered: ["auto-accept-edits"],
+          expected: "auto-accept-edits",
         },
       ];
       for (const row of crewModes) {

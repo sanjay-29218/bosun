@@ -1,33 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
-import { MessageId, RunId } from "@t3tools/contracts";
+import { MessageId } from "@t3tools/contracts";
 
-import { FRESH_START_TOKENS, freshStartBriefing, freshStartDue } from "./headquartersFreshStart.ts";
-import {
-  at,
-  freshStartRecords as records,
-  nodeId,
-  runId,
-  threadId,
-} from "./headquartersFreshStart.testkit.ts";
-
-describe("freshStartDue", () => {
-  it("starts fresh only after the latest turn of a large, idle conversation", () => {
-    expect(freshStartDue(records(), runId)).toBe(true);
-    expect(freshStartDue(records(FRESH_START_TOKENS - 1), runId)).toBe(false);
-    const queued = records();
-    queued.runs = [
-      ...queued.runs,
-      { ...queued.runs[0]!, id: RunId.make("run-2"), ordinal: 2, status: "queued" },
-    ];
-    expect(freshStartDue(queued, runId)).toBe(false);
-    const fresh = records();
-    fresh.thread = { ...fresh.thread, activeProviderThreadId: null };
-    expect(freshStartDue(fresh, runId)).toBe(false);
-    const archived = records();
-    archived.thread = { ...archived.thread, archivedAt: at(0) };
-    expect(freshStartDue(archived, runId)).toBe(false);
-  });
-});
+import { freshStartBriefing } from "./headquartersFreshStart.ts";
+import { at, nodeId, runId, threadId } from "./headquartersFreshStart.testkit.ts";
 
 describe("freshStartBriefing", () => {
   it("carries the last few messages, oldest first and clipped", () => {

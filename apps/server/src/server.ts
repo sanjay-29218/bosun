@@ -1,5 +1,4 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
-import * as BotEnvironmentGuard from "./bots/BotEnvironmentGuard.ts";
 import * as BotReach from "./bots/BotReach.ts";
 import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
 import { StandingBriefingLive } from "./crew/StandingBriefing.ts";
@@ -886,8 +885,6 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // A bot's projects and requests on linked environments, for /mcp and RemoteDelegation.
   Layer.provide(BotReach.layer),
-  // Keeps a bot's routed /mcp calls to the linked environments it is permitted on.
-  Layer.provide(BotEnvironmentGuard.layer),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.

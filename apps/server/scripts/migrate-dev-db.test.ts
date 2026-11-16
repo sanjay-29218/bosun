@@ -333,10 +333,9 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
           yield* sql`INSERT INTO crew_members
-            (id, project_id, name, instructions, withheld_tools_json, model_selection_json,
-              runtime_mode, created_at, updated_at)
-            VALUES ('manager', 'project-kept', 'Manager', 'Manage.', '[]', '{}',
-              'full-access', '2026-08-01', '2026-08-01')`;
+            (id, project_id, name, instructions, model_selection_json, created_at, updated_at)
+            VALUES ('manager', 'project-kept', 'Manager', 'Manage.', '{}', '2026-08-01',
+              '2026-08-01')`;
           // Kept, never copied (archived), and copied then pruned (still running).
           for (const [runId, threadId] of [
             ["run-kept", "stopped-thread"],
@@ -345,9 +344,9 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
           ] as const) {
             yield* sql`INSERT INTO crew_runs
               (id, member_id, project_id, thread_id, task_text, title, instructions,
-                withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+                member_revision, model_selection_json, runtime_mode, created_at)
               VALUES (${runId}, 'manager', 'project-kept', ${threadId}, 'Task', 'Task',
-                'Manage.', '[]', 1, '{}', 'full-access', '2026-08-01')`;
+                'Manage.', 1, '{}', 'full-access', '2026-08-01')`;
             yield* sql`INSERT INTO crew_handoffs
               (id, source_run_id, target_member_id, target_run_id, project_id, task_text,
                 context_text, depth, status, created_at, updated_at)

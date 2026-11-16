@@ -1,4 +1,4 @@
-import type { FeatureIssue, ModelSelection, ProjectId, RuntimeMode } from "@t3tools/contracts";
+import type { FeatureIssue, ModelSelection, ProjectId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 
@@ -7,7 +7,6 @@ export interface CrewMemberRun {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
 }
 
 /**

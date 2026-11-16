@@ -5,8 +5,6 @@ import {
   type EnvironmentId,
   type ModelSelection,
   type ProviderInstanceId,
-  type RuntimeMode,
-  grantedTools,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useState } from "react";
@@ -23,7 +21,7 @@ import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
+import { EditorField } from "../settings/CrewAgentFields";
 import { SettingsModelPicker } from "../settings/SettingsModelPicker";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
@@ -46,21 +44,17 @@ function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelect
   return { settings, providers, entries, modelOptions };
 }
 
-/** A role's or bot's model, reasoning, speed and access, in the composer's picker. */
+/** A role's or bot's model, reasoning and speed, in the composer's picker. */
 export function RoleModelPicker({
   environmentId,
   selection,
-  runtimeMode,
   disabled,
   onChange,
-  onRuntimeModeChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly selection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
   readonly disabled?: boolean;
   readonly onChange: (selection: ModelSelection) => void;
-  readonly onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   const { entries, modelOptions } = useModelPickerData(environmentId, selection);
   return (
@@ -85,7 +79,6 @@ export function RoleModelPicker({
         onChange: (options) =>
           onChange(createModelSelection(selection.instanceId, selection.model, options)),
       }}
-      access={{ runtimeMode, onChange: onRuntimeModeChange }}
     />
   );
 }
@@ -119,12 +112,7 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
 export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
   roles.some((role) => role.id === FEATURE_MANAGER_ROLE_ID);
 
-type RoleChange = Partial<
-  Pick<
-    RoleConfig,
-    "name" | "instructions" | "withheldTools" | "modelSelection" | "runtimeMode" | "enabled"
-  >
->;
+type RoleChange = Partial<Pick<RoleConfig, "name" | "instructions" | "modelSelection" | "enabled">>;
 
 export function useSaveRole(environmentId: EnvironmentId) {
   const update = useAtomCommand(rolesEnvironment.update);
@@ -136,9 +124,7 @@ export function useSaveRole(environmentId: EnvironmentId) {
         id: role.id,
         name: next.name,
         instructions: next.instructions,
-        withheldTools: [...next.withheldTools],
         modelSelection: next.modelSelection,
-        runtimeMode: next.runtimeMode,
         enabled: next.enabled,
         expectedRevision: role.revision,
       },
@@ -153,7 +139,7 @@ export function useSaveRole(environmentId: EnvironmentId) {
   };
 }
 
-/** A role's instructions, tools, model and access; `role` null adds one. */
+/** A role's instructions and model; `role` null adds one. Every role gets every tool. */
 export function RoleEditorForm({
   environmentId,
   role,
@@ -174,24 +160,18 @@ export function RoleEditorForm({
   );
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(role?.withheldTools ?? []);
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(role?.runtimeMode ?? "full-access");
   const [saving, setSaving] = useState(false);
   const fields = {
     name: name.trim(),
     instructions: instructions.trim(),
-    withheldTools: tools,
     modelSelection,
-    runtimeMode,
   };
   const edited = role
     ? fields.name !== role.name ||
       fields.instructions !== role.instructions ||
-      fields.withheldTools.join("\n") !== role.withheldTools.join("\n") ||
-      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection) ||
-      fields.runtimeMode !== role.runtimeMode
-    : fields.name.length > 0 || fields.instructions.length > 0 || tools.length > 0;
+      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection)
+    : fields.name.length > 0 || fields.instructions.length > 0;
   const canSave =
     edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !saving;
 
@@ -254,26 +234,19 @@ export function RoleEditorForm({
         <SettingsSection title="Runs with">
           <SettingsRow
             title="Model"
-            description="Model, reasoning, speed and access for this role's threads."
+            description="Model, reasoning and speed for this role's threads. They get every tool, with full access."
             control={
               <RoleModelPicker
                 environmentId={environmentId}
                 selection={modelSelection}
-                runtimeMode={runtimeMode}
                 disabled={saving || !canEdit}
                 onChange={setModelSelection}
-                onRuntimeModeChange={setRuntimeMode}
               />
             }
           />
         </SettingsSection>
-        <SettingsSection title={`Tools · ${grantedTools(tools, { bot: false }).length}`}>
-          <div className="px-3 py-4 sm:px-4">
-            <CrewToolPicker value={tools} onChange={setTools} />
-          </div>
-        </SettingsSection>
       </fieldset>
-      {/* Pinned to the pane's bottom, so Save stays in reach below a long tool list. */}
+      {/* Pinned to the pane's bottom, so Save stays in reach below long instructions. */}
       <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <Button
           type="button"

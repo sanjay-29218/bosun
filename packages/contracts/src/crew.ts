@@ -1,12 +1,7 @@
 import * as Schema from "effect/Schema";
 
-import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
-import {
-  BotAvatar,
-  BotLongConversation,
-  LEGACY_ALLOWED_TOOLS,
-  listDefaultingToEmpty,
-} from "./bots.ts";
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { BotAvatar } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor, ProjectRemoteManager } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
@@ -36,54 +31,6 @@ export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_D
 /** The role that leads a feature in the built-in workflows; each project's lead is made from it. */
 export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
 
-/**
- * The tools a bot or role can hold. Agents store the ones a person withheld, so every tool here,
- * including one added later, is on unless withheld. `crew.*` grants gate the crew MCP tools; the
- * rest name T3 MCP toolkits. `botOnly` grants are for bots alone.
- */
-export const CREW_TOOL_GRANTS = [
-  {
-    id: "crew.workflows",
-    label: "Manage bots, roles and workflows",
-    description: "Create and edit bots, roles and workflows when asked.",
-    botOnly: true,
-  },
-  {
-    id: "orchestration",
-    label: "Threads and subagents",
-    description: "Run subagents in parallel, and create, read and message T3 threads.",
-  },
-  {
-    id: "worktree",
-    label: "Worktrees",
-    description: "Create git worktrees and move threads into them.",
-  },
-  {
-    id: "pull-requests",
-    label: "Pull requests",
-    description: "Read and link pull requests.",
-  },
-  {
-    id: "preview",
-    label: "Browser",
-    description: "Open and drive the built-in browser.",
-  },
-  {
-    id: "device",
-    label: "Devices",
-    description: "Drive iOS and Android simulators.",
-  },
-] as const;
-
-/** What an agent with these withheld tools gets: every grant its kind can hold, minus those. */
-export const grantedTools = (
-  withheld: ReadonlyArray<string>,
-  options: { readonly bot: boolean },
-): ReadonlyArray<string> =>
-  CREW_TOOL_GRANTS.filter(
-    (grant) => (options.bot || !("botOnly" in grant)) && !withheld.includes(grant.id),
-  ).map((grant) => grant.id);
-
 /** A crew member: a role instantiated for a project, a feature, or the whole environment. */
 export const CrewMemberSummary = Schema.Struct({
   id: Schema.String,
@@ -102,9 +49,7 @@ export const RoleConfig = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  withheldTools: listDefaultingToEmpty(Schema.String),
   modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
   enabled: Schema.Boolean,
   revision: Schema.Int,
 });
@@ -113,12 +58,7 @@ export const RoleCreateInput = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  /** Omitted, every tool on create and unchanged on update. */
-  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-  allowedTools: LEGACY_ALLOWED_TOOLS,
   modelSelection: ModelSelection,
-  /** Omitted, full access on create and unchanged on update. */
-  runtimeMode: Schema.optionalKey(RuntimeMode),
 });
 export const RoleUpdateInput = Schema.Struct({
   ...RoleCreateInput.fields,
@@ -146,10 +86,9 @@ export const WorkflowSnapshot = Schema.Struct({
       id: Schema.String,
       name: Schema.String,
       instructions: Schema.String,
-      withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-      allowedTools: LEGACY_ALLOWED_TOOLS,
       modelSelection: ModelSelection,
-      runtimeMode: RuntimeMode,
+      /** Older peers require it. Every role runs with full access, so it is ignored. */
+      runtimeMode: Schema.optionalKey(RuntimeMode),
     }),
   ),
 });
@@ -227,10 +166,6 @@ export const ProjectManagerSettings = Schema.Struct({
   /** Off, its bot does the project's work itself and its thread is archived. */
   enabled: Schema.Boolean,
   instructions: Schema.String,
-  withheldTools: listDefaultingToEmpty(Schema.String),
-  modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
-  longConversation: BotLongConversation,
   /** Saved in the project, rather than its defaults. */
   customized: Schema.Boolean,
   /** The member's revision; 0 before the project has one. */
@@ -244,11 +179,6 @@ export type ProjectManagerSettings = typeof ProjectManagerSettings.Type;
 export const ProjectManagerUpdateInput = Schema.Struct({
   projectId: ProjectId,
   instructions: Schema.String,
-  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-  allowedTools: LEGACY_ALLOWED_TOOLS,
-  modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
-  longConversation: BotLongConversation,
   expectedRevision: Schema.Int,
 });
 export type ProjectManagerUpdateInput = typeof ProjectManagerUpdateInput.Type;
@@ -269,14 +199,13 @@ export const ProjectManagerIconInput = Schema.Struct({
 export type ProjectManagerIconInput = typeof ProjectManagerIconInput.Type;
 
 /**
- * Where a project's manager lives and works. `remoteManager` set moves it to another
+ * Where a project's manager lives. `remoteManager` set moves it to another
  * environment's copy and retires this copy's manager; null brings it here. `retired` notes in the
  * manager's thread here which copy's manager was retired for it.
  */
 export const ProjectManagerPlacementInput = Schema.Struct({
   projectId: ProjectId,
   remoteManager: Schema.optionalKey(Schema.NullOr(ProjectRemoteManager)),
-  permittedEnvironmentIds: Schema.optionalKey(Schema.NullOr(Schema.Array(EnvironmentId))),
   retired: Schema.optionalKey(
     Schema.Struct({ environmentLabel: Schema.String, threadId: ThreadId }),
   ),

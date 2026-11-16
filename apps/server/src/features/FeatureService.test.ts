@@ -18,7 +18,6 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
-  LEGACY_TOOLS_MESSAGE,
   ThreadId,
   type ServerProvider,
   type WorkflowSnapshot,
@@ -293,7 +292,6 @@ describe("feature lead and crew", () => {
             name,
             instructions: `You are the ${name}.`,
             modelSelection,
-            runtimeMode: "full-access",
           });
         yield* role("role:content-lead", "Content lead");
         yield* role("role:copywriter", "Copywriter");
@@ -356,7 +354,6 @@ describe("feature lead and crew", () => {
             id,
             name,
             instructions: `You are the laptop's ${name}.`,
-            withheldTools: [],
             modelSelection: model,
             runtimeMode: "full-access" as const,
           });
@@ -1471,12 +1468,11 @@ describe("feature lead and crew", () => {
           yield* sql`DELETE FROM roles WHERE id = 'role:project-manager'`;
           yield* sql`
           INSERT INTO roles (
-            id, name, instructions, withheld_tools_json, model_selection_json, runtime_mode,
-            enabled, auto_create_for_feature, revision, created_at, updated_at
+            id, name, instructions, model_selection_json, enabled, auto_create_for_feature,
+            revision, created_at, updated_at
           )
-          SELECT 'role:project-manager', 'Project manager', instructions, withheld_tools_json,
-            model_selection_json, runtime_mode, enabled, auto_create_for_feature, revision,
-            created_at, updated_at
+          SELECT 'role:project-manager', 'Project manager', instructions, model_selection_json,
+            enabled, auto_create_for_feature, revision, created_at, updated_at
           FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}
         `;
           yield* sql`
@@ -1493,10 +1489,12 @@ describe("feature lead and crew", () => {
             (yield* features.crewMember("managed-feature", "role:project-manager"))?.name,
           ).toBe("Project manager");
 
-          // 103 ran before 116 renamed the roles' tools column.
-          yield* sql`ALTER TABLE roles RENAME COLUMN withheld_tools_json TO allowed_tools_json`;
+          // 103 ran while roles still had tools and access, which 116 and 122 changed.
+          yield* sql`ALTER TABLE roles ADD COLUMN allowed_tools_json TEXT NOT NULL DEFAULT '[]'`;
+          yield* sql`ALTER TABLE roles ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'full-access'`;
           yield* FeatureManagerMigration;
-          yield* sql`ALTER TABLE roles RENAME COLUMN allowed_tools_json TO withheld_tools_json`;
+          yield* sql`ALTER TABLE roles DROP COLUMN allowed_tools_json`;
+          yield* sql`ALTER TABLE roles DROP COLUMN runtime_mode`;
 
           expect((yield* features.crewMember("managed-feature", "Project manager"))?.name).toBe(
             "Project manager",
@@ -1506,6 +1504,7 @@ describe("feature lead and crew", () => {
             FEATURE_MANAGER_ROLE_ID,
           ]);
         }),
+        makeCrewTestOrchestration({ providers: [readyCodex] }),
       ),
   );
 
@@ -1779,57 +1778,41 @@ describe("feature lead and crew", () => {
     ),
   );
 
-  effectIt.effect(
-    "keeps a headquarters undeletable, restores it once archived, and follows the bot's settings",
-    () =>
-      withSystem(
-        Effect.gen(function* () {
-          const crew = yield* CrewService;
-          const bots = yield* BotStore.BotStore;
-          const engine = yield* OrchestrationEngineService;
-          const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_ID);
-          const shell = () => engine.getThreadShell(headquarters.threadId);
+  effectIt.effect("keeps a headquarters undeletable and restores it once archived", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const engine = yield* OrchestrationEngineService;
+        const headquarters = yield* crew.ensureHeadquarters(CAPTAIN_ID);
+        const shell = () => engine.getThreadShell(headquarters.threadId);
 
-          yield* engine.dispatch({
-            type: "thread.archive",
-            commandId: CommandId.make("test:archive-hq"),
+        yield* engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("test:archive-hq"),
+          threadId: headquarters.threadId,
+        });
+        yield* crew.ensureHeadquarters(CAPTAIN_ID);
+        const unarchived = yield* shell();
+        expect(unarchived).not.toBeNull();
+        expect(unarchived!.archivedAt).toBeNull();
+
+        const refused = yield* engine
+          .dispatch({
+            type: "thread.delete",
+            commandId: CommandId.make("test:delete-hq"),
             threadId: headquarters.threadId,
-          });
-          yield* crew.ensureHeadquarters(CAPTAIN_ID);
-          const unarchived = yield* shell();
-          expect(unarchived).not.toBeNull();
-          expect(unarchived!.archivedAt).toBeNull();
-
-          const refused = yield* engine
-            .dispatch({
-              type: "thread.delete",
-              commandId: CommandId.make("test:delete-hq"),
-              threadId: headquarters.threadId,
-            })
-            .pipe(Effect.flip);
-          expect(refused._tag).toBe("OrchestratorHeadquartersThreadDeleteError");
-          const kept = yield* shell();
-          expect(kept!.deletedAt).toBeNull();
-          expect(kept!.pinnedAt).toBeTruthy();
-
-          // Switching the bot to Ask first reaches its headquarters' next turns.
-          const captain = (yield* bots.get(CAPTAIN_ID))!;
-          const runtimeMode =
-            captain.runtimeMode === "full-access" ? "approval-required" : "full-access";
-          expect(
-            yield* bots.update(
-              { ...captain, runtimeMode, revision: captain.revision + 1 },
-              captain.revision,
-            ),
-          ).toBe(true);
-          yield* crew.ensureHeadquarters(CAPTAIN_ID);
-          expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
-        }),
-      ),
+          })
+          .pipe(Effect.flip);
+        expect(refused._tag).toBe("OrchestratorHeadquartersThreadDeleteError");
+        const kept = yield* shell();
+        expect(kept!.deletedAt).toBeNull();
+        expect(kept!.pinnedAt).toBeTruthy();
+      }),
+    ),
   );
 
   effectIt.effect(
-    "keeps a project's manager unpinned in its project, following its settings until reset",
+    "keeps a project's manager unpinned in its project, on the model its thread picked",
     () =>
       withSystem(
         Effect.gen(function* () {
@@ -1837,16 +1820,12 @@ describe("feature lead and crew", () => {
           const engine = yield* OrchestrationEngineService;
           const crewStore = yield* CrewStore;
           const captain = (yield* (yield* BotStore.BotStore).get(CAPTAIN_ID))!;
-          // No Library role: it starts on built-in instructions and its bot's model.
+          // No Library role: it starts on built-in instructions. Its settings hold no model: its
+          // thread's composer picks that.
           expect(yield* crewStore.getRole("role:project-manager")).toBeNull();
           const before = yield* crew.projectManagerSettings(projectId);
-          expect(before).toMatchObject({
-            revision: 0,
-            customized: false,
-            threadId: null,
-            modelSelection: captain.modelSelection,
-            runtimeMode: "full-access",
-          });
+          expect(before).toMatchObject({ revision: 0, customized: false, threadId: null });
+          expect(before).not.toHaveProperty("modelSelection");
           expect(before.instructions).toContain("You manage one project");
 
           const run = yield* crew.ensureProjectManager(projectId);
@@ -1884,6 +1863,19 @@ describe("feature lead and crew", () => {
           yield* crew.ensureProjectManager(projectId);
           expect((yield* shell())?.archivedAt).toBeNull();
 
+          // A model picked in its composer sticks: opening it again, as a request or a schedule
+          // does, leaves it, and so do saves to its settings below.
+          const picked = { ...modelSelection, model: "gpt-5.4-mini" };
+          expect((yield* shell())?.modelSelection).not.toEqual(picked);
+          yield* engine.dispatch({
+            type: "thread.model-selection.set",
+            commandId: CommandId.make("test:pm-composer-model"),
+            threadId: run.threadId,
+            modelSelection: picked,
+          });
+          yield* crew.ensureProjectManager(projectId);
+          expect((yield* shell())?.modelSelection).toEqual(picked);
+
           const created = yield* crew.projectManagerSettings(projectId);
           expect(created).toMatchObject({ revision: 1, threadId: run.threadId });
           // Its look saves on its own: a manager still on its defaults stays on them.
@@ -1891,36 +1883,22 @@ describe("feature lead and crew", () => {
           const fresh = yield* crew.setProjectManagerIcon({ projectId, icon });
           expect(fresh).toMatchObject({ icon, customized: false, revision: 2 });
           expect(fresh.instructions).toBe(before.instructions);
-          const runtimeMode =
-            created.runtimeMode === "full-access" ? "approval-required" : "full-access";
           const saved = yield* crew.updateProjectManager({
             projectId,
             instructions: "Manage it my way.",
-            withheldTools: ["worktree"],
-            modelSelection: created.modelSelection,
-            runtimeMode,
-            longConversation: "new-session",
             expectedRevision: fresh.revision,
           });
           expect(saved).toMatchObject({
             icon,
             customized: true,
             revision: 3,
-            longConversation: "new-session",
           });
-          // The open thread follows: its mode now, its grants on the next tool call.
-          expect((yield* shell())?.runtimeMode).toBe(runtimeMode);
-          expect((yield* crewStore.getRun(run.id))?.withheldTools).toEqual(["worktree"]);
+          expect((yield* shell())?.modelSelection).toEqual(picked);
           expect(
             (yield* crew
               .updateProjectManager({ ...saved, instructions: "Stale", expectedRevision: 1 })
               .pipe(Effect.flip)).message,
           ).toContain("reload");
-          expect(
-            (yield* crew
-              .updateProjectManager({ ...saved, allowedTools: [], expectedRevision: 3 })
-              .pipe(Effect.flip)).message,
-          ).toBe(LEGACY_TOOLS_MESSAGE);
 
           // A customized manager stays customized.
           const withIcon = yield* crew.setProjectManagerIcon({ projectId, icon });
@@ -1936,12 +1914,8 @@ describe("feature lead and crew", () => {
             customized: false,
             revision: 5,
             instructions: before.instructions,
-            withheldTools: [],
-            modelSelection: captain.modelSelection,
-            runtimeMode: "full-access",
-            longConversation: "compact",
           });
-          expect((yield* shell())?.runtimeMode).toBe("full-access");
+          expect((yield* shell())?.modelSelection).toEqual(picked);
           const cleared = yield* crew.setProjectManagerIcon({ projectId, icon: null });
           expect(cleared).toMatchObject({ icon: null, customized: false, revision: 6 });
 
@@ -1991,6 +1965,7 @@ describe("feature lead and crew", () => {
             before.instructions,
           );
         }),
+        makeCrewTestOrchestration({ providers: [readyCodex] }),
       ),
   );
 
@@ -2024,12 +1999,9 @@ describe("feature lead and crew", () => {
           expect((yield* settings.getSettings).defaultModelSelection).toBeNull();
           const target = yield* looseProject;
           const inherited = { instanceId: readyCodex.instanceId, model: "gpt-5.4" };
-          expect(yield* crew.projectManagerSettings(target.projectId)).toMatchObject({
-            modelSelection: inherited,
-            runtimeMode: "full-access",
-          });
           const manager = yield* crew.ensureProjectManager(target.projectId);
           expect(manager.threadId).toBe(projectHeadquartersThreadId(target.projectId));
+          expect(manager.modelSelection).toEqual(inherited);
           const started = yield* features.start(target.id, target.projectId);
           expect(started.leadThreadId).toBeDefined();
         }),
@@ -2043,9 +2015,11 @@ describe("feature lead and crew", () => {
         const crew = yield* CrewService;
         const features = yield* FeatureService;
         const target = yield* looseProject;
-        expect(
-          (yield* Effect.flip(crew.projectManagerSettings(target.projectId))).message,
-        ).toContain("Choose a default model for this project");
+        // Its settings hold no model, so they load; the manager can't start without one.
+        expect((yield* crew.projectManagerSettings(target.projectId)).enabled).toBe(true);
+        expect((yield* Effect.flip(crew.ensureProjectManager(target.projectId))).message).toContain(
+          "Choose a default model for this project",
+        );
         expect((yield* Effect.flip(features.start(target.id, target.projectId))).message).toContain(
           "Set up the crew",
         );
@@ -2147,14 +2121,7 @@ describe("feature lead and crew", () => {
           expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(rule);
           expect(yield* briefing()).toContain(rule);
           const after = yield* crew.projectManagerSettings(projectId);
-          expect(after).toMatchObject({
-            icon,
-            enabled: true,
-            modelSelection: before.modelSelection,
-            runtimeMode: before.runtimeMode,
-            withheldTools: before.withheldTools,
-            longConversation: before.longConversation,
-          });
+          expect(after).toMatchObject({ icon, enabled: true });
 
           const stale = yield* Effect.flip(
             crew.updateProjectManagerInstructions({
@@ -2180,6 +2147,7 @@ describe("feature lead and crew", () => {
           });
           expect(reset).toMatchObject({ customized: false, instructions: read.instructions, icon });
         }),
+        makeCrewTestOrchestration({ providers: [readyCodex] }),
       ),
   );
 });

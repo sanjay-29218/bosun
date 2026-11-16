@@ -1,6 +1,5 @@
 import {
   FeatureWorkspace,
-  CREW_TOOL_GRANTS,
   EnvironmentId,
   OrchestratorMcpFailure,
   NodeId,
@@ -34,19 +33,6 @@ const shared = {
   ],
 };
 
-const withheldTools = Schema.optionalKey(
-  Schema.Array(Schema.String).annotate({
-    description: `Tools the role's members can't use, by id: ${CREW_TOOL_GRANTS.filter(
-      (grant) => !("botOnly" in grant),
-    )
-      .map((grant) => `"${grant.id}" (${grant.label})`)
-      .join(", ")}. Omit or [] for every tool.`,
-  }),
-);
-// Agents read today's schema, so they never send the key older clients did.
-const { allowedTools: _createLegacy, ...createRoleFields } = RoleCreateInput.fields;
-const { allowedTools: _updateLegacy, ...updateRoleFields } = RoleUpdateInput.fields;
-
 const ListRoles = Tool.make("t3_role_list", {
   ...shared,
   description:
@@ -62,8 +48,8 @@ const ListRoles = Tool.make("t3_role_list", {
 const CreateRole = Tool.make("t3_role_create", {
   ...shared,
   description:
-    'Create a role. Choose an id like "role:qa-tester". Add it to a workflow\'s crewRoleIds so features on that workflow get a member of it. Copy modelSelection from an existing role unless asked otherwise. Its members get every tool and full access unless you pass withheldTools or runtimeMode.',
-  parameters: Schema.Struct({ ...createRoleFields, withheldTools }),
+    'Create a role. Choose an id like "role:qa-tester". Add it to a workflow\'s crewRoleIds so features on that workflow get a member of it. Copy modelSelection from an existing role unless asked otherwise. Its members get every tool, with full access.',
+  parameters: RoleCreateInput,
   success: RoleConfig,
 });
 
@@ -71,7 +57,7 @@ const UpdateRole = Tool.make("t3_role_update", {
   ...shared,
   description:
     "Change a role: send every field back, edited, with expectedRevision set to the revision from t3_role_list. Roles are not deleted; set enabled to false to retire one, and true to bring it back. Features already started keep the crew they were given.",
-  parameters: Schema.Struct({ ...updateRoleFields, withheldTools }),
+  parameters: RoleUpdateInput,
   success: RoleConfig,
 });
 

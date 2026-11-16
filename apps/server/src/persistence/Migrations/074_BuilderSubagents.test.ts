@@ -27,16 +27,13 @@ it.effect("lets the Builder run parallel subagents, keeping edited instructions"
 
     yield* runMigrations();
 
-    const rows = yield* sql<{ readonly id: string; readonly tools: string; readonly text: string }>`
-      SELECT id, withheld_tools_json AS tools, instructions AS text FROM roles ORDER BY id
+    // 122 later drops roles' tools: every role gets every tool.
+    const rows = yield* sql<{ readonly id: string; readonly text: string }>`
+      SELECT id, instructions AS text FROM roles ORDER BY id
     `;
     const builder = rows.find((row) => row.id === "role:builder")!;
-    // 087 later drops the grant again: crew get every T3 tool an ordinary thread gets. 089
-    // drops crew.ask, and 093 crew.respond with the workflow engine. 116 stores withheld tools.
-    assert.deepStrictEqual(JSON.parse(builder.tools), []);
     assert.include(builder.text, "delegate_task");
     const planner = rows.find((row) => row.id === "role:planner")!;
-    assert.deepStrictEqual(JSON.parse(planner.tools), []);
     assert.strictEqual(planner.text, "Plan it.");
 
     // Edited builder instructions stay as written; running it again changes nothing.

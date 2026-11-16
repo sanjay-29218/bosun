@@ -4,7 +4,6 @@ import {
   ApprovalRequestId,
   ClientSurface,
   CommandId,
-  EnvironmentId,
   EventId,
   IsoDateTime,
   NonNegativeInt,
@@ -75,8 +74,6 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   managerPinned: Schema.optional(Schema.Boolean),
   /** Where the manager lives; null brings it here. */
   remoteManager: Schema.optional(Schema.NullOr(ProjectRemoteManager)),
-  /** Where the manager here may work; null follows its bot's. */
-  managerPermittedEnvironmentIds: Schema.optional(Schema.NullOr(Schema.Array(EnvironmentId))),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,
