@@ -41,6 +41,8 @@ const state = vi.hoisted(() => ({
   connected: true,
   roles: [] as RoleConfig[],
   workflows: [] as WorkflowConfig[],
+  canEditRoles: true,
+  updateRole: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
   updateWorkflow: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
 }));
 
@@ -48,6 +50,8 @@ function setup(roles: RoleConfig[], workflows: WorkflowConfig[] = []) {
   state.connected = true;
   state.roles = roles;
   state.workflows = workflows;
+  state.canEditRoles = true;
+  state.updateRole = vi.fn(async () => ({ _tag: "Success", value: undefined }));
   state.updateWorkflow = vi.fn(async () => ({ _tag: "Success", value: undefined }));
 }
 
@@ -74,11 +78,15 @@ vi.mock(import("../../state/roles"), async (original) => {
   const actual = await original();
   const { Atom } = await import("effect/reactivity");
   const allowed = Atom.make(true);
+  const denied = Atom.make(false);
   return {
     ...actual,
     rolesEnvironment: {
       ...actual.rolesEnvironment,
-      update: { ...actual.rolesEnvironment.update, permissionAtom: () => allowed },
+      update: {
+        ...actual.rolesEnvironment.update,
+        permissionAtom: () => (state.canEditRoles ? allowed : denied),
+      },
       updateWorkflow: {
         ...actual.rolesEnvironment.updateWorkflow,
         permissionAtom: () => allowed,
@@ -98,7 +106,9 @@ vi.mock(import("../../state/use-atom-command"), async (original) => {
     useAtomCommand: ((command: Parameters<typeof actual.useAtomCommand>[0]) =>
       command === rolesEnvironment.updateWorkflow
         ? state.updateWorkflow
-        : actual.useAtomCommand(command)) as never,
+        : command === rolesEnvironment.update
+          ? state.updateRole
+          : actual.useAtomCommand(command)) as never,
   };
 });
 vi.mock(import("../../state/environments"), async (original) => ({
@@ -153,6 +163,24 @@ describe("LibraryPage", () => {
         crewRoleIds: [reviewer.id, designer.id],
         expectedRevision: 3,
       },
+    });
+  });
+
+  it("turns a role off from the list, only with edit permission", async () => {
+    setup([reviewer]);
+    const toggle = page.getByRole("switch", { name: "New features use Reviewer" });
+    state.canEditRoles = false;
+    {
+      await using _screen = await render(<LibraryPage kind="role" search={{}} />);
+      await expect.element(toggle).toHaveAttribute("data-disabled");
+    }
+
+    state.canEditRoles = true;
+    await using _screen = await render(<LibraryPage kind="role" search={{}} />);
+    await userEvent.click(toggle);
+    expect(state.updateRole).toHaveBeenCalledWith({
+      environmentId,
+      input: expect.objectContaining({ id: reviewer.id, enabled: false, expectedRevision: 1 }),
     });
   });
 
