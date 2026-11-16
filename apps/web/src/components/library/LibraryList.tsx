@@ -5,16 +5,20 @@ import {
   type LibraryRoleEntry,
   type LibraryWorkflowEntry,
 } from "@t3tools/client-runtime/state/library";
+import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, RoleConfig, WorkflowConfig } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { loadedLibraries, useLibraryByEnvironment } from "../../state/library";
 import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
+import { rolesEnvironment } from "../../state/roles";
 import { SettingsSection } from "../settings/settingsLayout";
 import { ROLES_SETTINGS_PATH, WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { Switch } from "../ui/switch";
+import { useSaveRole } from "./RoleEditor";
 
 /** Settings → Workflows' or Roles' list: every shown environment's workflows or roles. */
 export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
@@ -143,7 +147,10 @@ const WorkflowRow = memo(function WorkflowRow({
   );
 });
 
-/** One role: its name, then whether it's off or in no workflow. */
+/**
+ * One role: its name, then whether it's off or in no workflow, and its on switch. Turning a role
+ * off retires it: new features skip it, and running ones keep it.
+ */
 const RoleRow = memo(function RoleRow({
   entry,
   note,
@@ -154,31 +161,49 @@ const RoleRow = memo(function RoleRow({
   readonly environmentLabel: string | null;
 }) {
   const role = entry.item;
+  const save = useSaveRole(entry.environmentId);
+  const canEdit = useAtomValue(rolesEnvironment.update.permissionAtom(entry.environmentId));
+  const [saving, setSaving] = useState(false);
   return (
-    <li>
+    <li className="relative flex min-w-0 items-center gap-3 px-4 py-2.5 hover:bg-accent/40">
       <Link
         to={ROLES_SETTINGS_PATH}
         search={{ environmentId: entry.environmentId, roleId: role.id }}
-        className={ROW_CLASS}
-      >
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span
-            className={cn(
-              "min-w-0 truncate text-sm font-medium text-foreground",
-              !role.enabled && "text-muted-foreground",
-            )}
-          >
-            {role.name}
-          </span>
-          {note ? <span className="truncate text-xs text-muted-foreground">{note}</span> : null}
+        aria-label={role.name}
+        className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
+      <span className="pointer-events-none flex min-w-0 flex-1 flex-col">
+        <span
+          className={cn(
+            "min-w-0 truncate text-sm font-medium text-foreground",
+            !role.enabled && "text-muted-foreground",
+          )}
+        >
+          {role.name}
         </span>
-        {environmentLabel ? (
-          <span className="shrink-0 truncate text-xs text-muted-foreground">
-            {environmentLabel}
-          </span>
-        ) : null}
-        <ChevronRightIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-      </Link>
+        {note ? <span className="truncate text-xs text-muted-foreground">{note}</span> : null}
+      </span>
+      {environmentLabel ? (
+        <span className="pointer-events-none shrink-0 truncate text-xs text-muted-foreground">
+          {environmentLabel}
+        </span>
+      ) : null}
+      {/* Above the row's link, so a toggle doesn't open the role. */}
+      <span className="relative flex">
+        <Switch
+          aria-label={`New features use ${role.name}`}
+          checked={role.enabled}
+          disabled={!canEdit || saving}
+          onCheckedChange={(enabled) => {
+            setSaving(true);
+            void save(role, { enabled }).then(() => setSaving(false));
+          }}
+        />
+      </span>
+      <ChevronRightIcon
+        aria-hidden
+        className="pointer-events-none size-4 shrink-0 text-muted-foreground"
+      />
     </li>
   );
 });

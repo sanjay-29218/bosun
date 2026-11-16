@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { botHeadquartersThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { PencilIcon } from "lucide-react";
+import { SettingsIcon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
@@ -96,7 +96,7 @@ function BotHeader({
               <Button
                 variant="ghost-muted"
                 size="icon-xs"
-                aria-label={`Edit ${bot.name}`}
+                aria-label={`${bot.name} settings`}
                 onClick={() => {
                   if (isMobile) setOpenMobile(false);
                   void navigate({
@@ -107,9 +107,9 @@ function BotHeader({
               />
             }
           >
-            <PencilIcon />
+            <SettingsIcon />
           </TooltipTrigger>
-          <TooltipPopup side="bottom">Edit {bot.name}</TooltipPopup>
+          <TooltipPopup side="bottom">{bot.name} settings</TooltipPopup>
         </Tooltip>
       </span>
     </div>
