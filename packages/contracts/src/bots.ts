@@ -111,6 +111,20 @@ export const LEGACY_TOOLS_MESSAGE = "This Bosun is newer; update the app to edit
 export const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
   Schema.Array(item).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])));
 
+/**
+ * A bot's move to another machine that hasn't finished. `pending` until the target confirms it
+ * took the copy: the move can still be undone there. `confirmed` after: the copy runs there, and
+ * only removing the bot here is left.
+ */
+export const BotPendingMove = Schema.Struct({
+  targetEnvironmentId: EnvironmentId,
+  newBotId: Schema.String,
+  state: Schema.Literals(["pending", "confirmed"]).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("pending" as const)),
+  ),
+});
+export type BotPendingMove = typeof BotPendingMove.Type;
+
 export const Bot = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -140,8 +154,8 @@ export const Bot = Schema.Struct({
    * home exists: a bot gets one when it is created, or first opens or schedules work.
    */
   homePath: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  /** The machine a move that hasn't finished is taking the bot to; null or absent when none. */
-  movingTo: Schema.optionalKey(Schema.NullOr(EnvironmentId)),
+  /** A move to another machine that hasn't finished; null or absent when none. */
+  movingTo: Schema.optionalKey(Schema.NullOr(BotPendingMove)),
 });
 export type Bot = typeof Bot.Type;
 

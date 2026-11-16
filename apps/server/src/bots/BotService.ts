@@ -466,46 +466,41 @@ const make = Effect.gen(function* () {
       const ownsProjects = new BotValidationError({
         reason: "Give this bot's projects to another bot or to none first",
       });
-      // Under the ownership lock, no project can be given to the bot between the check and the
-      // row going. The bot's row goes last, so a failure on the way leaves a bot a retry can
-      // finish removing.
-      yield* store.withOwnership(
-        Effect.gen(function* () {
-          const snapshot = yield* projects.snapshot.pipe(Effect.mapError(failed("projects")));
-          if (
-            snapshot.projects.some(
-              (project) =>
-                project.deletedAt === null &&
-                project.botId === id &&
-                project.workspaceRoot !== homeRoot,
-            )
-          ) {
-            return yield* ownsProjects;
-          }
-          yield* scheduledTasks.deleteForBot(id).pipe(Effect.mapError(failed("automations")));
-          if (Option.isSome(home)) {
-            yield* projects
-              .delete({
-                commandId: CommandId.make(`bot-remove:${id}:${home.value.id}`),
-                projectId: home.value.id,
-                force: true,
-                withHeadquarters: true,
-              })
-              .pipe(Effect.mapError(failed("home")));
-          }
-          if (Option.isSome(root)) {
-            yield* fileSystem
-              .remove(root.value, { recursive: true, force: true })
-              .pipe(Effect.mapError(failed("home folder")));
-          }
-          const result = yield* store.deleteUnlessOwning(
-            id,
-            DateTime.formatIso(yield* DateTime.now),
-            homeRoot,
-          );
-          if (result === "owns-projects") return yield* ownsProjects;
-        }),
+      // Checked first, so nothing is removed from a bot that still owns projects.
+      const owns = yield* store.withOwnership(projects.snapshot).pipe(
+        Effect.mapError(failed("projects")),
+        Effect.map((snapshot) =>
+          snapshot.projects.some(
+            (project) =>
+              project.deletedAt === null &&
+              project.botId === id &&
+              project.workspaceRoot !== homeRoot,
+          ),
+        ),
       );
+      if (owns) return yield* ownsProjects;
+      // Outside the lock, as these can be slow. The row goes last, and re-checks under the lock,
+      // so a project given to the bot meanwhile keeps it, for a retry to finish removing.
+      yield* scheduledTasks.deleteForBot(id).pipe(Effect.mapError(failed("automations")));
+      if (Option.isSome(home)) {
+        yield* projects
+          .delete({
+            commandId: CommandId.make(`bot-remove:${id}:${home.value.id}`),
+            projectId: home.value.id,
+            force: true,
+            withHeadquarters: true,
+          })
+          .pipe(Effect.mapError(failed("home")));
+      }
+      if (Option.isSome(root)) {
+        yield* fileSystem
+          .remove(root.value, { recursive: true, force: true })
+          .pipe(Effect.mapError(failed("home folder")));
+      }
+      const result = yield* store.withOwnership(
+        store.deleteUnlessOwning(id, DateTime.formatIso(yield* DateTime.now), homeRoot),
+      );
+      if (result === "owns-projects") return yield* ownsProjects;
       if (options?.forgetId === true) yield* store.purge(id);
     }),
   });

@@ -76,8 +76,10 @@ will happen to the bot's projects and automations.
   here, since it may already run them, and can't be turned back on; move the bot to that machine
   again to finish, which works from any client, or pick **Cancel move** in the dialog to keep it
   here. If that machine can't be reached any more, cancelling leaves the automations off, since it
-  may still run them; turn them on once you're sure it doesn't. You can move it back the same way once the new
-  machine links back.
+  may still run them; turn them on once you're sure it doesn't. Once the new machine has taken the
+  bot, the move can only finish: there's no Cancel move, and if that machine can't be reached any
+  more, **Stop waiting** keeps the bot here with its automations off. You can move it back the same
+  way once the new machine links back.
 
 Both need the other machine on a link with **Full access**, running a Bosun version that can take
 bots; otherwise the dialog says to link it again or update Bosun there. A bot that's working, in its

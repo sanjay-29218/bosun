@@ -1,5 +1,6 @@
 import {
   type Bot,
+  type BotPendingMove,
   botHeadquartersThreadId,
   type BotTransferInput,
   type BotTransferResult,
@@ -556,6 +557,7 @@ const make = Effect.gen(function* () {
       callFailure,
       // Machines other than this one and the target where projects may still name the bot.
       others: elsewhere.filter(({ link: entry }) => entry.environmentId !== target),
+      pending,
     };
   });
 
@@ -574,37 +576,44 @@ const make = Effect.gen(function* () {
   const move = Effect.fn("BotTransfer.move")(function* (prepared: Prepared) {
     const { bot, label, self, target, targetLinks } = prepared;
     const newBotId = prepared.result.bot.id;
-    const settle = (move: BotStore.PendingMove | null) =>
+    const settle = (move: BotPendingMove | null) =>
       store.setPendingMove(bot.id, move).pipe(Effect.mapError((error) => refuse(error.message)));
-    // Recorded first, so until the move finishes or is undone every retry goes to this target.
-    yield* settle({ targetEnvironmentId: target, newBotId });
-    // Automations never run in two places: they stop here before the copy can start them there.
-    const paused = yield* scheduledTasks
-      .pauseForBot({ botId: bot.id, reason: prepared.moving })
-      .pipe(Effect.mapError((error) => refuse(error.message)));
-    const pausedIds: ReadonlyArray<ScheduledTaskId> = [
-      ...paused,
-      ...prepared.tasks
-        .filter((task) => !task.enabled && task.pausedReason === prepared.moving)
-        .map((task) => task.id),
-    ];
-    // Nothing is left on the target, so the move is over and the automations run here again.
-    const resume = settle(null).pipe(Effect.andThen(scheduledTasks.resumeTasks(pausedIds)));
-    const imported = yield* Effect.result(prepared.callImport({}));
-    if (Result.isFailure(imported)) {
-      const error = imported.failure;
-      if (isOlderTarget(error)) {
-        yield* resume;
-        return yield* refuse(olderBosunMessage(label));
-      }
-      const discarded = yield* Effect.result(prepared.callImport({ homeFiles: [], discard: true }));
-      if (Result.isFailure(discarded)) {
-        return yield* refuse(
-          `Couldn't confirm with ${label}. ${bot.name}'s automations stay paused here, because ${label} may already run them; don't turn them on here. Move ${bot.name} to ${label} again to finish.`,
+    // A confirmed move's copy already runs there; only the hand-over and removal here are left.
+    if (prepared.pending?.state !== "confirmed") {
+      // Recorded first, so until the move finishes or is undone every retry goes to this target.
+      yield* settle({ targetEnvironmentId: target, newBotId, state: "pending" });
+      // Automations never run in two places: they stop here before the copy can start them there.
+      const paused = yield* scheduledTasks
+        .pauseForBot({ botId: bot.id, reason: prepared.moving })
+        .pipe(Effect.mapError((error) => refuse(error.message)));
+      const pausedIds: ReadonlyArray<ScheduledTaskId> = [
+        ...paused,
+        ...prepared.tasks
+          .filter((task) => !task.enabled && task.pausedReason === prepared.moving)
+          .map((task) => task.id),
+      ];
+      // Nothing is left on the target, so the move is over and the automations run here again.
+      const resume = settle(null).pipe(Effect.andThen(scheduledTasks.resumeTasks(pausedIds)));
+      const imported = yield* Effect.result(prepared.callImport({}));
+      if (Result.isFailure(imported)) {
+        const error = imported.failure;
+        if (isOlderTarget(error)) {
+          yield* resume;
+          return yield* refuse(olderBosunMessage(label));
+        }
+        const discarded = yield* Effect.result(
+          prepared.callImport({ homeFiles: [], discard: true }),
         );
+        if (Result.isFailure(discarded)) {
+          return yield* refuse(
+            `Couldn't confirm with ${label}. ${bot.name}'s automations stay paused here, because ${label} may already run them; don't turn them on here. Move ${bot.name} to ${label} again to finish.`,
+          );
+        }
+        yield* resume;
+        return yield* refuse(prepared.callFailure(error));
       }
-      yield* resume;
-      return yield* refuse(prepared.callFailure(error));
+      // The copy took over there: from now on the move can only finish, never be undone.
+      yield* settle({ targetEnvironmentId: target, newBotId, state: "confirmed" });
     }
 
     const newHome: BotHome = {
@@ -693,22 +702,39 @@ const make = Effect.gen(function* () {
       botName: bot.name,
       label: self.label,
     };
-    const undone =
-      link === undefined
-        ? false
-        : Result.isSuccess(
-            yield* Effect.result(
-              forwarding.call(personScope(self.environmentId, bot.id), LinkBotImport, target, {
-                home,
-                newBotId: pending.newBotId,
-                mode: "move",
-                bot: transferredBot(bot),
-                homeFiles: [],
-                automations: [],
-                discard: true,
-              }),
-            ),
-          );
+    const finish = `Move it to ${label} again to finish.`;
+    let undone = false;
+    if (pending.state === "confirmed") {
+      // The copy runs there now: undoing it would lose it on both machines.
+      if (how === "undo") return yield* refuse(`${bot.name} already moved to ${label}. ${finish}`);
+      // Stop waiting only for a target that can't be reached; one that answers can finish it.
+      if (link !== undefined) {
+        const reached = yield* Effect.result(links.resolve(target));
+        if (Result.isSuccess(reached)) {
+          return yield* refuse(`${Label} answers, and ${bot.name} already moved there. ${finish}`);
+        }
+        if (reached.failure.reason !== "unreachable" && reached.failure.reason !== "expired") {
+          return yield* refuse(reached.failure.message);
+        }
+      }
+    } else if (link !== undefined) {
+      const discarded = yield* Effect.result(
+        forwarding.call(personScope(self.environmentId, bot.id), LinkBotImport, target, {
+          home,
+          newBotId: pending.newBotId,
+          mode: "move",
+          bot: transferredBot(bot),
+          homeFiles: [],
+          automations: [],
+          discard: true,
+        }),
+      );
+      // Only silence is a reason to stop waiting; a target that refused says why.
+      if (Result.isFailure(discarded) && !isUnanswered(discarded.failure)) {
+        return yield* refuse(discarded.failure.message);
+      }
+      undone = Result.isSuccess(discarded);
+    }
     if (!undone && how === "undo") {
       return yield* refuse(
         `${Label} didn't answer, so ${bot.name}'s copy there couldn't be undone. ${Label} may still run ${bot.name}'s automations.`,
@@ -756,7 +782,9 @@ const make = Effect.gen(function* () {
       warnings: undone
         ? []
         : [
-            `${Label} didn't answer, so it may still run ${bot.name}'s automations. They stay off here; turn them on only once you're sure ${label} doesn't.`,
+            pending.state === "confirmed"
+              ? `${Label} took ${bot.name} before it went quiet, so ${bot.name} may live there too. It stays here with its automations off; turn them on only once you're sure ${label} doesn't run them.`
+              : `${Label} didn't answer, so it may still run ${bot.name}'s automations. They stay off here; turn them on only once you're sure ${label} doesn't.`,
           ],
     };
     return result;

@@ -1,4 +1,4 @@
-import { Bot, EnvironmentId, ModelSelection } from "@t3tools/contracts";
+import { Bot, BotPendingMove, EnvironmentId, ModelSelection } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -16,20 +16,15 @@ const BotRow = Schema.Struct({
   permittedEnvironmentIds: Schema.fromJsonString(Bot.fields.permittedEnvironmentIds),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   pinned: Schema.BooleanFromBit,
+  movingTo: Schema.optionalKey(Schema.NullOr(Schema.fromJsonString(BotPendingMove))),
 });
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(BotRow));
 const encodeRow = Schema.encodeSync(BotRow);
 
-/** Where a bot is moving and the ID its copy there has, until the move finishes. */
-export const PendingMove = Schema.Struct({
-  targetEnvironmentId: EnvironmentId,
-  newBotId: Schema.String,
-});
-export type PendingMove = typeof PendingMove.Type;
 /** The bot on another environment a copy here was made from. */
 export const CopiedFrom = Schema.Struct({ environmentId: EnvironmentId, botId: Schema.String });
 export type CopiedFrom = typeof CopiedFrom.Type;
-const PendingMoveJson = Schema.NullOr(Schema.fromJsonString(PendingMove));
+const PendingMoveJson = Schema.NullOr(Schema.fromJsonString(BotPendingMove));
 const CopiedFromJson = Schema.NullOr(Schema.fromJsonString(CopiedFrom));
 const encodePendingMove = Schema.encodeSync(PendingMoveJson);
 const decodePendingMove = Schema.decodeEffect(PendingMoveJson);
@@ -53,10 +48,10 @@ export class BotStore extends Context.Service<
       copiedFrom?: CopiedFrom,
     ) => Effect.Effect<boolean, PersistenceSqlError>;
     /** The move a bot has under way, or null; null too for a missing bot. */
-    readonly pendingMove: (id: string) => Effect.Effect<PendingMove | null, PersistenceSqlError>;
+    readonly pendingMove: (id: string) => Effect.Effect<BotPendingMove | null, PersistenceSqlError>;
     readonly setPendingMove: (
       id: string,
-      move: PendingMove | null,
+      move: BotPendingMove | null,
     ) => Effect.Effect<void, PersistenceSqlError>;
     /** The bot another environment's copy here came from, or null for any other bot. */
     readonly copiedFrom: (id: string) => Effect.Effect<CopiedFrom | null, PersistenceSqlError>;
@@ -124,7 +119,7 @@ const make = Effect.gen(function* () {
         permitted_environment_ids_json AS "permittedEnvironmentIds",
         position, pinned, revision,
         created_at AS "createdAt", updated_at AS "updatedAt",
-        json_extract(moving_json, '$.targetEnvironmentId') AS "movingTo"
+        moving_json AS "movingTo"
       FROM bots WHERE deleted_at IS NULL AND ${id === undefined ? sql`1 = 1` : sql`id = ${id}`}
       ORDER BY position, created_at, id
     `.pipe(

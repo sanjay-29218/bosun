@@ -8,6 +8,7 @@ import {
   type ExecutionEnvironmentCapabilities,
   OrchestratorMcpFailure,
   type PeerLink,
+  PeerLinkError,
   ProjectId,
   ProviderInstanceId,
   type ScheduledTaskUpsertInput,
@@ -33,6 +34,7 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
+import { stoppedAnswering } from "../peer/PeerMcpClient.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -207,13 +209,13 @@ const recordLink = (peer: Environment) =>
 /** What the fake link does with the next import, and the discard after it. */
 interface Behavior {
   import: "apply" | "refuse" | "lose-answer" | "unknown-tool";
-  discard: "apply" | "unanswered";
+  discard: "apply" | "unanswered" | "refuse";
+  /** Whether the box answers at all, as resolving its link checks. */
+  reachable: boolean;
 }
 
-const lostAnswer = new OrchestratorMcpFailure({
-  code: "orchestration_error",
-  message: "The linked environment stopped answering.",
-});
+// What the transport fails with when the answer never comes back.
+const lostAnswer = stoppedAnswering;
 
 const automation = (title: string, schedule: ScheduledTaskUpsertInput["schedule"]) =>
   ({
@@ -247,7 +249,7 @@ const setup = (
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const tmp = yield* fileSystem.makeTempDirectoryScoped({ prefix: "bot-transfer-" });
-    const behavior: Behavior = { import: "apply", discard: "apply" };
+    const behavior: Behavior = { import: "apply", discard: "apply", reachable: true };
     const calls: Array<string> = [];
     // The laptop's automations as the box's import began.
     const atImport: Array<{ readonly title: string; readonly enabled: boolean }> = [];
@@ -345,6 +347,12 @@ const setup = (
           input.discard === true ? "discard" : input.dryRun === true ? "check" : "import";
         calls.push(kind);
         if (kind === "discard" && behavior.discard === "unanswered") return yield* lostAnswer;
+        if (kind === "discard" && behavior.discard === "refuse") {
+          return yield* new OrchestratorMcpFailure({
+            code: "capability_denied",
+            message: "Laptop is linked with auto access, and a bot copied here needs full access.",
+          });
+        }
         if (kind === "import") {
           yield* watch.laptop;
           if (behavior.import === "refuse") {
@@ -378,12 +386,20 @@ const setup = (
                   : Option.none(),
             ),
           resolve: (id) =>
-            Effect.succeed({
-              link: id === couch.environmentId ? linkTo(couch) : linkTo(box, options.linkAccess),
-              url: "https://peer.example",
-              token: "fixture",
-              capabilities: options.capabilities ?? { repositoryIdentity: true, botTransfer: true },
-            }),
+            !behavior.reachable && id === box.environmentId
+              ? Effect.fail(
+                  new PeerLinkError({ reason: "unreachable", message: "Box did not answer." }),
+                )
+              : Effect.succeed({
+                  link:
+                    id === couch.environmentId ? linkTo(couch) : linkTo(box, options.linkAccess),
+                  url: "https://peer.example",
+                  token: "fixture",
+                  capabilities: options.capabilities ?? {
+                    repositoryIdentity: true,
+                    botTransfer: true,
+                  },
+                }),
           list: Effect.succeed([
             { ...linkTo(box), status: "reachable" as const },
             ...(options.withCouch === true
@@ -829,7 +845,11 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
       env.behavior.import = "lose-answer";
       env.behavior.discard = "unanswered";
       yield* env.transfer("move").pipe(Effect.flip);
-      assert.equal((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo, box.environmentId);
+      assert.deepEqual((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo, {
+        targetEnvironmentId: box.environmentId,
+        newBotId: NEW_ID,
+        state: "pending",
+      });
 
       env.behavior.discard = "apply";
       const cancelled = yield* env.transfer("move", false, { cancelMove: "undo" });
@@ -848,6 +868,15 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
       env.behavior.import = "lose-answer";
       env.behavior.discard = "unanswered";
       yield* env.transfer("move").pipe(Effect.flip);
+
+      // A box that answers with a refusal says why, and nothing is given up.
+      env.behavior.discard = "refuse";
+      for (const how of ["undo", "forget"] as const) {
+        const refused = yield* env.transfer("move", false, { cancelMove: how }).pipe(Effect.flip);
+        assert.include(refused.message, "needs full access");
+      }
+      assert.equal((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo?.state, "pending");
+      env.behavior.discard = "unanswered";
 
       // Undoing needs the box; it's gone quiet, so the person has to choose to stop waiting.
       const needsBox = yield* env.transfer("move", false, { cancelMove: "undo" }).pipe(Effect.flip);
@@ -893,7 +922,24 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
       const failed = yield* env.transfer("move").pipe(Effect.flip);
       yield* env.chmod(env.laptopRoot, 0o755);
       assert.include(failed.message, "Moved Sky to Box, but couldn't remove it from Laptop");
-      assert.isNotNull(yield* env.getBot(env.onLaptop, "bot-sky"));
+      assert.equal((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo?.state, "confirmed");
+
+      // The box runs Sky now, so the move can only finish: undoing it would lose Sky on both.
+      const undo = yield* env.transfer("move", false, { cancelMove: "undo" }).pipe(Effect.flip);
+      assert.equal(undo.message, "Sky already moved to Box. Move it to Box again to finish.");
+      const forget = yield* env.transfer("move", false, { cancelMove: "forget" }).pipe(Effect.flip);
+      assert.equal(
+        forget.message,
+        "Box answers, and Sky already moved there. Move it to Box again to finish.",
+      );
+      assert.equal((yield* env.getBot(env.onBox, NEW_ID))?.name, "Sky");
+      assert.deepEqual(
+        sortedTasks(yield* env.boxTasks).map((task) => [task.title, task.enabled]),
+        [
+          ["Deploy hook", false],
+          ["Weekly update", true],
+        ],
+      );
 
       yield* env.transfer("move", false, { newBotId: "bot-fresh-dialog" });
       assert.isNull(yield* env.getBot(env.onLaptop, "bot-sky"));
@@ -903,12 +949,30 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
     }),
   );
 
+  it.effect("a confirmed move whose target went quiet can stop waiting, never undo", () =>
+    Effect.gen(function* () {
+      const env = yield* setup();
+      yield* env.chmod(env.laptopRoot, 0o555);
+      yield* env.transfer("move").pipe(Effect.flip);
+      yield* env.chmod(env.laptopRoot, 0o755);
+      env.behavior.reachable = false;
+      const forgotten = yield* env.transfer("move", false, { cancelMove: "forget" });
+      assert.deepEqual(forgotten.warnings, [
+        "Box took Sky before it went quiet, so Sky may live there too. It stays here with its automations off; turn them on only once you're sure Box doesn't run them.",
+      ]);
+      assert.deepEqual(env.calls, ["check", "import"]);
+      assert.isNull((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo);
+      // The box keeps its copy and the projects it took.
+      assert.equal((yield* env.getProject(env.onBox, env.boxProject)).botId, NEW_ID);
+    }),
+  );
+
   it.effect("a failed copy is undone on the box, and the original keeps running", () =>
     Effect.gen(function* () {
       const env = yield* setup();
       env.behavior.import = "lose-answer";
       const failed = yield* env.transfer("copy").pipe(Effect.flip);
-      assert.equal(failed.message, "The linked environment stopped answering.");
+      assert.equal(failed.message, "Box didn't answer. Sky is still on Laptop, unchanged.");
       assert.deepEqual(env.calls, ["check", "import", "discard"]);
       assert.isNull(yield* env.getBot(env.onBox, NEW_ID));
       assert.deepEqual(yield* env.boxTasks, []);

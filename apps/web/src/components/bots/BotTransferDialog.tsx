@@ -199,37 +199,57 @@ function TransferForm({
     setFailure(formatEnvironmentQueryError(result.cause));
   };
 
-  // A move that hasn't finished: finish it by moving there again, or cancel it.
-  const pendingLabel =
-    bot.movingTo == null
+  // A move that hasn't finished. Pending: finish it by moving there again, or cancel it.
+  // Confirmed: the copy runs there, so it can only finish, or stop waiting for a silent target.
+  const moving = bot.movingTo ?? null;
+  const movingLink =
+    moving === null
+      ? undefined
+      : list?.find((link) => link.environmentId === moving.targetEnvironmentId);
+  const pendingLabel = moving === null ? null : (movingLink?.label ?? "the other machine");
+  const movingHealth =
+    movingLink === undefined
       ? null
-      : (list?.find((link) => link.environmentId === bot.movingTo)?.label ?? "the other machine");
+      : peerLinkHealth(movingLink, DateTime.makeUnsafe(nowMinute)).kind;
+  const targetSilent =
+    list !== null &&
+    (movingLink === undefined || movingHealth === "unreachable" || movingHealth === "expired");
   const cancelPendingMove = async () => {
-    const movingTo = bot.movingTo;
-    if (movingTo == null || pendingLabel === null) return;
+    if (moving === null || pendingLabel === null) return;
     const cancel = (how: "undo" | "forget") =>
       transfer({
         environmentId,
         input: {
           botId: bot.id,
-          targetEnvironmentId: movingTo,
+          targetEnvironmentId: moving.targetEnvironmentId,
           newBotId,
           mode: "move",
           cancelMove: how,
         },
       });
-    setRunning(true);
     setFailure(null);
-    let result = await cancel("undo");
-    if (result._tag !== "Success") {
-      setRunning(false);
+    let result;
+    if (moving.state === "confirmed") {
       const confirmed = await requestConfirmDialog(
-        `${formatEnvironmentQueryError(result.cause)}\nCancel the move anyway? ${bot.name}'s automations stay off here; turn them on only once you're sure ${pendingLabel} doesn't run them.`,
+        `${pendingLabel} took ${bot.name} before it went quiet, so ${bot.name} may live there too.\nStop waiting and keep ${bot.name} here? Its automations stay off here; turn them on only once you're sure ${pendingLabel} doesn't run them.`,
         { variant: "destructive" },
       );
       if (confirmed !== true) return;
       setRunning(true);
       result = await cancel("forget");
+    } else {
+      setRunning(true);
+      result = await cancel("undo");
+      if (result._tag !== "Success") {
+        setRunning(false);
+        const confirmed = await requestConfirmDialog(
+          `${formatEnvironmentQueryError(result.cause)}\nCancel the move anyway? ${bot.name}'s automations stay off here; turn them on only once you're sure ${pendingLabel} doesn't run them.`,
+          { variant: "destructive" },
+        );
+        if (confirmed !== true) return;
+        setRunning(true);
+        result = await cancel("forget");
+      }
     }
     setRunning(false);
     if (result._tag !== "Success") {
@@ -272,13 +292,17 @@ function TransferForm({
                 {bot.name}'s move to {pendingLabel} hasn't finished
               </AlertTitle>
               <AlertDescription>
-                Move it to {pendingLabel} again to finish, or cancel the move to keep it here.
+                {moving?.state === "confirmed"
+                  ? `${pendingLabel} already runs ${bot.name}. Move it to ${pendingLabel} again to finish removing it here.`
+                  : `Move it to ${pendingLabel} again to finish, or cancel the move to keep it here.`}
               </AlertDescription>
-              <AlertAction>
-                <Button size="xs" variant="outline" onClick={() => void cancelPendingMove()}>
-                  Cancel move
-                </Button>
-              </AlertAction>
+              {moving?.state === "confirmed" && !targetSilent ? null : (
+                <AlertAction>
+                  <Button size="xs" variant="outline" onClick={() => void cancelPendingMove()}>
+                    {moving?.state === "confirmed" ? "Stop waiting" : "Cancel move"}
+                  </Button>
+                </AlertAction>
+              )}
             </Alert>
           )}
           <RadioGroup
