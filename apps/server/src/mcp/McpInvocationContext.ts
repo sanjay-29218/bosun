@@ -142,11 +142,8 @@ export interface McpInvocationScope {
   readonly client: McpClientCaller | undefined;
   /** False while the Linked environments beta is off here; `/mcp` reads it per request. */
   readonly linkedEnvironments?: boolean;
-  /**
-   * The current grants of the crew run behind the calling thread, read per request; absent for
-   * every caller that isn't a crew thread. `crewToolGrants.ts` lists Bosun's tools by them.
-   */
-  readonly crewGrants?: ReadonlyArray<string>;
+  /** The calling thread is a feature's crew member its lead delegated to, read per request. */
+  readonly featureCrewMember?: boolean;
   /**
    * The origin this `/mcp` request reached, e.g. a T3 Connect tunnel. Hosted clients cannot
    * see the URL they were configured with, so links they must fetch carry it. Unset in-process.

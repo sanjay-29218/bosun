@@ -1,13 +1,6 @@
-import type { OrchestrationV2ThreadProjection, RunId } from "@t3tools/contracts";
+import type { OrchestrationV2ThreadProjection } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-/**
- * A headquarters follows every request its bot gets, so its provider conversation only grows.
- * Past this size it starts a fresh one, briefed with the bot's instructions and latest messages.
- */
-export const FRESH_START_TOKENS = 100_000;
-/** How long a headquarters set to start fresh waits without a new turn before it does. */
-export const FRESH_START_QUIET_MINUTES = 30;
 const RECENT_MESSAGES = 4;
 const RECENT_MESSAGE_CHARS = 1_500;
 
@@ -27,28 +20,6 @@ export function headquartersIdle({
     !runs.some((run) => BUSY_RUN_STATUSES.has(run.status)) &&
     !runtimeRequests.some((request) => request.status === "pending")
   );
-}
-
-/** Whether the headquarters should start fresh now that `runId` completed. */
-export function freshStartDue(records: FreshStartRecords, runId: RunId): boolean {
-  const { thread, runs, providerThreads, providerTurns } = records;
-  if (thread.deletedAt !== null || thread.archivedAt !== null) return false;
-  const latestRun = runs.reduce<(typeof runs)[number] | null>(
-    (latest, run) => (latest === null || run.ordinal > latest.ordinal ? run : latest),
-    null,
-  );
-  if (latestRun?.id !== runId || latestRun.status !== "completed") return false;
-  if (!headquartersIdle(records)) return false;
-  const providerThread = providerThreads.find(
-    (candidate) => candidate.id === thread.activeProviderThreadId,
-  );
-  if (providerThread === undefined || providerThread.id !== latestRun.providerThreadId)
-    return false;
-  const latestUsage = providerTurns
-    .filter((turn) => turn.providerThreadId === providerThread.id && turn.tokenUsage !== undefined)
-    .map((turn) => turn.tokenUsage!)
-    .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
-  return (latestUsage?.usedTokens ?? 0) >= FRESH_START_TOKENS;
 }
 
 const clip = (text: string) =>

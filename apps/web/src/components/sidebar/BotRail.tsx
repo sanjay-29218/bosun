@@ -340,7 +340,7 @@ export const BotRail = memo(function BotRail({
             ),
           )}
           {managers.length === 0 ? null : collapsed ? (
-            <RailGroupLabel>PMs</RailGroupLabel>
+            <RailDivider />
           ) : (
             <h3 className="px-4 pt-4 pb-1 text-2xs text-muted-foreground">Project managers</h3>
           )}
@@ -818,16 +818,6 @@ function RailRow({
     </button>
   );
 }
-
-/** A collapsed rail's section break that names the group below it. */
-const RailGroupLabel = ({ children }: { readonly children: string }) => (
-  <div aria-hidden className="mt-2.5 mb-0.5 flex shrink-0 flex-col items-center gap-1">
-    <span className="h-px w-8 rounded-full bg-sidebar-foreground/25" />
-    <span className="text-3xs font-semibold tracking-wide text-sidebar-muted-foreground uppercase">
-      {children}
-    </span>
-  </div>
-);
 
 const RailDivider = () => (
   <div aria-hidden className="my-1.5 h-px w-6 shrink-0 rounded-full bg-sidebar-border" />

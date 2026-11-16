@@ -60,6 +60,9 @@ const EnvironmentName = { environmentId: EnvironmentId, label: Schema.String };
 /** A bot with where it lives and the linked environments it may start work on. */
 export const ListedBot = Schema.Struct({
   ...Bot.fields,
+  /** Older linked environments require these. Every bot runs with full access and compacts. */
+  runtimeMode: Schema.optionalKey(RuntimeMode),
+  longConversation: Schema.optionalKey(Schema.Literals(["compact", "new-session"])),
   home: Schema.Struct(EnvironmentName).annotate({
     description: "The environment the bot lives on: its settings, chat, memory and home folder.",
   }),
@@ -67,7 +70,7 @@ export const ListedBot = Schema.Struct({
     Schema.Struct({ ...EnvironmentName, reachable: Schema.Boolean }),
   ).annotate({
     description:
-      "Linked environments the bot may start work on; reachable says whether the link answered last time.",
+      "Every environment linked to the bot's home, each of which it works on; reachable says whether the link answered last time.",
   }),
 });
 export type ListedBot = typeof ListedBot.Type;
@@ -192,10 +195,7 @@ export const TransferredBot = Schema.Struct({
   avatar: Bot.fields.avatar,
   color: Bot.fields.color,
   instructions: Bot.fields.instructions,
-  withheldTools: Bot.fields.withheldTools,
-  runtimeMode: Bot.fields.runtimeMode,
   modelSelection: Bot.fields.modelSelection,
-  longConversation: Bot.fields.longConversation,
 });
 export type TransferredBot = typeof TransferredBot.Type;
 

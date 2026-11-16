@@ -122,10 +122,7 @@ const transferredBot = (bot: Bot): TransferredBot => ({
   avatar: bot.avatar,
   color: bot.color,
   instructions: bot.instructions,
-  withheldTools: bot.withheldTools,
-  runtimeMode: bot.runtimeMode,
   modelSelection: bot.modelSelection,
-  longConversation: bot.longConversation,
 });
 
 const remoteBotOf = (home: BotHome): ProjectRemoteBot => ({

@@ -604,7 +604,7 @@ function TransferPreview({
       <p className="text-xs text-muted-foreground">
         {mode === "move"
           ? `${bot.name}'s thread on ${homeLabel} is deleted. It starts a fresh one on ${targetLabel} and keeps its memory, which lives in its home folder.`
-          : "Its instructions, model, tools, access, look and home folder are copied. The two aren't kept in sync."}
+          : "Its instructions, model, look and home folder are copied. The two aren't kept in sync."}
       </p>
     </div>
   );

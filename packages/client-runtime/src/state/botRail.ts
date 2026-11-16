@@ -47,7 +47,7 @@ export interface EnvironmentBots {
   readonly environmentId: EnvironmentId;
   readonly bots: ReadonlyArray<
     Pick<Bot, "id" | "name" | "avatar" | "color" | "position" | "pinned"> &
-      Partial<Pick<Bot, "permittedEnvironmentIds">>
+      Partial<Pick<Bot, "linkedEnvironmentIds">>
   >;
 }
 
@@ -70,8 +70,8 @@ export interface LogicalBot {
   readonly members: ReadonlyArray<LogicalBotMember>;
   /** Shown in the main rail. */
   readonly pinned: boolean;
-  /** Linked environments besides its home that it may start work on. */
-  readonly permittedEnvironmentIds: ReadonlyArray<EnvironmentId>;
+  /** The environments linked to its home; it works on each of them. */
+  readonly linkedEnvironmentIds: ReadonlyArray<EnvironmentId>;
 }
 
 /**
@@ -111,16 +111,16 @@ export function logicalBotOf(
     color: bot.color,
     members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
     pinned: bot.pinned ?? true,
-    permittedEnvironmentIds: bot.permittedEnvironmentIds ?? [],
+    linkedEnvironmentIds: bot.linkedEnvironmentIds ?? [],
   };
 }
 
 /** The environment a rail entry's bot lives on. */
 export const logicalBotHome = (bot: LogicalBot): EnvironmentId => bot.members[0]!.environmentId;
 
-/** Whether the bot may own and start work on projects on `environmentId`. */
+/** Whether the bot may own and start work on projects on `environmentId`: its home or a linked one. */
 export const logicalBotWorksOn = (bot: LogicalBot, environmentId: EnvironmentId): boolean =>
-  logicalBotHome(bot) === environmentId || bot.permittedEnvironmentIds.includes(environmentId);
+  logicalBotHome(bot) === environmentId || bot.linkedEnvironmentIds.includes(environmentId);
 
 /**
  * The environments a bot list reads, primary first: bot environments that are connected, then
@@ -160,7 +160,7 @@ export const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
   bots
     .map(
       (bot) =>
-        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.permittedEnvironmentIds.join(",")}|${bot.members
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.linkedEnvironmentIds.join(",")}|${bot.members
           .map((member) => `${member.environmentId}/${member.botId}/${member.pinned ?? true}`)
           .join(",")}`,
     )

@@ -7,20 +7,15 @@ import * as BotTransfer from "../../../bots/BotTransfer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { readCaller } from "../../threadAccess.ts";
-import { asCrewManager, fullAccessCaller } from "../features/access.ts";
+import { fullAccessCaller } from "../features/access.ts";
 import { BotsToolkit } from "./tools.ts";
 
 const failed = (error: { readonly message: string }) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message: error.message });
 
-/**
- * Bots and project ownership belong to the environment: a bot changes them with "Manage
- * bots and roles", and every other caller needs full access.
- */
-const checkChange = asCrewManager(
-  fullAccessCaller(
-    "Changing bots needs a live full-access/default calling thread or a full-access client.",
-  ),
+/** Bots and project ownership belong to the environment, so changing them needs full access. */
+const checkChange = fullAccessCaller(
+  "Changing bots needs a live full-access/default calling thread or a full-access client.",
 );
 
 const changingBots = <A, E extends { readonly message: string }>(

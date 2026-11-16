@@ -2,21 +2,12 @@ import { useAtomValue } from "@effect/atom-react";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
   type Bot,
-  type BotLongConversation,
   type BotAvatar as BotAvatarParts,
   type EnvironmentId,
   type ModelSelection,
   type ProjectIconColor,
-  type RuntimeMode,
-  grantedTools,
 } from "@t3tools/contracts";
-import {
-  FolderIcon,
-  MonitorIcon,
-  PaletteIcon,
-  SlidersHorizontalIcon,
-  WrenchIcon,
-} from "lucide-react";
+import { FolderIcon, MonitorIcon, PaletteIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
@@ -27,31 +18,18 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { RoleModelPicker } from "../library/RoleEditor";
-import { CrewToolPicker, EditorField } from "../settings/CrewAgentFields";
+import { EditorField } from "../settings/CrewAgentFields";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { WizardTabs } from "../ui/wizard";
 import { BotHomeField } from "./BotHomeField";
-import { BotPermittedEnvironments } from "./BotPermittedEnvironments";
 import { BotAvatarPicker, BotColorPicker } from "./BotLook";
 
 type BotChange = Partial<
-  Pick<
-    Bot,
-    | "name"
-    | "avatar"
-    | "color"
-    | "instructions"
-    | "withheldTools"
-    | "modelSelection"
-    | "runtimeMode"
-    | "longConversation"
-    | "permittedEnvironmentIds"
-  >
+  Pick<Bot, "name" | "avatar" | "color" | "instructions" | "modelSelection">
 >;
 
 /** Saves a bot. A failed save reloads the list, so another try uses the latest revision. */
@@ -73,15 +51,10 @@ function useSaveBot(environmentId: EnvironmentId, onFailure: () => void) {
   };
 }
 
-const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
-  compact: "Compact",
-  "new-session": "Start a new session",
-};
-
-type Tab = "behavior" | "projects" | "tools" | "look";
+type Tab = "behavior" | "projects" | "look";
 
 /**
- * A bot's name, behavior, tools and look; `bot` null adds one. `projects` is the Projects tab,
+ * A bot's name, behavior and look; `bot` null adds one. Every bot gets every tool. `projects` is the Projects tab,
  * which moves projects right away rather than on Save.
  */
 export function BotEditor({
@@ -127,14 +100,9 @@ export function BotEditor({
   );
   const [color, setColor] = useState<ProjectIconColor>(bot?.color ?? "blue");
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
-  const [tools, setTools] = useState<ReadonlyArray<string>>(bot?.withheldTools ?? []);
   // Null until someone picks one: the bot then follows this environment's default model.
   const [pickedModel, setModelSelection] = useState(bot?.modelSelection ?? null);
   const modelSelection = pickedModel ?? defaultModel;
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(bot?.runtimeMode ?? "full-access");
-  const [longConversation, setLongConversation] = useState<BotLongConversation>(
-    bot?.longConversation ?? "compact",
-  );
   const homeLabel =
     useEnvironmentIdentities().find((identity) => identity.environmentId === environmentId)
       ?.label ?? "this machine";
@@ -144,20 +112,14 @@ export function BotEditor({
     name: name.trim(),
     avatar,
     color,
-    withheldTools: tools,
-    runtimeMode,
     modelSelection: pickedModel,
-    longConversation,
   };
   const edited = bot
     ? fields.name !== bot.name ||
       JSON.stringify(avatar) !== JSON.stringify(bot.avatar) ||
       color !== bot.color ||
       instructions.trim() !== bot.instructions ||
-      tools.join("\n") !== bot.withheldTools.join("\n") ||
-      JSON.stringify(pickedModel) !== JSON.stringify(bot.modelSelection) ||
-      runtimeMode !== bot.runtimeMode ||
-      longConversation !== bot.longConversation
+      JSON.stringify(pickedModel) !== JSON.stringify(bot.modelSelection)
     : fields.name.length > 0 || instructions.trim().length > 0;
   // A new bot may leave instructions empty to start from the server's defaults.
   const canSave =
@@ -253,11 +215,6 @@ export function BotEditor({
                   },
                 ]
               : []),
-            {
-              value: "tools",
-              label: `Tools · ${grantedTools(tools, { bot: true }).length}`,
-              icon: <WrenchIcon />,
-            },
             { value: "look", label: "Look", icon: <PaletteIcon /> },
           ]}
         />
@@ -286,10 +243,8 @@ export function BotEditor({
                       <RoleModelPicker
                         environmentId={environmentId}
                         selection={modelSelection}
-                        runtimeMode={runtimeMode}
                         disabled={saving || !canEdit}
                         onChange={setModelSelection}
-                        onRuntimeModeChange={setRuntimeMode}
                       />
                       {pickedModel === null ? (
                         <p className="mt-1.5 text-xs text-muted-foreground">
@@ -315,44 +270,13 @@ export function BotEditor({
                   )}
                 </div>
               </EditorField>
-              <EditorField label="Long conversations">
-                <Select
-                  value={longConversation}
-                  onValueChange={(next) => {
-                    if (next === "compact" || next === "new-session") setLongConversation(next);
-                  }}
-                >
-                  <SelectTrigger aria-label="Long conversations">
-                    <SelectValue>
-                      {(value: string) =>
-                        LONG_CONVERSATION_LABELS[value === "new-session" ? value : "compact"]
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value="compact">{LONG_CONVERSATION_LABELS.compact}</SelectItem>
-                    <SelectItem value="new-session">
-                      {LONG_CONVERSATION_LABELS["new-session"]}
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
-              </EditorField>
             </div>
           </>
         ) : tab === "projects" && bot ? (
           <>
             <BotHomeField environmentId={environmentId} homePath={bot.homePath ?? null} />
-            <BotPermittedEnvironments
-              environmentId={environmentId}
-              homeLabel={homeLabel}
-              bot={bot}
-              canEdit={canEdit}
-              onSave={(permittedEnvironmentIds) => save(bot, { permittedEnvironmentIds })}
-            />
             {projects}
           </>
-        ) : tab === "tools" ? (
-          <CrewToolPicker value={tools} onChange={setTools} forBot />
         ) : (
           <>
             <EditorField label="Look">
@@ -364,7 +288,7 @@ export function BotEditor({
           </>
         )}
       </fieldset>
-      {/* Pinned to the pane's bottom, so Save stays in reach below a long tool list. */}
+      {/* Pinned to the pane's bottom, so Save stays in reach below a long project list. */}
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         {bot && edited ? (
           <span className="me-auto text-xs text-muted-foreground">Unsaved changes</span>

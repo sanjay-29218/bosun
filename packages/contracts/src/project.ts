@@ -195,8 +195,6 @@ export const Project = Schema.Struct({
   managerPinned: Schema.optional(Schema.Boolean),
   /** Set when the project's manager lives on another environment; absent or null: here. */
   remoteManager: Schema.optional(Schema.NullOr(ProjectRemoteManager)),
-  /** Linked environments the manager here may work on; null follows its bot's. */
-  managerPermittedEnvironmentIds: Schema.optional(Schema.NullOr(Schema.Array(EnvironmentId))),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,

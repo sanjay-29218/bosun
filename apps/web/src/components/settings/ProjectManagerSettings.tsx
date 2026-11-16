@@ -4,17 +4,11 @@ import {
   type ManagerCopy,
   managerHomeAmong,
   onSeveralMachines,
-  managerPermitted,
   type PlacedProject,
   planManagerPlacement,
 } from "@t3tools/client-runtime/project-manager-home";
 import { projectManagerLook } from "@t3tools/client-runtime/project-manager-look";
-import type {
-  BotLongConversation,
-  EnvironmentId,
-  ProjectManagerIcon,
-  ProjectManagerSettings,
-} from "@t3tools/contracts";
+import type { ProjectManagerIcon, ProjectManagerSettings } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { useState } from "react";
 
@@ -28,22 +22,15 @@ import { BotAvatar } from "../BotAvatar";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { BotAvatarPicker, BotColorPicker } from "../bots/BotLook";
 import { ProjectManagerAvatar } from "../bots/ProjectManagerIcon";
-import { RoleModelPicker } from "../library/RoleEditor";
 import { useOpenProjectManager } from "../sidebar/openProjectManager";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
-import { CrewToolPicker, EditorField } from "./CrewAgentFields";
+import { EditorField } from "./CrewAgentFields";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-
-const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
-  compact: "Compact",
-  "new-session": "Start a new session",
-};
 
 interface ProjectMember extends PlacedProject {
   readonly title: string;
@@ -78,7 +65,7 @@ export function ProjectManagerSection({
     home !== null ? null : (members.find((member) => member.remoteManager != null) ?? null);
   return (
     <SettingsSection title="Project manager" id={searchableSetting("project-manager").id}>
-      {placed && home !== null ? <ProjectManagerPlacement copies={copies} home={home} /> : null}
+      {placed && home !== null ? <ProjectManagerLivesOn copies={copies} home={home} /> : null}
       {elsewhere?.remoteManager != null && shown.length === 0 ? (
         <SettingsRow
           title="Lives on"
@@ -96,11 +83,8 @@ export function ProjectManagerSection({
   );
 }
 
-/**
- * Where the manager lives, a choice among the project's copies, and the other copies it may work
- * on. Each change saves at once.
- */
-function ProjectManagerPlacement({
+/** Where the manager lives, a choice among the project's copies. It saves at once. */
+function ProjectManagerLivesOn({
   copies,
   home,
 }: {
@@ -112,8 +96,6 @@ function ProjectManagerPlacement({
     rolesEnvironment.setProjectManagerPlacement.permissionAtom(home.environmentId),
   );
   const [saving, setSaving] = useState(false);
-  const permitted = managerPermitted(home, copies);
-  const others = copies.filter((copy) => copy !== home);
 
   const run = async (plan: ReturnType<typeof planManagerPlacement>, failureTitle: string) => {
     setSaving(true);
@@ -134,66 +116,29 @@ function ProjectManagerPlacement({
     await run(planManagerPlacement(copies, next), `Could not move the manager to ${next.label}`);
   };
 
-  const toggle = (environmentId: EnvironmentId, checked: boolean) =>
-    run(
-      {
-        away: [],
-        home: {
-          environmentId: home.environmentId,
-          input: {
-            projectId: home.projectId,
-            permittedEnvironmentIds: checked
-              ? [...permitted, environmentId]
-              : permitted.filter((id) => id !== environmentId),
-          },
-        },
-      },
-      "Could not save where the manager can work",
-    );
-
   return (
-    <>
-      <SettingsRow
-        title="Lives on"
-        description="Its chat, settings and automations live on this machine. Moving it archives the manager's thread on the machine it leaves."
-        control={
-          <Select value={home.environmentId} onValueChange={(next) => void move(String(next))}>
-            <SelectTrigger aria-label="Lives on" disabled={saving || !canEdit}>
-              <SelectValue>
-                {(value: string) =>
-                  copies.find((copy) => copy.environmentId === value)?.label ?? value
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {copies.map((copy) => (
-                <SelectItem key={copy.environmentId} value={copy.environmentId}>
-                  {copy.label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        }
-      />
-      <SettingsRow
-        title="Can work on"
-        description={`Machines with a copy where the manager checks threads and features, talks to them, and starts work. ${home.label} needs Linked environments on (Settings → Labs) and a link to each.`}
-        control={
-          <div className="flex flex-col gap-2">
-            {others.map((copy) => (
-              <label key={copy.environmentId} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={permitted.includes(copy.environmentId)}
-                  disabled={saving || !canEdit}
-                  onCheckedChange={(checked) => void toggle(copy.environmentId, checked === true)}
-                />
+    <SettingsRow
+      title="Lives on"
+      description="Its chat, settings and automations live on this machine. Moving it archives the manager's thread on the machine it leaves."
+      control={
+        <Select value={home.environmentId} onValueChange={(next) => void move(String(next))}>
+          <SelectTrigger aria-label="Lives on" disabled={saving || !canEdit}>
+            <SelectValue>
+              {(value: string) =>
+                copies.find((copy) => copy.environmentId === value)?.label ?? value
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {copies.map((copy) => (
+              <SelectItem key={copy.environmentId} value={copy.environmentId}>
                 {copy.label}
-              </label>
+              </SelectItem>
             ))}
-          </div>
-        }
-      />
-    </>
+          </SelectPopup>
+        </Select>
+      }
+    />
   );
 }
 
@@ -222,15 +167,7 @@ function ProjectManagerMember({
   const settings = query.data;
   // A save or a reset here, or new settings from elsewhere, start the form over; a new look or
   // on/off keeps what's being typed.
-  const formKey = JSON.stringify([
-    formGeneration,
-    settings.instructions,
-    settings.withheldTools,
-    settings.modelSelection,
-    settings.runtimeMode,
-    settings.longConversation,
-    settings.customized,
-  ]);
+  const formKey = JSON.stringify([formGeneration, settings.instructions, settings.customized]);
   return (
     <>
       <ProjectManagerIconRow member={member} settings={settings} />
@@ -378,17 +315,8 @@ function ProjectManagerForm({
     rolesEnvironment.updateProjectManager.permissionAtom(member.environmentId),
   );
   const [instructions, setInstructions] = useState(settings.instructions);
-  const [tools, setTools] = useState(settings.withheldTools);
-  const [modelSelection, setModelSelection] = useState(settings.modelSelection);
-  const [runtimeMode, setRuntimeMode] = useState(settings.runtimeMode);
-  const [longConversation, setLongConversation] = useState(settings.longConversation);
   const [saving, setSaving] = useState(false);
-  const edited =
-    instructions.trim() !== settings.instructions ||
-    tools.join("\n") !== settings.withheldTools.join("\n") ||
-    JSON.stringify(modelSelection) !== JSON.stringify(settings.modelSelection) ||
-    runtimeMode !== settings.runtimeMode ||
-    longConversation !== settings.longConversation;
+  const edited = instructions.trim() !== settings.instructions;
 
   const run = async <A, E>(
     action: () => Promise<AtomCommandResult<A, E>>,
@@ -419,10 +347,6 @@ function ProjectManagerForm({
           input: {
             projectId: member.id,
             instructions: instructions.trim(),
-            withheldTools: tools,
-            modelSelection,
-            runtimeMode,
-            longConversation,
             expectedRevision: settings.revision,
           },
         }),
@@ -453,7 +377,7 @@ function ProjectManagerForm({
 
   const resetToDefaults = async () => {
     const confirmed = await requestConfirmDialog(
-      "Reset this project's manager to its defaults? Its instructions go back to the built-in ones, on the model of the bot that owns the project.",
+      "Reset this project's manager to its defaults? Its instructions go back to the built-in ones.",
     );
     if (confirmed !== true) return;
     await run(
@@ -483,7 +407,7 @@ function ProjectManagerForm({
               ? "Off. The project's bot does its work itself, and the manager's thread is archived."
               : settings.customized
                 ? "Takes this project's requests. Customized for this project."
-                : "Takes this project's requests. Built-in instructions, on its bot's model or the default model, until you save changes here."}
+                : "Takes this project's requests. Built-in instructions until you save changes here. Pick its model in its thread."}
           </p>
         </div>
         <Switch
@@ -507,45 +431,6 @@ function ProjectManagerForm({
             placeholder="How this project's manager runs its requests"
             onChange={setInstructions}
           />
-        </EditorField>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <EditorField label="Model">
-            <div>
-              <RoleModelPicker
-                environmentId={member.environmentId}
-                selection={modelSelection}
-                runtimeMode={runtimeMode}
-                disabled={saving || !canEdit}
-                onChange={setModelSelection}
-                onRuntimeModeChange={setRuntimeMode}
-              />
-            </div>
-          </EditorField>
-          <EditorField label="Long conversations">
-            <Select
-              value={longConversation}
-              onValueChange={(next) => {
-                if (next === "compact" || next === "new-session") setLongConversation(next);
-              }}
-            >
-              <SelectTrigger aria-label="Long conversations">
-                <SelectValue>
-                  {(value: string) =>
-                    LONG_CONVERSATION_LABELS[value === "new-session" ? value : "compact"]
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                <SelectItem value="compact">{LONG_CONVERSATION_LABELS.compact}</SelectItem>
-                <SelectItem value="new-session">
-                  {LONG_CONVERSATION_LABELS["new-session"]}
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          </EditorField>
-        </div>
-        <EditorField label="Tools">
-          <CrewToolPicker value={tools} onChange={setTools} />
         </EditorField>
       </fieldset>
       <div className="flex flex-wrap items-center justify-end gap-2">

@@ -433,7 +433,7 @@ describe("logicalBotProjectKeys", () => {
       expect([...logicalBotProjectKeys(entry, bots, linked, vpsRunsBots)]).toEqual([]);
     }
     // A bot that may work on remote shows remote's projects with no bot, which it can take.
-    const permitted = { ...bots[1]!, permittedEnvironmentIds: [remote] };
+    const permitted = { ...bots[1]!, linkedEnvironmentIds: [remote] };
     expect([...logicalBotProjectKeys(permitted, bots, linked, vpsRunsBots)]).toEqual([
       "remote:loose",
     ]);
@@ -450,7 +450,7 @@ describe("logicalBotProjectKeys", () => {
     const linked = new Set([local, remote, vps]);
     const lists = logicalBotProjectLists(social, bots, withVps, new Set([local, remote]), linked);
     expect(lists.owned.map((project) => project.id)).toEqual(["a"]);
-    // Addable on a linked machine whether or not Social is ticked there yet.
+    // Addable on any machine linked to its home.
     expect(lists.available.map((project) => project.id)).toEqual(["b", "c", "d"]);
     expect(lists.withoutBots.map((project) => project.id)).toEqual(["omni"]);
 

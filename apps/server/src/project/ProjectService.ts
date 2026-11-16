@@ -7,7 +7,6 @@ import {
   type ProjectCreatePayload,
   type ProjectRemoteBot,
   type ProjectRemoteManager,
-  type EnvironmentId,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
   type ThreadId,
@@ -178,15 +177,11 @@ export class ProjectService extends Context.Service<
       readonly botId: string | null;
       readonly remoteBot?: ProjectRemoteBot | undefined;
     }) => Effect.Effect<Project, ProjectServiceError>;
-    /**
-     * Where the project's manager lives (`remoteManager`, null for here) and where it may work
-     * (`permittedEnvironmentIds`, null following its bot). Absent fields stay as they are.
-     */
+    /** Where the project's manager lives: `remoteManager`, null for here, absent unchanged. */
     readonly setManagerPlacement: (input: {
       readonly commandId: CommandId;
       readonly projectId: ProjectId;
       readonly remoteManager?: ProjectRemoteManager | null | undefined;
-      readonly permittedEnvironmentIds?: ReadonlyArray<EnvironmentId> | null | undefined;
     }) => Effect.Effect<Project, ProjectServiceError>;
     /** Shows the project's manager in the main rail, or hides it there. */
     readonly setManagerPinned: (input: {
@@ -266,7 +261,6 @@ export const make = Effect.gen(function* () {
     remoteBot: row.remoteBot,
     managerPinned: row.managerPinned,
     remoteManager: row.remoteManager,
-    managerPermittedEnvironmentIds: row.managerPermittedEnvironmentIds,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -585,14 +579,6 @@ export const make = Effect.gen(function* () {
       commandId: input.commandId,
       projectId: input.projectId,
       ...(input.remoteManager === undefined ? {} : { remoteManager: input.remoteManager }),
-      ...(input.permittedEnvironmentIds === undefined
-        ? {}
-        : {
-            managerPermittedEnvironmentIds:
-              input.permittedEnvironmentIds === null
-                ? null
-                : [...new Set(input.permittedEnvironmentIds)],
-          }),
     });
     return yield* readCommitted(input.projectId);
   });

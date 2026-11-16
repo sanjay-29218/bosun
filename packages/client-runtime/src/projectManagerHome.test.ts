@@ -18,7 +18,6 @@ const copy = (environmentId: EnvironmentId, overrides: Partial<ManagerCopy> = {}
   label: environmentId.replace("environment-", ""),
   hasManager: false,
   botHome: mac,
-  botPermittedEnvironmentIds: [box, vps],
   ...overrides,
 });
 const pointsAt = (home: ManagerCopy) => ({
@@ -37,17 +36,7 @@ describe("planManagerPlacement", () => {
           input: { projectId: copies[0]!.projectId, remoteManager: pointsAt(copies[1]!) },
         },
       ],
-      // Can work on starts as the bot's machines that hold the project.
-      home: {
-        environmentId: mac,
-        input: { projectId: copies[1]!.projectId, permittedEnvironmentIds: [box] },
-      },
-    });
-    // Its bot's list hasn't loaded: the manager moves, and Can work on waits for it.
-    const unloaded = copies.map((entry) => ({ ...entry, botPermittedEnvironmentIds: null }));
-    expect(planManagerPlacement(unloaded).home).toEqual({
-      environmentId: mac,
-      input: { projectId: copies[1]!.projectId },
+      home: { environmentId: mac, input: { projectId: copies[1]!.projectId } },
     });
   });
 
@@ -58,15 +47,15 @@ describe("planManagerPlacement", () => {
 
   it("puts a new manager on its bot's home, else on the same machine for every client", () => {
     expect(planManagerPlacement([copy(box), copy(mac)]).home?.environmentId).toBe(mac);
-    const noBot = { botHome: null, botPermittedEnvironmentIds: null };
+    const noBot = { botHome: null };
     expect(planManagerPlacement([copy(vps, noBot), copy(box, noBot)]).home).toEqual({
       environmentId: box,
-      input: { projectId: copy(box).projectId, permittedEnvironmentIds: [] },
+      input: { projectId: copy(box).projectId },
     });
   });
 
   it("changes nothing once the copies agree, or name a home this client can't see", () => {
-    const home = copy(mac, { hasManager: true, managerPermittedEnvironmentIds: [box] });
+    const home = copy(mac, { hasManager: true });
     expect(planManagerPlacement([home, copy(box, { remoteManager: pointsAt(home) })])).toEqual({
       away: [],
       home: null,
@@ -101,7 +90,7 @@ describe("planManagerPlacement", () => {
   });
 
   it("moves the manager to the machine the person picks, and back", () => {
-    const home = copy(mac, { hasManager: true, managerPermittedEnvironmentIds: [box] });
+    const home = copy(mac, { hasManager: true });
     const other = copy(box, { remoteManager: pointsAt(home) });
     const moved = planManagerPlacement([home, other], other);
     expect(moved.away).toEqual([
@@ -109,7 +98,7 @@ describe("planManagerPlacement", () => {
     ]);
     expect(moved.home).toEqual({
       environmentId: box,
-      input: { projectId: other.projectId, remoteManager: null, permittedEnvironmentIds: [] },
+      input: { projectId: other.projectId, remoteManager: null },
     });
   });
 });
@@ -131,7 +120,6 @@ describe("applyManagerPlacement", () => {
     expect(sent.map((write) => write.environmentId)).toEqual([box, mac]);
     expect(sent[1]!.input).toEqual({
       projectId: copies[1]!.projectId,
-      permittedEnvironmentIds: [box],
       retired: { environmentLabel: "box", threadId: retiredThreadId },
     });
   });

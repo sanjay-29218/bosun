@@ -263,14 +263,14 @@ it.effect(
       const sql = yield* SqlClient.SqlClient;
       yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        member_revision, model_selection_json, runtime_mode, created_at)
       VALUES
         ('link-task:a', 'feature-manager', 'project:web', 'thread:linked-web', 'Do', 'Do', '',
-          '[]', 1, '{}', 'full-access', '2026-11-05T00:00:00.000Z'),
+          1, '{}', 'full-access', '2026-11-05T00:00:00.000Z'),
         ('link-task:b', 'feature-manager', 'project:docs', 'thread:linked-docs', 'Do', 'Do', '',
-          '[]', 1, '{}', 'full-access', '2026-11-05T00:00:00.000Z'),
+          1, '{}', 'full-access', '2026-11-05T00:00:00.000Z'),
         ('run:local', 'feature-manager', 'project:web', 'thread:local', 'Do', 'Do', '',
-          '[]', 1, '{}', 'full-access', '2026-11-05T00:00:00.000Z')
+          1, '{}', 'full-access', '2026-11-05T00:00:00.000Z')
     `;
       yield* sql`
       INSERT INTO notice_inbox (thread_id, key, text, outcome, created_at) VALUES

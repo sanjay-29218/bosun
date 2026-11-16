@@ -12,8 +12,7 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 const BotRow = Schema.Struct({
   ...Bot.fields,
   avatar: Schema.fromJsonString(Bot.fields.avatar),
-  withheldTools: Schema.fromJsonString(Bot.fields.withheldTools),
-  permittedEnvironmentIds: Schema.fromJsonString(Bot.fields.permittedEnvironmentIds),
+  linkedEnvironmentIds: Schema.fromJsonString(Bot.fields.linkedEnvironmentIds),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   pinned: Schema.BooleanFromBit,
   movingTo: Schema.optionalKey(Schema.NullOr(Schema.fromJsonString(BotPendingMove))),
@@ -53,6 +52,8 @@ export class BotStore extends Context.Service<
       id: string,
       move: BotPendingMove | null,
     ) => Effect.Effect<void, PersistenceSqlError>;
+    /** Every environment linked to this one, as its link table holds them. */
+    readonly linkedEnvironmentIds: Effect.Effect<ReadonlyArray<EnvironmentId>, PersistenceSqlError>;
     /** The bot another environment's copy here came from, or null for any other bot. */
     readonly copiedFrom: (id: string) => Effect.Effect<CopiedFrom | null, PersistenceSqlError>;
     /** False when the bot changed since `expectedRevision`. */
@@ -90,17 +91,6 @@ export class BotStore extends Context.Service<
     readonly idTaken: (id: string) => Effect.Effect<boolean, PersistenceSqlError>;
     /** The bot that owns an active project, or null for a missing project or one with no bot. */
     readonly projectOwner: (projectId: string) => Effect.Effect<string | null, PersistenceSqlError>;
-    /**
-     * Ticks a newly linked environment for every bot that hasn't got it, bumping each one's
-     * revision; returns how many changed. Called once per new link; a re-link leaves a person's
-     * unticking alone.
-     */
-    readonly permitEnvironmentForAll: (
-      environmentId: EnvironmentId,
-      updatedAt: string,
-    ) => Effect.Effect<number, PersistenceSqlError>;
-    /** Every environment linked now, which a new bot may work on until a person unticks it. */
-    readonly linkedEnvironmentIds: Effect.Effect<ReadonlyArray<EnvironmentId>, PersistenceSqlError>;
   }
 >()("t3/bots/BotStore") {}
 
@@ -113,10 +103,11 @@ const make = Effect.gen(function* () {
 
   const select = (id?: string) =>
     sql`
-      SELECT id, name, avatar_json AS "avatar", color, instructions, withheld_tools_json AS "withheldTools",
-        runtime_mode AS "runtimeMode", model_selection_json AS "modelSelection",
-        long_conversation AS "longConversation",
-        permitted_environment_ids_json AS "permittedEnvironmentIds",
+      SELECT id, name, avatar_json AS "avatar", color, instructions,
+        model_selection_json AS "modelSelection",
+        (SELECT json_group_array(environment_id) FROM (
+          SELECT environment_id FROM peer_environment_links ORDER BY environment_id
+        )) AS "linkedEnvironmentIds",
         position, pinned, revision,
         created_at AS "createdAt", updated_at AS "updatedAt",
         moving_json AS "movingTo"
@@ -135,13 +126,12 @@ const make = Effect.gen(function* () {
       const origin = encodeCopiedFrom(copiedFrom ?? null);
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
-          id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
-          model_selection_json, long_conversation, permitted_environment_ids_json, position,
+          id, name, avatar_json, color, instructions, model_selection_json, position,
           pinned, revision, created_at, updated_at, copied_from_json
         )
         SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
-          ${row.withheldTools}, ${row.runtimeMode}, ${row.modelSelection},
-          ${row.longConversation}, ${row.permittedEnvironmentIds}, ${row.position}, ${row.pinned}, ${row.revision},
+          ${row.modelSelection},
+          ${row.position}, ${row.pinned}, ${row.revision},
           ${row.createdAt}, ${row.updatedAt}, ${origin}
         WHERE NOT EXISTS (SELECT 1 FROM crew_members WHERE id = ${row.id})
         RETURNING id
@@ -155,10 +145,8 @@ const make = Effect.gen(function* () {
       return sql<{ readonly id: string }>`
         UPDATE bots SET
           name = ${row.name}, avatar_json = ${row.avatar}, color = ${row.color},
-          instructions = ${row.instructions}, withheld_tools_json = ${row.withheldTools},
-          runtime_mode = ${row.runtimeMode}, model_selection_json = ${row.modelSelection},
-          long_conversation = ${row.longConversation},
-          permitted_environment_ids_json = ${row.permittedEnvironmentIds}, revision = ${row.revision},
+          instructions = ${row.instructions}, model_selection_json = ${row.modelSelection},
+          revision = ${row.revision},
           updated_at = ${row.updatedAt}
         WHERE id = ${row.id} AND revision = ${expectedRevision}
         RETURNING id
@@ -202,6 +190,12 @@ const make = Effect.gen(function* () {
       sql`
         UPDATE bots SET moving_json = ${encodePendingMove(move)} WHERE id = ${id}
       `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+    ),
+    linkedEnvironmentIds: sql<{ readonly id: string }>`
+      SELECT environment_id AS id FROM peer_environment_links ORDER BY environment_id
+    `.pipe(
+      Effect.map((rows) => rows.map((row) => EnvironmentId.make(row.id))),
+      Effect.mapError(queryError),
     ),
     copiedFrom: Effect.fn("BotStore.copiedFrom")((id) =>
       sql<{ readonly json: string | null }>`
@@ -255,28 +249,6 @@ const make = Effect.gen(function* () {
         Effect.map((rows) => rows[0]?.botId ?? null),
         Effect.mapError(queryError),
       ),
-    ),
-    permitEnvironmentForAll: Effect.fn("BotStore.permitEnvironmentForAll")(
-      (environmentId, updatedAt) =>
-        sql`
-        UPDATE bots SET
-          permitted_environment_ids_json =
-            json_insert(permitted_environment_ids_json, '$[#]', ${environmentId}),
-          revision = revision + 1, updated_at = ${updatedAt}
-        WHERE deleted_at IS NULL AND NOT EXISTS (
-          SELECT 1 FROM json_each(bots.permitted_environment_ids_json) WHERE value = ${environmentId}
-        )
-        RETURNING id
-      `.pipe(
-          Effect.map((rows) => rows.length),
-          Effect.mapError(queryError),
-        ),
-    ),
-    linkedEnvironmentIds: sql<{ readonly id: string }>`
-      SELECT environment_id AS id FROM peer_environment_links ORDER BY environment_id
-    `.pipe(
-      Effect.map((rows) => rows.map((row) => EnvironmentId.make(row.id))),
-      Effect.mapError(queryError),
     ),
   });
 });

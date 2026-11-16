@@ -6,7 +6,7 @@ import {
   type BotMoveProjectInput,
   type BotSetPinInput,
   type BotUpdateInput,
-  LEGACY_TOOLS_MESSAGE,
+  ModelSelection,
   type Project,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -109,15 +109,7 @@ export class BotService extends Context.Service<
 /** A bot's definition as another machine sends it, under the ID it gets here. */
 export type BotCopy = Pick<
   Bot,
-  | "id"
-  | "name"
-  | "avatar"
-  | "color"
-  | "instructions"
-  | "withheldTools"
-  | "runtimeMode"
-  | "modelSelection"
-  | "longConversation"
+  "id" | "name" | "avatar" | "color" | "instructions" | "modelSelection"
 >;
 
 const text = (value: string, field: string, max: number) => {
@@ -126,10 +118,7 @@ const text = (value: string, field: string, max: number) => {
     ? Effect.succeed(trimmed)
     : Effect.fail(new BotValidationError({ reason: `${field} must contain 1-${max} characters` }));
 };
-const tools = (value: ReadonlyArray<string>) =>
-  value.length <= 32 && value.every((tool) => tool.trim().length > 0 && tool.length <= 100)
-    ? Effect.succeed([...new Set(value.map((tool) => tool.trim()))])
-    : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
+const sameModel = Schema.toEquivalence(Schema.NullOr(ModelSelection));
 
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&
@@ -138,12 +127,6 @@ const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.top === right.top &&
   left.cheeks === right.cheeks &&
   left.smile === right.smile;
-
-/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
-const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
-  input.allowedTools === undefined
-    ? Effect.void
-    : Effect.fail(new BotValidationError({ reason: LEGACY_TOOLS_MESSAGE }));
 
 const sameCreate = (bot: Bot, input: BotCreateInput) =>
   bot.name === input.name.trim() &&
@@ -192,10 +175,7 @@ const make = Effect.gen(function* () {
 
   /** Inserts `bot` at the end of the rail, or returns the bot already under its ID if `same`. */
   const insertUnlocked = Effect.fn("BotService.insertBot")(function* (
-    bot: Omit<
-      Bot,
-      "position" | "pinned" | "revision" | "createdAt" | "updatedAt" | "permittedEnvironmentIds"
-    >,
+    bot: Pick<Bot, "id" | "name" | "avatar" | "color" | "instructions" | "modelSelection">,
     same: (existing: Bot) => Effect.Effect<boolean, BotServiceError>,
     copiedFrom?: BotStore.CopiedFrom,
   ) {
@@ -208,7 +188,8 @@ const make = Effect.gen(function* () {
     const all = yield* store.list;
     const inserted: Bot = {
       ...bot,
-      permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
+      // Read back from the link list once stored.
+      linkedEnvironmentIds: [],
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
       pinned: true,
       revision: 1,
@@ -216,7 +197,9 @@ const make = Effect.gen(function* () {
       updatedAt: now,
       movingTo: null,
     };
-    if (yield* store.insert(inserted, copiedFrom)) return inserted;
+    if (yield* store.insert(inserted, copiedFrom)) {
+      return (yield* store.get(bot.id)) ?? inserted;
+    }
     // A concurrent create with the same ID won, or a crew member already has the ID.
     const winner = yield* store.get(bot.id);
     if (winner && (yield* same(winner))) return winner;
@@ -224,7 +207,6 @@ const make = Effect.gen(function* () {
   });
 
   const createUnlocked = Effect.fn("BotService.createBot")(function* (input: BotCreateInput) {
-    yield* refuseLegacyTools(input);
     return yield* insertUnlocked(
       {
         id: yield* text(input.id, "Bot ID", 128),
@@ -236,10 +218,7 @@ const make = Effect.gen(function* () {
           "Bot instructions",
           16_000,
         ),
-        withheldTools: yield* tools(input.withheldTools ?? []),
-        runtimeMode: input.runtimeMode ?? "full-access",
         modelSelection: input.modelSelection ?? null,
-        longConversation: input.longConversation ?? "compact",
       },
       (existing) => Effect.succeed(sameCreate(existing, input)),
     );
@@ -260,7 +239,6 @@ const make = Effect.gen(function* () {
       return { ...bot, homePath: home.workspaceRoot };
     }),
     update: Effect.fn("BotService.update")(function* (input) {
-      yield* refuseLegacyTools(input);
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
@@ -273,17 +251,7 @@ const make = Effect.gen(function* () {
         ...(input.instructions === undefined
           ? {}
           : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
-        ...(input.withheldTools === undefined
-          ? {}
-          : { withheldTools: yield* tools(input.withheldTools) }),
-        ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
-        ...(input.longConversation === undefined
-          ? {}
-          : { longConversation: input.longConversation }),
-        ...(input.permittedEnvironmentIds === undefined
-          ? {}
-          : { permittedEnvironmentIds: [...new Set(input.permittedEnvironmentIds)] }),
         revision: previous.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };
@@ -304,8 +272,9 @@ const make = Effect.gen(function* () {
             ),
           );
       }
-      // An open headquarters takes the new runtime mode and model on its next turn.
-      if (Option.isSome(crew)) {
+      // An open headquarters takes a newly chosen model on its next turn; other edits leave the
+      // model its composer picked.
+      if (Option.isSome(crew) && !sameModel(next.modelSelection, previous.modelSelection)) {
         yield* crew.value
           .syncHeadquarters(next.id)
           .pipe(
@@ -422,10 +391,7 @@ const make = Effect.gen(function* () {
             avatar: sent.avatar,
             color: sent.color,
             instructions: yield* text(sent.instructions, "Bot instructions", 16_000),
-            withheldTools: yield* tools(sent.withheldTools),
-            runtimeMode: sent.runtimeMode,
             modelSelection: sent.modelSelection,
-            longConversation: sent.longConversation,
           },
           // The same copy, even renamed here since: it came from the same bot.
           (existing) =>

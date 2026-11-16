@@ -5,25 +5,21 @@ import {
   managerCopiesOf,
   managerHomeAmong,
   onSeveralMachines,
-  managerPermitted,
   planManagerPlacement,
 } from "@t3tools/client-runtime/project-manager-home";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { useState } from "react";
 import { Alert, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { Menu } from "../../components/ui/Menu";
-import { useLogicalBots } from "../../state/bots";
 import { useThreadShells } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { rolesEnvironment } from "../../state/roles";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
-import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 
 /**
  * A project's copies whose manager placement this client can change, with where the manager
@@ -32,7 +28,6 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 export function useManagerPlacement(members: ReadonlyArray<EnvironmentProject>) {
   const configs = useAtomValue(environmentServerConfigsAtom);
   const shells = useThreadShells();
-  const bots = useLogicalBots();
   const { environments } = useEnvironments();
   const copies = managerCopiesOf({
     projects: members.filter(
@@ -42,18 +37,15 @@ export function useManagerPlacement(members: ReadonlyArray<EnvironmentProject>) 
       environments.find((environment) => environment.environmentId === environmentId)?.label ??
       null,
     threads: shells,
-    botPermitted: (owner) =>
-      bots.find((bot) =>
-        bot.members.some(
-          (member) => member.environmentId === owner.environmentId && member.botId === owner.botId,
-        ),
-      )?.permittedEnvironmentIds ?? null,
   });
   const placed = copies.length === members.length && onSeveralMachines(copies);
   return { copies, placed, home: placed ? managerHomeAmong(copies) : null };
 }
 
-/** Where the project's manager lives among its copies, and the copies it may work on. */
+/**
+ * Where the project's manager lives among its copies. Every manager works on every machine linked
+ * to its home, so there is nothing else to pick.
+ */
 export function MobileProjectManagerPlacement(props: {
   readonly copies: ReadonlyArray<ManagerCopy>;
   readonly home: ManagerCopy;
@@ -67,7 +59,6 @@ export function MobileProjectManagerPlacement(props: {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const permitted = managerPermitted(home, copies);
 
   const run = async (plan: ReturnType<typeof planManagerPlacement>) => {
     setBusy(true);
@@ -95,20 +86,6 @@ export function MobileProjectManagerPlacement(props: {
     );
   };
 
-  const toggle = (environmentId: EnvironmentId, on: boolean) =>
-    void run({
-      away: [],
-      home: {
-        environmentId: home.environmentId,
-        input: {
-          projectId: home.projectId,
-          permittedEnvironmentIds: on
-            ? [...permitted, environmentId]
-            : permitted.filter((id) => id !== environmentId),
-        },
-      },
-    });
-
   return (
     <SettingsSection title="Project manager">
       <View className="gap-2 p-4">
@@ -132,21 +109,9 @@ export function MobileProjectManagerPlacement(props: {
           </Menu>
         </View>
         <Text className="text-sm text-foreground-muted">
-          Its chat, settings and automations live there. It can work on the machines below.
+          Its chat, settings and automations live there. It works on every machine linked to it.
         </Text>
       </View>
-      {copies
-        .filter((copy) => copy !== home)
-        .map((copy) => (
-          <SettingsSwitchRow
-            key={copy.environmentId}
-            label={`Can work on ${copy.label}`}
-            subtitle="Check its threads and features, talk to them, and start work there."
-            value={permitted.includes(copy.environmentId)}
-            disabled={busy || !canEdit}
-            onValueChange={(on) => toggle(copy.environmentId, on)}
-          />
-        ))}
       {error ? <Text className="px-4 pb-3 text-sm text-red-500">{error}</Text> : null}
     </SettingsSection>
   );
